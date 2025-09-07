@@ -204,15 +204,6 @@
             "methods": ["POST", "PATCH"]
         }
     ],
-    "route_handler_definition": [
-        {
-            "route": "/assets/:id",
-            "method": "GET",
-            "logic": "const fileId = $ctx.$params.id; const fileRepo = $ctx.$repos.main; const file = await fileRepo.findOne({ where: { id: fileId } }); if (!file) throw new Error('File not found'); const fs = require('fs'); const filePath = file.location; if (!fs.existsSync(filePath)) throw new Error('Physical file not found'); const stats = fs.statSync(filePath); $ctx.$req.res.setHeader('Content-Type', file.mimetype); $ctx.$req.res.setHeader('Content-Length', stats.size); $ctx.$req.res.setHeader('Content-Disposition', `inline; filename=\"${file.filename}\"`); const fileStream = fs.createReadStream(filePath); fileStream.pipe($ctx.$req.res);",
-            "description": "Stream file content for assets endpoint",
-            "isSystem": true
-        }
-    ],
     "menu_definition": [
         {
             "type": "Mini Sidebar",
