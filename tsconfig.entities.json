@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "outDir": "dist/src/core/database/entities",
+    "rootDir": "src/core/database/entities",
+    "strict": false,
+    "esModuleInterop": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "sourceMap": false
+  },
+  "include": ["src/core/database/entities/*.entity.ts"]
+}

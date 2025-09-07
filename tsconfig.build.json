@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  // "compilerOptions": {
+  //   "outDir": "dist",
+  //   "rootDir": "src",
+  //   "declaration": false,
+  //   "sourceMap": false,
+  //   "removeComments": true,
+  //   "noEmitOnError": false,
+  //   "emitDecoratorMetadata": true,
+  //   "experimentalDecorators": true
+  // },
+  // "include": ["src/**/*"],
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}

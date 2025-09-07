@@ -1,0 +1,16 @@
+export const importMap: Record<string, string> = {
+  Entity: 'typeorm',
+  Column: 'typeorm',
+  PrimaryGeneratedColumn: 'typeorm',
+  CreateDateColumn: 'typeorm',
+  UpdateDateColumn: 'typeorm',
+  JoinColumn: 'typeorm',
+  JoinTable: 'typeorm',
+  OneToOne: 'typeorm',
+  OneToMany: 'typeorm',
+  ManyToOne: 'typeorm',
+  ManyToMany: 'typeorm',
+  Unique: 'typeorm',
+  Index: 'typeorm',
+  HiddenField: '../../../shared/decorators/hidden-field.decorator',
+};

@@ -1,0 +1,464 @@
+{
+    "role_definition": {
+        "name": "Admin"
+    },
+    "user_definition": {
+        "email": "enfyra@admin.com",
+        "password": "1234",
+        "isRootAdmin": true,
+        "isSystem":true
+    },
+    "setting_definition": {
+        "isInit": false,
+        "isSystem":true,
+        "projectName": "Enfyra CMS",
+        "projectDescription": "Description for Enfyra CMS"
+    },
+    "method_definition": [
+        {
+            "method": "GET",
+            "isSystem":true
+        },
+        {
+            "method": "POST",
+            "isSystem":true
+        },
+        {
+            "method": "PATCH",
+            "isSystem":true
+        },
+        {
+            "method": "DELETE",
+            "isSystem":true
+        }
+    ],
+    "route_definition": [
+        {
+            "path": "/route_definition",
+            "mainTable": "route_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon": "lucide:git-branch",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/table_definition",
+            "mainTable": "table_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon": "lucide:table",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/user_definition",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon": "lucide:user"
+        },
+        {
+            "path": "/setting_definition",
+            "mainTable": "setting_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon": "lucide:settings",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/role_definition",
+            "mainTable": "role_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:shield-check"
+        },
+        {
+            "path": "/auth/login",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+         {
+            "path": "/auth/logout",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+         {
+            "path": "/auth/refresh-token",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+        {
+            "path": "/me",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+        {
+            "path": "/method_definition",
+            "mainTable": "method_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+        {
+            "path": "/hook_definition",
+            "mainTable": "hook_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+        {
+            "path": "/route_handler_definition",
+            "mainTable": "route_handler_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+        {
+            "path": "/route_permission_definition",
+            "mainTable": "route_permission_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route"
+        },
+        {
+            "path": "/menu_definition",
+            "mainTable": "menu_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:menu",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/extension_definition",
+            "mainTable": "extension_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:puzzle",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/folder_definition",
+            "mainTable": "folder_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:folder"
+        },
+        {
+            "path": "/folder_definition/tree",
+            "mainTable": "folder_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:folder-tree"
+        },
+        {
+            "path": "/file_definition",
+            "mainTable": "file_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:file"
+        },
+        {
+            "path": "/file_permission_definition",
+            "mainTable": "file_permission_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:file"
+        },
+        {
+            "path": "/assets/:id",
+            "mainTable": "file_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:download",
+            "publishedMethods": ["GET"]
+        }
+    ], 
+    "hook_definition": [
+        {
+            "isEnabled": true,
+            "afterHook": "$ctx.$data = { statusCode: $ctx.$statusCode, ...$ctx.$data, message: 'Success'}",
+            "name": "Default response",
+            "isSystem":true
+        },
+        {
+            "isEnabled": true,
+            "preHook": "if ($ctx.$body.password) { $ctx.$body.password = await $ctx.$helpers.$bcrypt.hash($ctx.$body.password);}",
+            "name": "User definition hash password",
+            "isSystem":true,
+            "route": "/user_definition",
+            "methods": ["POST", "PATCH"]
+        },
+        {
+            "isEnabled": true,
+            "preHook": "if ($ctx.$body.name) { $ctx.$body.slug = await $ctx.$helpers.autoSlug($ctx.$body.name); }",
+            "name": "Folder definition auto slug",
+            "isSystem": true,
+            "route": "/folder_definition",
+            "methods": ["POST", "PATCH"]
+        }
+    ],
+    "route_handler_definition": [
+        {
+            "route": "/assets/:id",
+            "method": "GET",
+            "logic": "const fileId = $ctx.$params.id; const fileRepo = $ctx.$repos.main; const file = await fileRepo.findOne({ where: { id: fileId } }); if (!file) throw new Error('File not found'); const fs = require('fs'); const filePath = file.location; if (!fs.existsSync(filePath)) throw new Error('Physical file not found'); const stats = fs.statSync(filePath); $ctx.$req.res.setHeader('Content-Type', file.mimetype); $ctx.$req.res.setHeader('Content-Length', stats.size); $ctx.$req.res.setHeader('Content-Disposition', `inline; filename=\"${file.filename}\"`); const fileStream = fs.createReadStream(filePath); fileStream.pipe($ctx.$req.res);",
+            "description": "Stream file content for assets endpoint",
+            "isSystem": true
+        }
+    ],
+    "menu_definition": [
+        {
+            "type": "Mini Sidebar",
+            "label": "Dashboard",
+            "icon": "lucide:layout-dashboard",
+            "path": "/dashboard",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Main dashboard",
+            "order": 1,
+            "permission": {
+                "allowAll": true
+            }
+        },
+        {
+            "type": "Mini Sidebar",
+            "label": "Data",
+            "icon": "lucide:list",
+            "path": "/data",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Data management",
+            "order": 2,
+            "permission": {
+                "allowAll": true
+            }
+        },
+        {
+            "type": "Mini Sidebar",
+            "label": "Collections",
+            "icon": "lucide:database",
+            "path": "/collections",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Table collections management",
+            "order": 3,
+            "permission": {
+                "or": [
+                    {
+                        "route": "/table_definition",
+                        "actions": ["create"]
+                    },
+                    {
+                        "route": "/table_definition",
+                        "actions": ["update"]
+                    },
+                    {
+                        "route": "/table_definition",
+                        "actions": ["delete"]
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Mini Sidebar",
+            "label": "Settings",
+            "icon": "lucide:settings",
+            "path": "/settings",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "System settings",
+            "order": 4,
+            "permission": {
+                "allowAll": true
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "General",
+            "icon": "heroicons:cog-8-tooth",
+            "path": "/settings/general",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "General settings",
+            "order": 1,
+            "sidebar": "Settings",
+            "permission": {
+                "or": [{ "route": "/setting_definition", "actions": ["read", "update"] }]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Menu",
+            "icon": "heroicons:bars-3",
+            "path": "/settings/menus",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Menu management",
+            "order": 2,
+            "sidebar": "Settings",
+            "permission": {
+                "or": [
+                    { "route": "/menu_definition", "actions": ["read"] },
+                    { "route": "/menu_definition", "actions": ["create"] },
+                    { "route": "/menu_definition", "actions": ["update"] },
+                    { "route": "/menu_definition", "actions": ["delete"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Extensions",
+            "icon": "heroicons:puzzle-piece",
+            "path": "/settings/extensions",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Extension management",
+            "order": 3,
+            "sidebar": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/extension_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Routings",
+            "icon": "heroicons:map",
+            "path": "/settings/routings",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Route management",
+            "order": 4,
+            "sidebar": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/route_definition", "actions": ["read"] },
+                    {
+                        "or": [
+                            { "route": "/route_definition", "actions": ["create"] },
+                            { "route": "/route_definition", "actions": ["update"] },
+                            { "route": "/route_definition", "actions": ["delete"] }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Handlers",
+            "icon": "heroicons:command-line",
+            "path": "/settings/handlers",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Route handler management",
+            "order": 5,
+            "sidebar": "Settings",
+            "permission": {
+                "or": [{ "route": "/route_handler_definition", "actions": ["read"] }]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Hooks",
+            "icon": "heroicons:link",
+            "path": "/settings/hooks",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Hook management",
+            "order": 6,
+            "sidebar": "Settings",
+            "permission": {
+                "or": [{ "route": "/hook_definition", "actions": ["read"] }]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Users",
+            "icon": "heroicons:users",
+            "path": "/settings/users",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "User management",
+            "order": 7,
+            "sidebar": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/user_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Roles",
+            "icon": "heroicons:shield-check",
+            "path": "/settings/roles",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Role management",
+            "order": 8,
+            "sidebar": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/role_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Create New Table",
+            "icon": "lucide:plus",
+            "path": "/collections/create",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Create new table",
+            "order": 1,
+            "sidebar": "Collections",
+            "permission": {
+                "or": [{ "route": "/table_definition", "actions": ["create"] }]
+            }
+        },
+        {
+            "type": "Mini Sidebar",
+            "label": "Files",
+            "icon": "lucide:folder",
+            "path": "/files",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "File & folder management",
+            "order": 5,
+            "permission": {
+                "or": [
+                    { "route": "/file_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Files management",
+            "icon": "lucide:folder-tree",
+            "path": "/files/management",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Files management",
+            "order": 1,
+            "sidebar": "Files",
+            "permission": {
+                "or": [
+                    { "route": "/file_definition", "actions": ["read"] }
+                ]
+            }
+        }
+       
+    ]
+}
+
+
+
