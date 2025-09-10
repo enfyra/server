@@ -26,7 +26,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             code,
             req.routeData.context,
           );
-          
+
           // Sync modified body back to req.body so controllers can access it
           req.body = req.routeData.context.$body;
 
@@ -58,11 +58,19 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               req.routeData.context.$statusCode = context
                 .switchToHttp()
                 .getResponse().statusCode;
-              await this.handlerExecurtorService.run(
+
+              const result = await this.handlerExecurtorService.run(
                 code,
                 req.routeData.context,
               );
-              data = req.routeData.context.$data;
+
+              // Check if afterHook returned a value, use it
+              if (result !== undefined) {
+                data = result;
+              } else {
+                // Otherwise use the modified $data from context
+                data = req.routeData.context.$data;
+              }
             } catch (error) {
               throw error;
             }
