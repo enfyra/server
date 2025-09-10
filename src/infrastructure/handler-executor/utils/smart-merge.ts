@@ -12,7 +12,7 @@ export function smartMergeContext(
     '$repos', // Repository functions
     '$logs', // Log function
     '$helpers', // Helper functions
-    '$user', // User object (complex)
+    // '$user', // User object should be mergeable
     '$req', // Request object (complex)
     '$errors', // Errors object
   ];
@@ -22,8 +22,12 @@ export function smartMergeContext(
     if (!nonMergeableProperties.includes(key)) {
       const value = childCtx[key];
 
+      // SPECIAL HANDLING FOR $data - ALWAYS REPLACE
+      if (key === '$data') {
+        mergedCtx[key] = value;
+      }
       // MERGE PRIMITIVES DIRECTLY (but not null/undefined)
-      if (isPrimitive(value) && value !== null && value !== undefined) {
+      else if (isPrimitive(value) && value !== null && value !== undefined) {
         mergedCtx[key] = value;
       }
       // MERGE OBJECTS IF MERGEABLE
