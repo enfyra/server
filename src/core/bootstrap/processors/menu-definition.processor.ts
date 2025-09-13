@@ -1,9 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { BaseTableProcessor } from './base-table-processor';
+import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 
 @Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
+  async process(records: any[], repo: Repository<any>, context?: any): Promise<UpsertResult> {
+    // Sort records để process theo thứ tự: Mini Sidebar -> Dropdown Menu -> Menu
+    const sortedRecords = [...records].sort((a, b) => {
+      const order = { 'Mini Sidebar': 1, 'Dropdown Menu': 2, 'Menu': 3 };
+      return (order[a.type] || 4) - (order[b.type] || 4);
+    });
+
+    return super.process(sortedRecords, repo, context);
+  }
   async transformRecords(records: any[], context: { repo: Repository<any> }): Promise<any[]> {
     const { repo } = context;
 
@@ -21,7 +30,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       sidebarCache.set(sidebar.label, { id: sidebar.id });
     }
 
-    // Tìm tất cả dropdown menus để làm parent cache
+    // Tìm tất cả dropdown menus từ database để làm parent cache (rebuild mỗi lần)
     const dropdownMenus = await repo.find({
       where: { type: 'Dropdown Menu' },
       select: ['id', 'label']
