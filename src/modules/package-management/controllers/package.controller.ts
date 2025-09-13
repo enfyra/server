@@ -15,6 +15,7 @@ import {
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 import { PackageCacheService } from '../../../infrastructure/redis/services/package-cache.service';
+import { DataSourceService } from '../../../core/database';
 
 @Controller('package_definition')
 export class PackageController {
@@ -23,6 +24,7 @@ export class PackageController {
   constructor(
     private packageManagementService: PackageManagementService,
     private packageCacheService: PackageCacheService,
+    private dataSourceService: DataSourceService,
   ) {}
 
   @Post()
@@ -60,37 +62,36 @@ export class PackageController {
 
     try {
       // Check if package is already installed in node_modules
-      const isAlreadyInstalled = await this.packageManagementService.isPackageInstalled(body.name);
-      this.logger.log(`Package "${body.name}" check result: isAlreadyInstalled = ${isAlreadyInstalled}`);
+      const isAlreadyInstalled =
+        await this.packageManagementService.isPackageInstalled(body.name);
+      this.logger.log(
+        `Package "${body.name}" check result: isAlreadyInstalled = ${isAlreadyInstalled}`,
+      );
 
       let installationResult;
 
       if (isAlreadyInstalled) {
         // Package exists in node_modules, just get its info without installing
-        this.logger.log(`Package "${body.name}" already exists in node_modules, skipping npm install`);
-        installationResult = await this.packageManagementService.getPackageInfo(body.name);
+        this.logger.log(
+          `Package "${body.name}" already exists in node_modules, skipping npm install`,
+        );
+        installationResult = await this.packageManagementService.getPackageInfo(
+          body.name,
+        );
       } else {
         // Package not in node_modules, need to install
-        this.logger.log(`Package "${body.name}" not found in node_modules, proceeding with installation`);
-        installationResult = await this.packageManagementService.installPackage({
-          name: body.name,
-          type: body.type,
-          version: body.version || 'latest',
-          flags: body.flags || '',
-        });
+        this.logger.log(
+          `Package "${body.name}" not found in node_modules, proceeding with installation`,
+        );
+        installationResult = await this.packageManagementService.installPackage(
+          {
+            name: body.name,
+            type: body.type,
+            version: body.version || 'latest',
+            flags: body.flags || '',
+          },
+        );
       }
-
-      // Save to database
-      const packageData = {
-        name: body.name,
-        type: body.type,
-        version: installationResult.version,
-        description: body.description || installationResult.description || '',
-        flags: body.flags || '',
-        isEnabled: true,
-        isSystem: isAlreadyInstalled, // true if package already exists in system, false if newly installed
-        installedBy: req.user?.id ? { id: req.user.id } : null,
-      };
 
       // Test require the package before saving to ensure it's properly installed
       try {
@@ -98,16 +99,33 @@ export class PackageController {
         this.logger.log(`✅ Package "${body.name}" successfully required`);
       } catch (requireError) {
         throw new ValidationException(
-          `Package registration failed - unable to require: ${requireError.message}. The package may not be properly installed.`
+          `Package registration failed - unable to require: ${requireError.message}. The package may not be properly installed.`,
         );
       }
 
-      const savedPackage = await packageRepo.create(packageData);
+      // Save to database using TypeORM directly to control isSystem field
+      const typeormRepo =
+        this.dataSourceService.getRepository('package_definition');
+      const savedPackage: any = await typeormRepo.save({
+        name: body.name,
+        type: body.type,
+        version: installationResult.version,
+        description: body.description || installationResult.description || '',
+        flags: body.flags || '',
+        isEnabled: true,
+        isSystem: isAlreadyInstalled, // Hardcoded - cannot be overridden by request body
+        installedBy: req.user?.id ? req.user.id : null,
+      });
 
       // Reload package cache after creation
       await this.packageCacheService.reloadPackageCache();
 
-      return savedPackage;
+      // Return using dynamic repo format (same as dynamic repo .create() method)
+      const result = await packageRepo.find({
+        where: { id: { _eq: savedPackage.id } },
+      });
+
+      return result;
     } catch (error) {
       throw new ValidationException(
         `Failed to install package: ${error.message}`,
