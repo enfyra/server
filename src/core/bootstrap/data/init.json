@@ -178,6 +178,13 @@
             "isSystem": true,
             "icon": "lucide:download",
             "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/package_definition",
+            "mainTable": "package_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:package"
         }
     ], 
     "hook_definition": [
@@ -371,6 +378,22 @@
             }
         },
         {
+            "type": "Dropdown Menu",
+            "label": "Packages",
+            "icon": "lucide:package",
+            "path": "/settings/packages",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Packages management",
+            "order": 7,
+            "sidebar": "Settings",
+            "permission": {
+                "or": [
+                    { "route": "/package_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
             "type": "Menu",
             "label": "Users",
             "icon": "heroicons:users",
@@ -378,7 +401,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "User management",
-            "order": 7,
+            "order": 8,
             "sidebar": "Settings",
             "permission": {
                 "and": [
@@ -394,7 +417,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Role management",
-            "order": 8,
+            "order": 9,
             "sidebar": "Settings",
             "permission": {
                 "and": [
@@ -431,6 +454,7 @@
                 ]
             }
         },
+        
         {
             "type": "Menu",
             "label": "Files management",
@@ -446,8 +470,40 @@
                     { "route": "/file_definition", "actions": ["read"] }
                 ]
             }
+        },
+        {
+            "type": "Menu",
+            "label": "Install Package",
+            "icon": "lucide:plus",
+            "path": "/settings/packages/install",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Install Package",
+            "order": 1,
+            "parent": "Packages"
+        },
+        {
+            "type": "Menu",
+            "label": "App Packages",
+            "icon": "lucide:package-2",
+            "path": "/settings/packages/app",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "App packages management",
+            "order": 2,
+            "parent": "Packages"
+        },
+        {
+            "type": "Menu",
+            "label": "Backend Packages",
+            "icon": "lucide:box",
+            "path": "/settings/packages/backend",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Backend packages management",
+            "order": 3,
+            "parent": "Packages"
         }
-       
     ]
 }
 

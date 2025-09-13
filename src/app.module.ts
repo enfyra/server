@@ -17,6 +17,7 @@ import { HandlerExecutorModule } from './infrastructure/handler-executor/handler
 import { QueryEngineModule } from './infrastructure/query-engine/query-engine.module';
 import { RedisPubSubService } from './infrastructure/redis/services/redis-pubsub.service';
 import { RouteCacheService } from './infrastructure/redis/services/route-cache.service';
+import { PackageCacheService } from './infrastructure/redis/services/package-cache.service';
 import { SqlFunctionService } from './infrastructure/sql/services/sql-function.service';
 import { AutoModule } from './modules/code-generation/auto.module';
 import { DynamicModule } from './modules/dynamic-api/dynamic.module';
@@ -34,6 +35,7 @@ import { FileUploadMiddleware } from './shared/middleware/file-upload.middleware
 import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware';
 import { RouteDetectMiddleware } from './shared/middleware/route-detect.middleware';
 import { FileManagementModule } from './modules/file-management/file-management.module';
+import { PackageManagementModule } from './modules/package-management/package-management.module';
 
 @Global()
 @Module({
@@ -78,6 +80,7 @@ import { FileManagementModule } from './modules/file-management/file-management.
     QueryEngineModule,
     AuthModule,
     FileManagementModule,
+    PackageManagementModule,
     MeModule,
     DynamicModule,
     BootstrapModule,
@@ -91,6 +94,7 @@ import { FileManagementModule } from './modules/file-management/file-management.
     RedisPubSubService,
     SqlFunctionService,
     RouteCacheService,
+    PackageCacheService,
     SystemProtectionService,
     FileManagementService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
@@ -104,6 +108,7 @@ import { FileManagementModule } from './modules/file-management/file-management.
     JwtModule,
     RedisPubSubService,
     RouteCacheService,
+    PackageCacheService,
     SchemaManagementModule,
     SystemProtectionService,
   ],
