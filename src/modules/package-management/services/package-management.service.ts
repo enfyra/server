@@ -43,6 +43,9 @@ export class PackageManagementService {
     const fs = require('fs');
     const path = require('path');
 
+    if (fs.existsSync(path.join(process.cwd(), 'bun.lockb'))) {
+      return 'bun';
+    }
     if (fs.existsSync(path.join(process.cwd(), 'yarn.lock'))) {
       return 'yarn';
     }
@@ -115,7 +118,9 @@ export class PackageManagementService {
     const packageSpec = version === 'latest' ? name : `${name}@${version}`;
 
     let command: string;
-    if (packageManager === 'yarn') {
+    if (packageManager === 'bun') {
+      command = `bun add ${packageSpec} ${flags}`.trim();
+    } else if (packageManager === 'yarn') {
       command = `yarn add ${packageSpec} ${flags}`.trim();
     } else if (packageManager === 'pnpm') {
       command = `pnpm add ${packageSpec} ${flags}`.trim();
@@ -251,7 +256,9 @@ export class PackageManagementService {
     const packageSpec = version === 'latest' ? name : `${name}@${version}`;
 
     let command: string;
-    if (packageManager === 'yarn') {
+    if (packageManager === 'bun') {
+      command = `bun add ${packageSpec} ${flags}`.trim();
+    } else if (packageManager === 'yarn') {
       command = `yarn add ${packageSpec} ${flags}`.trim();
     } else if (packageManager === 'pnpm') {
       command = `pnpm add ${packageSpec} ${flags}`.trim();
@@ -293,7 +300,9 @@ export class PackageManagementService {
     const packageManager = this.getPackageManager();
 
     let command: string;
-    if (packageManager === 'yarn') {
+    if (packageManager === 'bun') {
+      command = `bun remove ${name}`;
+    } else if (packageManager === 'yarn') {
       command = `yarn remove ${name}`;
     } else if (packageManager === 'pnpm') {
       command = `pnpm remove ${name}`;
@@ -341,7 +350,9 @@ export class PackageManagementService {
     const packageManager = this.getPackageManager();
 
     let command: string;
-    if (packageManager === 'yarn') {
+    if (packageManager === 'bun') {
+      command = `bun remove ${name}`;
+    } else if (packageManager === 'yarn') {
       command = `yarn remove ${name}`;
     } else if (packageManager === 'pnpm') {
       command = `pnpm remove ${name}`;
@@ -384,7 +395,7 @@ export class PackageManagementService {
     }
   }
 
-  private async getPackageInfo(
+  async getPackageInfo(
     packageName: string,
   ): Promise<{ version: string; description?: string }> {
     try {
@@ -452,6 +463,28 @@ export class PackageManagementService {
       }));
     } catch (error) {
       throw new Error(`Package search failed: ${error.message}`);
+    }
+  }
+
+
+  async isPackageInstalled(packageName: string): Promise<boolean> {
+    try {
+      // Check if package is listed in project's package.json dependencies
+      const projectPackageJsonPath = path.join(process.cwd(), 'package.json');
+      const packageJsonContent = await fs.readFile(projectPackageJsonPath, 'utf-8');
+      const packageJson = JSON.parse(packageJsonContent);
+
+      const allDependencies = {
+        ...(packageJson.dependencies || {}),
+        ...(packageJson.devDependencies || {}),
+        ...(packageJson.peerDependencies || {}),
+        ...(packageJson.optionalDependencies || {}),
+      };
+
+      return packageName in allDependencies;
+    } catch (error) {
+      console.error(`Error checking package installation status for ${packageName}:`, error);
+      return false;
     }
   }
 }
