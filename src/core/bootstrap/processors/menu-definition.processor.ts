@@ -6,82 +6,59 @@ import { BaseTableProcessor } from './base-table-processor';
 export class MenuDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], context: { repo: Repository<any> }): Promise<any[]> {
     const { repo } = context;
-    
-    // Process records in order: sidebars first, then menu items
+
+    // Create sidebar cache để tối ưu lookup
+    const sidebarCache = new Map<string, any>();
+    const parentCache = new Map<string, any>();
+
+    // Tìm tất cả mini sidebars để làm sidebar cache
+    const miniSidebars = await repo.find({
+      where: { type: 'Mini Sidebar' },
+      select: ['id', 'label']
+    });
+
+    for (const sidebar of miniSidebars) {
+      sidebarCache.set(sidebar.label, { id: sidebar.id });
+    }
+
+    // Tìm tất cả dropdown menus để làm parent cache
+    const dropdownMenus = await repo.find({
+      where: { type: 'Dropdown Menu' },
+      select: ['id', 'label']
+    });
+
+    for (const parent of dropdownMenus) {
+      parentCache.set(parent.label, { id: parent.id });
+    }
+
     const transformedRecords = [];
-    
-    // First, process all sidebars
+
     for (const record of records) {
-      if (record.type === 'Mini Sidebar') {
-        transformedRecords.push(record);
-      }
-    }
-    
-    // Then process menu items and dropdowns with sidebar references
-    for (const record of records) {
-      if (record.type === 'Menu' || record.type === 'Dropdown Menu') {
-        const transformed = { ...record };
-        
-        // Convert sidebar name to ID if needed
-        if (transformed.sidebar && typeof transformed.sidebar === 'string') {
-          // Look for sidebar in both existing DB and records being processed
-          let sidebar = await repo.findOne({
-            where: { type: 'Mini Sidebar', label: transformed.sidebar }
-          });
+      const transformed = { ...record };
 
-          // If not found in DB, look in current batch of records
-          if (!sidebar) {
-            const sidebarRecord = records.find(r =>
-              (r.type === 'Mini Sidebar') && r.label === transformed.sidebar
-            );
-            if (sidebarRecord) {
-              // Create the sidebar first if it doesn't exist
-              const created = repo.create(sidebarRecord);
-              sidebar = await repo.save(created);
-              this.logger.debug(`Created sidebar "${transformed.sidebar}" with id ${sidebar.id}`);
-            }
-          }
-
-          if (sidebar) {
-            transformed.sidebar = sidebar.id;
-          } else {
-            // Remove invalid sidebar reference
-            delete transformed.sidebar;
-            this.logger.warn(`Sidebar "${record.sidebar}" not found for menu item "${record.label}"`);
-          }
+      // Handle sidebar reference
+      if (transformed.sidebar && typeof transformed.sidebar === 'string') {
+        const sidebarRef = sidebarCache.get(transformed.sidebar);
+        if (sidebarRef) {
+          transformed.sidebar = sidebarRef;
+        } else {
+          delete transformed.sidebar;
         }
-
-        // Convert parent name to ID if needed
-        if (transformed.parent && typeof transformed.parent === 'string') {
-          // Look for parent in both existing DB and records being processed
-          let parent = await repo.findOne({
-            where: { label: transformed.parent }
-          });
-
-          // If not found in DB, look in current batch of records
-          if (!parent) {
-            const parentRecord = records.find(r => r.label === transformed.parent);
-            if (parentRecord) {
-              // Create the parent first if it doesn't exist
-              const created = repo.create(parentRecord);
-              parent = await repo.save(created);
-              this.logger.debug(`Created parent "${transformed.parent}" with id ${parent.id}`);
-            }
-          }
-
-          if (parent) {
-            transformed.parent = parent.id;
-          } else {
-            // Remove invalid parent reference
-            delete transformed.parent;
-            this.logger.warn(`Parent "${record.parent}" not found for menu item "${record.label}"`);
-          }
-        }
-        
-        transformedRecords.push(transformed);
       }
+
+      // Handle parent reference
+      if (transformed.parent && typeof transformed.parent === 'string') {
+        const parentRef = parentCache.get(transformed.parent);
+        if (parentRef) {
+          transformed.parent = parentRef;
+        } else {
+          delete transformed.parent;
+        }
+      }
+
+      transformedRecords.push(transformed);
     }
-    
+
     return transformedRecords;
   }
 
