@@ -47,7 +47,7 @@ export class PackageController {
       throw new ValidationException('Repository not found in context');
     }
 
-    // Check if package already exists
+    // Check if package already exists in database
     const existingPackages = await packageRepo.find({
       where: { name: { _eq: body.name }, type: { _eq: body.type } },
     });
@@ -59,14 +59,26 @@ export class PackageController {
     }
 
     try {
-      // Install the package
-      const installationResult =
-        await this.packageManagementService.installPackage({
+      // Check if package is already installed in node_modules
+      const isAlreadyInstalled = await this.packageManagementService.isPackageInstalled(body.name);
+      this.logger.log(`Package "${body.name}" check result: isAlreadyInstalled = ${isAlreadyInstalled}`);
+
+      let installationResult;
+
+      if (isAlreadyInstalled) {
+        // Package exists in node_modules, just get its info without installing
+        this.logger.log(`Package "${body.name}" already exists in node_modules, skipping npm install`);
+        installationResult = await this.packageManagementService.getPackageInfo(body.name);
+      } else {
+        // Package not in node_modules, need to install
+        this.logger.log(`Package "${body.name}" not found in node_modules, proceeding with installation`);
+        installationResult = await this.packageManagementService.installPackage({
           name: body.name,
           type: body.type,
           version: body.version || 'latest',
           flags: body.flags || '',
         });
+      }
 
       // Save to database
       const packageData = {
@@ -76,7 +88,7 @@ export class PackageController {
         description: body.description || installationResult.description || '',
         flags: body.flags || '',
         isEnabled: true,
-        isSystem: false,
+        isSystem: isAlreadyInstalled, // true if package already exists in system, false if newly installed
         installedBy: req.user?.id ? { id: req.user.id } : null,
       };
 
@@ -86,7 +98,7 @@ export class PackageController {
         this.logger.log(`✅ Package "${body.name}" successfully required`);
       } catch (requireError) {
         throw new ValidationException(
-          `Package installation succeeded but failed to require: ${requireError.message}. The package may not be properly installed.`
+          `Package registration failed - unable to require: ${requireError.message}. The package may not be properly installed.`
         );
       }
 
