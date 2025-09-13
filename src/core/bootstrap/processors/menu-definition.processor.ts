@@ -33,10 +33,11 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
     const transformedRecords = [];
 
+    // Process all records: Mini Sidebar, Dropdown Menu, và Menu
     for (const record of records) {
       const transformed = { ...record };
 
-      // Handle sidebar reference
+      // Handle sidebar reference - applies to ALL types (Dropdown Menu có thể có sidebar)
       if (transformed.sidebar && typeof transformed.sidebar === 'string') {
         const sidebarRef = sidebarCache.get(transformed.sidebar);
         if (sidebarRef) {
@@ -46,7 +47,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         }
       }
 
-      // Handle parent reference
+      // Handle parent reference - chỉ apply cho Menu items
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentRef = parentCache.get(transformed.parent);
         if (parentRef) {
