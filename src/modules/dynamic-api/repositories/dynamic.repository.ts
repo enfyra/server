@@ -77,7 +77,7 @@ export class DynamicRepository {
         await this.reload();
         return await this.find({ where: { id: { _eq: table.id } } });
       }
-
+      console.log('body', body);
       const created: any = await this.repo.save(body);
       const result = await this.find({ where: { id: { _eq: created.id } } });
       await this.reload();
@@ -112,6 +112,7 @@ export class DynamicRepository {
       }
 
       body.id = exists.id;
+      console.log(body);
 
       try {
         await this.repo.save(body);

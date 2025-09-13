@@ -1,26 +1,30 @@
 // @nestjs packages
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 // Internal imports
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { PackageCacheService } from '../../redis/services/package-cache.service';
 
 // Relative imports
 import { ChildProcessManager } from '../utils/child-process-manager';
-import { ErrorHandler } from '../utils/error-handler';
 import { wrapCtx } from '../utils/wrap-ctx';
 import { ExecutorPoolService } from './executor-pool.service';
 
 @Injectable()
 export class HandlerExecutorService {
-  private readonly logger = new Logger(HandlerExecutorService.name);
 
-  constructor(private executorPoolService: ExecutorPoolService) {}
+  constructor(
+    private executorPoolService: ExecutorPoolService,
+    private packageCacheService: PackageCacheService,
+  ) {}
 
   async run(
     code: string,
     ctx: TDynamicContext,
     timeoutMs = 5000,
   ): Promise<any> {
+    // Get packages for runner
+    const packages = await this.packageCacheService.getPackagesWithSWR();
     const pool = this.executorPoolService.getPool();
     const isDone = { value: false };
     return new Promise(async (resolve, reject) => {
@@ -44,7 +48,7 @@ export class HandlerExecutorService {
         code,
       );
 
-      ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code);
+      ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code, packages);
     });
   }
 }

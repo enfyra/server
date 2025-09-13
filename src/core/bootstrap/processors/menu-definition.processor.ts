@@ -28,10 +28,10 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
           let sidebar = await repo.findOne({
             where: { type: 'Mini Sidebar', label: transformed.sidebar }
           });
-          
+
           // If not found in DB, look in current batch of records
           if (!sidebar) {
-            const sidebarRecord = records.find(r => 
+            const sidebarRecord = records.find(r =>
               (r.type === 'Mini Sidebar') && r.label === transformed.sidebar
             );
             if (sidebarRecord) {
@@ -41,13 +41,40 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
               this.logger.debug(`Created sidebar "${transformed.sidebar}" with id ${sidebar.id}`);
             }
           }
-          
+
           if (sidebar) {
             transformed.sidebar = sidebar.id;
           } else {
             // Remove invalid sidebar reference
             delete transformed.sidebar;
             this.logger.warn(`Sidebar "${record.sidebar}" not found for menu item "${record.label}"`);
+          }
+        }
+
+        // Convert parent name to ID if needed
+        if (transformed.parent && typeof transformed.parent === 'string') {
+          // Look for parent in both existing DB and records being processed
+          let parent = await repo.findOne({
+            where: { label: transformed.parent }
+          });
+
+          // If not found in DB, look in current batch of records
+          if (!parent) {
+            const parentRecord = records.find(r => r.label === transformed.parent);
+            if (parentRecord) {
+              // Create the parent first if it doesn't exist
+              const created = repo.create(parentRecord);
+              parent = await repo.save(created);
+              this.logger.debug(`Created parent "${transformed.parent}" with id ${parent.id}`);
+            }
+          }
+
+          if (parent) {
+            transformed.parent = parent.id;
+          } else {
+            // Remove invalid parent reference
+            delete transformed.parent;
+            this.logger.warn(`Parent "${record.parent}" not found for menu item "${record.label}"`);
           }
         }
         

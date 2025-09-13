@@ -34,9 +34,24 @@ process.on('message', async (msg: any) => {
   }
   if (msg.type === 'execute') {
     const originalRepos = msg.ctx.$repos || {};
+    const packages = msg.packages;
+
+    console.log('📦 Runner received packages:', packages);
 
     const ctx = msg.ctx;
     ctx.$repos = {};
+
+    // Map packages to require statements
+    ctx.$pkgs = {};
+    for (const packageName of packages) {
+      try {
+        ctx.$pkgs[packageName] = require(packageName);
+      } catch (error) {
+        console.warn(`⚠️ Failed to require package "${packageName}":`, error.message);
+      }
+    }
+
+    console.log('📦 Available packages in $ctx.$pkgs:', Object.keys(ctx.$pkgs));
 
     for (const serviceName of Object.keys(originalRepos)) {
       ctx.$repos[serviceName] = buildFunctionProxy(`$repos.${serviceName}`);

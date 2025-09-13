@@ -301,5 +301,22 @@
             { "propertyName": "role", "type": "many-to-one", "targetTable": "role_definition", "isNullable": true },
             { "propertyName": "allowedUsers", "type": "many-to-one", "targetTable": "user_definition", "isNullable": true }
         ]
+    },
+    "package_definition": {
+        "name": "package_definition",
+        "isSystem": true,
+        "columns":[
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false },
+            { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "isGenerated": false },
+            { "name": "version", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Actual installed version from node_modules", "defaultValue": "latest" },
+            { "name": "flags", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Install flags like '--ignore-engines --force'" },
+            { "name": "type", "type": "enum", "isNullable": false, "options": ["App", "Backend"] },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true },
+            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Short package description" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false }
+        ],
+        "relations": [
+            { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false }
+        ]
     }
 }

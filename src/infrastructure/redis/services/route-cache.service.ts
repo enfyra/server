@@ -135,7 +135,6 @@ export class RouteCacheService {
     const cacheTime = Date.now() - cacheStart;
 
     if (cachedRoutes) {
-      // ✅ Cache hit - còn TTL, trả về luôn, chỉ log nếu Redis chậm
       if (cacheTime > 10) {
         const requestId = Math.random().toString(36).substring(7);
         this.logger.warn(
