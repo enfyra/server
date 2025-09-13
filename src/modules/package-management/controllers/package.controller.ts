@@ -106,15 +106,12 @@ export class PackageController {
       // Save to database using TypeORM directly to control isSystem field
       const typeormRepo =
         this.dataSourceService.getRepository('package_definition');
+
       const savedPackage: any = await typeormRepo.save({
-        name: body.name,
-        type: body.type,
+        ...body,
         version: installationResult.version,
         description: body.description || installationResult.description || '',
-        flags: body.flags || '',
-        isEnabled: true,
-        isSystem: isAlreadyInstalled, // Hardcoded - cannot be overridden by request body
-        installedBy: req.user?.id ? req.user.id : null,
+        isSystem: isAlreadyInstalled,
       });
 
       // Reload package cache after creation
