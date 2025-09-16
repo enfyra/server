@@ -4,7 +4,7 @@
   "description": "",
   "author": "",
   "private": true,
-  "license": "AGPL-3.0",
+  "license": "Elastic-2.0",
   "scripts": {
     "build": "nest build && cp -r data dist/",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
