@@ -33,7 +33,7 @@ export class RoleGuard implements CanActivate {
         if (!hasMethodAccess) return false;
         
         // Check user-specific access first
-        if (permission?.allowedUsers?.some((user: any) => user.id === req.user.id)) {
+        if (permission?.allowedUsers?.some((user: any) => user?.id === req.user.id)) {
           return true; // User is in allowed list and method is allowed
         }
         
