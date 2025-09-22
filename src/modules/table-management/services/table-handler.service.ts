@@ -102,13 +102,23 @@ export class TableHandlerService {
 
       await this.afterEffect({ entityName: result.name, type: 'create' });
 
+      // Check if route already exists before creating
       const routeDefRepo =
         this.dataSourceService.getRepository('route_definition');
-      await routeDefRepo.save({
-        path: `/${result.name}`,
-        mainTable: result.id,
-        isEnabled: true,
+      const existingRoute = await routeDefRepo.findOne({
+        where: { path: `/${result.name}` }
       });
+
+      if (!existingRoute) {
+        await routeDefRepo.save({
+          path: `/${result.name}`,
+          mainTable: result.id,
+          isEnabled: true,
+        });
+        this.logger.log(`✅ Route /${result.name} created for table ${result.name}`);
+      } else {
+        this.logger.warn(`Route /${result.name} already exists, skipping route creation`);
+      }
 
       return result;
     } catch (error) {
@@ -245,7 +255,10 @@ export class TableHandlerService {
     let exists: any = null;
 
     try {
-      exists = await tableDefRepo.findOne({ where: { id } });
+      exists = await tableDefRepo.findOne({
+        where: { id },
+        relations: ['columns', 'relations']
+      });
 
       if (!exists) {
         throw new Error(`Table with id ${id} does not exist.`);
@@ -253,14 +266,27 @@ export class TableHandlerService {
 
       await queryRunner.connect();
 
-      // ✅ Drop the actual database table first
       const tableName = exists.name;
-      this.logger.log(`🗑️ Dropping database table: ${tableName}`);
+      this.logger.log(`🗑️ Processing deletion for table: ${tableName}`);
 
-      // Drop all foreign keys referencing this table first (ĐẾN bảng cần xóa)
+      // 1. Delete routes that point to this table
+      const routeDefRepo = this.dataSourceService.getRepository('route_definition');
+      const routeDeleted = await routeDefRepo.delete({ mainTable: { id } });
+      if (routeDeleted.affected > 0) {
+        this.logger.log(`✅ Deleted ${routeDeleted.affected} route(s) pointing to table ${tableName}`);
+      }
+
+      // 2. Delete all relations that reference this table as targetTable
+      const relationDefRepo = this.dataSourceService.getRepository('relation_definition');
+      const targetRelations = await relationDefRepo.delete({ targetTable: { id } });
+      if (targetRelations.affected > 0) {
+        this.logger.log(`✅ Deleted ${targetRelations.affected} relations referencing table ${tableName} as target`);
+      }
+
+      // 3. Drop all foreign keys referencing this table (from other tables)
       const referencingFKs = await queryRunner.query(`
         SELECT DISTINCT TABLE_NAME, CONSTRAINT_NAME
-        FROM information_schema.KEY_COLUMN_USAGE 
+        FROM information_schema.KEY_COLUMN_USAGE
         WHERE CONSTRAINT_SCHEMA = DATABASE()
           AND REFERENCED_TABLE_NAME = '${tableName}'
           AND CONSTRAINT_NAME LIKE 'FK_%'
@@ -281,10 +307,10 @@ export class TableHandlerService {
         }
       }
 
-      // Drop foreign keys FROM this table (TỪ bảng cần xóa)
+      // 4. Drop foreign keys FROM this table
       const outgoingFKs = await queryRunner.query(`
-        SELECT CONSTRAINT_NAME 
-        FROM information_schema.KEY_COLUMN_USAGE 
+        SELECT CONSTRAINT_NAME
+        FROM information_schema.KEY_COLUMN_USAGE
         WHERE CONSTRAINT_SCHEMA = DATABASE()
           AND TABLE_NAME = '${tableName}'
           AND REFERENCED_TABLE_NAME IS NOT NULL
@@ -303,7 +329,7 @@ export class TableHandlerService {
         }
       }
 
-      // Drop the table
+      // 5. Drop the physical database table
       const hasTable = await queryRunner.hasTable(tableName);
       if (hasTable) {
         await queryRunner.dropTable(tableName);
@@ -312,8 +338,10 @@ export class TableHandlerService {
         this.logger.warn(`Table ${tableName} does not exist in database`);
       }
 
-      // Remove metadata record so entity won't be regenerated
+      // 6. Finally, remove metadata record - this will cascade delete columns and source relations
       const result = await tableDefRepo.remove(exists);
+      this.logger.log(`✅ Table definition removed with cascaded deletion of columns and relations`);
+
       await this.afterEffect({ entityName: result.name, type: 'update' });
       return result;
     } catch (error) {
