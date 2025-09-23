@@ -459,7 +459,9 @@ async function compileEntitiesToJS(project: Project, outputDir: string) {
 
   // Write JS files to disk
   for (const outputFile of emitResult.getFiles()) {
-    const jsFilePath = path.join(outputDir, outputFile.filePath);
+    // Fix for Windows: outputFile.filePath might be absolute, so use basename
+    const fileName = path.basename(outputFile.filePath);
+    const jsFilePath = path.join(outputDir, fileName);
     const jsDir = path.dirname(jsFilePath);
 
     if (!fs.existsSync(jsDir)) {

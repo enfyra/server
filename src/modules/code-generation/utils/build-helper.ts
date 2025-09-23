@@ -59,7 +59,9 @@ export async function buildTypeScriptToJs({
 
     // Write emitted JS files to output directory
     for (const outputFile of output.getFiles()) {
-      const outputPath = path.join(outDir, outputFile.filePath);
+      // Fix for Windows: outputFile.filePath might be absolute, so use basename
+      const fileName = path.basename(outputFile.filePath);
+      const outputPath = path.join(outDir, fileName);
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, outputFile.text, 'utf8');
     }
