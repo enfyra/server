@@ -67,7 +67,9 @@ const output = project.emitToMemory();
 
 // Write emitted JS to outDir
 for (const outputFile of output.getFiles()) {
-  const filePath = path.join(outDir, outputFile.filePath);
+  // Fix for Windows: outputFile.filePath might be absolute, so use basename
+  const fileName = path.basename(outputFile.filePath);
+  const filePath = path.join(outDir, fileName);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, outputFile.text, 'utf8');
 }
