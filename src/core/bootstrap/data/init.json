@@ -433,7 +433,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Create new table",
-            "order": 1,
+            "order": 0,
             "sidebar": "Collections",
             "permission": {
                 "or": [{ "route": "/table_definition", "actions": ["create"] }]
