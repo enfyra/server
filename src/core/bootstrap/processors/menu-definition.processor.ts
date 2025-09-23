@@ -5,64 +5,87 @@ import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 @Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
   async process(records: any[], repo: Repository<any>, context?: any): Promise<UpsertResult> {
-    // Sort records để process theo thứ tự: Mini Sidebar -> Dropdown Menu -> Menu
-    const sortedRecords = [...records].sort((a, b) => {
-      const order = { 'Mini Sidebar': 1, 'Dropdown Menu': 2, 'Menu': 3 };
-      return (order[a.type] || 4) - (order[b.type] || 4);
-    });
+    // Tách records theo type và xử lý theo thứ tự
+    const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
+    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
+    const menuItems = records.filter(r => r.type === 'Menu');
 
-    return super.process(sortedRecords, repo, context);
+    let totalCreated = 0;
+    let totalSkipped = 0;
+
+    // 1. Process Mini Sidebars first (không có dependencies)
+    if (miniSidebars.length > 0) {
+      this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
+      const result = await super.process(miniSidebars, repo, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
+      this.logger.log(`Mini Sidebars done: ${result.created} created, ${result.skipped} skipped`);
+    }
+
+    // 2. Process Dropdown Menus (có thể có sidebar dependency)
+    if (dropdownMenus.length > 0) {
+      this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
+      const result = await super.process(dropdownMenus, repo, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
+      this.logger.log(`Dropdown Menus done: ${result.created} created, ${result.skipped} skipped`);
+    }
+
+    // 3. Process Menu items (có thể có sidebar và parent dependencies)
+    if (menuItems.length > 0) {
+      this.logger.log(`Processing ${menuItems.length} Menu items...`);
+      const result = await super.process(menuItems, repo, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
+      this.logger.log(`Menu items done: ${result.created} created, ${result.skipped} skipped`);
+    }
+
+    return { created: totalCreated, skipped: totalSkipped };
   }
   async transformRecords(records: any[], context: { repo: Repository<any> }): Promise<any[]> {
     const { repo } = context;
-
-    // Create sidebar cache để tối ưu lookup
-    const sidebarCache = new Map<string, any>();
-    const parentCache = new Map<string, any>();
-
-    // Tìm tất cả mini sidebars để làm sidebar cache
-    const miniSidebars = await repo.find({
-      where: { type: 'Mini Sidebar' },
-      select: ['id', 'label']
-    });
-
-    for (const sidebar of miniSidebars) {
-      sidebarCache.set(sidebar.label, { id: sidebar.id });
-    }
-
-    // Tìm tất cả dropdown menus từ database để làm parent cache (rebuild mỗi lần)
-    const dropdownMenus = await repo.find({
-      where: { type: 'Dropdown Menu' },
-      select: ['id', 'label']
-    });
-
-    for (const parent of dropdownMenus) {
-      parentCache.set(parent.label, { id: parent.id });
-    }
-
     const transformedRecords = [];
 
-    // Process all records: Mini Sidebar, Dropdown Menu, và Menu
     for (const record of records) {
       const transformed = { ...record };
 
-      // Handle sidebar reference - applies to ALL types (Dropdown Menu có thể có sidebar)
+      // Handle sidebar reference - tìm Mini Sidebar theo label
       if (transformed.sidebar && typeof transformed.sidebar === 'string') {
-        const sidebarRef = sidebarCache.get(transformed.sidebar);
-        if (sidebarRef) {
-          transformed.sidebar = sidebarRef;
+        const sidebarLabel = transformed.sidebar;
+        const sidebar = await repo.findOne({
+          where: {
+            type: 'Mini Sidebar',
+            label: sidebarLabel
+          },
+          select: ['id', 'label']
+        });
+
+        if (sidebar) {
+          this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar.id}`);
+          transformed.sidebar = { id: sidebar.id };
         } else {
-          delete transformed.sidebar;
+          this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
+          transformed.sidebar = null;
         }
       }
 
-      // Handle parent reference - chỉ apply cho Menu items
+      // Handle parent reference - tìm Dropdown Menu theo label
       if (transformed.parent && typeof transformed.parent === 'string') {
-        const parentRef = parentCache.get(transformed.parent);
-        if (parentRef) {
-          transformed.parent = parentRef;
+        const parentLabel = transformed.parent;
+        const parent = await repo.findOne({
+          where: {
+            type: 'Dropdown Menu',
+            label: parentLabel
+          },
+          select: ['id', 'label']
+        });
+
+        if (parent) {
+          this.logger.debug(`Found parent: ${parentLabel} with id ${parent.id}`);
+          transformed.parent = { id: parent.id };
         } else {
-          delete transformed.parent;
+          this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
+          transformed.parent = null;
         }
       }
 
@@ -96,7 +119,26 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission'];
+    return ['label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission', 'sidebar', 'parent'];
+  }
+
+  protected hasValueChanged(newValue: any, existingValue: any): boolean {
+    // Special handling for sidebar and parent relations
+    if (typeof newValue === 'object' && newValue?.id && typeof existingValue === 'object' && existingValue?.id) {
+      // Compare only IDs for relation objects
+      return newValue.id !== existingValue.id;
+    }
+
+    // Handle case where one is null/undefined and other is object
+    if ((newValue === null || newValue === undefined) && (existingValue && typeof existingValue === 'object' && existingValue.id)) {
+      return true; // Changed from object to null
+    }
+    if ((existingValue === null || existingValue === undefined) && (newValue && typeof newValue === 'object' && newValue.id)) {
+      return true; // Changed from null to object
+    }
+
+    // Use parent class logic for other cases
+    return super.hasValueChanged(newValue, existingValue);
   }
 
   protected getRecordIdentifier(record: any): string {
