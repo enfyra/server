@@ -31,8 +31,8 @@ export class TableHandlerService {
           {
             relationName: relation.propertyName,
             relationType: relation.type,
-            missingField: 'inversePropertyName'
-          }
+            missingField: 'inversePropertyName',
+          },
         );
       }
     }
@@ -41,7 +41,7 @@ export class TableHandlerService {
   async createTable(body: any) {
     // Validate relations before proceeding
     this.validateRelations(body.relations);
-    
+
     const dataSource = this.dataSourceService.getDataSource();
     const tableEntity =
       this.dataSourceService.entityClassMap.get('table_definition');
@@ -106,18 +106,24 @@ export class TableHandlerService {
       const routeDefRepo =
         this.dataSourceService.getRepository('route_definition');
       const existingRoute = await routeDefRepo.findOne({
-        where: { path: `/${result.name}` }
+        where: { path: `/${result.name}` },
       });
 
       if (!existingRoute) {
         await routeDefRepo.save({
           path: `/${result.name}`,
-          mainTable: result.id,
+          mainTable: {
+            id: result.id,
+          },
           isEnabled: true,
         });
-        this.logger.log(`✅ Route /${result.name} created for table ${result.name}`);
+        this.logger.log(
+          `✅ Route /${result.name} created for table ${result.name}`,
+        );
       } else {
-        this.logger.warn(`Route /${result.name} already exists, skipping route creation`);
+        this.logger.warn(
+          `Route /${result.name} already exists, skipping route creation`,
+        );
       }
 
       return result;
@@ -151,7 +157,7 @@ export class TableHandlerService {
   async updateTable(id: number, body: CreateTableDto) {
     // Validate relations before proceeding
     this.validateRelations(body.relations);
-    
+
     const dataSource = this.dataSourceService.getDataSource();
 
     const tableEntity =
@@ -257,7 +263,7 @@ export class TableHandlerService {
     try {
       exists = await tableDefRepo.findOne({
         where: { id },
-        relations: ['columns', 'relations']
+        relations: ['columns', 'relations'],
       });
 
       if (!exists) {
@@ -270,17 +276,26 @@ export class TableHandlerService {
       this.logger.log(`🗑️ Processing deletion for table: ${tableName}`);
 
       // 1. Delete routes that point to this table
-      const routeDefRepo = this.dataSourceService.getRepository('route_definition');
+      const routeDefRepo =
+        this.dataSourceService.getRepository('route_definition');
       const routeDeleted = await routeDefRepo.delete({ mainTable: { id } });
       if (routeDeleted.affected > 0) {
-        this.logger.log(`✅ Deleted ${routeDeleted.affected} route(s) pointing to table ${tableName}`);
+        this.logger.log(
+          `✅ Deleted ${routeDeleted.affected} route(s) pointing to table ${tableName}`,
+        );
       }
 
       // 2. Delete all relations that reference this table as targetTable
-      const relationDefRepo = this.dataSourceService.getRepository('relation_definition');
-      const targetRelations = await relationDefRepo.delete({ targetTable: { id } });
+      const relationDefRepo = this.dataSourceService.getRepository(
+        'relation_definition',
+      );
+      const targetRelations = await relationDefRepo.delete({
+        targetTable: { id },
+      });
       if (targetRelations.affected > 0) {
-        this.logger.log(`✅ Deleted ${targetRelations.affected} relations referencing table ${tableName} as target`);
+        this.logger.log(
+          `✅ Deleted ${targetRelations.affected} relations referencing table ${tableName} as target`,
+        );
       }
 
       // 3. Drop all foreign keys referencing this table (from other tables)
@@ -340,7 +355,9 @@ export class TableHandlerService {
 
       // 6. Finally, remove metadata record - this will cascade delete columns and source relations
       const result = await tableDefRepo.remove(exists);
-      this.logger.log(`✅ Table definition removed with cascaded deletion of columns and relations`);
+      this.logger.log(
+        `✅ Table definition removed with cascaded deletion of columns and relations`,
+      );
 
       await this.afterEffect({ entityName: result.name, type: 'update' });
       return result;
@@ -373,16 +390,18 @@ export class TableHandlerService {
   }) {
     try {
       // Fire & forget syncAll - it will handle publish internally
-      this.metadataSyncService.syncAll({
+      this.metadataSyncService
+        .syncAll({
+          entityName: options.entityName,
+          type: options.type,
+        })
+        .catch((error) => {
+          this.logger.error('Background sync failed:', error.message);
+        });
+
+      this.logger.log('✅ Schema sync queued', {
         entityName: options.entityName,
         type: options.type,
-      }).catch(error => {
-        this.logger.error('Background sync failed:', error.message);
-      });
-
-      this.logger.log('✅ Schema sync queued', { 
-        entityName: options.entityName,
-        type: options.type
       });
     } catch (error) {
       this.loggingService.error('Schema synchronization failed', {
