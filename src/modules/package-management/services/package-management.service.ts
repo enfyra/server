@@ -64,13 +64,20 @@ export class PackageManagementService {
   ): Promise<InstallationResult> {
     const { name, type, version = 'latest', flags = '' } = request;
 
+    if (type === 'App') {
+      // App packages are not handled by backend - skip
+      console.log(`Skipping App package installation: ${name} (handled by frontend)`);
+      return {
+        version: version === 'latest' ? '1.0.0' : version,
+        description: `App package ${name} (skipped - handled by frontend)`,
+      };
+    }
+
     if (type === 'Backend') {
       return await this.installBackendPackage(name, version, flags);
-    } else if (type === 'App') {
-      return await this.installAppPackage(name, version, flags);
-    } else {
-      throw new Error(`Unsupported package type: ${type}`);
     }
+
+    throw new Error(`Unsupported package type: ${type}`);
   }
 
   async updatePackage(
@@ -78,7 +85,16 @@ export class PackageManagementService {
   ): Promise<InstallationResult> {
     const { name, type, newVersion } = request;
 
-    // For updates, we can reuse the install logic with the new version
+    if (type === 'App') {
+      // App packages are not handled by backend - skip
+      console.log(`Skipping App package update: ${name} (handled by frontend)`);
+      return {
+        version: newVersion,
+        description: `App package ${name} (skipped - handled by frontend)`,
+      };
+    }
+
+    // For backend updates, reuse the install logic with the new version
     return await this.installPackage({
       name,
       type,
@@ -89,13 +105,18 @@ export class PackageManagementService {
   async uninstallPackage(request: PackageUninstallRequest): Promise<void> {
     const { name, type } = request;
 
+    if (type === 'App') {
+      // App packages are not handled by backend - skip
+      console.log(`Skipping App package uninstall: ${name} (handled by frontend)`);
+      return;
+    }
+
     if (type === 'Backend') {
       await this.uninstallBackendPackage(name);
-    } else if (type === 'App') {
-      await this.uninstallAppPackage(name);
-    } else {
-      throw new Error(`Unsupported package type: ${type}`);
+      return;
     }
+
+    throw new Error(`Unsupported package type: ${type}`);
   }
 
   private async installBackendPackage(
@@ -125,7 +146,7 @@ export class PackageManagementService {
     } else if (packageManager === 'pnpm') {
       command = `pnpm add ${packageSpec} ${flags}`.trim();
     } else {
-      command = `npm install ${packageSpec} ${flags}`.trim();
+      command = `npm install ${packageSpec} --legacy-peer-deps ${flags}`.trim();
     }
 
     console.log(`Installing backend package with ${packageManager}: ${command}`);
@@ -245,56 +266,6 @@ export class PackageManagementService {
     }
   }
 
-  private async installAppPackage(
-    name: string,
-    version: string,
-    flags: string,
-  ): Promise<InstallationResult> {
-    // For app packages, we might want to install them in a different location
-    // or handle them differently. For now, treating similar to backend packages
-    const packageManager = this.getPackageManager();
-    const packageSpec = version === 'latest' ? name : `${name}@${version}`;
-
-    let command: string;
-    if (packageManager === 'bun') {
-      command = `bun add ${packageSpec} ${flags}`.trim();
-    } else if (packageManager === 'yarn') {
-      command = `yarn add ${packageSpec} ${flags}`.trim();
-    } else if (packageManager === 'pnpm') {
-      command = `pnpm add ${packageSpec} ${flags}`.trim();
-    } else {
-      command = `npm install ${packageSpec} ${flags}`.trim();
-    }
-
-    console.log(`Installing app package with ${packageManager}: ${command}`);
-
-    try {
-      const { stderr } = await execAsync(command, {
-        cwd: process.cwd(),
-        timeout: 300000, // 5 minutes timeout
-      });
-
-      if (stderr && !stderr.includes('WARN') && !stderr.includes('warning')) {
-        throw new Error(stderr);
-      }
-
-      // Get package info
-      const packageInfo = await this.getPackageInfo(name);
-      return {
-        version: packageInfo.version,
-        description: packageInfo.description,
-      };
-    } catch (error) {
-      console.error(`Install failed for ${name}:`, error.message);
-      console.error(`Install error details:`, {
-        code: error.code,
-        stdout: error.stdout,
-        stderr: error.stderr,
-        cmd: error.cmd
-      });
-      throw error;
-    }
-  }
 
   private async uninstallBackendPackage(name: string): Promise<void> {
     const packageManager = this.getPackageManager();
@@ -307,7 +278,7 @@ export class PackageManagementService {
     } else if (packageManager === 'pnpm') {
       command = `pnpm remove ${name}`;
     } else {
-      command = `npm uninstall ${name}`;
+      command = `npm uninstall ${name} --legacy-peer-deps`;
     }
 
     console.log(`Uninstalling backend package with ${packageManager}: ${command}`);
@@ -345,55 +316,6 @@ export class PackageManagementService {
     }
   }
 
-  private async uninstallAppPackage(name: string): Promise<void> {
-    // Similar to backend package uninstall for now
-    const packageManager = this.getPackageManager();
-
-    let command: string;
-    if (packageManager === 'bun') {
-      command = `bun remove ${name}`;
-    } else if (packageManager === 'yarn') {
-      command = `yarn remove ${name}`;
-    } else if (packageManager === 'pnpm') {
-      command = `pnpm remove ${name}`;
-    } else {
-      command = `npm uninstall ${name}`;
-    }
-
-    console.log(`Uninstalling app package with ${packageManager}: ${command}`);
-
-    try {
-      const { stderr } = await execAsync(command, {
-        cwd: process.cwd(),
-        timeout: 120000, // 2 minutes timeout
-      });
-
-
-      if (stderr && !stderr.includes('WARN') && !stderr.includes('warning') && !stderr.includes('not found')) {
-        throw new Error(stderr);
-      }
-    } catch (error) {
-      // Silently skip if package not found in node_modules
-      const errorMsg = error.message || error.toString();
-
-      // Check if this is a "package not found" scenario
-      const isPackageNotFound =
-        errorMsg.includes('not found') ||
-        errorMsg.includes('ENOENT') ||
-        errorMsg.includes('no such file') ||
-        errorMsg.includes('not installed') ||
-        errorMsg.includes('npm ERR! Cannot read property') ||
-        (error.code === 1 && error.stdout === '' && error.stderr === '');
-
-      if (isPackageNotFound) {
-        console.log(
-          `Package ${name} not found in node_modules, skipping uninstall`,
-        );
-        return;
-      }
-      throw new Error(`npm uninstall failed: ${errorMsg}`);
-    }
-  }
 
   async getPackageInfo(
     packageName: string,
