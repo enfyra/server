@@ -18,8 +18,7 @@ To see how to contribute, visit [Contributing](https://github.com/Enfyra/backend
 ## How it works
 **Architecture**
 
-Enfyra is a self-host and develop locally, easily installation.
-Cloud coming soon.
+Enfyra is a self-hosted and locally developed, easy-to-install. Cloud coming soon.
 
 - **Query Engine**: high-performance engine for filtering, joins, aggregates, and search directly through your API.
 - **Realtime**: push updates to clients when rows change using websockets.
