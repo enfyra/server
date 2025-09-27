@@ -1,6 +1,6 @@
 {
   "name": "enfyra_be",
-  "version": "0.1.4-beta",
+  "version": "0.1.5-beta",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
@@ -66,7 +66,8 @@
     "yargs": "^18.0.0",
     "dotenv": "latest",
     "multer": "latest",
-    "uuid": "latest"
+    "uuid": "latest",
+    "chalk": "latest"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
