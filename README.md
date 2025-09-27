@@ -11,7 +11,7 @@ To see how to contribute, visit [Contributing](https://github.com/Enfyra/backend
 
 ## Community & Support
 
-- [Community Forum](https://github.com/enfyra/enfyra/discussions)
+- [Community Forum](https://github.com/orgs/enfyra/discussions)
 - [GitHub Issues](https://github.com/Enfyra/backend/issues)
 - [Discord](https://discord.gg/DH5sXtFVWM)
 
