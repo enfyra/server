@@ -13,7 +13,8 @@ export type TDynamicContext = {
   $req: Request & {
     [key: string]: any;
   };
-  $errors: {};
+  $throw: {};
+  $error?: any;
   $result?: any;
   $data?: any;
   $statusCode?: number;
@@ -40,10 +41,18 @@ export type TGqlDynamicContext = {
   $req: Request & {
     [key: string]: any;
   };
-  $errors: {
-    throw400: (msg: string) => never;
-    throw401: () => never;
+  $throw: {
+    '400': (msg: string) => never;
+    '401': (msg?: string) => never;
+    '403': (msg?: string) => never;
+    '404': (resource: string, id?: string) => never;
+    '409': (resource: string, field: string, value: string) => never;
+    '422': (msg: string, details?: any) => never;
+    '429': (limit: number, window: string) => never;
+    '500': (msg: string, details?: any) => never;
+    '503': (service: string) => never;
   };
+  $error?: any;
   $result?: any;
   $data?: any;
   $share?: {

@@ -42,7 +42,7 @@ export class ChildProcessManager {
       if (isDone.value) return;
 
       if (msg.type === 'call') {
-        if (msg.path.includes('$errors')) {
+        if (msg.path.includes('$throw')) {
           const error = ErrorHandler.createException(
             msg.path,
             undefined,
