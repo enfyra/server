@@ -113,11 +113,14 @@ export class LoggingService implements LoggerService {
     userId?: string,
     additionalData?: any,
   ): void {
+    // Remove userId from additionalData to avoid duplication
+    const { userId: _, ...cleanAdditionalData } = additionalData || {};
+    
     this.log('API Request', {
       method,
       url,
       userId,
-      ...additionalData,
+      ...cleanAdditionalData,
     });
   }
 

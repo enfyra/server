@@ -12,7 +12,7 @@ import { JwtStrategy } from './core/auth/services/jwt.strategy';
 import { BootstrapModule } from './core/bootstrap/bootstrap.module';
 import { DataSourceModule } from './core/database/data-source/data-source.module';
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
-import { RequestContextMiddleware } from './core/exceptions/middleware/request-context.middleware';
+import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
 import { HandlerExecutorModule } from './infrastructure/handler-executor/handler-executor.module';
 import { QueryEngineModule } from './infrastructure/query-engine/query-engine.module';
 import { RedisPubSubService } from './infrastructure/redis/services/redis-pubsub.service';
@@ -100,6 +100,7 @@ import { PackageManagementModule } from './modules/package-management/package-ma
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RoleGuard },
+    { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: DynamicInterceptor },
     { provide: APP_INTERCEPTOR, useClass: HideFieldInterceptor },
   ],
@@ -115,7 +116,6 @@ import { PackageManagementModule } from './modules/package-management/package-ma
 })
 export class AppModule implements NestModule {
   async configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestContextMiddleware).forRoutes('*');
     consumer.apply(ParseQueryMiddleware).forRoutes('*');
     consumer.apply(RouteDetectMiddleware).forRoutes('*');
     consumer.apply(FileUploadMiddleware).forRoutes('file_definition');
