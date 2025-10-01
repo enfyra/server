@@ -1,0 +1,2 @@
+# Exclude Discord workflow from being merged to other projects
+.github/workflows/discord-release.yml merge=ours
