@@ -14,7 +14,7 @@ import { GraphqlService } from '../../graphql/services/graphql.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { ResourceNotFoundException } from '../../../core/exceptions/custom-exceptions';
 import { SchemaReloadService } from './schema-reload.service';
-import { RedisLockService } from '../../../infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../../infrastructure/redis/services/cache.service';
 import {
   SCHEMA_SYNC_LATEST_KEY,
   SCHEMA_SYNC_PROCESSING_LOCK_KEY,
@@ -39,7 +39,7 @@ export class MetadataSyncService {
     private loggingService: LoggingService,
     @Inject(forwardRef(() => SchemaReloadService))
     private schemaReloadService: SchemaReloadService,
-    private redisLockService: RedisLockService,
+    private cacheService: CacheService,
   ) {}
 
   async pullMetadataFromDb() {
@@ -119,7 +119,7 @@ export class MetadataSyncService {
 
       // 1. Set as latest sync in Redis with TTL
       try {
-        await this.redisLockService.set(
+        await this.cacheService.set(
           SCHEMA_SYNC_LATEST_KEY,
           syncId,
           SCHEMA_SYNC_LATEST_TTL * 1000,
@@ -140,7 +140,7 @@ export class MetadataSyncService {
 
         let lockAcquired: boolean;
         try {
-          lockAcquired = await this.redisLockService.acquire(
+          lockAcquired = await this.cacheService.acquire(
             SCHEMA_SYNC_PROCESSING_LOCK_KEY,
             syncId,
             SCHEMA_SYNC_LOCK_TTL,
@@ -160,7 +160,7 @@ export class MetadataSyncService {
             // 3. Double-check we're still the latest sync
             let currentLatest: string | null;
             try {
-              currentLatest = await this.redisLockService.get(
+              currentLatest = await this.cacheService.get(
                 SCHEMA_SYNC_LATEST_KEY,
               );
             } catch (redisError) {
@@ -186,7 +186,7 @@ export class MetadataSyncService {
           } finally {
             // Always release the Redis processing lock
             try {
-              await this.redisLockService.release(
+              await this.cacheService.release(
                 SCHEMA_SYNC_PROCESSING_LOCK_KEY,
                 syncId,
               );
@@ -202,7 +202,7 @@ export class MetadataSyncService {
           // 5. Lock acquisition failed, check if we're still latest before retry
           let currentLatest: string | null;
           try {
-            currentLatest = await this.redisLockService.get(
+            currentLatest = await this.cacheService.get(
               SCHEMA_SYNC_LATEST_KEY,
             );
           } catch (redisError) {

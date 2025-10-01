@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
-import { RedisLockService } from './redis-lock.service';
+import { CacheService } from './cache.service';
 import { Repository } from 'typeorm';
 
 const GLOBAL_PACKAGES_KEY = 'global:packages';
@@ -13,7 +13,7 @@ export class PackageCacheService {
 
   constructor(
     private readonly dataSourceService: DataSourceService,
-    private readonly redisLockService: RedisLockService,
+    private readonly cacheService: CacheService,
   ) {}
 
   private async loadPackages(): Promise<string[]> {
@@ -43,8 +43,8 @@ export class PackageCacheService {
     const cacheStart = Date.now();
     // Update both main cache and stale cache
     await Promise.all([
-      this.redisLockService.acquire(GLOBAL_PACKAGES_KEY, packages, 300000), // 5 minutes
-      this.redisLockService.set(STALE_PACKAGES_KEY, packages, 0),
+      this.cacheService.acquire(GLOBAL_PACKAGES_KEY, packages, 300000), // 5 minutes
+      this.cacheService.set(STALE_PACKAGES_KEY, packages, 0),
     ]);
     this.logger.log(
       `[LOAD:${loadId}] 💾 Cached packages in ${Date.now() - cacheStart}ms`,
@@ -69,8 +69,8 @@ export class PackageCacheService {
 
       const cacheStart = Date.now();
       await Promise.all([
-        this.redisLockService.set(GLOBAL_PACKAGES_KEY, packages, 300000),
-        this.redisLockService.set(STALE_PACKAGES_KEY, packages, 0),
+        this.cacheService.set(GLOBAL_PACKAGES_KEY, packages, 300000),
+        this.cacheService.set(STALE_PACKAGES_KEY, packages, 0),
       ]);
       this.logger.log(
         `[RELOAD:${reloadId}] 💾 Updated cache in ${Date.now() - cacheStart}ms`,
@@ -92,7 +92,7 @@ export class PackageCacheService {
 
     // Try to get fresh packages from cache
     const cacheStart = Date.now();
-    const cachedPackages = await this.redisLockService.get(GLOBAL_PACKAGES_KEY);
+    const cachedPackages = await this.cacheService.get(GLOBAL_PACKAGES_KEY);
     const cacheTime = Date.now() - cacheStart;
 
     if (cachedPackages) {
@@ -115,8 +115,8 @@ export class PackageCacheService {
     // Cache miss - check if we have stale data in Redis to return immediately
     const staleStart = Date.now();
     const [stalePackages, isRevalidating] = await Promise.all([
-      this.redisLockService.get(STALE_PACKAGES_KEY),
-      this.redisLockService.get(REVALIDATING_PACKAGES_KEY),
+      this.cacheService.get(STALE_PACKAGES_KEY),
+      this.cacheService.get(REVALIDATING_PACKAGES_KEY),
     ]);
     const staleTime = Date.now() - staleStart;
 
@@ -165,7 +165,7 @@ export class PackageCacheService {
     const bgId = Math.random().toString(36).substring(7);
 
     // Set revalidating flag in Redis (multi-instance safe)
-    const acquired = await this.redisLockService.acquire(
+    const acquired = await this.cacheService.acquire(
       REVALIDATING_PACKAGES_KEY,
       'true',
       30000, // 30s TTL for revalidation lock
@@ -193,7 +193,7 @@ export class PackageCacheService {
       );
     } finally {
       // Clear revalidating flag
-      const released = await this.redisLockService.release(
+      const released = await this.cacheService.release(
         REVALIDATING_PACKAGES_KEY,
         'true',
       );

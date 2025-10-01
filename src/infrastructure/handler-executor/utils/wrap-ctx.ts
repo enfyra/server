@@ -69,6 +69,18 @@ export function wrapCtx(
       continue;
     }
 
+    if (key === '$cache') {
+      wrapped[key] = {};
+      const cacheMethods = Object.keys(val);
+      for (const method of cacheMethods) {
+        wrapped[key][method] = {
+          __type: 'function',
+          path: [...path, key, method].join('.'),
+        };
+      }
+      continue;
+    }
+
     if (typeof val === 'function') {
       wrapped[key] = {
         __type: 'function',

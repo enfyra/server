@@ -7,4 +7,4 @@ import { RouteCacheService } from './services/route-cache.service';
   providers: [CacheService, RedisPubSubService, RouteCacheService],
   exports: [CacheService, RedisPubSubService, RouteCacheService],
 })
-export class RedisModule {}
+export class CacheModule {}

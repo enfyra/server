@@ -6,7 +6,7 @@ import { DefaultDataService } from './default-data.service';
 import { CoreInitService } from './core-init.service';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { SchemaReloadService } from '../../../modules/schema-management/services/schema-reload.service';
-import { RedisLockService } from '../../../infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../../infrastructure/redis/services/cache.service';
 
 @Injectable()
 export class BootstrapService implements OnApplicationBootstrap {
@@ -20,7 +20,7 @@ export class BootstrapService implements OnApplicationBootstrap {
     private readonly coreInitService: CoreInitService,
     private dataSourceService: DataSourceService,
     private schemaReloadService: SchemaReloadService,
-    private redisLockService: RedisLockService,
+    private cacheService: CacheService,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -109,7 +109,7 @@ export class BootstrapService implements OnApplicationBootstrap {
       this.logger.log('🔄 Running upsert to sync default data...');
       await this.defaultDataService.insertAllDefaultRecords();
 
-      const acquired = await this.redisLockService.acquire(
+      const acquired = await this.cacheService.acquire(
         'global:boot',
         this.schemaReloadService.sourceInstanceId,
         15000,

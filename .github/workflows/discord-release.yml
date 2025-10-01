@@ -18,3 +18,4 @@ jobs:
           content: "🚀 **New Backend Release Available!**"
           footer_title: "Backend Release Notes"
           reduce_headings: true
+

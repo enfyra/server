@@ -10,7 +10,7 @@ import { convertFieldNodesToFieldPicker } from '../utils/field-string-convertor'
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { throwGqlError } from '../utils/throw-error';
-import { RedisLockService } from '../../../infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../../infrastructure/redis/services/cache.service';
 import { JwtService } from '@nestjs/jwt';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { GLOBAL_ROUTES_KEY } from '../../../shared/utils/constant';
@@ -25,7 +25,7 @@ export class DynamicResolver {
     @Inject(forwardRef(() => TableHandlerService))
     private tableHandlerService: TableHandlerService,
     private queryEngine: QueryEngine,
-    private redisLockService: RedisLockService,
+    private cacheService: CacheService,
     private jwtService: JwtService,
     private dataSourceService: DataSourceService,
     private handlerExecutorService: HandlerExecutorService,
@@ -141,7 +141,7 @@ export class DynamicResolver {
     }
 
     const routes =
-      (await this.redisLockService.get(GLOBAL_ROUTES_KEY)) ||
+      (await this.cacheService.get(GLOBAL_ROUTES_KEY)) ||
       (await this.routeCacheService.loadAndCacheRoutes());
 
     const currentRoute = routes.find(

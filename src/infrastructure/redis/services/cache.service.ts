@@ -3,14 +3,14 @@ import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Redis } from 'ioredis';
 
 @Injectable()
-export class RedisLockService {
+export class CacheService {
   private readonly redis: Redis;
 
   constructor(private readonly redisService: RedisService) {
     this.redis = this.redisService.getOrNil();
     if (!this.redis) {
       throw new Error(
-        'Redis connection not available - RedisLockService cannot initialize',
+        'Redis connection not available - CacheService cannot initialize',
       );
     }
   }
@@ -39,7 +39,7 @@ export class RedisLockService {
       'NX',
     );
     const ttl = await this.redis.pttl(key);
-    console.log(`[RedisLockService] ACQUIRE ${key} => ${result}, TTL=${ttl}ms`);
+    console.log(`[CacheService] ACQUIRE ${key} => ${result}, TTL=${ttl}ms`);
     return result === 'OK';
   }
 
@@ -53,10 +53,10 @@ export class RedisLockService {
     const serializedValue = this.serialize(value);
     try {
       const deleted = await this.redis.eval(lua, 1, key, serializedValue);
-      console.log(`[RedisLockService] RELEASE ${key} => ${deleted}`);
+      console.log(`[CacheService] RELEASE ${key} => ${deleted}`);
       return deleted === 1;
     } catch (error) {
-      console.log(`[RedisLockService] RELEASE ${key} => ERROR:`, error.message);
+      console.log(`[CacheService] RELEASE ${key} => ERROR:`, error.message);
       return false;
     }
   }
@@ -74,11 +74,11 @@ export class RedisLockService {
       // Set with TTL
       await this.redis.set(key, serializedValue, 'PX', ttlMs);
       const ttl = await this.redis.pttl(key);
-      console.log(`[RedisLockService] SET ${key} => TTL=${ttl}ms`);
+      console.log(`[CacheService] SET ${key} => TTL=${ttl}ms`);
     } else {
       // Set without TTL (persist forever)
       await this.redis.set(key, serializedValue);
-      console.log(`[RedisLockService] SET ${key} => NO TTL (persistent)`);
+      console.log(`[CacheService] SET ${key} => NO TTL (persistent)`);
     }
   }
 
@@ -87,17 +87,17 @@ export class RedisLockService {
     const parsed = this.deserialize(current);
     const checkValue = this.deserialize(this.serialize(value));
     const isEqual = JSON.stringify(parsed) === JSON.stringify(checkValue);
-    console.log(`[RedisLockService] EXISTS ${key} => ${isEqual}`);
+    console.log(`[CacheService] EXISTS ${key} => ${isEqual}`);
     return isEqual;
   }
 
   async deleteKey(key: string): Promise<void> {
     await this.redis.del(key);
-    console.log(`[RedisLockService] DELETE ${key}`);
+    console.log(`[CacheService] DELETE ${key}`);
   }
 
   async setNoExpire<T = any>(key: string, val: T): Promise<void> {
     await this.redis.set(key, JSON.stringify(val));
-    console.log(`[RedisLockService] SET ${key} (no expiry)`);
+    console.log(`[CacheService] SET ${key} (no expiry)`);
   }
 }

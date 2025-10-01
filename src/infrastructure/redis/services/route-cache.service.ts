@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
-import { RedisLockService } from './redis-lock.service';
+import { CacheService } from './cache.service';
 import { Repository, IsNull } from 'typeorm';
 import { GLOBAL_ROUTES_KEY } from '../../../shared/utils/constant';
 
@@ -13,7 +13,7 @@ export class RouteCacheService {
 
   constructor(
     private readonly dataSourceService: DataSourceService,
-    private readonly redisLockService: RedisLockService,
+    private readonly cacheService: CacheService,
   ) {}
 
   private async loadRoutes(): Promise<any[]> {
@@ -82,8 +82,8 @@ export class RouteCacheService {
     const cacheStart = Date.now();
     // Update both main cache and stale cache
     await Promise.all([
-      this.redisLockService.acquire(GLOBAL_ROUTES_KEY, routes, 60000), // 1 minute
-      this.redisLockService.set(STALE_ROUTES_KEY, routes, 0),
+      this.cacheService.acquire(GLOBAL_ROUTES_KEY, routes, 60000), // 1 minute
+      this.cacheService.set(STALE_ROUTES_KEY, routes, 0),
     ]);
     this.logger.log(
       `[LOAD:${loadId}] 💾 Cached routes in ${Date.now() - cacheStart}ms`,
@@ -108,8 +108,8 @@ export class RouteCacheService {
 
       const cacheStart = Date.now();
       await Promise.all([
-        this.redisLockService.set(GLOBAL_ROUTES_KEY, routes, 60000),
-        this.redisLockService.set(STALE_ROUTES_KEY, routes, 0),
+        this.cacheService.set(GLOBAL_ROUTES_KEY, routes, 60000),
+        this.cacheService.set(STALE_ROUTES_KEY, routes, 0),
       ]);
       this.logger.log(
         `[RELOAD:${reloadId}] 💾 Updated cache in ${Date.now() - cacheStart}ms`,
@@ -131,7 +131,7 @@ export class RouteCacheService {
 
     // Try to get fresh routes from cache
     const cacheStart = Date.now();
-    const cachedRoutes = await this.redisLockService.get(GLOBAL_ROUTES_KEY);
+    const cachedRoutes = await this.cacheService.get(GLOBAL_ROUTES_KEY);
     const cacheTime = Date.now() - cacheStart;
 
     if (cachedRoutes) {
@@ -154,8 +154,8 @@ export class RouteCacheService {
     // Cache miss - check if we have stale data in Redis to return immediately
     const staleStart = Date.now();
     const [staleRoutes, isRevalidating] = await Promise.all([
-      this.redisLockService.get(STALE_ROUTES_KEY),
-      this.redisLockService.get(REVALIDATING_KEY),
+      this.cacheService.get(STALE_ROUTES_KEY),
+      this.cacheService.get(REVALIDATING_KEY),
     ]);
     const staleTime = Date.now() - staleStart;
 
@@ -204,7 +204,7 @@ export class RouteCacheService {
     const bgId = Math.random().toString(36).substring(7);
 
     // Set revalidating flag in Redis (multi-instance safe)
-    const acquired = await this.redisLockService.acquire(
+    const acquired = await this.cacheService.acquire(
       REVALIDATING_KEY,
       'true',
       30000, // 30s TTL for revalidation lock
@@ -232,7 +232,7 @@ export class RouteCacheService {
       );
     } finally {
       // Clear revalidating flag
-      const released = await this.redisLockService.release(
+      const released = await this.cacheService.release(
         REVALIDATING_KEY,
         'true',
       );

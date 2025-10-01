@@ -1,10 +1,10 @@
 import { CommonService } from './services/common.service';
 import { Global, Module } from '@nestjs/common';
-import { RedisLockService } from '../../infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../infrastructure/redis/services/cache.service';
 
 @Global()
 @Module({
-  providers: [CommonService, RedisLockService],
-  exports: [CommonService, RedisLockService],
+  providers: [CommonService, CacheService],
+  exports: [CommonService, CacheService],
 })
 export class CommonModule {}
