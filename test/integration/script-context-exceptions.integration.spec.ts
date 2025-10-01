@@ -64,7 +64,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $body: { orderId: 123 },
       };
 
@@ -93,7 +93,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $body: {}, // Missing email and password
       };
 
@@ -124,7 +124,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $body: { userId: 'non-existent' },
       };
 
@@ -146,7 +146,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $user: null,
       };
 
@@ -166,7 +166,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $user: { id: 1, role: 'user' },
       };
 
@@ -219,7 +219,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $body: {
           email: 'invalid-email',
           age: 16,
@@ -253,7 +253,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $requestCount: 101,
       };
 
@@ -286,7 +286,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $simulateDbError: true,
       };
 
@@ -316,7 +316,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $body: {},
       };
 
@@ -336,7 +336,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $token: null,
       };
 
@@ -357,7 +357,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
         $body: { id: 'not-found' },
       };
 
@@ -378,7 +378,7 @@ describe.skip('Script Context Exceptions Integration', () => {
       `;
 
       const context = {
-        $errors: ScriptErrorFactory.createErrorHandlers(),
+        $throw: ScriptErrorFactory.createThrowHandlers(),
       };
 
       // Run with 100ms timeout

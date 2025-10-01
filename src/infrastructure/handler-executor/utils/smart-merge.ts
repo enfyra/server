@@ -14,7 +14,7 @@ export function smartMergeContext(
     '$helpers', // Helper functions
     // '$user', // User object should be mergeable
     '$req', // Request object (complex)
-    '$errors', // Errors object
+    '$throw', // Throw object
   ];
 
   // MERGE ALL PROPERTIES EXCEPT NON-MERGEABLE ONES

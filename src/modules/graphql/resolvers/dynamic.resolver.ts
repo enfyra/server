@@ -63,7 +63,7 @@ export class DynamicResolver {
 
     // Create context compatible with DynamicRepository
     const handlerCtx: any = {
-      $errors: ScriptErrorFactory.createErrorHandlers(),
+      $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: {
         jwt: (payload: any, ext: string) =>
           this.jwtService.sign(payload, { expiresIn: ext }),

@@ -23,10 +23,10 @@ import {
 } from '../../src/core/exceptions/custom-exceptions';
 
 describe('ScriptErrorFactory', () => {
-  let errorHandlers: ReturnType<typeof ScriptErrorFactory.createErrorHandlers>;
+  let errorHandlers: ReturnType<typeof ScriptErrorFactory.createThrowHandlers>;
 
   beforeEach(() => {
-    errorHandlers = ScriptErrorFactory.createErrorHandlers();
+    errorHandlers = ScriptErrorFactory.createThrowHandlers();
   });
 
   describe('Business Logic Errors', () => {
@@ -347,15 +347,15 @@ describe('ScriptErrorFactory', () => {
         'fileUpload',
         'fileNotFound',
         'fileSizeExceeded',
-        'throw400',
-        'throw401',
-        'throw403',
-        'throw404',
-        'throw409',
-        'throw422',
-        'throw429',
-        'throw500',
-        'throw503',
+        '400',
+        '401',
+        '403',
+        '404',
+        '409',
+        '422',
+        '429',
+        '500',
+        '503',
       ];
 
       expectedMethods.forEach((method) => {

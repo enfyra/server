@@ -23,14 +23,14 @@ import {
 
 /**
  * Factory to create error handlers for script execution context
- * These functions will be available in $errors object within scripts
+ * These functions will be available in $throw object within scripts
  */
 export class ScriptErrorFactory {
   /**
    * Create error handlers that can be used in script context
    * These will throw the actual custom exceptions when called
    */
-  static createErrorHandlers() {
+  static createThrowHandlers() {
     return {
       // Business Logic Errors
       businessLogic: (message: string, details?: any) => {
@@ -120,40 +120,40 @@ export class ScriptErrorFactory {
         throw new FileSizeExceededException(maxSize, actualSize);
       },
 
-      // Legacy throw methods for backward compatibility
-      throw400: (message: string) => {
+      // Numeric throw methods for HTTP status codes
+      '400': (message: string) => {
         throw new BusinessLogicException(message || 'Bad request');
       },
 
-      throw401: (message?: string) => {
+      '401': (message?: string) => {
         throw new AuthenticationException(message || 'Unauthorized');
       },
 
-      throw403: (message?: string) => {
+      '403': (message?: string) => {
         throw new AuthorizationException(message || 'Forbidden');
       },
 
-      throw404: (resource: string, id?: string) => {
+      '404': (resource: string, id?: string) => {
         throw new ResourceNotFoundException(resource, id);
       },
 
-      throw409: (resource: string, field: string, value: string) => {
+      '409': (resource: string, field: string, value: string) => {
         throw new DuplicateResourceException(resource, field, value);
       },
 
-      throw422: (message: string, details?: any) => {
+      '422': (message: string, details?: any) => {
         throw new ValidationException(message, details);
       },
 
-      throw429: (limit: number, window: string) => {
+      '429': (limit: number, window: string) => {
         throw new RateLimitExceededException(limit, window);
       },
 
-      throw500: (message: string, details?: any) => {
+      '500': (message: string, details?: any) => {
         throw new DatabaseException(message, details);
       },
 
-      throw503: (service: string) => {
+      '503': (service: string) => {
         throw new ServiceUnavailableException(service);
       },
     };

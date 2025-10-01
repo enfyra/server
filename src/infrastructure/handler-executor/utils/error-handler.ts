@@ -17,16 +17,16 @@ export class ErrorHandler {
     code?: string,
     details?: any,
   ): any {
-    // Handle $errors calls from child process
-    if (errorPath?.includes('$errors')) {
+    // Handle $throw calls from child process
+    if (errorPath?.includes('$throw')) {
       switch (errorPath) {
-        case '$errors.throw400':
+        case '$throw.400':
           return new BusinessLogicException(message || 'Bad request');
-        case '$errors.throw401':
+        case '$throw.401':
           return new AuthenticationException(
             message || 'Authentication required',
           );
-        case '$errors.throw403':
+        case '$throw.403':
           return new AuthorizationException(
             message || 'Insufficient permissions',
           );
