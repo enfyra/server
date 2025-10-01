@@ -11,6 +11,7 @@ import { SystemProtectionService } from '../../modules/dynamic-api/services/syst
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../utils/auto-slug.helper';
+import { CacheService } from '../../infrastructure/redis/services/cache.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
@@ -22,6 +23,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private tableHandlerService: TableHandlerService,
     private routeCacheService: RouteCacheService,
     private systemProtectionService: SystemProtectionService,
+    private cacheService: CacheService,
     private bcryptService: BcryptService,
   ) {}
 
@@ -52,6 +54,21 @@ export class RouteDetectMiddleware implements NestMiddleware {
               await this.bcryptService.compare(p, h),
           },
           autoSlug: autoSlug,
+        },
+        $cache: {
+          acquire: async (key: string, value: any, ttlMs: number) =>
+            await this.cacheService.acquire(key, value, ttlMs),
+          release: async (key: string, value: any) =>
+            await this.cacheService.release(key, value),
+          get: async (key: string) => await this.cacheService.get(key),
+          set: async (key: string, value: any, ttlMs?: number) =>
+            await this.cacheService.set(key, value, ttlMs),
+          exists: async (key: string, value: any) =>
+            await this.cacheService.exists(key, value),
+          deleteKey: async (key: string) =>
+            await this.cacheService.deleteKey(key),
+          setNoExpire: async (key: string, value: any) =>
+            await this.cacheService.setNoExpire(key, value),
         },
         $params: matchedRoute.params ?? {},
         $query: req.query ?? {},

@@ -13,6 +13,7 @@ import { BootstrapModule } from './core/bootstrap/bootstrap.module';
 import { DataSourceModule } from './core/database/data-source/data-source.module';
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
 import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
+import { CacheModule } from './infrastructure/redis/cache.module';
 import { HandlerExecutorModule } from './infrastructure/handler-executor/handler-executor.module';
 import { QueryEngineModule } from './infrastructure/query-engine/query-engine.module';
 import { RedisPubSubService } from './infrastructure/redis/services/redis-pubsub.service';
@@ -77,6 +78,7 @@ import { PackageManagementModule } from './modules/package-management/package-ma
         },
       }),
     }),
+    CacheModule,
     QueryEngineModule,
     AuthModule,
     FileManagementModule,

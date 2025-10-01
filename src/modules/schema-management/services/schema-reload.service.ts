@@ -12,7 +12,7 @@ import {
 import { RedisPubSubService } from '../../../infrastructure/redis/services/redis-pubsub.service';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { MetadataSyncService } from './metadata-sync.service';
-import { RedisLockService } from '../../../infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../../infrastructure/redis/services/cache.service';
 import { GraphqlService } from '../../graphql/services/graphql.service';
 
 @Injectable()
@@ -29,7 +29,7 @@ export class SchemaReloadService {
     private commonService: CommonService,
     @Inject(forwardRef(() => MetadataSyncService))
     private metadataSyncService: MetadataSyncService,
-    private redisLockService: RedisLockService,
+    private cacheService: CacheService,
     @Inject(forwardRef(() => GraphqlService))
     private graphqlService: GraphqlService,
   ) {
@@ -89,7 +89,7 @@ export class SchemaReloadService {
     }
 
     // Different node - need lock to prevent multiple instances syncing
-    const acquired = await this.redisLockService.acquire(
+    const acquired = await this.cacheService.acquire(
       `${SCHEMA_PULLING_EVENT_KEY}:${this.configService.get('NODE_NAME')}`,
       this.sourceInstanceId,
       10000,
@@ -103,7 +103,7 @@ export class SchemaReloadService {
       this.logger.log(
         `Schema sync initiated, set version = ${newestSchema['id']}`,
       );
-      await this.redisLockService.release(
+      await this.cacheService.release(
         `${SCHEMA_PULLING_EVENT_KEY}:${this.configService.get('NODE_NAME')}`,
         this.sourceInstanceId,
       );
@@ -114,7 +114,7 @@ export class SchemaReloadService {
     // Lock exists, wait then just reload DataSource
     this.logger.log('Another instance is syncing, waiting then reload...');
     while (
-      await this.redisLockService.get(
+      await this.cacheService.get(
         `${SCHEMA_PULLING_EVENT_KEY}:${this.configService.get('NODE_NAME')}`,
       )
     ) {
