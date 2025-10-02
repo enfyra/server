@@ -59,6 +59,14 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                 .switchToHttp()
                 .getResponse().statusCode;
 
+              // Update API response info
+              const responseTime = Date.now() - new Date(req.routeData.context.$api.request.timestamp).getTime();
+              req.routeData.context.$api.response = {
+                statusCode: req.routeData.context.$statusCode,
+                responseTime,
+                timestamp: new Date().toISOString(),
+              };
+
               const result = await this.handlerExecurtorService.run(
                 code,
                 req.routeData.context,
@@ -82,7 +90,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
       }),
       catchError(async (error) => {
         // Store error in context for afterHook to handle
-        req.routeData.context.$error = {
+        req.routeData.context.$api.error = {
           message: error.message,
           stack: error.stack,
           name: error.constructor.name,
@@ -99,6 +107,14 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               const code = hook.afterHook;
               req.routeData.context.$data = null; // No data when error occurs
               req.routeData.context.$statusCode = error.status || 500;
+
+              // Update API response info for error case
+              const responseTime = Date.now() - new Date(req.routeData.context.$api.request.timestamp).getTime();
+              req.routeData.context.$api.response = {
+                statusCode: req.routeData.context.$statusCode,
+                responseTime,
+                timestamp: new Date().toISOString(),
+              };
 
               const result = await this.handlerExecurtorService.run(
                 code,

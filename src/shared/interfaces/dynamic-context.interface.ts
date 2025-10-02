@@ -31,6 +31,29 @@ export interface TDynamicContext {
   $share: {
     $logs: any[];
   };
+  $api: {
+    request: {
+      method: string;
+      url: string;
+      timestamp: string;
+      correlationId: string;
+      userAgent?: string;
+      ip?: string;
+    };
+    response?: {
+      statusCode: number;
+      responseTime: number;
+      timestamp: string;
+    };
+    error?: {
+      message: string;
+      stack: string;
+      name: string;
+      timestamp: string;
+      statusCode: number;
+      details: any;
+    };
+  };
   $uploadedFile?: UploadedFileInfo;
 }
 

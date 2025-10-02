@@ -78,6 +78,16 @@ export class RouteDetectMiddleware implements NestMiddleware {
         $share: {
           $logs: [],
         },
+        $api: {
+          request: {
+            method: req.method,
+            url: req.url,
+            timestamp: new Date().toISOString(),
+            correlationId: req.headers['x-correlation-id'] as string || this.generateCorrelationId(),
+            userAgent: req.headers['user-agent'],
+            ip: req.ip || req.connection.remoteAddress,
+          },
+        },
       };
       context.$logs = (...args: any[]) => {
         context.$share.$logs.push(...args);
@@ -174,5 +184,9 @@ export class RouteDetectMiddleware implements NestMiddleware {
     }
 
     return null;
+  }
+
+  private generateCorrelationId(): string {
+    return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }
