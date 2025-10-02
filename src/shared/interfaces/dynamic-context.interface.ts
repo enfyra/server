@@ -2,56 +2,56 @@ import { Request } from 'express';
 import { UploadedFileInfo } from './file-management.interface';
 
 export interface TDynamicContext {
-  $body: any;
-  $throw: any;
+  $body?: any;
+  $throw?: any;
   $error?: any;
-  $logs: (...args: any[]) => void;
-  $helpers: {
-    $jwt: (payload: any, exp: string) => string;
-    $bcrypt: {
-      hash: (plain: string) => Promise<string>;
-      compare: (p: string, h: string) => Promise<boolean>;
+  $logs?: (...args: any[]) => void;
+  $helpers?: {
+    $jwt?: (payload: any, exp: string) => string;
+    $bcrypt?: {
+      hash?: (plain: string) => Promise<string>;
+      compare?: (p: string, h: string) => Promise<boolean>;
     };
-    autoSlug: (text: string) => string;
+    autoSlug?: (text: string) => string;
   };
-  $cache: {
-    acquire: (key: string, value: any, ttlMs: number) => Promise<boolean>;
-    release: (key: string, value: any) => Promise<boolean>;
-    get: (key: string) => Promise<any>;
-    set: (key: string, value: any, ttlMs?: number) => Promise<void>;
-    exists: (key: string, value: any) => Promise<boolean>;
-    deleteKey: (key: string) => Promise<void>;
-    setNoExpire: (key: string, value: any) => Promise<void>;
+  $cache?: {
+    acquire?: (key: string, value: any, ttlMs: number) => Promise<boolean>;
+    release?: (key: string, value: any) => Promise<boolean>;
+    get?: (key: string) => Promise<any>;
+    set?: (key: string, value: any, ttlMs?: number) => Promise<void>;
+    exists?: (key: string, value: any) => Promise<boolean>;
+    deleteKey?: (key: string) => Promise<void>;
+    setNoExpire?: (key: string, value: any) => Promise<void>;
   };
-  $params: any;
-  $query: any;
-  $user: any;
-  $repos: Record<string, any>;
-  $req: Request;
-  $share: {
-    $logs: any[];
+  $params?: any;
+  $query?: any;
+  $user?: any;
+  $repos?: Record<string, any>;
+  $req?: Request;
+  $share?: {
+    $logs?: any[];
   };
-  $api: {
-    request: {
-      method: string;
-      url: string;
-      timestamp: string;
-      correlationId: string;
+  $api?: {
+    request?: {
+      method?: string;
+      url?: string;
+      timestamp?: string;
+      correlationId?: string;
       userAgent?: string;
       ip?: string;
     };
     response?: {
-      statusCode: number;
-      responseTime: number;
-      timestamp: string;
+      statusCode?: number;
+      responseTime?: number;
+      timestamp?: string;
     };
     error?: {
-      message: string;
-      stack: string;
-      name: string;
-      timestamp: string;
-      statusCode: number;
-      details: any;
+      message?: string;
+      stack?: string;
+      name?: string;
+      timestamp?: string;
+      statusCode?: number;
+      details?: any;
     };
   };
   $uploadedFile?: UploadedFileInfo;
