@@ -6,7 +6,7 @@ import { DefaultDataService } from './default-data.service';
 import { CoreInitService } from './core-init.service';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { SchemaReloadService } from '../../../modules/schema-management/services/schema-reload.service';
-import { CacheService } from '../../../infrastructure/redis/services/cache.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 
 @Injectable()
 export class BootstrapService implements OnApplicationBootstrap {

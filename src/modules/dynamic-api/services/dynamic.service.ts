@@ -1,8 +1,6 @@
-// External packages
-import { Request } from 'express';
-
 // @nestjs packages
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 // Internal imports
 import {
@@ -20,6 +18,7 @@ export class DynamicService {
   constructor(
     private handlerExecutorService: HandlerExecutorService,
     private loggingService: LoggingService,
+    private configService: ConfigService,
   ) {}
 
   async runHandler(req: RequestWithRouteData) {
@@ -44,9 +43,15 @@ export class DynamicService {
 
       const scriptCode = userHandler || defaultHandler;
 
+      const routeHandler = req.routeData.handlers?.find(
+        (handler) => handler.method?.method === req.method
+      );
+      const timeoutMs = routeHandler?.timeout || this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000);
+
       const result = await this.handlerExecutorService.run(
         scriptCode,
         req.routeData.context,
+        timeoutMs,
       );
 
       return result;

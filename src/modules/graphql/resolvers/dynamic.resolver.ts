@@ -4,18 +4,18 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
-import { TGqlDynamicContext } from '../../../shared/utils/types/dynamic-context.type';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-convertor';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { throwGqlError } from '../utils/throw-error';
-import { CacheService } from '../../../infrastructure/redis/services/cache.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { JwtService } from '@nestjs/jwt';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { GLOBAL_ROUTES_KEY } from '../../../shared/utils/constant';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
-import { RouteCacheService } from '../../../infrastructure/redis/services/route-cache.service';
+import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 
@@ -31,6 +31,7 @@ export class DynamicResolver {
     private handlerExecutorService: HandlerExecutorService,
     private routeCacheService: RouteCacheService,
     private systemProtectionService: SystemProtectionService,
+    private configService: ConfigService,
   ) {}
 
   async dynamicResolver(
@@ -126,7 +127,7 @@ export class DynamicResolver {
       const result = await this.handlerExecutorService.run(
         defaultHandler,
         handlerCtx,
-        5000,
+        this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
       );
 
       return result;

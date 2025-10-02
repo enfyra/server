@@ -6,12 +6,12 @@ import { TableHandlerService } from '../../modules/table-management/services/tab
 import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynamic.repository';
 import { TDynamicContext } from '../interfaces/dynamic-context.interface';
 import { QueryEngine } from '../../infrastructure/query-engine/services/query-engine.service';
-import { RouteCacheService } from '../../infrastructure/redis/services/route-cache.service';
+import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../utils/auto-slug.helper';
-import { CacheService } from '../../infrastructure/redis/services/cache.service';
+import { CacheService } from '../../infrastructure/cache/services/cache.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {

@@ -1,13 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { RouteCacheService } from '../../src/infrastructure/redis/services/route-cache.service';
+import { RouteCacheService } from '../../src/infrastructure/cache/services/route-cache.service';
 import { DataSourceService } from '../../src/core/database/data-source/data-source.service';
-import { RedisLockService } from '../../src/infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../src/infrastructure/cache/services/cache.service';
 import { Logger } from '@nestjs/common';
 
 describe('RouteCacheService - Stress Testing', () => {
   let service: RouteCacheService;
   let dataSourceService: jest.Mocked<DataSourceService>;
-  let redisLockService: jest.Mocked<RedisLockService>;
+  let cacheService: jest.Mocked<CacheService>;
 
   const mockRoutes = Array.from({ length: 100 }, (_, i) => ({
     id: i + 1,
@@ -28,7 +28,7 @@ describe('RouteCacheService - Stress Testing', () => {
       }),
     };
 
-    const mockRedisLockService = {
+    const mockCacheService = {
       get: jest.fn(),
       set: jest.fn().mockResolvedValue(undefined),
       acquire: jest.fn().mockResolvedValue(true),
@@ -39,13 +39,13 @@ describe('RouteCacheService - Stress Testing', () => {
       providers: [
         RouteCacheService,
         { provide: DataSourceService, useValue: mockDataSourceService },
-        { provide: RedisLockService, useValue: mockRedisLockService },
+        { provide: CacheService, useValue: mockCacheService },
       ],
     }).compile();
 
     service = module.get<RouteCacheService>(RouteCacheService);
     dataSourceService = module.get(DataSourceService);
-    redisLockService = module.get(RedisLockService);
+    cacheService = module.get(CacheService);
 
     // Suppress logs during stress tests
     jest.spyOn(Logger.prototype, 'log').mockImplementation();

@@ -1,9 +1,10 @@
 // @nestjs packages
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 // Internal imports
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
-import { PackageCacheService } from '../../redis/services/package-cache.service';
+import { PackageCacheService } from '../../cache/services/package-cache.service';
 
 // Relative imports
 import { ChildProcessManager } from '../utils/child-process-manager';
@@ -16,12 +17,13 @@ export class HandlerExecutorService {
   constructor(
     private executorPoolService: ExecutorPoolService,
     private packageCacheService: PackageCacheService,
+    private configService: ConfigService,
   ) {}
 
   async run(
     code: string,
     ctx: TDynamicContext,
-    timeoutMs = 5000,
+    timeoutMs = this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
   ): Promise<any> {
     // Get packages for runner
     const packages = await this.packageCacheService.getPackagesWithSWR();

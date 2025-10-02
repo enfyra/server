@@ -14,7 +14,7 @@ import { GraphqlService } from '../../graphql/services/graphql.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { ResourceNotFoundException } from '../../../core/exceptions/custom-exceptions';
 import { SchemaReloadService } from './schema-reload.service';
-import { CacheService } from '../../../infrastructure/redis/services/cache.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import {
   SCHEMA_SYNC_LATEST_KEY,
   SCHEMA_SYNC_PROCESSING_LOCK_KEY,

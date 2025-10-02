@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RouteDetectMiddleware } from '../../src/shared/middleware/route-detect.middleware';
-import { RouteCacheService } from '../../src/infrastructure/redis/services/route-cache.service';
+import { RouteCacheService } from '../../src/infrastructure/cache/services/route-cache.service';
 import { CommonService } from '../../src/shared/common/services/common.service';
 import { DataSourceService } from '../../src/core/database/data-source/data-source.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../src/modules/table-management/services/table-handler.service';
-import { RedisLockService } from '../../src/infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../src/infrastructure/cache/services/cache.service';
 import { QueryEngine } from '../../src/infrastructure/query-engine/services/query-engine.service';
 import { SystemProtectionService } from '../../src/modules/dynamic-api/services/system-protection.service';
 import { BcryptService } from '../../src/core/auth/services/bcrypt.service';
@@ -103,7 +103,7 @@ describe('RouteDetectMiddleware - Integration with SWR Cache', () => {
           provide: TableHandlerService,
           useValue: mockServices.tableHandlerService,
         },
-        { provide: RedisLockService, useValue: mockServices.redisLockService },
+        { provide: CacheService, useValue: mockServices.cacheService },
         { provide: QueryEngine, useValue: mockServices.queryEngine },
         {
           provide: RouteCacheService,

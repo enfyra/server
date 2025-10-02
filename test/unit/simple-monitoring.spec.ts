@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { RedisLockService } from '../../src/infrastructure/redis/services/redis-lock.service';
+import { CacheService } from '../../src/infrastructure/cache/services/cache.service';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 
 describe('Simple Monitoring and Metrics', () => {
-  let redisLockService: RedisLockService;
+  let cacheService: CacheService;
   let mockRedis: any;
 
   beforeEach(async () => {
@@ -21,12 +21,12 @@ describe('Simple Monitoring and Metrics', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        RedisLockService,
+        CacheService,
         { provide: RedisService, useValue: mockRedisService },
       ],
     }).compile();
 
-    redisLockService = module.get<RedisLockService>(RedisLockService);
+    cacheService = module.get<CacheService>(CacheService);
 
     // Suppress console logs during tests
     jest.spyOn(console, 'log').mockImplementation();

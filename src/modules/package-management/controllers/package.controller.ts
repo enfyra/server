@@ -14,7 +14,7 @@ import {
   ValidationException,
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
-import { PackageCacheService } from '../../../infrastructure/redis/services/package-cache.service';
+import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
 import { DataSourceService } from '../../../core/database';
 
 @Controller('package_definition')

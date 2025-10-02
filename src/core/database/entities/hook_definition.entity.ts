@@ -9,6 +9,8 @@ export class Hook_definition {
     id: number;
     @Column({ type: "text", nullable: true })
     afterHook: string;
+    @Column({ type: "int", nullable: true })
+    afterHookTimeout: number;
     @Column({ type: "text", nullable: true })
     description: string;
     @Column({ type: "boolean", nullable: false, default: false })
@@ -19,6 +21,8 @@ export class Hook_definition {
     name: string;
     @Column({ type: "text", nullable: true })
     preHook: string;
+    @Column({ type: "int", nullable: true })
+    preHookTimeout: number;
     @Column({ type: "int", nullable: true, default: 0 })
     priority: number;
     @ManyToMany('Method_definition', (rel: any) => rel.hooks, { nullable: true, cascade: true, onDelete: 'CASCADE', onUpdate: 'CASCADE' })

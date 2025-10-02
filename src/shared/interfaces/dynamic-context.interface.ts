@@ -62,6 +62,7 @@ export interface RequestWithRouteData extends Request {
     context: TDynamicContext;
     params: any;
     handler: string;
+    handlers?: any[];
     hooks: any[];
     isPublished: boolean;
     mainTable?: any;
