@@ -55,21 +55,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
           },
           autoSlug: autoSlug,
         },
-        $cache: {
-          acquire: async (key: string, value: any, ttlMs: number) =>
-            await this.cacheService.acquire(key, value, ttlMs),
-          release: async (key: string, value: any) =>
-            await this.cacheService.release(key, value),
-          get: async (key: string) => await this.cacheService.get(key),
-          set: async (key: string, value: any, ttlMs?: number) =>
-            await this.cacheService.set(key, value, ttlMs),
-          exists: async (key: string, value: any) =>
-            await this.cacheService.exists(key, value),
-          deleteKey: async (key: string) =>
-            await this.cacheService.deleteKey(key),
-          setNoExpire: async (key: string, value: any) =>
-            await this.cacheService.setNoExpire(key, value),
-        },
+        $cache: this.cacheService,
         $params: matchedRoute.params ?? {},
         $query: req.query ?? {},
         $user: req.user ?? undefined,

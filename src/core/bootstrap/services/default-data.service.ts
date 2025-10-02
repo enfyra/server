@@ -15,6 +15,7 @@ import { HookDefinitionProcessor } from '../processors/hook-definition.processor
 import { SettingDefinitionProcessor } from '../processors/setting-definition.processor';
 import { ExtensionDefinitionProcessor } from '../processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from '../processors/folder-definition.processor';
+import { BootstrapScriptDefinitionProcessor } from '../processors/bootstrap-script-definition.processor';
 import { GenericTableProcessor } from '../processors/generic-table.processor';
 
 const initJson = JSON.parse(
@@ -42,6 +43,7 @@ export class DefaultDataService {
     private readonly settingProcessor: SettingDefinitionProcessor,
     private readonly extensionProcessor: ExtensionDefinitionProcessor,
     private readonly folderProcessor: FolderDefinitionProcessor,
+    private readonly bootstrapScriptProcessor: BootstrapScriptDefinitionProcessor,
   ) {
     this.initializeProcessors();
   }
@@ -57,6 +59,7 @@ export class DefaultDataService {
     this.processors.set('setting_definition', this.settingProcessor);
     this.processors.set('extension_definition', this.extensionProcessor);
     this.processors.set('folder_definition', this.folderProcessor);
+    this.processors.set('bootstrap_script_definition', this.bootstrapScriptProcessor);
     
     // Dynamic processors for remaining tables - auto-detect from initJson
     const allTables = Object.keys(initJson);

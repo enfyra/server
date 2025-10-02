@@ -321,5 +321,24 @@
         "relations": [
             { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false }
         ]
+    },
+    "bootstrap_script_definition": {
+        "name": "bootstrap_script_definition",
+        "isSystem": true,
+        "uniques": [["name"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true },
+            { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique name identifier for the bootstrap script" },
+            { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the script does" },
+            { "name": "logic", "type": "code", "isNullable": false, "isSystem": true, "description": "The actual script code to execute" },
+            { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for script execution. If not set, uses default system timeout." },
+            { "name": "priority", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 0, "description": "Execution priority order (lower numbers execute first)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the script is enabled for execution" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-generated script" }
+        ],
+        "relations": [
+            { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who created the script" },
+            { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who last updated the script" }
+        ]
     }
 }

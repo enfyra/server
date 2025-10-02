@@ -515,30 +515,30 @@ export async function initializeDatabase() {
   await queryRunner.release();
   await checkDS.destroy();
 
-  await writeEntitiesFromSnapshot();
+  // await writeEntitiesFromSnapshot();
 
-  await ensureDatabaseExists();
+  // await ensureDatabaseExists();
 
-  const dataSource = new DataSource({
-    type: DB_TYPE,
-    host: DB_HOST,
-    port: DB_PORT,
-    username: DB_USERNAME,
-    password: DB_PASSWORD,
-    database: DB_NAME,
-    entities: [
-      path.resolve(
-        process.cwd(),
-        'dist/src/core/database/entities/*.entity.js',
-      ),
-    ],
-    synchronize: true,
-    logging: false,
-  });
+  // const dataSource = new DataSource({
+  //   type: DB_TYPE,
+  //   host: DB_HOST,
+  //   port: DB_PORT,
+  //   username: DB_USERNAME,
+  //   password: DB_PASSWORD,
+  //   database: DB_NAME,
+  //   entities: [
+  //     path.resolve(
+  //       process.cwd(),
+  //       'dist/src/core/database/entities/*.entity.js',
+  //     ),
+  //   ],
+  //   synchronize: true,
+  //   logging: false,
+  // });
 
-  await dataSource.initialize();
-  console.log('✅ Database schema created from generated entities.');
-  await dataSource.destroy();
+  // await dataSource.initialize();
+  // console.log('✅ Database schema created from generated entities.');
+  // await dataSource.destroy();
 }
 
 // For direct execution

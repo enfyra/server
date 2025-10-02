@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { BootstrapService } from './services/bootstrap.service';
 import { CoreInitService } from './services/core-init.service';
 import { DefaultDataService } from './services/default-data.service';
+import { BootstrapScriptService } from './services/bootstrap-script.service';
 
 // Import processors
 import { UserDefinitionProcessor } from './processors/user-definition.processor';
@@ -13,7 +14,7 @@ import { HookDefinitionProcessor } from './processors/hook-definition.processor'
 import { SettingDefinitionProcessor } from './processors/setting-definition.processor';
 import { ExtensionDefinitionProcessor } from './processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from './processors/folder-definition.processor';
-
+import { BootstrapScriptDefinitionProcessor } from './processors/bootstrap-script-definition.processor';
 @Global()
 @Module({
   providers: [
@@ -30,7 +31,9 @@ import { FolderDefinitionProcessor } from './processors/folder-definition.proces
     SettingDefinitionProcessor,
     ExtensionDefinitionProcessor,
     FolderDefinitionProcessor,
+    BootstrapScriptDefinitionProcessor,
+    BootstrapScriptService
   ],
-  exports: [BootstrapService, CoreInitService, DefaultDataService],
+  exports: [BootstrapService, CoreInitService, DefaultDataService, BootstrapScriptService],
 })
 export class BootstrapModule {}
