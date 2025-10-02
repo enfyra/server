@@ -185,6 +185,13 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:package"
+        },
+        {
+            "path": "/bootstrap_script_definition",
+            "mainTable": "bootstrap_script_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:play"
         }
     ], 
     "hook_definition": [
@@ -378,6 +385,20 @@
             }
         },
         {
+            "type": "Menu",
+            "label": "Bootstrap Scripts",
+            "icon": "heroicons:play",
+            "path": "/settings/bootstrap",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Bootstrap script management",
+            "order": 7,
+            "sidebar": "Settings",
+            "permission": {
+                "or": [{ "route": "/bootstrap_script_definition", "actions": ["read"] }]
+            }
+        },
+        {
             "type": "Dropdown Menu",
             "label": "Packages",
             "icon": "lucide:package",
@@ -385,7 +406,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Packages management",
-            "order": 7,
+            "order": 8,
             "sidebar": "Settings",
             "permission": {
                 "or": [
@@ -401,7 +422,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "User management",
-            "order": 8,
+            "order": 9,
             "sidebar": "Settings",
             "permission": {
                 "and": [
@@ -417,7 +438,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Role management",
-            "order": 9,
+            "order": 10,
             "sidebar": "Settings",
             "permission": {
                 "and": [
