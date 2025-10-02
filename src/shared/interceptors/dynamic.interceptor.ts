@@ -4,13 +4,17 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { mergeMap, catchError } from 'rxjs/operators';
 import { Observable, throwError } from 'rxjs';
 import { HandlerExecutorService } from '../../infrastructure/handler-executor/services/handler-executor.service';
 
 @Injectable()
 export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
-  constructor(private handlerExecurtorService: HandlerExecutorService) {}
+  constructor(
+    private handlerExecurtorService: HandlerExecutorService,
+    private configService: ConfigService,
+  ) {}
   async intercept(
     context: ExecutionContext,
     next: CallHandler<T>,
@@ -22,9 +26,11 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
         if (!hook.preHook) continue;
         try {
           const code = hook.preHook;
+          const preHookTimeout = hook.preHookTimeout || this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT', 3000);
           const result = await this.handlerExecurtorService.run(
             code,
             req.routeData.context,
+            preHookTimeout,
           );
 
           // Sync modified body back to req.body so controllers can access it
@@ -54,6 +60,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             if (!hook.afterHook) continue;
             try {
               const code = hook.afterHook;
+              const afterHookTimeout = hook.afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
               req.routeData.context.$data = data;
               req.routeData.context.$statusCode = context
                 .switchToHttp()
@@ -70,6 +77,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               const result = await this.handlerExecurtorService.run(
                 code,
                 req.routeData.context,
+                afterHookTimeout,
               );
 
               // Check if afterHook returned a value, use it
@@ -105,6 +113,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             if (!hook.afterHook) continue;
             try {
               const code = hook.afterHook;
+              const afterHookTimeout = hook.afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
               req.routeData.context.$data = null; // No data when error occurs
               req.routeData.context.$statusCode = error.status || 500;
 
@@ -119,6 +128,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               const result = await this.handlerExecurtorService.run(
                 code,
                 req.routeData.context,
+                afterHookTimeout,
               );
 
               // Check if afterHook returned a value, use it

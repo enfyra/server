@@ -4,7 +4,7 @@ import { DynamicRepository } from '../../../src/modules/dynamic-api/repositories
 import { TableHandlerService } from '../../../src/modules/table-management/services/table-handler.service';
 import { DataSourceService } from '../../../src/core/database/data-source/data-source.service';
 import { QueryEngine } from '../../../src/infrastructure/query-engine/services/query-engine.service';
-import { RouteCacheService } from '../../../src/infrastructure/redis/services/route-cache.service';
+import { RouteCacheService } from '../../../src/infrastructure/cache/services/route-cache.service';
 import { SystemProtectionService } from '../../../src/modules/dynamic-api/services/system-protection.service';
 describe.skip('DynamicRepository', () => {
   let service: DynamicRepository;

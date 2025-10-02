@@ -3,7 +3,7 @@ import { DataSourceService } from '../../../core/database/data-source/data-sourc
 import { Repository } from 'typeorm';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { RouteCacheService } from '../../../infrastructure/redis/services/route-cache.service';
+import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SystemProtectionService } from '../services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 

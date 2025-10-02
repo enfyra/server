@@ -13,6 +13,8 @@ export class Route_handler_definition {
     description: string;
     @Column({ type: "text", nullable: true })
     logic: string;
+    @Column({ type: "int", nullable: true })
+    timeout: number;
     @ManyToOne('Method_definition', (rel: any) => rel.handlers, { nullable: false, onDelete: 'RESTRICT', onUpdate: 'CASCADE' })
     @JoinColumn()
     method: any;

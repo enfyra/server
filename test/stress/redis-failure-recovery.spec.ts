@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { RedisLockService } from '../../src/infrastructure/redis/services/redis-lock.service';
-import { RouteCacheService } from '../../src/infrastructure/redis/services/route-cache.service';
+import { CacheService } from '../../src/infrastructure/cache/services/cache.service';
+import { RouteCacheService } from '../../src/infrastructure/cache/services/route-cache.service';
 import { DataSourceService } from '../../src/core/database/data-source/data-source.service';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 
 describe('Redis Failure Recovery', () => {
-  let redisLockService: RedisLockService;
+  let cacheService: CacheService;
   let routeCacheService: RouteCacheService;
   let mockRedis: any;
 
@@ -34,14 +34,14 @@ describe('Redis Failure Recovery', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        RedisLockService,
+        CacheService,
         RouteCacheService,
         { provide: RedisService, useValue: mockRedisService },
         { provide: DataSourceService, useValue: mockDataSourceService },
       ],
     }).compile();
 
-    redisLockService = module.get<RedisLockService>(RedisLockService);
+    cacheService = module.get<CacheService>(CacheService);
     routeCacheService = module.get<RouteCacheService>(RouteCacheService);
 
     // Suppress console logs during tests

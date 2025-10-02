@@ -9,10 +9,10 @@ import {
   SCHEMA_PULLING_EVENT_KEY,
   SCHEMA_UPDATED_EVENT_KEY,
 } from '../../../shared/utils/constant';
-import { RedisPubSubService } from '../../../infrastructure/redis/services/redis-pubsub.service';
+import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { MetadataSyncService } from './metadata-sync.service';
-import { CacheService } from '../../../infrastructure/redis/services/cache.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { GraphqlService } from '../../graphql/services/graphql.service';
 
 @Injectable()
