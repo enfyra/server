@@ -95,6 +95,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
             queryEngine: this.queryEngine,
             routeCacheService: this.routeCacheService,
             systemProtectionService: this.systemProtectionService,
+            bootstrapScriptService: undefined, // Not available in middleware context
           });
 
           await dynamicRepo.init();

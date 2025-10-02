@@ -34,6 +34,23 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     this.logger.log('✅ BootstrapScriptService completed successfully');
   }
 
+  async reloadBootstrapScripts() {
+    this.logger.log('🔄 Reloading BootstrapScriptService...');
+    
+    try {
+      // Clear all Redis data (like app restart)
+      await this.cacheService.clearAll();
+      this.logger.log('🧹 Cleared all Redis data');
+      
+      // Reload bootstrap scripts
+      await this.executeBootstrapScripts();
+      this.logger.log('✅ BootstrapScriptService reload completed successfully');
+    } catch (error) {
+      this.logger.error('❌ BootstrapScriptService reload failed:', error);
+      throw error;
+    }
+  }
+
   private async waitForTableExists(maxRetries = 10, delayMs = 500): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -106,6 +123,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           queryEngine: this.queryEngine,
           routeCacheService: this.routeCacheService,
           systemProtectionService: this.systemProtectionService,
+          bootstrapScriptService: this,
         });
 
         await dynamicRepo.init();
