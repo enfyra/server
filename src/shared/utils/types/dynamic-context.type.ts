@@ -29,6 +29,29 @@ export type TDynamicContext = {
     $data?: any;
     [key: string]: any;
   };
+  $api?: {
+    request: {
+      method: string;
+      url: string;
+      timestamp: string;
+      correlationId: string;
+      userAgent?: string;
+      ip?: string;
+    };
+    response?: {
+      statusCode: number;
+      responseTime: number;
+      timestamp: string;
+    };
+    error?: {
+      message: string;
+      stack: string;
+      name: string;
+      timestamp: string;
+      statusCode: number;
+      details: any;
+    };
+  };
 };
 
 export type TGqlDynamicContext = {
@@ -58,5 +81,28 @@ export type TGqlDynamicContext = {
   $share?: {
     $data?: any;
     [key: string]: any;
+  };
+  $api?: {
+    request: {
+      method: string;
+      url: string;
+      timestamp: string;
+      correlationId: string;
+      userAgent?: string;
+      ip?: string;
+    };
+    response?: {
+      statusCode: number;
+      responseTime: number;
+      timestamp: string;
+    };
+    error?: {
+      message: string;
+      stack: string;
+      name: string;
+      timestamp: string;
+      statusCode: number;
+      details: any;
+    };
   };
 };
