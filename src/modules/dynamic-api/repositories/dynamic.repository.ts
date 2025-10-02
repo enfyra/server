@@ -6,6 +6,7 @@ import { QueryEngine } from '../../../infrastructure/query-engine/services/query
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SystemProtectionService } from '../services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
 
 export class DynamicRepository {
   private context: TDynamicContext;
@@ -16,6 +17,7 @@ export class DynamicRepository {
   private tableHandlerService: TableHandlerService;
   private routeCacheService: RouteCacheService;
   private systemProtectionService: SystemProtectionService;
+  private bootstrapScriptService?: BootstrapScriptService;
 
   constructor({
     context,
@@ -25,6 +27,7 @@ export class DynamicRepository {
     tableHandlerService,
     routeCacheService,
     systemProtectionService,
+    bootstrapScriptService,
   }: {
     context: TDynamicContext;
     tableName: string;
@@ -33,6 +36,7 @@ export class DynamicRepository {
     tableHandlerService: TableHandlerService;
     routeCacheService: RouteCacheService;
     systemProtectionService: SystemProtectionService;
+    bootstrapScriptService?: BootstrapScriptService;
   }) {
     this.context = context;
     this.tableName = tableName;
@@ -41,6 +45,7 @@ export class DynamicRepository {
     this.tableHandlerService = tableHandlerService;
     this.routeCacheService = routeCacheService;
     this.systemProtectionService = systemProtectionService;
+    this.bootstrapScriptService = bootstrapScriptService;
   }
 
   async init() {
@@ -174,6 +179,11 @@ export class DynamicRepository {
       ].includes(this.tableName)
     ) {
       await this.routeCacheService.reloadRouteCache();
+    }
+
+    // Reload bootstrap scripts when bootstrap_script_definition changes
+    if (this.tableName === 'bootstrap_script_definition' && this.bootstrapScriptService) {
+      await this.bootstrapScriptService.reloadBootstrapScripts();
     }
   }
 }

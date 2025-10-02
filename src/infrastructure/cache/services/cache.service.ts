@@ -100,4 +100,9 @@ export class CacheService {
     await this.redis.set(key, JSON.stringify(val));
     console.log(`[CacheService] SET ${key} (no expiry)`);
   }
+
+  async clearAll(): Promise<void> {
+    await this.redis.flushall();
+    console.log(`[CacheService] CLEAR ALL - All Redis data cleared`);
+  }
 }
