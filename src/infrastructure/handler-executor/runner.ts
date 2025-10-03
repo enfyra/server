@@ -64,7 +64,6 @@ process.on('message', async (msg: any) => {
       '@REPOS': '$ctx.$repos', 
       '@HELPERS': '$ctx.$helpers',
       '@LOGS': '$ctx.$logs',
-      '@ERRORS': '$ctx.$errors',
       '@BODY': '$ctx.$body',
       '@DATA': '$ctx.$data',
       '@STATUS': '$ctx.$statusCode',
@@ -76,6 +75,15 @@ process.on('message', async (msg: any) => {
       '@API': '$ctx.$api',
       '@UPLOADED': '$ctx.$uploadedFile',
       '@THROW': '$ctx.$throw',
+      // HTTP status code shortcuts
+      '@THROW400': '$ctx.$throw[\'400\']',
+      '@THROW401': '$ctx.$throw[\'401\']',
+      '@THROW403': '$ctx.$throw[\'403\']',
+      '@THROW404': '$ctx.$throw[\'404\']',
+      '@THROW409': '$ctx.$throw[\'409\']',
+      '@THROW422': '$ctx.$throw[\'422\']',
+      '@THROW500': '$ctx.$throw[\'500\']',
+      '@THROW503': '$ctx.$throw[\'503\']',
     };
     
     // Replace template variables in code with detailed logging
