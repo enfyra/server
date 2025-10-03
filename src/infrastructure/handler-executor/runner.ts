@@ -51,21 +51,55 @@ process.on('message', async (msg: any) => {
       }
     }
 
-    console.log('📦 Available packages in $ctx.$pkgs:', Object.keys(ctx.$pkgs));
-
     for (const serviceName of Object.keys(originalRepos)) {
       ctx.$repos[serviceName] = buildFunctionProxy(`$repos.${serviceName}`);
     }
     ctx.$errors = buildFunctionProxy('$errors');
     ctx.$helpers = buildFunctionProxy('$helpers');
     ctx.$logs = buildCallableFunctionProxy('$logs');
+    
+    // Template replacement map for cleaner syntax
+    const templateMap = {
+      '@CACHE': '$ctx.$cache',
+      '@REPOS': '$ctx.$repos', 
+      '@HELPERS': '$ctx.$helpers',
+      '@LOGS': '$ctx.$logs',
+      '@ERRORS': '$ctx.$errors',
+      '@BODY': '$ctx.$body',
+      '@DATA': '$ctx.$data',
+      '@STATUS': '$ctx.$statusCode',
+      '@PARAMS': '$ctx.$params',
+      '@QUERY': '$ctx.$query',
+      '@USER': '$ctx.$user',
+      '@REQ': '$ctx.$req',
+      '@SHARE': '$ctx.$share',
+      '@API': '$ctx.$api',
+      '@UPLOADED': '$ctx.$uploadedFile',
+      '@THROW': '$ctx.$throw',
+    };
+    
+    // Replace template variables in code with detailed logging
+    let processedCode = msg.code;
+    
+    // Add direct table access syntax (#table_name)
+    // Replace #table_name with $ctx.$repos.table_name using regex
+    processedCode = processedCode.replace(/#([a-z_]+)/g, '$ctx.$repos.$1');
+    
+    // Replace @ templates
+    for (const [template, replacement] of Object.entries(templateMap)) {
+      // Escape special regex characters and use simple replacement (no word boundary for @)
+      const escapedTemplate = template.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escapedTemplate, 'g');
+      processedCode = processedCode.replace(regex, replacement);
+    }
+    
     try {
       const asyncFn = new AsyncFunction(
         '$ctx',
         `
           "use strict";
           return (async () => {
-            ${msg.code}
+            ${processedCode}
           })();
         `,
       );
@@ -77,7 +111,7 @@ process.on('message', async (msg: any) => {
         ctx,
       });
     } catch (error) {
-      console.log(error.message);
+      console.log('❌ Error executing code:', error.message);
       process.send({
         type: 'error',
         error: {
@@ -85,6 +119,9 @@ process.on('message', async (msg: any) => {
           stack: error.errorResponse?.stack,
           name: error.errorResponse?.name,
           statusCode: error.errorResponse?.statusCode,
+          // Add context for debugging template syntax
+          originalCode: msg.code,                    // Original code with @CACHE
+          processedCode: processedCode,              // Code after replacement to $ctx.$cache
         },
       });
     }
