@@ -43,6 +43,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
       // Create context first
       const context: TDynamicContext = {
         $body: req.body,
+        $data: undefined, // Will be set by interceptor
+        $statusCode: undefined, // Will be set by interceptor
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $logs(...args) {},
         $helpers: {

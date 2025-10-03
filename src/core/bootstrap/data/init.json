@@ -197,13 +197,13 @@
     "hook_definition": [
         {
             "isEnabled": true,
-            "afterHook": "$ctx.$data = { statusCode: $ctx.$statusCode, ...$ctx.$data, message: 'Success'}",
+            "afterHook": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
             "name": "Default response",
             "isSystem":true
         },
         {
             "isEnabled": true,
-            "preHook": "if ($ctx.$body.password) { $ctx.$body.password = await $ctx.$helpers.$bcrypt.hash($ctx.$body.password);}",
+            "preHook": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
             "name": "User definition hash password",
             "isSystem":true,
             "route": "/user_definition",
@@ -211,7 +211,7 @@
         },
         {
             "isEnabled": true,
-            "preHook": "if ($ctx.$body.name) { $ctx.$body.slug = await $ctx.$helpers.autoSlug($ctx.$body.name); }",
+            "preHook": "if (@BODY.name) { @BODY.slug = await @HELPERS.autoSlug(@BODY.name); }",
             "name": "Folder definition auto slug",
             "isSystem": true,
             "route": "/folder_definition",

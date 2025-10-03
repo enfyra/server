@@ -3,6 +3,8 @@ import { UploadedFileInfo } from './file-management.interface';
 
 export interface TDynamicContext {
   $body?: any;
+  $data?: any;
+  $statusCode?: number;
   $throw?: any;
   $error?: any;
   $logs?: (...args: any[]) => void;
