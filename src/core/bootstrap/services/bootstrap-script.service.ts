@@ -9,6 +9,12 @@ import { RouteCacheService } from '../../../infrastructure/cache/services/route-
 import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
+import { SchemaReloadService } from '../../../modules/schema-management/services/schema-reload.service';
+import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
+import { 
+  BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY, 
+  REDIS_TTL 
+} from '../../../shared/utils/constant';
 import { Repository } from 'typeorm';
 
 @Injectable()
@@ -23,6 +29,8 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     private queryEngine: QueryEngine,
     private routeCacheService: RouteCacheService,
     private systemProtectionService: SystemProtectionService,
+    private schemaReloadService: SchemaReloadService,
+    private redisPubSubService: RedisPubSubService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -37,17 +45,42 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   async reloadBootstrapScripts() {
     this.logger.log('🔄 Reloading BootstrapScriptService...');
     
-    try {
+    await this.withBootstrapLock(async () => {
       // Clear all Redis data (like app restart)
       await this.cacheService.clearAll();
       this.logger.log('🧹 Cleared all Redis data');
       
-      // Reload bootstrap scripts
-      await this.executeBootstrapScripts();
+      // Execute bootstrap scripts (already have lock from wrapper method)
+      await this.executeBootstrapScriptsWithoutLock();
       this.logger.log('✅ BootstrapScriptService reload completed successfully');
+    }, 'reload');
+  }
+
+  private async withBootstrapLock<R>(
+    operation: () => Promise<R>, 
+    context: 'startup' | 'reload'
+  ): Promise<R | void> {
+    const lockKey = BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY;
+    const lockValue = this.schemaReloadService.sourceInstanceId;
+    const lockTimeout = REDIS_TTL.BOOTSTRAP_LOCK_TTL;
+    
+    const lockAcquired = await this.cacheService.acquire(lockKey, lockValue, lockTimeout);
+    if (!lockAcquired) {
+      this.logger.log(`🔴 Bootstrap ${context} skipped - another instance is executing (${this.schemaReloadService.sourceInstanceId})`);
+      return; // Another instance is already handling
+    }
+    
+    try {
+      this.logger.log(`🔒 Bootstrap ${context} acquired lock - starting execution (${this.schemaReloadService.sourceInstanceId})`);
+      return await operation();
+      
     } catch (error) {
-      this.logger.error('❌ BootstrapScriptService reload failed:', error);
+      this.logger.error(`❌ BootstrapScriptService ${context} failed:`, error);
       throw error;
+    } finally {
+      // Always release the lock
+      await this.cacheService.release(lockKey, lockValue);
+      this.logger.log(`🔓 Bootstrap ${context} lock released (${this.schemaReloadService.sourceInstanceId})`);
     }
   }
 
@@ -55,17 +88,17 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const scriptRepo = this.dataSourceService.getRepository('bootstrap_script_definition');
-        if (scriptRepo) {
-          this.logger.log(`✅ bootstrap_script_definition table found after ${attempt} attempts`);
+        if (scriptRepo && scriptRepo.find) {
+          this.logger.log(`✅ bootstrap_script_definition table found on attempt ${attempt}`);
           return;
         }
       } catch (error) {
-        // Table not found, continue retrying
-      }
-      
-      if (attempt < maxRetries) {
-        this.logger.debug(`⏳ Waiting for bootstrap_script_definition table... (attempt ${attempt}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        this.logger.log(`⏳ Attempt ${attempt}/${maxRetries}: Table not ready yet, waiting ${delayMs}ms...`);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else {
+          throw new Error(`bootstrap_script_definition table not found after ${maxRetries} attempts`);
+        }
       }
     }
     
@@ -73,9 +106,15 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   }
 
   private async executeBootstrapScripts() {
+    await this.withBootstrapLock(async () => {
+      await this.executeBootstrapScriptsWithoutLock();
+    }, 'startup');
+  }
+
+  private async executeBootstrapScriptsWithoutLock() {
     // Table should exist at this point due to waitForTableExists()
     const scriptRepo: Repository<any> = this.dataSourceService.getRepository('bootstrap_script_definition');
-    
+      
     // Get enabled scripts ordered by priority
     const scripts = await scriptRepo.find({
       where: { 
@@ -86,24 +125,24 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
 
     this.logger.log(`📋 Found ${scripts.length} bootstrap scripts to execute`);
 
-            for (const script of scripts) {
-              try {
-                // Check if script has logic
-                if (!script.logic || script.logic.trim() === '') {
-                  this.logger.warn(`⚠️ Script ${script.name} has no logic, skipping`);
-                  continue;
-                }
-                
-                this.logger.log(`🔄 Executing script: ${script.name} (priority: ${script.priority})`);
-                
-                await this.executeScript(script);
-                
-                this.logger.log(`✅ Script ${script.name} completed successfully`);
-              } catch (error) {
-                this.logger.error(`❌ Script ${script.name} failed:`, error);
-                // Continue with other scripts even if one fails
-              }
-            }
+    for (const script of scripts) {
+      try {
+        if (!script.logic || script.logic.trim() === '') {
+          this.logger.warn(`⚠️ Script ${script.name} has no logic, skipping`);
+          continue;
+        }
+        
+        this.logger.log(`🔄 Executing script: ${script.name} (priority: ${script.priority})`);
+        
+        await this.executeScript(script);
+        this.logger.log(`✅ Script ${script.name} completed successfully`);
+      } catch (error) {
+        this.logger.error(`❌ Script ${script.name} failed:`, error);
+        // Continue with other scripts even if one fails
+      }
+    }
+      
+    this.logger.log(`✅ Bootstrap scripts execution completed`);
   }
 
   private async executeScript(script: any) {
@@ -124,6 +163,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           routeCacheService: this.routeCacheService,
           systemProtectionService: this.systemProtectionService,
           bootstrapScriptService: this,
+          redisPubSubService: this.redisPubSubService,
         });
 
         await dynamicRepo.init();
@@ -133,11 +173,9 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
       }),
     );
 
-    // Create repos object
-    const repos: Record<string, any> = Object.fromEntries(dynamicFindEntries);
-    this.logger.log(`🗃️ Created ${Object.keys(repos).length} dynamic repositories for bootstrap script`);
+    const repos = Object.fromEntries(dynamicFindEntries);
 
-    // Create context for bootstrap script
+    // Create minimal context for bootstrap scripts
     const ctx: TDynamicContext = {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $logs: (...args: any[]) => {
@@ -168,6 +206,11 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
       timeoutMs,
     );
 
+    this.logger.log(`📝 Script execution result:`, result);
     return result;
+  }
+
+  async reloadBootstrapScriptsWithoutClear() {
+    await this.executeBootstrapScriptsWithoutLock();
   }
 }

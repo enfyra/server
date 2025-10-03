@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { CacheService } from './cache.service';
 import { Repository, IsNull } from 'typeorm';
-import { GLOBAL_ROUTES_KEY } from '../../../shared/utils/constant';
+import { GLOBAL_ROUTES_KEY, REDIS_TTL } from '../../../shared/utils/constant';
 
 const STALE_ROUTES_KEY = 'stale:routes';
 const REVALIDATING_KEY = 'revalidating:routes';
@@ -108,8 +108,8 @@ export class RouteCacheService {
 
       const cacheStart = Date.now();
       await Promise.all([
-        this.cacheService.set(GLOBAL_ROUTES_KEY, routes, 60000),
-        this.cacheService.set(STALE_ROUTES_KEY, routes, 0),
+        this.cacheService.set(GLOBAL_ROUTES_KEY, routes, REDIS_TTL.ROUTES_CACHE_TTL),
+        this.cacheService.set(STALE_ROUTES_KEY, routes, REDIS_TTL.STALE_CACHE_TTL),
       ]);
       this.logger.log(
         `[RELOAD:${reloadId}] 💾 Updated cache in ${Date.now() - cacheStart}ms`,
@@ -207,7 +207,7 @@ export class RouteCacheService {
     const acquired = await this.cacheService.acquire(
       REVALIDATING_KEY,
       'true',
-      30000, // 30s TTL for revalidation lock
+      REDIS_TTL.REVALIDATION_LOCK_TTL,
     );
 
     if (!acquired) {

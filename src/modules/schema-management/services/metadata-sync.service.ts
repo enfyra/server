@@ -20,8 +20,7 @@ import {
   SCHEMA_SYNC_PROCESSING_LOCK_KEY,
   SCHEMA_SYNC_MAX_RETRIES,
   SCHEMA_SYNC_RETRY_DELAY,
-  SCHEMA_SYNC_LATEST_TTL,
-  SCHEMA_SYNC_LOCK_TTL,
+  REDIS_TTL,
 } from '../../../shared/utils/constant';
 
 @Injectable()
@@ -122,7 +121,7 @@ export class MetadataSyncService {
         await this.cacheService.set(
           SCHEMA_SYNC_LATEST_KEY,
           syncId,
-          SCHEMA_SYNC_LATEST_TTL * 1000,
+          REDIS_TTL.SCHEMA_SYNC_LATEST_TTL,
         );
       } catch (redisError) {
         this.logger.error(
@@ -143,7 +142,7 @@ export class MetadataSyncService {
           lockAcquired = await this.cacheService.acquire(
             SCHEMA_SYNC_PROCESSING_LOCK_KEY,
             syncId,
-            SCHEMA_SYNC_LOCK_TTL,
+            REDIS_TTL.SCHEMA_SYNC_LOCK_TTL,
           );
         } catch (lockError) {
           this.logger.error(

@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import Redis from 'ioredis';
 import { SchemaReloadService } from '../../../modules/schema-management/services/schema-reload.service';
-import { SCHEMA_UPDATED_EVENT_KEY } from '../../../shared/utils/constant';
+import { SCHEMA_UPDATED_EVENT_KEY, BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY } from '../../../shared/utils/constant';
 
 @Injectable()
 export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
@@ -39,11 +39,21 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       // ✅ Test connections
       await Promise.all([this.pub.ping(), this.sub.ping()]);
 
-      await this.sub.subscribe(SCHEMA_UPDATED_EVENT_KEY);
+      await Promise.all([
+        this.sub.subscribe(SCHEMA_UPDATED_EVENT_KEY),
+        this.sub.subscribe(BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY)
+      ]);
       this.sub.on(
         'message',
-        async (channel, message) =>
-          await this.schemaReloadService.subscribe(message),
+        async (channel, message) => {
+          if (channel === SCHEMA_UPDATED_EVENT_KEY) {
+            await this.schemaReloadService.subscribe(message);
+          } else if (channel === BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY) {
+            console.log(`[RedisPubSub] 🔄 Bootstrap script reload event received: ${message}`);
+            // Bootstrap script reload will be handled by instances themselves
+            // via DynamicRepository.reload() that publishes these events
+          }
+        }
       );
 
       console.log('[RedisPubSub] ✅ Service initialized successfully');

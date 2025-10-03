@@ -13,6 +13,7 @@ import * as sharp from 'sharp';
 import * as crypto from 'crypto';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Redis } from 'ioredis';
+import { REDIS_TTL } from '../../../shared/utils/constant';
 
 interface CacheHitTracker {
   hits: number;
@@ -32,10 +33,10 @@ export class FileAssetsService {
   private readonly maxCacheMemory = 2 * 1024 * 1024 * 1024;
   private readonly evictionThreshold = 0.9;
   private readonly maxCacheAge = {
-    small: 3600,
-    medium: 1800,
-    large: 600,
-    xlarge: 300,
+    small: REDIS_TTL.FILE_CACHE_TTL.SMALL / 1000,
+    medium: REDIS_TTL.FILE_CACHE_TTL.MEDIUM / 1000,
+    large: REDIS_TTL.FILE_CACHE_TTL.LARGE / 1000,
+    xlarge: REDIS_TTL.FILE_CACHE_TTL.XLARGE / 1000,
   };
 
   constructor(
@@ -53,8 +54,8 @@ export class FileAssetsService {
 
     if (this.redis) {
       this.configureRedis();
-      setInterval(() => this.logCacheStats(), 600000);
-      setInterval(() => this.cleanupLeastUsedCache(), 300000);
+      setInterval(() => this.logCacheStats(), REDIS_TTL.CACHE_STATS_INTERVAL);
+      setInterval(() => this.cleanupLeastUsedCache(), REDIS_TTL.CACHE_CLEANUP_INTERVAL);
     }
   }
 

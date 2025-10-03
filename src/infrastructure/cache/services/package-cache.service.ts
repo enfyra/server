@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { CacheService } from './cache.service';
 import { Repository } from 'typeorm';
+import { REDIS_TTL } from '../../../shared/utils/constant';
 
 const GLOBAL_PACKAGES_KEY = 'global:packages';
 const STALE_PACKAGES_KEY = 'stale:packages';
@@ -69,8 +70,8 @@ export class PackageCacheService {
 
       const cacheStart = Date.now();
       await Promise.all([
-        this.cacheService.set(GLOBAL_PACKAGES_KEY, packages, 300000),
-        this.cacheService.set(STALE_PACKAGES_KEY, packages, 0),
+        this.cacheService.set(GLOBAL_PACKAGES_KEY, packages, REDIS_TTL.PACKAGES_CACHE_TTL),
+        this.cacheService.set(STALE_PACKAGES_KEY, packages, REDIS_TTL.STALE_CACHE_TTL),
       ]);
       this.logger.log(
         `[RELOAD:${reloadId}] 💾 Updated cache in ${Date.now() - cacheStart}ms`,
@@ -168,7 +169,7 @@ export class PackageCacheService {
     const acquired = await this.cacheService.acquire(
       REVALIDATING_PACKAGES_KEY,
       'true',
-      30000, // 30s TTL for revalidation lock
+      REDIS_TTL.REVALIDATION_LOCK_TTL,
     );
 
     if (!acquired) {
