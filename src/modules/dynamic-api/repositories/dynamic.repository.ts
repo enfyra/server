@@ -7,6 +7,8 @@ import { RouteCacheService } from '../../../infrastructure/cache/services/route-
 import { SystemProtectionService } from '../services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
+import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
+import { BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY } from '../../../shared/utils/constant';
 
 export class DynamicRepository {
   private context: TDynamicContext;
@@ -19,6 +21,8 @@ export class DynamicRepository {
   private systemProtectionService: SystemProtectionService;
   private bootstrapScriptService?: BootstrapScriptService;
 
+  private redisPubSubService?: RedisPubSubService;
+
   constructor({
     context,
     tableName,
@@ -28,6 +32,7 @@ export class DynamicRepository {
     routeCacheService,
     systemProtectionService,
     bootstrapScriptService,
+    redisPubSubService,
   }: {
     context: TDynamicContext;
     tableName: string;
@@ -37,6 +42,7 @@ export class DynamicRepository {
     routeCacheService: RouteCacheService;
     systemProtectionService: SystemProtectionService;
     bootstrapScriptService?: BootstrapScriptService;
+    redisPubSubService?: RedisPubSubService;
   }) {
     this.context = context;
     this.tableName = tableName;
@@ -46,6 +52,7 @@ export class DynamicRepository {
     this.routeCacheService = routeCacheService;
     this.systemProtectionService = systemProtectionService;
     this.bootstrapScriptService = bootstrapScriptService;
+    this.redisPubSubService = redisPubSubService;
   }
 
   async init() {
@@ -183,6 +190,17 @@ export class DynamicRepository {
 
     // Reload bootstrap scripts when bootstrap_script_definition changes
     if (this.tableName === 'bootstrap_script_definition' && this.bootstrapScriptService) {
+      // Publish event to notify all instances about bootstrap script change
+      if (this.redisPubSubService) {
+        await this.redisPubSubService.publish(BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY, {
+          timestamp: Date.now(),
+          tableName: this.tableName,
+          action: 'reload',
+          message: 'Bootstrap script definition changed - triggering reload'
+        });
+      }
+      
+      // Reload on current instance
       await this.bootstrapScriptService.reloadBootstrapScripts();
     }
   }
