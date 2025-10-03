@@ -64,7 +64,6 @@ process.on('message', async (msg: any) => {
       '@REPOS': '$ctx.$repos', 
       '@HELPERS': '$ctx.$helpers',
       '@LOGS': '$ctx.$logs',
-      '@ERRORS': '$ctx.$errors',
       '@BODY': '$ctx.$body',
       '@DATA': '$ctx.$data',
       '@STATUS': '$ctx.$statusCode',
