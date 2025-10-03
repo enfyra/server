@@ -75,7 +75,18 @@ process.on('message', async (msg: any) => {
       '@SHARE': '$ctx.$share',
       '@API': '$ctx.$api',
       '@UPLOADED': '$ctx.$uploadedFile',
+      '@PKGS': '$ctx.$pkgs',
       '@THROW': '$ctx.$throw',
+      // HTTP status code shortcuts
+      '@THROW400': '$ctx.$throw[\'400\']',
+      '@THROW401': '$ctx.$throw[\'401\']',
+      '@THROW403': '$ctx.$throw[\'403\']',
+      '@THROW404': '$ctx.$throw[\'404\']',
+      '@THROW409': '$ctx.$throw[\'409\']',
+      '@THROW422': '$ctx.$throw[\'422\']',
+      '@THROW429': '$ctx.$throw[\'429\']',
+      '@THROW500': '$ctx.$throw[\'500\']',
+      '@THROW503': '$ctx.$throw[\'503\']',
     };
     
     // Replace template variables in code with detailed logging
@@ -84,6 +95,10 @@ process.on('message', async (msg: any) => {
     // Add direct table access syntax (#table_name)
     // Replace #table_name with $ctx.$repos.table_name using regex
     processedCode = processedCode.replace(/#([a-z_]+)/g, '$ctx.$repos.$1');
+    
+    // Add package access syntax (%pkg_name)
+    // Replace %pkg_name with $ctx.$pkgs.pkg_name using regex
+    processedCode = processedCode.replace(/%([a-z_-]+)/g, '$ctx.$pkgs.$1');
     
     // Replace @ templates
     for (const [template, replacement] of Object.entries(templateMap)) {
