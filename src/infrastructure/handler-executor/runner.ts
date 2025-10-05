@@ -57,6 +57,7 @@ process.on('message', async (msg: any) => {
     ctx.$errors = buildFunctionProxy('$errors');
     ctx.$helpers = buildFunctionProxy('$helpers');
     ctx.$logs = buildCallableFunctionProxy('$logs');
+    ctx.$cache = buildFunctionProxy('$cache');
     
     // Template replacement map for cleaner syntax
     const templateMap = {
