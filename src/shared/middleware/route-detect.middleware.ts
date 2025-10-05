@@ -86,12 +86,12 @@ export class RouteDetectMiddleware implements NestMiddleware {
         [
           matchedRoute.route.mainTable,
           ...matchedRoute.route.targetTables?.filter(
-            (route) => !systemTables.includes(route.name),
+            (route) => !systemTables.includes(route?.name),
           ),
         ]?.map(async (table) => {
           const dynamicRepo = new DynamicRepository({
             context: null, // Will be set later to avoid circular reference
-            tableName: table.name,
+            tableName: table?.name,
             tableHandlerService: this.tableHandlerService,
             dataSourceService: this.dataSourceService,
             queryEngine: this.queryEngine,
@@ -101,7 +101,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
           });
 
           await dynamicRepo.init();
-          const name = table.alias ?? table.name;
+          const name = table?.alias ?? table?.name;
 
           return [`${name}`, dynamicRepo];
         }),
@@ -117,7 +117,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
 
       // Add 'main' alias for mainTable
       const mainTableName =
-        matchedRoute.route.mainTable.alias ?? matchedRoute.route.mainTable.name;
+        matchedRoute.route.mainTable?.alias ?? matchedRoute.route?.mainTable?.name;
       if (context.$repos[mainTableName]) {
         context.$repos.main = context.$repos[mainTableName];
       }
