@@ -54,7 +54,7 @@ process.on('message', async (msg: any) => {
     for (const serviceName of Object.keys(originalRepos)) {
       ctx.$repos[serviceName] = buildFunctionProxy(`$repos.${serviceName}`);
     }
-    ctx.$errors = buildFunctionProxy('$errors');
+    ctx.$throw = buildFunctionProxy('$throw');
     ctx.$helpers = buildFunctionProxy('$helpers');
     ctx.$logs = buildCallableFunctionProxy('$logs');
     ctx.$cache = buildFunctionProxy('$cache');
@@ -76,7 +76,6 @@ process.on('message', async (msg: any) => {
       '@API': '$ctx.$api',
       '@UPLOADED': '$ctx.$uploadedFile',
       '@PKGS': '$ctx.$pkgs',
-      '@THROW': '$ctx.$throw',
       // HTTP status code shortcuts
       '@THROW400': '$ctx.$throw[\'400\']',
       '@THROW401': '$ctx.$throw[\'401\']',
@@ -87,6 +86,8 @@ process.on('message', async (msg: any) => {
       '@THROW429': '$ctx.$throw[\'429\']',
       '@THROW500': '$ctx.$throw[\'500\']',
       '@THROW503': '$ctx.$throw[\'503\']',
+      '@THROW': '$ctx.$throw',
+
     };
     
     // Replace template variables in code with detailed logging
@@ -99,6 +100,9 @@ process.on('message', async (msg: any) => {
     // Add package access syntax (%pkg_name)
     // Replace %pkg_name with $ctx.$pkgs.pkg_name using regex
     processedCode = processedCode.replace(/%([a-z_-]+)/g, '$ctx.$pkgs.$1');
+    
+    // Handle @THROW['xxx'] pattern first (before general @THROW replacement)
+    processedCode = processedCode.replace(/@THROW\['([^']+)'\]/g, '$ctx.$throw[\'$1\']');
     
     // Replace @ templates
     for (const [template, replacement] of Object.entries(templateMap)) {

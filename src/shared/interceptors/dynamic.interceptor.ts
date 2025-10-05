@@ -147,7 +147,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
         }
         
         // Re-throw the original error
-        return throwError(() => error);
+        throw error;
       }),
     );
   }
