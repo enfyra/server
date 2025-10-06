@@ -40,6 +40,12 @@ export class RouteDetectMiddleware implements NestMiddleware {
     ];
 
     if (matchedRoute) {
+      // Detect real client IP first
+      const realClientIP = this.detectClientIP(req);
+      
+      // Override req.ip with real client IP
+      req.ip = realClientIP;
+      
       // Create context first
       const context: TDynamicContext = {
         $body: req.body,
@@ -62,7 +68,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
         $query: req.query ?? {},
         $user: req.user ?? undefined,
         $repos: {}, // Will be populated after repos are created
-        $req: req,
+        $req: req, // Now req.ip is already fixed
         $share: {
           $logs: [],
         },
@@ -73,7 +79,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
             timestamp: new Date().toISOString(),
             correlationId: req.headers['x-correlation-id'] as string || this.generateCorrelationId(),
             userAgent: req.headers['user-agent'],
-            ip: req.ip || req.connection.remoteAddress,
+            ip: realClientIP, // Use already detected IP
           },
         },
       };
@@ -177,5 +183,69 @@ export class RouteDetectMiddleware implements NestMiddleware {
 
   private generateCorrelationId(): string {
     return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private detectClientIP(req: any): string {
+    // Priority order for IP detection
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const realIP = req.headers['x-real-ip'];
+    const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare
+    const remoteAddress = req.connection?.remoteAddress || req.socket?.remoteAddress;
+    const reqIP = req.ip;
+
+    // Debug logging
+    console.log('🔍 IP Detection Debug:');
+    console.log('- x-forwarded-for:', forwardedFor);
+    console.log('- x-real-ip:', realIP);
+    console.log('- cf-connecting-ip:', cfConnectingIP);
+    console.log('- req.ip:', reqIP);
+    console.log('- remoteAddress:', remoteAddress);
+
+    let clientIP: string;
+
+    // 1. Check X-Forwarded-For (most common with proxies/load balancers)
+    if (forwardedFor) {
+      // X-Forwarded-For: client, proxy1, proxy2
+      clientIP = forwardedFor.split(',')[0].trim();
+      console.log('✅ Using X-Forwarded-For:', clientIP);
+    }
+    // 2. Check X-Real-IP (nginx proxy)
+    else if (realIP) {
+      clientIP = realIP;
+      console.log('✅ Using X-Real-IP:', clientIP);
+    }
+    // 3. Check CF-Connecting-IP (Cloudflare)
+    else if (cfConnectingIP) {
+      clientIP = cfConnectingIP;
+      console.log('✅ Using CF-Connecting-IP:', clientIP);
+    }
+    // 4. Check req.ip (Express with trust proxy)
+    else if (reqIP && reqIP !== '::1' && reqIP !== '127.0.0.1') {
+      clientIP = reqIP;
+      console.log('✅ Using req.ip:', clientIP);
+    }
+    // 5. Check remoteAddress (direct connection)
+    else if (remoteAddress && remoteAddress !== '::1' && remoteAddress !== '127.0.0.1') {
+      clientIP = remoteAddress;
+      console.log('✅ Using remoteAddress:', clientIP);
+    }
+    // 6. Fallback to req.ip or remoteAddress
+    else {
+      clientIP = reqIP || remoteAddress || 'unknown';
+      console.log('⚠️ Using fallback IP:', clientIP);
+    }
+
+    // Normalize IPv6 mapped IPv4
+    if (clientIP === '::1') {
+      clientIP = '127.0.0.1';
+    }
+
+    // Remove IPv6 prefix if present
+    if (clientIP?.startsWith('::ffff:')) {
+      clientIP = clientIP.substring(7);
+    }
+
+    console.log('🎯 Final client IP:', clientIP);
+    return clientIP;
   }
 }
