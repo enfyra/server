@@ -102,7 +102,7 @@ export class CoreInitService {
             'c.isPrimary AS isPrimary',
             'c.isGenerated AS isGenerated',
             'c.defaultValue AS defaultValue',
-            'c.`options` AS options',
+            'c.options AS options',
             'c.isUpdatable AS isUpdatable',
           ])
           .getRawMany();
@@ -181,39 +181,21 @@ export class CoreInitService {
           .where('source.id = :tableId', { tableId })
           .getRawMany();
 
-        const existingKeys = new Set(
-          existingRelations.map((r) =>
-            JSON.stringify({
-              sourceTable: r.sourceId,
-              targetTable: r.targetId,
-              propertyName: r.propertyName,
-              relationType: r.relationType,
-            }),
-          ),
-        );
+        // Build map by unique key (propertyName per source table)
+        const existingByProperty = new Map<string, any>();
+        for (const r of existingRelations) {
+          existingByProperty.set(r.propertyName, r);
+        }
 
-        const newRelations = [];
+        const newRelations: any[] = [];
 
         for (const rel of def.relations || []) {
           if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
           const targetId = tableNameToId[rel.targetTable];
           if (!targetId) continue;
 
-          const key = JSON.stringify({
-            sourceTable: tableId,
-            targetTable: targetId,
-            propertyName: rel.propertyName,
-            relationType: rel.type,
-          });
-
-          if (existingKeys.has(key)) {
-            // Update existing relation with snapshot values (especially isNullable)
-            const existingRel = existingRelations.find(r => 
-              r.sourceId === tableId && 
-              r.targetId === targetId && 
-              r.propertyName === rel.propertyName &&
-              r.relationType === rel.type
-            );
+          const existingRel = existingByProperty.get(rel.propertyName);
+          if (existingRel) {
             
             if (existingRel && existingRel.id) {
               // Debug log
@@ -227,13 +209,17 @@ export class CoreInitService {
               // Check if values need updating
               const needsUpdate = 
                 (rel.isNullable !== undefined && rel.isNullable !== existingRel.isNullable) ||
-                (rel.inversePropertyName !== undefined && rel.inversePropertyName !== existingRel.inversePropertyName);
+                (rel.inversePropertyName !== undefined && rel.inversePropertyName !== existingRel.inversePropertyName) ||
+                (rel.type !== undefined && rel.type !== existingRel.relationType) ||
+                (targetId !== undefined && targetId !== existingRel.targetId);
                 
               if (needsUpdate) {
                 const updateData: any = {};
                 if (rel.isNullable !== undefined) updateData.isNullable = rel.isNullable;
                 if (rel.inversePropertyName !== undefined) updateData.inversePropertyName = rel.inversePropertyName;
                 if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
+                if (rel.type !== undefined) updateData.type = rel.type;
+                if (targetId !== undefined) updateData.targetTable = { id: targetId } as any;
                 
                 this.logger.log(`📝 UPDATING relation ${rel.propertyName} (ID: ${existingRel.id}) for ${name}:`, {
                   updateData,
@@ -249,8 +235,6 @@ export class CoreInitService {
               } else {
                 this.logger.debug(`⏩ No update needed for relation ${rel.propertyName} of ${name}`);
               }
-            } else {
-              this.logger.warn(`⚠️ Could not find existing relation ${rel.propertyName} for update`);
             }
             continue;
           }
@@ -271,26 +255,20 @@ export class CoreInitService {
           this.logger.log(`⏩ No relations to add for ${name}`);
         }
 
-        // Phase 3.5: Remove relations that no longer exist in snapshot
+        // Phase 3.5: Remove relations that no longer exist in snapshot (by unique key propertyName per source)
         const snapshotRelationKeys = new Set(
-          (def.relations || []).map(rel => {
-            const targetId = tableNameToId[rel.targetTable];
-            if (!targetId) return null;
-            return JSON.stringify({
+          (def.relations || [])
+            .filter(rel => !!rel.propertyName)
+            .map(rel => JSON.stringify({
               sourceTable: tableId,
-              targetTable: targetId,
               propertyName: rel.propertyName,
-              relationType: rel.type,
-            });
-          }).filter(Boolean)
+            }))
         );
 
         const relationsToRemove = existingRelations.filter(rel => {
           const key = JSON.stringify({
             sourceTable: rel.sourceId,
-            targetTable: rel.targetId,
             propertyName: rel.propertyName,
-            relationType: rel.relationType,
           });
           return !snapshotRelationKeys.has(key);
         });

@@ -12,15 +12,26 @@ async function cleanupOrphanedTables(dataSource: any) {
     logger.log('🧹 Checking for orphaned database tables...');
 
     const queryRunner = dataSource.createQueryRunner();
+    const dbType = dataSource.options.type;
 
     // Get all tables in database
-    const databaseTables = await queryRunner.query(`
-      SELECT TABLE_NAME 
-      FROM information_schema.TABLES 
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_TYPE = 'BASE TABLE'
-        AND TABLE_NAME NOT IN ('migrations', 'schema_history')
-    `);
+    let databaseTables: any[] = [];
+    if (dbType === 'postgres') {
+      databaseTables = await queryRunner.query(`
+        SELECT tablename AS table_name
+        FROM pg_tables
+        WHERE schemaname = current_schema()
+          AND tablename NOT IN ('migrations', 'schema_history')
+      `);
+    } else {
+      databaseTables = await queryRunner.query(`
+        SELECT TABLE_NAME AS table_name
+        FROM information_schema.TABLES 
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_NAME NOT IN ('migrations', 'schema_history')
+      `);
+    }
 
     // Get entity table names from current entities
     const entityTableNames = dataSource.entityMetadatas.map(
@@ -29,7 +40,7 @@ async function cleanupOrphanedTables(dataSource: any) {
 
     // Find orphaned tables (exist in DB but not in entities)
     const orphanedTables = databaseTables.filter(
-      (dbTable: any) => !entityTableNames.includes(dbTable.TABLE_NAME),
+      (dbTable: any) => !entityTableNames.includes(dbTable.table_name),
     );
 
     if (orphanedTables.length > 0) {
@@ -38,59 +49,65 @@ async function cleanupOrphanedTables(dataSource: any) {
       );
 
       for (const table of orphanedTables) {
-        const tableName = table.TABLE_NAME;
+        const tableName = table.table_name;
         logger.warn(`  - ${tableName}`);
 
         try {
-          // Drop all foreign keys referencing this table first
-          const referencingFKs = await queryRunner.query(`
-            SELECT DISTINCT TABLE_NAME, CONSTRAINT_NAME
-            FROM information_schema.KEY_COLUMN_USAGE 
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND REFERENCED_TABLE_NAME = '${tableName}'
-              AND CONSTRAINT_NAME LIKE 'FK_%'
-          `);
+          if (dbType === 'postgres') {
+            // Drop table with CASCADE in Postgres
+            await queryRunner.query(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
+            logger.log(`🗑️ Dropped orphaned table (PG): ${tableName}`);
+          } else {
+            // Drop all foreign keys referencing this table first (MySQL)
+            const referencingFKs = await queryRunner.query(`
+              SELECT DISTINCT TABLE_NAME, CONSTRAINT_NAME
+              FROM information_schema.KEY_COLUMN_USAGE 
+              WHERE CONSTRAINT_SCHEMA = DATABASE()
+                AND REFERENCED_TABLE_NAME = '${tableName}'
+                AND CONSTRAINT_NAME LIKE 'FK_%'
+            `);
 
-          for (const fk of referencingFKs) {
-            try {
-              await queryRunner.query(
-                `ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``,
-              );
-              logger.debug(
-                `  → Dropped FK ${fk.CONSTRAINT_NAME} from ${fk.TABLE_NAME}`,
-              );
-            } catch (fkError) {
-              logger.warn(
-                `  → Failed to drop FK ${fk.CONSTRAINT_NAME}: ${fkError.message}`,
-              );
+            for (const fk of referencingFKs) {
+              try {
+                await queryRunner.query(
+                  `ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``,
+                );
+                logger.debug(
+                  `  → Dropped FK ${fk.CONSTRAINT_NAME} from ${fk.TABLE_NAME}`,
+                );
+              } catch (fkError) {
+                logger.warn(
+                  `  → Failed to drop FK ${fk.CONSTRAINT_NAME}: ${fkError.message}`,
+                );
+              }
             }
-          }
 
-          // Drop foreign keys FROM this table
-          const outgoingFKs = await queryRunner.query(`
-            SELECT CONSTRAINT_NAME 
-            FROM information_schema.KEY_COLUMN_USAGE 
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = '${tableName}'
-              AND REFERENCED_TABLE_NAME IS NOT NULL
-          `);
+            // Drop foreign keys FROM this table
+            const outgoingFKs = await queryRunner.query(`
+              SELECT CONSTRAINT_NAME 
+              FROM information_schema.KEY_COLUMN_USAGE 
+              WHERE CONSTRAINT_SCHEMA = DATABASE()
+                AND TABLE_NAME = '${tableName}'
+                AND REFERENCED_TABLE_NAME IS NOT NULL
+            `);
 
-          for (const fk of outgoingFKs) {
-            try {
-              await queryRunner.query(
-                `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``,
-              );
-              logger.debug(`  → Dropped outgoing FK ${fk.CONSTRAINT_NAME}`);
-            } catch (fkError) {
-              logger.warn(
-                `  → Failed to drop outgoing FK ${fk.CONSTRAINT_NAME}: ${fkError.message}`,
-              );
+            for (const fk of outgoingFKs) {
+              try {
+                await queryRunner.query(
+                  `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``,
+                );
+                logger.debug(`  → Dropped outgoing FK ${fk.CONSTRAINT_NAME}`);
+              } catch (fkError) {
+                logger.warn(
+                  `  → Failed to drop outgoing FK ${fk.CONSTRAINT_NAME}: ${fkError.message}`,
+                );
+              }
             }
-          }
 
-          // Drop the table
-          await queryRunner.dropTable(tableName);
-          logger.log(`🗑️ Dropped orphaned table: ${tableName}`);
+            // Drop the table
+            await queryRunner.dropTable(tableName);
+            logger.log(`🗑️ Dropped orphaned table: ${tableName}`);
+          }
         } catch (dropError: any) {
           logger.error(
             `❌ Failed to drop table ${tableName}: ${dropError.message}`,
