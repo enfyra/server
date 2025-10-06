@@ -39,6 +39,18 @@ export class TableHandlerService {
   }
 
   async createTable(body: any) {
+    // Enforce lowercase, snake_case table names
+    if (/[A-Z]/.test(body?.name)) {
+      throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
+        tableName: body?.name,
+      });
+    }
+    if (!/^[a-z0-9_]+$/.test(body?.name)) {
+      throw new ValidationException('Table name must be snake_case (a-z, 0-9, _).', {
+        tableName: body?.name,
+      });
+    }
+
     // Validate relations before proceeding
     this.validateRelations(body.relations);
 
