@@ -39,14 +39,11 @@ export class RouteDetectMiddleware implements NestMiddleware {
       'relation_definition',
     ];
 
-    if (matchedRoute) {
-      // Detect real client IP first
-      const realClientIP = this.detectClientIP(req);
-      
-      // Override req.ip with real client IP
-      req.ip = realClientIP;
-      
-      // Create context first
+      if (matchedRoute) {
+        // Detect real client IP first
+        const realClientIP = this.detectClientIP(req);
+        
+        // Create context first
       const context: TDynamicContext = {
         $body: req.body,
         $data: undefined, // Will be set by interceptor
@@ -68,7 +65,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
         $query: req.query ?? {},
         $user: req.user ?? undefined,
         $repos: {}, // Will be populated after repos are created
-        $req: req, // Now req.ip is already fixed
+          $req: {
+            ...req,
+            ip: realClientIP, // Override IP with detected client IP
+          },
         $share: {
           $logs: [],
         },
