@@ -505,11 +505,13 @@ export async function initializeDatabase() {
       await checkDS.destroy();
       return;
     }
-  } catch (err) {
-    // Nếu bảng chưa tồn tại thì cứ tiếp tục init
-    console.log(
-      '🔄 Bảng setting_definition chưa tồn tại hoặc chưa có dữ liệu.',
-    );
+  } catch (err: any) {
+    if (err.code === 'ER_NO_SUCH_TABLE' || err.code === '42P01') {
+      console.log('Table not found, proceeding with init');
+    } else {
+      console.error('Unexpected error:', err);
+      throw err;
+    }
   }
 
   await queryRunner.release();
