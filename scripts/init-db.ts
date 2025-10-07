@@ -506,6 +506,7 @@ export async function initializeDatabase() {
       return;
     }
   } catch (err: any) {
+    
     if (err.code === 'ER_NO_SUCH_TABLE' || err.code === '42P01') {
       console.log('Table not found, proceeding with init');
     } else {
