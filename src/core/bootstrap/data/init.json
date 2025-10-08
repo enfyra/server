@@ -16,6 +16,14 @@
     },
     "method_definition": [
         {
+            "method": "GQL_QUERY",
+            "isSystem":true
+        },
+        {
+            "method": "GQL_MUTATION",
+            "isSystem":true
+        },
+        {
             "method": "GET",
             "isSystem":true
         },
@@ -31,6 +39,7 @@
             "method": "DELETE",
             "isSystem":true
         }
+        
     ],
     "route_definition": [
         {

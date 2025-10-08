@@ -29,6 +29,8 @@ export function generateGraphQLTypeDefsFromTables(
 ): string {
   let typeDefs = '';
   let queryDefs = '';
+  let mutationDefs = '';
+  let inputDefs = '';
   let resultDefs = '';
   const processedTypes = new Set<string>();
 
@@ -175,6 +177,48 @@ type ${typeName}Result {
     page: Int,
     limit: Int
   ): ${typeName}Result!\n`;
+
+    // Generate Input types for mutations
+    inputDefs += `\ninput ${typeName}Input {\n`;
+    
+    // Add fields to input type (excluding primary key, timestamps, and relations)
+    for (const column of table.columns || []) {
+      if (column.isPrimary || column.name === 'createdAt' || column.name === 'updatedAt') {
+        continue; // Skip primary key and timestamps
+      }
+      
+      const gqlType = mapColumnTypeToGraphQL(column.type);
+      const fieldName = column.name;
+      const isRequired = !column.isNullable ? '!' : '';
+      
+      const finalType = column.isPrimary && gqlType === 'ID' ? 'ID!' : `${gqlType}${isRequired}`;
+      inputDefs += `  ${fieldName}: ${finalType}\n`;
+    }
+    
+    inputDefs += `}\n`;
+
+    // Generate Update Input type
+    inputDefs += `\ninput ${typeName}UpdateInput {\n`;
+    inputDefs += `  id: ID!\n`; // Always require ID for updates
+    
+    for (const column of table.columns || []) {
+      if (column.isPrimary || column.name === 'createdAt' || column.name === 'updatedAt') {
+        continue; // Skip primary key and timestamps
+      }
+      
+      const gqlType = mapColumnTypeToGraphQL(column.type);
+      const fieldName = column.name;
+      // All fields optional for updates
+      const finalType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
+      inputDefs += `  ${fieldName}: ${finalType}\n`;
+    }
+    
+    inputDefs += `}\n`;
+
+    // Generate Mutation fields (CUD only) - using table name directly like queries
+    mutationDefs += `  create_${table.name}(input: ${typeName}Input!): ${typeName}!\n`;
+    mutationDefs += `  update_${table.name}(id: ID!, input: ${typeName}Input!): ${typeName}!\n`;
+    mutationDefs += `  delete_${table.name}(id: ID!): String!\n`;
   }
 
   const metaResultDef = `
@@ -189,10 +233,15 @@ type MetaResult {
 scalar JSON
 ${typeDefs}
 ${resultDefs}
+${inputDefs}
 ${metaResultDef}
 
 type Query {
 ${queryDefs}
+}
+
+type Mutation {
+${mutationDefs}
 }
 `;
 

@@ -89,6 +89,21 @@ export class GraphqlService implements OnApplicationBootstrap {
           },
         },
       ),
+      Mutation: new Proxy(
+        {},
+        {
+          get: (_target, propName: string) => {
+            return async (parent, args, ctx, info) => {
+              return await this.dynamicResolver.dynamicMutationResolver(
+                propName,
+                args,
+                ctx,
+                info,
+              );
+            };
+          },
+        },
+      ),
     };
 
     return makeExecutableSchema({

@@ -4,12 +4,12 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common';
+import { throwGqlError } from '../utils/throw-error';
 import { ConfigService } from '@nestjs/config';
 import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-convertor';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { throwGqlError } from '../utils/throw-error';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { JwtService } from '@nestjs/jwt';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
@@ -132,7 +132,113 @@ export class DynamicResolver {
 
       return result;
     } catch (error) {
-      throw new BadRequestException(`Script error: ${error.message}`);
+      throwGqlError('SCRIPT_ERROR', error.message);
+    }
+  }
+
+  async dynamicMutationResolver(
+    mutationName: string,
+    args: any,
+    context: any,
+    info: any,
+  ) {
+    try {
+      // Extract table name and operation from mutation name
+      // e.g., "create_table_definition" -> tableName: "table_definition", operation: "create"
+      const match = mutationName.match(/^(create|update|delete)_(.+)$/);
+      if (!match) {
+        throw new BadRequestException(`Invalid mutation name: ${mutationName}`);
+      }
+
+      const operation = match[1]; // create, update, delete
+      const tableName = match[2]; // table_definition
+
+      // Get middleware data
+      const { matchedRoute: currentRoute, user } = await this.middleware(tableName, context, info);
+
+      // Check GQL_MUTATION permission
+      await this.canPassMutation(currentRoute, context.req?.headers?.authorization);
+
+      // Setup context similar to query resolver
+      const handlerCtx = {
+        $user: user ?? undefined,
+        $repos: {},
+        $req: context.request,
+        $body: args.input || {},
+        $params: { id: args.id },
+        $logs: () => {},
+        $share: {},
+      };
+
+      // Create dynamic repository
+      const dynamicRepo = new DynamicRepository({
+        context: handlerCtx,
+        tableName: tableName,
+        queryEngine: this.queryEngine,
+        dataSourceService: this.dataSourceService,
+        tableHandlerService: this.tableHandlerService,
+        routeCacheService: this.routeCacheService,
+        systemProtectionService: this.systemProtectionService,
+      });
+
+      // Initialize repository
+      await dynamicRepo.init();
+
+      // Setup repos in context like query resolver
+      const dynamicFindEntries = [
+        ['main', dynamicRepo],
+        ...(currentRoute.targetTables || []).map((table: any) => [
+          table.name,
+          new DynamicRepository({
+            context: handlerCtx,
+            tableName: table.name,
+            queryEngine: this.queryEngine,
+            dataSourceService: this.dataSourceService,
+            tableHandlerService: this.tableHandlerService,
+            routeCacheService: this.routeCacheService,
+            systemProtectionService: this.systemProtectionService,
+          }),
+        ]),
+      ];
+
+      // Initialize all repos
+      for (const [, repo] of dynamicFindEntries) {
+        await (repo as DynamicRepository).init();
+      }
+
+      // Populate repos in context
+      handlerCtx.$repos = Object.fromEntries(dynamicFindEntries);
+
+      // Execute mutation based on operation using handlerExecutorService like query resolver
+      let defaultHandler: string;
+      switch (operation) {
+        case 'create':
+          defaultHandler = `return await $ctx.$repos.main.create($ctx.$body);`;
+          break;
+        case 'update':
+          defaultHandler = `return await $ctx.$repos.main.update($ctx.$params.id, $ctx.$body);`;
+          break;
+        case 'delete':
+          defaultHandler = `await $ctx.$repos.main.delete($ctx.$params.id); return \`Delete id \${$ctx.$params.id} successfully\`;`;
+          break;
+        default:
+          throw new BadRequestException(`Unsupported operation: ${operation}`);
+      }
+
+      const result = await this.handlerExecutorService.run(
+        defaultHandler,
+        handlerCtx,
+        this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
+      );
+      
+      // Extract data from result format like { data: [...] }
+      if (result && result.data && Array.isArray(result.data)) {
+        return result.data[0];
+      }
+      
+      return result;
+    } catch (error) {
+      throwGqlError('MUTATION_ERROR', error.message);
     }
   }
 
@@ -198,6 +304,51 @@ export class DynamicResolver {
         (permission: any) =>
           permission.role?.id === user.role?.id &&
           permission.methods?.includes('GQL_QUERY'),
+      );
+
+    if (!canPass) {
+      throwGqlError('403', 'Not allowed');
+    }
+
+    return user;
+  }
+
+  private async canPassMutation(currentRoute: any, accessToken: string) {
+    if (!currentRoute?.isEnabled) {
+      throwGqlError('404', 'NotFound');
+    }
+
+    const isPublished = currentRoute.publishedMethods.some(
+      (item: any) => item.method === 'GQL_MUTATION',
+    );
+
+    if (isPublished) {
+      return { isAnonymous: true };
+    }
+
+    let decoded;
+    try {
+      decoded = this.jwtService.verify(accessToken);
+    } catch {
+      throwGqlError('401', 'Unauthorized');
+    }
+
+    const userRepo = this.dataSourceService.getRepository('user_definition');
+    const user: any = await userRepo.findOne({
+      where: { id: decoded.id },
+      relations: ['role'],
+    });
+
+    if (!user) {
+      throwGqlError('401', 'Invalid user');
+    }
+
+    const canPass =
+      user.isRootAdmin ||
+      currentRoute.routePermissions?.some(
+        (permission: any) =>
+          permission.role?.id === user.role?.id &&
+          permission.methods?.includes('GQL_MUTATION'),
       );
 
     if (!canPass) {

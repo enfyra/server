@@ -5,6 +5,61 @@ import {
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
+// Pre-compiled regex patterns for performance optimization
+const COMBINED_PATTERN = /(#([a-z_]+)|%([a-z_-]+)|@THROW\['([^']+)'\]|@THROW[0-9]+|@[A-Z_]+)/g;
+
+// Template replacement map for cleaner syntax
+const templateMap = new Map([
+  ['@CACHE', '$ctx.$cache'],
+  ['@REPOS', '$ctx.$repos'], 
+  ['@HELPERS', '$ctx.$helpers'],
+  ['@LOGS', '$ctx.$logs'],
+  ['@BODY', '$ctx.$body'],
+  ['@DATA', '$ctx.$data'],
+  ['@STATUS', '$ctx.$statusCode'],
+  ['@PARAMS', '$ctx.$params'],
+  ['@QUERY', '$ctx.$query'],
+  ['@USER', '$ctx.$user'],
+  ['@REQ', '$ctx.$req'],
+  ['@SHARE', '$ctx.$share'],
+  ['@API', '$ctx.$api'],
+  ['@UPLOADED', '$ctx.$uploadedFile'],
+  ['@PKGS', '$ctx.$pkgs'],
+  // HTTP status code shortcuts
+  ['@THROW400', '$ctx.$throw[\'400\']'],
+  ['@THROW401', '$ctx.$throw[\'401\']'],
+  ['@THROW403', '$ctx.$throw[\'403\']'],
+  ['@THROW404', '$ctx.$throw[\'404\']'],
+  ['@THROW409', '$ctx.$throw[\'409\']'],
+  ['@THROW422', '$ctx.$throw[\'422\']'],
+  ['@THROW429', '$ctx.$throw[\'429\']'],
+  ['@THROW500', '$ctx.$throw[\'500\']'],
+  ['@THROW503', '$ctx.$throw[\'503\']'],
+  ['@THROW', '$ctx.$throw'],
+]);
+
+// Single-pass template processor for optimal performance
+const processTemplate = (code: string): string => {
+  return code.replace(COMBINED_PATTERN, (match, ...groups) => {
+    // Handle table access syntax (#table_name) - groups[1] = table name
+    if (groups[1]) return `$ctx.$repos.${groups[1]}`;
+    
+    // Handle package access syntax (%pkg_name) - groups[2] = package name  
+    if (groups[2]) return `$ctx.$pkgs.${groups[2]}`;
+    
+    // Handle @THROW['xxx'] pattern - groups[3] = status code
+    if (groups[3]) return `$ctx.$throw['${groups[3]}']`;
+    
+    // Handle @THROW[0-9]+ patterns (HTTP status code shortcuts)
+    if (match.match(/@THROW[0-9]+/)) {
+      return templateMap.get(match) || match;
+    }
+    
+    // Handle other @ templates
+    return templateMap.get(match) || match;
+  });
+};
+
 export const pendingCalls = new Map();
 
 process.on('unhandledRejection', (reason: any) => {
@@ -36,8 +91,6 @@ process.on('message', async (msg: any) => {
     const originalRepos = msg.ctx.$repos || {};
     const packages = msg.packages;
 
-    console.log('📦 Runner received packages:', packages);
-
     const ctx = msg.ctx;
     ctx.$repos = {};
 
@@ -59,58 +112,8 @@ process.on('message', async (msg: any) => {
     ctx.$logs = buildCallableFunctionProxy('$logs');
     ctx.$cache = buildFunctionProxy('$cache');
     
-    // Template replacement map for cleaner syntax
-    const templateMap = {
-      '@CACHE': '$ctx.$cache',
-      '@REPOS': '$ctx.$repos', 
-      '@HELPERS': '$ctx.$helpers',
-      '@LOGS': '$ctx.$logs',
-      '@BODY': '$ctx.$body',
-      '@DATA': '$ctx.$data',
-      '@STATUS': '$ctx.$statusCode',
-      '@PARAMS': '$ctx.$params',
-      '@QUERY': '$ctx.$query',
-      '@USER': '$ctx.$user',
-      '@REQ': '$ctx.$req',
-      '@SHARE': '$ctx.$share',
-      '@API': '$ctx.$api',
-      '@UPLOADED': '$ctx.$uploadedFile',
-      '@PKGS': '$ctx.$pkgs',
-      // HTTP status code shortcuts
-      '@THROW400': '$ctx.$throw[\'400\']',
-      '@THROW401': '$ctx.$throw[\'401\']',
-      '@THROW403': '$ctx.$throw[\'403\']',
-      '@THROW404': '$ctx.$throw[\'404\']',
-      '@THROW409': '$ctx.$throw[\'409\']',
-      '@THROW422': '$ctx.$throw[\'422\']',
-      '@THROW429': '$ctx.$throw[\'429\']',
-      '@THROW500': '$ctx.$throw[\'500\']',
-      '@THROW503': '$ctx.$throw[\'503\']',
-      '@THROW': '$ctx.$throw',
-
-    };
-    
-    // Replace template variables in code with detailed logging
-    let processedCode = msg.code;
-    
-    // Add direct table access syntax (#table_name)
-    // Replace #table_name with $ctx.$repos.table_name using regex
-    processedCode = processedCode.replace(/#([a-z_]+)/g, '$ctx.$repos.$1');
-    
-    // Add package access syntax (%pkg_name)
-    // Replace %pkg_name with $ctx.$pkgs.pkg_name using regex
-    processedCode = processedCode.replace(/%([a-z_-]+)/g, '$ctx.$pkgs.$1');
-    
-    // Handle @THROW['xxx'] pattern first (before general @THROW replacement)
-    processedCode = processedCode.replace(/@THROW\['([^']+)'\]/g, '$ctx.$throw[\'$1\']');
-    
-    // Replace @ templates
-    for (const [template, replacement] of Object.entries(templateMap)) {
-      // Escape special regex characters and use simple replacement (no word boundary for @)
-      const escapedTemplate = template.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(escapedTemplate, 'g');
-      processedCode = processedCode.replace(regex, replacement);
-    }
+    // Process template syntax with optimized single-pass replacement
+    const processedCode = processTemplate(msg.code);
     
     try {
       const asyncFn = new AsyncFunction(
