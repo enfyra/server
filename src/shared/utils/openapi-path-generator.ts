@@ -13,9 +13,12 @@ interface SchemaObject {
 
 /**
  * Generate OpenAPI paths from route definitions
+ * @param routes - Array of route definitions
+ * @param restMethods - Array of REST method names (excluding GraphQL methods)
  */
-export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
+export function generatePathsFromRoutes(routes: any[], restMethods: string[]): Record<string, any> {
   const paths: Record<string, any> = {};
+  const restMethodsSet = new Set(restMethods);
 
   for (const route of routes) {
     if (!route?.path || !route?.isEnabled) continue;
@@ -24,16 +27,55 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
     const tableName = route.mainTable?.name;
     const publishedMethods = route.publishedMethods || [];
 
-    // Check which methods are published (no auth required)
+
+    // Determine available methods based on route type
+    const availableMethods = new Set<string>();
+    
+    if (route.isExpressRoute) {
+      // Routes cứng từ Express - generate methods theo controller definition
+      route.handlers.forEach((handler: any) => {
+        const method = handler.method?.method;
+        if (method && restMethodsSet.has(method)) {
+          availableMethods.add(method);
+        }
+      });
+    } else {
+      // Routes custom từ DB - chỉ generate methods có handler
+      if (route.handlers && Array.isArray(route.handlers) && route.handlers.length > 0) {
+        // Routes custom từ DB - chỉ generate methods có handler
+        route.handlers.forEach((handler: any) => {
+          const method = handler.method?.method;
+          if (method && restMethodsSet.has(method)) {
+            availableMethods.add(method);
+          }
+        });
+      } else {
+        // Routes DB không có handlers - check if dynamic route (có mainTable)
+        if (tableName) {
+          // Routes dynamic (có mainTable) - generate all methods từ method_definition
+          restMethods.forEach(method => availableMethods.add(method));
+        } else {
+          // Routes custom không có handlers và không có mainTable - chỉ generate GET
+          availableMethods.add('GET');
+        }
+      }
+    }
+
+
+    // Kiểm tra methods nào được publish (không cần auth)
     const isPublished = (method: string) => {
       return publishedMethods.some((pm: any) => pm.method === method);
     };
 
-    paths[path] = {};
+    // Khởi tạo object path
+    if (!paths[path]) {
+      paths[path] = {};
+    }
 
-    // GET - List/Find
-    paths[path].get = {
-      tags: [tableName || 'Custom'],
+    // GET - List/Find (chỉ nếu có)
+    if (availableMethods.has('GET')) {
+      paths[path].get = {
+      tags: [getTagName(route)],
       summary: `Get ${tableName || 'records'}`,
       description: route.description || `Retrieve ${tableName || 'records'} with filtering and pagination`,
       parameters: [
@@ -88,9 +130,9 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
           description: 'Successful response',
           content: {
             'application/json': {
-              schema: tableName ? {
-                $ref: `#/components/schemas/PaginatedResponse`
-              } : { type: 'object' }
+              schema: {
+                $ref: '#/components/schemas/PaginatedResponse'
+              }
             }
           }
         },
@@ -99,20 +141,20 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
         403: { $ref: '#/components/responses/Forbidden' },
       },
       security: isPublished('GET') ? [] : [{ bearerAuth: [] }]
-    };
+      };
+    }
 
-    // POST - Create
-    paths[path].post = {
-      tags: [tableName || 'Custom'],
+    // POST - Create (chỉ nếu có)
+    if (availableMethods.has('POST')) {
+      paths[path].post = {
+      tags: [getTagName(route)],
       summary: `Create ${tableName || 'record'}`,
       description: route.description || `Create a new ${tableName || 'record'}`,
       requestBody: {
         required: true,
         content: {
           'application/json': {
-            schema: tableName ? {
-              $ref: `#/components/schemas/${tableName}Input`
-            } : { type: 'object' }
+            schema: { type: 'object' }
           }
         }
       },
@@ -121,9 +163,7 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
           description: 'Created successfully',
           content: {
             'application/json': {
-              schema: tableName ? {
-                $ref: `#/components/schemas/${tableName}`
-              } : { type: 'object' }
+              schema: { type: 'object' }
             }
           }
         },
@@ -132,16 +172,23 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
         403: { $ref: '#/components/responses/Forbidden' },
       },
       security: isPublished('POST') ? [] : [{ bearerAuth: [] }]
-    };
-
-    // PATCH - Update (with :id parameter)
-    const pathWithId = `${path}/{id}`;
-    if (!paths[pathWithId]) {
-      paths[pathWithId] = {};
+      };
     }
 
-    paths[pathWithId].patch = {
-      tags: [tableName || 'Custom'],
+    // PATCH và DELETE cần parameter :id
+    const pathWithId = `${path}/{id}`;
+    const hasIdMethods = availableMethods.has('PATCH') || availableMethods.has('DELETE');
+    
+    if (hasIdMethods) {
+      if (!paths[pathWithId]) {
+        paths[pathWithId] = {};
+      }
+    }
+
+    // PATCH - Update (chỉ nếu có)
+    if (availableMethods.has('PATCH')) {
+      paths[pathWithId].patch = {
+      tags: [getTagName(route)],
       summary: `Update ${tableName || 'record'}`,
       description: route.description || `Update an existing ${tableName || 'record'}`,
       parameters: [
@@ -157,9 +204,7 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
         required: true,
         content: {
           'application/json': {
-            schema: tableName ? {
-              $ref: `#/components/schemas/${tableName}Input`
-            } : { type: 'object' }
+            schema: { type: 'object' }
           }
         }
       },
@@ -168,9 +213,7 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
           description: 'Updated successfully',
           content: {
             'application/json': {
-              schema: tableName ? {
-                $ref: `#/components/schemas/${tableName}`
-              } : { type: 'object' }
+              schema: { type: 'object' }
             }
           }
         },
@@ -180,11 +223,13 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
         404: { $ref: '#/components/responses/NotFound' },
       },
       security: isPublished('PATCH') ? [] : [{ bearerAuth: [] }]
-    };
+      };
+    }
 
-    // DELETE - Delete
-    paths[pathWithId].delete = {
-      tags: [tableName || 'Custom'],
+    // DELETE - Delete (chỉ nếu có)
+    if (availableMethods.has('DELETE')) {
+      paths[pathWithId].delete = {
+      tags: [getTagName(route)],
       summary: `Delete ${tableName || 'record'}`,
       description: route.description || `Delete a ${tableName || 'record'}`,
       parameters: [
@@ -217,14 +262,39 @@ export function generatePathsFromRoutes(routes: any[]): Record<string, any> {
         404: { $ref: '#/components/responses/NotFound' },
       },
       security: isPublished('DELETE') ? [] : [{ bearerAuth: [] }]
-    };
+      };
+    }
   }
 
   return paths;
 }
 
+function getTagName(route: any): string {
+  const path = route.path;
+  const tableName = route.mainTable?.name;
+  
+  // Routes Express - dùng tên controller/service
+  if (route.isExpressRoute) {
+    if (path.startsWith('/auth/')) return 'Authentication';
+    if (path.startsWith('/file_definition')) return 'File Management';
+    if (path.startsWith('/package_definition')) return 'Package Management';
+    if (path.startsWith('/me')) return 'User Profile';
+    if (path.startsWith('/api-docs')) return 'API Documentation';
+    if (path.startsWith('/assets/')) return 'Assets';
+    return 'System';
+  }
+  
+  // Routes DB - dùng tableName hoặc path
+  if (tableName) {
+    return tableName.replace('_definition', '').replace(/_/g, ' ');
+  }
+  
+  // Custom routes - tất cả đều vào tag Custom
+  return 'Custom';
+}
+
 /**
- * Generate common response schemas
+ * Tạo common response schemas
  */
 export function generateCommonResponses(): Record<string, any> {
   return {
