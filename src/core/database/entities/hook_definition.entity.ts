@@ -1,6 +1,4 @@
 import { Entity, Index, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { Method_definition } from './method_definition.entity';
-import { Route_definition } from './route_definition.entity';
 
 @Entity('hook_definition')
 @Index(['route'])

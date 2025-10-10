@@ -31,9 +31,10 @@ export function addRelationToClass({
   const target = helpers.capitalize(
     rel.targetTable?.name || rel.targetClass || '',
   );
-  if (target && target !== classDeclaration.getName()) {
-    usedEntityImports.add(target);
-  }
+  // No need to import entity since we use string literals in decorators
+  // if (target && target !== classDeclaration.getName()) {
+  //   usedEntityImports.add(target);
+  // }
 
   const decorators = [];
 

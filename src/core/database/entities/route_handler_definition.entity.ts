@@ -1,6 +1,4 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { Method_definition } from './method_definition.entity';
-import { Route_definition } from './route_definition.entity';
 
 @Entity('route_handler_definition')
 @Unique(['method', 'route'])

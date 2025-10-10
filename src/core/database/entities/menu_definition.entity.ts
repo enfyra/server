@@ -1,5 +1,4 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany, OneToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { Extension_definition } from './extension_definition.entity';
 
 @Entity('menu_definition')
 @Unique(['label', 'type'])

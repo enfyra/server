@@ -40,21 +40,18 @@ async function bootstrap() {
   logger.log(`⏱️  NestJS Create: ${Date.now() - nestStart}ms`);
   const graphqlService = app.get(GraphqlService);
   const expressApp = app.getHttpAdapter().getInstance();
-
-  expressApp.use('/graphql', (req, res, next) => {
-    return graphqlService.getYogaInstance()(req, res, next);
-  });
   const configService = app.get(ConfigService);
 
   app.use(
     cors({
-      origin: ['*'],
+      origin: '*',
       credentials: true,
-      methods: ['POST', 'GET', 'OPTIONS'],
+      methods: ['POST', 'GET', 'OPTIONS', 'PATCH', 'DELETE', 'PUT'],
       allowedHeaders: [
         'Content-Type',
         'Authorization',
         'x-apollo-operation-name',
+        'x-requested-with',
       ],
     }),
   );
@@ -73,6 +70,11 @@ async function bootstrap() {
   const initStart = Date.now();
   await app.init();
   logger.log(`⏱️  App Init (Bootstrap): ${Date.now() - initStart}ms`);
+
+  // Setup GraphQL endpoint
+  expressApp.use('/graphql', (req, res, next) => {
+    return graphqlService.getYogaInstance()(req, res, next);
+  });
 
   // Start listening
   const listenStart = Date.now();

@@ -1,5 +1,4 @@
 import { Entity, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User_definition } from './user_definition.entity';
 
 @Entity('package_definition')
 @Index(['installedBy'])

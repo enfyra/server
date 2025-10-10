@@ -4,8 +4,8 @@ import { ConfigService } from '@nestjs/config';
 
 // Internal imports
 import {
-  ResourceNotFoundException,
   ScriptExecutionException,
+  BusinessLogicException,
 } from '../../../core/exceptions/custom-exceptions';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
@@ -38,7 +38,10 @@ export class DynamicService {
         : null;
 
       if (!userHandler && !defaultHandler) {
-        throw new ResourceNotFoundException('Handler', req.method);
+        throw new BusinessLogicException(
+          `No handler configured for method '${req.method}' on route '${req.routeData.route?.path || req.url}'`,
+          { method: req.method, route: req.routeData.route?.path }
+        );
       }
 
       const scriptCode = userHandler || defaultHandler;

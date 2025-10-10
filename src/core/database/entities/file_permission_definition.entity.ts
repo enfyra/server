@@ -1,7 +1,4 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User_definition } from './user_definition.entity';
-import { File_definition } from './file_definition.entity';
-import { Role_definition } from './role_definition.entity';
 
 @Entity('file_permission_definition')
 @Unique(['allowedUsers', 'file', 'role'])

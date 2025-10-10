@@ -201,6 +201,14 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:play"
+        },
+        {
+            "path": "/api-docs",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:book-open",
+            "description": "Swagger API Documentation",
+            "publishedMethods": ["GET"]
         }
     ], 
     "hook_definition": [

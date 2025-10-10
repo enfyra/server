@@ -14,6 +14,7 @@ import { CommonService } from '../../../shared/common/services/common.service';
 import { MetadataSyncService } from './metadata-sync.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { GraphqlService } from '../../graphql/services/graphql.service';
+import { SwaggerService } from '../../../infrastructure/swagger/services/swagger.service';
 
 @Injectable()
 export class SchemaReloadService {
@@ -32,6 +33,8 @@ export class SchemaReloadService {
     private cacheService: CacheService,
     @Inject(forwardRef(() => GraphqlService))
     private graphqlService: GraphqlService,
+    @Inject(forwardRef(() => SwaggerService))
+    private swaggerService: SwaggerService,
   ) {
     this.sourceInstanceId = uuidv4();
     this.logger.log(
@@ -124,6 +127,7 @@ export class SchemaReloadService {
     this.logger.log('Sync completed by other instance, reloading DataSource...');
     await this.dataSourceService.reloadDataSource();
     await this.graphqlService.reloadSchema();
+    await this.swaggerService.reloadSwagger();
     this.schemaStateService.setVersion(newestSchema['id']);
     this.logger.log(`DataSource reloaded, set version = ${newestSchema['id']}`);
   }
