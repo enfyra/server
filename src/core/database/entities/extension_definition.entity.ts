@@ -1,6 +1,4 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User_definition } from './user_definition.entity';
-import { Menu_definition } from './menu_definition.entity';
 
 @Entity('extension_definition')
 @Unique(['menu'])

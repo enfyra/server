@@ -11,6 +11,7 @@ import { SchemaHistoryService } from './schema-history.service';
 import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import { clearOldEntitiesJs } from '../utils/clear-old-entities';
 import { GraphqlService } from '../../graphql/services/graphql.service';
+import { SwaggerService } from '../../../infrastructure/swagger/services/swagger.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { ResourceNotFoundException } from '../../../core/exceptions/custom-exceptions';
 import { SchemaReloadService } from './schema-reload.service';
@@ -34,6 +35,8 @@ export class MetadataSyncService {
     private dataSourceService: DataSourceService,
     @Inject(forwardRef(() => GraphqlService))
     private graphqlService: GraphqlService,
+    @Inject(forwardRef(() => SwaggerService))
+    private swaggerService: SwaggerService,
     @Inject(forwardRef(() => LoggingService))
     private loggingService: LoggingService,
     @Inject(forwardRef(() => SchemaReloadService))
@@ -291,6 +294,7 @@ export class MetadataSyncService {
         Promise.all([
           this.dataSourceService.reloadDataSource(),
           this.graphqlService.reloadSchema(),
+          this.swaggerService.reloadSwagger(),
         ]),
         // Run migration (now that it's generated)
         (async () => {

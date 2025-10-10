@@ -1,8 +1,4 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable, OneToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { Route_permission_definition } from './route_permission_definition.entity';
-import { Route_definition } from './route_definition.entity';
-import { Route_handler_definition } from './route_handler_definition.entity';
-import { Hook_definition } from './hook_definition.entity';
 
 @Entity('method_definition')
 export class Method_definition {

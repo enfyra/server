@@ -1,7 +1,5 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, ManyToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { HiddenField } from '../../../shared/decorators/hidden-field.decorator';
-import { Role_definition } from './role_definition.entity';
-import { Route_permission_definition } from './route_permission_definition.entity';
 
 @Entity('user_definition')
 @Unique(['email'])

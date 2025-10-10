@@ -1,6 +1,4 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, OneToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User_definition } from './user_definition.entity';
-import { File_definition } from './file_definition.entity';
 
 @Entity('folder_definition')
 @Unique(['parent', 'slug'])

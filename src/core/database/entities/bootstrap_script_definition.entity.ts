@@ -1,5 +1,4 @@
 import { Entity, Unique, Index, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User_definition } from './user_definition.entity';
 
 @Entity('bootstrap_script_definition')
 @Unique(['name'])

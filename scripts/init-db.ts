@@ -199,23 +199,6 @@ async function writeEntitiesFromSnapshot() {
       }
     }
 
-    // Thêm class-level @Index cho foreign key fields
-    const tableIndexFields = indexFields.get(tableName) || [];
-    for (const fieldName of tableIndexFields) {
-      // Check xem field có bị block bởi unique constraint đơn lẻ không
-      // (Unique cụm vẫn cho phép thêm index riêng lẻ)
-      const isBlockedBySingleUnique = allUniqueKeys.has(fieldName);
-
-      // Chỉ thêm nếu field không bị block bởi unique constraint đơn lẻ
-      if (!isBlockedBySingleUnique) {
-        classDeclaration.addDecorator({
-          name: 'Index',
-          arguments: [`['${fieldName}']`],
-        });
-        usedImports.add('Index');
-      }
-    }
-
     for (const col of (def as any).columns) {
       const decorators: any[] = [];
 
@@ -397,6 +380,23 @@ async function writeEntitiesFromSnapshot() {
         type: 'any',
         decorators,
       });
+    }
+
+    // Thêm class-level @Index cho foreign key fields (sau khi đã collect từ relations)
+    const tableIndexFields = indexFields.get(tableName) || [];
+    for (const fieldName of tableIndexFields) {
+      // Check xem field có bị block bởi unique constraint đơn lẻ không
+      // (Unique cụm vẫn cho phép thêm index riêng lẻ)
+      const isBlockedBySingleUnique = allUniqueKeys.has(fieldName);
+
+      // Chỉ thêm nếu field không bị block bởi unique constraint đơn lẻ
+      if (!isBlockedBySingleUnique) {
+        classDeclaration.addDecorator({
+          name: 'Index',
+          arguments: [`['${fieldName}']`],
+        });
+        usedImports.add('Index');
+      }
     }
 
     classDeclaration.addProperty({

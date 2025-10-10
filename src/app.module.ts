@@ -37,6 +37,7 @@ import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware
 import { RouteDetectMiddleware } from './shared/middleware/route-detect.middleware';
 import { FileManagementModule } from './modules/file-management/file-management.module';
 import { PackageManagementModule } from './modules/package-management/package-management.module';
+import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/swagger.module';
 
 @Global()
 @Module({
@@ -84,6 +85,7 @@ import { PackageManagementModule } from './modules/package-management/package-ma
     FileManagementModule,
     PackageManagementModule,
     MeModule,
+    EnfyraSwaggerModule,
     DynamicModule,
     BootstrapModule,
     GraphqlModule,

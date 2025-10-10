@@ -1,8 +1,4 @@
 import { Entity, Index, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable, ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User_definition } from './user_definition.entity';
-import { Role_definition } from './role_definition.entity';
-import { Route_definition } from './route_definition.entity';
-import { Method_definition } from './method_definition.entity';
 
 @Entity('route_permission_definition')
 @Index(['role'])
