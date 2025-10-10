@@ -94,10 +94,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
           ...matchedRoute.route.targetTables?.filter(
             (route) => !systemTables.includes(route?.name),
           ),
-        ]?.map(async (table) => {
+        ]?.filter(table => table?.name)?.map(async (table) => {
           const dynamicRepo = new DynamicRepository({
             context: null, // Will be set later to avoid circular reference
-            tableName: table?.name,
+            tableName: table.name,
             tableHandlerService: this.tableHandlerService,
             dataSourceService: this.dataSourceService,
             queryEngine: this.queryEngine,
