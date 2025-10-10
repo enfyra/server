@@ -15,7 +15,7 @@ export class SwaggerController {
     // Serve Swagger UI HTML
     const html = this.generateSwaggerHTML(spec);
     res.setHeader('Content-Type', 'text/html');
-    return res.send(html);
+    res.send(html);
   }
 
   @Get('json')
