@@ -492,8 +492,10 @@ export class TableHandlerService {
       // Delete M2M relations in junction table (route_definition_targetTables_table_definition)
       const junctionTableName = 'route_definition_targetTables_table_definition';
       if (await knex.schema.hasTable(junctionTableName)) {
+        const { getForeignKeyColumnName } = await import('../../../shared/utils/naming-helpers');
+        const fkColumn = getForeignKeyColumnName('table_definition');
         await knex(junctionTableName)
-          .where({ table_definitionId: id })
+          .where({ [fkColumn]: id })
           .delete();
         this.logger.log(`🗑️ Deleted junction records for table ${id}`);
       }

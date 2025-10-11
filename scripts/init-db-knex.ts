@@ -546,9 +546,11 @@ async function createJunctionTables(
         // Composite primary key
         table.primary([junction.sourceColumn, junction.targetColumn]);
 
-        // Auto-index both FK columns
-        table.index([junction.sourceColumn]);
-        table.index([junction.targetColumn]);
+        // Auto-index both FK columns with short names
+        const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
+        const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+        table.index([junction.sourceColumn], sourceIndexName);
+        table.index([junction.targetColumn], targetIndexName);
       });
 
       console.log(`✅ Created junction table: ${junction.tableName}`);

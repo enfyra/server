@@ -24,9 +24,13 @@ export async function populateOneToManyRelations(
     j.parentAlias !== rootTableName && !m2mAliases.has(j.parentAlias)
   );
 
-  // Populate root-level one-to-many relations
+  // Populate root-level one-to-many and many-to-many relations
   for (const join of rootJoins) {
-    await populateSingleO2M(rows, join, selectArr, aliasToMeta, metadataGetter, knex);
+    if (join.relation.type === 'many-to-many') {
+      await populateSingleM2M(rows, join, selectArr, aliasToMeta, metadataGetter, knex);
+    } else {
+      await populateSingleO2M(rows, join, selectArr, aliasToMeta, metadataGetter, knex);
+    }
   }
 
   // Populate nested one-to-many relations (children of M2O)
@@ -40,6 +44,70 @@ export async function populateOneToManyRelations(
   }
 
   return rows;
+}
+
+/**
+ * Populate a single root-level many-to-many relation
+ */
+async function populateSingleM2M(
+  parentRows: any[],
+  join: any,
+  selectArr: string[],
+  aliasToMeta: Map<string, any>,
+  metadataGetter: (tableName: string) => any,
+  knex: any,
+): Promise<void> {
+  const relationName = join.propertyPath;
+  const relation = join.relation;
+  const targetTable = relation.targetTableName;
+  const junctionTable = relation.junctionTableName;
+  const sourceColumn = relation.junctionSourceColumn;
+  const targetColumn = relation.junctionTargetColumn;
+  
+  if (!junctionTable || !sourceColumn || !targetColumn) {
+    console.warn(`[QueryEngine] M2M relation "${relationName}" missing junction table info`);
+    return;
+  }
+
+  // Get parent IDs
+  const parentIds = [...new Set(parentRows.map(r => r.id))].filter(id => id != null);
+  if (parentIds.length === 0) return;
+
+  // Determine which fields to select
+  const relAlias = join.alias;
+  const relFields = selectArr
+    .filter(f => f.startsWith(`${relAlias}.`))
+    .map(f => f.split('.')[1]);
+
+  if (relFields.length === 0) {
+    relFields.push('id');
+  }
+
+  // Query through junction table
+  const childRows = await knex(targetTable)
+    .join(junctionTable, `${targetTable}.id`, `${junctionTable}.${targetColumn}`)
+    .whereIn(`${junctionTable}.${sourceColumn}`, parentIds)
+    .select([
+      ...relFields.map(f => `${targetTable}.${f}`),
+      `${junctionTable}.${sourceColumn} as __parentId`
+    ]);
+
+  // Group by parent ID
+  const childrenByParent = new Map<any, any[]>();
+  for (const child of childRows) {
+    const parentId = child.__parentId;
+    delete child.__parentId;
+    
+    if (!childrenByParent.has(parentId)) {
+      childrenByParent.set(parentId, []);
+    }
+    childrenByParent.get(parentId).push(child);
+  }
+
+  // Assign to parent rows
+  for (const parent of parentRows) {
+    parent[relationName] = childrenByParent.get(parent.id) || [];
+  }
 }
 
 /**

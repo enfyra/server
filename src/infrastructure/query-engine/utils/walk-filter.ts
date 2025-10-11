@@ -134,9 +134,6 @@ export function walkFilter({
                 for (const op in aggVal) {
                   const opSymbol = operatorMap[op];
                   if (!opSymbol) {
-                    console.log(
-                      `[Aggregate] ❌ Unsupported _count operator: ${op}`,
-                    );
                     continue;
                   }
 
@@ -144,10 +141,6 @@ export function walkFilter({
                   try {
                     parsedValue = parseValue('number', aggVal[op]);
                   } catch {
-                    console.log(
-                      `[Aggregate] ❌ Invalid value for _count.${op}:`,
-                      aggVal[op],
-                    );
                     continue;
                   }
 
@@ -165,9 +158,6 @@ export function walkFilter({
                 for (const field in aggVal) {
                   const ops = aggVal[field];
                   if (typeof ops !== 'object') {
-                    console.log(
-                      `[Aggregate] ❌ Invalid block: ${aggKey}.${field}`,
-                    );
                     continue;
                   }
 
@@ -175,10 +165,6 @@ export function walkFilter({
                     (c: any) => (c.name || c.propertyName) === field,
                   );
                   if (!fieldMeta) {
-                    console.log(
-                      `[Aggregate] ❌ Unknown field in ${nextMeta.name || nextMeta.tableName}:`,
-                      field,
-                    );
                     continue;
                   }
 
@@ -191,9 +177,6 @@ export function walkFilter({
                   for (const op in ops) {
                     const opSymbol = operatorMap[op];
                     if (!opSymbol) {
-                      console.log(
-                        `[Aggregate] ❌ Unsupported operator: ${aggKey}.${field}.${op}`,
-                      );
                       continue;
                     }
 
@@ -201,10 +184,6 @@ export function walkFilter({
                     try {
                       parsedValue = parseValue(fieldType, ops[op]);
                     } catch {
-                      console.log(
-                        `[Aggregate] ❌ Cannot parse value for ${aggKey}.${field}.${op}:`,
-                        ops[op],
-                      );
                       continue;
                     }
 
@@ -212,9 +191,6 @@ export function walkFilter({
                       parsedValue === null ||
                       (typeof parsedValue === 'number' && isNaN(parsedValue))
                     ) {
-                      console.log(
-                        `[Aggregate] ❌ Invalid parsed value for ${aggKey}.${field}.${op}`,
-                      );
                       continue;
                     }
 

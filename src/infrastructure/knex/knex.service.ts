@@ -95,9 +95,24 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    // Hook 2: Add timestamps on insert
+    // Hook 2: Strip unknown columns (not in metadata)
     this.addHook('beforeInsert', (tableName, data) => {
-      const now = this.knexInstance.fn.now();
+      if (Array.isArray(data)) {
+        return data.map(record => this.stripUnknownColumns(tableName, record));
+      } else {
+        return this.stripUnknownColumns(tableName, data);
+      }
+    });
+
+    // Hook 3: Add timestamps on insert (skip for junction tables)
+    this.addHook('beforeInsert', (tableName, data) => {
+      // Skip timestamps for junction tables (format: table1_property_table2)
+      if (this.isJunctionTable(tableName)) {
+        return data;
+      }
+
+      // Use knex.raw() to ensure CURRENT_TIMESTAMP is treated as SQL function
+      const now = this.knexInstance.raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
         return data.map(record => ({
           ...record,
@@ -113,31 +128,73 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    // Hook 3: Transform relations to FK before update
-    this.addHook('beforeUpdate', (tableName, data) => {
+    // Hook 4: Transform relations and sync M2M junction tables before update
+    this.addHook('beforeUpdate', async (tableName, data) => {
+      // First, sync M2M junction tables
+      await this.syncManyToManyRelations(tableName, data);
+      
+      // Then transform relations to FK
       return this.transformRelationsToFK(tableName, data);
     });
 
-    // Hook 4: Strip createdAt and non-updatable fields on update
+    // Hook 5: Strip unknown columns before update
+    this.addHook('beforeUpdate', (tableName, data) => {
+      return this.stripUnknownColumns(tableName, data);
+    });
+
+    // Hook 6: Strip createdAt and non-updatable fields on update
     this.addHook('beforeUpdate', (tableName, data) => {
       const { createdAt, updatedAt, ...updateData } = data;
       return this.stripNonUpdatableFields(tableName, updateData);
     });
 
-    // Hook 5: Auto update updatedAt timestamp
+    // Hook 7: Auto update updatedAt timestamp (skip for junction tables)
     this.addHook('beforeUpdate', (tableName, data) => {
+      // Skip timestamps for junction tables
+      if (this.isJunctionTable(tableName)) {
+        return data;
+      }
+      
       return {
         ...data,
-        updatedAt: this.knexInstance.fn.now(),
+        updatedAt: this.knexInstance.raw('CURRENT_TIMESTAMP'),
       };
     });
 
-    // Hook 6: Parse JSON fields after select
+    // Hook 8: Parse JSON fields after select
     this.addHook('afterSelect', (tableName, result) => {
       return this.autoParseJsonFields(result, { table: tableName });
     });
 
-    this.logger.log('🪝 Default hooks registered: relations, timestamps, JSON parsing');
+    this.logger.log('🪝 Default hooks registered: strip unknown, relations, timestamps, JSON parsing');
+  }
+
+  /**
+   * Check if table is a junction table (M2M)
+   * Junction tables follow pattern: table1_property_table2
+   * They contain 2+ foreign key columns and no timestamps
+   */
+  private isJunctionTable(tableName: string): boolean {
+    // Check naming pattern: must have at least 2 underscores connecting 3 parts
+    // Examples: route_definition_targetTables_table_definition
+    //           method_definition_routes_route_definition
+    const parts = tableName.split('_');
+    
+    // Junction tables typically have format: source_property_target (at least 3 segments)
+    // And often contain another table name as suffix
+    // Simple heuristic: if table name contains another known table pattern
+    if (parts.length >= 3) {
+      // Check if it contains a camelCase property name (like targetTables, routes)
+      // or ends with another table name (like _table_definition, _route_definition)
+      const hasCamelCase = /[a-z][A-Z]/.test(tableName);
+      const hasMultipleTableSuffixes = (tableName.match(/_definition/g) || []).length >= 2;
+      
+      if (hasCamelCase || hasMultipleTableSuffixes) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   addHook(event: keyof typeof this.hooks, handler: any): void {
@@ -326,6 +383,97 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     }
 
     return transformed;
+  }
+
+  /**
+   * Sync many-to-many junction tables before update
+   */
+  private async syncManyToManyRelations(tableName: string, data: any): Promise<void> {
+    if (!tableName || !this.currentMetadata || !data.id) {
+      return;
+    }
+
+    const tableMeta = this.currentMetadata.tables?.get?.(tableName) || 
+                      this.currentMetadata.tablesList?.find((t: any) => t.name === tableName);
+    
+    if (!tableMeta || !tableMeta.relations) {
+      return;
+    }
+
+    // Process M2M relations
+    for (const relation of tableMeta.relations) {
+      if (relation.type !== 'many-to-many') continue;
+      
+      const relationName = relation.propertyName;
+      if (!(relationName in data)) continue;
+
+      const junctionTable = relation.junctionTableName;
+      const sourceColumn = relation.junctionSourceColumn;
+      const targetColumn = relation.junctionTargetColumn;
+
+      if (!junctionTable || !sourceColumn || !targetColumn) continue;
+
+      const newIds = Array.isArray(data[relationName]) 
+        ? data[relationName].map((item: any) => 
+            typeof item === 'object' ? item.id : item
+          ).filter((id: any) => id != null)
+        : [];
+
+      // Clear existing junction records
+      await this.knexInstance(junctionTable)
+        .where(sourceColumn, data.id)
+        .delete();
+
+      // Insert new junction records
+      if (newIds.length > 0) {
+        const junctionData = newIds.map((targetId: any) => ({
+          [sourceColumn]: data.id,
+          [targetColumn]: targetId,
+        }));
+        
+        await this.knexInstance(junctionTable).insert(junctionData);
+      }
+    }
+  }
+
+  /**
+   * Strip columns that don't exist in table metadata
+   * Prevents "Unknown column" errors
+   */
+  private stripUnknownColumns(tableName: string, data: any): any {
+    if (!tableName || !this.currentMetadata) {
+      return data;
+    }
+
+    const tableMeta = this.currentMetadata.tables?.get?.(tableName) || 
+                      this.currentMetadata.tablesList?.find((t: any) => t.name === tableName);
+    
+    if (!tableMeta || !tableMeta.columns) {
+      return data;
+    }
+
+    // Get list of valid column names
+    const validColumns = new Set(tableMeta.columns.map((col: any) => col.name));
+    
+    // Also allow FK columns from relations
+    if (tableMeta.relations) {
+      for (const rel of tableMeta.relations) {
+        if (rel.foreignKeyColumn) {
+          validColumns.add(rel.foreignKeyColumn);
+        }
+      }
+    }
+
+    const stripped = { ...data };
+    
+    // Remove any field not in valid columns
+    for (const key of Object.keys(stripped)) {
+      if (!validColumns.has(key)) {
+        delete stripped[key];
+      }
+    }
+
+    return stripped;
   }
 
   /**

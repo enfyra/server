@@ -161,18 +161,11 @@ export class QueryEngine {
 
       // Execute query
       const sql = query.toQuery();
-      console.log('🔍 SQL Query:', sql);
       this.log.push(`SQL: ${sql}`);
       let rows = await query;
-      console.log('🔍 First row:', rows[0]);
       this.log.push(`Rows returned: ${rows.length}`);
       if (rows.length > 0) {
         this.log.push(`First row keys: ${Object.keys(rows[0]).join(', ')}`);
-      }
-
-      // Debug: Log raw rows before remapRelations
-      if (debugMode && rows.length > 0) {
-        console.log(`🔍 [DEBUG] Raw rows before remapRelations:`, Object.keys(rows[0]));
       }
       
       // Store raw rows for debug

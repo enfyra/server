@@ -22,6 +22,7 @@ export class DynamicService {
   ) {}
 
   async runHandler(req: RequestWithRouteData) {
+    const startTime = Date.now();
     // Calculate timeout outside try block so it's available in catch
     const isTableDefinitionOperation =
       req.routeData.mainTable?.name === 'table_definition' ||
