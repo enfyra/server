@@ -35,7 +35,8 @@ export function separateJoinsByType(
         o2mJoins.push({ ...join, relation });
         o2mAliases.add(join.alias);
       } else if (relation.type === 'many-to-many') {
-        regularJoins.push({ ...join, relation });
+        // M2M also needs separate population to avoid row multiplication
+        o2mJoins.push({ ...join, relation });
         m2mAliases.add(join.alias);
       } else {
         regularJoins.push({ ...join, relation });

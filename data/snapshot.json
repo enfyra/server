@@ -142,8 +142,8 @@
             { "name": "description", "type": "text", "isSystem": true }
         ],
         "relations": [
-            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": false },
-            { "propertyName": "method", "type": "many-to-one", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": false }
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": true },
+            { "propertyName": "method", "type": "many-to-one", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": true }
 
         ]
     },

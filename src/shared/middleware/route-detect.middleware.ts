@@ -31,9 +31,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
 
   async use(req: any, res: any, next: (error?: any) => void) {
     const method = req.method;
-
     const routes: any[] = await this.routeCacheService.getRoutes();
-
     const matchedRoute = this.findMatchedRoute(routes, req.baseUrl, method);
     const systemTables = [
       'table_definition',
@@ -130,6 +128,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
       if (context.$repos[mainTableName]) {
         context.$repos.main = context.$repos[mainTableName];
       }
+      
       const { route, params } = matchedRoute;
 
       const filteredHooks = route.hooks.filter((hook: any) => {

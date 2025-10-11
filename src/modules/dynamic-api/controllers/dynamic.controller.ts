@@ -20,18 +20,6 @@ export class DynamicController {
       user: any;
     },
   ) {
-    const result = await this.dynamicService.runHandler(req);
-    
-    // DEBUG: Log result from DynamicService
-    if (result?.data && result.data.length > 0 && result.data[0].createdAt !== undefined) {
-      console.log('🔍 [DEBUG] DynamicController result:', {
-        createdAt: result.data[0].createdAt,
-        type: typeof result.data[0].createdAt,
-        isDate: result.data[0].createdAt instanceof Date,
-        json: JSON.stringify(result.data[0])
-      });
-    }
-    
-    return result;
+    return await this.dynamicService.runHandler(req);
   }
 }

@@ -3,6 +3,7 @@ import { KnexService } from '../../knex/knex.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { ROUTE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
+import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
 
 @Injectable()
 export class RouteCacheService implements OnModuleInit {
@@ -72,6 +73,7 @@ export class RouteCacheService implements OnModuleInit {
     this.logger.log('🔄 Reloading routes cache...');
 
     const routes = await this.loadRoutes();
+    
     this.routesCache = routes;
     this.cacheLoaded = true;
 
@@ -107,6 +109,11 @@ export class RouteCacheService implements OnModuleInit {
   private async loadRoutes(): Promise<any[]> {
     const knex = this.knexService.getKnex();
 
+    // Get FK column names using naming convention
+    const routeDefinitionIdCol = getForeignKeyColumnName('route_definition');
+    const methodDefinitionIdCol = getForeignKeyColumnName('method_definition');
+    const tableDefinitionIdCol = getForeignKeyColumnName('table_definition');
+
     // Load all data in parallel with manual JOINs
     // Note: Bootstrap code - metadata not loaded yet, cannot use .withRelations()
     const [
@@ -116,6 +123,7 @@ export class RouteCacheService implements OnModuleInit {
       allHandlers,
       allPermissions,
       allTables,
+      allMethods,
       allPublishedMethodsJunctions,
       allTargetTablesJunctions,
     ] = await Promise.all([
@@ -133,11 +141,13 @@ export class RouteCacheService implements OnModuleInit {
         .leftJoin('role_definition as role', 'route_permission_definition.roleId', 'role.id')
         .select('route_permission_definition.*', 'role.id as role_id', 'role.name as role_name'),
       knex('table_definition').select('*'),
+      knex('method_definition').select('*'),
       knex('method_definition_routes_route_definition').select('*'),
       knex('route_definition_targetTables_table_definition').select('*'),
     ]);
 
     const tablesMap = new Map(allTables.map((t: any) => [t.id, t]));
+    const methodsMap = new Map(allMethods.map((m: any) => [m.id, m]));
 
     const hooksByRoute = new Map();
     allHooks.forEach((hook: any) => {
@@ -167,18 +177,22 @@ export class RouteCacheService implements OnModuleInit {
 
     const publishedMethodsByRoute = new Map();
     allPublishedMethodsJunctions.forEach((j: any) => {
-      if (!publishedMethodsByRoute.has(j.routeDefinitionId)) {
-        publishedMethodsByRoute.set(j.routeDefinitionId, []);
+      const routeId = j[routeDefinitionIdCol];
+      const methodId = j[methodDefinitionIdCol];
+      if (!publishedMethodsByRoute.has(routeId)) {
+        publishedMethodsByRoute.set(routeId, []);
       }
-      publishedMethodsByRoute.get(j.routeDefinitionId).push(j.methodDefinitionId);
+      publishedMethodsByRoute.get(routeId).push(methodId);
     });
 
     const targetTablesByRoute = new Map();
     allTargetTablesJunctions.forEach((j: any) => {
-      if (!targetTablesByRoute.has(j.routeDefinitionId)) {
-        targetTablesByRoute.set(j.routeDefinitionId, []);
+      const routeId = j[routeDefinitionIdCol];
+      const tableId = j[tableDefinitionIdCol];
+      if (!targetTablesByRoute.has(routeId)) {
+        targetTablesByRoute.set(routeId, []);
       }
-      targetTablesByRoute.get(j.routeDefinitionId).push(j.tableDefinitionId);
+      targetTablesByRoute.get(routeId).push(tableId);
     });
 
     for (const route of routes) {
@@ -198,10 +212,10 @@ export class RouteCacheService implements OnModuleInit {
         .map((tid: any) => tablesMap.get(tid))
         .filter(Boolean);
 
-      // Map publishedMethods from junction  
+      // Map publishedMethods from junction with full method data
       const publishedMethodIds = publishedMethodsByRoute.get(route.id) || [];
       route.publishedMethods = publishedMethodIds
-        .map((mid: any) => ({ id: mid }))
+        .map((mid: any) => methodsMap.get(mid))
         .filter(Boolean);
       
       // Nest handlers (from JOIN)

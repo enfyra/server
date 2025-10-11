@@ -192,11 +192,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           'targetTable.name as targetTableName'
         );
 
-      // Debug: Log relations data
-      if (table.name === 'menu_definition') {
-        console.log(`🔍 [DEBUG] Relations for ${table.name}:`, JSON.stringify(relationsData, null, 2));
-      }
-
       const relations: any[] = [];
       for (const rel of relationsData) {
         // Parse boolean fields for relation
@@ -216,11 +211,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         // Calculate foreign key column name for many-to-one and one-to-one
         if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
           relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
-        }
-
-        // Debug: Log relation metadata
-        if (table.name === 'menu_definition' && rel.propertyName === 'sidebar') {
-          console.log(`🔍 [DEBUG] Sidebar relation metadata:`, JSON.stringify(relationMetadata, null, 2));
         }
 
         // Use junction table info from DB for many-to-many

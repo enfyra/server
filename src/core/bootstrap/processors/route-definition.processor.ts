@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
 
 @Injectable()
 export class RouteDefinitionProcessor extends BaseTableProcessor {
@@ -60,15 +61,19 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methodIds = methods.map((m: any) => m.id);
       
       if (methodIds.length > 0) {
+        // Get FK column names using naming convention
+        const routeIdCol = getForeignKeyColumnName('route_definition');
+        const methodIdCol = getForeignKeyColumnName('method_definition');
+        
         // Clear existing junction records
         await knex('method_definition_routes_route_definition')
-          .where('routeDefinitionId', record.id)
+          .where(routeIdCol, record.id)
           .delete();
         
         // Insert new junction records
         const junctionData = methodIds.map((methodId) => ({
-          methodDefinitionId: methodId,
-          routeDefinitionId: record.id,
+          [methodIdCol]: methodId,
+          [routeIdCol]: record.id,
         }));
         
         await knex('method_definition_routes_route_definition').insert(junctionData);
