@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { Knex } from 'knex';
 import { Logger } from '@nestjs/common';
 
 export interface UpsertResult {
@@ -9,23 +9,19 @@ export interface UpsertResult {
 export abstract class BaseTableProcessor {
   protected readonly logger = new Logger(this.constructor.name);
 
-  /**
-   * Transform raw records before upsert (override if needed)
-   */
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     return records;
   }
 
-  /**
-   * Get unique identifier to find existing record (must implement)
-   */
   abstract getUniqueIdentifier(record: any): object | object[];
 
   /**
-   * Get human-readable identifier for logging (can be overridden)
+   * Optional hook called after record is inserted/updated
+   * Can be overridden to handle junction tables or other post-processing
    */
+  async afterUpsert?(record: any, isNew: boolean, context?: any): Promise<void>;
+
   protected getRecordIdentifier(record: any): string {
-    // Default implementation - can be overridden in subclasses
     if (record.name) return record.name;
     if (record.label) return record.label;
     if (record.path) return record.path;
@@ -35,15 +31,16 @@ export abstract class BaseTableProcessor {
     return JSON.stringify(record).substring(0, 50) + '...';
   }
 
-  /**
-   * Process upsert for all records
-   */
-  async process(records: any[], repo: Repository<any>, context?: any): Promise<UpsertResult> {
+  async processKnex(
+    records: any[],
+    knex: Knex,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
 
-    // Transform records if needed
     const transformedRecords = await this.transformRecords(records, context);
     
     let createdCount = 0;
@@ -54,45 +51,46 @@ export abstract class BaseTableProcessor {
         const uniqueWhere = this.getUniqueIdentifier(record);
         const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
 
-        // Try to find existing record
         let existingRecord = null;
         for (const whereCondition of whereConditions) {
-          // Remove many-to-many fields from where condition to avoid query errors
           const cleanedCondition = { ...whereCondition };
           for (const key in cleanedCondition) {
-            if (Array.isArray(cleanedCondition[key]) && cleanedCondition[key].length > 0 && typeof cleanedCondition[key][0] === 'object') {
-              // This looks like a many-to-many relation, remove it
+            if (Array.isArray(cleanedCondition[key])) {
               delete cleanedCondition[key];
             }
           }
           
-          existingRecord = await repo.findOne({ where: cleanedCondition });
+          existingRecord = await knex(tableName).where(cleanedCondition).first();
           if (existingRecord) break;
         }
 
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
-            await this.updateRecord(existingRecord.id, record, repo);
-            skippedCount++; // Count as skipped since not created new
-            const identifier = this.getRecordIdentifier(record);
-            this.logger.log(`   🔄 Updated: ${identifier}`);
+            await this.updateRecordKnex(existingRecord.id, record, knex, tableName);
+            skippedCount++;
+            this.logger.log(`   🔄 Updated: ${this.getRecordIdentifier(record)}`);
           } else {
             skippedCount++;
-            const identifier = this.getRecordIdentifier(record);
-            this.logger.log(`   ⏩ Skipped (no changes): ${identifier}`);
+            this.logger.log(`   ⏩ Skipped: ${this.getRecordIdentifier(record)}`);
+          }
+          // Call afterUpsert hook with existing record
+          if (this.afterUpsert) {
+            await this.afterUpsert({ ...record, id: existingRecord.id }, false, context);
           }
         } else {
-          // Create new record
-          const created = repo.create(record);
-          await repo.save(created);
+          const cleanedRecord = this.cleanRecordForKnex(record);
+          const [insertedId] = await knex(tableName).insert(cleanedRecord);
           createdCount++;
-          const identifier = this.getRecordIdentifier(record);
-          this.logger.log(`   ✅ Created: ${identifier}`);
+          this.logger.log(`   ✅ Created: ${this.getRecordIdentifier(record)}`);
+          
+          // Call afterUpsert hook with new record
+          if (this.afterUpsert) {
+            await this.afterUpsert({ ...record, id: insertedId }, true, context);
+          }
         }
       } catch (error) {
-        this.logger.error(`❌ Error processing record: ${error.message}`);
-        this.logger.debug(`Record: ${JSON.stringify(record)}`);
+        this.logger.error(`❌ Error: ${error.message}`);
       }
     }
 
@@ -119,38 +117,58 @@ export abstract class BaseTableProcessor {
     if (newValue === null || existingValue === null) return true;
     if (newValue === undefined || existingValue === undefined) return true;
     
-    if (typeof newValue === 'object' && typeof existingValue === 'object') {
-      return JSON.stringify(newValue) !== JSON.stringify(existingValue);
+    if (typeof newValue === 'object' && !(newValue instanceof Date)) {
+      let parsedExisting = existingValue;
+      if (typeof existingValue === 'string') {
+        try {
+          parsedExisting = JSON.parse(existingValue);
+        } catch (e) {
+        }
+      }
+      
+      if (typeof parsedExisting === 'object') {
+        return JSON.stringify(newValue) !== JSON.stringify(parsedExisting);
+      }
     }
     
     return newValue !== existingValue;
   }
 
-  protected async updateRecord(existingId: any, record: any, repo: Repository<any>): Promise<void> {
-    // Separate many-to-many fields from regular fields
-    const regularFields: any = {};
-    const manyToManyFields: any = {};
+  protected cleanRecordForKnex(record: any): any {
+    const cleaned: any = {};
     
     for (const key in record) {
-      if (Array.isArray(record[key]) && record[key].length > 0 && typeof record[key][0] === 'object') {
-        // This looks like a many-to-many relation
-        manyToManyFields[key] = record[key];
+      if (key.startsWith('_')) {
+        continue;
+      }
+      
+      const value = record[key];
+      
+      if (Array.isArray(value)) {
+        continue;
+      }
+      
+      if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+        cleaned[key] = JSON.stringify(value);
       } else {
-        regularFields[key] = record[key];
+        cleaned[key] = value;
       }
     }
     
-    // Update regular fields first
-    if (Object.keys(regularFields).length > 0) {
-      await repo.update(existingId, regularFields);
-    }
+    return cleaned;
+  }
+
+  protected async updateRecordKnex(
+    existingId: any,
+    record: any,
+    knex: Knex,
+    tableName: string,
+  ): Promise<void> {
+    const cleanedRecord = this.cleanRecordForKnex(record);
     
-    // Then handle many-to-many relations using save
-    if (Object.keys(manyToManyFields).length > 0) {
-      await repo.save({
-        id: existingId,
-        ...manyToManyFields
-      });
+    if (Object.keys(cleanedRecord).length > 0) {
+      await knex(tableName).where('id', existingId).update(cleanedRecord);
     }
   }
+
 }

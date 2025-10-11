@@ -1,12 +1,13 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { CommonService } from '../common/services/common.service';
-import { DataSourceService } from '../../core/database/data-source/data-source.service';
+import { KnexService } from '../../infrastructure/knex/knex.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
 import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynamic.repository';
 import { TDynamicContext } from '../interfaces/dynamic-context.interface';
 import { QueryEngine } from '../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
+import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
@@ -17,11 +18,12 @@ import { CacheService } from '../../infrastructure/cache/services/cache.service'
 export class RouteDetectMiddleware implements NestMiddleware {
   constructor(
     private commonService: CommonService,
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
     private jwtService: JwtService,
     private queryEngine: QueryEngine,
     private tableHandlerService: TableHandlerService,
     private routeCacheService: RouteCacheService,
+    private metadataCacheService: MetadataCacheService,
     private systemProtectionService: SystemProtectionService,
     private cacheService: CacheService,
     private bcryptService: BcryptService,
@@ -30,7 +32,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
   async use(req: any, res: any, next: (error?: any) => void) {
     const method = req.method;
 
-    const routes: any[] = await this.routeCacheService.getRoutesWithSWR();
+    const routes: any[] = await this.routeCacheService.getRoutes();
 
     const matchedRoute = this.findMatchedRoute(routes, req.baseUrl, method);
     const systemTables = [
@@ -99,9 +101,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
             context: null, // Will be set later to avoid circular reference
             tableName: table.name,
             tableHandlerService: this.tableHandlerService,
-            dataSourceService: this.dataSourceService,
+            knexService: this.knexService,
             queryEngine: this.queryEngine,
             routeCacheService: this.routeCacheService,
+            metadataCacheService: this.metadataCacheService,
             systemProtectionService: this.systemProtectionService,
             bootstrapScriptService: undefined, // Not available in middleware context
           });
@@ -193,59 +196,34 @@ export class RouteDetectMiddleware implements NestMiddleware {
     const remoteAddress = req.connection?.remoteAddress || req.socket?.remoteAddress;
     const reqIP = req.ip;
 
-    // Debug logging
-    console.log('🔍 IP Detection Debug:');
-    console.log('- x-forwarded-for:', forwardedFor);
-    console.log('- x-real-ip:', realIP);
-    console.log('- cf-connecting-ip:', cfConnectingIP);
-    console.log('- req.ip:', reqIP);
-    console.log('- remoteAddress:', remoteAddress);
-
     let clientIP: string;
 
-    // 1. Check X-Forwarded-For (most common with proxies/load balancers)
     if (forwardedFor) {
-      // X-Forwarded-For: client, proxy1, proxy2
       clientIP = forwardedFor.split(',')[0].trim();
-      console.log('✅ Using X-Forwarded-For:', clientIP);
     }
-    // 2. Check X-Real-IP (nginx proxy)
     else if (realIP) {
       clientIP = realIP;
-      console.log('✅ Using X-Real-IP:', clientIP);
     }
-    // 3. Check CF-Connecting-IP (Cloudflare)
     else if (cfConnectingIP) {
       clientIP = cfConnectingIP;
-      console.log('✅ Using CF-Connecting-IP:', clientIP);
     }
-    // 4. Check req.ip (Express with trust proxy)
     else if (reqIP && reqIP !== '::1' && reqIP !== '127.0.0.1') {
       clientIP = reqIP;
-      console.log('✅ Using req.ip:', clientIP);
     }
-    // 5. Check remoteAddress (direct connection)
     else if (remoteAddress && remoteAddress !== '::1' && remoteAddress !== '127.0.0.1') {
       clientIP = remoteAddress;
-      console.log('✅ Using remoteAddress:', clientIP);
     }
-    // 6. Fallback to req.ip or remoteAddress
     else {
       clientIP = reqIP || remoteAddress || 'unknown';
-      console.log('⚠️ Using fallback IP:', clientIP);
     }
 
-    // Normalize IPv6 mapped IPv4
     if (clientIP === '::1') {
       clientIP = '127.0.0.1';
     }
 
-    // Remove IPv6 prefix if present
     if (clientIP?.startsWith('::ffff:')) {
       clientIP = clientIP.substring(7);
     }
-
-    console.log('🎯 Final client IP:', clientIP);
     return clientIP;
   }
 }

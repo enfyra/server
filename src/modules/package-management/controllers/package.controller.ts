@@ -15,7 +15,7 @@ import {
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
-import { DataSourceService } from '../../../core/database';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 
 @Controller('package_definition')
 export class PackageController {
@@ -24,7 +24,7 @@ export class PackageController {
   constructor(
     private packageManagementService: PackageManagementService,
     private packageCacheService: PackageCacheService,
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
   ) {}
 
   @Post()
@@ -103,15 +103,13 @@ export class PackageController {
         );
       }
 
-      // Save to database using TypeORM directly to control isSystem field
-      const typeormRepo =
-        this.dataSourceService.getRepository('package_definition');
-
-      const savedPackage: any = await typeormRepo.save({
+      // Save to database using Knex
+      const knex = this.knexService.getKnex();
+      const [savedPackageId] = await knex('package_definition').insert({
         ...body,
         version: installationResult.version,
         description: body.description || installationResult.description || '',
-        isSystem: isAlreadyInstalled,
+        isSystem: isAlreadyInstalled ? 1 : 0,
       });
 
       // Reload package cache after creation
@@ -119,7 +117,7 @@ export class PackageController {
 
       // Return using dynamic repo format (same as dynamic repo .create() method)
       const result = await packageRepo.find({
-        where: { id: { _eq: savedPackage.id } },
+        where: { id: { _eq: savedPackageId } },
       });
 
       return result;

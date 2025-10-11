@@ -15,13 +15,13 @@ import { SettingDefinitionProcessor } from './processors/setting-definition.proc
 import { ExtensionDefinitionProcessor } from './processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from './processors/folder-definition.processor';
 import { BootstrapScriptDefinitionProcessor } from './processors/bootstrap-script-definition.processor';
+
 @Global()
 @Module({
   providers: [
     BootstrapService, 
     CoreInitService, 
     DefaultDataService,
-    // Register processors
     UserDefinitionProcessor,
     MenuDefinitionProcessor,
     RouteDefinitionProcessor,
@@ -32,7 +32,7 @@ import { BootstrapScriptDefinitionProcessor } from './processors/bootstrap-scrip
     ExtensionDefinitionProcessor,
     FolderDefinitionProcessor,
     BootstrapScriptDefinitionProcessor,
-    BootstrapScriptService
+    BootstrapScriptService,
   ],
   exports: [BootstrapService, CoreInitService, DefaultDataService, BootstrapScriptService],
 })

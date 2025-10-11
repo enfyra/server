@@ -19,7 +19,12 @@ export class RoleGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (isPublic || req.routeData?.isPublished) return true;
+    // Check if route is published for current method
+    const isPublished = req.routeData?.publishedMethods?.some(
+      (m: any) => m.method === req.method
+    );
+
+    if (isPublic || isPublished) return true;
 
     if (!req.user) throw new UnauthorizedException();
     if (req.user.isRootAdmin) return true;

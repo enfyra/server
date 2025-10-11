@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
-import { Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
@@ -8,58 +8,63 @@ import { SystemProtectionService } from '../services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY } from '../../../shared/utils/constant';
 
 export class DynamicRepository {
   private context: TDynamicContext;
   private tableName: string;
   private queryEngine: QueryEngine;
-  private dataSourceService: DataSourceService;
-  private repo: Repository<any>;
+  private knexService: KnexService;
   private tableHandlerService: TableHandlerService;
   private routeCacheService: RouteCacheService;
   private systemProtectionService: SystemProtectionService;
   private bootstrapScriptService?: BootstrapScriptService;
-
   private redisPubSubService?: RedisPubSubService;
+  private metadataCacheService: MetadataCacheService;
 
   constructor({
     context,
     tableName,
     queryEngine,
-    dataSourceService,
+    knexService,
     tableHandlerService,
     routeCacheService,
     systemProtectionService,
     bootstrapScriptService,
     redisPubSubService,
+    metadataCacheService,
   }: {
     context: TDynamicContext;
     tableName: string;
     queryEngine: QueryEngine;
-    dataSourceService: DataSourceService;
+    knexService: KnexService;
     tableHandlerService: TableHandlerService;
     routeCacheService: RouteCacheService;
     systemProtectionService: SystemProtectionService;
     bootstrapScriptService?: BootstrapScriptService;
     redisPubSubService?: RedisPubSubService;
+    metadataCacheService: MetadataCacheService;
   }) {
     this.context = context;
     this.tableName = tableName;
     this.queryEngine = queryEngine;
-    this.dataSourceService = dataSourceService;
+    this.knexService = knexService;
     this.tableHandlerService = tableHandlerService;
     this.routeCacheService = routeCacheService;
     this.systemProtectionService = systemProtectionService;
     this.bootstrapScriptService = bootstrapScriptService;
     this.redisPubSubService = redisPubSubService;
+    this.metadataCacheService = metadataCacheService;
   }
 
   async init() {
-    this.repo = this.dataSourceService.getRepository(this.tableName);
+    // No need to initialize repo with Knex - direct queries
   }
 
   async find(opt: { where?: any; fields?: string | string[] }) {
+    const debugMode = this.context.$query?.debugMode === 'true' || this.context.$query?.debugMode === true;
+    
     return await this.queryEngine.find({
       tableName: this.tableName,
       fields: opt?.fields || this.context.$query?.fields || '',
@@ -70,6 +75,7 @@ export class DynamicRepository {
       sort: this.context.$query?.sort || 'id',
       aggregate: this.context.$query?.aggregate || {},
       deep: this.context.$query?.deep || {},
+      debugMode: debugMode,
     });
   }
 
@@ -89,14 +95,23 @@ export class DynamicRepository {
         await this.reload();
         return await this.find({ where: { id: { _eq: table.id } } });
       }
-      console.log('body', body);
-      const created: any = await this.repo.save(body);
-      const result = await this.find({ where: { id: { _eq: created.id } } });
+
+      const knex = this.knexService.getKnex();
+      const metadata = await this.metadataCacheService.getTableMetadata(this.tableName);
+      
+      // Generate UUID for primary key if needed
+      if (metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
+        body.id = body.id || randomUUID();
+      }
+
+      const [id] = await knex(this.tableName).insert(body);
+      const createdId = body.id || id;
+      
+      const result = await this.find({ where: { id: { _eq: createdId } } });
       await this.reload();
       return result;
     } catch (error) {
       console.error('❌ Error in dynamic repo [create]:', error);
-
       throw new BadRequestException(error.message);
     }
   }
@@ -123,14 +138,8 @@ export class DynamicRepository {
         return this.find({ where: { id: { _eq: table.id } } });
       }
 
-      body.id = exists.id;
-      console.log(body);
-
-      try {
-        await this.repo.save(body);
-      } catch (dbError) {
-        throw dbError;
-      }
+      const knex = this.knexService.getKnex();
+      await knex(this.tableName).where('id', id).update(body);
 
       const result = await this.find({ where: { id: { _eq: id } } });
       await this.reload();
@@ -160,11 +169,8 @@ export class DynamicRepository {
         return { message: 'Success', statusCode: 200 };
       }
 
-      try {
-        await this.repo.delete(id);
-      } catch (dbError) {
-        throw dbError;
-      }
+      const knex = this.knexService.getKnex();
+      await knex(this.tableName).where('id', id).delete();
 
       await this.reload();
       return { message: 'Delete successfully!', statusCode: 200 };
@@ -178,11 +184,21 @@ export class DynamicRepository {
     if (
       [
         'table_definition',
+        'column_definition',
+        'relation_definition',
+      ].includes(this.tableName)
+    ) {
+      await this.metadataCacheService.reloadMetadataCache();
+    }
+
+    if (
+      [
         'route_definition',
         'hook_definition',
         'route_handler_definition',
         'route_permission_definition',
         'role_definition',
+        'table_definition',
       ].includes(this.tableName)
     ) {
       await this.routeCacheService.reloadRouteCache();

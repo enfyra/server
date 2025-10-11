@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { mergeMap, catchError } from 'rxjs/operators';
-import { Observable, throwError } from 'rxjs';
+import { Observable } from 'rxjs';
 import { HandlerExecutorService } from '../../infrastructure/handler-executor/services/handler-executor.service';
 
 @Injectable()
@@ -92,6 +92,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             }
           }
         }
+        
         return req.routeData.context.$share.$logs.length
           ? { ...data, logs: req.routeData.context.$share.$logs }
           : data;

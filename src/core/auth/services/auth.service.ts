@@ -1,5 +1,6 @@
 // External packages
 import { Request } from 'express';
+import { randomUUID } from 'crypto';
 
 // @nestjs packages
 import { BadRequestException, Injectable } from '@nestjs/common';
@@ -7,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
 // Internal imports
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 
 // Relative imports
 import { LoginAuthDto } from '../dto/login-auth.dto';
@@ -21,35 +22,37 @@ export class AuthService {
     private bcryptService: BcryptService,
     private configService: ConfigService,
     private jwtService: JwtService,
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
   ) {}
 
   async login(body: LoginAuthDto) {
     const { email, password } = body;
-    const userDefRepo: any =
-      this.dataSourceService.getRepository('user_definition');
-    const exists = await userDefRepo.findOne({
-      where: {
-        email,
-      },
-    });
-    if (
-      !exists ||
-      !(await this.bcryptService.compare(password, exists.password))
-    )
+    const knex = this.knexService.getKnex();
+    
+    // Find user by email
+    const user = await knex('user_definition')
+      .where('email', email)
+      .first();
+
+    if (!user || !(await this.bcryptService.compare(password, user.password))) {
       throw new BadRequestException(`Login failed!`);
-    const sessionDefRepo: any =
-      this.dataSourceService.getRepository('session_definition');
-    const session = await sessionDefRepo.save({
-      ...(body.remember && {
-        remember: body.remember,
-      }),
-      user: exists,
-    });
+    }
+
+    // Create session
+    const sessionData: any = {
+      id: randomUUID(),
+      userId: user.id,
+    };
+
+    if (body.remember) {
+      sessionData.remember = body.remember;
+    }
+
+    await knex('session_definition').insert(sessionData);
 
     const accessToken = this.jwtService.sign(
       {
-        id: exists.id,
+        id: user.id,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
@@ -57,7 +60,7 @@ export class AuthService {
     );
     const refreshToken = this.jwtService.sign(
       {
-        sessionId: session.id,
+        sessionId: sessionData.id,
       },
       {
         expiresIn: body.remember
@@ -80,18 +83,20 @@ export class AuthService {
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
+    
     const { sessionId } = decoded;
-    const sessionDefRepo: any =
-      this.dataSourceService.getRepository('session_definition');
-    const session = await sessionDefRepo.findOne({
-      where: {
-        id: sessionId,
-      },
-      relations: ['user'],
-    });
-    if (!session || session.user.id !== req.user.id)
+    const knex = this.knexService.getKnex();
+    
+    // Find session with user
+    const session = await knex('session_definition')
+      .where('id', sessionId)
+      .first();
+
+    if (!session || session.userId !== req.user.id) {
       throw new BadRequestException(`Logout failed!`);
-    await sessionDefRepo.delete({ id: session.id });
+    }
+
+    await knex('session_definition').where('id', session.id).delete();
     return 'Logout successfully!';
   }
 
@@ -102,21 +107,21 @@ export class AuthService {
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
-    const sessionDefRepo: any =
-      this.dataSourceService.getRepository('session_definition');
-    const session = await sessionDefRepo.findOne({
-      where: {
-        id: decoded.sessionId,
-      },
-      relations: ['user'],
-    });
+    
+    const knex = this.knexService.getKnex();
+    
+    // Find session
+    const session = await knex('session_definition')
+      .where('id', decoded.sessionId)
+      .first();
+
     if (!session) {
       throw new BadRequestException('Session not found!');
     }
 
     const accessToken = this.jwtService.sign(
       {
-        id: session.user.id,
+        id: session.userId,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),

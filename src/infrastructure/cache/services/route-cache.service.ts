@@ -1,244 +1,243 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
-import { CacheService } from './cache.service';
-import { Repository, IsNull } from 'typeorm';
-import { GLOBAL_ROUTES_KEY, REDIS_TTL } from '../../../shared/utils/constant';
-
-const STALE_ROUTES_KEY = 'stale:routes';
-const REVALIDATING_KEY = 'revalidating:routes';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { KnexService } from '../../knex/knex.service';
+import { RedisPubSubService } from './redis-pubsub.service';
+import { InstanceService } from '../../../shared/services/instance.service';
+import { ROUTE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 @Injectable()
-export class RouteCacheService {
+export class RouteCacheService implements OnModuleInit {
   private readonly logger = new Logger(RouteCacheService.name);
+  private routesCache: any[] = [];
+  private cacheLoaded = false;
 
   constructor(
-    private readonly dataSourceService: DataSourceService,
-    private readonly cacheService: CacheService,
+    private readonly knexService: KnexService,
+    private readonly redisPubSubService: RedisPubSubService,
+    private readonly instanceService: InstanceService,
   ) {}
 
-  private async loadRoutes(): Promise<any[]> {
-    const routeDefRepo: Repository<any> =
-      this.dataSourceService.getRepository('route_definition');
-    const hookRepo: Repository<any> =
-      this.dataSourceService.getRepository('hook_definition');
+  async onModuleInit() {
+    this.subscribeToRouteCacheSync();
+  }
 
-    const [globalHooks, routes] = await Promise.all([
-      hookRepo.find({
-        where: { isEnabled: true, route: IsNull() },
-        order: { priority: 'ASC' },
-        relations: ['methods', 'route'],
-      }),
-      routeDefRepo
-        .createQueryBuilder('route')
-        .leftJoinAndSelect('route.mainTable', 'mainTable')
-        .leftJoinAndSelect('route.targetTables', 'targetTables')
-        .leftJoinAndSelect(
-          'route.hooks',
-          'hooks',
-          'hooks.isEnabled = :enabled',
-          { enabled: true },
-        )
-        .leftJoinAndSelect('hooks.methods', 'hooks_method')
-        .leftJoinAndSelect('hooks.route', 'hooks_route')
-        .leftJoinAndSelect('route.handlers', 'handlers')
-        .leftJoinAndSelect('handlers.method', 'handlers_method')
-        .leftJoinAndSelect(
-          'route.routePermissions',
-          'routePermissions',
-          'routePermissions.isEnabled = :enabled',
-          { enabled: true },
-        )
-        .leftJoinAndSelect('routePermissions.role', 'role')
-        .leftJoinAndSelect('routePermissions.allowedUsers', 'allowedUsers')
-        .leftJoinAndSelect('routePermissions.methods', 'methods')
-        .leftJoinAndSelect('route.publishedMethods', 'publishedMethods')
-        .where('route.isEnabled = :enabled', { enabled: true })
-        .getMany(),
-    ]);
-
-    // Merge global hooks into each route
-    for (const route of routes) {
-      route.hooks = [
-        ...(globalHooks || []),
-        ...(route.hooks ?? []).sort(
-          (a, b) => (a.priority ?? 0) - (b.priority ?? 0),
-        ),
-      ];
+  /**
+   * Subscribe to route cache sync events from other instances
+   */
+  private subscribeToRouteCacheSync() {
+    const sub = this.redisPubSubService.sub;
+    if (!sub) {
+      this.logger.warn('Redis subscription not available for route cache sync');
+      return;
     }
 
-    return routes;
-  }
+    sub.subscribe(ROUTE_CACHE_SYNC_EVENT_KEY);
+    
+    sub.on('message', (channel: string, message: string) => {
+      if (channel === ROUTE_CACHE_SYNC_EVENT_KEY) {
+        try {
+          const payload = JSON.parse(message);
+          const myInstanceId = this.instanceService.getInstanceId();
+          
+          if (payload.instanceId === myInstanceId) {
+            this.logger.debug('⏭️  Skipping route cache sync from self');
+            return;
+          }
 
-  async loadAndCacheRoutes(): Promise<any[]> {
-    const loadId = Math.random().toString(36).substring(7);
-    const loadStart = Date.now();
-
-    this.logger.log(`[LOAD:${loadId}] 📊 Loading routes from database...`);
-    const routes = await this.loadRoutes();
-    this.logger.log(
-      `[LOAD:${loadId}] 📊 Loaded ${routes.length} routes in ${Date.now() - loadStart}ms`,
-    );
-
-    const cacheStart = Date.now();
-    // Update both main cache and stale cache
-    await Promise.all([
-      this.cacheService.acquire(GLOBAL_ROUTES_KEY, routes, 60000), // 1 minute
-      this.cacheService.set(STALE_ROUTES_KEY, routes, 0),
-    ]);
-    this.logger.log(
-      `[LOAD:${loadId}] 💾 Cached routes in ${Date.now() - cacheStart}ms`,
-    );
-
-    return routes;
-  }
-
-  async reloadRouteCache(): Promise<void> {
-    const reloadId = Math.random().toString(36).substring(7);
-
-    try {
-      this.logger.log(
-        `[RELOAD:${reloadId}] 🔄 Manual route cache reload requested...`,
-      );
-      const reloadStart = Date.now();
-
-      const routes = await this.loadRoutes();
-      this.logger.log(
-        `[RELOAD:${reloadId}] 📊 Loaded ${routes.length} routes in ${Date.now() - reloadStart}ms`,
-      );
-
-      const cacheStart = Date.now();
-      await Promise.all([
-        this.cacheService.set(GLOBAL_ROUTES_KEY, routes, REDIS_TTL.ROUTES_CACHE_TTL),
-        this.cacheService.set(STALE_ROUTES_KEY, routes, REDIS_TTL.STALE_CACHE_TTL),
-      ]);
-      this.logger.log(
-        `[RELOAD:${reloadId}] 💾 Updated cache in ${Date.now() - cacheStart}ms`,
-      );
-
-      this.logger.log(
-        `[RELOAD:${reloadId}] ✅ Reloaded route cache with ${routes.length} routes in ${Date.now() - reloadStart}ms total`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[RELOAD:${reloadId}] ❌ Failed to reload route cache:`,
-        error.stack || error.message,
-      );
-    }
-  }
-
-  async getRoutesWithSWR(): Promise<any[]> {
-    const overallStart = Date.now();
-
-    // Try to get fresh routes from cache
-    const cacheStart = Date.now();
-    const cachedRoutes = await this.cacheService.get(GLOBAL_ROUTES_KEY);
-    const cacheTime = Date.now() - cacheStart;
-
-    if (cachedRoutes) {
-      if (cacheTime > 10) {
-        const requestId = Math.random().toString(36).substring(7);
-        this.logger.warn(
-          `[SWR:${requestId}] ⚠️ Cache hit but Redis slow: ${cacheTime}ms`,
-        );
+          this.logger.log(`📥 Received route cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
+          this.routesCache = payload.routes;
+          this.cacheLoaded = true;
+          this.logger.log(`✅ Route cache synced: ${payload.routes.length} routes`);
+        } catch (error) {
+          this.logger.error('Failed to parse route cache sync message:', error);
+        }
       }
-      return cachedRoutes;
-    }
-
-    // ❌ Cache miss - hết TTL, bắt đầu SWR logic
-    const requestId = Math.random().toString(36).substring(7);
-
-    this.logger.log(
-      `[SWR:${requestId}] ❌ Cache EXPIRED (Redis: ${cacheTime}ms) - checking stale data...`,
-    );
-
-    // Cache miss - check if we have stale data in Redis to return immediately
-    const staleStart = Date.now();
-    const [staleRoutes, isRevalidating] = await Promise.all([
-      this.cacheService.get(STALE_ROUTES_KEY),
-      this.cacheService.get(REVALIDATING_KEY),
-    ]);
-    const staleTime = Date.now() - staleStart;
-
-    this.logger.log(
-      `[SWR:${requestId}] Stale check (${staleTime}ms): ${staleRoutes ? `${staleRoutes.length} routes` : 'NONE'}, Revalidating: ${!!isRevalidating}`,
-    );
-
-    if (staleRoutes) {
-      if (!isRevalidating) {
-        this.logger.log(
-          `[SWR:${requestId}] 🔄 Starting background revalidation...`,
-        );
-        // Start background revalidation (non-blocking)
-        this.backgroundRevalidate().catch((err) =>
-          this.logger.error(
-            `[SWR:${requestId}] Background revalidation error:`,
-            err,
-          ),
-        );
-      } else {
-        this.logger.log(
-          `[SWR:${requestId}] ⏳ Already revalidating, skip background task`,
-        );
-      }
-
-      const totalTime = Date.now() - overallStart;
-      this.logger.log(
-        `[SWR:${requestId}] ⚡ Serving STALE data - returned ${staleRoutes.length} routes in ${totalTime}ms (cache:${cacheTime}ms + stale:${staleTime}ms)`,
-      );
-      return staleRoutes;
-    }
-
-    // No stale data available - fetch synchronously
-    this.logger.warn(
-      `[SWR:${requestId}] 🐌 SLOW PATH - No cache, no stale data - fetching from DB...`,
-    );
-    const routes = await this.loadAndCacheRoutes();
-    const totalTime = Date.now() - overallStart;
-    this.logger.warn(
-      `[SWR:${requestId}] 🐌 DB fetch completed - ${routes.length} routes in ${totalTime}ms`,
-    );
-    return routes;
+    });
   }
 
-  private async backgroundRevalidate(): Promise<void> {
-    const bgId = Math.random().toString(36).substring(7);
-
-    // Set revalidating flag in Redis (multi-instance safe)
-    const acquired = await this.cacheService.acquire(
-      REVALIDATING_KEY,
-      'true',
-      REDIS_TTL.REVALIDATION_LOCK_TTL,
-    );
-
-    if (!acquired) {
-      this.logger.log(
-        `[BG:${bgId}] ⏸️ Another instance is already revalidating - skipping`,
-      );
-      return; // Another instance is already revalidating
-    }
-
-    this.logger.log(`[BG:${bgId}] 🔄 Starting background revalidation...`);
-    const bgStart = Date.now();
-
-    try {
+  /**
+   * Get routes from in-memory cache
+   */
+  async getRoutes(): Promise<any[]> {
+    if (!this.cacheLoaded) {
       await this.reloadRouteCache();
-      this.logger.log(
-        `[BG:${bgId}] ✅ Background revalidation completed in ${Date.now() - bgStart}ms`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[BG:${bgId}] ❌ Background revalidation failed:`,
-        error,
-      );
-    } finally {
-      // Clear revalidating flag
-      const released = await this.cacheService.release(
-        REVALIDATING_KEY,
-        'true',
-      );
-      this.logger.log(
-        `[BG:${bgId}] 🔓 Released revalidation lock: ${released}`,
-      );
     }
+    return this.routesCache;
+  }
+
+  /**
+   * Reload routes cache and publish to other instances
+   */
+  async reloadRouteCache(): Promise<void> {
+    const start = Date.now();
+    this.logger.log('🔄 Reloading routes cache...');
+
+    const routes = await this.loadRoutes();
+    this.routesCache = routes;
+    this.cacheLoaded = true;
+
+    this.logger.log(
+      `✅ Loaded ${routes.length} routes in ${Date.now() - start}ms`,
+    );
+
+    await this.publishRouteCacheSync(routes);
+  }
+
+  /**
+   * Publish route cache to other instances via Redis
+   */
+  private async publishRouteCacheSync(routes: any[]): Promise<void> {
+    try {
+      const payload = {
+        instanceId: this.instanceService.getInstanceId(),
+        routes: routes,
+        timestamp: Date.now(),
+      };
+
+      await this.redisPubSubService.publish(
+        ROUTE_CACHE_SYNC_EVENT_KEY,
+        JSON.stringify(payload),
+      );
+
+      this.logger.log(`📤 Published route cache to other instances (${routes.length} routes)`);
+    } catch (error) {
+      this.logger.error('Failed to publish route cache sync:', error);
+    }
+  }
+
+  private async loadRoutes(): Promise<any[]> {
+    const knex = this.knexService.getKnex();
+
+    // Load all data in parallel with manual JOINs
+    // Note: Bootstrap code - metadata not loaded yet, cannot use .withRelations()
+    const [
+      routes,
+      globalHooks,
+      allHooks,
+      allHandlers,
+      allPermissions,
+      allTables,
+      allPublishedMethodsJunctions,
+      allTargetTablesJunctions,
+    ] = await Promise.all([
+      knex('route_definition')
+        .where({ 'route_definition.isEnabled': true })
+        .leftJoin('table_definition as mainTable', 'route_definition.mainTableId', 'mainTable.id')
+        .select('route_definition.*', 'mainTable.id as mainTable_id', 'mainTable.name as mainTable_name'),
+      knex('hook_definition').where('isEnabled', true).whereNull('routeId').orderBy('priority', 'asc').select('*'),
+      knex('hook_definition').where('isEnabled', true).orderBy('priority', 'asc').select('*'),
+      knex('route_handler_definition')
+        .leftJoin('method_definition as method', 'route_handler_definition.methodId', 'method.id')
+        .select('route_handler_definition.*', 'method.id as method_id', 'method.method as method_method'),
+      knex('route_permission_definition')
+        .where({ 'route_permission_definition.isEnabled': true })
+        .leftJoin('role_definition as role', 'route_permission_definition.roleId', 'role.id')
+        .select('route_permission_definition.*', 'role.id as role_id', 'role.name as role_name'),
+      knex('table_definition').select('*'),
+      knex('method_definition_routes_route_definition').select('*'),
+      knex('route_definition_targetTables_table_definition').select('*'),
+    ]);
+
+    const tablesMap = new Map(allTables.map((t: any) => [t.id, t]));
+
+    const hooksByRoute = new Map();
+    allHooks.forEach((hook: any) => {
+      if (hook.routeId) {
+        if (!hooksByRoute.has(hook.routeId)) {
+          hooksByRoute.set(hook.routeId, []);
+        }
+        hooksByRoute.get(hook.routeId).push(hook);
+      }
+    });
+
+    const handlersByRoute = new Map();
+    allHandlers.forEach((h: any) => {
+      if (!handlersByRoute.has(h.routeId)) {
+        handlersByRoute.set(h.routeId, []);
+      }
+      handlersByRoute.get(h.routeId).push(h);
+    });
+
+    const permsByRoute = new Map();
+    allPermissions.forEach((p: any) => {
+      if (!permsByRoute.has(p.routeId)) {
+        permsByRoute.set(p.routeId, []);
+      }
+      permsByRoute.get(p.routeId).push(p);
+    });
+
+    const publishedMethodsByRoute = new Map();
+    allPublishedMethodsJunctions.forEach((j: any) => {
+      if (!publishedMethodsByRoute.has(j.routeDefinitionId)) {
+        publishedMethodsByRoute.set(j.routeDefinitionId, []);
+      }
+      publishedMethodsByRoute.get(j.routeDefinitionId).push(j.methodDefinitionId);
+    });
+
+    const targetTablesByRoute = new Map();
+    allTargetTablesJunctions.forEach((j: any) => {
+      if (!targetTablesByRoute.has(j.routeDefinitionId)) {
+        targetTablesByRoute.set(j.routeDefinitionId, []);
+      }
+      targetTablesByRoute.get(j.routeDefinitionId).push(j.tableDefinitionId);
+    });
+
+    for (const route of routes) {
+      // Nest mainTable (from JOIN)
+      if (route.mainTable_id) {
+        route.mainTable = {
+          id: route.mainTable_id,
+          name: route.mainTable_name,
+        };
+        delete route.mainTable_id;
+        delete route.mainTable_name;
+      }
+      
+      // Map targetTables from junction
+      const targetTableIds = targetTablesByRoute.get(route.id) || [];
+      route.targetTables = targetTableIds
+        .map((tid: any) => tablesMap.get(tid))
+        .filter(Boolean);
+
+      // Map publishedMethods from junction  
+      const publishedMethodIds = publishedMethodsByRoute.get(route.id) || [];
+      route.publishedMethods = publishedMethodIds
+        .map((mid: any) => ({ id: mid }))
+        .filter(Boolean);
+      
+      // Nest handlers (from JOIN)
+      const handlers = handlersByRoute.get(route.id) || [];
+      for (const handler of handlers) {
+        if (handler.method_id) {
+          handler.method = {
+            id: handler.method_id,
+            method: handler.method_method,
+          };
+          delete handler.method_id;
+          delete handler.method_method;
+        }
+      }
+      route.handlers = handlers;
+
+      const hooks = hooksByRoute.get(route.id) || [];
+      route.hooks = [...globalHooks, ...hooks];
+
+      // Nest permissions (from JOIN)
+      const permissions = permsByRoute.get(route.id) || [];
+      for (const perm of permissions) {
+        if (perm.role_id) {
+          perm.role = {
+            id: perm.role_id,
+            name: perm.role_name,
+          };
+          delete perm.role_id;
+          delete perm.role_name;
+        }
+        perm.allowedUsers = [];
+        perm.methods = [];
+      }
+      route.routePermissions = permissions;
+    }
+
+    return routes;
   }
 }

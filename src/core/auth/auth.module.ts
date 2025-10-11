@@ -6,7 +6,10 @@ import { BcryptService } from './services/bcrypt.service';
 @Global()
 @Module({
   controllers: [AuthController],
-  providers: [AuthService, BcryptService],
-  exports: [BcryptService],
+  providers: [
+    AuthService,
+    BcryptService,
+  ],
+  exports: [AuthService, BcryptService],
 })
 export class AuthModule {}

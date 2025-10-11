@@ -34,7 +34,10 @@
             { "name": "inversePropertyName", "type": "varchar", "isNullable": true, "isSystem": true },
             { "name": "isNullable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false },
-            { "name": "description", "type": "text", "isSystem": true }
+            { "name": "description", "type": "text", "isSystem": true },
+            { "name": "junctionTableName", "type": "varchar", "isNullable": true, "isSystem": true },
+            { "name": "junctionSourceColumn", "type": "varchar", "isNullable": true, "isSystem": true },
+            { "name": "junctionTargetColumn", "type": "varchar", "isNullable": true, "isSystem": true }
 
         ],
         "relations": [

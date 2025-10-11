@@ -1,4 +1,3 @@
-import { EntityMetadata } from 'typeorm';
 import { lookupFieldOrRelation } from './lookup-field-or-relation';
 import { parseValue } from './parse-value';
 
@@ -30,13 +29,17 @@ export function walkFilter({
   operator = 'AND',
   path = [],
   log = [],
+  metadataGetter,
+  dbType = 'mysql',
 }: {
   filter: any;
-  currentMeta: EntityMetadata;
+  currentMeta: any;
   currentAlias: string;
   operator?: 'AND' | 'OR';
   path?: string[];
   log?: string[];
+  metadataGetter: (tableName: string) => any;
+  dbType?: string;
 }): {
   parts: { operator: 'AND' | 'OR'; sql: string; params: Record<string, any> }[];
 } {
@@ -55,7 +58,7 @@ export function walkFilter({
   const walk = (
     f: Record<string, any>,
     path: string[],
-    currentMeta: EntityMetadata,
+    currentMeta: any,
     currentAlias: string,
     operator: 'AND' | 'OR',
   ) => {
@@ -87,6 +90,7 @@ export function walkFilter({
           currentAlias,
           operator: 'AND',
           path,
+          metadataGetter,
         });
         subParts.parts.forEach((p) => {
           parts.push({ operator, sql: `NOT (${p.sql})`, params: p.params });
@@ -102,7 +106,7 @@ export function walkFilter({
         const newPath = [...path, key];
 
         if (found.kind === 'relation') {
-          const nextMeta = currentMeta.connection.getMetadata(found.type);
+          const nextMeta = metadataGetter(found.type);
           const nextAlias = `${currentAlias}_${key}`;
 
           const isAggregate =
@@ -110,12 +114,12 @@ export function walkFilter({
             Object.keys(val).some((k) => AGG_KEYS.includes(k));
 
           if (isAggregate) {
-            const inverse = nextMeta.relations.find(
-              (r) => r.inverseEntityMetadata.name === currentMeta.name,
+            // Find the inverse relation (from nextMeta back to currentMeta)
+            const inverse = nextMeta.relations?.find(
+              (r: any) => r.targetTable === currentMeta.name,
             );
-            const foreignKey = inverse?.joinColumns?.[0]?.databaseName;
+            const foreignKey = inverse?.foreignKeyColumn;
             if (!foreignKey) {
-              console.log(`[Relation] ❌ Cannot find foreign key`);
               continue;
             }
 
@@ -125,7 +129,6 @@ export function walkFilter({
 
               if (aggKey === '_count') {
                 if (!aggVal || typeof aggVal !== 'object') {
-                  console.log(`[Aggregate] ❌ Invalid _count block`);
                   continue;
                 }
                 for (const op in aggVal) {
@@ -149,7 +152,8 @@ export function walkFilter({
                   }
 
                   const paramKey = `p${paramIndex++}`;
-                  const subquery = `(SELECT COUNT(*) FROM ${nextMeta.tableName} WHERE ${nextMeta.tableName}.${foreignKey} = ${currentAlias}.id)`;
+                  const tableName = nextMeta.name || nextMeta.tableName;
+                  const subquery = `(SELECT COUNT(*) FROM ${tableName} WHERE ${tableName}.${foreignKey} = ${currentAlias}.id)`;
                   const sql = `${subquery} ${opSymbol} :${paramKey}`;
                   parts.push({
                     operator,
@@ -168,11 +172,11 @@ export function walkFilter({
                   }
 
                   const fieldMeta = nextMeta.columns.find(
-                    (c) => c.propertyName === field,
+                    (c: any) => (c.name || c.propertyName) === field,
                   );
                   if (!fieldMeta) {
                     console.log(
-                      `[Aggregate] ❌ Unknown field in ${nextMeta.name}:`,
+                      `[Aggregate] ❌ Unknown field in ${nextMeta.name || nextMeta.tableName}:`,
                       field,
                     );
                     continue;
@@ -232,10 +236,10 @@ export function walkFilter({
                         continue;
                     }
 
-                    const subquery = `(SELECT ${sqlFunc}(${nextMeta.tableName}.${field}) FROM ${nextMeta.tableName} WHERE ${nextMeta.tableName}.${foreignKey} = ${currentAlias}.id)`;
+                    const tableName2 = nextMeta.name || nextMeta.tableName;
+                    const subquery = `(SELECT ${sqlFunc}(${tableName2}.${field}) FROM ${tableName2} WHERE ${tableName2}.${foreignKey} = ${currentAlias}.id)`;
                     const paramKey = `p${paramIndex++}`;
                     const sql = `${subquery} ${opSymbol} :${paramKey}`;
-                    console.log(`[Aggregate] ✅ SQL = ${sql}`);
                     parts.push({
                       operator,
                       sql,
@@ -258,13 +262,11 @@ export function walkFilter({
               try {
                 values = JSON.parse(values);
               } catch (error) {
-                console.log(`[Relation] ❌ Failed to parse ${isIn ? '_in' : '_not_in'} value: ${values}`);
                 continue;
               }
             }
             
             if (!Array.isArray(values)) {
-              console.log(`[Relation] ❌ ${isIn ? '_in' : '_not_in'} requires an array, got: ${typeof values}`);
               continue;
             }
             
@@ -275,14 +277,13 @@ export function walkFilter({
             }
 
             // Get relation metadata
-            const relation = currentMeta.relations.find(r => r.propertyName === key);
+            const relation = currentMeta.relations?.find((r: any) => r.propertyName === key);
             if (!relation) {
-              console.log(`[Relation] ❌ Relation ${key} not found`);
               continue;
             }
 
             // Get target entity primary key type for type casting
-            const targetPkColumn = nextMeta.columns.find(c => c.isPrimary);
+            const targetPkColumn = nextMeta.columns?.find((c: any) => c.isPrimary);
             const targetPkType = targetPkColumn ? (
               typeof targetPkColumn.type === 'string' 
                 ? targetPkColumn.type 
@@ -291,7 +292,7 @@ export function walkFilter({
 
             let subquery = '';
             const relationParam = {};
-            const inParams = values.map((v) => {
+            const inParams = values.map((v: any) => {
               const paramKey = `p${paramIndex++}`;
               
               // Cast value to correct type based on target PK type
@@ -299,13 +300,11 @@ export function walkFilter({
               if (targetPkType && ['int', 'integer', 'number', 'bigint', 'smallint'].includes(targetPkType.toLowerCase())) {
                 castedValue = parseInt(v, 10);
                 if (isNaN(castedValue)) {
-                  console.log(`[Relation] ❌ Cannot cast value "${v}" to number for ${key}`);
                   return null;
                 }
               } else if (targetPkType && ['float', 'double', 'decimal', 'numeric'].includes(targetPkType.toLowerCase())) {
                 castedValue = parseFloat(v);
                 if (isNaN(castedValue)) {
-                  console.log(`[Relation] ❌ Cannot cast value "${v}" to float for ${key}`);
                   return null;
                 }
               }
@@ -315,20 +314,19 @@ export function walkFilter({
             }).filter(Boolean); // Remove null entries
             
             if (inParams.length === 0) {
-              console.log(`[Relation] ❌ No valid values after type casting for ${key}`);
               continue;
             }
 
-            if (relation.relationType === 'many-to-many') {
-              // Many-to-many: use join table
-              const joinTable = relation.joinTableName;
-              const joinColumn = relation.joinColumns[0].databaseName; // current entity column
-              const inverseJoinColumn = relation.inverseJoinColumns[0].databaseName; // target entity column
+            if (relation.type === 'many-to-many') {
+              // Many-to-many: use junction table
+              const junctionTable = relation.junctionTableName;
+              const sourceColumn = relation.junctionSourceColumn;
+              const targetColumn = relation.junctionTargetColumn;
               
-              subquery = `(SELECT ${joinColumn} FROM ${joinTable} WHERE ${inverseJoinColumn} IN (${inParams.join(', ')}))`;
+              subquery = `(SELECT ${sourceColumn} FROM ${junctionTable} WHERE ${targetColumn} IN (${inParams.join(', ')}))`;
             } else {
               // One-to-many/Many-to-one: use direct relation
-              const targetTable = nextMeta.tableName;
+              const targetTable = nextMeta.name || nextMeta.tableName;
               subquery = `(SELECT id FROM ${targetTable} WHERE id IN (${inParams.join(', ')}))`;
             }
 
@@ -371,9 +369,9 @@ export function walkFilter({
         const parsedValue =
           key === '_between' ? val : parseValue(fieldType, val);
 
-        const isSQLite =
-          currentMeta.connection.driver.options.type === 'sqlite';
-        const collation = 'utf8mb4_general_ci';
+        const isPostgres = dbType === 'postgres';
+        const isSQLite = dbType === 'sqlite';
+        const isMySQL = dbType === 'mysql';
 
         switch (key) {
           case '_eq':
@@ -522,26 +520,35 @@ export function walkFilter({
             sql = `${currentAlias}.${lastField} IS ${val ? '' : 'NOT '}NULL`;
             break;
           case '_contains':
-            if (isSQLite) {
+            if (isPostgres) {
+              sql = `lower(unaccent(${currentAlias}.${lastField})) ILIKE '%' || lower(unaccent(:${paramKey})) || '%'`;
+            } else if (isSQLite) {
               sql = `${currentAlias}.${lastField} LIKE '%' || :${paramKey} || '%'`;
             } else {
-              sql = `lower(unaccent(${currentAlias}.${lastField})) COLLATE ${collation} LIKE CONCAT('%', lower(unaccent(:${paramKey})) COLLATE ${collation}, '%')`;
+              // MySQL
+              sql = `lower(unaccent(${currentAlias}.${lastField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent(:${paramKey})) COLLATE utf8mb4_general_ci, '%')`;
             }
             param[paramKey] = parsedValue;
             break;
           case '_starts_with':
-            if (isSQLite) {
+            if (isPostgres) {
+              sql = `lower(unaccent(${currentAlias}.${lastField})) ILIKE lower(unaccent(:${paramKey})) || '%'`;
+            } else if (isSQLite) {
               sql = `${currentAlias}.${lastField} LIKE :${paramKey} || '%'`;
             } else {
-              sql = `lower(unaccent(${currentAlias}.${lastField})) COLLATE ${collation} LIKE CONCAT(lower(unaccent(:${paramKey})) COLLATE ${collation}, '%')`;
+              // MySQL
+              sql = `lower(unaccent(${currentAlias}.${lastField})) COLLATE utf8mb4_general_ci LIKE CONCAT(lower(unaccent(:${paramKey})) COLLATE utf8mb4_general_ci, '%')`;
             }
             param[paramKey] = parsedValue;
             break;
           case '_ends_with':
-            if (isSQLite) {
+            if (isPostgres) {
+              sql = `lower(unaccent(${currentAlias}.${lastField})) ILIKE '%' || lower(unaccent(:${paramKey}))`;
+            } else if (isSQLite) {
               sql = `${currentAlias}.${lastField} LIKE '%' || :${paramKey}`;
             } else {
-              sql = `lower(unaccent(${currentAlias}.${lastField})) COLLATE ${collation} LIKE CONCAT('%', lower(unaccent(:${paramKey})) COLLATE ${collation})`;
+              // MySQL
+              sql = `lower(unaccent(${currentAlias}.${lastField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent(:${paramKey})) COLLATE utf8mb4_general_ci)`;
             }
             param[paramKey] = parsedValue;
             break;

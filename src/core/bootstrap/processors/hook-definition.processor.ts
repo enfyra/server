@@ -1,17 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 
 @Injectable()
 export class HookDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly dataSourceService: DataSourceService) {
+  constructor(private readonly knexService: KnexService) {
     super();
   }
 
-  async transformRecords(records: any[]): Promise<any[]> {
-    const routeRepo = this.dataSourceService.getRepository('route_definition');
-    const methodRepo =
-      this.dataSourceService.getRepository('method_definition');
+  async transformRecords(records: any[], context?: any): Promise<any[]> {
+    const knex = context?.knex || this.knexService.getKnex();
 
     const transformedRecords = await Promise.all(
       records.map(async (hook) => {
@@ -20,16 +18,16 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
         // Map route reference
         if (hook.route && typeof hook.route === 'string') {
           const rawPath = hook.route;
-          const pathsToTry = Array.from(
-            new Set([
-              rawPath,
-              rawPath.startsWith('/') ? rawPath.slice(1) : '/' + rawPath,
-            ]),
-          );
+          const pathsToTry = [
+            rawPath,
+            rawPath.startsWith('/') ? rawPath.slice(1) : '/' + rawPath,
+          ];
 
-          const route = await routeRepo.findOne({
-            where: pathsToTry.map((p) => ({ path: p })),
-          });
+          let route = null;
+          for (const path of pathsToTry) {
+            route = await knex('route_definition').where('path', path).first();
+            if (route) break;
+          }
 
           if (!route) {
             this.logger.warn(
@@ -38,40 +36,20 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
 
-          transformedHook.route = route;
+          transformedHook.routeId = route.id;
+          delete transformedHook.route;
         }
 
-        // Map methods reference (many-to-many)
+        // Map methods reference (many-to-many) - store for later
         if (hook.methods && Array.isArray(hook.methods)) {
-          const methodEntities = [];
-          for (const methodName of hook.methods) {
-            const method = await methodRepo.findOne({
-              where: { method: methodName },
-            });
-            if (method) {
-              methodEntities.push(method);
-            } else {
-              this.logger.warn(
-                `⚠️ Method '${methodName}' not found for hook ${hook.name}`,
-              );
-            }
-          }
-
-          if (methodEntities.length === 0) {
-            this.logger.warn(
-              `⚠️ No valid methods found for hook ${hook.name}, skipping.`,
-            );
-            return null;
-          }
-
-          transformedHook.methods = methodEntities;
+          transformedHook._methods = hook.methods;
+          delete transformedHook.methods;
         }
 
         return transformedHook;
       }),
     );
 
-    // Filter out null records
     return transformedRecords.filter(Boolean);
   }
 

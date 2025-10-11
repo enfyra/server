@@ -10,7 +10,6 @@ import { JwtAuthGuard } from './core/auth/guards/jwt-auth.guard';
 import { RoleGuard } from './core/auth/guards/role.guard';
 import { JwtStrategy } from './core/auth/services/jwt.strategy';
 import { BootstrapModule } from './core/bootstrap/bootstrap.module';
-import { DataSourceModule } from './core/database/data-source/data-source.module';
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
 import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
 import { CacheModule } from './infrastructure/cache/cache.module';
@@ -20,13 +19,11 @@ import { RedisPubSubService } from './infrastructure/cache/services/redis-pubsub
 import { RouteCacheService } from './infrastructure/cache/services/route-cache.service';
 import { PackageCacheService } from './infrastructure/cache/services/package-cache.service';
 import { SqlFunctionService } from './infrastructure/sql/services/sql-function.service';
-import { AutoModule } from './modules/code-generation/auto.module';
 import { DynamicModule } from './modules/dynamic-api/dynamic.module';
 import { SystemProtectionService } from './modules/dynamic-api/services/system-protection.service';
 import { GraphqlModule } from './modules/graphql/graphql.module';
 import { MeModule } from './modules/me/me.module';
 import { FileManagementService } from './modules/file-management/services/file-management.service';
-import { SchemaManagementModule } from './modules/schema-management/schema-management.module';
 import { TableModule } from './modules/table-management/table.module';
 import { CommonModule } from './shared/common/common.module';
 import { NotFoundDetectGuard } from './shared/guards/not-found-detect.guard';
@@ -38,6 +35,7 @@ import { RouteDetectMiddleware } from './shared/middleware/route-detect.middlewa
 import { FileManagementModule } from './modules/file-management/file-management.module';
 import { PackageManagementModule } from './modules/package-management/package-management.module';
 import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/swagger.module';
+import { KnexModule } from './infrastructure/knex/knex.module';
 
 @Global()
 @Module({
@@ -46,11 +44,10 @@ import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/s
       isGlobal: true,
       envFilePath: path.resolve(__dirname, '../.env'),
     }),
+    KnexModule,
     ExceptionsModule,
     TableModule,
     CommonModule,
-    DataSourceModule,
-    AutoModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -64,16 +61,13 @@ import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/s
         config: {
           url: configService.get('REDIS_URI'),
           ttl: configService.get<number>('DEFAULT_TTL'),
-          // ✅ Connection pooling optimization
           maxRetriesPerRequest: 3,
           retryDelayOnFailover: 100,
           enableReadyCheck: false,
           maxLoadingTimeout: 10000,
           lazyConnect: true,
-          // ✅ Connection limits
-          maxConnections: 100, // ← Limit total connections
+          maxConnections: 100,
           minConnections: 10,
-          // ✅ Health checks
           healthCheck: true,
           healthCheckInterval: 30000,
         },
@@ -88,9 +82,8 @@ import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/s
     EnfyraSwaggerModule,
     DynamicModule,
     BootstrapModule,
-    GraphqlModule,
     HandlerExecutorModule,
-    SchemaManagementModule,
+    GraphqlModule, 
   ],
   providers: [
     JwtStrategy,
@@ -109,13 +102,13 @@ import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/s
     { provide: APP_INTERCEPTOR, useClass: HideFieldInterceptor },
   ],
   exports: [
-    DataSourceModule,
+    KnexModule,
     JwtModule,
     RedisPubSubService,
     RouteCacheService,
     PackageCacheService,
-    SchemaManagementModule,
     SystemProtectionService,
+    CacheModule,
   ],
 })
 export class AppModule implements NestModule {

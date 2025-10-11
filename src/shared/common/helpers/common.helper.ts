@@ -1,11 +1,4 @@
-// External packages
-import * as fs from 'fs';
-import * as path from 'path';
-import * as ts from 'typescript';
 import { match } from 'path-to-regexp';
-import { Logger } from '@nestjs/common';
-
-// Relative imports
 import { DBToTSTypeMap, TSToDBTypeMap } from '../../utils/types/common.type';
 
 export function capitalize(str: string): string {
@@ -76,37 +69,6 @@ export function mapToGraphQLType(dbType: string): string {
   return map[dbType] || 'String';
 }
 
-export async function loadDynamicEntities(entityDir: string) {
-  const entities = [];
-  if (!fs.existsSync(entityDir)) fs.mkdirSync(entityDir, { recursive: true });
-
-  const files = fs.readdirSync(entityDir).filter((f) => f.endsWith('.js'));
-
-  // 1️⃣ Clear all cache first
-  for (const file of files) {
-    const fullPath = path.join(entityDir, file);
-    const resolved = require.resolve(fullPath);
-    if (require.cache[resolved]) delete require.cache[resolved];
-  }
-
-  // 2️⃣ Require all to repopulate cache in correct order
-  for (const file of files) {
-    const fullPath = path.join(entityDir, file);
-    require(fullPath);
-  }
-
-  // 3️⃣ Extract exports from cache
-  for (const file of files) {
-    const fullPath = path.join(entityDir, file);
-    const module = require(fullPath);
-    for (const exported of Object.values(module)) {
-      entities.push(exported);
-    }
-  }
-
-  return entities;
-}
-
 export function isRouteMatched({
   routePath,
   reqPath,
@@ -123,7 +85,6 @@ export function isRouteMatched({
     const cleanRoute = routePath.replace(/^\//, '').replace(/\/$/, '');
     const cleanReqPath = reqPath.replace(/^\//, '').replace(/\/$/, '');
 
-    // Handle wildcard routes
     if (cleanRoute.includes('*')) {
       const wildcardPattern = cleanRoute.replace(/\*/g, '.*');
       const fullPattern = cleanPrefix
@@ -141,11 +102,10 @@ export function isRouteMatched({
     const matched = matcher(`/${cleanReqPath}`);
 
     if (matched) {
-      // Clean up query parameters from params
       const cleanParams: Record<string, string> = {};
       for (const [key, value] of Object.entries(matched.params)) {
         if (typeof value === 'string') {
-          cleanParams[key] = value.split('?')[0]; // Remove query part
+          cleanParams[key] = value.split('?')[0];
         } else {
           cleanParams[key] = String(value);
         }
@@ -155,96 +115,7 @@ export function isRouteMatched({
 
     return null;
   } catch (error) {
-    // Handle malformed route paths gracefully
     return null;
-  }
-}
-
-export function getAllTsFiles(dirPath: string): string[] {
-  const result: string[] = [];
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) result.push(...getAllTsFiles(fullPath));
-    else if (entry.isFile() && entry.name.endsWith('.ts'))
-      result.push(fullPath);
-  }
-  return result;
-}
-
-export function checkTsErrors(dirPath: string, tsconfigPath = 'tsconfig.json'): void {
-  const configPath = ts.findConfigFile(tsconfigPath, ts.sys.fileExists);
-  if (!configPath) throw new Error(`tsconfig not found at ${tsconfigPath}`);
-
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-  const parsedConfig = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(configPath),
-  );
-
-  const allFiles = getAllTsFiles(dirPath);
-  const program = ts.createProgram(allFiles, parsedConfig.options);
-  const allDiagnostics = ts.getPreEmitDiagnostics(program);
-
-  const errorMap = new Map<string, ts.Diagnostic[]>();
-  for (const diag of allDiagnostics) {
-    const file = diag.file?.fileName;
-    if (!file) continue;
-    const absPath = path.resolve(file);
-    if (!errorMap.has(absPath)) errorMap.set(absPath, []);
-    errorMap.get(absPath)!.push(diag);
-  }
-
-  let hasError = false;
-  for (const [filePath, diagnostics] of errorMap.entries()) {
-    const errors = diagnostics.map((d) => {
-      const msg = ts.flattenDiagnosticMessageText(d.messageText, '\n');
-      const pos = d.file?.getLineAndCharacterOfPosition(d.start || 0);
-      return `Line ${pos?.line! + 1}, Col ${pos?.character! + 1}: ${msg}`;
-    });
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.error(`🗑️ Deleted error file: ${filePath}`);
-    }
-    console.error(
-      `❌ TypeScript error in file ${filePath}:\n${errors.join('\n')}`,
-    );
-    hasError = true;
-  }
-
-  if (hasError)
-    throw new Error(
-      'One or more files with TypeScript errors have been deleted.',
-    );
-}
-
-export async function removeOldFile(filePathOrPaths: string | string[], logger: Logger) {
-  const paths = Array.isArray(filePathOrPaths)
-    ? filePathOrPaths
-    : [filePathOrPaths];
-  for (const targetPath of paths) {
-    try {
-      if (!fs.existsSync(targetPath)) continue;
-      const stat = await fs.promises.stat(targetPath);
-      if (stat.isFile()) {
-        await fs.promises.unlink(targetPath);
-        logger.log(`🧹 Deleted file: ${targetPath}`);
-      } else if (stat.isDirectory()) {
-        const files = await fs.promises.readdir(targetPath);
-        for (const file of files) {
-          const fullPath = path.join(targetPath, file);
-          const fileStat = await fs.promises.stat(fullPath);
-          if (fileStat.isFile()) {
-            await fs.promises.unlink(fullPath);
-            logger.log(`🧹 Deleted file in directory: ${fullPath}`);
-          }
-        }
-      }
-    } catch (error: any) {
-      logger.error(`❌ Error deleting file: ${error.message}`);
-      throw error;
-    }
   }
 }
 

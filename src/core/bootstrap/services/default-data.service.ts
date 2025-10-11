@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { ConfigService } from '@nestjs/config';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -29,11 +30,12 @@ const initJson = JSON.parse(
 export class DefaultDataService {
   private readonly logger = new Logger(DefaultDataService.name);
   private readonly processors = new Map<string, BaseTableProcessor>();
+  private readonly dbType: string;
 
   constructor(
-    private readonly dataSourceService: DataSourceService,
+    private readonly knexService: KnexService,
+    private readonly configService: ConfigService,
     private readonly bcryptService: BcryptService,
-    // Inject specific processors
     private readonly userProcessor: UserDefinitionProcessor,
     private readonly menuProcessor: MenuDefinitionProcessor,
     private readonly routeProcessor: RouteDefinitionProcessor,
@@ -45,11 +47,11 @@ export class DefaultDataService {
     private readonly folderProcessor: FolderDefinitionProcessor,
     private readonly bootstrapScriptProcessor: BootstrapScriptDefinitionProcessor,
   ) {
+    this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
     this.initializeProcessors();
   }
 
   private initializeProcessors(): void {
-    // Register specific processors
     this.processors.set('user_definition', this.userProcessor);
     this.processors.set('menu_definition', this.menuProcessor);
     this.processors.set('route_definition', this.routeProcessor);
@@ -61,7 +63,6 @@ export class DefaultDataService {
     this.processors.set('folder_definition', this.folderProcessor);
     this.processors.set('bootstrap_script_definition', this.bootstrapScriptProcessor);
     
-    // Dynamic processors for remaining tables - auto-detect from initJson
     const allTables = Object.keys(initJson);
     const registeredTables = Array.from(this.processors.keys());
     
@@ -73,52 +74,61 @@ export class DefaultDataService {
   }
 
   async insertAllDefaultRecords(): Promise<void> {
-    this.logger.log('🚀 Starting default data upsert with refactored processors...');
+    this.logger.log('🚀 Starting default data upsert...');
     
+    const knex = this.knexService.getKnex();
     let totalCreated = 0;
     let totalSkipped = 0;
 
     for (const [tableName, rawRecords] of Object.entries(initJson)) {
       const processor = this.processors.get(tableName);
       if (!processor) {
-        this.logger.warn(`⚠️ No processor found for table '${tableName}', skipping.`);
+        this.logger.warn(`⚠️ No processor found for '${tableName}', skipping.`);
         continue;
       }
 
       if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
-        this.logger.debug(`❎ Table '${tableName}' has no default data, skipping.`);
+        this.logger.debug(`❎ Table '${tableName}' has no data, skipping.`);
         continue;
       }
 
-      this.logger.log(`🔄 Processing table '${tableName}'...`);
+      this.logger.log(`🔄 Processing '${tableName}'...`);
 
       try {
-        const repo = this.dataSourceService.getRepository(tableName);
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
         
-        // Dynamic context based on processor needs
-        let context: any = undefined;
-        if (tableName === 'menu_definition') {
-          context = { repo };
-        }
-        // Add more context rules as needed for other processors
+        const context = { knex, tableName };
         
-        const result = await processor.process(records, repo, context);
+        const result = await processor.processKnex(records, knex, tableName, context);
         
         totalCreated += result.created;
         totalSkipped += result.skipped;
         
         this.logger.log(
-          `✅ Completed '${tableName}': ${result.created} created, ${result.skipped} skipped`
+          `✅ '${tableName}': ${result.created} created, ${result.skipped} skipped`
         );
       } catch (error) {
-        this.logger.error(`❌ Error processing table '${tableName}': ${error.message}`);
-        this.logger.debug(`Error details:`, error);
+        this.logger.error(`❌ Error processing '${tableName}': ${error.message}`);
+        this.logger.debug(`Error:`, error);
       }
     }
 
     this.logger.log(
       `🎉 Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`
     );
+  }
+
+  private async insertAndGetId(
+    trx: any,
+    tableName: string,
+    data: any,
+  ): Promise<number> {
+    if (this.dbType === 'postgres') {
+      const [result] = await trx(tableName).insert(data).returning('id');
+      return result.id;
+    } else {
+      const [id] = await trx(tableName).insert(data);
+      return id;
+    }
   }
 }

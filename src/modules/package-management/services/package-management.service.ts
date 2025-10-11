@@ -66,7 +66,6 @@ export class PackageManagementService {
 
     if (type === 'App') {
       // App packages are not handled by backend - skip
-      console.log(`Skipping App package installation: ${name} (handled by frontend)`);
       return {
         version: version === 'latest' ? '1.0.0' : version,
         description: `App package ${name} (skipped - handled by frontend)`,
@@ -87,7 +86,6 @@ export class PackageManagementService {
 
     if (type === 'App') {
       // App packages are not handled by backend - skip
-      console.log(`Skipping App package update: ${name} (handled by frontend)`);
       return {
         version: newVersion,
         description: `App package ${name} (skipped - handled by frontend)`,
@@ -107,7 +105,6 @@ export class PackageManagementService {
 
     if (type === 'App') {
       // App packages are not handled by backend - skip
-      console.log(`Skipping App package uninstall: ${name} (handled by frontend)`);
       return;
     }
 
@@ -128,7 +125,6 @@ export class PackageManagementService {
     const skipNpmInstall = process.env.SKIP_NPM_INSTALL === 'true';
 
     if (skipNpmInstall) {
-      console.log(`SKIP_NPM_INSTALL=true, creating package record without npm install for: ${name}`);
       return {
         version: version === 'latest' ? '1.0.0' : version,
         description: `Package ${name} (npm install skipped due to environment issues)`
@@ -149,7 +145,6 @@ export class PackageManagementService {
       command = `npm install ${packageSpec} --legacy-peer-deps ${flags}`.trim();
     }
 
-    console.log(`Installing backend package with ${packageManager}: ${command}`);
 
     try {
       const { stderr } = await execAsync(command, {
@@ -178,11 +173,9 @@ export class PackageManagementService {
 
       // If npm install fails with empty output, try alternative approach
       if (error.code === 1 && error.stdout === '' && error.stderr === '') {
-        console.log(`Attempting alternative install method for ${name}...`);
         try {
           // Try with --no-package-lock flag
           const altCommand = `npm install ${packageSpec} --no-package-lock ${flags}`.trim();
-          console.log(`Trying: ${altCommand}`);
 
           const { stderr: altStderr } = await execAsync(altCommand, {
             cwd: process.cwd(),
@@ -204,28 +197,22 @@ export class PackageManagementService {
 
           // Final diagnostic check
           try {
-            console.log(`Running npm version check...`);
             const { stdout: versionOutput } = await execAsync('npm --version', {
               cwd: process.cwd(),
               timeout: 10000,
             });
-            console.log(`npm version: ${versionOutput}`);
 
-            console.log(`Running npm config check...`);
             const { stdout: configOutput } = await execAsync('npm config get registry', {
               cwd: process.cwd(),
               timeout: 10000,
             });
-            console.log(`npm registry: ${configOutput}`);
           } catch (diagError) {
             console.error(`Diagnostic check failed:`, diagError.message);
           }
 
           // Try with official npm registry
           try {
-            console.log(`Attempting install with official npm registry...`);
             const registryCommand = `npm install ${packageSpec} --registry https://registry.npmjs.org/ ${flags}`.trim();
-            console.log(`Trying: ${registryCommand}`);
 
             const { stderr: registryStderr } = await execAsync(registryCommand, {
               cwd: process.cwd(),
@@ -247,12 +234,10 @@ export class PackageManagementService {
 
             // Final check: try a simple npm command
             try {
-              console.log(`Testing basic npm functionality...`);
               await execAsync('npm list --depth=0', {
                 cwd: process.cwd(),
                 timeout: 10000,
               });
-              console.log(`npm list works, but install commands are failing`);
             } catch (testError) {
               console.error(`Basic npm commands also failing:`, testError.message);
             }
@@ -281,7 +266,6 @@ export class PackageManagementService {
       command = `npm uninstall ${name} --legacy-peer-deps`;
     }
 
-    console.log(`Uninstalling backend package with ${packageManager}: ${command}`);
 
     try {
       const { stderr } = await execAsync(command, {
