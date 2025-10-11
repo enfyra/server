@@ -2,13 +2,13 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -18,13 +18,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate({ id }: { id: string }) {
-    const userDefRepo = this.dataSourceService.getRepository('user_definition');
-    const user = await userDefRepo.findOne({
-      where: {
-        id,
-      },
-      relations: ['role'],
-    });
+    const knex = this.knexService.getKnex();
+    const user = await knex('user_definition')
+      .where('id', id)
+      .first();
+    
+    if (user && user.roleId) {
+      user.role = await knex('role_definition')
+        .where('id', user.roleId)
+        .first();
+    }
+    
     return user;
   }
 }

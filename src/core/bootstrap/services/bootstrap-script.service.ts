@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
@@ -9,28 +10,28 @@ import { RouteCacheService } from '../../../infrastructure/cache/services/route-
 import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { SchemaReloadService } from '../../../modules/schema-management/services/schema-reload.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
+import { InstanceService } from '../../../shared/services/instance.service';
 import { 
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY, 
   REDIS_TTL 
 } from '../../../shared/utils/constant';
-import { Repository } from 'typeorm';
 
 @Injectable()
 export class BootstrapScriptService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BootstrapScriptService.name);
 
   constructor(
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
+    private metadataCacheService: MetadataCacheService,
     private handlerExecutorService: HandlerExecutorService,
     private cacheService: CacheService,
     private tableHandlerService: TableHandlerService,
     private queryEngine: QueryEngine,
     private routeCacheService: RouteCacheService,
     private systemProtectionService: SystemProtectionService,
-    private schemaReloadService: SchemaReloadService,
     private redisPubSubService: RedisPubSubService,
+    private instanceService: InstanceService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -61,34 +62,35 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     context: 'startup' | 'reload'
   ): Promise<R | void> {
     const lockKey = BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY;
-    const lockValue = this.schemaReloadService.sourceInstanceId;
+    const lockValue = this.instanceService.getInstanceId();
     const lockTimeout = REDIS_TTL.BOOTSTRAP_LOCK_TTL;
     
     const lockAcquired = await this.cacheService.acquire(lockKey, lockValue, lockTimeout);
     if (!lockAcquired) {
-      this.logger.log(`🔴 Bootstrap ${context} skipped - another instance is executing (${this.schemaReloadService.sourceInstanceId})`);
-      return; // Another instance is already handling
+      this.logger.log(`🔴 Bootstrap ${context} skipped - another instance is executing (${lockValue})`);
+      return;
     }
     
     try {
-      this.logger.log(`🔒 Bootstrap ${context} acquired lock - starting execution (${this.schemaReloadService.sourceInstanceId})`);
+      this.logger.log(`🔒 Bootstrap ${context} acquired lock - starting execution (${lockValue})`);
       return await operation();
       
     } catch (error) {
       this.logger.error(`❌ BootstrapScriptService ${context} failed:`, error);
       throw error;
     } finally {
-      // Always release the lock
       await this.cacheService.release(lockKey, lockValue);
-      this.logger.log(`🔓 Bootstrap ${context} lock released (${this.schemaReloadService.sourceInstanceId})`);
+      this.logger.log(`🔓 Bootstrap ${context} lock released (${lockValue})`);
     }
   }
 
   private async waitForTableExists(maxRetries = 10, delayMs = 500): Promise<void> {
+    const knex = this.knexService.getKnex();
+    
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const scriptRepo = this.dataSourceService.getRepository('bootstrap_script_definition');
-        if (scriptRepo && scriptRepo.find) {
+        const exists = await knex.schema.hasTable('bootstrap_script_definition');
+        if (exists) {
           this.logger.log(`✅ bootstrap_script_definition table found on attempt ${attempt}`);
           return;
         }
@@ -112,16 +114,13 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   }
 
   private async executeBootstrapScriptsWithoutLock() {
-    // Table should exist at this point due to waitForTableExists()
-    const scriptRepo: Repository<any> = this.dataSourceService.getRepository('bootstrap_script_definition');
+    const knex = this.knexService.getKnex();
       
     // Get enabled scripts ordered by priority
-    const scripts = await scriptRepo.find({
-      where: { 
-        isEnabled: true,
-      },
-      order: { priority: 'ASC' },
-    });
+    const scripts = await knex('bootstrap_script_definition')
+      .where('isEnabled', true)
+      .orderBy('priority', 'asc')
+      .select('*');
 
     this.logger.log(`📋 Found ${scripts.length} bootstrap scripts to execute`);
 
@@ -147,18 +146,19 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
 
   private async executeScript(script: any) {
     // Get all table definitions to create repositories
-    const tableDefRepo = this.dataSourceService.getRepository('table_definition');
-    const tableDefinitions = await tableDefRepo.find();
+    const knex = this.knexService.getKnex();
+    const tableDefinitions = await knex('table_definition').select('*');
     
     // Create dynamic repositories for all tables (similar to route-detect middleware)
     const dynamicFindEntries = await Promise.all(
       tableDefinitions.map(async (tableDef) => {
-        const tableName = (tableDef as any).name;
+        const tableName = tableDef.name;
         const dynamicRepo = new DynamicRepository({
           context: null, // Will be set later to avoid circular reference
           tableName: tableName,
           tableHandlerService: this.tableHandlerService,
-          dataSourceService: this.dataSourceService,
+          knexService: this.knexService,
+          metadataCacheService: this.metadataCacheService,
           queryEngine: this.queryEngine,
           routeCacheService: this.routeCacheService,
           systemProtectionService: this.systemProtectionService,

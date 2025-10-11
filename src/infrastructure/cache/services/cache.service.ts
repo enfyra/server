@@ -39,7 +39,6 @@ export class CacheService {
       'NX',
     );
     const ttl = await this.redis.pttl(key);
-    console.log(`[CacheService] ACQUIRE ${key} => ${result}, TTL=${ttl}ms`);
     return result === 'OK';
   }
 
@@ -53,10 +52,8 @@ export class CacheService {
     const serializedValue = this.serialize(value);
     try {
       const deleted = await this.redis.eval(lua, 1, key, serializedValue);
-      console.log(`[CacheService] RELEASE ${key} => ${deleted}`);
       return deleted === 1;
     } catch (error) {
-      console.log(`[CacheService] RELEASE ${key} => ERROR:`, error.message);
       return false;
     }
   }
@@ -74,11 +71,9 @@ export class CacheService {
       // Set with TTL
       await this.redis.set(key, serializedValue, 'PX', ttlMs);
       const ttl = await this.redis.pttl(key);
-      console.log(`[CacheService] SET ${key} => TTL=${ttl}ms`);
     } else {
       // Set without TTL (persist forever)
       await this.redis.set(key, serializedValue);
-      console.log(`[CacheService] SET ${key} => NO TTL (persistent)`);
     }
   }
 
@@ -87,22 +82,18 @@ export class CacheService {
     const parsed = this.deserialize(current);
     const checkValue = this.deserialize(this.serialize(value));
     const isEqual = JSON.stringify(parsed) === JSON.stringify(checkValue);
-    console.log(`[CacheService] EXISTS ${key} => ${isEqual}`);
     return isEqual;
   }
 
   async deleteKey(key: string): Promise<void> {
     await this.redis.del(key);
-    console.log(`[CacheService] DELETE ${key}`);
   }
 
   async setNoExpire<T = any>(key: string, val: T): Promise<void> {
     await this.redis.set(key, JSON.stringify(val));
-    console.log(`[CacheService] SET ${key} (no expiry)`);
   }
 
   async clearAll(): Promise<void> {
     await this.redis.flushall();
-    console.log(`[CacheService] CLEAR ALL - All Redis data cleared`);
   }
 }

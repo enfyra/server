@@ -3,7 +3,7 @@ import {
   AuthenticationException,
   AuthorizationException,
 } from '../../../core/exceptions/custom-exceptions';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 import { FileManagementService } from './file-management.service';
 import { Response } from 'express';
 import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
@@ -40,7 +40,7 @@ export class FileAssetsService {
   };
 
   constructor(
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
     private fileManagementService: FileManagementService,
     private redisService: RedisService,
   ) {
@@ -86,18 +86,37 @@ export class FileAssetsService {
     if (!fileId)
       return void res.status(400).json({ error: 'File ID is required' });
 
-    const fileRepo = this.dataSourceService.getRepository('file_definition');
-    const file = await fileRepo.findOne({
-      where: { id: fileId },
-      relations: [
-        'folder',
-        'permissions',
-        'permissions.allowedUsers',
-        'permissions.role',
-      ],
-    });
+    const knex = this.knexService.getKnex();
+    const file = await knex('file_definition')
+      .where('id', fileId)
+      .first();
 
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
+    
+    // Load permissions if file is not published
+    if (file.isPublished !== true) {
+      const permissions = await knex('file_permission_definition')
+        .where('fileId', fileId)
+        .where('isEnabled', true)
+        .select('*');
+      
+      // Load related users and roles for permissions
+      for (const perm of permissions) {
+        if (perm.userId) {
+          perm.allowedUsers = await knex('user_definition')
+            .where('id', perm.userId)
+            .first();
+        }
+        if (perm.roleId) {
+          perm.role = await knex('role_definition')
+            .where('id', perm.roleId)
+            .first();
+        }
+      }
+      
+      file.permissions = permissions;
+    }
+    
     await this.checkFilePermissions(file, req);
 
     const location = (file as any).location;

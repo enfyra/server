@@ -133,7 +133,6 @@ process.on('message', async (msg: any) => {
         ctx,
       });
     } catch (error) {
-      console.log('❌ Error executing code:', error.message);
       process.send({
         type: 'error',
         error: {
@@ -151,5 +150,4 @@ process.on('message', async (msg: any) => {
 });
 
 process.on('error', (err) => {
-  console.log(err);
 });

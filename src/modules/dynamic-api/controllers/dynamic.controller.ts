@@ -9,7 +9,7 @@ export class DynamicController {
   constructor(private readonly dynamicService: DynamicService) {}
 
   @All('*splat')
-  dynamicGetController(
+  async dynamicGetController(
     @Req()
     req: Request & {
       routeData: any & {
@@ -20,6 +20,18 @@ export class DynamicController {
       user: any;
     },
   ) {
-    return this.dynamicService.runHandler(req);
+    const result = await this.dynamicService.runHandler(req);
+    
+    // DEBUG: Log result from DynamicService
+    if (result?.data && result.data.length > 0 && result.data[0].createdAt !== undefined) {
+      console.log('🔍 [DEBUG] DynamicController result:', {
+        createdAt: result.data[0].createdAt,
+        type: typeof result.data[0].createdAt,
+        isDate: result.data[0].createdAt instanceof Date,
+        json: JSON.stringify(result.data[0])
+      });
+    }
+    
+    return result;
   }
 }

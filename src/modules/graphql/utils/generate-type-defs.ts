@@ -1,5 +1,3 @@
-import { EntityMetadata } from 'typeorm';
-
 function mapColumnTypeToGraphQL(type: string): string {
   const map: Record<string, string> = {
     int: 'Int',
@@ -25,7 +23,6 @@ function mapColumnTypeToGraphQL(type: string): string {
 
 export function generateGraphQLTypeDefsFromTables(
   tables: any[],
-  metadatas: EntityMetadata[],
 ): string {
   let typeDefs = '';
   let queryDefs = '';
@@ -47,55 +44,32 @@ export function generateGraphQLTypeDefsFromTables(
     }
     processedTypes.add(typeName);
 
-    typeDefs += `\ntype ${typeName} {\n`;
-
-    // Lấy đúng EntityMetadata
-    const entityMeta = metadatas.find((meta) => meta.tableName === table.name);
-    if (!entityMeta) {
-      // Nếu có columns từ table thì dùng luôn
-      if (table.columns && table.columns.length > 0) {
-        for (const column of table.columns) {
-          const fieldName = column?.name;
-          const columnType = column?.type;
-
-          if (
-            !fieldName ||
-            typeof fieldName !== 'string' ||
-            !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)
-          ) {
-            continue;
-          }
-
-          if (!columnType || typeof columnType !== 'string') {
-            continue;
-          }
-
-          const gqlType = mapColumnTypeToGraphQL(columnType);
-          const isRequired = !column.isNullable ? '!' : '';
-
-          const finalType =
-            column.isPrimary && gqlType === 'ID'
-              ? 'ID!'
-              : `${gqlType}${isRequired}`;
-
-          typeDefs += `  ${fieldName}: ${finalType}\n`;
-        }
-        typeDefs += `}\n`;
-        continue;
-      }
-
-      // Nếu không có column nào, bỏ qua
-      typeDefs = typeDefs.slice(
-        0,
-        typeDefs.lastIndexOf(`type ${typeName} {\n`),
-      ); // Xoá phần mở đầu
+    // Skip if no columns
+    if (!table.columns || table.columns.length === 0) {
       continue;
     }
 
-    // Scalar columns
-    for (const column of table.columns || []) {
-      const gqlType = mapColumnTypeToGraphQL(column.type);
-      const fieldName = column.name;
+    // Collect valid fields first to check if type will be empty
+    const validFields: string[] = [];
+
+    // Add scalar columns
+    for (const column of table.columns) {
+      const fieldName = column?.name;
+      const columnType = column?.type;
+
+      if (
+        !fieldName ||
+        typeof fieldName !== 'string' ||
+        !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)
+      ) {
+        continue;
+      }
+
+      if (!columnType || typeof columnType !== 'string') {
+        continue;
+      }
+
+      const gqlType = mapColumnTypeToGraphQL(columnType);
       const isRequired = !column.isNullable ? '!' : '';
 
       const finalType =
@@ -103,63 +77,51 @@ export function generateGraphQLTypeDefsFromTables(
           ? 'ID!'
           : `${gqlType}${isRequired}`;
 
-      typeDefs += `  ${fieldName}: ${finalType}\n`;
+      validFields.push(`  ${fieldName}: ${finalType}`);
     }
 
-    // Add default timestamp fields if they exist in entity metadata
-    const hasCreatedAt = entityMeta.columns.some(
-      (col) => col.propertyName === 'createdAt',
-    );
-    const hasUpdatedAt = entityMeta.columns.some(
-      (col) => col.propertyName === 'updatedAt',
-    );
+    // Add relations from table.relations (if any)
+    if (table.relations && Array.isArray(table.relations)) {
+      for (const rel of table.relations) {
+        if (!rel?.propertyName || !rel?.targetTableName) {
+          continue;
+        }
 
-    if (hasCreatedAt) {
-      typeDefs += `  createdAt: String!\n`;
-    }
-    if (hasUpdatedAt) {
-      typeDefs += `  updatedAt: String!\n`;
-    }
+        const relName = rel.propertyName;
+        const targetType = rel.targetTableName;
 
-    // Relations → lấy từ entityMeta.relations
-    for (const rel of entityMeta.relations) {
-      if (!rel?.propertyName) {
-        continue;
-      }
+        // Validate target type name
+        if (
+          !targetType ||
+          typeof targetType !== 'string' ||
+          targetType.trim() === ''
+        ) {
+          continue;
+        }
 
-      // Skip relation if no target metadata or table name
-      if (!rel.inverseEntityMetadata?.tableName) {
-        continue;
-      }
+        // Skip if target type same as current type (circular reference)
+        if (targetType === typeName) {
+          continue;
+        }
 
-      const relName = rel.propertyName;
-      const targetType = rel.inverseEntityMetadata.tableName;
+        const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
 
-      // Validate target type name
-      if (
-        !targetType ||
-        typeof targetType !== 'string' ||
-        targetType.trim() === ''
-      ) {
-        continue;
-      }
-
-      // Skip if target type same as current type (circular reference)
-      if (targetType === typeName) {
-        continue;
-      }
-
-      const isArray = rel.isOneToMany || rel.isManyToMany;
-
-      if (isArray) {
-        const fieldDef = `  ${relName}: [${targetType}!]!\n`;
-        typeDefs += fieldDef;
-      } else {
-        const fieldDef = `  ${relName}: ${targetType}\n`;
-        typeDefs += fieldDef;
+        if (isArray) {
+          validFields.push(`  ${relName}: [${targetType}!]!`);
+        } else {
+          validFields.push(`  ${relName}: ${targetType}`);
+        }
       }
     }
 
+    // Skip if no valid fields
+    if (validFields.length === 0) {
+      continue;
+    }
+
+    // Build type definition
+    typeDefs += `\ntype ${typeName} {\n`;
+    typeDefs += validFields.join('\n') + '\n';
     typeDefs += `}\n`;
 
     // Generate Result type
@@ -187,8 +149,19 @@ type ${typeName}Result {
         continue; // Skip primary key and timestamps
       }
       
-      const gqlType = mapColumnTypeToGraphQL(column.type);
-      const fieldName = column.name;
+      const fieldName = column?.name;
+      const columnType = column?.type;
+      
+      // Validate field name
+      if (!fieldName || typeof fieldName !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)) {
+        continue;
+      }
+      
+      if (!columnType || typeof columnType !== 'string') {
+        continue;
+      }
+      
+      const gqlType = mapColumnTypeToGraphQL(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       
       const finalType = column.isPrimary && gqlType === 'ID' ? 'ID!' : `${gqlType}${isRequired}`;
@@ -206,8 +179,19 @@ type ${typeName}Result {
         continue; // Skip primary key and timestamps
       }
       
-      const gqlType = mapColumnTypeToGraphQL(column.type);
-      const fieldName = column.name;
+      const fieldName = column?.name;
+      const columnType = column?.type;
+      
+      // Validate field name
+      if (!fieldName || typeof fieldName !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)) {
+        continue;
+      }
+      
+      if (!columnType || typeof columnType !== 'string') {
+        continue;
+      }
+      
+      const gqlType = mapColumnTypeToGraphQL(columnType);
       // All fields optional for updates
       const finalType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
       inputDefs += `  ${fieldName}: ${finalType}\n`;
@@ -247,3 +231,4 @@ ${mutationDefs}
 
   return fullTypeDefs;
 }
+

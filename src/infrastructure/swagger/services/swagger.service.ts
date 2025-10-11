@@ -1,7 +1,7 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { OpenAPIObject } from '@nestjs/swagger';
 import { RouteCacheService } from '../../cache/services/route-cache.service';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../knex/knex.service';
 import { generateErrorSchema } from '../../../shared/utils/openapi-schema-generator';
 import { generatePathsFromRoutes, generateCommonResponses } from '../../../shared/utils/openapi-path-generator';
 import { HttpAdapterHost } from '@nestjs/core';
@@ -9,10 +9,11 @@ import { HttpAdapterHost } from '@nestjs/core';
 @Injectable()
 export class SwaggerService implements OnApplicationBootstrap {
   private currentSpec: OpenAPIObject;
+  private methodsCache: string[] = [];
 
   constructor(
     private routeCacheService: RouteCacheService,
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
     private httpAdapterHost: HttpAdapterHost,
   ) {}
 
@@ -34,17 +35,20 @@ export class SwaggerService implements OnApplicationBootstrap {
     const expressRoutes = this.getExpressRoutes();
     
     // Lấy toàn bộ routes từ cache (DB routes)
-    const dbRoutes = await this.routeCacheService.getRoutesWithSWR();
+    const dbRoutes = await this.routeCacheService.getRoutes();
 
     // Combine routes với ưu tiên Express routes
     const allRoutes = this.combineRoutes(expressRoutes, dbRoutes);
 
-    // Get all REST methods from method_definition (exclude GraphQL)
-    const methodRepo = this.dataSourceService.getRepository('method_definition');
-    const allMethods = await methodRepo.find();
-    const restMethods = allMethods
-      .filter((m: any) => !m.method.startsWith('GQL_'))
-      .map((m: any) => m.method);
+    // Get all REST methods - cache to avoid querying every time
+    if (this.methodsCache.length === 0) {
+      const knex = this.knexService.getKnex();
+      const allMethods = await knex('method_definition').select('*');
+      this.methodsCache = allMethods
+        .filter((m: any) => !m.method.startsWith('GQL_'))
+        .map((m: any) => m.method);
+    }
+    const restMethods = this.methodsCache;
 
     // Generate paths from routes
     const paths = generatePathsFromRoutes(allRoutes, restMethods);

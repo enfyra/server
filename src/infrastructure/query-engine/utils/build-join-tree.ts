@@ -1,4 +1,3 @@
-import { EntityMetadata } from 'typeorm';
 import { lookupFieldOrRelation } from './lookup-field-or-relation';
 import { resolvePathWithJoin } from './resolve-path-with-join';
 
@@ -27,20 +26,20 @@ export function buildJoinTree({
   filter,
   sort,
   rootAlias,
-  dataSource,
+  metadataGetter,
   log = [],
 }: {
-  meta: EntityMetadata;
+  meta: any;
   fields?: string | string[];
   filter?: any;
   sort?: string[];
   rootAlias: string;
-  dataSource: any;
+  metadataGetter: (tableName: string) => any;
   log?: string[];
 }): {
   joinArr: { alias: string; parentAlias: string; propertyPath: string }[];
   selectArr: string[];
-  sortArr: { alias: string; field: string; direction: 'ASC' | 'DESC' }[];
+  sortArr: { alias: string; field: string; fullPath: string; direction: 'ASC' | 'DESC' }[];
 } {
   const joinArr: {
     alias: string;
@@ -51,6 +50,7 @@ export function buildJoinTree({
   const sortArr: {
     alias: string;
     field: string;
+    fullPath: string;
     direction: 'ASC' | 'DESC';
   }[] = [];
 
@@ -76,7 +76,7 @@ export function buildJoinTree({
         );
       }
 
-      currentMeta = dataSource.getMetadata(found.type);
+      currentMeta = metadataGetter(found.type);
     }
 
     return {
@@ -95,17 +95,26 @@ export function buildJoinTree({
         path: subPath,
         rootAlias,
         addJoin,
+        metadataGetter,
       });
+      if (!res) {
+        log.push?.(`! Skip select: path not resolved for ${subPath.join('.')}`);
+        continue;
+      }
       selectSet.add(`${res.alias}.id`);
       log.push?.(`+ Add select (relation auto id): ${res.alias}.id`);
     }
 
-    const res = resolvePathWithJoin({ meta, path, rootAlias, addJoin });
-    if (!res) return;
+    const res = resolvePathWithJoin({ meta, path, rootAlias, addJoin, metadataGetter });
+    if (!res) {
+      log.push?.(`! Skip select: path not resolved for ${path.join('.')}`);
+      return;
+    }
 
     if (res.lastField.kind === 'field') {
-      selectSet.add(`${res.alias}.${res.lastField.propertyName}`);
-      log.push?.(`+ Add select: ${res.alias}.${res.lastField.propertyName}`);
+      const fieldToAdd = `${res.alias}.${res.lastField.propertyName}`;
+      selectSet.add(fieldToAdd);
+      log.push?.(`+ Add select: ${fieldToAdd}`);
     } else {
       const result = addJoin(path);
       if (result) {
@@ -126,6 +135,7 @@ export function buildJoinTree({
         path: subPath,
         rootAlias,
         addJoin,
+        metadataGetter,
       });
       if (!res) {
         log.push?.(`! Skip select: path not resolved for ${subPath.join('.')}`);
@@ -135,20 +145,21 @@ export function buildJoinTree({
       log.push?.(`+ Add select (relation auto id): ${res.alias}.id`);
     }
 
-    const res = resolvePathWithJoin({ meta, path, rootAlias, addJoin });
+    const res = resolvePathWithJoin({ meta, path, rootAlias, addJoin, metadataGetter });
     if (!res) return;
 
     for (const col of res.lastMeta.columns) {
+      const colName = col.name || col.propertyName;
       if (
-        res.lastMeta.relations.some((r) => r.propertyName === col.propertyName)
+        res.lastMeta.relations?.some((r: any) => r.propertyName === colName)
       ) {
         log.push?.(
-          `- Skip column "${col.propertyName}" because it conflicts with relation`,
+          `- Skip column "${colName}" because it conflicts with relation`,
         );
         continue;
       }
-      selectSet.add(`${res.alias}.${col.propertyName}`);
-      log.push?.(`+ Add select ( * ): ${res.alias}.${col.propertyName}`);
+      selectSet.add(`${res.alias}.${colName}`);
+      log.push?.(`+ Add select ( * ): ${res.alias}.${colName}`);
     }
 
     for (const rel of res.lastMeta.relations) {
@@ -159,6 +170,7 @@ export function buildJoinTree({
         log.push?.(
           `+ Add select (wildcard relation.id): ${childResult.alias}.id`,
         );
+        
       }
     }
   };
@@ -207,7 +219,7 @@ export function buildJoinTree({
             );
           }
 
-          const nextMeta = dataSource.getMetadata(found.type);
+          const nextMeta = metadataGetter(found.type);
           const val = f[key];
           if (typeof val === 'object') {
             extractPathsFromFilter(val, path, nextMeta);
@@ -234,16 +246,19 @@ export function buildJoinTree({
       );
     }
 
-    const res = resolvePathWithJoin({ meta, path, rootAlias, addJoin });
+    const res = resolvePathWithJoin({ meta, path, rootAlias, addJoin, metadataGetter });
     if (!res) continue;
 
     if (res.lastField.kind === 'field') {
+      // Store full path for matching with parsedSort
+      const fullPath = path.join('.');
       sortArr.push({
         alias: res.alias,
         field: res.lastField.propertyName,
+        fullPath: fullPath,
         direction: 'ASC',
       });
-      log.push?.(`+ Add sort: ${res.alias}.${res.lastField.propertyName} ASC`);
+      log.push?.(`+ Add sort: ${res.alias}.${res.lastField.propertyName} (path: ${fullPath})`);
     }
   }
   return {

@@ -1,29 +1,33 @@
 import { Injectable } from '@nestjs/common';
 import { isEqual } from 'lodash';
 import { CommonService } from '../../../shared/common/services/common.service';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 
 @Injectable()
 export class SystemProtectionService {
   constructor(
     private commonService: CommonService,
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
+    private metadataCache: MetadataCacheService,
   ) {}
 
-  private getAllRelationFieldsWithInverse(tableName: string): string[] {
+  private async getAllRelationFieldsWithInverse(tableName: string): Promise<string[]> {
     try {
-      const dataSource = this.dataSourceService.getDataSource();
-      const meta = dataSource.getMetadata(tableName);
-      const relations = meta.relations.map((r) => r.propertyName);
+      const metadata = await this.metadataCache.getMetadata();
+      const tableMeta = metadata.tables.get(tableName);
+      if (!tableMeta) return [];
+      
+      const relations = (tableMeta.relations || []).map((r: any) => r.propertyName);
 
       const inverseRelations: string[] = [];
-      for (const otherMeta of dataSource.entityMetadatas) {
-        for (const r of otherMeta.relations) {
+      for (const [, otherMeta] of metadata.tables) {
+        for (const r of (otherMeta.relations || [])) {
           if (
-            r.inverseEntityMetadata.name === meta.name &&
-            r.inverseSidePropertyPath
+            r.targetTableName === tableMeta.name &&
+            r.inversePropertyName
           ) {
-            inverseRelations.push(r.inverseSidePropertyPath.split('.')[0]);
+            inverseRelations.push(r.inversePropertyName);
           }
         }
       }
@@ -76,17 +80,27 @@ export class SystemProtectionService {
   private async reloadIfSystem(existing: any, tableName: string): Promise<any> {
     if (!existing?.isSystem) return existing;
 
-    const dataSource = this.dataSourceService.getDataSource();
-    const meta = dataSource.getMetadata(tableName);
-    const repo = dataSource.getRepository(meta.target);
-    const relations = this.getAllRelationFieldsWithInverse(tableName);
+    const relations = await this.getAllRelationFieldsWithInverse(tableName);
+    const knex = this.knexService.getKnex();
 
-    const full = await repo.findOne({
-      where: { id: existing.id },
-      relations,
-    });
+    // For simple reload, just get the record
+    // Relations will be loaded on-demand if needed
+    const full = await knex(tableName)
+      .where('id', existing.id)
+      .first();
 
     if (!full) throw new Error('Full system record not found');
+    
+    // Load basic relations needed for validation
+    if (tableName === 'table_definition') {
+      full.columns = await knex('column_definition')
+        .where('tableId', full.id)
+        .select('*');
+      full.relations = await knex('relation_definition')
+        .where('sourceTableId', full.id)
+        .select('*');
+    }
+    
     return full;
   }
 
@@ -95,7 +109,7 @@ export class SystemProtectionService {
     existing: any,
     newData: any,
   ) {
-    const relationFields = this.getAllRelationFieldsWithInverse(tableName);
+    const relationFields = await this.getAllRelationFieldsWithInverse(tableName);
     if (relationFields.length === 0) return;
 
     for (const field of relationFields) {
@@ -143,7 +157,7 @@ export class SystemProtectionService {
   }) {
     const fullExisting = await this.reloadIfSystem(existing, tableName);
     
-    const relationFields = this.getAllRelationFieldsWithInverse(tableName);
+    const relationFields = await this.getAllRelationFieldsWithInverse(tableName);
     const changedFields = this.getChangedFields(
       data,
       fullExisting,

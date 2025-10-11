@@ -2,13 +2,12 @@
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { GraphQLSchema } from 'graphql';
 import { createYoga } from 'graphql-yoga';
-import { EntityMetadata } from 'typeorm';
 
 // @nestjs packages
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 
 // Internal imports
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 
 // Relative imports
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
@@ -17,61 +16,75 @@ import { generateGraphQLTypeDefsFromTables } from '../utils/generate-type-defs';
 @Injectable()
 export class GraphqlService implements OnApplicationBootstrap {
   constructor(
-    private dataSourceService: DataSourceService,
+    private knexService: KnexService,
     private dynamicResolver: DynamicResolver,
   ) {}
   async onApplicationBootstrap() {
-    await this.reloadSchema();
+    // await this.reloadSchema();
   }
   private yogaApp: ReturnType<typeof createYoga>;
 
   private async pullMetadataFromDb(): Promise<any[]> {
-    const dataSource = this.dataSourceService.getDataSource();
-    const tableDefRepo = dataSource.getRepository('table_definition');
-    const rootMeta = dataSource.getMetadata('table_definition');
+    const knex = this.knexService.getKnex();
 
-    const qb = tableDefRepo.createQueryBuilder('table');
-    qb.leftJoinAndSelect('table.columns', 'columns');
-    qb.leftJoinAndSelect('table.relations', 'relations');
-    qb.leftJoinAndSelect('relations.targetTable', 'targetTable');
+    // Get all tables with their columns and relations
+    const tables = await knex('table_definition').select('*');
 
-    const aliasMap = new Map<string, string>();
-    const visited = new Set<number>();
+    for (const table of tables) {
+      // Parse JSON fields
+      if (table.uniques && typeof table.uniques === 'string') {
+        try {
+          table.uniques = JSON.parse(table.uniques);
+        } catch (e) {}
+      }
+      if (table.indexes && typeof table.indexes === 'string') {
+        try {
+          table.indexes = JSON.parse(table.indexes);
+        } catch (e) {}
+      }
 
-    function walkEntityMetadata(
-      meta: EntityMetadata,
-      path: string[],
-      alias: string,
-    ) {
-      const tableId = meta.tableName;
-      if (visited.has(tableId as any)) return;
+      // Get columns for each table
+      table.columns = await knex('column_definition')
+        .where('tableId', table.id)
+        .select('*');
 
-      visited.add(tableId as any);
-
-      for (const rel of meta.relations || []) {
-        const relPath = [...path, rel.propertyName];
-        const aliasKey = ['table', ...relPath].join('_');
-        const joinPath = `${alias}.${rel.propertyName}`;
-
-        if (!aliasMap.has(aliasKey)) {
-          aliasMap.set(aliasKey, aliasKey);
-          qb.leftJoinAndSelect(joinPath, aliasKey);
-          walkEntityMetadata(rel.inverseEntityMetadata, relPath, aliasKey);
+      // Parse JSON fields in columns
+      for (const column of table.columns) {
+        if (column.options && typeof column.options === 'string') {
+          try {
+            column.options = JSON.parse(column.options);
+          } catch (e) {}
+        }
+        if (column.defaultValue && typeof column.defaultValue === 'string') {
+          try {
+            column.defaultValue = JSON.parse(column.defaultValue);
+          } catch (e) {}
         }
       }
 
-      visited.delete(tableId as any);
+      // Get relations for each table
+      const relations = await knex('relation_definition')
+        .where('sourceTableId', table.id)
+        .select('*');
+
+      // Get target table info for each relation
+      for (const relation of relations) {
+        if (relation.targetTableId) {
+          relation.targetTable = await knex('table_definition')
+            .where('id', relation.targetTableId)
+            .first();
+        }
+      }
+
+      table.relations = relations;
     }
 
-    walkEntityMetadata(rootMeta, [], 'table');
-
-    return await qb.getMany();
+    return tables;
   }
 
   private async schemaGenerator(): Promise<GraphQLSchema> {
     const tables = await this.pullMetadataFromDb();
-    const metadatas = this.dataSourceService.getDataSource().entityMetadatas;
-    const typeDefs = generateGraphQLTypeDefsFromTables(tables, metadatas);
+    const typeDefs = generateGraphQLTypeDefsFromTables(tables);
 
     const resolvers = {
       Query: new Proxy(

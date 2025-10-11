@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-// import { isEqual } from 'lodash'; // Unused import removed
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
-import { MetadataSyncService } from '../../schema-management/services/metadata-sync.service';
+import { ModuleRef } from '@nestjs/core';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { SchemaMigrationService } from '../../../infrastructure/knex/services/schema-migration.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
   DatabaseException,
@@ -12,15 +13,23 @@ import {
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
+import { getForeignKeyColumnName, getJunctionTableName } from '../../../shared/utils/naming-helpers';
 
+/**
+ * TableHandlerService - Manages table metadata and physical schema
+ * 1. Validates and saves metadata to DB
+ * 2. Migrates physical schema (CREATE/ALTER/DROP TABLE)
+ */
 @Injectable()
 export class TableHandlerService {
   private logger = new Logger(TableHandlerService.name);
 
   constructor(
-    private dataSourceService: DataSourceService,
-    private metadataSyncService: MetadataSyncService,
+    private knexService: KnexService,
+    private schemaMigrationService: SchemaMigrationService,
+    private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
+    private moduleRef: ModuleRef,
   ) {}
 
   private validateRelations(relations: any[]) {
@@ -39,7 +48,6 @@ export class TableHandlerService {
   }
 
   async createTable(body: any) {
-    // Enforce lowercase, snake_case table names
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
         tableName: body?.name,
@@ -51,194 +59,387 @@ export class TableHandlerService {
       });
     }
 
-    // Validate relations before proceeding
     this.validateRelations(body.relations);
 
-    const dataSource = this.dataSourceService.getDataSource();
-    const tableEntity =
-      this.dataSourceService.entityClassMap.get('table_definition');
-    const tableRepo = dataSource.getRepository(tableEntity);
-    const queryRunner = dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const knex = this.knexService.getKnex();
+    let trx;
 
     try {
-      const hasTable = await queryRunner.hasTable(body.name);
-      const existing = await dataSource
-        .getRepository(tableEntity)
-        .findOne({ where: { name: body.name } });
+      // Start transaction
+      trx = await knex.transaction();
 
-      if (hasTable && existing) {
-        throw new Error(`Table ${body.name} already exists!`);
+      const hasTable = await knex.schema.hasTable(body.name);
+      const existing = await trx('table_definition')
+        .where({ name: body.name })
+        .first();
+
+      if (hasTable || existing) {
+        await trx.rollback();
+        throw new DuplicateResourceException(
+          'table_definition',
+          'name',
+          body.name
+        );
       }
 
       const idCol = body.columns.find(
         (col: any) => col.name === 'id' && col.isPrimary,
       );
       if (!idCol) {
-        throw new Error(
+        await trx.rollback();
+        throw new ValidationException(
           `Table must contain a column named "id" with isPrimary = true.`,
+          { tableName: body.name }
         );
       }
 
       const validTypes = ['int', 'uuid'];
       if (!validTypes.includes(idCol.type)) {
-        throw new Error(`The primary column "id" must be of type int or uuid.`);
+        await trx.rollback();
+        throw new ValidationException(
+          `The primary column "id" must be of type int or uuid.`,
+          { tableName: body.name, idColumnType: idCol.type }
+        );
       }
 
       const primaryCount = body.columns.filter(
         (col: any) => col.isPrimary,
       ).length;
       if (primaryCount !== 1) {
-        throw new Error(`Only one column is allowed to have isPrimary = true.`);
+        await trx.rollback();
+        throw new ValidationException(
+          `Only one column is allowed to have isPrimary = true.`,
+          { tableName: body.name, primaryCount }
+        );
       }
 
-      validateUniquePropertyNames(body.columns || [], body.relations || []);
-
-      const newTable = { ...body };
-
-      if (body.columns) {
-        newTable.columns = body.columns.map((col) => {
-          const { table, ...colWithoutTable } = col;
-          return colWithoutTable;
-        });
+      try {
+        validateUniquePropertyNames(body.columns || [], body.relations || []);
+      } catch (error) {
+        await trx.rollback();
+        throw error;
       }
 
-      if (body.relations) {
-        newTable.relations = body.relations.map((rel) => {
-          const { sourceTable, ...relWithoutSourceTable } = rel;
-          return relWithoutSourceTable;
-        });
-      }
+      body.isSystem = false;
 
-      const result: any = await tableRepo.save(newTable);
-
-      await this.afterEffect({ entityName: result.name, type: 'create' });
-
-      // Check if route already exists before creating
-      const routeDefRepo =
-        this.dataSourceService.getRepository('route_definition');
-      const existingRoute = await routeDefRepo.findOne({
-        where: { path: `/${result.name}` },
+      const [tableId] = await trx('table_definition').insert({
+        name: body.name,
+        isSystem: body.isSystem,
+        alias: body.alias,
+        description: body.description,
+        uniques: JSON.stringify(body.uniques || []),
+        indexes: JSON.stringify(body.indexes || []),
       });
 
-      if (!existingRoute) {
-        await routeDefRepo.save({
-          path: `/${result.name}`,
-          mainTable: {
-            id: result.id,
-          },
-          isEnabled: true,
-        });
-        this.logger.log(
-          `✅ Route /${result.name} created for table ${result.name}`,
-        );
-      } else {
-        this.logger.warn(
-          `Route /${result.name} already exists, skipping route creation`,
-        );
+      if (body.columns?.length > 0) {
+        const columnsToInsert = body.columns.map((col: any) => ({
+          name: col.name,
+          type: col.type,
+          isPrimary: col.isPrimary || false,
+          isGenerated: col.isGenerated || false,
+          isNullable: col.isNullable ?? true,
+          isSystem: col.isSystem || false,
+          isUpdatable: col.isUpdatable ?? true,
+          isHidden: col.isHidden || false,
+          defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
+          options: col.options ? JSON.stringify(col.options) : null,
+          description: col.description,
+          placeholder: col.placeholder,
+          tableId: tableId,
+        }));
+        await trx('column_definition').insert(columnsToInsert);
       }
 
-      return result;
+      if (body.relations?.length > 0) {
+        // Load all target tables at once (avoid N+1)
+        const targetTableIds = body.relations
+          .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
+          .filter((id: any) => id != null);
+        
+        const targetTablesMap = new Map<number, string>();
+        if (targetTableIds.length > 0) {
+          const targetTables = await trx('table_definition')
+            .select('id', 'name')
+            .whereIn('id', targetTableIds);
+          
+          for (const table of targetTables) {
+            targetTablesMap.set(table.id, table.name);
+          }
+        }
+        
+        const relationsToInsert = [];
+        
+        for (const rel of body.relations) {
+          // Extract targetTableId and targetTableName
+          const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
+          
+          const insertData: any = {
+            propertyName: rel.propertyName,
+            type: rel.type,
+            targetTableId,
+            inversePropertyName: rel.inversePropertyName,
+            isNullable: rel.isNullable ?? true,
+            isSystem: rel.isSystem || false,
+            description: rel.description,
+            sourceTableId: tableId,
+          };
+
+          // Add junction table info for M2M relations
+          if (rel.type === 'many-to-many') {
+            const targetTableName = targetTablesMap.get(targetTableId);
+            
+            if (!targetTableName) {
+              throw new Error(`Target table with ID ${targetTableId} not found`);
+            }
+            
+            const junctionTableName = getJunctionTableName(body.name, rel.propertyName, targetTableName);
+            insertData.junctionTableName = junctionTableName;
+            insertData.junctionSourceColumn = getForeignKeyColumnName(body.name);
+            insertData.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+          }
+
+          relationsToInsert.push(insertData);
+        }
+        
+        await trx('relation_definition').insert(relationsToInsert);
+      }
+
+      // Check if route already exists before creating
+      const existingRoute = await trx('route_definition')
+        .where({ path: `/${body.name}` })
+        .first();
+
+      if (!existingRoute) {
+        await trx('route_definition').insert({
+          path: `/${body.name}`,
+          mainTableId: tableId,
+          isEnabled: true,
+          isSystem: false,
+          icon: 'lucide:table',
+        });
+        this.logger.log(`✅ Route /${body.name} created for table ${body.name}`);
+      } else {
+        this.logger.warn(`Route /${body.name} already exists, skipping route creation`);
+      }
+
+      // Commit transaction BEFORE physical schema migration
+      await trx.commit();
+
+      // Fetch full table metadata with columns and relations (after commit)
+      const fullMetadata = await this.getFullTableMetadata(tableId);
+
+      // Migrate physical schema (after commit)
+      await this.schemaMigrationService.createTable(fullMetadata);
+
+      // Reload metadata cache for all instances (after commit)
+      await this.metadataCacheService.reloadMetadataCache();
+
+      this.logger.log(`✅ Table created: ${body.name} (metadata + physical schema + route)`);
+      return fullMetadata;
     } catch (error) {
+      // Rollback transaction on error (if not already committed/rolled back)
+      if (trx && !trx.isCompleted()) {
+        try {
+          await trx.rollback();
+        } catch (rollbackError) {
+          this.logger.error(`Failed to rollback transaction: ${rollbackError.message}`);
+        }
+      }
+
       this.loggingService.error('Table creation failed', {
         context: 'createTable',
         error: error.message,
         stack: error.stack,
         tableName: body?.name,
-        columnCount: body?.columns?.length,
-        relationCount: body?.relations?.length,
       });
 
-      if (error.message?.includes('already exists')) {
-        throw new DuplicateResourceException(
-          'Table',
-          'name',
-          body?.name || 'unknown',
-        );
-      }
-
-      throw new DatabaseException(`Failed to create table: ${error.message}`, {
-        tableName: body?.name,
-        operation: 'create',
-      });
-    } finally {
-      await queryRunner.release();
+      throw new DatabaseException(
+        `Failed to create table: ${error.message}`,
+        {
+          tableName: body?.name,
+          operation: 'create',
+        },
+      );
     }
   }
 
-  async updateTable(id: number, body: CreateTableDto) {
-    // Validate relations before proceeding
+  async updateTable(id: number, body: any) {
+    if (body.name && /[A-Z]/.test(body.name)) {
+      throw new ValidationException('Table name must be lowercase.', {
+        tableName: body.name,
+      });
+    }
+    if (body.name && !/^[a-z0-9_]+$/.test(body.name)) {
+      throw new ValidationException('Table name must be snake_case.', {
+        tableName: body.name,
+      });
+    }
+
     this.validateRelations(body.relations);
 
-    const dataSource = this.dataSourceService.getDataSource();
-
-    const tableEntity =
-      this.dataSourceService.entityClassMap.get('table_definition');
-    const columnEntity =
-      this.dataSourceService.entityClassMap.get('column_definition');
-    const relationEntity = this.dataSourceService.entityClassMap.get(
-      'relation_definition',
-    );
-
-    const queryRunner = dataSource.createQueryRunner();
-    await queryRunner.connect();
+    const knex = this.knexService.getKnex();
 
     try {
-      const tableRepo = dataSource.getRepository(tableEntity);
-      const columnRepo = dataSource.getRepository(columnEntity);
-      const relationRepo = dataSource.getRepository(relationEntity);
-
-      const exists: any = await tableRepo.findOne({
-        where: { id },
-        relations: ['columns', 'relations'],
-      });
+      const exists = await knex('table_definition')
+        .where({ id })
+        .first();
 
       if (!exists) {
-        throw new Error(`Table ${body.name} does not exist.`);
+        throw new ResourceNotFoundException(
+          'table_definition',
+          String(id)
+        );
       }
 
-      if (!body.columns?.some((col: any) => col.isPrimary)) {
-        throw new Error(
-          `Table must contain an id column with isPrimary = true!`,
+      if (exists.isSystem) {
+        throw new ValidationException(
+          'Cannot modify system table',
+          { tableId: id, tableName: exists.name }
         );
       }
 
       validateUniquePropertyNames(body.columns || [], body.relations || []);
 
-      // Handle deletion of columns and relations (if not system, deletion is allowed)
-      const deletedColumnIds = getDeletedIds(exists.columns, body.columns);
-      const deletedRelationIds = getDeletedIds(
-        exists.relations,
-        body.relations,
-      );
-      if (deletedColumnIds.length) await columnRepo.delete(deletedColumnIds);
-      if (deletedRelationIds.length)
-        await relationRepo.delete(deletedRelationIds);
-      this.logger.debug('Updating table with body:', body);
+      await knex('table_definition')
+        .where({ id })
+        .update({
+          name: body.name,
+          alias: body.alias,
+          description: body.description,
+          uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
+          indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
+        });
 
-      // Update existing table properties
-      Object.assign(exists, body);
-
-      // Ensure new relations are properly linked to the table
-      if (body.relations) {
-        exists.relations = body.relations.map((rel) => ({
-          ...rel,
-          sourceTable: exists.id,
-        }));
-      }
-
-      // Ensure new columns are properly linked to the table
       if (body.columns) {
-        exists.columns = body.columns.map((col) => ({
-          ...col,
-          table: exists.id,
-        }));
+        const existingColumns = await knex('column_definition')
+          .where({ tableId: id })
+          .select('id');
+
+        const deletedColumnIds = getDeletedIds(
+          existingColumns,
+          body.columns,
+        );
+
+        if (deletedColumnIds.length > 0) {
+          await knex('column_definition')
+            .whereIn('id', deletedColumnIds)
+            .delete();
+        }
+
+        for (const col of body.columns) {
+          const columnData = {
+            name: col.name,
+            type: col.type,
+            isPrimary: col.isPrimary || false,
+            isGenerated: col.isGenerated || false,
+            isNullable: col.isNullable ?? true,
+            isSystem: col.isSystem || false,
+            isUpdatable: col.isUpdatable ?? true,
+            isHidden: col.isHidden || false,
+            defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
+            options: col.options ? JSON.stringify(col.options) : null,
+            description: col.description,
+            placeholder: col.placeholder,
+            tableId: id,
+          };
+
+          if (col.id) {
+            await knex('column_definition')
+              .where({ id: col.id })
+              .update(columnData);
+          } else {
+            await knex('column_definition').insert(columnData);
+          }
+        }
       }
 
-      const result = await tableRepo.save(exists);
+      if (body.relations) {
+        const existingRelations = await knex('relation_definition')
+          .where({ sourceTableId: id })
+          .select('id');
 
-      await this.afterEffect({ entityName: result.name, type: 'update' });
-      return result;
+        const deletedRelationIds = getDeletedIds(
+          existingRelations,
+          body.relations,
+        );
+
+        if (deletedRelationIds.length > 0) {
+          await knex('relation_definition')
+            .whereIn('id', deletedRelationIds)
+            .delete();
+        }
+
+        // Load all target tables at once (avoid N+1)
+        const targetTableIds = body.relations
+          .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
+          .filter((id: any) => id != null);
+        
+        const targetTablesMap = new Map<number, string>();
+        if (targetTableIds.length > 0) {
+          const targetTables = await knex('table_definition')
+            .select('id', 'name')
+            .whereIn('id', targetTableIds);
+          
+          for (const table of targetTables) {
+            targetTablesMap.set(table.id, table.name);
+          }
+        }
+        
+        for (const rel of body.relations) {
+          // Extract targetTableId and targetTableName
+          const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
+          
+          const relationData: any = {
+            propertyName: rel.propertyName,
+            type: rel.type,
+            targetTableId,
+            inversePropertyName: rel.inversePropertyName,
+            isNullable: rel.isNullable ?? true,
+            isSystem: rel.isSystem || false,
+            description: rel.description,
+            sourceTableId: id,
+          };
+
+          // Add junction table info for M2M relations
+          if (rel.type === 'many-to-many') {
+            const targetTableName = targetTablesMap.get(targetTableId);
+            
+            if (!targetTableName) {
+              throw new Error(`Target table with ID ${targetTableId} not found`);
+            }
+            
+            const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
+            relationData.junctionTableName = junctionTableName;
+            relationData.junctionSourceColumn = getForeignKeyColumnName(exists.name);
+            relationData.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+          }
+
+          if (rel.id) {
+            await knex('relation_definition')
+              .where({ id: rel.id })
+              .update(relationData);
+          } else {
+            await knex('relation_definition').insert(relationData);
+          }
+        }
+      }
+
+      // Get old metadata before reload
+      const oldMetadata = await this.metadataCacheService.getTableMetadata(exists.name);
+
+      // Reload metadata cache
+      await this.metadataCacheService.reloadMetadataCache();
+
+      // Get new metadata after reload
+      const newMetadata = await this.metadataCacheService.getTableMetadata(exists.name);
+
+      // Migrate physical schema
+      if (oldMetadata && newMetadata) {
+        await this.schemaMigrationService.updateTable(exists.name, oldMetadata, newMetadata);
+      }
+
+      this.logger.log(`✅ Table updated: ${exists.name} (metadata + physical schema)`);
+      return newMetadata;
     } catch (error) {
       this.loggingService.error('Table update failed', {
         context: 'updateTable',
@@ -246,192 +447,165 @@ export class TableHandlerService {
         stack: error.stack,
         tableId: id,
         tableName: body?.name,
-        columnCount: body?.columns?.length,
-        relationCount: body?.relations?.length,
       });
 
-      if (error.message?.includes('does not exist')) {
-        throw new ResourceNotFoundException('Table', id.toString());
-      }
-
-      throw new DatabaseException(`Failed to update table: ${error.message}`, {
-        tableId: id,
-        tableName: body?.name,
-        operation: 'update',
-      });
-    } finally {
-      await queryRunner.release();
+      throw new DatabaseException(
+        `Failed to update table: ${error.message}`,
+        {
+          tableId: id,
+          operation: 'update',
+        },
+      );
     }
   }
 
   async delete(id: number) {
-    const tableDefRepo: any =
-      this.dataSourceService.getRepository('table_definition');
-    const dataSource = this.dataSourceService.getDataSource();
-    const queryRunner = dataSource.createQueryRunner();
-
-    let exists: any = null;
+    const knex = this.knexService.getKnex();
 
     try {
-      exists = await tableDefRepo.findOne({
-        where: { id },
-        relations: ['columns', 'relations'],
-      });
+      const exists = await knex('table_definition')
+        .where({ id })
+        .first();
 
       if (!exists) {
-        throw new Error(`Table with id ${id} does not exist.`);
+        throw new ResourceNotFoundException(
+          'table_definition',
+          String(id)
+        );
       }
 
-      await queryRunner.connect();
+      if (exists.isSystem) {
+        throw new ValidationException(
+          'Cannot delete system table',
+          { tableId: id, tableName: exists.name }
+        );
+      }
 
       const tableName = exists.name;
-      this.logger.log(`🗑️ Processing deletion for table: ${tableName}`);
 
-      // 1. Delete routes that point to this table
-      const routeDefRepo =
-        this.dataSourceService.getRepository('route_definition');
-      const routeDeleted = await routeDefRepo.delete({ mainTable: { id } });
-      if (routeDeleted.affected > 0) {
-        this.logger.log(
-          `✅ Deleted ${routeDeleted.affected} route(s) pointing to table ${tableName}`,
-        );
+      // Delete routes with this table as mainTable
+      const deletedRoutes = await knex('route_definition')
+        .where({ mainTableId: id })
+        .delete();
+      this.logger.log(`🗑️ Deleted ${deletedRoutes} routes with mainTableId = ${id}`);
+      
+      // Delete M2M relations in junction table (route_definition_targetTables_table_definition)
+      const junctionTableName = 'route_definition_targetTables_table_definition';
+      if (await knex.schema.hasTable(junctionTableName)) {
+        await knex(junctionTableName)
+          .where({ table_definitionId: id })
+          .delete();
+        this.logger.log(`🗑️ Deleted junction records for table ${id}`);
       }
 
-      // 2. Delete all relations that reference this table as targetTable
-      const relationDefRepo = this.dataSourceService.getRepository(
-        'relation_definition',
-      );
-      const targetRelations = await relationDefRepo.delete({
-        targetTable: { id },
-      });
-      if (targetRelations.affected > 0) {
-        this.logger.log(
-          `✅ Deleted ${targetRelations.affected} relations referencing table ${tableName} as target`,
-        );
-      }
+      // Delete metadata
+      await knex('relation_definition')
+        .where({ sourceTableId: id })
+        .delete();
 
-      // 3. Drop all foreign keys referencing this table (from other tables)
-      const referencingFKs = await queryRunner.query(`
-        SELECT DISTINCT TABLE_NAME, CONSTRAINT_NAME
-        FROM information_schema.KEY_COLUMN_USAGE
-        WHERE CONSTRAINT_SCHEMA = DATABASE()
-          AND REFERENCED_TABLE_NAME = '${tableName}'
-          AND CONSTRAINT_NAME LIKE 'FK_%'
-      `);
+      await knex('column_definition')
+        .where({ tableId: id })
+        .delete();
 
-      for (const fk of referencingFKs) {
-        try {
-          await queryRunner.query(
-            `ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``,
-          );
-          this.logger.debug(
-            `Dropped referencing FK: ${fk.CONSTRAINT_NAME} from ${fk.TABLE_NAME}`,
-          );
-        } catch (fkError) {
-          this.logger.warn(
-            `Failed to drop referencing FK ${fk.CONSTRAINT_NAME}: ${fkError.message}`,
-          );
-        }
-      }
+      await knex('table_definition')
+        .where({ id })
+        .delete();
 
-      // 4. Drop foreign keys FROM this table
-      const outgoingFKs = await queryRunner.query(`
-        SELECT CONSTRAINT_NAME
-        FROM information_schema.KEY_COLUMN_USAGE
-        WHERE CONSTRAINT_SCHEMA = DATABASE()
-          AND TABLE_NAME = '${tableName}'
-          AND REFERENCED_TABLE_NAME IS NOT NULL
-      `);
+      // Drop physical table
+      await this.schemaMigrationService.dropTable(tableName);
 
-      for (const fk of outgoingFKs) {
-        try {
-          await queryRunner.query(
-            `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``,
-          );
-          this.logger.debug(`Dropped outgoing FK: ${fk.CONSTRAINT_NAME}`);
-        } catch (fkError) {
-          this.logger.warn(
-            `Failed to drop outgoing FK ${fk.CONSTRAINT_NAME}: ${fkError.message}`,
-          );
-        }
-      }
+      // Reload metadata cache
+      await this.metadataCacheService.reloadMetadataCache();
 
-      // 5. Drop the physical database table
-      const hasTable = await queryRunner.hasTable(tableName);
-      if (hasTable) {
-        await queryRunner.dropTable(tableName);
-        this.logger.log(`✅ Database table ${tableName} dropped successfully`);
-      } else {
-        this.logger.warn(`Table ${tableName} does not exist in database`);
-      }
-
-      // 6. Finally, remove metadata record - this will cascade delete columns and source relations
-      const result = await tableDefRepo.remove(exists);
-      this.logger.log(
-        `✅ Table definition removed with cascaded deletion of columns and relations`,
-      );
-
-      await this.afterEffect({ entityName: result.name, type: 'update' });
-      return result;
+      this.logger.log(`✅ Table deleted: ${tableName} (metadata + physical schema)`);
+      return exists;
     } catch (error) {
       this.loggingService.error('Table deletion failed', {
         context: 'delete',
         error: error.message,
         stack: error.stack,
         tableId: id,
-        tableName: exists?.name,
-      });
-
-      if (error.message?.includes('does not exist')) {
-        throw new ResourceNotFoundException('Table', id.toString());
-      }
-
-      throw new DatabaseException(`Failed to delete table: ${error.message}`, {
-        tableId: id,
-        tableName: exists?.name,
-        operation: 'delete',
-      });
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  async afterEffect(options: {
-    entityName: string;
-    type: 'create' | 'update';
-  }) {
-    try {
-      // Fire & forget syncAll - it will handle publish internally
-      this.metadataSyncService
-        .syncAll({
-          entityName: options.entityName,
-          type: options.type,
-        })
-        .catch((error) => {
-          this.logger.error('Background sync failed:', error.message);
-        });
-
-      this.logger.log('✅ Schema sync queued', {
-        entityName: options.entityName,
-        type: options.type,
-      });
-    } catch (error) {
-      this.loggingService.error('Schema synchronization failed', {
-        context: 'afterEffect',
-        error: error.message,
-        stack: error.stack,
-        entityName: options.entityName,
-        operationType: options.type,
       });
 
       throw new DatabaseException(
-        `Schema synchronization failed: ${error.message}`,
+        `Failed to delete table: ${error.message}`,
         {
-          entityName: options.entityName,
-          operationType: options.type,
-          operation: 'schema-sync',
+          tableId: id,
+          operation: 'delete',
         },
       );
     }
+  }
+
+  /**
+   * Get full table metadata with columns and relations
+   */
+  private async getFullTableMetadata(tableId: number): Promise<any> {
+    const knex = this.knexService.getKnex();
+
+    const table = await knex('table_definition').where({ id: tableId }).first();
+    if (!table) return null;
+
+    // Parse JSON fields
+    if (table.uniques && typeof table.uniques === 'string') {
+      try {
+        table.uniques = JSON.parse(table.uniques);
+      } catch (e) {
+        table.uniques = [];
+      }
+    }
+    if (table.indexes && typeof table.indexes === 'string') {
+      try {
+        table.indexes = JSON.parse(table.indexes);
+      } catch (e) {
+        table.indexes = [];
+      }
+    }
+
+    // Load columns
+    table.columns = await knex('column_definition')
+      .where({ tableId })
+      .select('*');
+
+    // Parse column JSON fields
+    for (const col of table.columns) {
+      if (col.defaultValue && typeof col.defaultValue === 'string') {
+        try {
+          col.defaultValue = JSON.parse(col.defaultValue);
+        } catch (e) {
+          // Keep as string
+        }
+      }
+      if (col.options && typeof col.options === 'string') {
+        try {
+          col.options = JSON.parse(col.options);
+        } catch (e) {
+          // Keep as string
+        }
+      }
+    }
+
+    // Load relations with target table names (use JOIN to avoid N+1)
+    const relations = await knex('relation_definition')
+      .where({ 'relation_definition.sourceTableId': tableId })
+      .leftJoin('table_definition', 'relation_definition.targetTableId', 'table_definition.id')
+      .select(
+        'relation_definition.*',
+        'table_definition.name as targetTableName'
+      );
+
+    // Add computed fields
+    for (const rel of relations) {
+      rel.sourceTableName = table.name;
+      
+      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+        rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+      }
+      // M2M junction info already stored in DB
+    }
+
+    table.relations = relations;
+
+    return table;
   }
 }

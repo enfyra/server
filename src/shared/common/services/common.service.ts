@@ -12,11 +12,7 @@ export class CommonService {
   dbTypeToTSType = CommonHelper.dbTypeToTSType;
   tsTypeToDBType = CommonHelper.tsTypeToDBType;
   mapToGraphQLType = CommonHelper.mapToGraphQLType;
-  loadDynamicEntities = CommonHelper.loadDynamicEntities;
   isRouteMatched = CommonHelper.isRouteMatched;
-  getAllTsFiles = CommonHelper.getAllTsFiles;
-  checkTsErrors = CommonHelper.checkTsErrors;
-  removeOldFile = CommonHelper.removeOldFile;
   inverseRelationType = CommonHelper.inverseRelationType;
   assertNoSystemFlagDeep = CommonHelper.assertNoSystemFlagDeep;
   assertNoSystemFlagDeepRecursive = CommonHelper.assertNoSystemFlagDeepRecursive;

@@ -12,11 +12,9 @@ export class ExecutorPoolService implements OnModuleInit {
         const child = fork(path.resolve(__dirname, '..', 'runner.js'), {
           execArgv: ['--max-old-space-size=128'],
         });
-        console.log('[ExecutorPool] Spawn child', child.pid);
         return child;
       },
       async destroy(child) {
-        console.log('[ExecutorPool] Destroy child', child.pid);
         child.kill();
       },
     };

@@ -1,10 +1,10 @@
 import { CommonService } from './services/common.service';
+import { InstanceService } from '../services/instance.service';
 import { Global, Module } from '@nestjs/common';
-import { CacheService } from '../../infrastructure/cache/services/cache.service';
 
 @Global()
 @Module({
-  providers: [CommonService, CacheService],
-  exports: [CommonService, CacheService],
+  providers: [CommonService, InstanceService],
+  exports: [CommonService, InstanceService],
 })
 export class CommonModule {}

@@ -13,27 +13,34 @@ export async function resolveDeepRelations(options: {
 
   await Promise.all(
     Object.entries(deep).map(async ([relationName, deepOptions]) => {
-      const relationMeta = metaData.relations.find(
-        (r) => r.propertyName === relationName,
+      const relationMeta = metaData.relations?.find(
+        (r: any) => r.propertyName === relationName,
       );
       if (!relationMeta) return;
 
-      const childTable = relationMeta.inverseEntityMetadata.tableName;
-      const isInverse = !!relationMeta.inverseRelation;
+      const childTable = relationMeta.targetTableName;
+      
+      // Determine foreign key based on relation type
+      let foreignKey: string;
+      if (relationMeta.type === 'many-to-one' || relationMeta.type === 'one-to-one') {
+        // Parent has FK - use it
+        foreignKey = relationMeta.foreignKeyColumn;
+      } else if (relationMeta.type === 'one-to-many') {
+        // Child has FK pointing back - need to find inverse relation
+        foreignKey = relationMeta.propertyName; // This will be used as the relation name in filter
+      } else {
+        log.push(
+          `! Deep relation "${relationName}" skipped: many-to-many not supported in deep`,
+        );
+        return;
+      }
 
-      const joinColumn = isInverse
-        ? (relationMeta.inverseRelation?.joinColumns?.[0] ??
-          relationMeta.inverseRelation?.inverseJoinColumns?.[0])
-        : relationMeta.joinColumns?.[0];
-
-      if (!joinColumn?.propertyName) {
+      if (!foreignKey) {
         log.push(
           `! Deep relation "${relationName}" skipped due to unable to determine foreignKey`,
         );
         return;
       }
-
-      const foreignKey = joinColumn.propertyName;
 
       const fields: string[] = Array.isArray(deepOptions?.fields)
         ? [...deepOptions.fields]

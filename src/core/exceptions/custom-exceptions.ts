@@ -166,17 +166,6 @@ export class ScriptTimeoutException extends CustomException {
   }
 }
 
-export class ScriptSyntaxException extends CustomException {
-  constructor(message: string, line?: number, column?: number) {
-    super(
-      `Script syntax error: ${message}`,
-      HttpStatus.BAD_REQUEST,
-      'SCRIPT_SYNTAX_ERROR',
-      { line, column },
-    );
-  }
-}
-
 // Schema & Configuration Exceptions
 export class SchemaException extends CustomException {
   constructor(message: string, details?: any) {

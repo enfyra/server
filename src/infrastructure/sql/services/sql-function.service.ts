@@ -1,48 +1,49 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { ConfigService } from '@nestjs/config';
+import { KnexService } from '../../knex/knex.service';
 
 @Injectable()
 export class SqlFunctionService implements OnApplicationBootstrap {
-  constructor(private dataSourceService: DataSourceService) {}
+  constructor(
+    private knexService: KnexService,
+    private configService: ConfigService,
+  ) {}
 
   async onApplicationBootstrap() {
-    const dataSource = this.dataSourceService.getDataSource();
-    const dbType = dataSource.options.type;
+    const knex = this.knexService.getKnex();
+    const dbType = this.configService.get<string>('DB_TYPE');
 
     if (dbType === 'mysql') {
       const exists = await this.functionExists('unaccent');
       if (!exists) {
         await this.createUnaccentFunction();
-        console.log('✅ Created MySQL function: unaccent()');
       } else {
-        console.log('ℹ️ MySQL function unaccent() already exists');
       }
     } else if (dbType === 'postgres') {
-      await dataSource.query(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
-      console.log('✅ Postgres: unaccent extension ready');
+      await knex.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
     } else {
       console.warn(`⚠️ Unsupported DB_TYPE for unaccent: ${dbType}`);
     }
   }
 
   private async functionExists(name: string): Promise<boolean> {
-    const dataSource = this.dataSourceService.getDataSource();
+    const knex = this.knexService.getKnex();
 
-    const result = await dataSource.query(
+    const result = await knex.raw(
       `SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_TYPE='FUNCTION' AND ROUTINE_SCHEMA=DATABASE() AND ROUTINE_NAME = ?`,
       [name],
     );
-    return result.length > 0;
+    return result[0].length > 0;
   }
 
   private async createUnaccentFunction() {
-    const dataSource = this.dataSourceService.getDataSource();
+    const knex = this.knexService.getKnex();
 
-    await dataSource.query(`
+    await knex.raw(`
       DROP FUNCTION IF EXISTS unaccent;
     `);
 
-    await dataSource.query(`
+    await knex.raw(`
       CREATE FUNCTION unaccent(input TEXT) RETURNS TEXT
       DETERMINISTIC
       BEGIN

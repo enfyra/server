@@ -1,11 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 
 @Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
-  async process(records: any[], repo: Repository<any>, context?: any): Promise<UpsertResult> {
-    // Tách records theo type và xử lý theo thứ tự
+  async processKnex(
+    records: any[],
+    knex: Knex,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
     const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
     const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
     const menuItems = records.filter(r => r.type === 'Menu');
@@ -13,79 +17,73 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    // 1. Process Mini Sidebars first (không có dependencies)
     if (miniSidebars.length > 0) {
       this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
-      const result = await super.process(miniSidebars, repo, context);
+      const result = await super.processKnex(miniSidebars, knex, tableName, { ...context, knex });
       totalCreated += result.created;
       totalSkipped += result.skipped;
-      this.logger.log(`Mini Sidebars done: ${result.created} created, ${result.skipped} skipped`);
     }
 
-    // 2. Process Dropdown Menus (có thể có sidebar dependency)
     if (dropdownMenus.length > 0) {
       this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
-      const result = await super.process(dropdownMenus, repo, context);
+      const result = await super.processKnex(dropdownMenus, knex, tableName, { ...context, knex });
       totalCreated += result.created;
       totalSkipped += result.skipped;
-      this.logger.log(`Dropdown Menus done: ${result.created} created, ${result.skipped} skipped`);
     }
 
-    // 3. Process Menu items (có thể có sidebar và parent dependencies)
     if (menuItems.length > 0) {
       this.logger.log(`Processing ${menuItems.length} Menu items...`);
-      const result = await super.process(menuItems, repo, context);
+      const result = await super.processKnex(menuItems, knex, tableName, { ...context, knex });
       totalCreated += result.created;
       totalSkipped += result.skipped;
-      this.logger.log(`Menu items done: ${result.created} created, ${result.skipped} skipped`);
     }
 
     return { created: totalCreated, skipped: totalSkipped };
   }
-  async transformRecords(records: any[], context: { repo: Repository<any> }): Promise<any[]> {
-    const { repo } = context;
+  
+  async transformRecords(records: any[], context?: any): Promise<any[]> {
+    const knex = context?.knex;
+    if (!knex) {
+      this.logger.warn('⚠️ Knex not provided in context, returning records as-is');
+      return records;
+    }
+
     const transformedRecords = [];
 
     for (const record of records) {
       const transformed = { ...record };
 
-      // Handle sidebar reference - tìm Mini Sidebar theo label
+      // Handle sidebar reference
       if (transformed.sidebar && typeof transformed.sidebar === 'string') {
         const sidebarLabel = transformed.sidebar;
-        const sidebar = await repo.findOne({
-          where: {
-            type: 'Mini Sidebar',
-            label: sidebarLabel
-          },
-          select: ['id', 'label']
-        });
+        const sidebar = await knex('menu_definition')
+          .where({ type: 'Mini Sidebar', label: sidebarLabel })
+          .first();
 
         if (sidebar) {
           this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar.id}`);
-          transformed.sidebar = { id: sidebar.id };
+          transformed.sidebarId = sidebar.id;
+          delete transformed.sidebar;
         } else {
           this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
-          transformed.sidebar = null;
+          delete transformed.sidebar;
         }
       }
 
-      // Handle parent reference - tìm Dropdown Menu theo label
+      // Handle parent reference
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
-        const parent = await repo.findOne({
-          where: {
-            type: 'Dropdown Menu',
-            label: parentLabel
-          },
-          select: ['id', 'label']
-        });
+        const parent = await knex('menu_definition')
+          .where({ type: 'Dropdown Menu', label: parentLabel })
+          .first();
 
         if (parent) {
           this.logger.debug(`Found parent: ${parentLabel} with id ${parent.id}`);
-          transformed.parent = { id: parent.id };
+          transformed.parentId = parent.id;
+          delete transformed.parent;
         } else {
           this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
-          transformed.parent = null;
+          delete transformed.parent;
         }
       }
 

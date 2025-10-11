@@ -1,5 +1,4 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
 import {
   FileUploadDto,
   ProcessedFileInfo,
@@ -14,7 +13,7 @@ export class FileManagementService {
   private readonly basePath = path.join(process.cwd(), 'public');
   private readonly logger = new Logger(FileManagementService.name);
 
-  constructor(private dataSourceService: DataSourceService) {
+  constructor() {
     this.ensurePublicDirExists();
   }
 

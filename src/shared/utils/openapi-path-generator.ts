@@ -80,20 +80,37 @@ export function generatePathsFromRoutes(routes: any[], restMethods: string[]): R
       description: route.description || `Retrieve ${tableName || 'records'} with filtering and pagination`,
       parameters: [
         {
-          name: 'filter',
-          in: 'query',
-          description: 'Filter conditions (JSON object)',
-          required: false,
-          schema: { type: 'object' },
-          example: { status: { _eq: 'active' } }
-        },
-        {
           name: 'fields',
           in: 'query',
-          description: 'Comma-separated field names',
+          description: 'Fields to select. Supports: scalar fields, wildcard (*), nested relations (relation.field), and wildcard relations (relation.*)',
           required: false,
           schema: { type: 'string' },
-          example: 'id,name,email'
+          examples: {
+            simple: {
+              value: 'id,name,email',
+              summary: 'Select specific fields'
+            },
+            wildcard: {
+              value: '*',
+              summary: 'Select all scalar fields + auto-join 1-level relations (ID only)'
+            },
+            nested: {
+              value: 'id,name,author.name,author.email',
+              summary: 'Select with nested relation fields'
+            },
+            wildcardRelation: {
+              value: '*,author.*,comments.*',
+              summary: 'Wildcard with relation wildcards (auto-joins nested relations)'
+            }
+          }
+        },
+        {
+          name: 'filter',
+          in: 'query',
+          description: 'Filter conditions using operators: _eq, _neq, _gt, _gte, _lt, _lte, _in, _not_in, _contains, _starts_with, _ends_with, _is_null',
+          required: false,
+          schema: { type: 'object' },
+          example: { status: { _eq: 'active' }, age: { _gte: 18 } }
         },
         {
           name: 'sort',
@@ -113,16 +130,16 @@ export function generatePathsFromRoutes(routes: any[], restMethods: string[]): R
         {
           name: 'limit',
           in: 'query',
-          description: 'Maximum records to return',
+          description: 'Records per page',
           required: false,
           schema: { type: 'integer', default: 10 }
         },
         {
           name: 'meta',
           in: 'query',
-          description: 'Metadata to include (totalCount, filterCount, or *)',
+          description: 'Metadata to include: totalCount, filterCount, or * (all)',
           required: false,
-          schema: { type: 'string' }
+          schema: { type: 'string', enum: ['totalCount', 'filterCount', '*'] }
         }
       ],
       responses: {

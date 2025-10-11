@@ -5,13 +5,11 @@ import {
   CallHandler,
 } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
-import { EntityMetadata } from 'typeorm';
-import { HIDDEN_FIELD_KEY } from '../../shared/utils/constant';
-import { DataSourceService } from '../../core/database/data-source/data-source.service';
+import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
 
 @Injectable()
 export class HideFieldInterceptor implements NestInterceptor {
-  constructor(private dataSourceService: DataSourceService) {}
+  constructor(private metadataCacheService: MetadataCacheService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     return next.handle().pipe(map((data) => this.sanitizeDeep(data)));
@@ -22,10 +20,10 @@ export class HideFieldInterceptor implements NestInterceptor {
       return value.map((v) => this.sanitizeDeep(v));
     }
 
-    if (value && typeof value === 'object') {
+    if (value && typeof value === 'object' && !(value instanceof Date)) {
       const sanitized = this.sanitizeObject(value);
 
-      // ❗ Only recurse if field is not Date
+      // Recurse into nested objects
       for (const key of Object.keys(sanitized)) {
         const val = sanitized[key];
         sanitized[key] = val instanceof Date ? val : this.sanitizeDeep(val);
@@ -41,29 +39,31 @@ export class HideFieldInterceptor implements NestInterceptor {
     if (!obj || typeof obj !== 'object') return obj;
 
     const sanitized = { ...obj };
-    const matchedMetas = this.findMatchingEntityMetas(obj);
+    const metadata = this.metadataCacheService.getMetadata();
 
-    for (const meta of matchedMetas) {
-      if (typeof meta.target !== 'function') continue;
-      const prototype = meta.target.prototype;
+    if (!metadata) {
+      return sanitized;
+    }
 
-      for (const column of meta.columns) {
-        const key = column.propertyName;
-        const isHidden = Reflect.getMetadata(HIDDEN_FIELD_KEY, prototype, key);
-        if (isHidden) {
-          delete sanitized[key];
+    // Try to find matching table by checking which table has all the fields in the object
+    for (const [tableName, tableMetadata] of Object.entries(metadata)) {
+      const columns = tableMetadata.columns || [];
+      
+      // Check if this object matches this table structure
+      // (has at least some of the table's columns)
+      const objectKeys = Object.keys(obj);
+      const matchingColumns = columns.filter(col => objectKeys.includes(col.name));
+      
+      if (matchingColumns.length > 0) {
+        // Remove hidden fields
+        for (const column of columns) {
+          if (column.isHidden === true && column.name in sanitized) {
+            delete sanitized[column.name];
+          }
         }
       }
     }
 
     return sanitized;
-  }
-
-  private findMatchingEntityMetas(obj: any): EntityMetadata[] {
-    return this.dataSourceService
-      .getDataSource()
-      .entityMetadatas.filter((meta) =>
-        meta.columns.every((col) => col.propertyName in obj),
-      );
   }
 }

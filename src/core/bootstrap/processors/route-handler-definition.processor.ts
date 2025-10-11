@@ -1,26 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
-import { DataSourceService } from '../../../core/database/data-source/data-source.service';
+import { KnexService } from '../../../infrastructure/knex/knex.service';
 
 @Injectable()
 export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly dataSourceService: DataSourceService) {
+  constructor(private readonly knexService: KnexService) {
     super();
   }
 
-  async transformRecords(records: any[]): Promise<any[]> {
-    const routeDefRepo = this.dataSourceService.getRepository('route_definition');
-    const methodDefRepo = this.dataSourceService.getRepository('method_definition');
+  async transformRecords(records: any[], context?: any): Promise<any[]> {
+    const knex = context?.knex || this.knexService.getKnex();
     
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
         
-        // Handle route reference - convert string to Route_definition entity
+        // Handle route reference
         if (record.route) {
-          const routeEntity = await routeDefRepo.findOne({
-            where: { path: record.route },
-          });
+          const routeEntity = await knex('route_definition')
+            .where('path', record.route)
+            .first();
           
           if (!routeEntity) {
             this.logger.warn(
@@ -29,14 +28,15 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           
-          transformedRecord.route = routeEntity;
+          transformedRecord.routeId = routeEntity.id;
+          delete transformedRecord.route;
         }
         
-        // Handle method reference - convert string to Method_definition entity
+        // Handle method reference
         if (record.method) {
-          const methodEntity = await methodDefRepo.findOne({
-            where: { method: record.method },
-          });
+          const methodEntity = await knex('method_definition')
+            .where('method', record.method)
+            .first();
           
           if (!methodEntity) {
             this.logger.warn(
@@ -45,22 +45,21 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           
-          transformedRecord.method = methodEntity;
+          transformedRecord.methodId = methodEntity.id;
+          delete transformedRecord.method;
         }
         
         return transformedRecord;
       }),
     );
 
-    // Filter out null records (where route/method wasn't found)
     return transformedRecords.filter(Boolean);
   }
 
   getUniqueIdentifier(record: any): object {
-    // Use entity IDs for unique identification (TypeORM compatible)
     return { 
-      route: { id: record.route?.id },
-      method: { id: record.method?.id }
+      routeId: record.routeId,
+      methodId: record.methodId
     };
   }
 
