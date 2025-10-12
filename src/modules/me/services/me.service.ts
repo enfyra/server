@@ -11,7 +11,8 @@ export class MeService {
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
-    return await repo.find({ where: { id: { _eq: req.user.id } } });
+    const userId = req.user._id || req.user.id;
+    return await repo.find({ where: { id: { _eq: userId } } });
   }
 
   async update(body: any, req: Request & { user: any; routeData?: any }) {
@@ -20,7 +21,8 @@ export class MeService {
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
-
-    return await repo.update(req.user.id, body);
+    
+    const userId = req.user._id || req.user.id;
+    return await repo.update(userId, body);
   }
 }

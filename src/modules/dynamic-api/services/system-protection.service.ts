@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { isEqual } from 'lodash';
 import { CommonService } from '../../../shared/common/services/common.service';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 
 @Injectable()
 export class SystemProtectionService {
   constructor(
     private commonService: CommonService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private metadataCache: MetadataCacheService,
   ) {}
 
@@ -81,24 +81,17 @@ export class SystemProtectionService {
     if (!existing?.isSystem) return existing;
 
     const relations = await this.getAllRelationFieldsWithInverse(tableName);
-    const knex = this.knexService.getKnex();
 
     // For simple reload, just get the record
     // Relations will be loaded on-demand if needed
-    const full = await knex(tableName)
-      .where('id', existing.id)
-      .first();
+    const full = await this.queryBuilder.findOneWhere(tableName, { id: existing.id });
 
     if (!full) throw new Error('Full system record not found');
     
     // Load basic relations needed for validation
     if (tableName === 'table_definition') {
-      full.columns = await knex('column_definition')
-        .where('tableId', full.id)
-        .select('*');
-      full.relations = await knex('relation_definition')
-        .where('sourceTableId', full.id)
-        .select('*');
+      full.columns = await this.queryBuilder.findWhere('column_definition', { tableId: full.id });
+      full.relations = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: full.id });
     }
     
     return full;

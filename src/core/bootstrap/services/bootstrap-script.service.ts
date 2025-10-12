@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
@@ -22,7 +22,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BootstrapScriptService.name);
 
   constructor(
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private metadataCacheService: MetadataCacheService,
     private handlerExecutorService: HandlerExecutorService,
     private cacheService: CacheService,
@@ -85,26 +85,34 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   }
 
   private async waitForTableExists(maxRetries = 10, delayMs = 500): Promise<void> {
-    const knex = this.knexService.getKnex();
-    
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const exists = await knex.schema.hasTable('bootstrap_script_definition');
-        if (exists) {
-          this.logger.log(`✅ bootstrap_script_definition table found on attempt ${attempt}`);
-          return;
+        if (this.queryBuilder.isMongoDb()) {
+          // MongoDB: check collection exists
+          const db = this.queryBuilder.getMongoDb();
+          const collections = await db.listCollections({ name: 'bootstrap_script_definition' }).toArray();
+          if (collections.length > 0) {
+            this.logger.log(`✅ bootstrap_script_definition collection found on attempt ${attempt}`);
+            return;
+          }
+        } else {
+          // SQL: check table exists
+          const knex = this.queryBuilder.getKnex();
+          const exists = await knex.schema.hasTable('bootstrap_script_definition');
+          if (exists) {
+            this.logger.log(`✅ bootstrap_script_definition table found on attempt ${attempt}`);
+            return;
+          }
         }
       } catch (error) {
-        this.logger.log(`⏳ Attempt ${attempt}/${maxRetries}: Table not ready yet, waiting ${delayMs}ms...`);
+        this.logger.log(`⏳ Attempt ${attempt}/${maxRetries}: bootstrap_script_definition not ready, waiting ${delayMs}ms...`);
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, delayMs));
         } else {
-          throw new Error(`bootstrap_script_definition table not found after ${maxRetries} attempts`);
+          throw new Error(`bootstrap_script_definition not found after ${maxRetries} attempts`);
         }
       }
     }
-    
-    throw new Error(`bootstrap_script_definition table not found after ${maxRetries} attempts`);
   }
 
   private async executeBootstrapScripts() {
@@ -114,13 +122,12 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   }
 
   private async executeBootstrapScriptsWithoutLock() {
-    const knex = this.knexService.getKnex();
-      
     // Get enabled scripts ordered by priority
-    const scripts = await knex('bootstrap_script_definition')
-      .where('isEnabled', true)
-      .orderBy('priority', 'asc')
-      .select('*');
+    const scripts = await this.queryBuilder.select({
+      table: 'bootstrap_script_definition',
+      where: [{ field: 'isEnabled', operator: '=', value: true }],
+      sort: [{ field: 'priority', direction: 'asc' }],
+    });
 
     this.logger.log(`📋 Found ${scripts.length} bootstrap scripts to execute`);
 
@@ -146,8 +153,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
 
   private async executeScript(script: any) {
     // Get all table definitions to create repositories
-    const knex = this.knexService.getKnex();
-    const tableDefinitions = await knex('table_definition').select('*');
+    const tableDefinitions = await this.queryBuilder.select({ table: 'table_definition' });
     
     // Create dynamic repositories for all tables (similar to route-detect middleware)
     const dynamicFindEntries = await Promise.all(
@@ -157,7 +163,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           context: null, // Will be set later to avoid circular reference
           tableName: tableName,
           tableHandlerService: this.tableHandlerService,
-          knexService: this.knexService,
+          queryBuilder: this.queryBuilder,
           metadataCacheService: this.metadataCacheService,
           queryEngine: this.queryEngine,
           routeCacheService: this.routeCacheService,

@@ -4,10 +4,10 @@ import { GraphQLSchema } from 'graphql';
 import { createYoga } from 'graphql-yoga';
 
 // @nestjs packages
-import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 
 // Internal imports
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
 // Relative imports
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
@@ -15,20 +15,26 @@ import { generateGraphQLTypeDefsFromTables } from '../utils/generate-type-defs';
 
 @Injectable()
 export class GraphqlService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(GraphqlService.name);
+
   constructor(
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private dynamicResolver: DynamicResolver,
   ) {}
   async onApplicationBootstrap() {
-    // await this.reloadSchema();
+    try {
+      await this.reloadSchema();
+    } catch (error) {
+      this.logger.error('Failed to initialize GraphQL schema:', error.message);
+      this.logger.warn('GraphQL endpoint will not be available');
+      // Don't crash the app if GraphQL fails
+    }
   }
   private yogaApp: ReturnType<typeof createYoga>;
 
   private async pullMetadataFromDb(): Promise<any[]> {
-    const knex = this.knexService.getKnex();
-
     // Get all tables with their columns and relations
-    const tables = await knex('table_definition').select('*');
+    const tables = await this.queryBuilder.select({ table: 'table_definition' });
 
     for (const table of tables) {
       // Parse JSON fields
@@ -43,10 +49,13 @@ export class GraphqlService implements OnApplicationBootstrap {
         } catch (e) {}
       }
 
-      // Get columns for each table
-      table.columns = await knex('column_definition')
-        .where('tableId', table.id)
-        .select('*');
+      // Get columns for each table (MongoDB uses 'table', SQL uses 'tableId')
+      const isMongoDB = this.queryBuilder.isMongoDb();
+      const { ObjectId } = require('mongodb');
+      const tableIdField = isMongoDB ? 'table' : 'tableId';
+      const tableIdValue = isMongoDB ? (typeof table._id === 'string' ? new ObjectId(table._id) : table._id) : table.id;
+      
+      table.columns = await this.queryBuilder.findWhere('column_definition', { [tableIdField]: tableIdValue });
 
       // Parse JSON fields in columns
       for (const column of table.columns) {
@@ -63,16 +72,26 @@ export class GraphqlService implements OnApplicationBootstrap {
       }
 
       // Get relations for each table
-      const relations = await knex('relation_definition')
-        .where('sourceTableId', table.id)
-        .select('*');
+      // MongoDB: sourceTable is ObjectId, SQL: sourceTableId is integer FK
+      const relationFilter = isMongoDB ? 
+        { sourceTable: tableIdValue } :
+        { sourceTableId: table.id };
+      const relations = await this.queryBuilder.findWhere('relation_definition', relationFilter);
 
-      // Get target table info for each relation
+      // Expand targetTable ObjectId to full table object
       for (const relation of relations) {
-        if (relation.targetTableId) {
-          relation.targetTable = await knex('table_definition')
-            .where('id', relation.targetTableId)
-            .first();
+        if (isMongoDB) {
+          // MongoDB: targetTable is ObjectId, lookup and replace with table object
+          if (relation.targetTable) {
+            const targetTableObj = await this.queryBuilder.findOneWhere('table_definition', { _id: relation.targetTable });
+            relation.targetTableName = targetTableObj?.name; // Keep name for generate-type-defs
+            relation.targetTable = targetTableObj;
+          }
+        } else {
+          // SQL: targetTableId is FK, lookup by id
+          if (relation.targetTableId) {
+            relation.targetTable = await this.queryBuilder.findOneWhere('table_definition', { id: relation.targetTableId });
+          }
         }
       }
 
@@ -84,6 +103,8 @@ export class GraphqlService implements OnApplicationBootstrap {
 
   private async schemaGenerator(): Promise<GraphQLSchema> {
     const tables = await this.pullMetadataFromDb();
+    
+    // Write metadata to file for debugging
     const typeDefs = generateGraphQLTypeDefsFromTables(tables);
 
     const resolvers = {

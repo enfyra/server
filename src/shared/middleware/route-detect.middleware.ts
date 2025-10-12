@@ -1,6 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { CommonService } from '../common/services/common.service';
-import { KnexService } from '../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
 import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynamic.repository';
@@ -18,7 +18,7 @@ import { CacheService } from '../../infrastructure/cache/services/cache.service'
 export class RouteDetectMiddleware implements NestMiddleware {
   constructor(
     private commonService: CommonService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private jwtService: JwtService,
     private queryEngine: QueryEngine,
     private tableHandlerService: TableHandlerService,
@@ -99,7 +99,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
             context: null, // Will be set later to avoid circular reference
             tableName: table.name,
             tableHandlerService: this.tableHandlerService,
-            knexService: this.knexService,
+            queryBuilder: this.queryBuilder,
             queryEngine: this.queryEngine,
             routeCacheService: this.routeCacheService,
             metadataCacheService: this.metadataCacheService,

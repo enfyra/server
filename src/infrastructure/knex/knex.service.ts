@@ -111,19 +111,23 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         return data;
       }
 
-      // Use knex.raw() to ensure CURRENT_TIMESTAMP is treated as SQL function
+      // Force auto-set timestamps (strip client-provided values)
       const now = this.knexInstance.raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
-        return data.map(record => ({
-          ...record,
-          createdAt: record.createdAt !== undefined ? record.createdAt : now,
-          updatedAt: record.updatedAt !== undefined ? record.updatedAt : now,
-        }));
+        return data.map(record => {
+          const { createdAt, updatedAt, ...cleanRecord } = record;
+          return {
+            ...cleanRecord,
+            createdAt: now,
+            updatedAt: now,
+          };
+        });
       } else {
+        const { createdAt, updatedAt, ...cleanData } = data;
         return {
-          ...data,
-          createdAt: data.createdAt !== undefined ? data.createdAt : now,
-          updatedAt: data.updatedAt !== undefined ? data.updatedAt : now,
+          ...cleanData,
+          createdAt: now,
+          updatedAt: now,
         };
       }
     });
@@ -792,7 +796,5 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     return this.relationHandler.preprocessData(tableName, data, this.currentMetadata);
   }
-
-
 
 }

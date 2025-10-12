@@ -114,7 +114,7 @@ export function generateGraphQLTypeDefsFromTables(
       }
     }
 
-    // Skip if no valid fields
+    // Skip if no valid fields - don't generate ANY definitions for this table
     if (validFields.length === 0) {
       continue;
     }
@@ -124,24 +124,9 @@ export function generateGraphQLTypeDefsFromTables(
     typeDefs += validFields.join('\n') + '\n';
     typeDefs += `}\n`;
 
-    // Generate Result type
-    resultDefs += `
-type ${typeName}Result {
-  data: [${typeName}!]!
-  meta: MetaResult
-}
-`;
-
-    // Generate Query field
-    queryDefs += `  ${typeName}(
-    filter: JSON,
-    sort: [String!],
-    page: Int,
-    limit: Int
-  ): ${typeName}Result!\n`;
-
     // Generate Input types for mutations
-    inputDefs += `\ninput ${typeName}Input {\n`;
+    const inputFields: string[] = [];
+    const updateInputFields: string[] = ['  id: ID!'];
     
     // Add fields to input type (excluding primary key, timestamps, and relations)
     for (const column of table.columns || []) {
@@ -165,44 +150,46 @@ type ${typeName}Result {
       const isRequired = !column.isNullable ? '!' : '';
       
       const finalType = column.isPrimary && gqlType === 'ID' ? 'ID!' : `${gqlType}${isRequired}`;
-      inputDefs += `  ${fieldName}: ${finalType}\n`;
+      inputFields.push(`  ${fieldName}: ${finalType}`);
+      
+      // For update input, all fields are optional
+      const updateType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
+      updateInputFields.push(`  ${fieldName}: ${updateType}`);
     }
     
-    inputDefs += `}\n`;
+    // Only add input types, queries, and mutations if there are fields
+    if (inputFields.length > 0) {
+      // Generate Result type
+      resultDefs += `
+type ${typeName}Result {
+  data: [${typeName}!]!
+  meta: MetaResult
+}
+`;
 
-    // Generate Update Input type
-    inputDefs += `\ninput ${typeName}UpdateInput {\n`;
-    inputDefs += `  id: ID!\n`; // Always require ID for updates
-    
-    for (const column of table.columns || []) {
-      if (column.isPrimary || column.name === 'createdAt' || column.name === 'updatedAt') {
-        continue; // Skip primary key and timestamps
-      }
+      // Generate Query field
+      queryDefs += `  ${typeName}(
+    filter: JSON,
+    sort: [String!],
+    page: Int,
+    limit: Int
+  ): ${typeName}Result!\n`;
+
+      // Generate Input types
+      inputDefs += `\ninput ${typeName}Input {\n`;
+      inputDefs += inputFields.join('\n') + '\n';
+      inputDefs += `}\n`;
       
-      const fieldName = column?.name;
-      const columnType = column?.type;
+      inputDefs += `\ninput ${typeName}UpdateInput {\n`;
+      inputDefs += updateInputFields.join('\n') + '\n';
+      inputDefs += `}\n`;
       
-      // Validate field name
-      if (!fieldName || typeof fieldName !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)) {
-        continue;
-      }
-      
-      if (!columnType || typeof columnType !== 'string') {
-        continue;
-      }
-      
-      const gqlType = mapColumnTypeToGraphQL(columnType);
-      // All fields optional for updates
-      const finalType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
-      inputDefs += `  ${fieldName}: ${finalType}\n`;
+      // Generate Mutation fields
+      mutationDefs += `  create_${table.name}(input: ${typeName}Input!): ${typeName}!\n`;
+      mutationDefs += `  update_${table.name}(id: ID!, input: ${typeName}Input!): ${typeName}!\n`;
+      mutationDefs += `  delete_${table.name}(id: ID!): String!\n`;
     }
-    
-    inputDefs += `}\n`;
 
-    // Generate Mutation fields (CUD only) - using table name directly like queries
-    mutationDefs += `  create_${table.name}(input: ${typeName}Input!): ${typeName}!\n`;
-    mutationDefs += `  update_${table.name}(id: ID!, input: ${typeName}Input!): ${typeName}!\n`;
-    mutationDefs += `  delete_${table.name}(id: ID!): String!\n`;
   }
 
   const metaResultDef = `

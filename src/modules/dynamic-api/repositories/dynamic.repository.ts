@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
@@ -15,7 +15,7 @@ export class DynamicRepository {
   private context: TDynamicContext;
   private tableName: string;
   private queryEngine: QueryEngine;
-  private knexService: KnexService;
+  private queryBuilder: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
   private routeCacheService: RouteCacheService;
   private systemProtectionService: SystemProtectionService;
@@ -27,7 +27,7 @@ export class DynamicRepository {
     context,
     tableName,
     queryEngine,
-    knexService,
+    queryBuilder,
     tableHandlerService,
     routeCacheService,
     systemProtectionService,
@@ -38,7 +38,7 @@ export class DynamicRepository {
     context: TDynamicContext;
     tableName: string;
     queryEngine: QueryEngine;
-    knexService: KnexService;
+    queryBuilder: QueryBuilderService;
     tableHandlerService: TableHandlerService;
     routeCacheService: RouteCacheService;
     systemProtectionService: SystemProtectionService;
@@ -49,7 +49,7 @@ export class DynamicRepository {
     this.context = context;
     this.tableName = tableName;
     this.queryEngine = queryEngine;
-    this.knexService = knexService;
+    this.queryBuilder = queryBuilder;
     this.tableHandlerService = tableHandlerService;
     this.routeCacheService = routeCacheService;
     this.systemProtectionService = systemProtectionService;
@@ -96,16 +96,15 @@ export class DynamicRepository {
         return await this.find({ where: { id: { _eq: table.id } } });
       }
 
-      const knex = this.knexService.getKnex();
       const metadata = await this.metadataCacheService.getTableMetadata(this.tableName);
       
-      // Generate UUID for primary key if needed
-      if (metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
+      // Generate UUID for primary key if needed (SQL only, MongoDB uses _id)
+      if (!this.queryBuilder.isMongoDb() && metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
         body.id = body.id || randomUUID();
       }
 
-      const [id] = await knex(this.tableName).insert(body);
-      const createdId = body.id || id;
+      const inserted = await this.queryBuilder.insertAndGet(this.tableName, body);
+      const createdId = inserted.id || inserted._id || body.id;
       
       const result = await this.find({ where: { id: { _eq: createdId } } });
       await this.reload();
@@ -132,14 +131,15 @@ export class DynamicRepository {
 
       if (this.tableName === 'table_definition') {
         const table: any = await this.tableHandlerService.updateTable(
-          +id,
+          id, // Keep as string for MongoDB
           body,
         );
-        return this.find({ where: { id: { _eq: table.id } } });
+        // MongoDB returns _id, SQL returns id
+        const tableId = table._id || table.id;
+        return this.find({ where: { id: { _eq: tableId } } });
       }
 
-      const knex = this.knexService.getKnex();
-      await knex(this.tableName).where('id', id).update(body);
+      await this.queryBuilder.updateById(this.tableName, id, body);
 
       const result = await this.find({ where: { id: { _eq: id } } });
       await this.reload();
@@ -165,12 +165,11 @@ export class DynamicRepository {
       });
 
       if (this.tableName === 'table_definition') {
-        await this.tableHandlerService.delete(+id);
+        await this.tableHandlerService.delete(id); // Keep as string for MongoDB
         return { message: 'Success', statusCode: 200 };
       }
 
-      const knex = this.knexService.getKnex();
-      await knex(this.tableName).where('id', id).delete();
+      await this.queryBuilder.deleteById(this.tableName, id);
 
       await this.reload();
       return { message: 'Delete successfully!', statusCode: 200 };

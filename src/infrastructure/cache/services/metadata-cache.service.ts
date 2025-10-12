@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
-import { KnexService } from '../../knex/knex.service';
+import { ObjectId } from 'mongodb';
+import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { CacheService } from './cache.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
@@ -18,8 +19,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   private readonly logger = new Logger(MetadataCacheService.name);
 
   constructor(
-    @Inject(forwardRef(() => KnexService))
-    private readonly knexService: KnexService,
+    @Inject(forwardRef(() => QueryBuilderService))
+    private readonly queryBuilder: QueryBuilderService,
     private readonly cacheService: CacheService,
     private readonly redisPubSubService: RedisPubSubService,
     private readonly instanceService: InstanceService,
@@ -73,7 +74,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             0,
           );
 
-          await this.knexService.reloadWithMetadata(metadata);
+          await this.queryBuilder.reloadWithMetadata(metadata);
           this.logger.log(`✅ Metadata cache synced: ${metadata.tablesList.length} tables`);
         } catch (error) {
           this.logger.error('Failed to parse metadata cache sync message:', error);
@@ -86,10 +87,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
    * Load all metadata from database
    */
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
-    const knex = this.knexService.getKnex();
-
     // Load all tables with their columns and relations
-    const tables = await knex('table_definition').select('*');
+    const tables = await this.queryBuilder.select({ table: 'table_definition' });
 
     const tablesList: any[] = [];
     const tablesMap = new Map<string, any>();
@@ -113,10 +112,15 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         }
       }
 
-      // Load columns - lưu raw data từ DB
-      const columnsData = await knex('column_definition')
-        .where('tableId', table.id)
-        .select('*');
+      // Load columns - lưu raw data từ DB  
+      const isMongoDB = this.queryBuilder.isMongoDb();
+      const tableIdField = isMongoDB ? 'table' : 'tableId';
+      // For MongoDB, table._id is string after mapDocument - convert back to ObjectId for query
+      const tableIdValue = isMongoDB ? new ObjectId(table._id) : table.id;
+      
+      const columnsData = await this.queryBuilder.findWhere('column_definition', { 
+        [tableIdField]: tableIdValue
+      });
 
       // Parse JSON fields (options, defaultValue) and boolean fields - ALWAYS parse
       const columns = columnsData.map((col: any) => {
@@ -183,14 +187,58 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         });
       }
 
-      // Load relations with LEFT JOIN (no N+1!)
-      const relationsData = await knex('relation_definition')
-        .where({ 'relation_definition.sourceTableId': table.id })
-        .leftJoin('table_definition as targetTable', 'relation_definition.targetTableId', 'targetTable.id')
-        .select(
-          'relation_definition.*',
-          'targetTable.name as targetTableName'
-        );
+      // Load relations - different approach for SQL vs MongoDB
+      let relationsData: any[];
+      
+      if (isMongoDB) {
+        // MongoDB: Use aggregation pipeline for lookup
+        // sourceTable and targetTable are ObjectIds in MongoDB
+        relationsData = await this.queryBuilder.select({
+          table: 'relation_definition',
+          where: [{ field: 'sourceTable', operator: '=', value: tableIdValue }],
+          pipeline: [
+            {
+              $match: { sourceTable: tableIdValue }
+            },
+            {
+              $lookup: {
+                from: 'table_definition',
+                localField: 'targetTable',
+                foreignField: '_id',
+                as: 'targetTableInfo'
+              }
+            },
+            {
+              $addFields: {
+                targetTableName: { $arrayElemAt: ['$targetTableInfo.name', 0] }
+              }
+            },
+            {
+              $project: {
+                targetTableInfo: 0
+              }
+            }
+          ]
+        });
+      } else {
+        // SQL: Use LEFT JOIN
+        relationsData = await this.queryBuilder.select({
+          table: 'relation_definition',
+          where: [{ field: 'relation_definition.sourceTableId', operator: '=', value: tableIdValue }],
+          join: [{
+            type: 'left',
+            table: 'table_definition as targetTable',
+            on: {
+              local: 'relation_definition.targetTableId',
+              foreign: 'targetTable.id',
+            },
+          }],
+          select: [
+            'relation_definition.*',
+            'targetTable.name as targetTableName',
+          ],
+        });
+      }
 
       const relations: any[] = [];
       for (const rel of relationsData) {
@@ -210,7 +258,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         // Calculate foreign key column name for many-to-one and one-to-one
         if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-          relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+          // MongoDB: field name = propertyName (direct ObjectId storage)
+          // SQL: field name = propertyName + "Id" (FK column)
+          relationMetadata.foreignKeyColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
         }
 
         // Use junction table info from DB for many-to-many
@@ -240,6 +290,69 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
       tablesList.push(metadata);
       tablesMap.set(table.name, metadata);
+    }
+
+    // Generate inverse relations (for MongoDB and SQL consistency)
+    // This handles O2M relations that are inverse of M2O relations
+    for (const table of tablesList) {
+      for (const relation of table.relations || []) {
+        // Only process relations with inversePropertyName
+        if (!relation.inversePropertyName) continue;
+        
+        const targetTableName = relation.targetTableName || relation.targetTable;
+        const targetTable = tablesMap.get(targetTableName);
+        
+        if (!targetTable) continue;
+        
+        // Check if inverse relation already exists
+        const inverseExists = targetTable.relations?.some(
+          (r: any) => r.propertyName === relation.inversePropertyName
+        );
+        
+        if (!inverseExists) {
+          // Generate inverse relation
+          let inverseType = 'one-to-many';
+          if (relation.type === 'one-to-many') {
+            inverseType = 'many-to-one';
+          } else if (relation.type === 'many-to-one') {
+            inverseType = 'one-to-many';
+          } else if (relation.type === 'one-to-one') {
+            inverseType = 'one-to-one';
+          } else if (relation.type === 'many-to-many') {
+            inverseType = 'many-to-many';
+          }
+          
+          const inverseRelation: any = {
+            propertyName: relation.inversePropertyName,
+            type: inverseType,
+            targetTable: table.name,
+            targetTableName: table.name,
+            sourceTableName: targetTableName,
+            inversePropertyName: relation.propertyName,
+            isNullable: true,
+            isSystem: relation.isSystem || false,
+            isGenerated: true, // Mark as auto-generated
+          };
+          
+          // Add foreign key column for M2O
+          if (inverseType === 'many-to-one') {
+            inverseRelation.foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName);
+          }
+          
+          // Add junction table info for M2M
+          if (inverseType === 'many-to-many') {
+            inverseRelation.junctionTableName = relation.junctionTableName;
+            inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
+            inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
+          }
+          
+          // Add inverse relation to target table
+          if (!targetTable.relations) {
+            targetTable.relations = [];
+          }
+          targetTable.relations.push(inverseRelation);
+        }
+      }
     }
 
     return {
@@ -307,7 +420,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         `✅ Metadata cache reloaded successfully - ${metadata.tablesList.length} tables`,
       );
       
-      await this.knexService.reloadWithMetadata(metadata);
+      await this.queryBuilder.reloadWithMetadata(metadata);
       await this.publishMetadataCacheSync(metadata);
     } catch (error) {
       this.logger.error('❌ Failed to reload metadata cache:', error);

@@ -9,60 +9,15 @@ import {
   getShortFkName,
   getShortIndexName,
 } from '../src/shared/utils/naming-helpers';
+import {
+  ColumnDef,
+  RelationDef,
+  TableDef,
+  JunctionTableDef,
+  KnexTableSchema,
+} from '../src/shared/types/database-init.types';
 
 dotenv.config();
-
-// ==================== TYPES ====================
-
-interface ColumnDef {
-  name: string;
-  type: string;
-  isPrimary?: boolean;
-  isGenerated?: boolean;
-  isNullable?: boolean;
-  isSystem?: boolean;
-  defaultValue?: any;
-  options?: any[] | any; // For enum type
-  isUpdatable?: boolean;
-  isUnique?: boolean;
-  isHidden?: boolean;
-  description?: string;
-  placeholder?: string;
-}
-
-interface RelationDef {
-  propertyName: string;
-  type: 'one-to-one' | 'many-to-one' | 'one-to-many' | 'many-to-many';
-  targetTable: string;
-  inversePropertyName?: string;
-  isNullable?: boolean;
-  isSystem?: boolean;
-  isInverseEager?: boolean;
-}
-
-interface TableDef {
-  name: string;
-  isSystem?: boolean;
-  uniques?: string[][];
-  indexes?: string[][];
-  columns: ColumnDef[];
-  relations?: RelationDef[];
-}
-
-interface JunctionTableDef {
-  tableName: string;
-  sourceTable: string;
-  targetTable: string;
-  sourceColumn: string;
-  targetColumn: string;
-  sourcePropertyName: string;
-}
-
-interface KnexTableSchema {
-  tableName: string;
-  definition: TableDef;
-  junctionTables: JunctionTableDef[];
-}
 
 // ==================== NAMING CONVENTIONS ====================
 // Now using helpers from ./utils/naming-helpers
@@ -641,7 +596,7 @@ async function ensureDatabaseExists(): Promise<void> {
   }
 }
 
-export async function initializeDatabaseKnex(): Promise<void> {
+export async function initializeDatabaseSql(): Promise<void> {
   const DB_TYPE = process.env.DB_TYPE || 'mysql';
   const DB_HOST = process.env.DB_HOST || 'localhost';
   const DB_PORT =
@@ -707,7 +662,7 @@ export async function initializeDatabaseKnex(): Promise<void> {
 
 // For direct execution
 if (require.main === module) {
-  initializeDatabaseKnex()
+  initializeDatabaseSql()
     .then(() => {
       console.log('✅ Done!');
       process.exit(0);

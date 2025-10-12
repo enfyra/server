@@ -1,7 +1,7 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { OpenAPIObject } from '@nestjs/swagger';
 import { RouteCacheService } from '../../cache/services/route-cache.service';
-import { KnexService } from '../../knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { generateErrorSchema } from '../../../shared/utils/openapi-schema-generator';
 import { generatePathsFromRoutes, generateCommonResponses } from '../../../shared/utils/openapi-path-generator';
 import { HttpAdapterHost } from '@nestjs/core';
@@ -13,7 +13,7 @@ export class SwaggerService implements OnApplicationBootstrap {
 
   constructor(
     private routeCacheService: RouteCacheService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private httpAdapterHost: HttpAdapterHost,
   ) {}
 
@@ -42,8 +42,9 @@ export class SwaggerService implements OnApplicationBootstrap {
 
     // Get all REST methods - cache to avoid querying every time
     if (this.methodsCache.length === 0) {
-      const knex = this.knexService.getKnex();
-      const allMethods = await knex('method_definition').select('*');
+      const allMethods = await this.queryBuilder.select({
+        table: 'method_definition',
+      });
       this.methodsCache = allMethods
         .filter((m: any) => !m.method.startsWith('GQL_'))
         .map((m: any) => m.method);

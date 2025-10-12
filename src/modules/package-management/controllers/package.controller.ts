@@ -15,7 +15,7 @@ import {
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
 @Controller('package_definition')
 export class PackageController {
@@ -24,7 +24,7 @@ export class PackageController {
   constructor(
     private packageManagementService: PackageManagementService,
     private packageCacheService: PackageCacheService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
   ) {}
 
   @Post()
@@ -103,9 +103,8 @@ export class PackageController {
         );
       }
 
-      // Save to database using Knex
-      const knex = this.knexService.getKnex();
-      const [savedPackageId] = await knex('package_definition').insert({
+      // Save to database
+      const savedPackage = await this.queryBuilder.insertAndGet('package_definition', {
         ...body,
         version: installationResult.version,
         description: body.description || installationResult.description || '',
@@ -116,6 +115,7 @@ export class PackageController {
       await this.packageCacheService.reloadPackageCache();
 
       // Return using dynamic repo format (same as dynamic repo .create() method)
+      const savedPackageId = savedPackage.id || savedPackage._id;
       const result = await packageRepo.find({
         where: { id: { _eq: savedPackageId } },
       });
@@ -165,7 +165,6 @@ export class PackageController {
         );
       }
     }
-    console.log('body', body);
     const result = await packageRepo.update(id, body);
 
     // Reload package cache after update

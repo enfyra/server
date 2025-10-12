@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SchemaMigrationService } from '../../../infrastructure/knex/services/schema-migration.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
@@ -16,16 +16,16 @@ import { CreateTableDto } from '../dto/create-table.dto';
 import { getForeignKeyColumnName, getJunctionTableName } from '../../../shared/utils/naming-helpers';
 
 /**
- * TableHandlerService - Manages table metadata and physical schema
+ * SqlTableHandlerService - Manages SQL table metadata and physical schema (DDL)
  * 1. Validates and saves metadata to DB
  * 2. Migrates physical schema (CREATE/ALTER/DROP TABLE)
  */
 @Injectable()
-export class TableHandlerService {
-  private logger = new Logger(TableHandlerService.name);
+export class SqlTableHandlerService {
+  private logger = new Logger(SqlTableHandlerService.name);
 
   constructor(
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private schemaMigrationService: SchemaMigrationService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
@@ -61,7 +61,7 @@ export class TableHandlerService {
 
     this.validateRelations(body.relations);
 
-    const knex = this.knexService.getKnex();
+    const knex = this.queryBuilder.getKnex();
     let trx;
 
     try {
@@ -231,9 +231,6 @@ export class TableHandlerService {
       // Migrate physical schema (after commit)
       await this.schemaMigrationService.createTable(fullMetadata);
 
-      // Reload metadata cache for all instances (after commit)
-      await this.metadataCacheService.reloadMetadataCache();
-
       this.logger.log(`✅ Table created: ${body.name} (metadata + physical schema + route)`);
       return fullMetadata;
     } catch (error) {
@@ -263,7 +260,7 @@ export class TableHandlerService {
     }
   }
 
-  async updateTable(id: number, body: any) {
+  async updateTable(id: string | number, body: any) {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -277,7 +274,7 @@ export class TableHandlerService {
 
     this.validateRelations(body.relations);
 
-    const knex = this.knexService.getKnex();
+    const knex = this.queryBuilder.getKnex();
 
     try {
       const exists = await knex('table_definition')
@@ -424,14 +421,11 @@ export class TableHandlerService {
         }
       }
 
-      // Get old metadata before reload
+      // Get old metadata before migration
       const oldMetadata = await this.metadataCacheService.getTableMetadata(exists.name);
 
-      // Reload metadata cache
-      await this.metadataCacheService.reloadMetadataCache();
-
-      // Get new metadata after reload
-      const newMetadata = await this.metadataCacheService.getTableMetadata(exists.name);
+      // Get new metadata (will be used for migration)
+      const newMetadata = await this.getFullTableMetadata(id);
 
       // Migrate physical schema
       if (oldMetadata && newMetadata) {
@@ -459,8 +453,8 @@ export class TableHandlerService {
     }
   }
 
-  async delete(id: number) {
-    const knex = this.knexService.getKnex();
+  async delete(id: string | number) {
+    const knex = this.queryBuilder.getKnex();
 
     try {
       const exists = await knex('table_definition')
@@ -516,9 +510,6 @@ export class TableHandlerService {
       // Drop physical table
       await this.schemaMigrationService.dropTable(tableName);
 
-      // Reload metadata cache
-      await this.metadataCacheService.reloadMetadataCache();
-
       this.logger.log(`✅ Table deleted: ${tableName} (metadata + physical schema)`);
       return exists;
     } catch (error) {
@@ -542,8 +533,8 @@ export class TableHandlerService {
   /**
    * Get full table metadata with columns and relations
    */
-  private async getFullTableMetadata(tableId: number): Promise<any> {
-    const knex = this.knexService.getKnex();
+  private async getFullTableMetadata(tableId: string | number): Promise<any> {
+    const knex = this.queryBuilder.getKnex();
 
     const table = await knex('table_definition').where({ id: tableId }).first();
     if (!table) return null;

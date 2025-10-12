@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 // Internal imports
-import { KnexService } from '../../knex/knex.service';
+import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -26,11 +26,11 @@ import { populateOneToManyRelations } from '../utils/populate-o2m-relations';
 import { serializeDates } from '../utils/serialize-dates';
 
 @Injectable()
-export class QueryEngine {
+export class SqlQueryEngine {
   private log: string[] = [];
 
   constructor(
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
     private configService: ConfigService,
@@ -61,7 +61,7 @@ export class QueryEngine {
         debugMode = false,
       } = options;
 
-      const knex = this.knexService.getKnex();
+      const knex = this.queryBuilder.getConnection();
       const metadata: any = await this.metadataCacheService.getTableMetadata(tableName);
       
       if (!metadata) {
@@ -178,7 +178,7 @@ export class QueryEngine {
 
       // Populate one-to-many relations separately (avoid row multiplication)
       if (o2mJoins.length > 0) {
-        const knex = this.knexService.getKnex();
+        const knex = this.queryBuilder.getConnection();
         rows = await populateOneToManyRelations(
           rows, 
           o2mJoins, 

@@ -1,7 +1,7 @@
-import { QueryEngine } from '../services/query-engine.service';
+import { SqlQueryEngine } from '../services/sql-query-engine.service';
 
 export async function resolveDeepRelations(options: {
-  queryEngine: QueryEngine;
+  queryEngine: SqlQueryEngine;
   rows: any[];
   metaData: any;
   deep: Record<string, any>;

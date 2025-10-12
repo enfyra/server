@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { KnexService } from '../../knex/knex.service';
+import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { ROUTE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
@@ -12,7 +12,7 @@ export class RouteCacheService implements OnModuleInit {
   private cacheLoaded = false;
 
   constructor(
-    private readonly knexService: KnexService,
+    private readonly queryBuilder: QueryBuilderService,
     private readonly redisPubSubService: RedisPubSubService,
     private readonly instanceService: InstanceService,
   ) {}
@@ -107,15 +107,14 @@ export class RouteCacheService implements OnModuleInit {
   }
 
   private async loadRoutes(): Promise<any[]> {
-    const knex = this.knexService.getKnex();
-
-    // Get FK column names using naming convention
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    
+    // Get FK column names using naming convention (for SQL only)
     const routeDefinitionIdCol = getForeignKeyColumnName('route_definition');
     const methodDefinitionIdCol = getForeignKeyColumnName('method_definition');
     const tableDefinitionIdCol = getForeignKeyColumnName('table_definition');
-
-    // Load all data in parallel with manual JOINs
-    // Note: Bootstrap code - metadata not loaded yet, cannot use .withRelations()
+    
+    // Load all data in parallel - different queries for SQL vs MongoDB
     const [
       routes,
       globalHooks,
@@ -126,130 +125,431 @@ export class RouteCacheService implements OnModuleInit {
       allMethods,
       allPublishedMethodsJunctions,
       allTargetTablesJunctions,
+      allHookMethodsJunctions,
     ] = await Promise.all([
-      knex('route_definition')
-        .where({ 'route_definition.isEnabled': true })
-        .leftJoin('table_definition as mainTable', 'route_definition.mainTableId', 'mainTable.id')
-        .select('route_definition.*', 'mainTable.id as mainTable_id', 'mainTable.name as mainTable_name'),
-      knex('hook_definition').where('isEnabled', true).whereNull('routeId').orderBy('priority', 'asc').select('*'),
-      knex('hook_definition').where('isEnabled', true).orderBy('priority', 'asc').select('*'),
-      knex('route_handler_definition')
-        .leftJoin('method_definition as method', 'route_handler_definition.methodId', 'method.id')
-        .select('route_handler_definition.*', 'method.id as method_id', 'method.method as method_method'),
-      knex('route_permission_definition')
-        .where({ 'route_permission_definition.isEnabled': true })
-        .leftJoin('role_definition as role', 'route_permission_definition.roleId', 'role.id')
-        .select('route_permission_definition.*', 'role.id as role_id', 'role.name as role_name'),
-      knex('table_definition').select('*'),
-      knex('method_definition').select('*'),
-      knex('method_definition_routes_route_definition').select('*'),
-      knex('route_definition_targetTables_table_definition').select('*'),
+      // Routes query - different for SQL vs MongoDB
+      isMongoDB ? this.queryBuilder.select({
+        table: 'route_definition',
+        where: [{ field: 'isEnabled', operator: '=', value: true }],
+        // MongoDB: Use aggregation pipeline for joins
+        pipeline: [
+          {
+            $match: { isEnabled: true }
+          },
+          {
+            $lookup: {
+              from: 'table_definition',
+              localField: 'mainTable',
+              foreignField: '_id',
+              as: 'mainTableInfo'
+            }
+          },
+          {
+            $lookup: {
+              from: 'method_definition',
+              localField: 'publishedMethods',
+              foreignField: '_id',
+              as: 'publishedMethodsInfo'
+            }
+          },
+          {
+            $lookup: {
+              from: 'route_permission_definition',
+              let: { routeId: '$_id' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        { $eq: ['$route', '$$routeId'] },
+                        { $eq: ['$isEnabled', true] }
+                      ]
+                    }
+                  }
+                },
+                {
+                  $lookup: {
+                    from: 'role_definition',
+                    localField: 'role',
+                    foreignField: '_id',
+                    as: 'roleInfo'
+                  }
+                },
+                {
+                  $addFields: {
+                    role: {
+                      $cond: {
+                        if: { $gt: [{ $size: '$roleInfo' }, 0] },
+                        then: { $arrayElemAt: ['$roleInfo', 0] },
+                        else: null
+                      }
+                    },
+                    allowedUsers: [],
+                    methods: []
+                  }
+                },
+                {
+                  $project: {
+                    roleInfo: 0
+                  }
+                }
+              ],
+              as: 'routePermissions'
+            }
+          },
+          {
+            $lookup: {
+              from: 'route_handler_definition',
+              let: { routeId: '$_id' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$route', '$$routeId'] }
+                  }
+                },
+                {
+                  $lookup: {
+                    from: 'method_definition',
+                    localField: 'method',
+                    foreignField: '_id',
+                    as: 'methodInfo'
+                  }
+                },
+                {
+                  $addFields: {
+                    method: {
+                      $cond: {
+                        if: { $gt: [{ $size: '$methodInfo' }, 0] },
+                        then: { $arrayElemAt: ['$methodInfo', 0] },
+                        else: null
+                      }
+                    }
+                  }
+                },
+                {
+                  $project: {
+                    methodInfo: 0
+                  }
+                }
+              ],
+              as: 'handlers'
+            }
+          },
+          {
+            $lookup: {
+              from: 'hook_definition',
+              let: { routeId: '$_id' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        { $eq: ['$route', '$$routeId'] },
+                        { $eq: ['$isEnabled', true] }
+                      ]
+                    }
+                  }
+                },
+                {
+                  $sort: { priority: 1 }
+                }
+              ],
+              as: 'hooks'
+            }
+          },
+          {
+            $addFields: {
+              mainTable: {
+                $cond: {
+                  if: { $gt: [{ $size: '$mainTableInfo' }, 0] },
+                  then: { $arrayElemAt: ['$mainTableInfo', 0] },
+                  else: null
+                }
+              },
+              publishedMethods: '$publishedMethodsInfo'
+            }
+          },
+          {
+            $project: {
+              mainTableInfo: 0,
+              publishedMethodsInfo: 0 // Remove the joined arrays
+            }
+          }
+        ]
+      }) : this.queryBuilder.select({
+        table: 'route_definition',
+        where: [{ field: 'route_definition.isEnabled', operator: '=', value: true }],
+        join: [{ type: 'left', table: 'table_definition as mainTable', on: { local: 'route_definition.mainTableId', foreign: 'mainTable.id' }}],
+        select: ['route_definition.*', 'mainTable.id as mainTable_id', 'mainTable.name as mainTable_name'],
+      }),
+      
+      // Global hooks - different field names for SQL vs MongoDB
+      this.queryBuilder.select({
+        table: 'hook_definition',
+        where: [
+          { field: 'isEnabled', operator: '=', value: true }, 
+          { field: isMongoDB ? 'route' : 'routeId', operator: 'is null', value: undefined }
+        ],
+        sort: [{ field: 'priority', direction: 'asc' }],
+      }),
+      
+      // All hooks
+      this.queryBuilder.select({
+        table: 'hook_definition',
+        where: [{ field: 'isEnabled', operator: '=', value: true }],
+        sort: [{ field: 'priority', direction: 'asc' }],
+      }),
+      
+      // Route handlers - different for SQL vs MongoDB
+      isMongoDB ? this.queryBuilder.select({
+        table: 'route_handler_definition',
+        pipeline: [
+          {
+            $lookup: {
+              from: 'method_definition',
+              localField: 'method',
+              foreignField: '_id',
+              as: 'methodInfo'
+            }
+          },
+          {
+            $addFields: {
+              method_id: { $arrayElemAt: ['$methodInfo._id', 0] },
+              method_method: { $arrayElemAt: ['$methodInfo.method', 0] }
+            }
+          },
+          {
+            $project: {
+              methodInfo: 0
+            }
+          }
+        ]
+      }) : this.queryBuilder.select({
+        table: 'route_handler_definition',
+        join: [{ type: 'left', table: 'method_definition as method', on: { local: 'route_handler_definition.methodId', foreign: 'method.id' }}],
+        select: ['route_handler_definition.*', 'method.id as method_id', 'method.method as method_method'],
+      }),
+      
+      // Route permissions - different for SQL vs MongoDB
+      isMongoDB ? this.queryBuilder.select({
+        table: 'route_permission_definition',
+        where: [{ field: 'isEnabled', operator: '=', value: true }],
+        pipeline: [
+          {
+            $match: { isEnabled: true }
+          },
+          {
+            $lookup: {
+              from: 'role_definition',
+              localField: 'role',
+              foreignField: '_id',
+              as: 'roleInfo'
+            }
+          },
+          {
+            $addFields: {
+              role_id: { $arrayElemAt: ['$roleInfo._id', 0] },
+              role_name: { $arrayElemAt: ['$roleInfo.name', 0] }
+            }
+          },
+          {
+            $project: {
+              roleInfo: 0
+            }
+          }
+        ]
+      }) : this.queryBuilder.select({
+        table: 'route_permission_definition',
+        where: [{ field: 'route_permission_definition.isEnabled', operator: '=', value: true }],
+        join: [{ type: 'left', table: 'role_definition as role', on: { local: 'route_permission_definition.roleId', foreign: 'role.id' }}],
+        select: ['route_permission_definition.*', 'role.id as role_id', 'role.name as role_name'],
+      }),
+      
+      this.queryBuilder.select({ table: 'table_definition' }),
+      this.queryBuilder.select({ table: 'method_definition' }),
+      // Junction tables - only for SQL, MongoDB uses embedded arrays
+      isMongoDB ? [] : this.queryBuilder.select({ table: 'method_definition_routes_route_definition' }),
+      isMongoDB ? [] : this.queryBuilder.select({ table: 'route_definition_targetTables_table_definition' }),
+      isMongoDB ? [] : this.queryBuilder.select({ table: 'hook_definition_methods_method_definition' }),
     ]);
 
-    const tablesMap = new Map(allTables.map((t: any) => [t.id, t]));
-    const methodsMap = new Map(allMethods.map((m: any) => [m.id, m]));
+    // Build maps using correct ID field for SQL vs MongoDB
+    const idField = isMongoDB ? '_id' : 'id';
+    const tablesMap = new Map(allTables.map((t: any) => [isMongoDB ? t._id?.toString() : t.id, t]));
+    const methodsMap = new Map(allMethods.map((m: any) => [isMongoDB ? m._id?.toString() : m.id, m]));
+
+    // Map hooks → methods from junction table
+    const hookMethodsMap = new Map();
+    if (isMongoDB) {
+      // MongoDB: methods is already an array of ObjectIds in hook_definition
+      allHooks.forEach((hook: any) => {
+        if (hook.methods && hook.methods.length > 0) {
+          hookMethodsMap.set(hook._id, hook.methods);
+        }
+      });
+    } else {
+      // SQL: Process junction table
+      (allHookMethodsJunctions || []).forEach((j: any) => {
+        const hookId = j.hookDefinitionId || j.hook_definition_id;
+        const methodId = j.methodDefinitionId || j.method_definition_id;
+        if (!hookMethodsMap.has(hookId)) {
+          hookMethodsMap.set(hookId, []);
+        }
+        hookMethodsMap.get(hookId).push(methodId);
+      });
+    }
 
     const hooksByRoute = new Map();
     allHooks.forEach((hook: any) => {
-      if (hook.routeId) {
-        if (!hooksByRoute.has(hook.routeId)) {
-          hooksByRoute.set(hook.routeId, []);
+      const routeId = isMongoDB ? hook.route?.toString() : hook.routeId;
+      const hookId = isMongoDB ? hook._id?.toString() : hook.id;
+      
+      // Map method IDs to method objects
+      const methodIds = hookMethodsMap.get(hookId) || [];
+      hook.methods = methodIds
+        .map((methodId: any) => methodsMap.get(isMongoDB ? methodId.toString() : methodId))
+        .filter(Boolean);
+      
+      if (routeId) {
+        if (!hooksByRoute.has(routeId)) {
+          hooksByRoute.set(routeId, []);
         }
-        hooksByRoute.get(hook.routeId).push(hook);
+        hooksByRoute.get(routeId).push(hook);
       }
     });
 
     const handlersByRoute = new Map();
     allHandlers.forEach((h: any) => {
-      if (!handlersByRoute.has(h.routeId)) {
-        handlersByRoute.set(h.routeId, []);
+      const routeId = isMongoDB ? h.route?.toString() : h.routeId;
+      if (routeId) {
+        if (!handlersByRoute.has(routeId)) {
+          handlersByRoute.set(routeId, []);
+        }
+        handlersByRoute.get(routeId).push(h);
       }
-      handlersByRoute.get(h.routeId).push(h);
     });
 
     const permsByRoute = new Map();
     allPermissions.forEach((p: any) => {
-      if (!permsByRoute.has(p.routeId)) {
-        permsByRoute.set(p.routeId, []);
+      const routeId = isMongoDB ? p.route?.toString() : p.routeId;
+      if (routeId) {
+        if (!permsByRoute.has(routeId)) {
+          permsByRoute.set(routeId, []);
+        }
+        permsByRoute.get(routeId).push(p);
       }
-      permsByRoute.get(p.routeId).push(p);
     });
 
     const publishedMethodsByRoute = new Map();
-    allPublishedMethodsJunctions.forEach((j: any) => {
-      const routeId = j[routeDefinitionIdCol];
-      const methodId = j[methodDefinitionIdCol];
-      if (!publishedMethodsByRoute.has(routeId)) {
-        publishedMethodsByRoute.set(routeId, []);
-      }
-      publishedMethodsByRoute.get(routeId).push(methodId);
-    });
+    if (isMongoDB) {
+      // MongoDB: publishedMethods is already an array of ObjectIds in route_definition
+      routes.forEach((route: any) => {
+        if (route.publishedMethods && route.publishedMethods.length > 0) {
+          publishedMethodsByRoute.set(route._id, route.publishedMethods);
+        }
+      });
+    } else {
+      // SQL: Process junction table
+      allPublishedMethodsJunctions.forEach((j: any) => {
+        const routeId = j[routeDefinitionIdCol];
+        const methodId = j[methodDefinitionIdCol];
+        if (!publishedMethodsByRoute.has(routeId)) {
+          publishedMethodsByRoute.set(routeId, []);
+        }
+        publishedMethodsByRoute.get(routeId).push(methodId);
+      });
+    }
 
     const targetTablesByRoute = new Map();
-    allTargetTablesJunctions.forEach((j: any) => {
-      const routeId = j[routeDefinitionIdCol];
-      const tableId = j[tableDefinitionIdCol];
-      if (!targetTablesByRoute.has(routeId)) {
-        targetTablesByRoute.set(routeId, []);
-      }
-      targetTablesByRoute.get(routeId).push(tableId);
-    });
+    if (isMongoDB) {
+      // MongoDB: targetTables is already an array of ObjectIds in route_definition (if exists)
+      routes.forEach((route: any) => {
+        if (route.targetTables && route.targetTables.length > 0) {
+          targetTablesByRoute.set(route._id, route.targetTables);
+        }
+      });
+    } else {
+      // SQL: Process junction table
+      allTargetTablesJunctions.forEach((j: any) => {
+        const routeId = j[routeDefinitionIdCol];
+        const tableId = j[tableDefinitionIdCol];
+        if (!targetTablesByRoute.has(routeId)) {
+          targetTablesByRoute.set(routeId, []);
+        }
+        targetTablesByRoute.get(routeId).push(tableId);
+      });
+    }
 
     for (const route of routes) {
-      // Nest mainTable (from JOIN)
-      if (route.mainTable_id) {
-        route.mainTable = {
-          id: route.mainTable_id,
-          name: route.mainTable_name,
-        };
-        delete route.mainTable_id;
-        delete route.mainTable_name;
-      }
+      const routeId = isMongoDB ? route._id?.toString() : route.id;
       
-      // Map targetTables from junction
-      const targetTableIds = targetTablesByRoute.get(route.id) || [];
-      route.targetTables = targetTableIds
-        .map((tid: any) => tablesMap.get(tid))
-        .filter(Boolean);
-
-      // Map publishedMethods from junction with full method data
-      const publishedMethodIds = publishedMethodsByRoute.get(route.id) || [];
-      route.publishedMethods = publishedMethodIds
-        .map((mid: any) => methodsMap.get(mid))
-        .filter(Boolean);
-      
-      // Nest handlers (from JOIN)
-      const handlers = handlersByRoute.get(route.id) || [];
-      for (const handler of handlers) {
-        if (handler.method_id) {
-          handler.method = {
-            id: handler.method_id,
-            method: handler.method_method,
-          };
-          delete handler.method_id;
-          delete handler.method_method;
+      if (isMongoDB) {
+        // MongoDB: Data already nested from aggregation pipeline
+        // Just prepend global hooks
+        route.hooks = [...globalHooks, ...(route.hooks || [])];
+        
+        // Ensure targetTables is empty array if not set
+        if (!route.targetTables) {
+          route.targetTables = [];
         }
-      }
-      route.handlers = handlers;
-
-      const hooks = hooksByRoute.get(route.id) || [];
-      route.hooks = [...globalHooks, ...hooks];
-
-      // Nest permissions (from JOIN)
-      const permissions = permsByRoute.get(route.id) || [];
-      for (const perm of permissions) {
-        if (perm.role_id) {
-          perm.role = {
-            id: perm.role_id,
-            name: perm.role_name,
+      } else {
+        // SQL: Need to nest and map data
+        
+        // Nest mainTable (from JOIN)
+        if (route.mainTable_id) {
+          route.mainTable = {
+            id: route.mainTable_id,
+            name: route.mainTable_name,
           };
-          delete perm.role_id;
-          delete perm.role_name;
+          delete route.mainTable_id;
+          delete route.mainTable_name;
         }
-        perm.allowedUsers = [];
-        perm.methods = [];
+        
+        // Map targetTables from junction
+        const targetTableIds = targetTablesByRoute.get(routeId) || [];
+        route.targetTables = targetTableIds
+          .map((tid: any) => tablesMap.get(tid))
+          .filter(Boolean);
+
+        // Map publishedMethods from junction with full method data
+        const publishedMethodIds = publishedMethodsByRoute.get(routeId) || [];
+        route.publishedMethods = publishedMethodIds
+          .map((mid: any) => methodsMap.get(mid))
+          .filter(Boolean);
+        
+        // Nest handlers (from JOIN)
+        const handlers = handlersByRoute.get(routeId) || [];
+        for (const handler of handlers) {
+          if (handler.method_id) {
+            handler.method = {
+              id: handler.method_id,
+              method: handler.method_method,
+            };
+            delete handler.method_id;
+            delete handler.method_method;
+          }
+        }
+        route.handlers = handlers;
+
+        const hooks = hooksByRoute.get(routeId) || [];
+        route.hooks = [...globalHooks, ...hooks];
+
+        // Nest permissions (from JOIN)
+        const permissions = permsByRoute.get(routeId) || [];
+        for (const perm of permissions) {
+          if (perm.role_id) {
+            perm.role = {
+              id: perm.role_id,
+              name: perm.role_name,
+            };
+            delete perm.role_id;
+            delete perm.role_name;
+          }
+          perm.allowedUsers = [];
+          perm.methods = [];
+        }
+        route.routePermissions = permissions;
       }
-      route.routePermissions = permissions;
     }
 
     return routes;

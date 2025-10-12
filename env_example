@@ -1,10 +1,13 @@
 #DB SETTING
-DB_TYPE=mysql #mysql | mariadb | postgres
+DB_TYPE=mysql #mysql | mariadb | postgres | mongodb
 DB_HOST=localhost
 DB_PORT=3306
 DB_USERNAME=root
 DB_PASSWORD=1234
 DB_NAME=enfyra
+
+# MongoDB URI (only if DB_TYPE=mongodb)
+# MONGO_URI=mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra?authSource=admin
 
 #DATABASE CONNECTION POOL SETTINGS
 DB_POOL_SIZE=100                    # Max connections in pool (all databases)

@@ -17,7 +17,8 @@ export async function executeCountQueries(
     result.totalCount = Number(totalCountResult?.count || 0);
   }
 
-  if (hasFilter && (metaParts.includes('filterCount') || metaParts.includes('*'))) {
+  // filterCount = count after filter, before pagination (always run if requested)
+  if (metaParts.includes('filterCount') || metaParts.includes('*')) {
     // Clone query without select/limit for count
     const countQuery = query.clone().clearSelect().clearOrder().limit(1);
     const filterCountResult = await countQuery

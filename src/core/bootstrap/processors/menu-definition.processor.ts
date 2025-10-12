@@ -1,9 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
+  constructor(private readonly queryBuilder: QueryBuilderService) {
+    super();
+  }
+
   async processKnex(
     records: any[],
     knex: Knex,
@@ -40,11 +46,71 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
     return { created: totalCreated, skipped: totalSkipped };
   }
+
+  /**
+   * Process menu items in order for MongoDB (Mini Sidebar → Dropdown → Menu items)
+   */
+  async processMongo(records: any[], collectionName: string): Promise<number> {
+    const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
+    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
+    const menuItems = records.filter(r => r.type === 'Menu');
+
+    let totalCreated = 0;
+
+    // Process in order: Mini Sidebars first
+    if (miniSidebars.length > 0) {
+      this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
+      const transformed = await this.transformRecords(miniSidebars);
+      const valid = transformed.filter(r => r !== null);
+      
+      if (valid.length > 0) {
+        await this.queryBuilder.insert({
+          table: collectionName,
+          data: valid,
+        });
+        totalCreated += valid.length;
+      }
+    }
+
+    // Then Dropdown Menus (can reference sidebars)
+    if (dropdownMenus.length > 0) {
+      this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
+      const transformed = await this.transformRecords(dropdownMenus);
+      const valid = transformed.filter(r => r !== null);
+      
+      if (valid.length > 0) {
+        await this.queryBuilder.insert({
+          table: collectionName,
+          data: valid,
+        });
+        totalCreated += valid.length;
+      }
+    }
+
+    // Finally Menu items (can reference sidebars + parents)
+    if (menuItems.length > 0) {
+      this.logger.log(`Processing ${menuItems.length} Menu items...`);
+      const transformed = await this.transformRecords(menuItems);
+      const valid = transformed.filter(r => r !== null);
+      
+      if (valid.length > 0) {
+        await this.queryBuilder.insert({
+          table: collectionName,
+          data: valid,
+        });
+        totalCreated += valid.length;
+      }
+    }
+
+    return totalCreated;
+  }
   
   async transformRecords(records: any[], context?: any): Promise<any[]> {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
     const knex = context?.knex;
-    if (!knex) {
-      this.logger.warn('⚠️ Knex not provided in context, returning records as-is');
+    
+    if (!isMongoDB && !knex) {
+      this.logger.warn('⚠️ Knex not provided in context for SQL, returning records as-is');
       return records;
     }
 
@@ -53,37 +119,83 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     for (const record of records) {
       const transformed = { ...record };
 
+      // Set default null for MongoDB fields
+      if (isMongoDB) {
+        if (!('sidebar' in transformed)) transformed.sidebar = null;
+        if (!('parent' in transformed)) transformed.parent = null;
+      }
+
       // Handle sidebar reference
       if (transformed.sidebar && typeof transformed.sidebar === 'string') {
         const sidebarLabel = transformed.sidebar;
-        const sidebar = await knex('menu_definition')
-          .where({ type: 'Mini Sidebar', label: sidebarLabel })
-          .first();
+        
+        if (isMongoDB) {
+          // MongoDB: Convert to sidebar ObjectId
+          const sidebar = await this.queryBuilder.findOneWhere('menu_definition', {
+            type: 'Mini Sidebar',
+            label: sidebarLabel,
+          });
 
-        if (sidebar) {
-          this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar.id}`);
-          transformed.sidebarId = sidebar.id;
-          delete transformed.sidebar;
+          if (sidebar) {
+            this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar._id}`);
+            transformed.sidebar = typeof sidebar._id === 'string' 
+              ? new ObjectId(sidebar._id) 
+              : sidebar._id;
+          } else {
+            this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
+            transformed.sidebar = null;
+          }
         } else {
-          this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
-          delete transformed.sidebar;
+          // SQL: Convert to sidebarId
+          const sidebar = await knex('menu_definition')
+            .where({ type: 'Mini Sidebar', label: sidebarLabel })
+            .first();
+
+          if (sidebar) {
+            this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar.id}`);
+            transformed.sidebarId = sidebar.id;
+            delete transformed.sidebar;
+          } else {
+            this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
+            delete transformed.sidebar;
+          }
         }
       }
 
       // Handle parent reference
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
-        const parent = await knex('menu_definition')
-          .where({ type: 'Dropdown Menu', label: parentLabel })
-          .first();
+        
+        if (isMongoDB) {
+          // MongoDB: Convert to parent ObjectId
+          const parent = await this.queryBuilder.findOneWhere('menu_definition', {
+            type: 'Dropdown Menu',
+            label: parentLabel,
+          });
 
-        if (parent) {
-          this.logger.debug(`Found parent: ${parentLabel} with id ${parent.id}`);
-          transformed.parentId = parent.id;
-          delete transformed.parent;
+          if (parent) {
+            this.logger.debug(`Found parent: ${parentLabel} with id ${parent._id}`);
+            transformed.parent = typeof parent._id === 'string' 
+              ? new ObjectId(parent._id) 
+              : parent._id;
+          } else {
+            this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
+            transformed.parent = null;
+          }
         } else {
-          this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
-          delete transformed.parent;
+          // SQL: Convert to parentId
+          const parent = await knex('menu_definition')
+            .where({ type: 'Dropdown Menu', label: parentLabel })
+            .first();
+
+          if (parent) {
+            this.logger.debug(`Found parent: ${parentLabel} with id ${parent.id}`);
+            transformed.parentId = parent.id;
+            delete transformed.parent;
+          } else {
+            this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
+            delete transformed.parent;
+          }
         }
       }
 

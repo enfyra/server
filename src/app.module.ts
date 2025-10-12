@@ -36,6 +36,8 @@ import { FileManagementModule } from './modules/file-management/file-management.
 import { PackageManagementModule } from './modules/package-management/package-management.module';
 import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/swagger.module';
 import { KnexModule } from './infrastructure/knex/knex.module';
+import { MongoModule } from './infrastructure/mongo/mongo.module';
+import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
 
 @Global()
 @Module({
@@ -45,6 +47,8 @@ import { KnexModule } from './infrastructure/knex/knex.module';
       envFilePath: path.resolve(__dirname, '../.env'),
     }),
     KnexModule,
+    MongoModule,
+    QueryBuilderModule,
     ExceptionsModule,
     TableModule,
     CommonModule,
@@ -103,6 +107,8 @@ import { KnexModule } from './infrastructure/knex/knex.module';
   ],
   exports: [
     KnexModule,
+    MongoModule,
+    QueryBuilderModule,
     JwtModule,
     RedisPubSubService,
     RouteCacheService,

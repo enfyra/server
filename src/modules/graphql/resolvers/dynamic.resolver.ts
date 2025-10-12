@@ -12,7 +12,7 @@ import { TableHandlerService } from '../../table-management/services/table-handl
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { JwtService } from '@nestjs/jwt';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
@@ -27,7 +27,7 @@ export class DynamicResolver {
     private queryEngine: QueryEngine,
     private cacheService: CacheService,
     private jwtService: JwtService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private metadataCacheService: MetadataCacheService,
     private handlerExecutorService: HandlerExecutorService,
     private routeCacheService: RouteCacheService,
@@ -104,7 +104,7 @@ export class DynamicResolver {
           context: handlerCtx,
           tableName: table.name,
           tableHandlerService: this.tableHandlerService,
-          knexService: this.knexService,
+          queryBuilder: this.queryBuilder,
           metadataCacheService: this.metadataCacheService,
           queryEngine: this.queryEngine,
           routeCacheService: this.routeCacheService,
@@ -176,7 +176,7 @@ export class DynamicResolver {
         context: handlerCtx,
         tableName: tableName,
         queryEngine: this.queryEngine,
-        knexService: this.knexService,
+        queryBuilder: this.queryBuilder,
         metadataCacheService: this.metadataCacheService,
         tableHandlerService: this.tableHandlerService,
         routeCacheService: this.routeCacheService,
@@ -195,7 +195,7 @@ export class DynamicResolver {
             context: handlerCtx,
             tableName: table.name,
             queryEngine: this.queryEngine,
-            knexService: this.knexService,
+            queryBuilder: this.queryBuilder,
             metadataCacheService: this.metadataCacheService,
             tableHandlerService: this.tableHandlerService,
             routeCacheService: this.routeCacheService,
@@ -289,10 +289,7 @@ export class DynamicResolver {
       throwGqlError('401', 'Unauthorized');
     }
 
-    const knex = this.knexService.getKnex();
-    const user = await knex('user_definition')
-      .where('id', decoded.id)
-      .first();
+    const user = await this.queryBuilder.findOneWhere('user_definition', { id: decoded.id });
 
     if (!user) {
       throwGqlError('401', 'Invalid user');
@@ -300,9 +297,7 @@ export class DynamicResolver {
 
     // Load role if needed
     if (user.roleId) {
-      user.role = await knex('role_definition')
-        .where('id', user.roleId)
-        .first();
+      user.role = await this.queryBuilder.findOneWhere('role_definition', { id: user.roleId });
     }
 
     const canPass =
@@ -340,10 +335,7 @@ export class DynamicResolver {
       throwGqlError('401', 'Unauthorized');
     }
 
-    const knex = this.knexService.getKnex();
-    const user = await knex('user_definition')
-      .where('id', decoded.id)
-      .first();
+    const user = await this.queryBuilder.findOneWhere('user_definition', { id: decoded.id });
 
     if (!user) {
       throwGqlError('401', 'Invalid user');
@@ -351,9 +343,7 @@ export class DynamicResolver {
 
     // Load role if needed
     if (user.roleId) {
-      user.role = await knex('role_definition')
-        .where('id', user.roleId)
-        .first();
+      user.role = await this.queryBuilder.findOneWhere('role_definition', { id: user.roleId });
     }
 
     const canPass =
