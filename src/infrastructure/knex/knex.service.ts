@@ -43,9 +43,16 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
+    
+    // Skip Knex initialization if using MongoDB
+    if (DB_TYPE === 'mongodb') {
+      this.logger.log('⏭️  Skipping Knex initialization (DB_TYPE=mongodb)');
+      return;
+    }
+    
     this.logger.log('🔌 Initializing Knex connection with hooks...');
     
-    const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
     const DB_HOST = this.configService.get<string>('DB_HOST') || 'localhost';
     const DB_PORT = this.configService.get<number>('DB_PORT') || (DB_TYPE === 'postgres' ? 5432 : 3306);
     const DB_USERNAME = this.configService.get<string>('DB_USERNAME') || 'root';
