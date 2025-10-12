@@ -4,7 +4,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { ObjectId } from 'mongodb';
 
 @Injectable()
-export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
+export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
   constructor(private readonly queryBuilder: QueryBuilderService) {
     super();
   }
@@ -24,7 +24,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           
           if (!routeEntity) {
             this.logger.warn(
-              `⚠️ Route '${record.route}' not found for handler, skipping.`,
+              `⚠️ Route '${record.route}' not found for permission, skipping.`,
             );
             return null;
           }
@@ -41,31 +41,31 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           }
         }
         
-        // Handle method reference
-        if (record.method) {
-          const methodEntity = await this.queryBuilder.findOneWhere('method_definition', {
-            method: record.method,
+        // Handle role reference
+        if (record.role) {
+          const roleEntity = await this.queryBuilder.findOneWhere('role_definition', {
+            name: record.role,
           });
           
-          if (!methodEntity) {
+          if (!roleEntity) {
             this.logger.warn(
-              `⚠️ Method '${record.method}' not found for handler, skipping.`,
+              `⚠️ Role '${record.role}' not found for permission, skipping.`,
             );
             return null;
           }
           
           if (isMongoDB) {
-            // MongoDB: Store method as ObjectId
-            transformedRecord.method = typeof methodEntity._id === 'string' 
-              ? new ObjectId(methodEntity._id) 
-              : methodEntity._id;
+            // MongoDB: Store role as ObjectId
+            transformedRecord.role = typeof roleEntity._id === 'string' 
+              ? new ObjectId(roleEntity._id) 
+              : roleEntity._id;
           } else {
-            // SQL: Convert to methodId
-            transformedRecord.methodId = methodEntity.id;
-            delete transformedRecord.method;
+            // SQL: Convert to roleId
+            transformedRecord.roleId = roleEntity.id;
+            delete transformedRecord.role;
           }
         }
-        
+
         return transformedRecord;
       }),
     );
@@ -74,19 +74,10 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return { 
-      routeId: record.routeId,
-      methodId: record.methodId
-    };
+    return { route: record.route, role: record.role };
   }
 
   protected getCompareFields(): string[] {
-    return ['logic', 'description'];
-  }
-
-  protected getRecordIdentifier(record: any): string {
-    const routePath = record.route?.path || record._route || 'unknown';
-    const methodName = record.method?.method || record._method || 'unknown';
-    return `[Handler] ${routePath} (${methodName})`;
+    return ['isEnabled', 'isSystem'];
   }
 }

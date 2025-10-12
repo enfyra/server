@@ -1,16 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class HookDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly knexService: KnexService) {
+  constructor(private readonly queryBuilder: QueryBuilderService) {
     super();
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const knex = context?.knex || this.knexService.getKnex();
-
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    
     const transformedRecords = await Promise.all(
       records.map(async (hook) => {
         const transformedHook = { ...hook };
@@ -25,7 +26,7 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
 
           let route = null;
           for (const path of pathsToTry) {
-            route = await knex('route_definition').where('path', path).first();
+            route = await this.queryBuilder.findOneWhere('route_definition', { path });
             if (route) break;
           }
 
@@ -36,14 +37,35 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
 
-          transformedHook.routeId = route.id;
-          delete transformedHook.route;
+          if (isMongoDB) {
+            // MongoDB: Store route as ObjectId
+            transformedHook.route = typeof route._id === 'string' 
+              ? new ObjectId(route._id) 
+              : route._id;
+          } else {
+            // SQL: Convert to routeId
+            transformedHook.routeId = route.id;
+            delete transformedHook.route;
+          }
         }
 
-        // Map methods reference (many-to-many) - store for later
+        // Map methods reference (many-to-many)
         if (hook.methods && Array.isArray(hook.methods)) {
-          transformedHook._methods = hook.methods;
-          delete transformedHook.methods;
+          if (isMongoDB) {
+            // MongoDB: Convert method names to method ObjectIds
+            const methods = await this.queryBuilder.select({
+              table: 'method_definition',
+              where: [{ field: 'method', operator: 'in', value: hook.methods }],
+              select: ['_id', 'method'],
+            });
+            transformedHook.methods = methods.map((m: any) => 
+              typeof m._id === 'string' ? new ObjectId(m._id) : m._id
+            );
+          } else {
+            // SQL: Store for junction table processing
+            transformedHook._methods = hook.methods;
+            delete transformedHook.methods;
+          }
         }
 
         return transformedHook;
@@ -51,6 +73,47 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
     );
 
     return transformedRecords.filter(Boolean);
+  }
+
+  async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
+    // Handle methods junction table (SQL only)
+    if (record._methods && Array.isArray(record._methods)) {
+      const methodNames = record._methods;
+      
+      // Get method IDs
+      const methods = await this.queryBuilder.select({
+        table: 'method_definition',
+        where: [{ field: 'method', operator: 'in', value: methodNames }],
+        select: ['id', 'method'],
+      });
+      
+      const methodIds = methods.map((m: any) => m.id);
+      
+      if (methodIds.length > 0) {
+        const junctionTable = 'hook_definition_methods_method_definition';
+        
+        // Clear existing junction records
+        await this.queryBuilder.delete({
+          table: junctionTable,
+          where: [{ field: 'hookDefinitionId', operator: '=', value: record.id }],
+        });
+        
+        // Insert new junction records
+        const junctionData = methodIds.map((methodId) => ({
+          methodDefinitionId: methodId,
+          hookDefinitionId: record.id,
+        }));
+        
+        await this.queryBuilder.insert({
+          table: junctionTable,
+          data: junctionData,
+        });
+        
+        this.logger.log(
+          `   🔗 Linked ${methodIds.length} methods to hook ${record.name}`,
+        );
+      }
+    }
   }
 
   getUniqueIdentifier(record: any): object {

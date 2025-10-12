@@ -1,35 +1,36 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { KnexService } from '../../knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
 @Injectable()
 export class SqlFunctionService implements OnApplicationBootstrap {
   constructor(
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private configService: ConfigService,
   ) {}
 
   async onApplicationBootstrap() {
-    const knex = this.knexService.getKnex();
     const dbType = this.configService.get<string>('DB_TYPE');
+
+    // Skip for MongoDB
+    if (dbType === 'mongodb') {
+      return;
+    }
 
     if (dbType === 'mysql') {
       const exists = await this.functionExists('unaccent');
       if (!exists) {
         await this.createUnaccentFunction();
-      } else {
       }
     } else if (dbType === 'postgres') {
-      await knex.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
+      await this.queryBuilder.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
     } else {
       console.warn(`⚠️ Unsupported DB_TYPE for unaccent: ${dbType}`);
     }
   }
 
   private async functionExists(name: string): Promise<boolean> {
-    const knex = this.knexService.getKnex();
-
-    const result = await knex.raw(
+    const result = await this.queryBuilder.raw(
       `SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_TYPE='FUNCTION' AND ROUTINE_SCHEMA=DATABASE() AND ROUTINE_NAME = ?`,
       [name],
     );
@@ -37,13 +38,11 @@ export class SqlFunctionService implements OnApplicationBootstrap {
   }
 
   private async createUnaccentFunction() {
-    const knex = this.knexService.getKnex();
-
-    await knex.raw(`
+    await this.queryBuilder.raw(`
       DROP FUNCTION IF EXISTS unaccent;
     `);
 
-    await knex.raw(`
+    await this.queryBuilder.raw(`
       CREATE FUNCTION unaccent(input TEXT) RETURNS TEXT
       DETERMINISTIC
       BEGIN

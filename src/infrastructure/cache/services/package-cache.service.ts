@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { KnexService } from '../../knex/knex.service';
+import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
@@ -11,7 +11,7 @@ export class PackageCacheService implements OnModuleInit {
   private cacheLoaded = false;
 
   constructor(
-    private readonly knexService: KnexService,
+    private readonly queryBuilder: QueryBuilderService,
     private readonly redisPubSubService: RedisPubSubService,
     private readonly instanceService: InstanceService,
   ) {}
@@ -93,12 +93,14 @@ export class PackageCacheService implements OnModuleInit {
   }
 
   private async loadPackages(): Promise<string[]> {
-    const knex = this.knexService.getKnex();
-
-    const packages = await knex('package_definition')
-      .where('isEnabled', true)
-      .where('type', 'Backend')
-      .select('name');
+    const packages = await this.queryBuilder.select({
+      table: 'package_definition',
+      where: [
+        { field: 'isEnabled', operator: '=', value: true },
+        { field: 'type', operator: '=', value: 'Backend' },
+      ],
+      select: ['name'],
+    });
 
     return packages.map((p: any) => p.name);
   }

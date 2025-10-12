@@ -3,19 +3,22 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 
+// Internal imports
+import { GraphqlService } from './modules/graphql/services/graphql.service';
+
 // Relative imports
 import { AppModule } from './app.module';
-import { initializeDatabaseKnex } from '../scripts/init-db-knex';
+import { initializeDatabase } from '../scripts/init-db';
 
 async function bootstrap() {
   const startTime = Date.now();
   const logger = new Logger('Main');
-  logger.log('🚀 Starting Cold Start (Knex Mode)');
+  logger.log('🚀 Starting Cold Start');
 
   try {
     const initStart = Date.now();
-    await initializeDatabaseKnex();
-    logger.log(`⏱️  DB Init (Knex): ${Date.now() - initStart}ms`);
+    await initializeDatabase();
+    logger.log(`⏱️  DB Init: ${Date.now() - initStart}ms`);
   } catch (err) {
     logger.error('Error during initialization:', err);
     process.exit(1);
@@ -27,6 +30,19 @@ async function bootstrap() {
     bufferLogs: true,
   });
   logger.log(`⏱️  NestJS Create: ${Date.now() - nestStart}ms`);
+
+  // Setup GraphQL endpoint
+  try {
+    const graphqlService = app.get(GraphqlService);
+    const expressApp = app.getHttpAdapter().getInstance();
+    
+    expressApp.use('/graphql', (req, res, next) => {
+      return graphqlService.getYogaInstance()(req, res, next);
+    });
+    logger.log('✅ GraphQL endpoint mounted at /graphql');
+  } catch (error) {
+    logger.warn('⚠️ GraphQL endpoint not available:', error.message);
+  }
 
   const configService = app.get(ConfigService);
 

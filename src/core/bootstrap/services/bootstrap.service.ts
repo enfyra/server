@@ -3,7 +3,7 @@ import { CommonService } from '../../../shared/common/services/common.service';
 // import { SchemaStateService } from '../../../modules/schema-management/services/schema-state.service';
 import { DefaultDataService } from './default-data.service';
 import { CoreInitService } from './core-init.service';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 // import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 
 @Injectable()
@@ -15,7 +15,7 @@ export class BootstrapService implements OnApplicationBootstrap {
     // private readonly schemaStateService: SchemaStateService,
     private readonly defaultDataService: DefaultDataService,
     private readonly coreInitService: CoreInitService,
-    private readonly knexService: KnexService,
+    private readonly queryBuilder: QueryBuilderService,
     // private readonly cacheService: CacheService,
   ) {}
 
@@ -23,11 +23,9 @@ export class BootstrapService implements OnApplicationBootstrap {
     maxRetries = 10,
     delayMs = 1000,
   ): Promise<void> {
-    const knex = this.knexService.getKnex();
-
     for (let i = 0; i < maxRetries; i++) {
       try {
-        await knex.raw('SELECT 1');
+        await this.queryBuilder.raw('SELECT 1');
         this.logger.log('Database connection successful.');
         return;
       } catch (error) {
@@ -48,32 +46,44 @@ export class BootstrapService implements OnApplicationBootstrap {
       return;
     }
 
-    const knex = this.knexService.getKnex();
-
-    let setting: any = await knex('setting_definition')
-      .select('*')
-      .orderBy('id', 'asc')
-      .first();
+    // Find first setting record
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const sortField = isMongoDB ? '_id' : 'id';
+    const settings = await this.queryBuilder.select({
+      table: 'setting_definition',
+      sort: [{ field: sortField, direction: 'asc' }],
+      limit: 1,
+    });
+    let setting = settings[0] || null;
 
     if (!setting || !setting.isInit) {
       this.logger.log('🚀 First time initialization...');
       
+      // Create metadata (needed for both SQL and MongoDB to track schema)
       await this.coreInitService.createInitMetadata();
+      
       await this.defaultDataService.insertAllDefaultRecords();
 
-      setting = await knex('setting_definition')
-        .select('*')
-        .orderBy('id', 'asc')
-        .first();
+      // Re-fetch setting after default data insertion
+      const settings2 = await this.queryBuilder.select({
+        table: 'setting_definition',
+        sort: [{ field: sortField, direction: 'asc' }],
+        limit: 1,
+      });
+      setting = settings2[0] || null;
       
       if (!setting) {
         this.logger.error('❌ Setting record not found after initialization');
         throw new Error('Setting record not found. DefaultDataService may have failed.');
       }
       
-      await knex('setting_definition')
-        .where('id', setting.id)
-        .update({ isInit: true });
+      // Update isInit flag
+      const settingId = setting._id || setting.id;
+      await this.queryBuilder.update({
+        table: 'setting_definition',
+        where: [{ field: 'id', operator: '=', value: settingId }],
+        data: { isInit: true },
+      });
       
       this.logger.log('✅ Initialization successful');
 

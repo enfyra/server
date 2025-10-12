@@ -9,11 +9,30 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    // Keep plain password for later hashing
-    return records.map((record) => ({
-      ...record,
-      _plainPassword: record.password,
-    }));
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    
+    if (isMongoDB) {
+      // MongoDB: Hash password immediately in transformRecords
+      const transformedRecords = [];
+      for (const record of records) {
+        const transformed = { ...record };
+        if (record.password) {
+          transformed.password = await this.bcryptService.hash(record.password);
+        }
+        
+        // MongoDB: Add inverse fields for relations
+        transformed.allowedRoutePermissions = []; // From route_permission_definition.allowedUsers (many-to-many)
+        
+        transformedRecords.push(transformed);
+      }
+      return transformedRecords;
+    } else {
+      // SQL: Keep plain password for later hashing in processKnex
+      return records.map((record) => ({
+        ...record,
+        _plainPassword: record.password,
+      }));
+    }
   }
   
   // Override processKnex to handle user creation properly

@@ -1,6 +1,7 @@
 // External packages
 import { Request } from 'express';
 import { randomUUID } from 'crypto';
+import { ObjectId } from 'mongodb';
 
 // @nestjs packages
 import { BadRequestException, Injectable } from '@nestjs/common';
@@ -8,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
 // Internal imports
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
 // Relative imports
 import { LoginAuthDto } from '../dto/login-auth.dto';
@@ -22,37 +23,47 @@ export class AuthService {
     private bcryptService: BcryptService,
     private configService: ConfigService,
     private jwtService: JwtService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
   ) {}
 
   async login(body: LoginAuthDto) {
     const { email, password } = body;
-    const knex = this.knexService.getKnex();
     
     // Find user by email
-    const user = await knex('user_definition')
-      .where('email', email)
-      .first();
+    const user = await this.queryBuilder.findOneWhere('user_definition', { email });
 
     if (!user || !(await this.bcryptService.compare(password, user.password))) {
       throw new BadRequestException(`Login failed!`);
     }
 
     // Create session
-    const sessionData: any = {
-      id: randomUUID(),
-      userId: user.id,
-    };
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const userId = isMongoDB 
+      ? (typeof user._id === 'string' ? new ObjectId(user._id) : user._id)
+      : user.id;
+    
+    const sessionData: any = isMongoDB 
+      ? {
+          user: userId, // MongoDB: ObjectId
+          expiredAt: new Date(), // MongoDB doesn't auto-set defaultValue
+          remember: body.remember || false,
+        }
+      : {
+          id: randomUUID(), // SQL: UUID for primary key
+          userId: userId, // SQL: integer/uuid FK
+          remember: body.remember,
+        };
 
-    if (body.remember) {
-      sessionData.remember = body.remember;
-    }
-
-    await knex('session_definition').insert(sessionData);
+    const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
+    
+    // Get session ID (MongoDB uses _id, SQL uses id)
+    const sessionId = isMongoDB 
+      ? (insertedSession._id?.toString() || insertedSession.id)
+      : (insertedSession.id || sessionData.id);
 
     const accessToken = this.jwtService.sign(
       {
-        id: user.id,
+        id: isMongoDB ? user._id : user.id,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
@@ -60,7 +71,7 @@ export class AuthService {
     );
     const refreshToken = this.jwtService.sign(
       {
-        sessionId: sessionData.id,
+        sessionId: sessionId,
       },
       {
         expiresIn: body.remember
@@ -85,18 +96,19 @@ export class AuthService {
     }
     
     const { sessionId } = decoded;
-    const knex = this.knexService.getKnex();
     
-    // Find session with user
-    const session = await knex('session_definition')
-      .where('id', sessionId)
-      .first();
+    // Find session with user (normalize id vs _id for MongoDB)
+    const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const session = await this.queryBuilder.findOneWhere('session_definition', { [sessionIdField]: sessionId });
 
-    if (!session || session.userId !== req.user.id) {
+    const userIdToCheck = this.queryBuilder.isMongoDb() ? req.user._id : req.user.id;
+    const sessionUserId = this.queryBuilder.isMongoDb() ? (session?.user?._id || session?.user) : session?.userId;
+    
+    if (!session || String(sessionUserId) !== String(userIdToCheck)) {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    await knex('session_definition').where('id', session.id).delete();
+    await this.queryBuilder.deleteById('session_definition', session._id || session.id);
     return 'Logout successfully!';
   }
 
@@ -108,12 +120,11 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
     
-    const knex = this.knexService.getKnex();
-    
-    // Find session
-    const session = await knex('session_definition')
-      .where('id', decoded.sessionId)
-      .first();
+    // Find session (normalize id vs _id for MongoDB)
+    const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const session = await this.queryBuilder.findOneWhere('session_definition', { 
+      [sessionIdField]: decoded.sessionId 
+    });
 
     if (!session) {
       throw new BadRequestException('Session not found!');
@@ -127,9 +138,15 @@ export class AuthService {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
       },
     );
+    
+    // Get session ID for new refresh token (MongoDB uses _id, SQL uses id)
+    const sessionIdForRefresh = this.queryBuilder.isMongoDb() 
+      ? (session._id?.toString() || session._id)
+      : session.id;
+    
     const refreshToken = session.remember
       ? this.jwtService.sign(
-          { sessionId: session.id },
+          { sessionId: sessionIdForRefresh },
           {
             expiresIn: this.configService.get<string>(
               'REFRESH_TOKEN_REMEMBER_EXP',

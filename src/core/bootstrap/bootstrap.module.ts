@@ -15,6 +15,7 @@ import { SettingDefinitionProcessor } from './processors/setting-definition.proc
 import { ExtensionDefinitionProcessor } from './processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from './processors/folder-definition.processor';
 import { BootstrapScriptDefinitionProcessor } from './processors/bootstrap-script-definition.processor';
+import { RoutePermissionDefinitionProcessor } from './processors/route-permission-definition.processor';
 
 @Global()
 @Module({
@@ -32,6 +33,7 @@ import { BootstrapScriptDefinitionProcessor } from './processors/bootstrap-scrip
     ExtensionDefinitionProcessor,
     FolderDefinitionProcessor,
     BootstrapScriptDefinitionProcessor,
+    RoutePermissionDefinitionProcessor,
     BootstrapScriptService,
   ],
   exports: [BootstrapService, CoreInitService, DefaultDataService, BootstrapScriptService],

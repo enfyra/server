@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,6 +17,7 @@ import { SettingDefinitionProcessor } from '../processors/setting-definition.pro
 import { ExtensionDefinitionProcessor } from '../processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from '../processors/folder-definition.processor';
 import { BootstrapScriptDefinitionProcessor } from '../processors/bootstrap-script-definition.processor';
+import { RoutePermissionDefinitionProcessor } from '../processors/route-permission-definition.processor';
 import { GenericTableProcessor } from '../processors/generic-table.processor';
 
 const initJson = JSON.parse(
@@ -33,7 +34,7 @@ export class DefaultDataService {
   private readonly dbType: string;
 
   constructor(
-    private readonly knexService: KnexService,
+    private readonly queryBuilder: QueryBuilderService,
     private readonly configService: ConfigService,
     private readonly bcryptService: BcryptService,
     private readonly userProcessor: UserDefinitionProcessor,
@@ -46,6 +47,7 @@ export class DefaultDataService {
     private readonly extensionProcessor: ExtensionDefinitionProcessor,
     private readonly folderProcessor: FolderDefinitionProcessor,
     private readonly bootstrapScriptProcessor: BootstrapScriptDefinitionProcessor,
+    private readonly routePermissionProcessor: RoutePermissionDefinitionProcessor,
   ) {
     this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
     this.initializeProcessors();
@@ -76,7 +78,13 @@ export class DefaultDataService {
   async insertAllDefaultRecords(): Promise<void> {
     this.logger.log('🚀 Starting default data upsert...');
     
-    const knex = this.knexService.getKnex();
+    // MongoDB: Direct JSON insert (simpler, no processors needed)
+    if (this.dbType === 'mongodb') {
+      return this.insertAllDefaultRecordsMongo();
+    }
+    
+    // SQL: Use processors for complex relations
+    const qb = this.queryBuilder.getConnection();
     let totalCreated = 0;
     let totalSkipped = 0;
 
@@ -97,9 +105,9 @@ export class DefaultDataService {
       try {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
         
-        const context = { knex, tableName };
+        const context = { knex: qb, tableName };
         
-        const result = await processor.processKnex(records, knex, tableName, context);
+        const result = await processor.processKnex(records, qb, tableName, context);
         
         totalCreated += result.created;
         totalSkipped += result.skipped;
@@ -116,6 +124,68 @@ export class DefaultDataService {
     this.logger.log(
       `🎉 Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`
     );
+  }
+
+  private async insertAllDefaultRecordsMongo(): Promise<void> {
+    this.logger.log('🍃 MongoDB: Inserting default data with processors...');
+    
+    let totalCreated = 0;
+
+    for (const [collectionName, rawRecords] of Object.entries(initJson)) {
+      if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
+        continue;
+      }
+
+      this.logger.log(`🔄 Processing collection '${collectionName}'...`);
+
+      try {
+        // Check if collection already has data
+        const count = await this.queryBuilder.count({ table: collectionName });
+        if (count > 0) {
+          this.logger.log(`⏩ '${collectionName}' already has ${count} records, skipping`);
+          continue;
+        }
+
+        // Get processor (same as SQL flow)
+        const processor = this.processors.get(collectionName);
+        if (!processor) {
+          this.logger.warn(`⚠️ No processor found for '${collectionName}', skipping.`);
+          continue;
+        }
+
+        const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
+        
+        // Special handling for menu_definition (needs ordered processing)
+        if (collectionName === 'menu_definition' && typeof processor['processMongo'] === 'function') {
+          const created = await processor['processMongo'](records, collectionName);
+          totalCreated += created;
+          this.logger.log(`✅ '${collectionName}': ${created} created`);
+          continue;
+        }
+        
+        // Transform records using processor
+        const transformedRecords = await processor.transformRecords(records);
+        const validRecords = transformedRecords.filter(r => r !== null);
+
+        if (validRecords.length === 0) {
+          this.logger.log(`⏩ '${collectionName}': No valid records after transformation`);
+          continue;
+        }
+
+        // Insert transformed records
+        await this.queryBuilder.insert({
+          table: collectionName,
+          data: validRecords,
+        });
+        totalCreated += validRecords.length;
+        
+        this.logger.log(`✅ '${collectionName}': ${validRecords.length} created`);
+      } catch (error) {
+        this.logger.error(`❌ Error processing '${collectionName}': ${error.message}`);
+      }
+    }
+
+    this.logger.log(`🎉 MongoDB default data completed! Total: ${totalCreated} created`);
   }
 
   private async insertAndGetId(

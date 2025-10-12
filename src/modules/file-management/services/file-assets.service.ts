@@ -3,7 +3,7 @@ import {
   AuthenticationException,
   AuthorizationException,
 } from '../../../core/exceptions/custom-exceptions';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { FileManagementService } from './file-management.service';
 import { Response } from 'express';
 import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
@@ -40,7 +40,7 @@ export class FileAssetsService {
   };
 
   constructor(
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
     private fileManagementService: FileManagementService,
     private redisService: RedisService,
   ) {
@@ -86,31 +86,27 @@ export class FileAssetsService {
     if (!fileId)
       return void res.status(400).json({ error: 'File ID is required' });
 
-    const knex = this.knexService.getKnex();
-    const file = await knex('file_definition')
-      .where('id', fileId)
-      .first();
+    const file = await this.queryBuilder.findOneWhere('file_definition', { id: fileId });
 
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
     
     // Load permissions if file is not published
     if (file.isPublished !== true) {
-      const permissions = await knex('file_permission_definition')
-        .where('fileId', fileId)
-        .where('isEnabled', true)
-        .select('*');
+      const permissions = await this.queryBuilder.select({
+        table: 'file_permission_definition',
+        where: [
+          { field: 'fileId', operator: '=', value: fileId },
+          { field: 'isEnabled', operator: '=', value: true },
+        ],
+      });
       
       // Load related users and roles for permissions
       for (const perm of permissions) {
         if (perm.userId) {
-          perm.allowedUsers = await knex('user_definition')
-            .where('id', perm.userId)
-            .first();
+          perm.allowedUsers = await this.queryBuilder.findOneWhere('user_definition', { id: perm.userId });
         }
         if (perm.roleId) {
-          perm.role = await knex('role_definition')
-            .where('id', perm.roleId)
-            .first();
+          perm.role = await this.queryBuilder.findOneWhere('role_definition', { id: perm.roleId });
         }
       }
       

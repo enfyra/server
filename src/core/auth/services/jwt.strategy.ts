@@ -2,13 +2,13 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
-    private knexService: KnexService,
+    private queryBuilder: QueryBuilderService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -18,15 +18,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate({ id }: { id: string }) {
-    const knex = this.knexService.getKnex();
-    const user = await knex('user_definition')
-      .where('id', id)
-      .first();
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const idField = isMongoDB ? '_id' : 'id';
     
-    if (user && user.roleId) {
-      user.role = await knex('role_definition')
-        .where('id', user.roleId)
-        .first();
+    const user = await this.queryBuilder.findOneWhere('user_definition', { [idField]: id });
+    
+    if (user) {
+      const roleField = isMongoDB ? 'role' : 'roleId';
+      const roleId = user[roleField];
+      
+      if (roleId) {
+        user.role = await this.queryBuilder.findOneWhere('role_definition', { [idField]: roleId });
+      }
     }
     
     return user;

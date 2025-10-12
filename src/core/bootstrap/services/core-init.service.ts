@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { KnexService } from '../../../infrastructure/knex/knex.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { getJunctionTableName, getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
 import * as path from 'path';
 
@@ -10,7 +10,7 @@ export class CoreInitService {
   private readonly dbType: string;
 
   constructor(
-    private readonly knexService: KnexService,
+    private readonly queryBuilder: QueryBuilderService,
     private readonly configService: ConfigService,
   ) {
     this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
@@ -20,11 +20,9 @@ export class CoreInitService {
     maxRetries = 10,
     delayMs = 1000,
   ): Promise<void> {
-    const knex = this.knexService.getKnex();
-
     for (let i = 0; i < maxRetries; i++) {
       try {
-        await knex.raw('SELECT 1');
+        await this.queryBuilder.raw('SELECT 1');
         this.logger.log('Database connection successful.');
         return;
       } catch (error) {
@@ -54,9 +52,16 @@ export class CoreInitService {
 
   async createInitMetadata(): Promise<void> {
     const snapshot = await import(path.resolve('data/snapshot.json'));
-    const knex = this.knexService.getKnex();
+    
+    // MongoDB: Direct insert from snapshot
+    if (this.queryBuilder.isMongoDb()) {
+      return this.createInitMetadataMongo(snapshot);
+    }
+    
+    // SQL: Transaction-based insert
+    const qb = this.queryBuilder.getConnection();
 
-    await knex.transaction(async (trx) => {
+    await qb.transaction(async (trx) => {
       const tableNameToId: Record<string, number> = {};
       
       // Phase 1: Insert/Update table definitions
@@ -121,7 +126,7 @@ export class CoreInitService {
         );
 
         for (const snapshotCol of def.columns || []) {
-          const existingCol = existingColumnsMap.get(snapshotCol.name);
+          const existingCol = existingColumnsMap.get(snapshotCol.name) as any;
 
           if (!existingCol) {
             await trx('column_definition').insert({
@@ -394,5 +399,105 @@ export class CoreInitService {
       snapshotCol.isUpdatable !== existingCol.isUpdatable;
 
     return hasChanges;
+  }
+
+  private async createInitMetadataMongo(snapshot: any): Promise<void> {
+    this.logger.log('🍃 MongoDB: Creating metadata from snapshot...');
+    
+    const tableNameToId: Record<string, any> = {};
+    
+    // Phase 1: Insert table definitions
+    this.logger.log('📝 Phase 1: Processing table definitions...');
+    for (const [name, defRaw] of Object.entries(snapshot)) {
+      const def = defRaw as any;
+      
+      const exist = await this.queryBuilder.findOneWhere('table_definition', { name: def.name });
+      
+      if (exist) {
+        tableNameToId[name] = exist._id;
+        this.logger.log(`⏩ Table ${name} exists`);
+      } else {
+        const { columns, relations, ...rest } = def;
+        const result = await this.queryBuilder.insertAndGet('table_definition', {
+          name: rest.name,
+          isSystem: rest.isSystem || false,
+          alias: rest.alias,
+          description: rest.description,
+          uniques: rest.uniques || [],
+          indexes: rest.indexes || [],
+        });
+        tableNameToId[name] = result._id;
+        this.logger.log(`✅ Created table metadata: ${name}`);
+      }
+    }
+    
+    // Phase 2: Insert column definitions
+    this.logger.log('📝 Phase 2: Processing column definitions...');
+    for (const [name, defRaw] of Object.entries(snapshot)) {
+      const def = defRaw as any;
+      const tableId = tableNameToId[name];
+      if (!tableId) continue;
+      
+      for (const snapshotCol of def.columns || []) {
+        const exist = await this.queryBuilder.findOneWhere('column_definition', { 
+          tableId, 
+          name: snapshotCol.name 
+        });
+        
+        if (!exist) {
+          await this.queryBuilder.insertAndGet('column_definition', {
+            name: snapshotCol.name,
+            type: snapshotCol.type,
+            isPrimary: snapshotCol.isPrimary || false,
+            isGenerated: snapshotCol.isGenerated || false,
+            isNullable: snapshotCol.isNullable ?? true,
+            isSystem: snapshotCol.isSystem || false,
+            isUpdatable: snapshotCol.isUpdatable ?? true,
+            isHidden: snapshotCol.isHidden || false,
+            defaultValue: snapshotCol.defaultValue || null,
+            options: snapshotCol.options || null,
+            description: snapshotCol.description,
+            placeholder: snapshotCol.placeholder,
+            tableId: tableId,
+          });
+          this.logger.log(`📌 Added column ${snapshotCol.name} for ${name}`);
+        }
+      }
+    }
+    
+    // Phase 3: Insert relation definitions
+    this.logger.log('📝 Phase 3: Processing relation definitions...');
+    for (const [name, defRaw] of Object.entries(snapshot)) {
+      const def = defRaw as any;
+      const tableId = tableNameToId[name];
+      if (!tableId) continue;
+      
+      for (const rel of def.relations || []) {
+        if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
+        const targetId = tableNameToId[rel.targetTable];
+        if (!targetId) continue;
+        
+        const exist = await this.queryBuilder.findOneWhere('relation_definition', {
+          sourceTableId: tableId,
+          propertyName: rel.propertyName,
+        });
+        
+        if (!exist) {
+          await this.queryBuilder.insertAndGet('relation_definition', {
+            propertyName: rel.propertyName,
+            type: rel.type,
+            inversePropertyName: rel.inversePropertyName,
+            isNullable: rel.isNullable !== false,
+            isSystem: rel.isSystem || false,
+            description: rel.description,
+            sourceTableId: tableId,
+            targetTableId: targetId,
+          });
+          this.logger.log(`📌 Added relation ${rel.propertyName} for ${name}`);
+        }
+      }
+    }
+    
+    this.logger.log('🎉 MongoDB metadata creation completed!');
   }
 }
