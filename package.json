@@ -54,6 +54,7 @@
     "jsonwebtoken": "^9.0.2",
     "knex": "^3.1.0",
     "lodash": "^4.17.21",
+    "mongodb": "^6.20.0",
     "multer": "latest",
     "mysql2": "^3.14.1",
     "passport": "^0.7.0",
