@@ -2,6 +2,7 @@ import { Injectable, Optional, Inject, forwardRef } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KnexService } from '../knex/knex.service';
 import { MongoService } from '../mongo/services/mongo.service';
+import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import {
   DatabaseType,
   QueryOptions,
@@ -11,6 +12,7 @@ import {
   DeleteOptions,
   CountOptions,
 } from '../../shared/types/query-builder.types';
+import { expandFieldsToJoinsAndSelect } from './utils/expand-fields';
 
 /**
  * QueryBuilderService - Unified database query interface
@@ -26,6 +28,8 @@ export class QueryBuilderService {
     private readonly knexService: KnexService,
     @Optional() @Inject(forwardRef(() => MongoService))
     private readonly mongoService: MongoService,
+    @Optional() @Inject(forwardRef(() => MetadataCacheService))
+    private readonly metadataCache: MetadataCacheService,
   ) {
     this.dbType = (process.env.DB_TYPE as DatabaseType);
   }
@@ -160,6 +164,39 @@ export class QueryBuilderService {
    * Find multiple records with unified query options
    */
   async select(options: QueryOptions): Promise<any[]> {
+    // Auto-expand `fields` into `join` + `select` if provided
+    if (options.fields && options.fields.length > 0) {
+      const expanded = await this.expandFields(options.table, options.fields);
+      options.join = [...(options.join || []), ...expanded.joins];
+      options.select = [...(options.select || []), ...expanded.select];
+    }
+
+    // Auto-prefix table name to where conditions if not already qualified
+    if (options.where) {
+      options.where = options.where.map(condition => {
+        if (!condition.field.includes('.')) {
+          return {
+            ...condition,
+            field: `${options.table}.${condition.field}`,
+          };
+        }
+        return condition;
+      });
+    }
+
+    // Auto-prefix table name to sort fields if not already qualified
+    if (options.sort) {
+      options.sort = options.sort.map(sortOpt => {
+        if (!sortOpt.field.includes('.')) {
+          return {
+            ...sortOpt,
+            field: `${options.table}.${sortOpt.field}`,
+          };
+        }
+        return sortOpt;
+      });
+    }
+
     if (this.dbType === 'mongodb') {
       const collection = this.mongoService.collection(options.table);
       
@@ -613,6 +650,47 @@ export class QueryBuilderService {
     
     // SQL: Reload Knex with metadata for hooks and JSON parsing
     await this.knexService.reloadWithMetadata(metadata);
+  }
+
+  /**
+   * Expand smart field list into explicit JOINs and SELECT
+   * Private helper for auto-relation expansion
+   */
+  private async expandFields(tableName: string, fields: string[]): Promise<{
+    joins: any[];
+    select: string[];
+  }> {
+    if (!this.metadataCache) {
+      // Metadata cache not available (e.g., during early bootstrap)
+      // Fall back to simple field expansion
+      return { joins: [], select: fields };
+    }
+
+    // Metadata getter function
+    const metadataGetter = async (tName: string) => {
+      try {
+        const metadata = await this.metadataCache.getMetadata();
+        const tableMeta = metadata.tables.get(tName);
+        if (!tableMeta) return null;
+
+        return {
+          name: tableMeta.name,
+          columns: tableMeta.columns || [],
+          relations: tableMeta.relations || [],
+        };
+      } catch (error) {
+        console.warn(`Failed to get metadata for table ${tName}:`, error.message);
+        return null;
+      }
+    };
+
+    try {
+      return await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter);
+    } catch (error) {
+      console.error('Field expansion failed:', error.message);
+      // Fall back to simple field expansion
+      return { joins: [], select: fields };
+    }
   }
 }
 

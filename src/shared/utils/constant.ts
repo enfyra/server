@@ -9,8 +9,12 @@ export const ROUTE_CACHE_SYNC_EVENT_KEY = 'enfyra:route-cache-sync';
 export const PACKAGE_CACHE_SYNC_EVENT_KEY = 'enfyra:package-cache-sync';
 export const METADATA_CACHE_SYNC_EVENT_KEY = 'enfyra:metadata-cache-sync';
 
+export const METADATA_RELOAD_LOCK_KEY = 'metadata:reload:lock';
+export const ROUTE_RELOAD_LOCK_KEY = 'routes:reload:lock';
+
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,
+  RELOAD_LOCK_TTL: 30000,
   
   FILE_CACHE_TTL: {
     SMALL: 3600 * 1000,

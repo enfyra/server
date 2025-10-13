@@ -29,7 +29,8 @@ export interface JoinOption {
 
 export interface QueryOptions {
   table: string;
-  select?: string[];
+  select?: string[]; // Raw column selection (old way)
+  fields?: string[]; // Smart field selection with auto-relation expansion (new way)
   where?: WhereCondition[];
   join?: JoinOption[];
   sort?: SortOption[];
