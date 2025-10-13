@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MongoSchemaMigrationService } from '../../../infrastructure/mongo/services/mongo-schema-migration.service';
+import { MongoService } from '../../../infrastructure/mongo/services/mongo.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -25,6 +26,7 @@ export class MongoTableHandlerService {
   constructor(
     private queryBuilder: QueryBuilderService,
     private schemaMigrationService: MongoSchemaMigrationService,
+    private mongoService: MongoService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
   ) {}
@@ -42,6 +44,100 @@ export class MongoTableHandlerService {
         );
       }
     }
+  }
+
+  /**
+   * Migrate renamed fields in background (fire & forget)
+   * Uses $rename to move data from old field to new field
+   */
+  private migrateRenamedFieldsInBackground(
+    renamedColumns: Array<{ oldName: string; newName: string; collectionName: string }>
+  ): void {
+    // Fire & forget - don't await
+    (async () => {
+      const db = this.mongoService.getDb();
+      
+      for (const { oldName, newName, collectionName } of renamedColumns) {
+        try {
+          this.logger.log(`🔄 [Background] Renaming field '${oldName}' → '${newName}' in ${collectionName}`);
+          
+          // MongoDB $rename atomically renames field
+          const result = await db.collection(collectionName).updateMany(
+            { [oldName]: { $exists: true } }, // Only documents that have the old field
+            { $rename: { [oldName]: newName } }
+          );
+          
+          this.logger.log(`  ✅ [Background] Renamed ${result.modifiedCount} documents in ${collectionName}`);
+        } catch (error) {
+          this.logger.error(`  ❌ [Background] Failed to rename field in ${collectionName}:`, error.message);
+        }
+      }
+    })().catch(err => {
+      this.logger.error('Background migration error:', err);
+    });
+  }
+
+  /**
+   * Drop relation fields before metadata update
+   * Drops fields based on NEW relations (from body) to ensure clean state
+   */
+  private async dropRelationFieldsBeforeUpdate(
+    newRelations: any[],
+    sourceTableName: string,
+  ): Promise<void> {
+    const db = this.mongoService.getDb();
+    
+    if (!newRelations || newRelations.length === 0) {
+      return;
+    }
+    
+    this.logger.log(`🧹 Dropping relation fields for ${newRelations.length} relation(s) before update`);
+    
+    for (const relation of newRelations) {
+      // Get target table name
+      let targetTableName: string;
+      if (typeof relation.targetTable === 'object' && relation.targetTable.name) {
+        targetTableName = relation.targetTable.name;
+      } else if (typeof relation.targetTable === 'string') {
+        targetTableName = relation.targetTable;
+      } else {
+        // Need to lookup targetTable by ID
+        const { ObjectId } = require('mongodb');
+        const targetId = relation.targetTable._id || relation.targetTable;
+        const targetTableRecord = await this.queryBuilder.findOneWhere('table_definition', { 
+          _id: typeof targetId === 'string' ? new ObjectId(targetId) : targetId 
+        });
+        if (targetTableRecord) {
+          targetTableName = targetTableRecord.name;
+        } else {
+          this.logger.warn(`Cannot find target table for relation ${relation.propertyName}, skipping drop`);
+          continue;
+        }
+      }
+      
+      const sourceFieldName = relation.propertyName;
+      const inverseFieldName = relation.inversePropertyName;
+      
+      // 1. DROP source field from ALL records in source table
+      if (sourceFieldName) {
+        await db.collection(sourceTableName).updateMany(
+          {}, // Empty filter = all documents
+          { $unset: { [sourceFieldName]: "" } }
+        );
+        this.logger.log(`  ✅ Dropped '${sourceFieldName}' from '${sourceTableName}'`);
+      }
+      
+      // 2. DROP inverse field from ALL records in target table (if has inverse)
+      if (inverseFieldName && targetTableName) {
+        await db.collection(targetTableName).updateMany(
+          {}, // Empty filter = all documents
+          { $unset: { [inverseFieldName]: "" } }
+        );
+        this.logger.log(`  ✅ Dropped '${inverseFieldName}' from '${targetTableName}'`);
+      }
+    }
+    
+    this.logger.log('✨ All relation fields dropped. Will be recreated by runtime logic.');
   }
 
   async createTable(body: any) {
@@ -354,9 +450,43 @@ export class MongoTableHandlerService {
           body.columns,
         );
 
-        // Delete removed columns
+        // Delete removed columns and drop fields from data
         for (const colId of deletedColumnIds) {
+          const deletedCol = existingColumns.find((c: any) => c._id?.toString() === colId.toString());
+          if (deletedCol) {
+            // Drop field from all records
+            await this.mongoService.getDb().collection(exists.name).updateMany(
+              {},
+              { $unset: { [deletedCol.name]: "" } }
+            );
+            this.logger.log(`  ✅ Dropped field '${deletedCol.name}' from all records`);
+          }
           await this.queryBuilder.deleteById('column_definition', colId);
+        }
+
+        // Detect renamed columns and trigger background migration
+        const renamedColumns = [];
+        for (const col of body.columns) {
+          if (col._id || col.id) {
+            const colId = col._id || col.id;
+            const existingCol = existingColumns.find((c: any) => 
+              c._id?.toString() === colId.toString()
+            );
+            
+            // Check if column name changed
+            if (existingCol && existingCol.name !== col.name) {
+              renamedColumns.push({
+                oldName: existingCol.name,
+                newName: col.name,
+                collectionName: exists.name,
+              });
+            }
+          }
+        }
+        
+        // Fire & forget: Migrate renamed fields in background
+        if (renamedColumns.length > 0) {
+          this.migrateRenamedFieldsInBackground(renamedColumns);
         }
 
         // Update or insert columns and collect their IDs
@@ -401,6 +531,13 @@ export class MongoTableHandlerService {
         const existingRelations = await this.queryBuilder.findWhere('relation_definition', {
           sourceTable: queryId, // MongoDB uses 'sourceTable' field
         });
+
+        // CRITICAL: Drop fields FIRST before updating metadata
+        // This ensures clean state and prevents stale data
+        await this.dropRelationFieldsBeforeUpdate(
+          body.relations,
+          exists.name
+        );
 
         const deletedRelationIds = getDeletedIds(
           existingRelations,

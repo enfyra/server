@@ -265,5 +265,6 @@ export class MongoSchemaMigrationService {
       this.logger.warn(`Failed to create some indexes for ${collectionName}: ${error.message}`);
     }
   }
+
 }
 
