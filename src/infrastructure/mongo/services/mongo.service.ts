@@ -103,6 +103,45 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Parse JSON fields (simple-json, json types)
+   * MongoDB stores JSON natively, so parse string → object before insert/update
+   */
+  async parseJsonFields(tableName: string, data: any): Promise<any> {
+    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    if (!metadata || !metadata.columns) {
+      return data;
+    }
+
+    const result = { ...data };
+    
+    for (const column of metadata.columns) {
+      const fieldName = column.name;
+      const fieldValue = result[fieldName];
+      
+      // Skip if field not present or already an object
+      if (fieldValue === undefined || fieldValue === null) {
+        continue;
+      }
+      
+      // Parse simple-json and json types
+      if (column.type === 'simple-json' || column.type === 'json') {
+        // If it's a string, try to parse
+        if (typeof fieldValue === 'string') {
+          try {
+            result[fieldName] = JSON.parse(fieldValue);
+          } catch (error) {
+            // If parse fails, keep as string (will fail validation if strict)
+            this.logger.warn(`Failed to parse JSON field '${fieldName}': ${error.message}`);
+          }
+        }
+        // If already object/array, keep as is (MongoDB native storage)
+      }
+    }
+    
+    return result;
+  }
+
+  /**
    * Apply timestamps hook to data (single or array)
    * Forces createdAt and updatedAt, strips client-provided values
    */
@@ -138,13 +177,16 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async insertOne(collectionName: string, data: any): Promise<any> {
     const collection = this.collection(collectionName);
     
-    // Apply default values for missing fields
-    const dataWithDefaults = await this.applyDefaultValues(collectionName, data);
+    // 1. Parse JSON fields (string → object)
+    const dataParsed = await this.parseJsonFields(collectionName, data);
     
-    // Process nested relations first (create/update related records)
+    // 2. Apply default values for missing fields
+    const dataWithDefaults = await this.applyDefaultValues(collectionName, dataParsed);
+    
+    // 3. Process nested relations (create/update related records)
     const dataWithRelations = await this.processNestedRelations(collectionName, dataWithDefaults);
     
-    // Then apply timestamps
+    // 4. Apply timestamps
     const dataWithTimestamps = this.applyTimestamps(dataWithRelations);
     
     const result = await collection.insertOne(dataWithTimestamps);
@@ -176,13 +218,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     if (limit) cursor = cursor.limit(limit);
     
     const results = await cursor.toArray();
-    return results.map(doc => this.mapDocument(doc));
+    return results.map(doc => this.mapDocument(doc, tableName));
   }
 
   async findOne(collectionName: string, filter: any): Promise<any> {
     const collection = this.collection(collectionName);
     const result = await collection.findOne(filter);
-    return result ? this.mapDocument(result) : null;
+    return result ? this.mapDocument(result, collectionName) : null;
   }
 
   /**
@@ -195,9 +237,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const relation of metadata.relations) {
-      if (!relation.inversePropertyName) continue;
+      if (!relation.inversePropertyName) {
+        continue;
+      }
       
       const fieldName = relation.propertyName;
+      
+      // CRITICAL: Only process if field is explicitly in newData
+      // If field is not in newData → user didn't touch it → keep old relations
+      if (!(fieldName in newData)) {
+        continue;
+      }
+      
       const oldValue = oldData?.[fieldName];
       const newValue = newData?.[fieldName];
       
@@ -296,11 +347,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
     for (const relation of metadata.relations) {
       const fieldName = relation.propertyName;
+      
+      // Check if field exists in data (even if null/undefined)
+      if (!(fieldName in processed)) continue;
+      
       const fieldValue = processed[fieldName];
-
-      if (!fieldValue) continue;
-
       const targetCollection = relation.targetTableName || relation.targetTable;
+
+      // Handle explicit null/undefined → clear relation
+      if (fieldValue === null || fieldValue === undefined) {
+        processed[fieldName] = null;
+        continue;
+      }
 
       // Handle M2O/O2O: single object
       if (['many-to-one', 'one-to-one'].includes(relation.type)) {
@@ -317,8 +375,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
         if (!nestedId && !id) {
           // Case 1: No ID → Create new
-          const inserted = await this.insertOne(targetCollection, nestedData);
-          processed[fieldName] = new ObjectId(inserted._id);
+          if (hasDataToUpdate) {
+            const inserted = await this.insertOne(targetCollection, nestedData);
+            processed[fieldName] = new ObjectId(inserted._id);
+          } else {
+            // Empty object {} → treat as null
+            processed[fieldName] = null;
+          }
         } else if (hasDataToUpdate) {
           // Case 2: Has ID + data → Update existing
           const idToUse = nestedId || id;
@@ -332,7 +395,11 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       }
       // Handle O2M/M2M: array of objects
       else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
-        if (!Array.isArray(fieldValue)) continue;
+        // Allow empty array [] to clear relations
+        if (!Array.isArray(fieldValue)) {
+          processed[fieldName] = [];
+          continue;
+        }
 
         const processedArray = [];
         for (const item of fieldValue) {
@@ -346,9 +413,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
           const hasDataToUpdate = Object.keys(itemData).length > 0;
 
           if (!itemId && !itemIdAlt) {
-            // No ID → Create new
-            const inserted = await this.insertOne(targetCollection, itemData);
-            processedArray.push(new ObjectId(inserted._id));
+            // No ID → Create new (only if has data)
+            if (hasDataToUpdate) {
+              const inserted = await this.insertOne(targetCollection, itemData);
+              processedArray.push(new ObjectId(inserted._id));
+            }
+            // Empty object {} in array → skip
           } else if (hasDataToUpdate) {
             // Has ID + data → Update existing
             const idToUse = itemId || itemIdAlt;
@@ -386,10 +456,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     // Get old record to compare relations
     const oldRecord = await this.findOne(collectionName, { _id: objectId });
     
-    // Process nested relations first (create/update related records)
-    const dataWithRelations = await this.processNestedRelations(collectionName, data);
+    // 1. Parse JSON fields (string → object)
+    const dataParsed = await this.parseJsonFields(collectionName, data);
     
-    // Then apply update timestamp
+    // 2. Process nested relations (create/update related records)
+    const dataWithRelations = await this.processNestedRelations(collectionName, dataParsed);
+    
+    // 3. Apply update timestamp
     const dataWithTimestamp = this.applyUpdateTimestamp(dataWithRelations);
     
     await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
@@ -404,8 +477,81 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
     
+    // Get record before delete to clean up inverse relations
+    const record = await this.findOne(collectionName, { _id: objectId });
+    
+    if (!record) {
+      return false;
+    }
+    
+    // Clean up inverse relations before delete
+    await this.cleanupInverseRelationsOnDelete(collectionName, objectId, record);
+    
     const result = await collection.deleteOne({ _id: objectId });
     return result.deletedCount > 0;
+  }
+
+  /**
+   * Clean up inverse relations when a record is deleted
+   * Removes this record's ID from all related records
+   */
+  async cleanupInverseRelationsOnDelete(tableName: string, recordId: ObjectId, recordData: any): Promise<void> {
+    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    if (!metadata || !metadata.relations) {
+      return;
+    }
+
+    for (const relation of metadata.relations) {
+      if (!relation.inversePropertyName) continue;
+      
+      const fieldName = relation.propertyName;
+      const fieldValue = recordData?.[fieldName];
+      
+      if (!fieldValue) continue;
+      
+      const targetCollection = relation.targetTableName || relation.targetTable;
+
+      // M2O/O2O: Remove from single target
+      if (['many-to-one', 'one-to-one'].includes(relation.type)) {
+        const targetId = fieldValue instanceof ObjectId ? fieldValue : new ObjectId(fieldValue);
+        
+        if (relation.type === 'many-to-one') {
+          // Inverse is O2M (array) → $pull
+          await this.getDb().collection(targetCollection).updateOne(
+            { _id: targetId },
+            { $pull: { [relation.inversePropertyName]: recordId } } as any
+          );
+        } else {
+          // Inverse is O2O (single) → $unset
+          await this.getDb().collection(targetCollection).updateOne(
+            { _id: targetId },
+            { $unset: { [relation.inversePropertyName]: "" } } as any
+          );
+        }
+      }
+      // O2M/M2M: Remove from multiple targets
+      else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
+        const targetIds = Array.isArray(fieldValue) 
+          ? fieldValue.map(v => v instanceof ObjectId ? v : new ObjectId(v))
+          : [];
+        
+        for (const targetId of targetIds) {
+          if (relation.type === 'one-to-many') {
+            // Inverse is M2O (single) → $unset
+            await this.getDb().collection(targetCollection).updateOne(
+              { _id: targetId },
+              { $unset: { [relation.inversePropertyName]: "" } } as any
+            );
+          } else {
+            // Inverse is M2M (array) → $pull
+            await this.getDb().collection(targetCollection).updateOne(
+              { _id: targetId },
+              { $pull: { [relation.inversePropertyName]: recordId } } as any
+            );
+          }
+        }
+      }
+    }
   }
 
   async count(collectionName: string, filter: any = {}): Promise<number> {
@@ -413,7 +559,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return collection.countDocuments(filter);
   }
 
-  private mapDocument(doc: any): any {
+  private mapDocument(doc: any, tableName?: string): any {
     if (!doc) return doc;
     
     // Recursively convert ObjectId and Date to proper JSON types
