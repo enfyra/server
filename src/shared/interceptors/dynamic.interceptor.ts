@@ -26,29 +26,29 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
       const preHooks = hooks.filter(hook => hook.preHook);
       if (preHooks.length > 0) {
         try {
-          const preHookCodeArr = preHooks.map(hook => hook.preHook);
-          const preHookTimeout = preHooks[0].preHookTimeout || this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT', 3000);
-          
-          const result = await this.handlerExecurtorService.run(
-            preHookCodeArr,
-            req.routeData.context,
-            preHookTimeout,
-          );
+          for (const hook of preHooks) {
+            const preHookTimeout = hook.preHookTimeout || this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT', 3000);
+            const result = await this.handlerExecurtorService.run(
+              hook.preHook,
+              req.routeData.context,
+              preHookTimeout,
+            );
 
-          // Sync modified body back to req.body so controllers can access it
-          req.body = req.routeData.context.$body;
+            // Sync modified body back to req.body so controllers can access it
+            req.body = req.routeData.context.$body;
 
-          if (result !== undefined) {
-            const statusCode = req.routeData.context.$statusCode ?? 200;
-            const res = context.switchToHttp().getResponse();
-            res
-              .status(statusCode)
-              .json(
-                req.routeData.context.$share.$logs.length
-                  ? { result, logs: req.routeData.context.$share.$logs }
-                  : result,
-              );
-            return new Observable();
+            if (result !== undefined) {
+              const statusCode = req.routeData.context.$statusCode ?? 200;
+              const res = context.switchToHttp().getResponse();
+              res
+                .status(statusCode)
+                .json(
+                  req.routeData.context.$share.$logs.length
+                    ? { result, logs: req.routeData.context.$share.$logs }
+                    : result,
+                );
+              return new Observable();
+            }
           }
         } catch (error) {
           throw error;
@@ -62,9 +62,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           const afterHooks = hooks.filter(hook => hook.afterHook);
           if (afterHooks.length > 0) {
             try {
-              const afterHookCodeArr = afterHooks.map(hook => hook.afterHook);
-              const afterHookTimeout = afterHooks[0].afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
-              
               req.routeData.context.$data = data;
               req.routeData.context.$statusCode = context
                 .switchToHttp()
@@ -78,19 +75,21 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                 timestamp: new Date().toISOString(),
               };
 
-              const result = await this.handlerExecurtorService.run(
-                afterHookCodeArr,
-                req.routeData.context,
-                afterHookTimeout,
-              );
-
-              // Check if afterHook returned a value, use it
-              if (result !== undefined) {
-                data = result;
-              } else {
-                // Otherwise use the modified $data from context
-                data = req.routeData.context.$data;
+              let lastResult: any = undefined;
+              for (const hook of afterHooks) {
+                const afterHookTimeout = hook.afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
+                const result = await this.handlerExecurtorService.run(
+                  hook.afterHook,
+                  req.routeData.context,
+                  afterHookTimeout,
+                );
+                if (result !== undefined) {
+                  lastResult = result;
+                }
               }
+
+              // Prefer last explicit result; otherwise use modified $data
+              data = lastResult !== undefined ? lastResult : req.routeData.context.$data;
             } catch (error) {
               throw error;
             }
@@ -118,9 +117,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           const afterHooks = hooks.filter(hook => hook.afterHook);
           if (afterHooks.length > 0) {
             try {
-              const afterHookCodeArr = afterHooks.map(hook => hook.afterHook);
-              const afterHookTimeout = afterHooks[0].afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
-              
               req.routeData.context.$data = null; // No data when error occurs
               req.routeData.context.$statusCode = error.status || 500;
 
@@ -132,19 +128,20 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                 timestamp: new Date().toISOString(),
               };
 
-              const result = await this.handlerExecurtorService.run(
-                afterHookCodeArr,
-                req.routeData.context,
-                afterHookTimeout,
-              );
-
-              // Check if afterHook returned a value, use it
-              if (result !== undefined) {
-                // Return the afterHook result even in error case
-                return new Observable(subscriber => {
-                  subscriber.next(result);
-                  subscriber.complete();
-                });
+              for (const hook of afterHooks) {
+                const afterHookTimeout = hook.afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
+                const result = await this.handlerExecurtorService.run(
+                  hook.afterHook,
+                  req.routeData.context,
+                  afterHookTimeout,
+                );
+                // If any afterHook returns a value, short-circuit and return it
+                if (result !== undefined) {
+                  return new Observable(subscriber => {
+                    subscriber.next(result);
+                    subscriber.complete();
+                  });
+                }
               }
             } catch (afterHookError) {
               // If afterHook itself fails, log it but don't override original error

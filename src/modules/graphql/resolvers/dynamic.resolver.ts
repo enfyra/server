@@ -126,7 +126,7 @@ export class DynamicResolver {
     try {
       const defaultHandler = `return await $ctx.$repos.main.find();`;
       const result = await this.handlerExecutorService.run(
-        [defaultHandler],
+        defaultHandler,
         handlerCtx,
         this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
       );
@@ -229,7 +229,7 @@ export class DynamicResolver {
       }
 
       const result = await this.handlerExecutorService.run(
-        [defaultHandler],
+        defaultHandler,
         handlerCtx,
         this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
       );

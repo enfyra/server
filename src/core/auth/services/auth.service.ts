@@ -40,7 +40,7 @@ export class AuthService {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const rawUserId = isMongoDB 
       ? (user?._id)
-      : (user?.id ?? (user as any)?.ID ?? (user as any)?.userId);
+      : (user?.id);
 
     if (!rawUserId) {
       throw new BadRequestException('Login failed: user id not found');
