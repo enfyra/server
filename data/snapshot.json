@@ -100,8 +100,7 @@
                 "type": "many-to-one",
                 "targetTable": "table_definition",
                 "isSystem": true,
-                "inversePropertyName": "columns",
-                "isInverseEager": true
+                "inversePropertyName": "columns"
             }
         ]
     },
@@ -204,8 +203,7 @@
                 "type": "many-to-one",
                 "targetTable": "table_definition",
                 "isSystem": true,
-                "inversePropertyName": "relations",
-                "isInverseEager": true
+                "inversePropertyName": "relations"
             },
             {
                 "propertyName": "targetTable",

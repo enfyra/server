@@ -12,7 +12,7 @@ export function parseBooleanFields(obj: any): any {
   const booleanFieldPatterns = [
     'isPrimary', 'isGenerated', 'isNullable', 'isSystem', 
     'isUpdatable', 'isHidden', 'isEnabled', 'isRootAdmin',
-    'isInit', 'isInverseEager', 'isPublic'
+    'isInit', 'isPublic'
   ];
 
   for (const key in parsed) {

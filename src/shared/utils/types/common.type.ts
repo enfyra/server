@@ -58,7 +58,6 @@ export type TSToDBTypeMap = {
 export type TInverseRelation = {
   propertyName: string;
   type: string;
-  isEager?: boolean;
   isNullable?: boolean;
   isIndex?: boolean;
   inversePropertyName: string;

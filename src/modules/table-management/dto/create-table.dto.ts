@@ -100,18 +100,6 @@ export class CreateRelationDto {
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ obj }) => {
-    if (obj.isEager === true && obj.isInverseEager === true) {
-      throw new Error(
-        'Cannot enable both isEager and isInverseEager simultaneously to avoid bidirectional eager loading.',
-      );
-    }
-    return obj.isEager;
-  })
-  isInverseEager?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
   index?: boolean;
 
   @IsSafeIdentifier()
@@ -124,18 +112,6 @@ export class CreateRelationDto {
   @IsSafeIdentifier()
   @IsNotEmpty()
   propertyName: string;
-
-  @IsBoolean()
-  @IsOptional()
-  @Transform(({ obj }) => {
-    if (obj.isEager === true && obj.isInverseEager === true) {
-      throw new Error(
-        'Cannot enable both isEager and isInverseEager simultaneously to avoid bidirectional eager loading.',
-      );
-    }
-    return obj.isEager;
-  })
-  isEager?: boolean;
 
   @IsBoolean()
   @IsOptional()

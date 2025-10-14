@@ -25,7 +25,6 @@ export interface RelationDef {
   inversePropertyName?: string;
   isNullable?: boolean;
   isSystem?: boolean;
-  isInverseEager?: boolean;
 }
 
 export interface TableDef {
