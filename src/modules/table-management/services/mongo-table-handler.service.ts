@@ -213,28 +213,39 @@ export class MongoTableHandlerService {
 
       body.isSystem = false;
 
-      // Insert table metadata
-      const tableRecord = await this.queryBuilder.insertAndGet('table_definition', {
-        name: body.name,
-        isSystem: body.isSystem,
-        alias: body.alias,
-        description: body.description,
-        uniques: JSON.stringify(body.uniques || []),
-        indexes: JSON.stringify(body.indexes || []),
-        columns: [], // Initialize empty array
-        relations: [], // Initialize empty array
-      });
+      // Begin transaction for metadata
+      const client = this.mongoService.getClient();
+      const session = client.startSession();
 
-      // MongoDB returns _id, not id
-      const { ObjectId } = require('mongodb');
-      const tableId = typeof tableRecord._id === 'string' ? new ObjectId(tableRecord._id) : tableRecord._id;
+      // Variables used outside for rollback logs
+      const insertedColumnIds: any[] = [];
+      const insertedRelationIds: any[] = [];
+      let tableId: any = null;
 
-      // Insert columns
-      const insertedColumnIds = [];
       try {
+        await session.startTransaction();
+
+        const db = this.mongoService.getDb();
+        const { ObjectId } = require('mongodb');
+
+        // Insert table metadata (uncommitted yet)
+        const tableInsert = await db.collection('table_definition').insertOne({
+          name: body.name,
+          isSystem: body.isSystem,
+          alias: body.alias,
+          description: body.description,
+          uniques: body.uniques || [],
+          indexes: body.indexes || [],
+          fullTextIndexes: body.fullTextIndexes || [],
+          columns: [],
+          relations: [],
+        }, { session });
+        tableId = tableInsert.insertedId;
+
+        // Insert columns
         if (body.columns?.length > 0) {
           for (const col of body.columns) {
-            const columnRecord = await this.queryBuilder.insertAndGet('column_definition', {
+            const result = await db.collection('column_definition').insertOne({
               name: col.name,
               type: col.type,
               isPrimary: col.isPrimary || false,
@@ -243,138 +254,240 @@ export class MongoTableHandlerService {
               isSystem: col.isSystem || false,
               isUpdatable: col.isUpdatable ?? true,
               isHidden: col.isHidden || false,
-              defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
-              options: col.options ? JSON.stringify(col.options) : null,
+              defaultValue: col.defaultValue,
+              options: col.options,
               description: col.description,
               placeholder: col.placeholder,
-              table: tableId, // MongoDB uses 'table' field, not 'tableId'
-            });
-            const colId = typeof columnRecord._id === 'string' ? new ObjectId(columnRecord._id) : columnRecord._id;
-            insertedColumnIds.push(colId);
+              table: tableId,
+            }, { session });
+            insertedColumnIds.push(result.insertedId);
             this.logger.log(`   ✅ Column inserted: ${col.name}`);
           }
-          
-          // Update table with column ObjectIds
-          if (insertedColumnIds.length > 0) {
-            await this.queryBuilder.update({
-              table: 'table_definition',
-              where: [{ field: '_id', operator: '=', value: tableId }],
-              data: { columns: insertedColumnIds },
-            });
-            this.logger.log(`   ✅ Updated table with ${insertedColumnIds.length} column refs`);
-          }
+          await db.collection('table_definition').updateOne({ _id: tableId }, { $set: { columns: insertedColumnIds } }, { session });
+          this.logger.log(`   ✅ Updated table with ${insertedColumnIds.length} column refs`);
         }
-      } catch (error) {
-        // Rollback: delete table metadata if column insert fails
-        this.logger.error(`   ❌ Failed to insert columns, rolling back table creation`);
-        await this.queryBuilder.deleteById('table_definition', tableId);
-        throw new ValidationException(
-          `Failed to create table: ${error.message}`,
-          { tableName: body.name, error: error.message }
-        );
-      }
 
-      // Insert relations
-      const insertedRelationIds = [];
-      try {
+        // Insert relations
         if (body.relations?.length > 0) {
           for (const rel of body.relations) {
-            // Get target table ObjectId
-            let targetTableObjectId;
+            // Resolve target table id
+            let targetTableObjectId: any = null;
             if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
               targetTableObjectId = typeof rel.targetTable._id === 'string' ? new ObjectId(rel.targetTable._id) : rel.targetTable._id;
             } else if (typeof rel.targetTable === 'string') {
-              // Lookup table by name
-              const targetTableRecord = await this.queryBuilder.findOneWhere('table_definition', { name: rel.targetTable });
-              if (targetTableRecord) {
-                targetTableObjectId = typeof targetTableRecord._id === 'string' ? new ObjectId(targetTableRecord._id) : targetTableRecord._id;
-              }
+              const t = await db.collection('table_definition').findOne({ name: rel.targetTable }, { session });
+              if (t?._id) targetTableObjectId = t._id;
             }
-            
             if (!targetTableObjectId) {
               throw new ValidationException(
                 `Target table '${rel.targetTable}' not found for relation ${rel.propertyName}`,
                 { tableName: body.name, relation: rel.propertyName }
               );
             }
-            
-            const relationRecord = await this.queryBuilder.insertAndGet('relation_definition', {
+            const result = await db.collection('relation_definition').insertOne({
               propertyName: rel.propertyName,
               type: rel.type,
-              sourceTable: tableId, // ObjectId
-              targetTable: targetTableObjectId, // ObjectId
-              targetTableName: typeof rel.targetTable === 'string' ? rel.targetTable : rel.targetTable.name,
-              sourceTableName: body.name,
+              sourceTable: tableId,
+              targetTable: targetTableObjectId,
               inversePropertyName: rel.inversePropertyName,
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
               description: rel.description,
-            });
-            const relId = typeof relationRecord._id === 'string' ? new ObjectId(relationRecord._id) : relationRecord._id;
-            insertedRelationIds.push(relId);
+            }, { session });
+            insertedRelationIds.push(result.insertedId);
             this.logger.log(`   ✅ Relation inserted: ${rel.propertyName}`);
           }
-          
-          // Update table with relation ObjectIds
-          if (insertedRelationIds.length > 0) {
-            await this.queryBuilder.update({
-              table: 'table_definition',
-              where: [{ field: '_id', operator: '=', value: tableId }],
-              data: { relations: insertedRelationIds },
-            });
-            this.logger.log(`   ✅ Updated table with ${insertedRelationIds.length} relation refs`);
-          }
+          await db.collection('table_definition').updateOne({ _id: tableId }, { $set: { relations: insertedRelationIds } }, { session });
+          this.logger.log(`   ✅ Updated table with ${insertedRelationIds.length} relation refs`);
         }
-      } catch (error) {
-        // Rollback: delete table metadata and columns if relation insert fails
-        this.logger.error(`   ❌ Failed to insert relations, rolling back table creation`);
-        
-        // Delete inserted columns
-        for (const colId of insertedColumnIds) {
-          await this.queryBuilder.deleteById('column_definition', colId);
-        }
-        
-        // Delete table
-        await this.queryBuilder.deleteById('table_definition', tableId);
-        
-        throw new ValidationException(
-          `Failed to create table: ${error.message}`,
-          { tableName: body.name, error: error.message }
-        );
-      }
 
-      // Create route
-      const existingRoute = await this.queryBuilder.findOneWhere('route_definition', {
-        path: `/${body.name}`,
-      });
-
-      if (!existingRoute) {
-        await this.queryBuilder.insert({
-          table: 'route_definition',
-          data: {
+        // Create route if not exists
+        const existingRoute = await db.collection('route_definition').findOne({ path: `/${body.name}` }, { session });
+        if (!existingRoute) {
+          await db.collection('route_definition').insertOne({
             path: `/${body.name}`,
-            mainTable: tableId, // MongoDB uses 'mainTable' field (ObjectId)
+            mainTable: tableId,
             isEnabled: true,
             isSystem: false,
             icon: 'lucide:table',
-            // Initialize inverse fields
             publishedMethods: [],
             routePermissions: [],
             handlers: [],
             hooks: [],
-          },
-        });
-        this.logger.log(`✅ Route /${body.name} created for collection ${body.name}`);
+          }, { session });
+          this.logger.log(`✅ Route /${body.name} created for collection ${body.name}`);
+        }
+
+        // Build in-memory metadata for migration (use body)
+        const fullMetadata = {
+          name: body.name,
+          uniques: body.uniques || [],
+          indexes: body.indexes || [],
+          fullTextIndexes: body.fullTextIndexes || [],
+          columns: body.columns || [],
+          relations: (body.relations || []).map((r: any) => ({
+            ...r,
+            targetTableName: typeof r.targetTable === 'string' ? r.targetTable : r.targetTable?.name,
+          })),
+        };
+
+        // Run migration BEFORE commit
+        let migrated = false;
+        try {
+          await this.schemaMigrationService.createCollection(fullMetadata);
+          migrated = true;
+        } catch (mErr: any) {
+          // Abort transaction → metadata not persisted
+          try { await session.abortTransaction(); } catch {}
+          // Ensure physical cleanup if any partial side effects
+          if (migrated) {
+            try { await this.schemaMigrationService.dropCollection(body.name); } catch {}
+          }
+          throw new ValidationException(`Failed to create collection: ${mErr.message}`, { tableName: body.name });
+        }
+
+        // Commit AFTER migration success
+        await session.commitTransaction();
+
+        this.logger.log(`✅ Collection created: ${body.name} (metadata + validation + indexes)`);
+        return fullMetadata;
+      } catch (e) {
+        // Abort on any error if still in transaction
+        try { await (session as any).abortTransaction(); } catch {}
+
+        const msg = String(e?.message || '');
+        const isTxnUnsupported = msg.includes('replica set member') || msg.includes('Transaction numbers');
+        if (isTxnUnsupported) {
+          this.logger.warn('⚠️ Mongo transactions not supported (standalone). Falling back to non-transactional create with compensating actions.');
+
+          // Fallback non-transactional path
+          const db = this.mongoService.getDb();
+          const { ObjectId } = require('mongodb');
+
+          const fullMetadata = {
+            name: body.name,
+            uniques: body.uniques || [],
+            indexes: body.indexes || [],
+            fullTextIndexes: body.fullTextIndexes || [],
+            columns: body.columns || [],
+            relations: (body.relations || []).map((r: any) => ({
+              ...r,
+              targetTableName: typeof r.targetTable === 'string' ? r.targetTable : r.targetTable?.name,
+            })),
+          };
+
+          // 1) Migrate physical first
+          try {
+            await this.schemaMigrationService.createCollection(fullMetadata);
+          } catch (mErr: any) {
+            throw new ValidationException(`Failed to create collection: ${mErr.message}`, { tableName: body.name });
+          }
+
+          // 2) Insert metadata best-effort; cleanup on failure
+          const insertedColumnIds: any[] = [];
+          const insertedRelationIds: any[] = [];
+          let tableIdLocal: any = null;
+          try {
+            const tableInsert = await db.collection('table_definition').insertOne({
+              name: body.name,
+              isSystem: body.isSystem,
+              alias: body.alias,
+              description: body.description,
+              uniques: body.uniques || [],
+              indexes: body.indexes || [],
+              fullTextIndexes: body.fullTextIndexes || [],
+              columns: [],
+              relations: [],
+            });
+            tableIdLocal = tableInsert.insertedId;
+
+            if (body.columns?.length > 0) {
+              for (const col of body.columns) {
+                const ins = await db.collection('column_definition').insertOne({
+                  name: col.name,
+                  type: col.type,
+                  isPrimary: col.isPrimary || false,
+                  isGenerated: col.isGenerated || false,
+                  isNullable: col.isNullable ?? true,
+                  isSystem: col.isSystem || false,
+                  isUpdatable: col.isUpdatable ?? true,
+                  isHidden: col.isHidden || false,
+                  defaultValue: col.defaultValue,
+                  options: col.options,
+                  description: col.description,
+                  placeholder: col.placeholder,
+                  table: tableIdLocal,
+                });
+                insertedColumnIds.push(ins.insertedId);
+              }
+              await db.collection('table_definition').updateOne({ _id: tableIdLocal }, { $set: { columns: insertedColumnIds } });
+            }
+
+            if (body.relations?.length > 0) {
+              for (const rel of body.relations) {
+                let targetTableObjectId: any = null;
+                if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
+                  targetTableObjectId = typeof rel.targetTable._id === 'string' ? new ObjectId(rel.targetTable._id) : rel.targetTable._id;
+                } else if (typeof rel.targetTable === 'string') {
+                  const t = await db.collection('table_definition').findOne({ name: rel.targetTable });
+                  if (t?._id) targetTableObjectId = t._id;
+                }
+                if (!targetTableObjectId) {
+                  throw new ValidationException(
+                    `Target table '${rel.targetTable}' not found for relation ${rel.propertyName}`,
+                    { tableName: body.name, relation: rel.propertyName }
+                  );
+                }
+                const ins = await db.collection('relation_definition').insertOne({
+                  propertyName: rel.propertyName,
+                  type: rel.type,
+                  sourceTable: tableIdLocal,
+                  targetTable: targetTableObjectId,
+                  targetTableName: typeof rel.targetTable === 'string' ? rel.targetTable : rel.targetTable.name,
+                  inversePropertyName: rel.inversePropertyName,
+                  isNullable: rel.isNullable ?? true,
+                  isSystem: rel.isSystem || false,
+                  description: rel.description,
+                });
+                insertedRelationIds.push(ins.insertedId);
+              }
+              await db.collection('table_definition').updateOne({ _id: tableIdLocal }, { $set: { relations: insertedRelationIds } });
+            }
+
+            const existingRoute = await db.collection('route_definition').findOne({ path: `/${body.name}` });
+            if (!existingRoute) {
+              await db.collection('route_definition').insertOne({
+                path: `/${body.name}`,
+                mainTable: tableIdLocal,
+                isEnabled: true,
+                isSystem: false,
+                icon: 'lucide:table',
+                publishedMethods: [],
+                routePermissions: [],
+                handlers: [],
+                hooks: [],
+              });
+            }
+
+            this.logger.log(`✅ Collection created: ${body.name} (metadata + validation + indexes)`);
+            return fullMetadata;
+          } catch (metaErr: any) {
+            // Cleanup metadata and physical
+            try {
+              for (const relId of insertedRelationIds) await db.collection('relation_definition').deleteOne({ _id: relId });
+              for (const colId of insertedColumnIds) await db.collection('column_definition').deleteOne({ _id: colId });
+              if (tableIdLocal) await db.collection('table_definition').deleteOne({ _id: tableIdLocal });
+              const route = await db.collection('route_definition').findOne({ path: `/${body.name}` });
+              if (route?._id) await db.collection('route_definition').deleteOne({ _id: route._id });
+            } catch {}
+            try { await this.schemaMigrationService.dropCollection(body.name); } catch {}
+            throw new ValidationException(`Failed to create collection: ${metaErr.message}`, { tableName: body.name });
+          }
+        }
+        throw e;
+      } finally {
+        await session.endSession();
       }
-
-      // Fetch full metadata
-      const fullMetadata = await this.getFullTableMetadata(tableId);
-
-      // Create collection with validation and indexes
-      await this.schemaMigrationService.createCollection(fullMetadata);
-
-      this.logger.log(`✅ Collection created: ${body.name} (metadata + validation + indexes)`);
-      return fullMetadata;
     } catch (error) {
       this.loggingService.error('Collection creation failed', {
         context: 'createTable',
@@ -435,8 +548,9 @@ export class MongoTableHandlerService {
         name: body.name,
         alias: body.alias,
         description: body.description,
-        uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
-        indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
+        uniques: body.uniques !== undefined ? body.uniques : exists.uniques,
+        indexes: body.indexes !== undefined ? body.indexes : exists.indexes,
+        fullTextIndexes: body.fullTextIndexes !== undefined ? body.fullTextIndexes : exists.fullTextIndexes,
       });
 
       // Update columns
@@ -501,8 +615,8 @@ export class MongoTableHandlerService {
             isSystem: col.isSystem || false,
             isUpdatable: col.isUpdatable ?? true,
             isHidden: col.isHidden || false,
-            defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
-            options: col.options ? JSON.stringify(col.options) : null,
+            defaultValue: col.defaultValue,
+            options: col.options,
             description: col.description,
             placeholder: col.placeholder,
             table: queryId, // MongoDB uses 'table' field
@@ -573,8 +687,6 @@ export class MongoTableHandlerService {
             type: rel.type,
             sourceTable: queryId, // ObjectId
             targetTable: targetTableObjectId, // ObjectId
-            targetTableName: typeof rel.targetTable === 'string' ? rel.targetTable : (rel.targetTable.name || exists.name),
-            sourceTableName: exists.name,
             inversePropertyName: rel.inversePropertyName,
             isNullable: rel.isNullable ?? true,
             isSystem: rel.isSystem || false,
@@ -605,9 +717,129 @@ export class MongoTableHandlerService {
       // Get new metadata (will be used for migration)
       const newMetadata = await this.getFullTableMetadata(id);
 
-      // Update collection validation and indexes
+      // Update collection + metadata in a transaction (Mongo session)
       if (oldMetadata && newMetadata) {
-        await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
+        const client = this.mongoService.getClient();
+        const session = client.startSession();
+        try {
+          await session.startTransaction();
+
+          const db = this.mongoService.getDb();
+
+          // Update table_definition fields (uncommitted)
+          await db.collection('table_definition').updateOne(
+            { _id: queryId },
+            { $set: {
+              name: body.name,
+              alias: body.alias,
+              description: body.description,
+              uniques: body.uniques !== undefined ? body.uniques : exists.uniques,
+              indexes: body.indexes !== undefined ? body.indexes : exists.indexes,
+              fullTextIndexes: body.fullTextIndexes !== undefined ? body.fullTextIndexes : exists.fullTextIndexes,
+            }} as any,
+            { session }
+          );
+
+          // Columns: sync to requested state (delete missing, upsert present)
+          if (body.columns) {
+            const existingColumns = await db.collection('column_definition').find({ table: queryId }).toArray();
+            const existingMap = new Map(existingColumns.map((c: any) => [String(c._id), c]));
+
+            const incomingIds = new Set(
+              (body.columns || [])
+                .map((c: any) => c._id || c.id)
+                .filter((v: any) => v)
+                .map((v: any) => String(v))
+            );
+
+            // Delete missing
+            for (const c of existingColumns) {
+              if (!incomingIds.has(String(c._id))) {
+                await db.collection('column_definition').deleteOne({ _id: c._id }, { session });
+              }
+            }
+
+            // Upsert present
+            const newColIds: any[] = [];
+            for (const col of body.columns) {
+              const {_id: colId, id: colIdAlt, ...colData} = col;
+              const upsertId = colId || colIdAlt;
+              if (upsertId) {
+                await db.collection('column_definition').updateOne(
+                  { _id: typeof upsertId === 'string' ? new (require('mongodb').ObjectId)(upsertId) : upsertId },
+                  { $set: { ...colData, table: queryId } },
+                  { session }
+                );
+                newColIds.push(typeof upsertId === 'string' ? new (require('mongodb').ObjectId)(upsertId) : upsertId);
+              } else {
+                const ins = await db.collection('column_definition').insertOne({ ...colData, table: queryId }, { session });
+                newColIds.push(ins.insertedId);
+              }
+            }
+            await db.collection('table_definition').updateOne({ _id: queryId }, { $set: { columns: newColIds } }, { session });
+          }
+
+          // Relations: simplified metadata sync (drop + recreate to match body)
+          if (body.relations) {
+            await db.collection('relation_definition').deleteMany({ sourceTable: queryId }, { session });
+            const newRelIds: any[] = [];
+            for (const rel of body.relations) {
+              // Resolve target by name if string
+              let targetObjId: any = null;
+              if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
+                targetObjId = rel.targetTable._id;
+              } else if (typeof rel.targetTable === 'string') {
+                const t = await db.collection('table_definition').findOne({ name: rel.targetTable }, { session });
+                targetObjId = t?._id;
+              } else {
+                targetObjId = rel.targetTable;
+              }
+              const ins = await db.collection('relation_definition').insertOne({
+                propertyName: rel.propertyName,
+                type: rel.type,
+                sourceTable: queryId,
+                targetTable: targetObjId,
+                inversePropertyName: rel.inversePropertyName,
+                isNullable: rel.isNullable ?? true,
+                isSystem: rel.isSystem || false,
+                description: rel.description,
+              }, { session });
+              newRelIds.push(ins.insertedId);
+            }
+            await db.collection('table_definition').updateOne({ _id: queryId }, { $set: { relations: newRelIds } }, { session });
+          }
+
+          // Build in-memory new metadata
+          const newMetaForMigration = {
+            name: exists.name,
+            uniques: body.uniques !== undefined ? body.uniques : exists.uniques,
+            indexes: body.indexes !== undefined ? body.indexes : exists.indexes,
+            fullTextIndexes: body.fullTextIndexes !== undefined ? body.fullTextIndexes : exists.fullTextIndexes,
+            columns: body.columns || oldMetadata.columns,
+            relations: (body.relations || oldMetadata.relations || []).map((r: any) => ({
+              ...r,
+              targetTableName: typeof r.targetTable === 'string' ? r.targetTable : r.targetTable?.name || r.targetTableName,
+            })),
+          } as any;
+
+          // Run migration BEFORE commit
+          try {
+            await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetaForMigration);
+          } catch (mErr: any) {
+            await session.abortTransaction();
+            // Revert physical collection to old state
+            try { await this.schemaMigrationService.updateCollection(exists.name, newMetaForMigration, oldMetadata); } catch {}
+            throw new DatabaseException(`Failed to update collection: ${mErr.message}`, { tableId: id, operation: 'update' });
+          }
+
+          // Commit metadata AFTER migration success
+          await session.commitTransaction();
+        } catch (e) {
+          try { await (session as any).abortTransaction(); } catch {}
+          throw e;
+        } finally {
+          await session.endSession();
+        }
       }
 
       this.logger.log(`✅ Collection updated: ${exists.name} (metadata + validation + indexes)`);
@@ -664,9 +896,9 @@ export class MongoTableHandlerService {
       }
       this.logger.log(`🗑️ Deleted ${routes.length} routes with mainTable = ${id}`);
 
-      // Delete metadata (MongoDB: sourceTableId and table are ObjectIds)
+      // Delete metadata (MongoDB: sourceTable and table are ObjectIds)
       const relations = await this.queryBuilder.findWhere('relation_definition', {
-        sourceTableId: tableId,
+        sourceTable: tableId,
       });
       for (const rel of relations) {
         await this.queryBuilder.deleteById('relation_definition', rel._id);
@@ -755,9 +987,9 @@ export class MongoTableHandlerService {
       }
     }
 
-    // Load relations
+    // Load relations (MongoDB uses 'sourceTable')
     table.relations = await this.queryBuilder.findWhere('relation_definition', {
-      sourceTableId: queryId,
+      sourceTable: queryId,
     });
 
     return table;

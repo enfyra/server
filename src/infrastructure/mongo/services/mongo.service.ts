@@ -84,9 +84,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
       
-      // Apply defaultValue if defined
+      // 1) Apply defaultValue if defined
       if (column.defaultValue !== undefined && column.defaultValue !== null) {
-        // Parse JSON if defaultValue is string representation
         if (typeof column.defaultValue === 'string') {
           try {
             result[column.name] = JSON.parse(column.defaultValue);
@@ -95,6 +94,34 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
           }
         } else {
           result[column.name] = column.defaultValue;
+        }
+        continue;
+      }
+
+      // 2) If field is nullable (isNullable !== false), set type-based fallback
+      if (column.isNullable !== false) {
+        const isArrayType = column.type === 'array-select';
+        // For array-like types → [] ; otherwise → null
+        result[column.name] = isArrayType ? [] : null;
+        continue;
+      }
+
+      // 3) Non-nullable and missing → leave undefined to let DB validation fail
+    }
+    
+    // Ensure relation fields exist with proper null/[] defaults when missing
+    if (metadata.relations && Array.isArray(metadata.relations)) {
+      for (const relation of metadata.relations) {
+        const relField = relation.propertyName;
+        if (result[relField] !== undefined) {
+          continue; // do not override provided input
+        }
+        if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+          // single link → null by default
+          result[relField] = null;
+        } else if (relation.type === 'one-to-many' || relation.type === 'many-to-many') {
+          // multi link → empty array by default
+          result[relField] = [];
         }
       }
     }
@@ -177,30 +204,34 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async insertOne(collectionName: string, data: any): Promise<any> {
     const collection = this.collection(collectionName);
     
-    // 1. Parse JSON fields (string → object)
-    const dataParsed = await this.parseJsonFields(collectionName, data);
-    
-    // 2. Apply default values for missing fields
-    const dataWithDefaults = await this.applyDefaultValues(collectionName, dataParsed);
-    
-    // 3. Process nested relations (create/update related records)
-    const dataWithRelations = await this.processNestedRelations(collectionName, dataWithDefaults);
-    
-    // 4. Apply timestamps
-    const dataWithTimestamps = this.applyTimestamps(dataWithRelations);
-    
-    const result = await collection.insertOne(dataWithTimestamps);
-    const insertedId = result.insertedId;
-    
-    // Update inverse relations (add this record's ID to inverse side)
-    // For insert, oldData is null/empty
-    await this.updateInverseRelationsOnUpdate(collectionName, insertedId, {}, dataWithRelations);
-    
-    return {
-      ...dataWithTimestamps,
-      _id: insertedId,
-      id: insertedId.toString(),
-    };
+    try {
+      // 1. Parse JSON fields (string → object)
+      const dataParsed = await this.parseJsonFields(collectionName, data);
+      
+      // 2. Apply default values for missing fields
+      const dataWithDefaults = await this.applyDefaultValues(collectionName, dataParsed);
+      
+      // 3. Process nested relations (create/update related records)
+      const dataWithRelations = await this.processNestedRelations(collectionName, dataWithDefaults);
+      
+      // 4. Apply timestamps
+      const dataWithTimestamps = this.applyTimestamps(dataWithRelations);
+      
+      const result = await collection.insertOne(dataWithTimestamps);
+      const insertedId = result.insertedId;
+      
+      // Update inverse relations (add this record's ID to inverse side)
+      // For insert, oldData is null/empty
+      await this.updateInverseRelationsOnUpdate(collectionName, insertedId, {}, dataWithRelations);
+      
+      return {
+        ...dataWithTimestamps,
+        _id: insertedId,
+        id: insertedId.toString(),
+      };
+    } catch (error: any) {
+      throw new Error(this.formatMongoValidationError('insert', collectionName, error));
+    }
   }
 
   async find(options: {
@@ -453,24 +484,28 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
     
-    // Get old record to compare relations
-    const oldRecord = await this.findOne(collectionName, { _id: objectId });
-    
-    // 1. Parse JSON fields (string → object)
-    const dataParsed = await this.parseJsonFields(collectionName, data);
-    
-    // 2. Process nested relations (create/update related records)
-    const dataWithRelations = await this.processNestedRelations(collectionName, dataParsed);
-    
-    // 3. Apply update timestamp
-    const dataWithTimestamp = this.applyUpdateTimestamp(dataWithRelations);
-    
-    await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
-    
-    // Update inverse relations (handle both add and remove)
-    await this.updateInverseRelationsOnUpdate(collectionName, objectId, oldRecord, dataWithRelations);
-    
-    return this.findOne(collectionName, { _id: objectId });
+    try {
+      // Get old record to compare relations
+      const oldRecord = await this.findOne(collectionName, { _id: objectId });
+      
+      // 1. Parse JSON fields (string → object)
+      const dataParsed = await this.parseJsonFields(collectionName, data);
+      
+      // 2. Process nested relations (create/update related records)
+      const dataWithRelations = await this.processNestedRelations(collectionName, dataParsed);
+      
+      // 3. Apply update timestamp
+      const dataWithTimestamp = this.applyUpdateTimestamp(dataWithRelations);
+      
+      await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
+      
+      // Update inverse relations (handle both add and remove)
+      await this.updateInverseRelationsOnUpdate(collectionName, objectId, oldRecord, dataWithRelations);
+      
+      return this.findOne(collectionName, { _id: objectId });
+    } catch (error: any) {
+      throw new Error(this.formatMongoValidationError('update', collectionName, error));
+    }
   }
 
   async deleteOne(collectionName: string, id: string): Promise<boolean> {
@@ -593,6 +628,44 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   private extractDbName(uri: string): string {
     const match = uri.match(/\/([^/?]+)(\?|$)/);
     return match ? match[1] : 'enfyra';
+  }
+
+  /**
+   * Beautify MongoDB validation errors to show missing/invalid fields
+   */
+  private formatMongoValidationError(action: 'insert' | 'update', collection: string, error: any): string {
+    const base = `Mongo ${action} failed for ${collection}: ${error?.message || 'Unknown error'}`;
+    const details = error?.errInfo?.details || error?.errorResponse?.errInfo?.details;
+    if (!details?.schemaRulesNotSatisfied) {
+      return base;
+    }
+    const problems: string[] = [];
+    try {
+      for (const rule of details.schemaRulesNotSatisfied) {
+        if (rule?.propertiesNotSatisfied) {
+          for (const prop of rule.propertiesNotSatisfied) {
+            const field = prop?.propertyName || prop?.propertyPath || 'unknown';
+            if (prop?.details?.some?.((d: any) => d.reason === 'required')) {
+              problems.push(`missing required field '${field}'`);
+            } else if (prop?.details) {
+              for (const d of prop.details) {
+                if (d?.operatorName === 'bsonType') {
+                  problems.push(`field '${field}' invalid type: ${d?.specifiedAs || ''}`);
+                } else if (d?.operatorName) {
+                  problems.push(`field '${field}' violates ${d.operatorName}`);
+                }
+              }
+            }
+          }
+        }
+        if (rule?.missingProperties) {
+          for (const mp of rule.missingProperties) {
+            problems.push(`missing required field '${mp}'`);
+          }
+        }
+      }
+    } catch {}
+    return problems.length > 0 ? `${base}. Details: ${problems.join('; ')}` : base;
   }
 }
 

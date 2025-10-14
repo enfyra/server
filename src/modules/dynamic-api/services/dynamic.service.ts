@@ -53,7 +53,7 @@ export class DynamicService {
       const timeoutMs = routeHandler?.timeout || this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000);
 
       const result = await this.handlerExecutorService.run(
-        scriptCode,
+        [scriptCode],
         req.routeData.context,
         timeoutMs,
       );

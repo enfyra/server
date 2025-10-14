@@ -22,13 +22,15 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
     const req = context.switchToHttp().getRequest();
     const hooks = req.routeData?.hooks;
     if (hooks?.length) {
-      for (const hook of hooks) {
-        if (!hook.preHook) continue;
+      // Collect all pre-hooks
+      const preHooks = hooks.filter(hook => hook.preHook);
+      if (preHooks.length > 0) {
         try {
-          const code = hook.preHook;
-          const preHookTimeout = hook.preHookTimeout || this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT', 3000);
+          const preHookCodeArr = preHooks.map(hook => hook.preHook);
+          const preHookTimeout = preHooks[0].preHookTimeout || this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT', 3000);
+          
           const result = await this.handlerExecurtorService.run(
-            code,
+            preHookCodeArr,
             req.routeData.context,
             preHookTimeout,
           );
@@ -56,11 +58,13 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
     return next.handle().pipe(
       mergeMap(async (data) => {
         if (hooks?.length) {
-          for (const hook of hooks) {
-            if (!hook.afterHook) continue;
+          // Collect all after-hooks
+          const afterHooks = hooks.filter(hook => hook.afterHook);
+          if (afterHooks.length > 0) {
             try {
-              const code = hook.afterHook;
-              const afterHookTimeout = hook.afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
+              const afterHookCodeArr = afterHooks.map(hook => hook.afterHook);
+              const afterHookTimeout = afterHooks[0].afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
+              
               req.routeData.context.$data = data;
               req.routeData.context.$statusCode = context
                 .switchToHttp()
@@ -75,7 +79,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               };
 
               const result = await this.handlerExecurtorService.run(
-                code,
+                afterHookCodeArr,
                 req.routeData.context,
                 afterHookTimeout,
               );
@@ -110,11 +114,13 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
         
         // Run afterHook even when there's an error
         if (hooks?.length) {
-          for (const hook of hooks) {
-            if (!hook.afterHook) continue;
+          // Collect all after-hooks
+          const afterHooks = hooks.filter(hook => hook.afterHook);
+          if (afterHooks.length > 0) {
             try {
-              const code = hook.afterHook;
-              const afterHookTimeout = hook.afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
+              const afterHookCodeArr = afterHooks.map(hook => hook.afterHook);
+              const afterHookTimeout = afterHooks[0].afterHookTimeout || this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT', 3000);
+              
               req.routeData.context.$data = null; // No data when error occurs
               req.routeData.context.$statusCode = error.status || 500;
 
@@ -127,7 +133,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               };
 
               const result = await this.handlerExecurtorService.run(
-                code,
+                afterHookCodeArr,
                 req.routeData.context,
                 afterHookTimeout,
               );

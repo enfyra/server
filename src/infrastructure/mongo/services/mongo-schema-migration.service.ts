@@ -50,15 +50,16 @@ export class MongoSchemaMigrationService {
       }
       
       const bsonType = this.getBsonType(col.type);
+      const nullable = col.isNullable !== false; // default to nullable when not specified
       
       properties[col.name] = {
-        bsonType: col.isNullable ? [bsonType, 'null'] : bsonType,
+        bsonType: nullable ? [bsonType, 'null'] : bsonType,
         description: col.description || col.name,
       };
 
       // Add to required if not nullable AND no default value AND not generated
       // If field has defaultValue or isGenerated, client doesn't need to provide it
-      if (!col.isNullable && !col.defaultValue && !col.isGenerated) {
+      if (!nullable && !col.defaultValue && !col.isGenerated) {
         required.push(col.name);
       }
     }
@@ -120,7 +121,8 @@ export class MongoSchemaMigrationService {
         collectionName,
         tableMetadata.columns || [],
         tableMetadata.uniques || [],
-        tableMetadata.indexes || []
+        tableMetadata.indexes || [],
+        tableMetadata.fullTextIndexes || []
       );
 
       this.logger.log(`✅ Collection creation complete: ${collectionName}`);
@@ -169,7 +171,8 @@ export class MongoSchemaMigrationService {
         collectionName,
         newMetadata.columns || [],
         newMetadata.uniques || [],
-        newMetadata.indexes || []
+        newMetadata.indexes || [],
+        newMetadata.fullTextIndexes || []
       );
 
       this.logger.log(`✅ Collection update complete: ${collectionName}`);
@@ -211,7 +214,8 @@ export class MongoSchemaMigrationService {
     collectionName: string,
     columns: any[],
     uniques: any[] = [],
-    indexes: any[] = []
+    indexes: any[] = [],
+    fullTextIndexes: string[] = []
   ): Promise<void> {
     const db = this.mongoService.getDb();
     const collection = db.collection(collectionName);
@@ -260,6 +264,18 @@ export class MongoSchemaMigrationService {
           name: `${collectionName}_${index.join('_')}_idx`,
         });
         this.logger.log(`✅ Created index on ${collectionName}: ${index.join(', ')}`);
+      }
+
+      // Create full-text indexes
+      if (fullTextIndexes && fullTextIndexes.length > 0) {
+        const textIndexSpec: any = {};
+        for (const field of fullTextIndexes) {
+          textIndexSpec[field] = 'text';
+        }
+        await collection.createIndex(textIndexSpec, {
+          name: `${collectionName}_fulltext_idx`,
+        });
+        this.logger.log(`✅ Created text index on ${collectionName}: ${fullTextIndexes.join(', ')}`);
       }
     } catch (error) {
       this.logger.warn(`Failed to create some indexes for ${collectionName}: ${error.message}`);

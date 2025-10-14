@@ -80,15 +80,21 @@ export class CoreInitService {
           const hasTableChanges = this.detectTableChanges(rest, exist);
           
           if (hasTableChanges) {
+            // Dynamic: Build update data from all fields
+            const updateData: any = {};
+            for (const [key, value] of Object.entries(rest)) {
+              if (key === 'name') continue; // Skip name, used in where clause
+              // Convert arrays/objects to JSON strings
+              if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+                updateData[key] = JSON.stringify(value);
+              } else {
+                updateData[key] = value;
+              }
+            }
+            
             await trx('table_definition')
               .where('id', exist.id)
-              .update({
-                isSystem: rest.isSystem,
-                alias: rest.alias,
-                description: rest.description,
-                uniques: JSON.stringify(rest.uniques || []),
-                indexes: JSON.stringify(rest.indexes || []),
-              });
+              .update(updateData);
             this.logger.log(`🔄 Updated table ${name}`);
           } else {
             this.logger.log(`⏩ Skip ${name}, no changes`);
@@ -96,14 +102,18 @@ export class CoreInitService {
         } else {
           const { columns, relations, ...rest } = def;
           
-          const insertedId = await this.insertAndGetId(trx, 'table_definition', {
-            name: rest.name,
-            isSystem: rest.isSystem || false,
-            alias: rest.alias,
-            description: rest.description,
-            uniques: JSON.stringify(rest.uniques || []),
-            indexes: JSON.stringify(rest.indexes || []),
-          });
+          // Dynamic: Build insert data from all fields
+          const insertData: any = {};
+          for (const [key, value] of Object.entries(rest)) {
+            // Convert arrays/objects to JSON strings
+            if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+              insertData[key] = JSON.stringify(value);
+            } else {
+              insertData[key] = value;
+            }
+          }
+          
+          const insertedId = await this.insertAndGetId(trx, 'table_definition', insertData);
           
           tableNameToId[name] = insertedId;
           this.logger.log(`✅ Created table metadata: ${name}`);
@@ -367,14 +377,49 @@ export class CoreInitService {
       return val;
     };
 
-    const hasChanges =
-      snapshotTable.isSystem !== existingTable.isSystem ||
-      snapshotTable.alias !== existingTable.alias ||
-      snapshotTable.description !== existingTable.description ||
-      JSON.stringify(snapshotTable.uniques) !== JSON.stringify(parseJson(existingTable.uniques)) ||
-      JSON.stringify(snapshotTable.indexes) !== JSON.stringify(parseJson(existingTable.indexes));
+    // Dynamic: Compare all fields from snapshot
+    for (const [key, value] of Object.entries(snapshotTable)) {
+      if (key === 'columns' || key === 'relations') continue; // Skip, handled separately
+      
+      const existingValue = existingTable[key];
+      
+      // Handle JSON fields (arrays/objects)
+      if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+        // Deep sort arrays/objects before comparing
+        const snapshotSorted = this.deepSort(value);
+        const existingSorted = this.deepSort(parseJson(existingValue));
+        const snapshotJson = JSON.stringify(snapshotSorted);
+        const existingJson = JSON.stringify(existingSorted);
+        
+        if (snapshotJson !== existingJson) {
+          return true;
+        }
+      } else {
+        // Handle primitive fields
+        if (value !== existingValue) {
+          return true;
+        }
+      }
+    }
 
-    return hasChanges;
+    return false;
+  }
+
+  private deepSort(obj: any): any {
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.deepSort(item)).sort((a, b) => {
+        const aStr = JSON.stringify(a);
+        const bStr = JSON.stringify(b);
+        return aStr.localeCompare(bStr);
+      });
+    } else if (obj && typeof obj === 'object') {
+      const sorted: any = {};
+      Object.keys(obj).sort().forEach(key => {
+        sorted[key] = this.deepSort(obj[key]);
+      });
+      return sorted;
+    }
+    return obj;
   }
 
   private detectColumnChanges(snapshotCol: any, existingCol: any): boolean {
@@ -425,6 +470,7 @@ export class CoreInitService {
           description: rest.description,
           uniques: rest.uniques || [],
           indexes: rest.indexes || [],
+          fullTextIndexes: rest.fullTextIndexes || [],
         });
         tableNameToId[name] = result._id;
         this.logger.log(`✅ Created table metadata: ${name}`);
@@ -435,12 +481,15 @@ export class CoreInitService {
     this.logger.log('📝 Phase 2: Processing column definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
-      const tableId = tableNameToId[name];
+      let tableId = tableNameToId[name];
       if (!tableId) continue;
+      // Ensure ObjectId for Mongo reference fields
+      const { ObjectId } = require('mongodb');
+      const tableRef = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
       
       for (const snapshotCol of def.columns || []) {
         const exist = await this.queryBuilder.findOneWhere('column_definition', { 
-          tableId, 
+          table: tableRef, 
           name: snapshotCol.name 
         });
         
@@ -458,7 +507,7 @@ export class CoreInitService {
             options: snapshotCol.options || null,
             description: snapshotCol.description,
             placeholder: snapshotCol.placeholder,
-            tableId: tableId,
+            table: tableRef,
           });
           this.logger.log(`📌 Added column ${snapshotCol.name} for ${name}`);
         }
@@ -469,16 +518,19 @@ export class CoreInitService {
     this.logger.log('📝 Phase 3: Processing relation definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
-      const tableId = tableNameToId[name];
+      let tableId = tableNameToId[name];
       if (!tableId) continue;
+      const { ObjectId } = require('mongodb');
+      const sourceRef = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
       
       for (const rel of def.relations || []) {
         if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
-        const targetId = tableNameToId[rel.targetTable];
+        let targetId = tableNameToId[rel.targetTable];
         if (!targetId) continue;
+        const targetRef = typeof targetId === 'string' ? new ObjectId(targetId) : targetId;
         
         const exist = await this.queryBuilder.findOneWhere('relation_definition', {
-          sourceTableId: tableId,
+          sourceTable: sourceRef,
           propertyName: rel.propertyName,
         });
         
@@ -490,8 +542,8 @@ export class CoreInitService {
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
             description: rel.description,
-            sourceTableId: tableId,
-            targetTableId: targetId,
+            sourceTable: sourceRef,
+            targetTable: targetRef,
           });
           this.logger.log(`📌 Added relation ${rel.propertyName} for ${name}`);
         }

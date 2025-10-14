@@ -150,13 +150,14 @@ export class SqlTableHandlerService {
         await trx('column_definition').insert(columnsToInsert);
       }
 
+      const targetTablesMap = new Map<number, string>();
+
       if (body.relations?.length > 0) {
         // Load all target tables at once (avoid N+1)
         const targetTableIds = body.relations
           .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
           .filter((id: any) => id != null);
         
-        const targetTablesMap = new Map<number, string>();
         if (targetTableIds.length > 0) {
           const targetTables = await trx('table_definition')
             .select('id', 'name')
@@ -222,17 +223,61 @@ export class SqlTableHandlerService {
         this.logger.warn(`Route /${body.name} already exists, skipping route creation`);
       }
 
-      // Commit transaction BEFORE physical schema migration
-      await trx.commit();
+      // Build in-memory metadata for migration (avoid reading uncommitted data)
+      const fullMetadata = {
+        name: body.name,
+        uniques: body.uniques || [],
+        indexes: body.indexes || [],
+        fullTextIndexes: body.fullTextIndexes || [],
+        columns: (body.columns || []).map((col: any) => ({
+          name: col.name,
+          type: col.type,
+          isPrimary: !!col.isPrimary,
+          isGenerated: !!col.isGenerated,
+          isNullable: col.isNullable ?? true,
+          options: col.options,
+          defaultValue: col.defaultValue,
+        })),
+        relations: (body.relations || []).map((rel: any) => {
+          const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
+          const targetTableName = targetTablesMap.get(targetTableId);
+          const relation: any = {
+            propertyName: rel.propertyName,
+            type: rel.type,
+            sourceTableName: body.name,
+            targetTableName,
+            inversePropertyName: rel.inversePropertyName,
+            isNullable: rel.isNullable ?? true,
+          };
+          if (rel.type === 'many-to-many') {
+            relation.junctionTableName = getJunctionTableName(body.name, rel.propertyName, targetTableName);
+            relation.junctionSourceColumn = getForeignKeyColumnName(body.name);
+            relation.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+          }
+          return relation;
+        }),
+      } as any;
 
-      // Fetch full table metadata with columns and relations (after commit)
-      const fullMetadata = await this.getFullTableMetadata(tableId);
+      let physicalCreated = false;
+      try {
+        // Migrate physical schema BEFORE committing metadata
+        await this.schemaMigrationService.createTable(fullMetadata);
+        physicalCreated = true;
 
-      // Migrate physical schema (after commit)
-      await this.schemaMigrationService.createTable(fullMetadata);
+        // Commit transaction AFTER successful migration
+        await trx.commit();
 
-      this.logger.log(`✅ Table created: ${body.name} (metadata + physical schema + route)`);
-      return fullMetadata;
+        this.logger.log(`✅ Table created: ${body.name} (metadata + physical schema + route)`);
+        return fullMetadata;
+      } catch (migrationError) {
+        // Rollback metadata
+        try { await trx.rollback(); } catch {}
+        // If physical created but commit failed later → drop table to avoid mismatch
+        if (physicalCreated) {
+          try { await this.schemaMigrationService.dropTable(body.name); } catch {}
+        }
+        throw migrationError;
+      }
     } catch (error) {
       // Rollback transaction on error (if not already committed/rolled back)
       if (trx && !trx.isCompleted()) {

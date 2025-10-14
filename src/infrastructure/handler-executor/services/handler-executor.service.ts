@@ -21,7 +21,7 @@ export class HandlerExecutorService {
   ) {}
 
   async run(
-    code: string,
+    codeArr: string[],
     ctx: TDynamicContext,
     timeoutMs = this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
   ): Promise<any> {
@@ -34,7 +34,7 @@ export class HandlerExecutorService {
       const timeout = ChildProcessManager.setupTimeout(
         child,
         timeoutMs,
-        code,
+        codeArr.join('\n'),
         isDone,
         reject,
       );
@@ -47,10 +47,10 @@ export class HandlerExecutorService {
         isDone,
         resolve,
         reject,
-        code,
+        codeArr.join('\n'),
       );
 
-      ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code, packages);
+      ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), codeArr, packages);
     });
   }
 }

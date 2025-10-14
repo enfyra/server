@@ -517,6 +517,166 @@ async function createJunctionTables(
 }
 
 /**
+ * Ensure fullTextIndexes column exists in table_definition
+ */
+async function ensureFullTextIndexesColumn(knex: Knex): Promise<void> {
+  console.log('🔍 Checking for fullTextIndexes column...');
+  
+  try {
+    // Check if column exists
+    const hasColumn = await knex.schema.hasColumn('table_definition', 'fullTextIndexes');
+    
+    if (!hasColumn) {
+      console.log('  📝 Adding fullTextIndexes column to table_definition...');
+      await knex.schema.alterTable('table_definition', (table) => {
+        table.json('fullTextIndexes').nullable();
+      });
+      console.log('  ✅ Added fullTextIndexes column');
+    } else {
+      console.log('  ✅ fullTextIndexes column already exists');
+    }
+  } catch (error) {
+    console.log(`  ⚠️ Failed to check/add fullTextIndexes column: ${error.message}`);
+    // Continue anyway - might already exist or be handled by migration
+  }
+}
+
+/**
+ * Upsert metadata from snapshot into tables
+ */
+async function upsertMetadata(knex: Knex, snapshot: Record<string, any>): Promise<void> {
+  console.log('📝 Upserting metadata from snapshot...');
+  
+  const tableNameToId: Record<string, any> = {};
+  
+  // Phase 1: Upsert table definitions
+  console.log('  📝 Phase 1: Upserting table definitions...');
+  for (const [tableName, tableDef] of Object.entries(snapshot)) {
+    const data: any = {
+      name: tableName,
+      createdAt: knex.fn.now(),
+      updatedAt: knex.fn.now(),
+    };
+    
+    // Dynamic: Add all properties from snapshot
+    for (const [key, value] of Object.entries(tableDef as any)) {
+      if (key === 'name') continue; // Skip name, already set above
+      if (key === 'columns') continue; // Skip columns, handled separately
+      if (key === 'relations') continue; // Skip relations, handled separately
+      
+      // Convert arrays/objects to JSON strings
+      if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+        data[key] = JSON.stringify(value);
+      } else {
+        data[key] = value;
+      }
+    }
+    
+    // Upsert table definition
+    const existing = await knex('table_definition').where({ name: tableName }).first();
+    if (existing) {
+      await knex('table_definition').where({ name: tableName }).update(data);
+      tableNameToId[tableName] = existing.id;
+      console.log(`    ✅ Updated ${tableName}`);
+    } else {
+      const result = await knex('table_definition').insert(data);
+      tableNameToId[tableName] = result[0];
+      console.log(`    ✅ Created ${tableName}`);
+    }
+  }
+  
+  // Phase 2: Upsert column definitions
+  console.log('  📝 Phase 2: Upserting column definitions...');
+  for (const [tableName, tableDef] of Object.entries(snapshot)) {
+    const tableId = tableNameToId[tableName];
+    if (!tableId) continue;
+    
+    // Delete existing columns for this table
+    const tableColumn = getForeignKeyColumnName('table');
+    await knex('column_definition').where({ [tableColumn]: tableId }).del();
+    
+    // Insert new columns
+    for (const col of (tableDef as any).columns || []) {
+      const data: any = {
+        [getForeignKeyColumnName('table')]: tableId,
+        createdAt: knex.fn.now(),
+        updatedAt: knex.fn.now(),
+      };
+      
+      // Dynamic: Add all properties from column
+      for (const [key, value] of Object.entries(col)) {
+        // Convert arrays/objects to JSON strings
+        if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+          data[key] = JSON.stringify(value);
+        } else {
+          data[key] = value;
+        }
+      }
+      
+      await knex('column_definition').insert(data);
+    }
+    console.log(`    ✅ Updated columns for ${tableName}`);
+  }
+  
+  // Phase 3: Upsert relation definitions
+  console.log('  📝 Phase 3: Upserting relation definitions...');
+  for (const [tableName, tableDef] of Object.entries(snapshot)) {
+    const tableId = tableNameToId[tableName];
+    if (!tableId) continue;
+    
+    // Delete existing relations for this table
+    const sourceTableColumn = getForeignKeyColumnName('sourceTable');
+    await knex('relation_definition').where({ [sourceTableColumn]: tableId }).del();
+    
+    // Insert new relations
+    for (const rel of (tableDef as any).relations || []) {
+      const targetTableId = tableNameToId[rel.targetTable];
+      if (!targetTableId) continue;
+      
+      const data: any = {
+        [getForeignKeyColumnName('sourceTable')]: tableId,
+        [getForeignKeyColumnName('targetTable')]: targetTableId,
+        createdAt: knex.fn.now(),
+        updatedAt: knex.fn.now(),
+      };
+      
+      // Dynamic: Add all properties from relation
+      for (const [key, value] of Object.entries(rel)) {
+        if (key === 'targetTable') continue; // Skip, handled above
+        // Convert arrays/objects to JSON strings
+        if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+          data[key] = JSON.stringify(value);
+        } else {
+          data[key] = value;
+        }
+      }
+      
+      await knex('relation_definition').insert(data);
+    }
+    console.log(`    ✅ Updated relations for ${tableName}`);
+  }
+  
+  // Phase 4: Upsert setting_definition
+  console.log('  📝 Phase 4: Upserting setting_definition...');
+  const initJsonPath = path.join(process.cwd(), 'src/core/bootstrap/data/init.json');
+  if (fs.existsSync(initJsonPath)) {
+    const initJson = JSON.parse(fs.readFileSync(initJsonPath, 'utf8'));
+    const settingData = initJson.setting_definition;
+    
+    await knex('setting_definition').insert({
+      ...settingData,
+      isInit: true, // Mark as initialized
+      createdAt: knex.fn.now(),
+      updatedAt: knex.fn.now(),
+    }).onConflict('id').merge();
+    
+    console.log(`    ✅ Updated setting_definition`);
+  }
+  
+  console.log('✅ Metadata upsert completed!');
+}
+
+/**
  * Create all tables in correct dependency order
  */
 async function createAllTables(
@@ -634,6 +794,8 @@ export async function initializeDatabaseSql(): Promise<void> {
       if (result?.isInit === true || result?.isInit === 1) {
         console.log('⚠️ Database already initialized, skipping init.');
         return;
+      } else {
+        console.log('🔄 Database exists but not initialized, will upsert data...');
       }
     }
 
@@ -650,6 +812,12 @@ export async function initializeDatabaseSql(): Promise<void> {
 
     // Create all tables
     await createAllTables(knexInstance, schemas, DB_TYPE);
+
+    // Ensure fullTextIndexes column exists in table_definition
+    await ensureFullTextIndexesColumn(knexInstance);
+
+    // Upsert metadata (table_definition, column_definition, etc.)
+    await upsertMetadata(knexInstance, snapshot);
 
     console.log('🎉 Database initialization completed!');
   } catch (error) {

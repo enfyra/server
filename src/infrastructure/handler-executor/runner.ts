@@ -112,24 +112,39 @@ process.on('message', async (msg: any) => {
     ctx.$logs = buildCallableFunctionProxy('$logs');
     ctx.$cache = buildFunctionProxy('$cache');
     
-    // Process template syntax with optimized single-pass replacement
-    const processedCode = processTemplate(msg.code);
-    
     try {
-      const asyncFn = new AsyncFunction(
-        '$ctx',
-        `
-          "use strict";
-          return (async () => {
-            ${processedCode}
-          })();
-        `,
-      );
-      const result = await asyncFn(ctx);
+      const results = [];
+      const codeArr = msg.codeArr || [msg.code]; // Backward compatibility
+      
+      for (const [index, code] of codeArr.entries()) {
+        // Process template syntax with optimized single-pass replacement
+        const processedCode = processTemplate(code);
+        
+        const asyncFn = new AsyncFunction(
+          '$ctx',
+          `
+            "use strict";
+            return (async () => {
+              ${processedCode}
+            })();
+          `,
+        );
+        const result = await asyncFn(ctx);
+        results.push(result);
+        
+        // Early termination: if pre-hook returns value, skip remaining scripts
+        // (This preserves the original behavior where pre-hooks can short-circuit)
+        if (index < codeArr.length - 1 && result !== undefined) {
+          break;
+        }
+      }
+
+      // Return the last result (or the result that caused early termination)
+      const finalResult = results[results.length - 1];
 
       process.send({
         type: 'done',
-        data: result,
+        data: finalResult,
         ctx,
       });
     } catch (error) {
@@ -141,8 +156,8 @@ process.on('message', async (msg: any) => {
           name: error.errorResponse?.name,
           statusCode: error.errorResponse?.statusCode,
           // Add context for debugging template syntax
-          originalCode: msg.code,                    // Original code with @CACHE
-          processedCode: processedCode,              // Code after replacement to $ctx.$cache
+          originalCode: msg.codeArr?.join('\n') || msg.code,     // Original code with @CACHE
+          processedCode: msg.codeArr?.map(processTemplate).join('\n') || processTemplate(msg.code),  // Code after replacement to $ctx.$cache
         },
       });
     }

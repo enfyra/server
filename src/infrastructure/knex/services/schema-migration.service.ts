@@ -82,6 +82,9 @@ export class SchemaMigrationService {
     // Add foreign keys after table creation
     await this.addForeignKeys(tableName, tableMetadata.relations || []);
 
+    // Add full-text indexes after table creation
+    await this.addFullTextIndexes(tableName, tableMetadata.fullTextIndexes || []);
+
     this.logger.log(`✅ Created table: ${tableName}`);
   }
 
@@ -303,6 +306,20 @@ export class SchemaMigrationService {
           }
         });
       }
+    }
+
+    // Compare full-text indexes
+    const oldFullTextIndexes = JSON.stringify(oldMetadata.fullTextIndexes || []);
+    const newFullTextIndexes = JSON.stringify(newMetadata.fullTextIndexes || []);
+
+    if (oldFullTextIndexes !== newFullTextIndexes) {
+      this.logger.log(`  🔧 Updating full-text indexes`);
+      
+      // Drop old full-text indexes
+      await this.dropFullTextIndexes(tableName, oldMetadata.fullTextIndexes || []);
+      
+      // Add new full-text indexes
+      await this.addFullTextIndexes(tableName, newMetadata.fullTextIndexes || []);
     }
   }
 
@@ -541,6 +558,76 @@ export class SchemaMigrationService {
       oldCol.isNullable !== newCol.isNullable ||
       JSON.stringify(oldCol.defaultValue) !== JSON.stringify(newCol.defaultValue)
     );
+  }
+
+  /**
+   * Add full-text indexes to table
+   */
+  private async addFullTextIndexes(tableName: string, fullTextIndexes: string[]): Promise<void> {
+    if (!fullTextIndexes || fullTextIndexes.length === 0) return;
+
+    const knex = this.knexService.getKnex();
+    const dbType = knex.client.config.client;
+
+    this.logger.log(`  🔍 Adding full-text indexes for ${tableName}: ${fullTextIndexes.join(', ')}`);
+
+    if (dbType === 'mysql' || dbType === 'mysql2') {
+      // MySQL: Create one FULLTEXT index with all columns
+      const indexName = `idx_fulltext_${tableName}`;
+      const columns = fullTextIndexes.join(', ');
+      
+      await knex.raw(`CREATE FULLTEXT INDEX ${indexName} ON ${tableName}(${columns})`);
+      this.logger.log(`  ✅ Created MySQL FULLTEXT index: ${indexName}`);
+      
+    } else if (dbType === 'pg' || dbType === 'postgres' || dbType === 'postgresql') {
+      // PostgreSQL: Create GIN index for each column with tsvector
+      for (const column of fullTextIndexes) {
+        const indexName = `idx_fts_${tableName}_${column}`;
+        
+        await knex.raw(`
+          CREATE INDEX ${indexName} ON ${tableName} 
+          USING GIN (to_tsvector('english', ${column}))
+        `);
+        this.logger.log(`  ✅ Created PostgreSQL GIN index: ${indexName}`);
+      }
+    } else {
+      this.logger.warn(`  ⚠️  Full-text search not supported for ${dbType}`);
+    }
+  }
+
+  /**
+   * Drop full-text indexes from table
+   */
+  private async dropFullTextIndexes(tableName: string, fullTextIndexes: string[]): Promise<void> {
+    if (!fullTextIndexes || fullTextIndexes.length === 0) return;
+
+    const knex = this.knexService.getKnex();
+    const dbType = knex.client.config.client;
+
+    this.logger.log(`  🗑️  Dropping full-text indexes for ${tableName}`);
+
+    if (dbType === 'mysql' || dbType === 'mysql2') {
+      const indexName = `idx_fulltext_${tableName}`;
+      
+      try {
+        await knex.raw(`DROP INDEX ${indexName} ON ${tableName}`);
+        this.logger.log(`  ✅ Dropped MySQL FULLTEXT index: ${indexName}`);
+      } catch (error) {
+        this.logger.warn(`  ⚠️  Failed to drop index ${indexName}: ${error.message}`);
+      }
+      
+    } else if (dbType === 'pg' || dbType === 'postgres' || dbType === 'postgresql') {
+      for (const column of fullTextIndexes) {
+        const indexName = `idx_fts_${tableName}_${column}`;
+        
+        try {
+          await knex.raw(`DROP INDEX IF EXISTS ${indexName}`);
+          this.logger.log(`  ✅ Dropped PostgreSQL GIN index: ${indexName}`);
+        } catch (error) {
+          this.logger.warn(`  ⚠️  Failed to drop index ${indexName}: ${error.message}`);
+        }
+      }
+    }
   }
 }
 
