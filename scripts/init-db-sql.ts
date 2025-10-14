@@ -645,6 +645,18 @@ async function upsertMetadata(knex: Knex, snapshot: Record<string, any>): Promis
         updatedAt: knex.fn.now(),
       };
       
+      // For many-to-many, compute and store junction table metadata
+      if (rel.type === 'many-to-many') {
+        const junctionTableName = getJunctionTableName(
+          tableName,
+          rel.propertyName,
+          rel.targetTable,
+        );
+        data.junctionTableName = junctionTableName;
+        data.junctionSourceColumn = getForeignKeyColumnName(tableName);
+        data.junctionTargetColumn = getForeignKeyColumnName(rel.targetTable);
+      }
+      
       // Whitelist allowed relation fields only
       const allowedKeys = new Set([
         'propertyName',
