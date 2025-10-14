@@ -169,6 +169,9 @@ export class DynamicResolver {
         $params: { id: args.id },
         $logs: () => {},
         $share: {},
+        $query: {},
+        $helpers: {},
+        $throw: {},
       };
 
       // Create dynamic repository
@@ -230,7 +233,7 @@ export class DynamicResolver {
 
       const result = await this.handlerExecutorService.run(
         defaultHandler,
-        handlerCtx,
+        handlerCtx as any,
         this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
       );
       

@@ -54,7 +54,7 @@ export class DynamicService {
 
       const result = await this.handlerExecutorService.run(
         scriptCode,
-        req.routeData.context,
+        (req.routeData.context as any),
         timeoutMs,
       );
 

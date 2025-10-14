@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 // Internal imports
-import { TDynamicContext } from '../../../shared';
+import { TDynamicContext } from '../../../shared/utils/types/dynamic-context.type';
 import { PackageCacheService } from '../../cache/services/package-cache.service';
 
 // Relative imports

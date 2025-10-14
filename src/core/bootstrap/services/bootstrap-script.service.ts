@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Inject, forwardRef } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
@@ -24,7 +24,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   constructor(
     private queryBuilder: QueryBuilderService,
     private metadataCacheService: MetadataCacheService,
-    private handlerExecutorService: HandlerExecutorService,
+    @Inject(forwardRef(() => HandlerExecutorService)) private handlerExecutorService: HandlerExecutorService,
     private cacheService: CacheService,
     private tableHandlerService: TableHandlerService,
     private queryEngine: QueryEngine,
@@ -206,9 +206,9 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     const timeoutMs = script.timeout || 30000; // Default 30 seconds for bootstrap
     this.logger.log(`⏱️ Executing script with timeout: ${timeoutMs}ms`);
     
-    const result = await this.handlerExecutorService.run(
-      script.logic,
-      ctx,
+      const result = await this.handlerExecutorService.run(
+        script.logic,
+        ctx as any,
       timeoutMs,
     );
 

@@ -29,7 +29,6 @@ export class SqlTableHandlerService {
     private schemaMigrationService: SchemaMigrationService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
-    private moduleRef: ModuleRef,
   ) {}
 
   private validateRelations(relations: any[]) {

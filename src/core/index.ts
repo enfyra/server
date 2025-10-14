@@ -2,3 +2,4 @@
 export * from './bootstrap/bootstrap.module';
 export * from './exceptions/exceptions.module';
 export * from './exceptions/services/logging.service';
+export * from './exceptions/custom-exceptions';
