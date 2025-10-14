@@ -136,6 +136,7 @@ export class DynamicRepository {
         );
         // MongoDB returns _id, SQL returns id
         const tableId = table._id || table.id;
+        await this.reload();
         return this.find({ where: { id: { _eq: tableId } } });
       }
 
@@ -166,6 +167,7 @@ export class DynamicRepository {
 
       if (this.tableName === 'table_definition') {
         await this.tableHandlerService.delete(id); // Keep as string for MongoDB
+        await this.reload();
         return { message: 'Success', statusCode: 200 };
       }
 

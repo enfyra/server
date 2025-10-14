@@ -149,15 +149,19 @@ export class QueryBuilderService {
       }
     }
     
-    const knex = this.knexService.getKnex();
-    
-    // Postgres supports returning, MySQL doesn't
-    if (this.dbType === 'postgres' && options.returning) {
-      return knex(options.table).insert(options.data).returning(options.returning);
+    // SQL: Use KnexService.insertWithCascade for automatic relation handling
+    if (Array.isArray(options.data)) {
+      // Handle multiple records
+      const results = [];
+      for (const record of options.data) {
+        const result = await this.knexService.insertWithCascade(options.table, record);
+        results.push(result);
+      }
+      return results;
+    } else {
+      // Handle single record
+      return await this.knexService.insertWithCascade(options.table, options.data);
     }
-    
-    // MySQL: insert without returning
-    return knex(options.table).insert(options.data);
   }
 
   /**
@@ -372,6 +376,7 @@ export class QueryBuilderService {
       return collection.find(filter).toArray();
     }
     
+    // SQL: Use KnexService.updateWithCascade for automatic relation handling
     const knex = this.knexService.getKnex();
     let query: any = knex(options.table);
     
@@ -379,13 +384,19 @@ export class QueryBuilderService {
       query = this.applyWhereToKnex(query, options.where);
     }
     
-    await query.update(options.data);
+    // Get records to update first
+    const recordsToUpdate = await query.clone();
+    
+    // Update each record with cascade
+    for (const record of recordsToUpdate) {
+      await this.knexService.updateWithCascade(options.table, record.id, options.data);
+    }
     
     if (options.returning) {
       return query.returning(options.returning);
     }
     
-    return { affected: 1 };
+    return { affected: recordsToUpdate.length };
   }
 
   /**
@@ -542,8 +553,9 @@ export class QueryBuilderService {
       return this.mongoService.updateOne(table, id, data);
     }
     
+    // SQL: Use KnexService.updateWithCascade for automatic relation handling
+    await this.knexService.updateWithCascade(table, id, data);
     const knex = this.knexService.getKnex();
-    await knex(table).where('id', id).update(data);
     return knex(table).where('id', id).first();
   }
 
@@ -638,19 +650,6 @@ export class QueryBuilderService {
     return ['mysql', 'postgres'].includes(this.dbType);
   }
 
-  /**
-   * Reload with metadata (SQL only - for Knex hooks)
-   * MongoDB: No-op (doesn't need metadata reload)
-   */
-  async reloadWithMetadata(metadata: any): Promise<void> {
-    if (this.dbType === 'mongodb') {
-      // MongoDB doesn't need metadata reload
-      return;
-    }
-    
-    // SQL: Reload Knex with metadata for hooks and JSON parsing
-    await this.knexService.reloadWithMetadata(metadata);
-  }
 
   /**
    * Expand smart field list into explicit JOINs and SELECT

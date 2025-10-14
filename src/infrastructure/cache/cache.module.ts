@@ -1,11 +1,12 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { CacheService } from './services/cache.service';
 import { RedisPubSubService } from './services/redis-pubsub.service';
 import { RouteCacheService } from './services/route-cache.service';
 import { MetadataCacheService } from './services/metadata-cache.service';
+import { KnexModule } from '../knex/knex.module';
 
 @Module({
-  imports: [],
+  imports: [forwardRef(() => KnexModule)],
   providers: [CacheService, RedisPubSubService, RouteCacheService, MetadataCacheService],
   exports: [CacheService, RedisPubSubService, RouteCacheService, MetadataCacheService],
 })

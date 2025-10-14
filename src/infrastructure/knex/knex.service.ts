@@ -11,7 +11,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private knexInstance: Knex;
   private readonly logger = new Logger(KnexService.name);
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
-  private currentMetadata: any = null;
   
   // Hook registry
   private hooks: {
@@ -50,6 +49,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('⏭️  Skipping Knex initialization (DB_TYPE=mongodb)');
       return;
     }
+
     
     this.logger.log('🔌 Initializing Knex connection with hooks...');
     
@@ -336,13 +336,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
    * Transform relation objects to FK values
    * Example: { ec: { id: 3 } } → { ecId: 3 }
    */
-  private transformRelationsToFK(tableName: string, data: any): any {
-    if (!tableName || !this.currentMetadata) {
+  private async transformRelationsToFK(tableName: string, data: any): Promise<any> {
+    if (!tableName) {
       return data;
     }
 
-    const tableMeta = this.currentMetadata.tables?.get?.(tableName) || 
-                      this.currentMetadata.tablesList?.find((t: any) => t.name === tableName);
+    const metadata = await this.metadataCacheService.getMetadata();
+    const tableMeta = metadata.tables?.get?.(tableName) || 
+                      metadata.tablesList?.find((t: any) => t.name === tableName);
     
     if (!tableMeta || !tableMeta.relations) {
       return data;
@@ -400,12 +401,13 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
    * Sync many-to-many junction tables before update
    */
   private async syncManyToManyRelations(tableName: string, data: any): Promise<void> {
-    if (!tableName || !this.currentMetadata || !data.id) {
+    if (!tableName || !data.id) {
       return;
     }
 
-    const tableMeta = this.currentMetadata.tables?.get?.(tableName) || 
-                      this.currentMetadata.tablesList?.find((t: any) => t.name === tableName);
+    const metadata = await this.metadataCacheService.getMetadata();
+    const tableMeta = metadata.tables?.get?.(tableName) || 
+                      metadata.tablesList?.find((t: any) => t.name === tableName);
     
     if (!tableMeta || !tableMeta.relations) {
       return;
@@ -451,13 +453,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
    * Strip columns that don't exist in table metadata
    * Prevents "Unknown column" errors
    */
-  private stripUnknownColumns(tableName: string, data: any): any {
-    if (!tableName || !this.currentMetadata) {
+  private async stripUnknownColumns(tableName: string, data: any): Promise<any> {
+    if (!tableName) {
       return data;
     }
 
-    const tableMeta = this.currentMetadata.tables?.get?.(tableName) || 
-                      this.currentMetadata.tablesList?.find((t: any) => t.name === tableName);
+    const metadata = await this.metadataCacheService.getMetadata();
+    const tableMeta = metadata.tables?.get?.(tableName) || 
+                      metadata.tablesList?.find((t: any) => t.name === tableName);
     
     if (!tableMeta || !tableMeta.columns) {
       return data;
@@ -490,13 +493,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   /**
    * Remove fields that have isUpdatable = false in metadata
    */
-  private stripNonUpdatableFields(tableName: string, data: any): any {
-    if (!tableName || !this.currentMetadata) {
+  private async stripNonUpdatableFields(tableName: string, data: any): Promise<any> {
+    if (!tableName) {
       return data;
     }
 
-    const tableMeta = this.currentMetadata.tables?.get?.(tableName) || 
-                      this.currentMetadata.tablesList?.find((t: any) => t.name === tableName);
+    const metadata = await this.metadataCacheService.getMetadata();
+    const tableMeta = metadata.tables?.get?.(tableName) || 
+                      metadata.tablesList?.find((t: any) => t.name === tableName);
     
     if (!tableMeta || !tableMeta.columns) {
       return data;
@@ -626,60 +630,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     return await this.knexInstance.transaction(callback);
   }
 
-  /**
-   * Reload Knex connection with metadata for auto-parsing JSON fields
-   */
-  async reloadWithMetadata(metadata: any): Promise<void> {
-    this.logger.log('🔄 Reloading Knex connection with metadata for auto-parse...');
-
-    // Store metadata for relation handling
-    this.currentMetadata = metadata;
-
-    // Build column types map from metadata
-    this.columnTypesMap.clear();
-    for (const table of metadata.tablesList || []) {
-      const tableMap = new Map<string, string>();
-      for (const col of table.columns || []) {
-        tableMap.set(col.name, col.type);
-      }
-      this.columnTypesMap.set(table.name, tableMap);
-    }
-
-    // Close old connection
-    if (this.knexInstance) {
-      await this.knexInstance.destroy();
-    }
-
-    // Create new connection with postProcessResponse
-    const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
-    const DB_HOST = this.configService.get<string>('DB_HOST') || 'localhost';
-    const DB_PORT = this.configService.get<number>('DB_PORT') || (DB_TYPE === 'postgres' ? 5432 : 3306);
-    const DB_USERNAME = this.configService.get<string>('DB_USERNAME') || 'root';
-    const DB_PASSWORD = this.configService.get<string>('DB_PASSWORD') || '';
-    const DB_NAME = this.configService.get<string>('DB_NAME') || 'enfyra';
-
-    this.knexInstance = knex({
-      client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
-      connection: {
-        host: DB_HOST,
-        port: DB_PORT,
-        user: DB_USERNAME,
-        password: DB_PASSWORD,
-        database: DB_NAME,
-      },
-      pool: {
-        min: 2,
-        max: 10,
-      },
-      acquireConnectionTimeout: 10000,
-      debug: false,
-      postProcessResponse: (result, queryContext) => {
-        return this.autoParseJsonFields(result, queryContext);
-      },
-    });
-
-    this.logger.log(`✅ Knex reloaded with auto-parse for ${this.columnTypesMap.size} tables`);
-  }
 
   /**
    * Auto-parse JSON fields based on column types from metadata
@@ -743,15 +693,25 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
    */
   async insertWithCascade(tableName: string, data: any): Promise<any> {
     // Auto-add timestamps (runtime behavior, not metadata-driven)
-    const now = this.knexInstance.fn.now();
-    if (data.createdAt === undefined) {
-      data.createdAt = now;
-    }
-    if (data.updatedAt === undefined) {
-      data.updatedAt = now;
+    // Skip timestamps for junction tables
+    const isJunctionTable = tableName.includes('_') && 
+                           (tableName.includes('_definition_') || 
+                            tableName.includes('_methods_') ||
+                            tableName.includes('_routes_') ||
+                            tableName.includes('_permissions_'));
+    
+    if (!isJunctionTable) {
+      const now = this.knexInstance.fn.now();
+      if (data.createdAt === undefined) {
+        data.createdAt = now;
+      }
+      if (data.updatedAt === undefined) {
+        data.updatedAt = now;
+      }
     }
 
-    if (!this.currentMetadata) {
+    const metadata = await this.metadataCacheService.getMetadata();
+    if (!metadata) {
       this.logger.warn('No metadata loaded - falling back to regular insert');
       return await this.knexInstance(tableName).insert(data);
     }
@@ -760,7 +720,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       this.knexInstance,
       tableName,
       data,
-      this.currentMetadata,
+      metadata,
     );
   }
 
@@ -773,11 +733,22 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const { createdAt, ...updateData } = data;
     
     // Auto-update updatedAt timestamp (runtime behavior, not metadata-driven)
-    if (updateData.updatedAt === undefined) {
+    // Skip timestamps for junction tables
+    const isJunctionTable = tableName.includes('_') && 
+                           (tableName.includes('_definition_') || 
+                            tableName.includes('_methods_') ||
+                            tableName.includes('_routes_') ||
+                            tableName.includes('_permissions_'));
+    
+    if (!isJunctionTable && updateData.updatedAt === undefined) {
+      updateData.updatedAt = this.knexInstance.fn.now();
+    } else if (!isJunctionTable && updateData.updatedAt && typeof updateData.updatedAt === 'string') {
+      // Convert ISO string to MySQL datetime format
       updateData.updatedAt = this.knexInstance.fn.now();
     }
 
-    if (!this.currentMetadata) {
+    const metadata = await this.metadataCacheService.getMetadata();
+    if (!metadata) {
       this.logger.warn('No metadata loaded - falling back to regular update');
       await this.knexInstance(tableName).where('id', recordId).update(updateData);
       return;
@@ -788,7 +759,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       tableName,
       recordId,
       updateData,
-      this.currentMetadata,
+      metadata,
     );
   }
 
@@ -796,12 +767,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
    * Preprocess data to transform relations (without insert/update)
    * Useful when you want to handle the insert/update yourself
    */
-  preprocessData(tableName: string, data: any) {
-    if (!this.currentMetadata) {
+  async preprocessData(tableName: string, data: any) {
+    const metadata = await this.metadataCacheService.getMetadata();
+    if (!metadata) {
       return { cleanData: data, manyToManyRelations: [], oneToManyRelations: [] };
     }
 
-    return this.relationHandler.preprocessData(tableName, data, this.currentMetadata);
+    return this.relationHandler.preprocessData(tableName, data, metadata);
   }
+
 
 }
