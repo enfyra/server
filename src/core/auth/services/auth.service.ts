@@ -38,9 +38,17 @@ export class AuthService {
 
     // Create session
     const isMongoDB = this.queryBuilder.isMongoDb();
+    const rawUserId = isMongoDB 
+      ? (user?._id)
+      : (user?.id ?? (user as any)?.ID ?? (user as any)?.userId);
+
+    if (!rawUserId) {
+      throw new BadRequestException('Login failed: user id not found');
+    }
+
     const userId = isMongoDB 
-      ? (typeof user._id === 'string' ? new ObjectId(user._id) : user._id)
-      : user.id;
+      ? (typeof rawUserId === 'string' ? new ObjectId(rawUserId) : rawUserId)
+      : rawUserId;
     
     const sessionData: any = isMongoDB 
       ? {
@@ -58,12 +66,13 @@ export class AuthService {
     
     // Get session ID (MongoDB uses _id, SQL uses id)
     const sessionId = isMongoDB 
-      ? (insertedSession._id?.toString() || insertedSession.id)
-      : (insertedSession.id || sessionData.id);
+      ? ((insertedSession as any)?._id?.toString() || (insertedSession as any)?.id)
+      : ((insertedSession as any)?.id || (sessionData as any)?.id);
 
+    const jwtUserId = isMongoDB ? String(user._id) : String((user as any)?.id ?? (user as any)?.ID ?? (user as any)?.userId);
     const accessToken = this.jwtService.sign(
       {
-        id: isMongoDB ? user._id : user.id,
+        id: jwtUserId,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
@@ -130,9 +139,18 @@ export class AuthService {
       throw new BadRequestException('Session not found!');
     }
 
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const sessionUserId = isMongoDB 
+      ? ((session as any)?.user?._id || (session as any)?.user)
+      : (session as any)?.userId;
+
+    if (!sessionUserId) {
+      throw new BadRequestException('Session invalid: missing user id');
+    }
+
     const accessToken = this.jwtService.sign(
       {
-        id: session.userId,
+        id: String(sessionUserId),
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
