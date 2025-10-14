@@ -648,6 +648,7 @@ async function upsertMetadata(knex: Knex, snapshot: Record<string, any>): Promis
       // Dynamic: Add all properties from relation
       for (const [key, value] of Object.entries(rel)) {
         if (key === 'targetTable') continue; // Skip, handled above
+        if (key.startsWith('_')) continue; // Skip internal flags like _isInverseGenerated
         // Convert arrays/objects to JSON strings
         if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
           data[key] = JSON.stringify(value);
