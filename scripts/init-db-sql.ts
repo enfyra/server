@@ -605,6 +605,11 @@ async function upsertMetadata(knex: Knex, snapshot: Record<string, any>): Promis
       
       // Dynamic: Add all properties from column
       for (const [key, value] of Object.entries(col)) {
+        // Always stringify known simple-json fields
+        if (key === 'defaultValue' || key === 'options') {
+          data[key] = JSON.stringify(value ?? null);
+          continue;
+        }
         // Convert arrays/objects to JSON strings
         if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
           data[key] = JSON.stringify(value);
