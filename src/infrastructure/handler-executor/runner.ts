@@ -113,38 +113,20 @@ process.on('message', async (msg: any) => {
     ctx.$cache = buildFunctionProxy('$cache');
     
     try {
-      const results = [];
-      const codeArr = msg.codeArr || [msg.code]; // Backward compatibility
-      
-      for (const [index, code] of codeArr.entries()) {
-        // Process template syntax with optimized single-pass replacement
-        const processedCode = processTemplate(code);
-        
-        const asyncFn = new AsyncFunction(
-          '$ctx',
-          `
-            "use strict";
-            return (async () => {
-              ${processedCode}
-            })();
-          `,
-        );
-        const result = await asyncFn(ctx);
-        results.push(result);
-        
-        // Early termination: if pre-hook returns value, skip remaining scripts
-        // (This preserves the original behavior where pre-hooks can short-circuit)
-        if (index < codeArr.length - 1 && result !== undefined) {
-          break;
-        }
-      }
-
-      // Return the last result (or the result that caused early termination)
-      const finalResult = results[results.length - 1];
-
+      const processedCode = processTemplate(msg.code);
+      const asyncFn = new AsyncFunction(
+        '$ctx',
+        `
+          "use strict";
+          return (async () => {
+            ${processedCode}
+          })();
+        `,
+      );
+      const result = await asyncFn(ctx);
       process.send({
         type: 'done',
-        data: finalResult,
+        data: result,
         ctx,
       });
     } catch (error) {
@@ -156,8 +138,8 @@ process.on('message', async (msg: any) => {
           name: error.errorResponse?.name,
           statusCode: error.errorResponse?.statusCode,
           // Add context for debugging template syntax
-          originalCode: msg.codeArr?.join('\n') || msg.code,     // Original code with @CACHE
-          processedCode: msg.codeArr?.map(processTemplate).join('\n') || processTemplate(msg.code),  // Code after replacement to $ctx.$cache
+          originalCode: msg.code,     // Original code with @CACHE
+          processedCode: processTemplate(msg.code),  // Code after replacement to $ctx.$cache
         },
       });
     }

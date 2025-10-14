@@ -167,13 +167,13 @@ export class ChildProcessManager {
   static sendExecuteMessage(
     child: any,
     ctx: TDynamicContext,
-    codeArr: string[],
+    code: string,
     packages: string[],
   ): void {
     child.send({
       type: 'execute',
       ctx: ctx,
-      codeArr,
+      code,
       packages,
     });
   }
