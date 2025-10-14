@@ -112,8 +112,10 @@ process.on('message', async (msg: any) => {
     ctx.$logs = buildCallableFunctionProxy('$logs');
     ctx.$cache = buildFunctionProxy('$cache');
     
+    // Process template syntax with optimized single-pass replacement
+    const processedCode = processTemplate(msg.code);
+    
     try {
-      const processedCode = processTemplate(msg.code);
       const asyncFn = new AsyncFunction(
         '$ctx',
         `
@@ -124,6 +126,7 @@ process.on('message', async (msg: any) => {
         `,
       );
       const result = await asyncFn(ctx);
+
       process.send({
         type: 'done',
         data: result,
@@ -138,8 +141,8 @@ process.on('message', async (msg: any) => {
           name: error.errorResponse?.name,
           statusCode: error.errorResponse?.statusCode,
           // Add context for debugging template syntax
-          originalCode: msg.code,     // Original code with @CACHE
-          processedCode: processTemplate(msg.code),  // Code after replacement to $ctx.$cache
+          originalCode: msg.code,                    // Original code with @CACHE
+          processedCode: processedCode,              // Code after replacement to $ctx.$cache
         },
       });
     }

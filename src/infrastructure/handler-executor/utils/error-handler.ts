@@ -5,7 +5,7 @@ import {
   AuthenticationException,
   AuthorizationException,
   BusinessLogicException,
-} from '../../../core/exceptions/custom-exceptions';
+} from '../../../core';
 
 export class ErrorHandler {
   private static readonly logger = new Logger(ErrorHandler.name);

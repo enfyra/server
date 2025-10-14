@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared';
 import { resolvePath } from './resolve-path';
 import { ErrorHandler } from './error-handler';
-import { ScriptTimeoutException } from '../../../core/exceptions/custom-exceptions';
+import { ScriptTimeoutException } from '../../../core';
 import { smartMergeContext } from './smart-merge';
 
 export class ChildProcessManager {
