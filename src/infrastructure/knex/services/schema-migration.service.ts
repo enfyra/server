@@ -334,7 +334,7 @@ export class SchemaMigrationService {
     const knex = this.knexService.getKnex();
     
     const junctionTableName = relation.junctionTableName || 
-      getJunctionTableName(relation.sourceTableName, relation.targetTableName, relation.propertyName);
+      getJunctionTableName(relation.sourceTableName, relation.propertyName, relation.targetTableName);
 
     if (await knex.schema.hasTable(junctionTableName)) {
       this.logger.debug(`Junction table ${junctionTableName} already exists`);

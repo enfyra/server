@@ -100,11 +100,8 @@ function parseSnapshotToSchema(snapshot: Record<string, any>): KnexTableSchema[]
 
     if (definition.relations) {
       for (const relation of definition.relations) {
-        // Skip auto-generated inverse relations (junction already created from original side)
-        if ((relation as any)._isInverseGenerated) {
-          continue;
-        }
-
+        // Create junction table entry for ANY M2M relation (original or inverse),
+        // rely on createdJunctionNames to avoid duplicates
         if (relation.type === 'many-to-many') {
           const junctionTableName = getJunctionTableName(
             tableName,
@@ -297,6 +294,12 @@ async function createTable(
         // Add FK column for many-to-one and one-to-one
         // Use propertyName to avoid conflicts when multiple FKs to same table
         const foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
+
+        // If column already defined explicitly in columns, skip to avoid duplicates
+        const alreadyDefined = (definition.columns || []).some(c => c.name === foreignKeyColumn);
+        if (alreadyDefined) {
+          continue;
+        }
         
         // Detect PK type of target table
         const targetPkType = getPrimaryKeyType(schemas, relation.targetTable);
@@ -719,7 +722,15 @@ async function createAllTables(
   for (const schema of schemas) {
     const exists = await knex.schema.hasTable(schema.tableName);
     if (!exists) {
-      await createTable(knex, schema, dbType, schemas);
+      try {
+        await createTable(knex, schema, dbType, schemas);
+      } catch (error: any) {
+        if (error?.code === 'ER_TABLE_EXISTS_ERROR') {
+          console.log(`⏩ Table already exists (race): ${schema.tableName}`);
+        } else {
+          throw error;
+        }
+      }
     } else {
       console.log(`⏩ Table already exists: ${schema.tableName}`);
     }
@@ -728,8 +739,51 @@ async function createAllTables(
   // Phase 2: Add foreign key constraints
   await addForeignKeys(knex, schemas);
 
+  // Phase 2.5: Ensure FK columns exist for existing tables per snapshot before junctions
+  console.log('🔧 Ensuring FK columns for existing tables...');
+  for (const schema of schemas) {
+    const { tableName, definition } = schema;
+    const exists = await knex.schema.hasTable(tableName);
+    if (!exists) continue;
+
+    if (definition.relations && definition.relations.length > 0) {
+      for (const relation of definition.relations) {
+        // Only many-to-one and one-to-one have FK columns on source table
+        if (!['many-to-one', 'one-to-one'].includes(relation.type)) continue;
+
+        const fkColumn = getForeignKeyColumnName(relation.propertyName);
+        const hasCol = await knex.schema.hasColumn(tableName, fkColumn);
+        if (hasCol) continue;
+
+        console.log(`  ➕ Adding missing FK column ${tableName}.${fkColumn}`);
+        await knex.schema.alterTable(tableName, (table) => {
+          const targetPkType = getPrimaryKeyType(schemas, relation.targetTable);
+          let col: any;
+          if (targetPkType === 'uuid') {
+            col = table.string(fkColumn, 36);
+          } else {
+            col = table.integer(fkColumn).unsigned();
+          }
+          if (relation.isNullable === false) {
+            col.notNullable();
+          } else {
+            col.nullable();
+          }
+        });
+      }
+    }
+  }
+
   // Phase 3: Create junction tables
-  await createJunctionTables(knex, schemas);
+  try {
+    await createJunctionTables(knex, schemas);
+  } catch (error: any) {
+    if (error?.code === 'ER_TABLE_EXISTS_ERROR') {
+      console.log('⏩ Junction table already exists (race), continue');
+    } else {
+      throw error;
+    }
+  }
 
   console.log('✅ All tables created successfully!');
 }
