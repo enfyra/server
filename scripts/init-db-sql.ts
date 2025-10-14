@@ -645,11 +645,22 @@ async function upsertMetadata(knex: Knex, snapshot: Record<string, any>): Promis
         updatedAt: knex.fn.now(),
       };
       
-      // Dynamic: Add all properties from relation
+      // Whitelist allowed relation fields only
+      const allowedKeys = new Set([
+        'propertyName',
+        'type',
+        'inversePropertyName',
+        'isNullable',
+        'isSystem',
+        'description',
+        'junctionTableName',
+        'junctionSourceColumn',
+        'junctionTargetColumn',
+      ]);
+
       for (const [key, value] of Object.entries(rel)) {
-        if (key === 'targetTable') continue; // Skip, handled above
-        if (key.startsWith('_')) continue; // Skip internal flags like _isInverseGenerated
-        // Convert arrays/objects to JSON strings
+        if (key === 'targetTable') continue; // handled above
+        if (!allowedKeys.has(key)) continue; // skip unsupported fields like isGenerated
         if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
           data[key] = JSON.stringify(value);
         } else {
