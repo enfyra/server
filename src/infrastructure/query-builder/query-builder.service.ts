@@ -339,7 +339,11 @@ export class QueryBuilderService {
       query = query.limit(queryOptions.limit);
     }
 
+    const queryStartTime = Date.now();
+    console.log(`[QUERY-EXEC] Executing query on table: ${queryOptions.table}`);
     const results = await query;
+    const queryDuration = Date.now() - queryStartTime;
+    console.log(`[QUERY-EXEC] Query completed in ${queryDuration}ms | table: ${queryOptions.table} | rows: ${results.length}`);
 
     // Return in queryEngine format
     return { data: results };
