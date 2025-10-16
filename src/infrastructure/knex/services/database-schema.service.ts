@@ -19,8 +19,6 @@ export class DatabaseSchemaService {
     const knex = this.knexService.getKnex();
     const dbType = process.env.DB_TYPE || 'mysql';
 
-    this.logger.log(`🔍 Getting actual schema for table: ${tableName}`);
-
     if (dbType === 'mysql') {
       return await this.getMySQLTableSchema(tableName, knex);
     } else if (dbType === 'postgres') {

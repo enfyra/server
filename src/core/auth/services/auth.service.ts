@@ -31,7 +31,6 @@ export class AuthService {
     
     // Find user by email
     const user = await this.queryBuilder.findOneWhere('user_definition', { email });
-
     if (!user || !(await this.bcryptService.compare(password, user.password))) {
       throw new BadRequestException(`Login failed!`);
     }
@@ -40,7 +39,7 @@ export class AuthService {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB 
       ? (typeof user._id === 'string' ? new ObjectId(user._id) : user._id)
-      : user.id;
+      : (user.id || user._id);
     
     const sessionData: any = isMongoDB 
       ? {
@@ -50,12 +49,18 @@ export class AuthService {
         }
       : {
           id: randomUUID(), // SQL: UUID for primary key
-          userId: userId, // SQL: integer/uuid FK
+          userId: userId.toString(), // SQL: convert to string for varchar(36)
           remember: body.remember,
         };
 
+    console.log('🔍 DEBUG SESSION INSERT:', { 
+      sessionData, 
+      dbType: this.queryBuilder.getDatabaseType(),
+      isMongoDB: this.queryBuilder.isMongoDb()
+    });
     const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
-    
+    console.log('🔍 DEBUG SESSION RESULT:', insertedSession);
+      
     // Get session ID (MongoDB uses _id, SQL uses id)
     const sessionId = isMongoDB 
       ? (insertedSession._id?.toString() || insertedSession.id)

@@ -16,7 +16,22 @@ export function applyJoins(
     const relation = join.relation;
     if (!relation) continue;
 
-    const parentTable = join.parentAlias === tableName ? tableName : join.parentAlias;
+    // Get parent table name (not alias)
+    let parentTable: string;
+    if (join.parentAlias === tableName) {
+      parentTable = tableName;
+    } else {
+      // Parent is an alias - need to get the actual table name from metadata
+      // For nested joins like "route_definition_mainTable_columns", parent alias is "route_definition_mainTable"
+      // We need to find the join that created this alias to get its target table
+      const parentJoin = joins.find(j => j.alias === join.parentAlias);
+      if (parentJoin && parentJoin.relation) {
+        parentTable = parentJoin.relation.targetTableName;
+      } else {
+        // Fallback: try to extract from alias (not reliable, but better than nothing)
+        parentTable = join.parentAlias;
+      }
+    }
     const targetTable = relation.targetTableName;
 
     if (relation.type === 'many-to-many') {
@@ -38,9 +53,11 @@ export function applyJoins(
     } else if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
       // Many-to-one/One-to-one: direct FK join
       const fkColumn = relation.foreignKeyColumn;
+      // Use parent ALIAS (not table name) in JOIN condition
+      const parentAliasForJoin = join.parentAlias;
       result = result.leftJoin(
         `${targetTable} as ${join.alias}`,
-        `${parentTable}.${fkColumn}`,
+        `${parentAliasForJoin}.${fkColumn}`,
         `${join.alias}.id`,
       );
     } else if (relation.type === 'one-to-many') {
@@ -50,21 +67,23 @@ export function applyJoins(
         console.warn(`[QueryEngine] Cannot find metadata for target table: ${targetTable}`);
         continue;
       }
-      
+
       const inverseRelation = inverseMeta.relations?.find(
         (r: any) => r.targetTableName === parentTable,
       );
-      
+
       if (!inverseRelation) {
-        console.warn(`[QueryEngine] Cannot find inverse relation for O2M`);
+        console.warn(`[QueryEngine] Cannot find inverse relation for O2M, parent=${parentTable}, target=${targetTable}`);
         continue;
       }
-      
+
       const inverseFkColumn = inverseRelation.foreignKeyColumn;
+      // Use parent ALIAS (not table name) in JOIN condition
+      const parentAliasForJoin = join.parentAlias;
       result = result.leftJoin(
         `${targetTable} as ${join.alias}`,
         `${join.alias}.${inverseFkColumn}`,
-        `${parentTable}.id`,
+        `${parentAliasForJoin}.id`,
       );
     }
   }

@@ -56,11 +56,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
           if (isMongoDB) {
             // MongoDB: Convert method names to method IDs (array of ObjectIds)
-            const methods = await this.queryBuilder.select({
-              table: 'method_definition',
-              where: [{ field: 'method', operator: 'in', value: record.publishedMethods }],
-              select: ['_id', 'method'],
+            const result = await this.queryBuilder.select({
+              tableName: 'method_definition',
+              filter: { method: { _in: record.publishedMethods } },
+              fields: ['_id', 'method'],
             });
+            const methods = result.data;
             
             transformedRecord.publishedMethods = methods.map((m: any) => 
               typeof m._id === 'string' ? new ObjectId(m._id) : m._id
@@ -91,14 +92,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     // Handle publishedMethods using automatic cascade
     if (record._publishedMethods && Array.isArray(record._publishedMethods)) {
       const methodNames = record._publishedMethods;
-      
+
       // Get method IDs
-      const methods = await this.queryBuilder.select({
-        table: 'method_definition',
-        where: [{ field: 'method', operator: 'in', value: methodNames }],
-        select: ['id', 'method'],
+      const result = await this.queryBuilder.select({
+        tableName: 'method_definition',
+        filter: { method: { _in: methodNames } },
+        fields: ['id', 'method'],
       });
-      
+      const methods = result.data;
+
       const methodIds = methods.map((m: any) => m.id);
       
       if (methodIds.length > 0) {

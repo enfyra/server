@@ -30,14 +30,4 @@ export class QueryEngine {
   async find(params: any) {
     return this.getEngine().find(params);
   }
-
-  /**
-   * Reload query engine (for metadata changes)
-   */
-  async reload(): Promise<void> {
-    this.logger.log('🔄 Reloading QueryEngine...');
-    // QueryEngine is stateless, no need to reload
-    // Metadata changes are handled by MetadataCacheService
-    this.logger.log('✅ QueryEngine reloaded');
-  }
 }

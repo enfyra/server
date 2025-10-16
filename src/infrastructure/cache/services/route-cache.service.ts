@@ -149,178 +149,9 @@ export class RouteCacheService implements OnModuleInit {
   }
 
   private async loadRoutesForMongoDB(): Promise<any[]> {
-    const routes = await this.queryBuilder.select({
-      table: 'route_definition',
-      where: [{ field: 'isEnabled', operator: '=', value: true }],
-      pipeline: [
-        {
-          $match: { isEnabled: true }
-        },
-        {
-          $lookup: {
-            from: 'table_definition',
-            localField: 'mainTable',
-            foreignField: '_id',
-            as: 'mainTableInfo'
-          }
-        },
-        {
-          $lookup: {
-            from: 'method_definition',
-            localField: 'publishedMethods',
-            foreignField: '_id',
-            as: 'publishedMethodsInfo'
-          }
-        },
-        {
-          $lookup: {
-            from: 'route_permission_definition',
-            let: { routeId: '$_id' },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      { $eq: ['$route', '$$routeId'] },
-                      { $eq: ['$isEnabled', true] }
-                    ]
-                  }
-                }
-              },
-              {
-                $lookup: {
-                  from: 'role_definition',
-                  localField: 'role',
-                  foreignField: '_id',
-                  as: 'roleInfo'
-                }
-              },
-              {
-                $addFields: {
-                  role: {
-                    $cond: {
-                      if: { $gt: [{ $size: '$roleInfo' }, 0] },
-                      then: { $arrayElemAt: ['$roleInfo', 0] },
-                      else: null
-                    }
-                  },
-                  allowedUsers: [],
-                  methods: []
-                }
-              },
-              {
-                $project: {
-                  roleInfo: 0
-                }
-              }
-            ],
-            as: 'routePermissions'
-          }
-        },
-        {
-          $lookup: {
-            from: 'route_handler_definition',
-            let: { routeId: '$_id' },
-            pipeline: [
-              {
-                $match: {
-                  $expr: { $eq: ['$route', '$$routeId'] }
-                }
-              },
-              {
-                $lookup: {
-                  from: 'method_definition',
-                  localField: 'method',
-                  foreignField: '_id',
-                  as: 'methodInfo'
-                }
-              },
-              {
-                $addFields: {
-                  method: {
-                    $cond: {
-                      if: { $gt: [{ $size: '$methodInfo' }, 0] },
-                      then: { $arrayElemAt: ['$methodInfo', 0] },
-                      else: null
-                    }
-                  }
-                }
-              },
-              {
-                $project: {
-                  methodInfo: 0
-                }
-              }
-            ],
-            as: 'handlers'
-          }
-        },
-        {
-          $lookup: {
-            from: 'hook_definition',
-            let: { routeId: '$_id' },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [
-                      { $eq: ['$route', '$$routeId'] },
-                      { $eq: ['$isEnabled', true] }
-                    ]
-                  }
-                }
-              },
-              {
-                $sort: { priority: 1 }
-              }
-            ],
-            as: 'hooks'
-          }
-        },
-        {
-          $addFields: {
-            mainTable: {
-              $cond: {
-                if: { $gt: [{ $size: '$mainTableInfo' }, 0] },
-                then: { $arrayElemAt: ['$mainTableInfo', 0] },
-                else: null
-              }
-            },
-            publishedMethods: '$publishedMethodsInfo'
-          }
-        },
-        {
-          $project: {
-            mainTableInfo: 0,
-            publishedMethodsInfo: 0
-          }
-        }
-      ]
-    });
-
-    const globalHooks = await this.queryBuilder.select({
-      table: 'hook_definition',
-      where: [
-        { field: 'isEnabled', operator: '=', value: true },
-        { field: 'route', operator: 'is null', value: undefined }
-      ],
-      sort: [{ field: 'priority', direction: 'asc' }],
-    });
-
-    for (const route of routes) {
-      route.hooks = [...globalHooks, ...(route.hooks || [])];
-      if (!route.targetTables) {
-        route.targetTables = [];
-      }
-    }
-
-    return routes;
-  }
-
-  private async loadRoutesForSQL(): Promise<any[]> {
-    const rows = await this.queryBuilder.select({
-      table: 'route_definition',
-      where: [{ field: 'isEnabled', operator: '=', value: true }],
+    const result = await this.queryBuilder.select({
+      tableName: 'route_definition',
+      filter: { isEnabled: { _eq: true } },
       fields: [
         '*',
         'mainTable.*',
@@ -333,23 +164,72 @@ export class RouteCacheService implements OnModuleInit {
         'publishedMethods.*',
         'targetTables.*',
       ],
-      sort: [
-        { field: 'id', direction: 'asc' },
-        { field: 'hooks.priority', direction: 'asc' },
-      ],
     });
+    const routes = result.data;
 
-    const globalHooksRows = await this.queryBuilder.select({
-      table: 'hook_definition',
-      where: [
-        { field: 'isEnabled', operator: '=', value: true },
-        { field: 'routeId', operator: 'is null', value: undefined },
-      ],
+    // Get global hooks separately
+    const globalHooksResult = await this.queryBuilder.select({
+      tableName: 'hook_definition',
+      filter: {
+        isEnabled: { _eq: true },
+        routeId: { _null: true }
+      },
       fields: ['*', 'methods.*'],
-      sort: [{ field: 'priority', direction: 'asc' }],
+      sort: ['priority'],
     });
+    const globalHooks = globalHooksResult.data;
 
-    return this.denormalizeRoutes(rows, globalHooksRows);
+    // Merge global hooks with route hooks
+    for (const route of routes) {
+      route.hooks = [...globalHooks, ...(route.hooks || [])];
+      if (!route.targetTables) {
+        route.targetTables = [];
+      }
+    }
+
+    return routes;
+  }
+
+  private async loadRoutesForSQL(): Promise<any[]> {
+    const result = await this.queryBuilder.select({
+      tableName: 'route_definition',
+      filter: { isEnabled: { _eq: true } },
+      fields: [
+        '*',
+        'mainTable.*',
+        'handlers.*',
+        'handlers.method.*',
+        'routePermissions.*',
+        'routePermissions.role.*',
+        'hooks.*',
+        'hooks.methods.*',
+        'publishedMethods.*',
+        'targetTables.*',
+      ],
+      sort: ['id', 'hooks.priority'],
+    });
+    const routes = result.data;
+
+    // Load global hooks (hooks with no specific route)
+    const globalHooksResult = await this.queryBuilder.select({
+      tableName: 'hook_definition',
+      filter: {
+        isEnabled: { _eq: true },
+        routeId: { _is_null: true }
+      },
+      fields: ['*', 'methods.*'],
+      sort: ['priority'],
+    });
+    const globalHooks = globalHooksResult.data;
+
+    // Merge global hooks into each route
+    for (const route of routes) {
+      const routeSpecificHooks = route.hooks || [];
+      // Combine global hooks first (lower priority), then route-specific hooks
+      route.hooks = [...globalHooks, ...routeSpecificHooks];
+    }
+
+    return routes;
   }
 
   private denormalizeRoutes(rows: any[], globalHooks: any[]): any[] {

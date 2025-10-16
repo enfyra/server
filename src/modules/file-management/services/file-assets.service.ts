@@ -92,13 +92,14 @@ export class FileAssetsService {
     
     // Load permissions if file is not published
     if (file.isPublished !== true) {
-      const permissions = await this.queryBuilder.select({
-        table: 'file_permission_definition',
-        where: [
-          { field: 'fileId', operator: '=', value: fileId },
-          { field: 'isEnabled', operator: '=', value: true },
-        ],
+      const permissionsResult = await this.queryBuilder.select({
+        tableName: 'file_permission_definition',
+        filter: {
+          fileId: { _eq: fileId },
+          isEnabled: { _eq: true }
+        },
       });
+      const permissions = permissionsResult.data;
       
       // Load related users and roles for permissions
       for (const perm of permissions) {

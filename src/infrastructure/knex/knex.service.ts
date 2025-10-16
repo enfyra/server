@@ -318,7 +318,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       }
       
       // Use provided metadataGetter or fallback to injected MetadataCacheService
-      const getter = metadataGetter || ((tbl: string) => self.metadataCacheService?.getTableMetadata(tbl));
+      const getter = metadataGetter || ((tbl: string) => self.metadataCacheService?.lookupTableByName(tbl));
       
       // Apply joins immediately
       applyRelations(this, tableName, relationNames, getter);

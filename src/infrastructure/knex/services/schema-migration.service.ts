@@ -45,10 +45,26 @@ export class SchemaMigrationService {
 
       // Add FK columns for many-to-one and one-to-one relations
       if (tableMetadata.relations) {
+        this.logger.log(`🔍 CREATE TABLE: Processing ${tableMetadata.relations.length} relations`);
         for (const rel of tableMetadata.relations) {
-          if (!['many-to-one', 'one-to-one'].includes(rel.type)) continue;
+          this.logger.log(`🔍 CREATE TABLE: Relation ${rel.propertyName} (${rel.type}) - target: ${rel.targetTableName}`);
+          if (!['many-to-one', 'one-to-one'].includes(rel.type)) {
+            if (rel.type === 'one-to-many') {
+              this.logger.log(`🔍 CREATE TABLE: O2M relation detected - will create FK column in target table ${rel.targetTableName}`);
+              // For O2M: FK column goes in TARGET table, not source table
+              // This will be handled after table creation
+            } else {
+              this.logger.log(`🔍 CREATE TABLE: Skipping ${rel.type} relation (not M2O/O2O/O2M)`);
+            }
+            continue;
+          }
 
-          const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+          this.logger.log(`🔍 DEBUG CREATE: rel.foreignKeyColumn = ${rel.foreignKeyColumn}, rel.targetTableName = ${rel.targetTableName}, rel.targetTable = ${rel.targetTable}`);
+          const targetTableName = rel.targetTableName || rel.targetTable;
+          // For new M2O relations, use propertyNameId (metadata not available yet)
+          const fkColumn = `${rel.propertyName}Id`;
+          
+          this.logger.log(`🔍 CREATE TABLE: Creating FK column ${fkColumn} for relation ${rel.propertyName} (target: ${rel.targetTableName})`);
           
           // Determine FK column type based on target table's PK type
           // For now, assume int (will use metadata later if needed)
@@ -88,8 +104,11 @@ export class SchemaMigrationService {
     for (const rel of tableMetadata.relations || []) {
       if (!['many-to-one', 'one-to-one'].includes(rel.type)) continue;
 
-      const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
       const targetTable = rel.targetTableName || rel.targetTable;
+      // Always use targetTableNameId pattern for consistency, ignore foreignKeyColumn if it's wrong
+      const fkColumn = `${targetTable}Id`;
+      
+      this.logger.log(`🔍 CREATE TABLE: Creating FK constraint ${fkColumn} -> ${targetTable} for relation ${rel.propertyName}`);
       
       if (!targetTable) continue;
 
@@ -100,6 +119,51 @@ export class SchemaMigrationService {
         });
       } catch (error) {
         this.logger.warn(`Failed to add FK constraint ${fkColumn} -> ${targetTable}: ${error.message}`);
+      }
+    }
+
+    // Add FK columns for O2M relations in target tables
+    for (const rel of tableMetadata.relations || []) {
+      if (rel.type === 'one-to-many') {
+        this.logger.log(`🔍 DEBUG O2M CREATE: rel.targetTableName = ${rel.targetTableName}, rel.targetTable = ${rel.targetTable}, tableName = ${tableName}`);
+        this.logger.log(`🔍 DEBUG O2M CREATE: rel.foreignKeyColumn = ${rel.foreignKeyColumn}, rel.inversePropertyName = ${rel.inversePropertyName}`);
+        
+        if (!rel.inversePropertyName) {
+          throw new Error(`One-to-many relation '${rel.propertyName}' in table '${tableName}' MUST have inversePropertyName`);
+        }
+        
+        const targetTable = rel.targetTableName || rel.targetTable;
+        const sourceTable = tableName;
+        // Use inversePropertyName + "Id" for O2M FK column naming
+        const fkColumn = `${rel.inversePropertyName}Id`;
+        
+        this.logger.log(`🔍 CREATE TABLE: Creating O2M FK column ${fkColumn} in target table ${targetTable} for relation ${rel.propertyName}`);
+        
+        if (!targetTable) continue;
+
+        try {
+          // Add FK column to target table
+          await knex.schema.alterTable(targetTable, (table) => {
+            const fkCol = table.integer(fkColumn).unsigned();
+            if (rel.isNullable === false) {
+              fkCol.notNullable();
+            } else {
+              fkCol.nullable();
+            }
+            // Auto-index FK columns
+            table.index([fkColumn]);
+          });
+          
+          // Add FK constraint
+          await knex.schema.alterTable(targetTable, (table) => {
+            const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
+            table.foreign(fkColumn).references('id').inTable(sourceTable).onDelete(onDelete).onUpdate('CASCADE');
+          });
+          
+          this.logger.log(`✅ Created O2M FK column ${fkColumn} in ${targetTable}`);
+        } catch (error) {
+          this.logger.warn(`Failed to add O2M FK column ${fkColumn} to ${targetTable}: ${error.message}`);
+        }
       }
     }
 
@@ -115,6 +179,9 @@ export class SchemaMigrationService {
     oldMetadata: any,
     newMetadata: any,
   ): Promise<void> {
+    this.logger.log(`🔄 SCHEMA MIGRATION: updateTable called for ${tableName}`);
+    this.logger.log(`🔍 DEBUG: oldMetadata relations count: ${(oldMetadata.relations || []).length}`);
+    this.logger.log(`🔍 DEBUG: newMetadata relations count: ${(newMetadata.relations || []).length}`);
     const knex = this.knexService.getKnex();
 
     if (!(await knex.schema.hasTable(tableName))) {
@@ -128,7 +195,7 @@ export class SchemaMigrationService {
   
 
     // Step 2: Generate complete schema diff JSON
-    const schemaDiff = this.generateSchemaDiff(oldMetadata, newMetadata);
+    const schemaDiff = await this.generateSchemaDiff(oldMetadata, newMetadata);
     
     
     // Step 4: Execute migrations based on diff
@@ -145,7 +212,7 @@ export class SchemaMigrationService {
   async compareMetadataWithActualSchema(tableName: string, metadata: any): Promise<void> {
 
     try {
-      const cachedMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      const cachedMetadata = await this.metadataCacheService.lookupTableByName(tableName);
       
       if (!cachedMetadata) {
         return;
@@ -154,8 +221,8 @@ export class SchemaMigrationService {
      
 
       // Find differences
-      const inputColNames = new Set(metadata.columns?.map(c => c.name) || []);
-      const cachedColNames = new Set(cachedMetadata.columns?.map(c => c.name) || []);
+      const inputColNames = new Set(metadata.columns?.map((c: any) => c.name) || []);
+      const cachedColNames = new Set(cachedMetadata.columns?.map((c: any) => c.name) || []);
 
       const missingInCache = [...inputColNames].filter(name => !cachedColNames.has(name));
       const extraInCache = [...cachedColNames].filter(name => !inputColNames.has(name));
@@ -256,7 +323,7 @@ export class SchemaMigrationService {
    * Generate complete schema diff JSON
    * This creates a comprehensive diff structure before executing any SQL
    */
-  private generateSchemaDiff(oldMetadata: any, newMetadata: any): any {
+  private async generateSchemaDiff(oldMetadata: any, newMetadata: any): Promise<any> {
     const diff = {
       table: {
         create: null,
@@ -301,7 +368,7 @@ export class SchemaMigrationService {
     this.analyzeColumnChanges(oldMetadata.columns || [], newMetadata.columns || [], diff);
 
     // 3. Analyze relations and add FK columns
-    this.analyzeRelationChanges(oldMetadata.relations || [], newMetadata.relations || [], diff);
+    await this.analyzeRelationChanges(oldMetadata.relations || [], newMetadata.relations || [], diff);
 
     // 4. Analyze constraints
     this.analyzeConstraintChanges(oldMetadata, newMetadata, diff);
@@ -314,20 +381,21 @@ export class SchemaMigrationService {
    * Note: This only analyzes explicit columns from metadata, not FK columns from relations
    */
   private analyzeColumnChanges(oldColumns: any[], newColumns: any[], diff: any): void {
-    const oldColMap = new Map(oldColumns.map(c => [c.name, c]));
-    const newColMap = new Map(newColumns.map(c => [c.name, c]));
+    // Match by ID instead of name
+    const oldColMap = new Map(oldColumns.map(c => [c.id, c]));
+    const newColMap = new Map(newColumns.map(c => [c.id, c]));
 
     this.logger.log('🔍 Column Analysis (Explicit Columns Only):');
-    this.logger.log('  Old columns:', oldColumns.map(c => c.name));
-    this.logger.log('  New columns:', newColumns.map(c => c.name));
+    this.logger.log('  Old columns:', oldColumns.map(c => `${c.id}:${c.name}`));
+    this.logger.log('  New columns:', newColumns.map(c => `${c.id}:${c.name}`));
     
     // Debug: Log full column details
-    this.logger.log('🔍 Old columns details:', JSON.stringify(oldColumns.map(c => ({ name: c.name, id: c.id, type: c.type })), null, 2));
-    this.logger.log('🔍 New columns details:', JSON.stringify(newColumns.map(c => ({ name: c.name, id: c.id, type: c.type })), null, 2));
+    this.logger.log('🔍 Old columns details:', JSON.stringify(oldColumns.map(c => ({ id: c.id, name: c.name, type: c.type })), null, 2));
+    this.logger.log('🔍 New columns details:', JSON.stringify(newColumns.map(c => ({ id: c.id, name: c.name, type: c.type })), null, 2));
 
     // Find columns to create (only explicit columns from metadata)
     for (const newCol of newColumns) {
-      if (!oldColMap.has(newCol.name)) {
+      if (!oldColMap.has(newCol.id)) {
         this.logger.log(`  ➕ Column to CREATE: ${newCol.name}`);
         diff.columns.create.push(newCol);
       }
@@ -335,7 +403,7 @@ export class SchemaMigrationService {
 
     // Find columns to update/rename/delete (only explicit columns from metadata)
     for (const oldCol of oldColumns) {
-      const newCol = newColMap.get(oldCol.name);
+      const newCol = newColMap.get(oldCol.id);
       
       if (!newCol) {
         // Column deleted - but check if it's a system column
@@ -360,6 +428,8 @@ export class SchemaMigrationService {
             oldColumn: oldCol,
             newColumn: newCol
           });
+        } else {
+          this.logger.log(`  ✅ Column unchanged: ${newCol.name}`);
         }
       }
     }
@@ -377,28 +447,46 @@ export class SchemaMigrationService {
    * Analyze relation changes and add FK columns to diff
    * This handles FK columns that are generated from relations
    */
-  private analyzeRelationChanges(oldRelations: any[], newRelations: any[], diff: any): void {
-    const oldRelMap = new Map(oldRelations.map(r => [r.propertyName, r]));
-    const newRelMap = new Map(newRelations.map(r => [r.propertyName, r]));
+  private async analyzeRelationChanges(oldRelations: any[], newRelations: any[], diff: any): Promise<void> {
+    this.logger.log('🔍 Relation Analysis (FK Column Generation):');
+    this.logger.log(`🔍 DEBUG: oldRelations count: ${oldRelations.length}, newRelations count: ${newRelations.length}`);
+    // Match by ID instead of propertyName
+    const oldRelMap = new Map(oldRelations.map(r => [r.id, r]));
+    const newRelMap = new Map(newRelations.map(r => [r.id, r]));
 
     this.logger.log('🔍 Relation Analysis (FK Column Generation):');
-    this.logger.log('  Old relations:', oldRelations.map(r => r.propertyName));
-    this.logger.log('  New relations:', newRelations.map(r => r.propertyName));
+    this.logger.log('  Old relations:', oldRelations.map(r => `${r.id}:${r.propertyName}`));
+    this.logger.log('  New relations:', newRelations.map(r => `${r.id}:${r.propertyName}`));
+    
+    // Debug: Show detailed relation comparison
+    this.logger.log('🔍 Detailed relation comparison:');
+    for (const oldRel of oldRelations) {
+      const newRel = newRelMap.get(oldRel.id);
+      if (newRel) {
+        this.logger.log(`  Relation ${oldRel.id}:`);
+        this.logger.log(`    Old propertyName: "${oldRel.propertyName}"`);
+        this.logger.log(`    New propertyName: "${newRel.propertyName}"`);
+        this.logger.log(`    Changed: ${this.hasRelationChanged(oldRel, newRel)}`);
+      }
+    }
     
     // Debug: Log full relation details
-    this.logger.log('🔍 Old relations details:', JSON.stringify(oldRelations.map(r => ({ propertyName: r.propertyName, type: r.type, targetTable: r.targetTableName })), null, 2));
-    this.logger.log('🔍 New relations details:', JSON.stringify(newRelations.map(r => ({ propertyName: r.propertyName, type: r.type, targetTable: r.targetTableName })), null, 2));
+    this.logger.log('🔍 Old relations details:', JSON.stringify(oldRelations.map(r => ({ id: r.id, propertyName: r.propertyName, type: r.type, targetTable: r.targetTableName })), null, 2));
+    this.logger.log('🔍 New relations details:', JSON.stringify(newRelations.map(r => ({ id: r.id, propertyName: r.propertyName, type: r.type, targetTable: r.targetTableName })), null, 2));
 
     // Find relations to create
     for (const newRel of newRelations) {
-      if (!oldRelMap.has(newRel.propertyName)) {
+      this.logger.log(`  🔍 DEBUG CREATE: Checking relation ${newRel.propertyName} (${newRel.type}), id: ${newRel.id}, exists: ${oldRelMap.has(newRel.id)}`);
+      if (!oldRelMap.has(newRel.id)) {
         this.logger.log(`  ➕ Relation to CREATE: ${newRel.propertyName} (${newRel.type})`);
         diff.relations.create.push(newRel);
         
-        // Add FK column for many-to-one and one-to-one relations
+        // Add FK column for relations
         if (['many-to-one', 'one-to-one'].includes(newRel.type)) {
-          const fkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
-          this.logger.log(`  ➕ FK Column to CREATE: ${fkColumn} for relation ${newRel.propertyName}`);
+          // For M2O/O2O: FK column goes in SOURCE table
+          const fkColumn = newRel.foreignKeyColumn || `${newRel.targetTableName}Id`;
+          this.logger.log(`  ➕ FK Column to CREATE in SOURCE: ${fkColumn} for relation ${newRel.propertyName} (target: ${newRel.targetTableName})`);
+          this.logger.log(`  🔍 DEBUG: newRel.foreignKeyColumn = ${newRel.foreignKeyColumn}, newRel.targetTableName = ${newRel.targetTableName}`);
           diff.columns.create.push({
             name: fkColumn,
             type: 'int',
@@ -411,7 +499,33 @@ export class SchemaMigrationService {
             description: `FK column for ${newRel.propertyName} relation`,
             // Mark as FK column for special handling
             isForeignKey: true,
+            foreignKeyTarget: newRel.targetTableName,
+            foreignKeyColumn: 'id',
             relationPropertyName: newRel.propertyName
+          });
+        } else if (newRel.type === 'one-to-many') {
+          // For O2M: FK column goes in TARGET table (cross-table operation)
+          this.logger.log(`  🔍 O2M: foreignKeyColumn=${newRel.foreignKeyColumn}, inversePropertyName=${newRel.inversePropertyName}`);
+          const sourceTableName = newRel.sourceTableName || 'unknown_source';
+          const fkColumn = newRel.foreignKeyColumn || `${sourceTableName}Id`; // Source table becomes the target for FK
+          this.logger.log(`  ➕ FK Column to CREATE in TARGET: ${fkColumn} for O2M relation ${newRel.propertyName}`);
+          
+          // Add cross-table FK column creation to diff
+          if (!diff.crossTableOperations) {
+            diff.crossTableOperations = [];
+          }
+          
+          diff.crossTableOperations.push({
+            operation: 'createColumn',
+            targetTable: newRel.targetTableName,
+            column: {
+              name: fkColumn,
+              type: 'int',
+              isNullable: newRel.isNullable !== false,
+              isForeignKey: true,
+              foreignKeyTarget: sourceTableName,
+              foreignKeyColumn: 'id'
+            }
           });
         }
       }
@@ -419,7 +533,7 @@ export class SchemaMigrationService {
 
     // Find relations to update/delete
     for (const oldRel of oldRelations) {
-      const newRel = newRelMap.get(oldRel.propertyName);
+      const newRel = newRelMap.get(oldRel.id);
       
       if (!newRel) {
         // Relation deleted
@@ -428,8 +542,9 @@ export class SchemaMigrationService {
         
         // Remove FK column for many-to-one and one-to-one relations
         if (['many-to-one', 'one-to-one'].includes(oldRel.type)) {
-          const fkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
-          this.logger.log(`  ➖ FK Column to DELETE: ${fkColumn} for relation ${oldRel.propertyName}`);
+          // For M2O/O2O: FK column should be named after TARGET table, not property
+          const fkColumn = oldRel.foreignKeyColumn || `${oldRel.targetTableName}Id`;
+          this.logger.log(`  ➖ FK Column to DELETE: ${fkColumn} for relation ${oldRel.propertyName} (target: ${oldRel.targetTableName})`);
           diff.columns.delete.push({
             name: fkColumn,
             type: 'int',
@@ -438,40 +553,259 @@ export class SchemaMigrationService {
           });
         }
       } else if (this.hasRelationChanged(oldRel, newRel)) {
-        // Relation modified - need to recreate FK column
+        // Relation changed - analyze what type of change
         this.logger.log(`  🔧 Relation to UPDATE: ${newRel.propertyName}`);
         
-        // For M2O/O2O relations, we need to drop old FK and create new one
-        if (['many-to-one', 'one-to-one'].includes(oldRel.type) || ['many-to-one', 'one-to-one'].includes(newRel.type)) {
-          const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
-          const newFkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
+        // 1. CRITICAL: Check if relation type changed (M2O ↔ O2M ↔ M2M)
+        if (oldRel.type !== newRel.type) {
+          this.logger.log(`  🚨 CRITICAL: Relation type changed: ${oldRel.type} → ${newRel.type}`);
           
-          // Drop old FK column
-          this.logger.log(`  ➖ FK Column to DELETE: ${oldFkColumn} (relation changed)`);
-          diff.columns.delete.push({
-            name: oldFkColumn,
-            type: 'int',
-            isForeignKey: true,
-            relationPropertyName: oldRel.propertyName
-          });
+          // Handle M2O → Other types
+          if (oldRel.type === 'many-to-one') {
+            if (newRel.type === 'one-to-many') {
+              this.logger.log(`  🔄 M2O → O2M: Drop FK column, create inverse relation`);
+              
+              // Drop FK column from source table (test.eaId)
+              this.logger.log(`  🔍 DEBUG M2O→O2M: oldRel.foreignKeyColumn = ${oldRel.foreignKeyColumn}, oldRel.targetTableName = ${oldRel.targetTableName}`);
+              // Always use targetTableNameId pattern for consistency, ignore foreignKeyColumn if it's wrong
+              const oldFkColumn = `${oldRel.targetTableName}Id`;
+              this.logger.log(`  ➖ Drop FK column: ${oldFkColumn} from ${oldRel.sourceTableName || 'source table'}`);
+              diff.columns.delete.push({
+                name: oldFkColumn,
+                type: 'int',
+                isForeignKey: true,
+                relationPropertyName: oldRel.propertyName
+              });
+              
+              // Create FK column in target table (ea.testId)
+              // For O2M, FK column should be named after the inversePropertyName
+              this.logger.log(`  🔍 DEBUG M2O→O2M: newRel.inversePropertyName = ${newRel.inversePropertyName}`);
+              
+              if (!newRel.inversePropertyName) {
+                throw new Error(`One-to-many relation '${newRel.propertyName}' in table '${oldRel.sourceTableName}' MUST have inversePropertyName`);
+              }
+              
+              const newFkColumn = `${newRel.inversePropertyName}Id`; // ea.bId
+              this.logger.log(`  ➕ Create FK column: ${newFkColumn} in target table`);
+              
+              // Add cross-table FK column creation to diff
+              if (!diff.crossTableOperations) {
+                diff.crossTableOperations = [];
+              }
+              
+              // Get target table name from metadata
+              const targetTableName = oldRel.targetTableName || 'ea'; // Fallback to 'ea' for now
+              this.logger.log(`  🎯 Target table for FK creation: ${targetTableName}`);
+              
+              diff.crossTableOperations.push({
+                operation: 'createColumn',
+                targetTable: targetTableName,
+                column: {
+                  name: newFkColumn,
+                  type: 'int',
+                  isNullable: newRel.isNullable !== false,
+                  isForeignKey: true,
+                  foreignKeyTarget: oldRel.sourceTableName, // Source table becomes the target
+                  foreignKeyColumn: 'id'
+                }
+              });
+              
+            } else if (newRel.type === 'many-to-many') {
+              this.logger.log(`  🔄 M2O → M2M: Drop FK column, create junction table`);
+              // TODO: Drop FK column, create junction table with both table IDs
+              
+            } else if (newRel.type === 'one-to-one') {
+              this.logger.log(`  🔄 M2O → O2O: Drop old FK, create new FK column`);
+              
+              // Drop old FK column from source table (lookup from metadata)
+              this.logger.log(`  🔍 DEBUG M2O→O2O: oldRel.foreignKeyColumn = ${oldRel.foreignKeyColumn}`);
+              const oldFkColumn = oldRel.foreignKeyColumn || `${oldRel.targetTableName}Id`;
+              this.logger.log(`  ➖ Drop FK column: ${oldFkColumn} from source table`);
+              
+              diff.columns.delete.push({
+                name: oldFkColumn,
+                type: 'int',
+                isForeignKey: true,
+                relationPropertyName: oldRel.propertyName
+              });
+              
+              // Create new FK column in source table (propertyNameId)
+              const newFkColumn = `${newRel.propertyName}Id`;
+              this.logger.log(`  ➕ Create FK column: ${newFkColumn} in source table`);
+              
+              diff.columns.create.push({
+                name: newFkColumn,
+                type: 'int',
+                isNullable: newRel.isNullable !== false,
+                isForeignKey: true,
+                foreignKeyTarget: newRel.targetTableName,
+                foreignKeyColumn: 'id',
+                relationPropertyName: newRel.propertyName
+              });
+              
+            }
+          }
+          // Handle O2M → Other types
+          else if (oldRel.type === 'one-to-many') {
+            if (newRel.type === 'many-to-one') {
+              this.logger.log(`  🔄 O2M → M2O: Drop FK column from target, create FK column in source`);
+              
+              // Drop FK column from target table (ea.testId)
+              this.logger.log(`  🔍 DEBUG O2M→M2O: oldRel.sourceTableName = ${oldRel.sourceTableName}, oldRel.targetTableName = ${oldRel.targetTableName}`);
+              
+              if (!oldRel.targetTableName) {
+                this.logger.error(`  ❌ ERROR: oldRel.targetTableName is undefined for O2M→M2O migration`);
+                continue;
+              }
+              if (!oldRel.sourceTableName) {
+                this.logger.error(`  ❌ ERROR: oldRel.sourceTableName is undefined for O2M→M2O migration`);
+                continue;
+              }
+              
+              const targetTableName = oldRel.targetTableName;
+              const sourceTableName = oldRel.sourceTableName;
+              // Use metadata foreignKeyColumn if available, fallback to sourceTableNameId
+              const oldFkColumn = oldRel.foreignKeyColumn || `${sourceTableName}Id`; // testId
+              this.logger.log(`  ➖ Drop FK column: ${oldFkColumn} from ${targetTableName}`);
+              
+              // Add cross-table FK column deletion to diff
+              if (!diff.crossTableOperations) {
+                diff.crossTableOperations = [];
+              }
+              
+              diff.crossTableOperations.push({
+                operation: 'dropColumn',
+                targetTable: targetTableName,
+                columnName: oldFkColumn
+              });
+              
+              // Create FK column in source table (test.eaId)
+              this.logger.log(`  🔍 DEBUG O2M→M2O CREATE: newRel.targetTableName = ${JSON.stringify(newRel.targetTableName)}, newRel.targetTable = ${JSON.stringify(newRel.targetTable)}`);
+              
+              if (!newRel.targetTableName && !newRel.targetTable) {
+                this.logger.error(`  ❌ ERROR: newRel.targetTableName and newRel.targetTable are both undefined for O2M→M2O migration`);
+                continue;
+              }
+              
+              // Handle case where targetTable might be an object with id property
+              let newTargetTableName;
+              if (typeof newRel.targetTableName === 'string') {
+                newTargetTableName = newRel.targetTableName;
+              } else if (typeof newRel.targetTable === 'string') {
+                newTargetTableName = newRel.targetTable;
+              } else if (newRel.targetTableName && typeof newRel.targetTableName === 'object' && newRel.targetTableName.name) {
+                newTargetTableName = newRel.targetTableName.name;
+              } else if (newRel.targetTable && typeof newRel.targetTable === 'object' && newRel.targetTable.name) {
+                newTargetTableName = newRel.targetTable.name;
+              } else if (newRel.targetTable && typeof newRel.targetTable === 'object' && newRel.targetTable.id) {
+                // Lookup table name from metadata cache
+                try {
+                  const targetTable = await this.metadataCacheService.lookupTableById(newRel.targetTable.id);
+                  if (targetTable) {
+                    newTargetTableName = targetTable.name;
+                    this.logger.log(`  🔍 Looked up table name: ${newTargetTableName} for id ${newRel.targetTable.id}`);
+                  } else {
+                    this.logger.error(`  ❌ ERROR: Cannot find table with id ${newRel.targetTable.id} in metadata`);
+                    continue;
+                  }
+                } catch (error) {
+                  this.logger.error(`  ❌ ERROR: Failed to lookup table name: ${error.message}`);
+                  continue;
+                }
+              } else {
+                this.logger.error(`  ❌ ERROR: Cannot extract table name from newRel.targetTableName or newRel.targetTable`);
+                continue;
+              }
+              
+              // Use metadata foreignKeyColumn if available, fallback to targetTableNameId
+              const newFkColumn = `${newRel.propertyName}Id`; // propertyNameId
+              this.logger.log(`  ➕ Create FK column: ${newFkColumn} in source table`);
+              
+              diff.columns.create.push({
+                name: newFkColumn,
+                type: 'int',
+                isNullable: newRel.isNullable !== false,
+                isForeignKey: true,
+                foreignKeyTarget: newTargetTableName,
+                foreignKeyColumn: 'id',
+                relationPropertyName: newRel.propertyName
+              });
+              
+            } else if (newRel.type === 'many-to-many') {
+              this.logger.log(`  🔄 O2M → M2M: Drop inverse relation, create junction table`);
+              // TODO: Drop inverse relation, create junction table
+              
+            } else if (newRel.type === 'one-to-one') {
+              this.logger.log(`  🔄 O2M → O2O: Drop inverse relation, create FK column`);
+              // TODO: Drop inverse relation, create FK column
+              
+            }
+          }
+          // Handle M2M → Other types
+          else if (oldRel.type === 'many-to-many') {
+            if (newRel.type === 'many-to-one') {
+              this.logger.log(`  🔄 M2M → M2O: Drop junction table, create FK column`);
+              // TODO: Drop junction table, create FK column in source table
+              
+            } else if (newRel.type === 'one-to-many') {
+              this.logger.log(`  🔄 M2M → O2M: Drop junction table, create inverse relation`);
+              // TODO: Drop junction table, create inverse relation in target table
+              
+            } else if (newRel.type === 'one-to-one') {
+              this.logger.log(`  🔄 M2M → O2O: Drop junction table, create FK column`);
+              // TODO: Drop junction table, create FK column
+              
+            }
+          }
+          // Handle O2O → Other types
+          else if (oldRel.type === 'one-to-one') {
+            if (newRel.type === 'many-to-one') {
+              this.logger.log(`  🔄 O2O → M2O: Keep FK column, update metadata`);
+              // TODO: Keep FK column, update relation metadata
+              
+            } else if (newRel.type === 'one-to-many') {
+              this.logger.log(`  🔄 O2O → O2M: Drop FK column, create inverse relation`);
+              // TODO: Drop FK column, create inverse relation in target table
+              
+            } else if (newRel.type === 'many-to-many') {
+              this.logger.log(`  🔄 O2O → M2M: Drop FK column, create junction table`);
+              // TODO: Drop FK column, create junction table
+              
+            }
+          }
+        } 
+        // 2. HIGH: Check if target table changed
+        else if (oldRel.targetTableId !== newRel.targetTableId) {
+          this.logger.log(`  ⚠️  HIGH: Target table changed: ${oldRel.targetTableId} → ${newRel.targetTableId}`);
+          // TODO: Handle target table change (FK column recreation needed)
           
-          // Create new FK column
-          this.logger.log(`  ➕ FK Column to CREATE: ${newFkColumn} (relation changed)`);
-          diff.columns.create.push({
-            name: newFkColumn,
-            type: 'int',
-            isNullable: newRel.isNullable ?? true,
-            isPrimary: false,
-            isGenerated: false,
-            isSystem: false,
-            isUpdatable: false,
-            isHidden: false,
-            description: `FK column for ${newRel.propertyName} relation`,
-            isForeignKey: true,
-            relationPropertyName: newRel.propertyName
-          });
+        }
+        // 3. MEDIUM: Check if inverse property changed
+        else if (oldRel.inversePropertyName !== newRel.inversePropertyName) {
+          this.logger.log(`  🔄 MEDIUM: Inverse property changed: ${oldRel.inversePropertyName} → ${newRel.inversePropertyName}`);
+          // TODO: Handle inverse property change (metadata update only)
+          
+        }
+        // 4. MEDIUM: Check if nullable changed
+        else if (oldRel.isNullable !== newRel.isNullable) {
+          this.logger.log(`  🔄 MEDIUM: Nullable changed: ${oldRel.isNullable} → ${newRel.isNullable}`);
+          // TODO: Handle nullable change (FK column modification needed)
+          
+        }
+        // 5. LOW: Check if only propertyName changed
+        else if (oldRel.propertyName !== newRel.propertyName) {
+          this.logger.log(`  ✅ LOW: PropertyName changed: ${oldRel.propertyName} → ${newRel.propertyName} (metadata only)`);
+          // TODO: Handle propertyName change (metadata update only, no FK column changes)
+          
+        }
+        // 6. UNKNOWN: Other changes
+        else {
+          this.logger.log(`  ❓ UNKNOWN: Other relation changes detected`);
+          // TODO: Handle unknown changes
+          
         }
         
+        // Always add to relations update
         diff.relations.update.push({
           oldRelation: oldRel,
           newRelation: newRel
@@ -542,11 +876,19 @@ export class SchemaMigrationService {
    * Check if relation has changed
    */
   private hasRelationChanged(oldRel: any, newRel: any): boolean {
+    // Normalize boolean values for comparison
+    const normalizeBoolean = (value: any) => {
+      if (typeof value === 'boolean') return value ? 1 : 0;
+      if (typeof value === 'number') return value;
+      return value;
+    };
+
     return (
+      oldRel.propertyName !== newRel.propertyName ||
       oldRel.type !== newRel.type ||
       oldRel.targetTableId !== newRel.targetTableId ||
       oldRel.inversePropertyName !== newRel.inversePropertyName ||
-      oldRel.isNullable !== newRel.isNullable
+      normalizeBoolean(oldRel.isNullable) !== normalizeBoolean(newRel.isNullable)
     );
   }
 
@@ -555,9 +897,9 @@ export class SchemaMigrationService {
    */
   private async executeSchemaDiff(tableName: string, diff: any): Promise<void> {
     const knex = this.knexService.getKnex();
-
+    
     // Step 1: Generate SQL statements from diff
-    const sqlStatements = this.generateSQLFromDiff(tableName, diff);
+    const sqlStatements = await this.generateSQLFromDiff(tableName, diff);
     
     // Step 2: Log all SQL statements for debugging
     this.logger.debug('Generated SQL Statements:', sqlStatements);
@@ -569,7 +911,8 @@ export class SchemaMigrationService {
   /**
    * Generate SQL statements from schema diff JSON
    */
-  private generateSQLFromDiff(tableName: string, diff: any): string[] {
+  private async generateSQLFromDiff(tableName: string, diff: any): Promise<string[]> {
+    const knex = this.knexService.getKnex();
     const sqlStatements: string[] = [];
 
     // 1. Handle table renames
@@ -587,16 +930,51 @@ export class SchemaMigrationService {
     for (const col of diff.columns.create) {
       const columnDef = this.generateColumnDefinition(col);
       sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${col.name}\` ${columnDef}`);
+      
+      // Add FK constraint if it's a foreign key column
+      if (col.isForeignKey && col.foreignKeyTarget) {
+        const onDelete = col.isNullable !== false ? 'SET NULL' : 'RESTRICT';
+        sqlStatements.push(
+          `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`fk_${tableName}_${col.name}\` FOREIGN KEY (\`${col.name}\`) REFERENCES \`${col.foreignKeyTarget}\` (\`${col.foreignKeyColumn || 'id'}\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
+        );
+      }
     }
 
     // 2.3 Drop old columns (only if they exist in database)
     for (const col of diff.columns.delete) {
       // Check if it's an FK column that needs special handling
       if (col.isForeignKey) {
-        this.logger.log(`  ⚠️  FK column ${col.name} will be dropped - dropping FK constraints first`);
-        // Drop FK constraints first
-        sqlStatements.push(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY IF EXISTS \`fk_${tableName}_${col.name}\``);
+        this.logger.log(`  ⚠️  FK column ${col.name} will be dropped - checking FK constraints first`);
+        
+        // Query INFORMATION_SCHEMA to find actual FK constraint name
+        try {
+          this.logger.log(`  🔍 Querying FK constraints for table: ${tableName}, column: ${col.name}`);
+          const fkConstraints = await knex.raw(`
+            SELECT CONSTRAINT_NAME 
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = ? 
+            AND COLUMN_NAME = ? 
+            AND REFERENCED_TABLE_NAME IS NOT NULL
+          `, [tableName, col.name]);
+          
+          if (fkConstraints[0] && fkConstraints[0].length > 0) {
+            const actualFkName = fkConstraints[0][0].CONSTRAINT_NAME;
+            this.logger.log(`  🔍 Found FK constraint: ${actualFkName}`);
+            
+            // Drop the actual FK constraint
+            await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${actualFkName}\``);
+            this.logger.log(`  ✅ Successfully dropped FK constraint: ${actualFkName}`);
+          } else {
+            this.logger.log(`  ⚠️  No FK constraint found for column ${col.name}`);
+          }
+        } catch (error) {
+          this.logger.log(`  ⚠️  Error checking/dropping FK constraint for ${col.name}: ${error.message}`);
+          // Continue execution - this is not a critical error
+        }
       }
+      
+      // Add column drop to SQL statements
       sqlStatements.push(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${col.name}\``);
     }
 
@@ -606,16 +984,8 @@ export class SchemaMigrationService {
       sqlStatements.push(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${update.newColumn.name}\` ${columnDef}`);
     }
 
-    // 3. Handle foreign key constraints
-    for (const rel of diff.relations.create) {
-      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-        const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
-        const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
-        sqlStatements.push(
-          `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`fk_${tableName}_${fkColumn}\` FOREIGN KEY (\`${fkColumn}\`) REFERENCES \`${rel.targetTableName}\` (\`id\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
-        );
-      }
-    }
+    // 3. Handle foreign key constraints (FK constraints are now handled in columns.create)
+    // Note: FK constraints are created automatically when FK columns are created in diff.columns.create
 
     // 4. Handle constraints (uniques, indexes)
     for (const uniqueGroup of diff.constraints.uniques.update || []) {
@@ -626,6 +996,44 @@ export class SchemaMigrationService {
     for (const indexGroup of diff.constraints.indexes.update || []) {
       const columns = indexGroup.map((col: string) => `\`${col}\``).join(', ');
       sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD INDEX \`idx_${tableName}_${indexGroup.join('_')}\` (${columns})`);
+    }
+
+    // 5. Handle cross-table operations (e.g., M2O → O2M FK creation, O2M → M2O FK deletion)
+    for (const crossOp of diff.crossTableOperations || []) {
+      if (crossOp.operation === 'createColumn') {
+        const columnDef = this.generateColumnDefinition(crossOp.column);
+        sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` ADD COLUMN \`${crossOp.column.name}\` ${columnDef}`);
+        
+        // Add FK constraint if it's a foreign key
+        if (crossOp.column.isForeignKey) {
+          const onDelete = crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT';
+          sqlStatements.push(
+            `ALTER TABLE \`${crossOp.targetTable}\` ADD CONSTRAINT \`fk_${crossOp.targetTable}_${crossOp.column.name}\` FOREIGN KEY (\`${crossOp.column.name}\`) REFERENCES \`${crossOp.column.foreignKeyTarget}\` (\`${crossOp.column.foreignKeyColumn}\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
+          );
+        }
+      } else if (crossOp.operation === 'dropColumn') {
+        // Drop FK constraint first (if exists)
+        try {
+          const fkConstraints = await knex.raw(`
+            SELECT CONSTRAINT_NAME 
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = ? 
+            AND COLUMN_NAME = ? 
+            AND REFERENCED_TABLE_NAME IS NOT NULL
+          `, [crossOp.targetTable, crossOp.columnName]);
+          
+          if (fkConstraints[0] && fkConstraints[0].length > 0) {
+            const actualFkName = fkConstraints[0][0].CONSTRAINT_NAME;
+            sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` DROP FOREIGN KEY \`${actualFkName}\``);
+          }
+        } catch (error) {
+          this.logger.log(`⚠️ Error querying FK constraint for ${crossOp.targetTable}.${crossOp.columnName}: ${error.message}`);
+        }
+        
+        // Drop column
+        sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` DROP COLUMN \`${crossOp.columnName}\``);
+      }
     }
 
     return sqlStatements;

@@ -96,7 +96,7 @@ export class DynamicRepository {
         return await this.find({ where: { id: { _eq: table.id } } });
       }
 
-      const metadata = await this.metadataCacheService.getTableMetadata(this.tableName);
+      const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
       
       // Generate UUID for primary key if needed (SQL only, MongoDB uses _id)
       if (!this.queryBuilder.isMongoDb() && metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
@@ -136,12 +136,14 @@ export class DynamicRepository {
         );
         // MongoDB returns _id, SQL returns id
         const tableId = table._id || table.id;
+        console.log('🔍 DEBUG: tableId after updateTable:', tableId, 'type:', typeof tableId);
         await this.reload();
         return this.find({ where: { id: { _eq: tableId } } });
       }
 
       await this.queryBuilder.updateById(this.tableName, id, body);
 
+      console.log('🔍 DEBUG: id before find:', id, 'type:', typeof id);
       const result = await this.find({ where: { id: { _eq: id } } });
       await this.reload();
       return result;

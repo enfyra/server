@@ -42,8 +42,10 @@ export function walkFilter({
   dbType?: string;
 }): {
   parts: { operator: 'AND' | 'OR'; sql: string; params: Record<string, any> }[];
+  usedAliases: Set<string>;
 } {
   const parts: { operator: 'AND' | 'OR'; sql: string; params: Record<string, any> }[] = [];
+  const usedAliases = new Set<string>();
   let paramIndex = 1;
 
   const operatorMap: Record<string, string> = {
@@ -84,18 +86,21 @@ export function walkFilter({
       }
 
       if (key === '_not') {
-        const subParts = walkFilter({
+        const subResult = walkFilter({
           filter: val,
           currentMeta,
           currentAlias,
           operator: 'AND',
           path,
           metadataGetter,
+          dbType,
         });
-        subParts.parts.forEach((p) => {
+        subResult.parts.forEach((p) => {
           parts.push({ operator, sql: `NOT (${p.sql})`, params: p.params });
           log.push?.(`[${operator}] NOT (${p.sql})`);
         });
+        // Merge used aliases from sub-filter
+        subResult.usedAliases.forEach(alias => usedAliases.add(alias));
         continue;
       }
 
@@ -108,6 +113,9 @@ export function walkFilter({
         if (found.kind === 'relation') {
           const nextMeta = metadataGetter(found.type);
           const nextAlias = `${currentAlias}_${key}`;
+
+          // Track that this alias is used in filter
+          usedAliases.add(nextAlias);
 
           const isAggregate =
             typeof val === 'object' &&
@@ -541,5 +549,5 @@ export function walkFilter({
   };
 
   walk(filter, path, currentMeta, currentAlias, operator);
-  return { parts };
+  return { parts, usedAliases };
 }

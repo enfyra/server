@@ -431,10 +431,16 @@ export class SqlTableHandlerService {
       }
 
         // Get old metadata before migration
-        const oldMetadata = await this.metadataCacheService.getTableMetadata(exists.name);
+        const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
 
-        // Get new metadata (will be used for migration)
-        const newMetadata = await this.getFullTableMetadata(id);
+        // Create new metadata from request body (before database update)
+        const newMetadata = {
+          name: exists.name,
+          columns: body.columns || [],
+          relations: body.relations || [],
+          uniques: body.uniques || [],
+          indexes: body.indexes || []
+        };
 
         // Migrate physical schema
         if (oldMetadata && newMetadata) {
@@ -442,7 +448,13 @@ export class SqlTableHandlerService {
         }
 
         this.logger.log(`✅ Table updated: ${exists.name} (metadata + physical schema)`);
-        return newMetadata;
+        
+        // Return the table object with id for consistency with other methods
+        return {
+          id: exists.id,
+          name: exists.name,
+          ...newMetadata
+        };
       } catch (error) {
         this.loggingService.error('Table update failed', {
           context: 'updateTable',
@@ -513,7 +525,97 @@ export class SqlTableHandlerService {
           .delete();
         this.logger.log(`🗑️ Deleted source relations for table ${id}`);
         
-        // 2. Delete relations where this table is the target
+        // 2. Delete relations where this table is the target AND drop FK columns
+        const targetRelations = await trx('relation_definition')
+          .where({ targetTableId: id })
+          .select('*');
+        
+        this.logger.log(`🗑️ Found ${targetRelations.length} target relations for table ${tableName}`);
+        
+        // Drop FK columns from source tables before deleting relations
+        for (const rel of targetRelations) {
+          if (['one-to-many', 'many-to-one', 'one-to-one'].includes(rel.type)) {
+            const sourceTable = await trx('table_definition')
+              .where({ id: rel.sourceTableId })
+              .first();
+            
+            if (sourceTable) {
+              const { getForeignKeyColumnName } = await import('../../../shared/utils/naming-helpers');
+              const fkColumn = getForeignKeyColumnName(tableName); // FK column name in source table
+              
+              this.logger.log(`🗑️ Dropping FK column ${fkColumn} from table ${sourceTable.name}`);
+              
+              // Check if column exists before dropping
+              const columnExists = await trx.schema.hasColumn(sourceTable.name, fkColumn);
+              if (columnExists) {
+                // Drop FK constraint first
+                try {
+                  const fkConstraints = await trx.raw(`
+                    SELECT CONSTRAINT_NAME 
+                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = ? 
+                    AND COLUMN_NAME = ? 
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+                  `, [sourceTable.name, fkColumn]);
+                  
+                  if (fkConstraints[0] && fkConstraints[0].length > 0) {
+                    const actualFkName = fkConstraints[0][0].CONSTRAINT_NAME;
+                    await trx.raw(`ALTER TABLE \`${sourceTable.name}\` DROP FOREIGN KEY \`${actualFkName}\``);
+                    this.logger.log(`🗑️ Dropped FK constraint: ${actualFkName}`);
+                  }
+                } catch (error) {
+                  this.logger.log(`⚠️ Error dropping FK constraint: ${error.message}`);
+                }
+                
+                // Drop FK column
+                await trx.raw(`ALTER TABLE \`${sourceTable.name}\` DROP COLUMN \`${fkColumn}\``);
+                this.logger.log(`🗑️ Dropped FK column: ${fkColumn} from ${sourceTable.name}`);
+              }
+            }
+          }
+        }
+
+        // 3. CRITICAL: Drop ALL FK constraints referencing this table (from actual DB schema)
+        // This handles cases where FK columns exist but metadata is missing
+        this.logger.log(`🗑️ Checking for ALL FK constraints referencing table ${tableName}...`);
+        
+        try {
+          const allFkConstraints = await trx.raw(`
+            SELECT 
+              TABLE_NAME,
+              COLUMN_NAME,
+              CONSTRAINT_NAME,
+              REFERENCED_TABLE_NAME,
+              REFERENCED_COLUMN_NAME
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND REFERENCED_TABLE_NAME = ?
+            AND REFERENCED_COLUMN_NAME IS NOT NULL
+          `, [tableName]);
+          
+          if (allFkConstraints[0] && allFkConstraints[0].length > 0) {
+            this.logger.log(`🗑️ Found ${allFkConstraints[0].length} FK constraints referencing ${tableName}`);
+            
+            for (const fk of allFkConstraints[0]) {
+              this.logger.log(`🗑️ Dropping FK constraint: ${fk.CONSTRAINT_NAME} from ${fk.TABLE_NAME}.${fk.COLUMN_NAME}`);
+              
+              // Drop FK constraint
+              await trx.raw(`ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``);
+              this.logger.log(`🗑️ Dropped FK constraint: ${fk.CONSTRAINT_NAME}`);
+              
+              // Drop FK column
+              await trx.raw(`ALTER TABLE \`${fk.TABLE_NAME}\` DROP COLUMN \`${fk.COLUMN_NAME}\``);
+              this.logger.log(`🗑️ Dropped FK column: ${fk.COLUMN_NAME} from ${fk.TABLE_NAME}`);
+            }
+          } else {
+            this.logger.log(`🗑️ No FK constraints found referencing ${tableName}`);
+          }
+        } catch (error) {
+          this.logger.log(`⚠️ Error checking FK constraints: ${error.message}`);
+        }
+        
+        // Now delete the relations metadata
         await trx('relation_definition')
           .where({ targetTableId: id })
           .delete();

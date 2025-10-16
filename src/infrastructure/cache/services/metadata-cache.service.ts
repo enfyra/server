@@ -99,7 +99,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     this.logger.log('🔄 Loading metadata from database schema + metadata tables...');
 
     // Get all table names from metadata
-    const tables = await this.queryBuilder.select({ table: 'table_definition' });
+    const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
+    const tables = tablesResult.data;
     
     const tablesList: any[] = [];
     const tablesMap = new Map<string, any>();
@@ -133,10 +134,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         }
 
         // Get explicit columns from metadata
-        const explicitColumns = await this.queryBuilder.select({
-          table: 'column_definition',
-          where: [{ field: 'tableId', operator: '=', value: table.id }]
+        const columnsResult = await this.queryBuilder.select({
+          tableName: 'column_definition',
+          filter: { tableId: { _eq: table.id } }
         });
+        const explicitColumns = columnsResult.data;
 
         // Parse explicit columns
         const parsedExplicitColumns = explicitColumns.map((col: any) => {
@@ -172,10 +174,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         });
 
         // Get relations from metadata
-        const relationsData = await this.queryBuilder.select({
-          table: 'relation_definition',
-          where: [{ field: 'sourceTableId', operator: '=', value: table.id }]
+        const relationsResult = await this.queryBuilder.select({
+          tableName: 'relation_definition',
+          filter: { sourceTableId: { _eq: table.id } }
         });
+        const relationsData = relationsResult.data;
 
         // Parse relations
         const relations: any[] = [];
@@ -189,10 +192,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
 
           // Get target table name
-          const targetTable = await this.queryBuilder.select({
-            table: 'table_definition',
-            where: [{ field: 'id', operator: '=', value: rel.targetTableId }]
+          const targetTableResult = await this.queryBuilder.select({
+            tableName: 'table_definition',
+            filter: { id: { _eq: rel.targetTableId } }
           });
+          const targetTable = targetTableResult.data;
 
           const relationMetadata: any = {
             ...rel,
@@ -204,10 +208,33 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
           }
 
+          if (rel.type === 'one-to-many') {
+            // For O2M, FK is on the target table
+            // Query the inverse M2O relation from target table to get FK column name
+            const inverseRelationResult = await this.queryBuilder.select({
+              tableName: 'relation_definition',
+              filter: {
+                sourceTableId: { _eq: rel.targetTableId },
+                targetTableId: { _eq: table.id },
+                type: { _eq: 'many-to-one' }
+              }
+            });
+
+            if (inverseRelationResult.data.length > 0) {
+              const inverseRelation = inverseRelationResult.data[0];
+              relationMetadata.foreignKeyColumn = getForeignKeyColumnName(inverseRelation.propertyName);
+              relationMetadata.inversePropertyName = inverseRelation.propertyName;
+            } else {
+              // Fallback: use source table name + Id
+              relationMetadata.foreignKeyColumn = getForeignKeyColumnName(table.name.replace('_definition', ''));
+            }
+          }
+
           if (rel.type === 'many-to-many') {
-            relationMetadata.junctionTableName = rel.junctionTableName;
-            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn;
-            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn;
+            // Ensure junction metadata is complete
+            relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
+            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || getForeignKeyColumnName(table.name);
+            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || getForeignKeyColumnName(relationMetadata.targetTableName);
           }
 
           relations.push(relationMetadata);
@@ -491,6 +518,23 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   async getAllTablesMetadata(): Promise<any[]> {
     const metadata = await this.getMetadata();
     return metadata.tablesList;
+  }
+
+  /**
+   * Lookup table metadata by table name
+   * Alias for getTableMetadata() for backward compatibility
+   */
+  async lookupTableByName(tableName: string): Promise<any | null> {
+    return this.getTableMetadata(tableName);
+  }
+
+  /**
+   * Lookup table metadata by table ID
+   */
+  async lookupTableById(tableId: number | string): Promise<any | null> {
+    const metadata = await this.getMetadata();
+    const table = metadata.tablesList.find(t => t.id === tableId || t.id === Number(tableId));
+    return table || null;
   }
 
   /**

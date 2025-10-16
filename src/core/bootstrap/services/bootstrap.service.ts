@@ -49,12 +49,12 @@ export class BootstrapService implements OnApplicationBootstrap {
     // Find first setting record
     const isMongoDB = this.queryBuilder.isMongoDb();
     const sortField = isMongoDB ? '_id' : 'id';
-    const settings = await this.queryBuilder.select({
-      table: 'setting_definition',
-      sort: [{ field: sortField, direction: 'asc' }],
+    const settingsResult = await this.queryBuilder.select({
+      tableName: 'setting_definition',
+      sort: [sortField],
       limit: 1,
     });
-    let setting = settings[0] || null;
+    let setting = settingsResult.data[0] || null;
 
     if (!setting || !setting.isInit) {
       this.logger.log('🚀 First time initialization...');
@@ -65,12 +65,12 @@ export class BootstrapService implements OnApplicationBootstrap {
       await this.defaultDataService.insertAllDefaultRecords();
 
       // Re-fetch setting after default data insertion
-      const settings2 = await this.queryBuilder.select({
-        table: 'setting_definition',
-        sort: [{ field: sortField, direction: 'asc' }],
+      const settings2Result = await this.queryBuilder.select({
+        tableName: 'setting_definition',
+        sort: [sortField],
         limit: 1,
       });
-      setting = settings2[0] || null;
+      setting = settings2Result.data[0] || null;
       
       if (!setting) {
         this.logger.error('❌ Setting record not found after initialization');
@@ -96,12 +96,7 @@ export class BootstrapService implements OnApplicationBootstrap {
       //   this.schemaStateService.setVersion(lastVersion.id);
       // }
     } else {
-      await this.commonService.delay(Math.random() * 500);
-
-      this.logger.log('🔄 Syncing default data...');
-      await this.defaultDataService.insertAllDefaultRecords();
-
-      this.logger.log('✅ Default data sync completed');
+      this.logger.log('✅ System already initialized, skipping data sync');
     }
   }
 }

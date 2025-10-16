@@ -12,13 +12,13 @@ import {
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 
-// Relative imports - shared utility functions
-import { parseSortInput } from '../utils/parse-sort-input';
-import { parseBooleanFields } from '../utils/parse-boolean-fields';
-import { serializeDates } from '../utils/serialize-dates';
-import { resolveDeepRelations } from '../utils/resolve-deep';
-import { buildJoinTree } from '../utils/build-join-tree';
-import { walkFilter } from '../utils/walk-filter';
+// Relative imports - shared utility functions from query-builder
+import { parseSortInput } from '../../query-builder/utils/parse-sort-input';
+import { parseBooleanFields } from '../../query-builder/utils/parse-boolean-fields';
+import { serializeDates } from '../../query-builder/utils/serialize-dates';
+import { resolveDeepRelations } from '../../query-builder/utils/resolve-deep';
+import { buildJoinTree } from '../../query-builder/utils/build-join-tree';
+import { walkFilter } from '../../query-builder/utils/walk-filter';
 
 /**
  * MongoQueryEngine - Handle complex queries for MongoDB using aggregation pipeline
@@ -75,15 +75,16 @@ export class MongoQueryEngine {
 
       // Get table metadata
       const metadata: any = await this.metadataCacheService.getTableMetadata(tableName);
-      
+
       if (!metadata) {
         throw new ResourceNotFoundException('Table', tableName);
       }
 
+      // Default fields to '*' if not provided (trigger auto-join)
       // Parse fields if it's a string (comma-separated)
-      const parsedFields = fields 
+      const parsedFields = fields
         ? (typeof fields === 'string' ? fields.split(',').map(f => f.trim()) : fields)
-        : undefined;
+        : ['*'];
 
       // Get all metadata for sync access in utils
       const allMetadata = await this.metadataCacheService.getMetadata();
@@ -150,10 +151,11 @@ export class MongoQueryEngine {
       if (metaParts.includes('totalCount') || metaParts.includes('*')) {
         // Total count (no filters)
         const totalResult = await this.queryBuilder.select({
-          table: tableName,
+          tableName: tableName,
           pipeline: [{ $count: 'total' }],
         });
-        totalCount = totalResult[0]?.total || 0;
+        const totalData = totalResult.data || totalResult;
+        totalCount = totalData[0]?.total || 0;
         this.log.push(`+ totalCount = ${totalCount}`);
       }
 
@@ -162,10 +164,11 @@ export class MongoQueryEngine {
         const filterCountPipeline = [...pipeline];
         filterCountPipeline.push({ $count: 'total' });
         const filterResult = await this.queryBuilder.select({
-          table: tableName,
+          tableName: tableName,
           pipeline: filterCountPipeline,
         });
-        filterCount = filterResult[0]?.total || 0;
+        const filterData = filterResult.data || filterResult;
+        filterCount = filterData[0]?.total || 0;
         this.log.push(`+ filterCount = ${filterCount}`);
       }
 
@@ -208,10 +211,11 @@ export class MongoQueryEngine {
 
       // Execute main query
       this.log.push(`Executing aggregation pipeline...`);
-      let rows = await this.queryBuilder.select({
-        table: tableName,
+      const result = await this.queryBuilder.select({
+        tableName: tableName,
         pipeline,
       });
+      let rows = result.data || result;
       this.log.push(`Rows returned: ${rows.length}`);
       if (rows.length > 0) {
         this.log.push(`First row keys: ${Object.keys(rows[0]).join(', ')}`);
@@ -1178,12 +1182,13 @@ export class MongoQueryEngine {
       // Convert string IDs to ObjectId for MongoDB queries
       const parentIdValues = Array.from(parentIds).map(id => new ObjectId(id));
       
-      const relatedDocs = await this.queryBuilder.select({
-        table: targetCollection,
-        where: [
-          { field: foreignKey, operator: 'in', value: parentIdValues }
-        ],
+      const relatedResult = await this.queryBuilder.select({
+        tableName: targetCollection,
+        filter: {
+          [foreignKey]: { _in: parentIdValues }
+        },
       });
+      const relatedDocs = relatedResult.data || relatedResult;
       
       if (debugInfo) {
         debugInfo[debugInfo.length - 1].relatedDocsCount = relatedDocs.length;

@@ -93,14 +93,15 @@ export class PackageCacheService implements OnModuleInit {
   }
 
   private async loadPackages(): Promise<string[]> {
-    const packages = await this.queryBuilder.select({
-      table: 'package_definition',
-      where: [
-        { field: 'isEnabled', operator: '=', value: true },
-        { field: 'type', operator: '=', value: 'Backend' },
-      ],
-      select: ['name'],
+    const result = await this.queryBuilder.select({
+      tableName: 'package_definition',
+      filter: {
+        isEnabled: { _eq: true },
+        type: { _eq: 'Backend' }
+      },
+      fields: ['name'],
     });
+    const packages = result.data;
 
     return packages.map((p: any) => p.name);
   }
