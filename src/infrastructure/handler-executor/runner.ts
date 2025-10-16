@@ -76,9 +76,17 @@ process.on('unhandledRejection', (reason: any) => {
 
 process.on('message', async (msg: any) => {
   if (msg.type === 'call_result') {
+    const receiveTime = Date.now();
     const { callId, result, error, ...others } = msg;
     const resolver = pendingCalls.get(callId);
     if (resolver) {
+      // Measure deserialization time
+      const deserializeStart = Date.now();
+      const resultJson = JSON.stringify(result);
+      const deserializeTime = Date.now() - deserializeStart;
+      const resultSize = Buffer.byteLength(resultJson, 'utf8');
+      console.log(`[IPC-RECV] Received call_result | callId: ${callId} | size: ${(resultSize / 1024).toFixed(2)}KB | deserialize time: ${deserializeTime}ms`);
+
       pendingCalls.delete(callId);
       if (error) {
         resolver.reject({ ...error, ...others });

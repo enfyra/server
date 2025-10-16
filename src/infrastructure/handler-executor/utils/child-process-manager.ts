@@ -70,11 +70,29 @@ export class ChildProcessManager {
 
           // Check if child is still connected before sending
           if (!child.killed && child.connected) {
-            child.send({
-              type: 'call_result',
-              callId: msg.callId,
-              result,
-            });
+            // Measure IPC send performance
+            if (startTime) {
+              const serializeStart = Date.now();
+              const resultJson = JSON.stringify(result);
+              const serializeTime = Date.now() - serializeStart;
+              const resultSize = Buffer.byteLength(resultJson, 'utf8');
+              console.log(`[IPC-SEND] Serialized result | size: ${(resultSize / 1024).toFixed(2)}KB | serialize time: ${serializeTime}ms | elapsed: ${Date.now() - startTime}ms`);
+
+              const sendStart = Date.now();
+              child.send({
+                type: 'call_result',
+                callId: msg.callId,
+                result,
+              });
+              const sendTime = Date.now() - sendStart;
+              console.log(`[IPC-SEND] Message sent | send time: ${sendTime}ms | elapsed: ${Date.now() - startTime}ms`);
+            } else {
+              child.send({
+                type: 'call_result',
+                callId: msg.callId,
+                result,
+              });
+            }
           }
         } catch (err) {
           // Check if child is still connected before sending error
