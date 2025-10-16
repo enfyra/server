@@ -585,6 +585,37 @@ export class SchemaMigrationService {
               foreignKeyColumn: 'id'
             }
           });
+        } else if (newRel.type === 'many-to-many') {
+          // For M2M: Create junction table
+          this.logger.log(`  🔍 M2M: Creating junction table for ${newRel.propertyName}`);
+
+          if (!newRel.sourceTableName) {
+            throw new Error(`Many-to-many relation '${newRel.propertyName}' MUST have sourceTableName`);
+          }
+
+          if (!newRel.targetTableName) {
+            throw new Error(`Many-to-many relation '${newRel.propertyName}' MUST have targetTableName`);
+          }
+
+          const junctionTableName = newRel.junctionTableName || getJunctionTableName(newRel.sourceTableName, newRel.propertyName, newRel.targetTableName);
+          const junctionSourceColumn = newRel.junctionSourceColumn || getForeignKeyColumnName(newRel.sourceTableName);
+          const junctionTargetColumn = newRel.junctionTargetColumn || getForeignKeyColumnName(newRel.targetTableName);
+
+          this.logger.log(`  ➕ Junction Table to CREATE: ${junctionTableName} (${junctionSourceColumn}, ${junctionTargetColumn})`);
+
+          // Add junction table creation to cross-table operations
+          if (!diff.crossTableOperations) {
+            diff.crossTableOperations = [];
+          }
+
+          diff.crossTableOperations.push({
+            operation: 'createJunctionTable',
+            junctionTableName,
+            sourceTable: newRel.sourceTableName,
+            targetTable: newRel.targetTableName,
+            junctionSourceColumn,
+            junctionTargetColumn
+          });
         }
       }
     }
@@ -597,7 +628,7 @@ export class SchemaMigrationService {
         // Relation deleted
         this.logger.log(`  ➖ Relation to DELETE: ${oldRel.propertyName} (${oldRel.type})`);
         diff.relations.delete.push(oldRel);
-        
+
         // Remove FK column for many-to-one and one-to-one relations
         if (['many-to-one', 'one-to-one'].includes(oldRel.type)) {
           // For M2O/O2O: FK column naming convention is {propertyName}Id
@@ -609,6 +640,45 @@ export class SchemaMigrationService {
             isForeignKey: true,
             relationPropertyName: oldRel.propertyName
           });
+        } else if (oldRel.type === 'many-to-many') {
+          // For M2M: Drop junction table
+          this.logger.log(`  🗑️  M2M relation deleted: dropping junction table`);
+
+          const junctionTableName = oldRel.junctionTableName || getJunctionTableName(oldRel.sourceTableName, oldRel.propertyName, oldRel.targetTableName);
+          this.logger.log(`  ➖ Junction Table to DROP: ${junctionTableName}`);
+
+          // Add junction table deletion to cross-table operations
+          if (!diff.crossTableOperations) {
+            diff.crossTableOperations = [];
+          }
+
+          diff.crossTableOperations.push({
+            operation: 'dropJunctionTable',
+            junctionTableName
+          });
+        } else if (oldRel.type === 'one-to-many') {
+          // For O2M: Drop FK column from target table
+          this.logger.log(`  🗑️  O2M relation deleted: dropping FK column from target table`);
+
+          if (!oldRel.inversePropertyName) {
+            this.logger.warn(`  ⚠️  Cannot drop O2M FK column: inversePropertyName is missing`);
+          } else if (!oldRel.targetTableName) {
+            this.logger.warn(`  ⚠️  Cannot drop O2M FK column: targetTableName is missing`);
+          } else {
+            const fkColumn = `${oldRel.inversePropertyName}Id`;
+            this.logger.log(`  ➖ FK Column to DROP from target table: ${fkColumn}`);
+
+            // Add cross-table FK column deletion to diff
+            if (!diff.crossTableOperations) {
+              diff.crossTableOperations = [];
+            }
+
+            diff.crossTableOperations.push({
+              operation: 'dropColumn',
+              targetTable: oldRel.targetTableName,
+              columnName: fkColumn
+            });
+          }
         }
       } else if (this.hasRelationChanged(oldRel, newRel)) {
         // Relation changed - analyze what type of change
