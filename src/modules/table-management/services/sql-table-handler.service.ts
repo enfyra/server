@@ -13,7 +13,7 @@ import {
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
-import { getForeignKeyColumnName, getJunctionTableName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName, getJunctionTableName, getJunctionColumnNames } from '../../../shared/utils/naming-helpers';
 
 /**
  * SqlTableHandlerService - Manages SQL table metadata and physical schema (DDL)
@@ -47,7 +47,82 @@ export class SqlTableHandlerService {
     }
   }
 
+  /**
+   * Validate that all columns (explicit + FK from relations + junction columns) are unique
+   */
+  private validateAllColumnsUnique(columns: any[], relations: any[], tableName: string, targetTablesMap: Map<number, string>) {
+    const allColumnNames = new Set<string>();
+    const duplicates: string[] = [];
+
+    // 1. Add explicit columns
+    for (const col of columns || []) {
+      if (allColumnNames.has(col.name)) {
+        duplicates.push(col.name);
+      }
+      allColumnNames.add(col.name);
+    }
+
+    // 2. Add FK columns from M2O and O2O relations
+    for (const rel of relations || []) {
+      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+        const fkColumn = `${rel.propertyName}Id`;
+        if (allColumnNames.has(fkColumn)) {
+          duplicates.push(`${fkColumn} (FK for ${rel.propertyName})`);
+        }
+        allColumnNames.add(fkColumn);
+      }
+    }
+
+    // 3. Check M2M junction table columns for duplicates (validation only - actual names calculated in getJunctionColumnNames)
+    for (const rel of relations || []) {
+      if (rel.type === 'many-to-many') {
+        const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
+        const targetTableName = targetTablesMap.get(targetTableId);
+
+        if (targetTableName) {
+          const { sourceColumn, targetColumn } = getJunctionColumnNames(tableName, rel.propertyName, targetTableName);
+
+          // This should never happen now with the new naming strategy, but keep as safety check
+          if (sourceColumn === targetColumn) {
+            throw new ValidationException(
+              `Many-to-many relation '${rel.propertyName}' in table '${tableName}' creates duplicate junction columns. ` +
+              `This should not happen with the current naming strategy. Please report this bug.`,
+              {
+                tableName,
+                relationName: rel.propertyName,
+                targetTableName,
+                junctionSourceColumn: sourceColumn,
+                junctionTargetColumn: targetColumn,
+              }
+            );
+          }
+        }
+      }
+    }
+
+    // 4. Throw error if duplicates found
+    if (duplicates.length > 0) {
+      throw new ValidationException(
+        `Duplicate column names detected in table '${tableName}': ${duplicates.join(', ')}`,
+        {
+          tableName,
+          duplicateColumns: duplicates,
+          suggestion: 'Rename columns or relations to ensure all column names are unique.'
+        }
+      );
+    }
+  }
+
   async createTable(body: any) {
+    this.logger.log(`\n${'='.repeat(80)}`);
+    this.logger.log(`📝 CREATE TABLE: ${body?.name}`);
+    this.logger.log(`${'='.repeat(80)}`);
+    this.logger.log(`📋 Input Data:`);
+    this.logger.log(`   - Columns: ${body.columns?.length || 0}`);
+    this.logger.log(`   - Relations: ${body.relations?.length || 0}`);
+    this.logger.log(`   - Columns: ${body.columns?.map((c: any) => c.name).join(', ')}`);
+    this.logger.log(`   - Relations: ${body.relations?.map((r: any) => `${r.propertyName} (${r.type})`).join(', ')}`);
+
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
         tableName: body?.name,
@@ -65,6 +140,7 @@ export class SqlTableHandlerService {
     let trx;
 
     try {
+      this.logger.log(`\n🔄 Starting transaction...`);
       // Start transaction
       trx = await knex.transaction();
 
@@ -120,8 +196,34 @@ export class SqlTableHandlerService {
         throw error;
       }
 
+      // Load target table names for M2M validation
+      const targetTableIds = body.relations
+        ?.filter((rel: any) => rel.type === 'many-to-many')
+        ?.map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
+        ?.filter((id: any) => id != null) || [];
+
+      const targetTablesMap = new Map<number, string>();
+      if (targetTableIds.length > 0) {
+        const targetTables = await trx('table_definition')
+          .select('id', 'name')
+          .whereIn('id', targetTableIds);
+
+        for (const table of targetTables) {
+          targetTablesMap.set(table.id, table.name);
+        }
+      }
+
+      // Validate all columns are unique (explicit + FK from relations)
+      try {
+        this.validateAllColumnsUnique(body.columns || [], body.relations || [], body.name, targetTablesMap);
+      } catch (error) {
+        await trx.rollback();
+        throw error;
+      }
+
       body.isSystem = false;
 
+      this.logger.log(`\n💾 Saving table metadata to DB...`);
       const [tableId] = await trx('table_definition').insert({
         name: body.name,
         isSystem: body.isSystem,
@@ -130,8 +232,10 @@ export class SqlTableHandlerService {
         uniques: JSON.stringify(body.uniques || []),
         indexes: JSON.stringify(body.indexes || []),
       });
+      this.logger.log(`   ✅ Table metadata saved (ID: ${tableId})`);
 
       if (body.columns?.length > 0) {
+        this.logger.log(`\n💾 Saving ${body.columns.length} column(s) metadata...`);
         const columnsToInsert = body.columns.map((col: any) => ({
           name: col.name,
           type: col.type,
@@ -148,9 +252,11 @@ export class SqlTableHandlerService {
           tableId: tableId,
         }));
         await trx('column_definition').insert(columnsToInsert);
+        this.logger.log(`   ✅ Column metadata saved`);
       }
 
       if (body.relations?.length > 0) {
+        this.logger.log(`\n💾 Saving ${body.relations.length} relation(s) metadata...`);
         // Load all target tables at once (avoid N+1)
         const targetTableIds = body.relations
           .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
@@ -193,9 +299,16 @@ export class SqlTableHandlerService {
             }
 
             const junctionTableName = getJunctionTableName(body.name, rel.propertyName, targetTableName);
+            const { sourceColumn, targetColumn } = getJunctionColumnNames(body.name, rel.propertyName, targetTableName);
+
+            this.logger.log(`   📝 M2M: ${rel.propertyName} → ${targetTableName}`);
+            this.logger.log(`      Junction table: ${junctionTableName}`);
+            this.logger.log(`      Columns: ${sourceColumn}, ${targetColumn}`);
+
+            // Note: Validation already done in validateAllColumnsUnique()
             insertData.junctionTableName = junctionTableName;
-            insertData.junctionSourceColumn = getForeignKeyColumnName(body.name);
-            insertData.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+            insertData.junctionSourceColumn = sourceColumn;
+            insertData.junctionTargetColumn = targetColumn;
           } else {
             // Explicitly set to null for non-M2M relations
             insertData.junctionTableName = null;
@@ -207,8 +320,10 @@ export class SqlTableHandlerService {
         }
         
         await trx('relation_definition').insert(relationsToInsert);
+        this.logger.log(`   ✅ Relation metadata saved`);
       }
 
+      this.logger.log(`\n🔧 Running physical schema migration...`);
       // Check if route already exists before creating
       const existingRoute = await trx('route_definition')
         .where({ path: `/${body.name}` })
@@ -228,15 +343,23 @@ export class SqlTableHandlerService {
       }
 
       // Commit transaction BEFORE physical schema migration
+      this.logger.log(`\n✅ Committing transaction...`);
       await trx.commit();
 
       // Fetch full table metadata with columns and relations (after commit)
+      this.logger.log(`📥 Fetching full table metadata...`);
       const fullMetadata = await this.getFullTableMetadata(tableId);
 
       // Migrate physical schema (after commit)
+      this.logger.log(`🔨 Calling SchemaMigrationService.createTable()...`);
       await this.schemaMigrationService.createTable(fullMetadata);
 
-      this.logger.log(`✅ Table created: ${body.name} (metadata + physical schema + route)`);
+      this.logger.log(`\n${'='.repeat(80)}`);
+      this.logger.log(`✅ TABLE CREATED SUCCESSFULLY: ${body.name}`);
+      this.logger.log(`   - Metadata saved to DB`);
+      this.logger.log(`   - Physical schema migrated`);
+      this.logger.log(`   - Route created`);
+      this.logger.log(`${'='.repeat(80)}\n`);
       return fullMetadata;
     } catch (error) {
       // Rollback transaction on error (if not already committed/rolled back)
@@ -303,6 +426,26 @@ export class SqlTableHandlerService {
         }
 
         validateUniquePropertyNames(body.columns || [], body.relations || []);
+
+        // Load target table names for M2M validation
+        const targetTableIds = body.relations
+          ?.filter((rel: any) => rel.type === 'many-to-many')
+          ?.map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
+          ?.filter((id: any) => id != null) || [];
+
+        const targetTablesMap = new Map<number, string>();
+        if (targetTableIds.length > 0) {
+          const targetTables = await trx('table_definition')
+            .select('id', 'name')
+            .whereIn('id', targetTableIds);
+
+          for (const table of targetTables) {
+            targetTablesMap.set(table.id, table.name);
+          }
+        }
+
+        // Validate all columns are unique (explicit + FK from relations)
+        this.validateAllColumnsUnique(body.columns || [], body.relations || [], exists.name, targetTablesMap);
 
         // Skip validation for ID column - it's always present and immutable
 
@@ -420,9 +563,12 @@ export class SqlTableHandlerService {
             }
 
             const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
+            const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
+
+            // Note: Validation already done in validateAllColumnsUnique()
             relationData.junctionTableName = junctionTableName;
-            relationData.junctionSourceColumn = getForeignKeyColumnName(exists.name);
-            relationData.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+            relationData.junctionSourceColumn = sourceColumn;
+            relationData.junctionTargetColumn = targetColumn;
           } else {
             // Clear junction table metadata if type is NOT M2M
             relationData.junctionTableName = null;

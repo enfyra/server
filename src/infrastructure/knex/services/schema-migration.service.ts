@@ -2,9 +2,10 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
-import { 
-  getJunctionTableName, 
+import {
+  getJunctionTableName,
   getForeignKeyColumnName,
+  getJunctionColumnNames,
   getShortFkName,
   getShortIndexName,
 } from '../../../shared/utils/naming-helpers';
@@ -598,8 +599,9 @@ export class SchemaMigrationService {
           }
 
           const junctionTableName = newRel.junctionTableName || getJunctionTableName(newRel.sourceTableName, newRel.propertyName, newRel.targetTableName);
-          const junctionSourceColumn = newRel.junctionSourceColumn || getForeignKeyColumnName(newRel.sourceTableName);
-          const junctionTargetColumn = newRel.junctionTargetColumn || getForeignKeyColumnName(newRel.targetTableName);
+          const { sourceColumn, targetColumn } = getJunctionColumnNames(newRel.sourceTableName, newRel.propertyName, newRel.targetTableName);
+          const junctionSourceColumn = newRel.junctionSourceColumn || sourceColumn;
+          const junctionTargetColumn = newRel.junctionTargetColumn || targetColumn;
 
           this.logger.log(`  ➕ Junction Table to CREATE: ${junctionTableName} (${junctionSourceColumn}, ${junctionTargetColumn})`);
 
@@ -764,8 +766,9 @@ export class SchemaMigrationService {
               const sourceTableName = oldRel.sourceTableName || newRel.sourceTableName;
               const targetTableName = newRel.targetTableName || oldRel.targetTableName;
               const junctionTableName = newRel.junctionTableName || getJunctionTableName(sourceTableName, newRel.propertyName, targetTableName);
-              const junctionSourceColumn = newRel.junctionSourceColumn || getForeignKeyColumnName(sourceTableName);
-              const junctionTargetColumn = newRel.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
+              const { sourceColumn, targetColumn } = getJunctionColumnNames(sourceTableName, newRel.propertyName, targetTableName);
+              const junctionSourceColumn = newRel.junctionSourceColumn || sourceColumn;
+              const junctionTargetColumn = newRel.junctionTargetColumn || targetColumn;
 
               this.logger.log(`  ➕ Create junction table: ${junctionTableName} (${junctionSourceColumn}, ${junctionTargetColumn})`);
 

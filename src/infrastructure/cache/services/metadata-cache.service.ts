@@ -4,7 +4,7 @@ import { CacheService } from './cache.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
-import { getJunctionTableName, getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../../shared/utils/naming-helpers';
 import { 
   METADATA_CACHE_KEY, 
   METADATA_CACHE_SYNC_EVENT_KEY,
@@ -227,8 +227,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           if (rel.type === 'many-to-many') {
             // Ensure junction metadata is complete
             relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
-            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || getForeignKeyColumnName(table.name);
-            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || getForeignKeyColumnName(relationMetadata.targetTableName);
+            const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
+            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
+            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
           }
 
           relations.push(relationMetadata);

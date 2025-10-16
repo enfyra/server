@@ -2,13 +2,14 @@ import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestj
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
+import { MetadataCacheService } from './metadata-cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { 
+import {
   ROUTE_CACHE_SYNC_EVENT_KEY,
   ROUTE_RELOAD_LOCK_KEY,
   REDIS_TTL,
 } from '../../../shared/utils/constant';
-import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName, getJunctionTableName } from '../../../shared/utils/naming-helpers';
 
 @Injectable()
 export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
@@ -21,6 +22,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     private readonly queryBuilder: QueryBuilderService,
     private readonly redisPubSubService: RedisPubSubService,
     private readonly cacheService: CacheService,
+    private readonly metadataCacheService: MetadataCacheService,
     private readonly instanceService: InstanceService,
   ) {}
 
@@ -29,6 +31,16 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap() {
+    // IMPORTANT: Check if system tables exist before loading routes
+    // Even if metadata loads successfully, system tables may not exist yet
+    const knex = this.queryBuilder.getKnex();
+
+    const hasRouteTable = await knex.schema.hasTable('route_definition');
+    if (!hasRouteTable) {
+      this.logger.warn('⚠️ System tables not initialized yet, skipping route cache load');
+      return;
+    }
+
     await this.reload();
   }
 
@@ -206,42 +218,137 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   private async loadRoutesForSQL(): Promise<any[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'route_definition',
-      filter: { isEnabled: { _eq: true } },
-      fields: [
-        '*',
-        'mainTable.*',
-        'handlers.*',
-        'handlers.method.*',
-        'routePermissions.*',
-        'routePermissions.role.*',
-        'hooks.*',
-        'hooks.methods.*',
-        'publishedMethods.*',
-        'targetTables.*',
-      ],
-      sort: ['id', 'hooks.priority'],
-    });
-    const routes = result.data;
+    // IMPORTANT: Use raw Knex queries instead of queryBuilder.select()
+    // Reason: Avoid circular dependency on metadata during query building
+    // Note: Caller ensures metadata is loaded, so all tables exist
+    const knex = this.queryBuilder.getKnex();
 
-    // Load global hooks (hooks with no specific route)
-    const globalHooksResult = await this.queryBuilder.select({
-      tableName: 'hook_definition',
-      filter: {
-        isEnabled: { _eq: true },
-        routeId: { _is_null: true }
-      },
-      fields: ['*', 'methods.*'],
-      sort: ['priority'],
-    });
-    const globalHooks = globalHooksResult.data;
+    // Generate junction table names using naming convention helpers
+    // IMPORTANT: Use the direction where the relation is DEFINED (not inverse)
+    const hookMethodsJunction = getJunctionTableName('hook_definition', 'methods', 'method_definition');
+    const publishedMethodsJunction = getJunctionTableName('method_definition', 'routes', 'route_definition'); // Defined in method_definition
+    const targetTablesJunction = getJunctionTableName('route_definition', 'targetTables', 'table_definition');
 
-    // Merge global hooks into each route
+    // Load routes with all nested relations using raw SQL
+    // We use JSON subqueries instead of JOINs to avoid metadata dependency
+    const routes = await knex('route_definition')
+      .where('isEnabled', true)
+      .select([
+        'route_definition.*',
+        // mainTable relation
+        knex.raw(`(
+          SELECT JSON_OBJECT(
+            'id', td.id,
+            'name', td.name,
+            'alias', td.alias,
+            'description', td.description
+          )
+          FROM table_definition td
+          WHERE td.id = route_definition.mainTableId
+        ) as mainTable`),
+        // handlers relation with nested method
+        knex.raw(`(
+          SELECT IFNULL(JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', h.id,
+              'logic', h.logic,
+              'timeout', h.timeout,
+              'description', h.description
+            )
+          ), JSON_ARRAY())
+          FROM route_handler_definition h
+          WHERE h.routeId = route_definition.id
+        ) as handlers`),
+        // hooks relation with nested methods
+        knex.raw(`(
+          SELECT IFNULL(JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', hd.id,
+              'name', hd.name,
+              'preHook', hd.preHook,
+              'afterHook', hd.afterHook,
+              'preHookTimeout', hd.preHookTimeout,
+              'afterHookTimeout', hd.afterHookTimeout,
+              'priority', hd.priority,
+              'description', hd.description,
+              'methods', (
+                SELECT IFNULL(JSON_ARRAYAGG(JSON_OBJECT('id', m.id, 'method', m.method)), JSON_ARRAY())
+                FROM \`${hookMethodsJunction}\` hm
+                JOIN method_definition m ON m.id = hm.methodDefinitionId
+                WHERE hm.hookDefinitionId = hd.id
+              )
+            )
+          ), JSON_ARRAY())
+          FROM hook_definition hd
+          WHERE hd.routeId = route_definition.id AND hd.isEnabled = true
+          ORDER BY hd.priority
+        ) as hooks`),
+        // routePermissions relation with nested role
+        knex.raw(`(
+          SELECT IFNULL(JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', rp.id,
+              'description', rp.description,
+              'isEnabled', rp.isEnabled,
+              'roleId', rp.roleId,
+              'role', (
+                SELECT JSON_OBJECT('id', r.id, 'name', r.name)
+                FROM role_definition r
+                WHERE r.id = rp.roleId
+              )
+            )
+          ), JSON_ARRAY())
+          FROM route_permission_definition rp
+          WHERE rp.routeId = route_definition.id
+        ) as routePermissions`),
+        // publishedMethods relation
+        knex.raw(`(
+          SELECT IFNULL(JSON_ARRAYAGG(JSON_OBJECT('id', m.id, 'method', m.method)), JSON_ARRAY())
+          FROM \`${publishedMethodsJunction}\` rpm
+          JOIN method_definition m ON m.id = rpm.methodDefinitionId
+          WHERE rpm.routeDefinitionId = route_definition.id
+        ) as publishedMethods`),
+        // targetTables relation
+        knex.raw(`(
+          SELECT IFNULL(JSON_ARRAYAGG(JSON_OBJECT('id', t.id, 'name', t.name)), JSON_ARRAY())
+          FROM \`${targetTablesJunction}\` rtt
+          JOIN table_definition t ON t.id = rtt.tableDefinitionId
+          WHERE rtt.routeDefinitionId = route_definition.id
+        ) as targetTables`),
+      ])
+      .orderBy('route_definition.id');
+
+    // Load global hooks separately
+    const globalHooks = await knex('hook_definition')
+      .where('isEnabled', true)
+      .whereNull('routeId')
+      .select([
+        'hook_definition.*',
+        knex.raw(`(
+          SELECT IFNULL(JSON_ARRAYAGG(JSON_OBJECT('id', m.id, 'method', m.method)), JSON_ARRAY())
+          FROM \`${hookMethodsJunction}\` hm
+          JOIN method_definition m ON m.id = hm.methodDefinitionId
+          WHERE hm.hookDefinitionId = hook_definition.id
+        ) as methods`),
+      ])
+      .orderBy('priority');
+
+    // Parse JSON strings and merge global hooks
     for (const route of routes) {
-      const routeSpecificHooks = route.hooks || [];
-      // Combine global hooks first (lower priority), then route-specific hooks
-      route.hooks = [...globalHooks, ...routeSpecificHooks];
+      // Parse all JSON fields
+      if (typeof route.mainTable === 'string') route.mainTable = JSON.parse(route.mainTable);
+      if (typeof route.handlers === 'string') route.handlers = JSON.parse(route.handlers);
+      if (typeof route.hooks === 'string') route.hooks = JSON.parse(route.hooks);
+      if (typeof route.routePermissions === 'string') route.routePermissions = JSON.parse(route.routePermissions);
+      if (typeof route.publishedMethods === 'string') route.publishedMethods = JSON.parse(route.publishedMethods);
+      if (typeof route.targetTables === 'string') route.targetTables = JSON.parse(route.targetTables);
+
+      // Merge global hooks (prepend to route-specific hooks)
+      const parsedGlobalHooks = globalHooks.map(h => ({
+        ...h,
+        methods: typeof h.methods === 'string' ? JSON.parse(h.methods) : h.methods
+      }));
+      route.hooks = [...parsedGlobalHooks, ...route.hooks];
     }
 
     return routes;

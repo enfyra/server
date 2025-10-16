@@ -42,11 +42,11 @@ export function getJunctionTableName(
 /**
  * Get foreign key column name following TypeORM convention
  * Converts snake_case to camelCase and adds 'Id' suffix
- * 
+ *
  * @example
  * getForeignKeyColumnName('table_definition')
  * // Returns: 'tableDefinitionId'
- * 
+ *
  * getForeignKeyColumnName('role')
  * // Returns: 'roleId'
  */
@@ -54,6 +54,50 @@ export function getForeignKeyColumnName(tableNameOrProperty: string): string {
   // Convert snake_case to camelCase: table_definition → tableDefinition
   const camelCase = tableNameOrProperty.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
   return `${camelCase}Id`;
+}
+
+/**
+ * Get junction column names for M2M relations
+ * Handles self-referencing M2M by using propertyName to differentiate columns
+ *
+ * @param sourceTable Source table name
+ * @param propertyName Relation property name (e.g., 'relatedProducts', 'children')
+ * @param targetTable Target table name
+ * @returns Object with sourceColumn and targetColumn names
+ *
+ * @example
+ * // Regular M2M: products ↔ orders
+ * getJunctionColumnNames('products', 'orders', 'orders')
+ * // Returns: { sourceColumn: 'productsId', targetColumn: 'ordersId' }
+ *
+ * @example
+ * // Self-referencing M2M: products.relatedProducts ↔ products
+ * getJunctionColumnNames('products', 'relatedProducts', 'products')
+ * // Returns: { sourceColumn: 'productsId', targetColumn: 'relatedProductsId' }
+ *
+ * @example
+ * // Self-referencing M2M: users.followers ↔ users
+ * getJunctionColumnNames('users', 'followers', 'users')
+ * // Returns: { sourceColumn: 'usersId', targetColumn: 'followersId' }
+ */
+export function getJunctionColumnNames(
+  sourceTable: string,
+  propertyName: string,
+  targetTable: string,
+): { sourceColumn: string; targetColumn: string } {
+  const sourceColumn = getForeignKeyColumnName(sourceTable);
+
+  // Check if self-referencing M2M (same source and target table)
+  if (sourceTable === targetTable) {
+    // Use propertyName to create unique target column name
+    // This prevents duplicate column names in junction table
+    const targetColumn = getForeignKeyColumnName(propertyName);
+    return { sourceColumn, targetColumn };
+  }
+
+  // Regular M2M: use target table name
+  const targetColumn = getForeignKeyColumnName(targetTable);
+  return { sourceColumn, targetColumn };
 }
 
 /**

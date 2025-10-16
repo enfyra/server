@@ -148,15 +148,22 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
   }
 
   private async loadPackages(): Promise<string[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'package_definition',
-      filter: {
-        isEnabled: { _eq: true },
-        type: { _eq: 'Backend' }
-      },
-      fields: ['name'],
-    });
-    const packages = result.data;
+    // IMPORTANT: Use raw Knex query instead of queryBuilder.select()
+    // Reason: Metadata may not be loaded yet during bootstrap
+    const knex = this.queryBuilder.getKnex();
+
+    // Check if table exists first
+    const hasPackageTable = await knex.schema.hasTable('package_definition');
+    if (!hasPackageTable) {
+      this.logger.warn('⚠️ package_definition table does not exist yet, skipping package cache load');
+      return [];
+    }
+
+    // Load packages using raw Knex query
+    const packages = await knex('package_definition')
+      .where('isEnabled', true)
+      .where('type', 'Backend')
+      .select('name');
 
     return packages.map((p: any) => p.name);
   }
