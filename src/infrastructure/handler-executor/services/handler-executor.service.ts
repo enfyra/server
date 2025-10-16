@@ -29,16 +29,20 @@ export class HandlerExecutorService {
     console.log(`[SCRIPT-EXEC] Starting script execution | timeout: ${timeoutMs}ms`);
 
     // Get packages for runner
+    const packagesStartTime = Date.now();
     const packages = await this.packageCacheService.getPackages();
-    console.log(`[SCRIPT-EXEC] Packages loaded: ${packages.length} packages | elapsed: ${Date.now() - startTime}ms`);
+    const packagesDuration = Date.now() - packagesStartTime;
+    console.log(`[SCRIPT-EXEC] Packages loaded: ${packages.length} packages | packages took: ${packagesDuration}ms | elapsed: ${Date.now() - startTime}ms`);
 
     const pool = this.executorPoolService.getPool();
     const isDone = { value: false };
 
     return new Promise(async (resolve, reject) => {
+      const acquireStartTime = Date.now();
       console.log(`[SCRIPT-EXEC] Acquiring child process | pool size: ${pool.size}, available: ${pool.available}, pending: ${pool.pending} | elapsed: ${Date.now() - startTime}ms`);
       const child = await pool.acquire();
-      console.log(`[SCRIPT-EXEC] Child process acquired | elapsed: ${Date.now() - startTime}ms`);
+      const acquireDuration = Date.now() - acquireStartTime;
+      console.log(`[SCRIPT-EXEC] Child process acquired | acquire took: ${acquireDuration}ms | elapsed: ${Date.now() - startTime}ms`);
 
       const timeout = ChildProcessManager.setupTimeout(
         child,
