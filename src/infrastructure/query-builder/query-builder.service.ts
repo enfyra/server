@@ -833,16 +833,25 @@ export class QueryBuilderService {
     if (this.dbType === 'mongodb') {
       return this.mongoService.insertOne(table, data);
     }
-    
+
     const knex = this.knexService.getKnex();
     const dbType = this.getDatabaseType();
-    
+
     if (dbType === 'postgres') {
       const [result] = await knex(table).insert(data).returning('*');
       return result;
     } else {
-      const [id] = await knex(table).insert(data);
-      return knex(table).where('id', id).first();
+      // MySQL/MariaDB
+      await knex(table).insert(data);
+
+      // If data has 'id' field (UUID), use it to query back
+      // Otherwise use the auto-increment insertId
+      if (data.id) {
+        return knex(table).where('id', data.id).first();
+      } else {
+        const [insertId] = await knex(table).insert(data);
+        return knex(table).where('id', insertId).first();
+      }
     }
   }
 
