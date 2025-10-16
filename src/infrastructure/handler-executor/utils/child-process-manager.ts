@@ -37,14 +37,9 @@ export class ChildProcessManager {
     resolve: (value: any) => void,
     reject: (error: any) => void,
     code: string,
-    startTime?: number,
   ): void {
     child.on('message', async (msg: any) => {
       if (isDone.value) return;
-
-      if (startTime && msg.type) {
-        console.log(`[SCRIPT-EXEC] Child message type: ${msg.type} | elapsed: ${Date.now() - startTime}ms`);
-      }
 
       if (msg.type === 'call') {
         if (msg.path.includes('$throw')) {
@@ -57,42 +52,18 @@ export class ChildProcessManager {
           reject(error);
         }
         try {
-          if (startTime) {
-            console.log(`[SCRIPT-EXEC] Calling method: ${msg.path} | elapsed: ${Date.now() - startTime}ms`);
-          }
           const { parent, method } = resolvePath(ctx, msg.path);
 
           if (typeof parent[method] !== 'function') return;
           const result = await parent[method](...msg.args);
-          if (startTime) {
-            console.log(`[SCRIPT-EXEC] Method ${msg.path} completed | elapsed: ${Date.now() - startTime}ms`);
-          }
 
           // Check if child is still connected before sending
           if (!child.killed && child.connected) {
-            // Measure IPC send performance
-            if (startTime) {
-              const serializeStart = Date.now();
-              const resultJson = JSON.stringify(result);
-              const serializeTime = Date.now() - serializeStart;
-              const resultSize = Buffer.byteLength(resultJson, 'utf8');
-              console.log(`[IPC-SEND] Serialized result | size: ${(resultSize / 1024).toFixed(2)}KB | serialize time: ${serializeTime}ms | elapsed: ${Date.now() - startTime}ms`);
-
-              const sendStart = Date.now();
-              child.send({
-                type: 'call_result',
-                callId: msg.callId,
-                result,
-              });
-              const sendTime = Date.now() - sendStart;
-              console.log(`[IPC-SEND] Message sent | send time: ${sendTime}ms | elapsed: ${Date.now() - startTime}ms`);
-            } else {
-              child.send({
-                type: 'call_result',
-                callId: msg.callId,
-                result,
-              });
-            }
+            child.send({
+              type: 'call_result',
+              callId: msg.callId,
+              result,
+            });
           }
         } catch (err) {
           // Check if child is still connected before sending error
@@ -108,9 +79,6 @@ export class ChildProcessManager {
       }
 
       if (msg.type === 'done') {
-        if (startTime) {
-          console.log(`[SCRIPT-EXEC] Script completed successfully | elapsed: ${Date.now() - startTime}ms`);
-        }
         isDone.value = true;
         child.removeAllListeners();
 

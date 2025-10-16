@@ -1,8 +1,13 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
+import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
+import {
+  PACKAGE_CACHE_SYNC_EVENT_KEY,
+  PACKAGE_RELOAD_LOCK_KEY,
+  REDIS_TTL,
+} from '../../../shared/utils/constant';
 
 @Injectable()
 export class PackageCacheService implements OnModuleInit {
@@ -13,6 +18,7 @@ export class PackageCacheService implements OnModuleInit {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
     private readonly redisPubSubService: RedisPubSubService,
+    private readonly cacheService: CacheService,
     private readonly instanceService: InstanceService,
   ) {}
 
@@ -59,6 +65,38 @@ export class PackageCacheService implements OnModuleInit {
   }
 
   async reloadPackageCache(): Promise<void> {
+    const instanceId = this.instanceService.getInstanceId();
+
+    try {
+      // Try to acquire lock - only one instance should load from DB
+      const acquired = await this.cacheService.acquire(
+        PACKAGE_RELOAD_LOCK_KEY,
+        instanceId,
+        REDIS_TTL.RELOAD_LOCK_TTL
+      );
+
+      if (!acquired) {
+        // Another instance is already loading, wait for broadcast
+        this.logger.log('🔒 Another instance is reloading packages, waiting for broadcast...');
+        return;
+      }
+
+      this.logger.log(`🔓 Acquired package reload lock (instance ${instanceId.slice(0, 8)})`);
+
+      try {
+        // This instance loads from DB and broadcasts to others
+        await this.performReload();
+      } finally {
+        await this.cacheService.release(PACKAGE_RELOAD_LOCK_KEY, instanceId);
+        this.logger.log('🔓 Released package reload lock');
+      }
+    } catch (error) {
+      this.logger.error('❌ Failed to reload package cache:', error);
+      throw error;
+    }
+  }
+
+  private async performReload(): Promise<void> {
     const start = Date.now();
     this.logger.log('🔄 Reloading packages cache...');
 

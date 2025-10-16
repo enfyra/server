@@ -182,16 +182,12 @@ export class QueryBuilderService {
     deep?: Record<string, any>;
     debugMode?: boolean;
   }): Promise<any> {
-    const executorStartTime = Date.now();
-    console.log(`[QUERY-BUILD] Starting sqlExecutor for table: ${options.tableName}`);
-
     // Convert queryEngine-style params to QueryOptions format
     const queryOptions: QueryOptions = {
       table: options.tableName,
     };
 
     // Convert fields
-    const fieldsConversionStart = Date.now();
     if (options.fields) {
       if (Array.isArray(options.fields)) {
         queryOptions.fields = options.fields;
@@ -199,12 +195,10 @@ export class QueryBuilderService {
         queryOptions.fields = options.fields.split(',').map(f => f.trim());
       }
     }
-    console.log(`[QUERY-BUILD] Fields conversion done | elapsed: ${Date.now() - executorStartTime}ms | took: ${Date.now() - fieldsConversionStart}ms`);
 
     // Convert filter to where conditions
     // TODO: Implement proper Directus filter conversion
     // For now, this is a placeholder
-    const filterConversionStart = Date.now();
     if (options.filter) {
       queryOptions.where = [];
       // Simple conversion - needs to be expanded
@@ -234,10 +228,8 @@ export class QueryBuilderService {
         }
       }
     }
-    console.log(`[QUERY-BUILD] Filter conversion done | elapsed: ${Date.now() - executorStartTime}ms | took: ${Date.now() - filterConversionStart}ms`);
 
     // Convert sort
-    const sortConversionStart = Date.now();
     if (options.sort) {
       const sortArray = Array.isArray(options.sort) ? options.sort : [options.sort];
       queryOptions.sort = sortArray.map(s => {
@@ -248,7 +240,6 @@ export class QueryBuilderService {
         return { field: trimmed, direction: 'asc' as const };
       });
     }
-    console.log(`[QUERY-BUILD] Sort conversion done | elapsed: ${Date.now() - executorStartTime}ms | took: ${Date.now() - sortConversionStart}ms`);
 
     // Convert pagination
     if (options.page && options.limit) {
@@ -276,13 +267,10 @@ export class QueryBuilderService {
     }
 
     // Auto-expand `fields` into `join` + `select` if provided
-    const expandFieldsStart = Date.now();
     if (queryOptions.fields && queryOptions.fields.length > 0) {
-      console.log(`[QUERY-BUILD] Starting expandFields | fields: ${queryOptions.fields.length} | elapsed: ${Date.now() - executorStartTime}ms`);
       const expanded = await this.expandFields(queryOptions.table, queryOptions.fields, relationSorts);
       queryOptions.join = [...(queryOptions.join || []), ...expanded.joins];
       queryOptions.select = [...(queryOptions.select || []), ...expanded.select];
-      console.log(`[QUERY-BUILD] expandFields completed | elapsed: ${Date.now() - executorStartTime}ms | took: ${Date.now() - expandFieldsStart}ms`);
     }
 
     // Auto-prefix table name to where conditions if not already qualified
@@ -302,8 +290,6 @@ export class QueryBuilderService {
     queryOptions.sort = mainTableSorts;
 
     // Execute SQL query using Knex
-    const knexBuildStart = Date.now();
-    console.log(`[QUERY-BUILD] Starting Knex query construction | elapsed: ${Date.now() - executorStartTime}ms`);
     const knex = this.knexService.getKnex();
     let query: any = knex(queryOptions.table);
 
@@ -352,16 +338,8 @@ export class QueryBuilderService {
     if (queryOptions.limit !== undefined && queryOptions.limit !== null && queryOptions.limit > 0) {
       query = query.limit(queryOptions.limit);
     }
-    console.log(`[QUERY-BUILD] Knex query construction completed | elapsed: ${Date.now() - executorStartTime}ms | took: ${Date.now() - knexBuildStart}ms`);
 
-    const queryStartTime = Date.now();
-    const sqlQuery = query.toString();
-    console.log(`[QUERY-EXEC] Executing query on table: ${queryOptions.table} | elapsed: ${Date.now() - executorStartTime}ms`);
-    console.log(`[QUERY-EXEC] Full SQL:\n${sqlQuery}`);
     const results = await query;
-    const queryDuration = Date.now() - queryStartTime;
-    console.log(`[QUERY-EXEC] Query completed in ${queryDuration}ms | table: ${queryOptions.table} | rows: ${results.length}`);
-    console.log(`[QUERY-BUILD] Total sqlExecutor time: ${Date.now() - executorStartTime}ms`);
 
     // Return in queryEngine format
     return { data: results };
@@ -995,28 +973,23 @@ export class QueryBuilderService {
     joins: any[];
     select: string[];
   }> {
-    const expandStart = Date.now();
-    console.log(`[EXPAND-FIELDS] Starting expandFields for table: ${tableName} | fields count: ${fields.length}`);
-
     if (!this.metadataCache) {
       // Metadata cache not available (e.g., during early bootstrap)
       // Fall back to simple field expansion
-      console.log(`[EXPAND-FIELDS] No metadata cache, returning simple expansion | took: ${Date.now() - expandStart}ms`);
       return { joins: [], select: fields };
     }
 
-    // Metadata getter function
+    // Cache metadata ONCE to avoid repeated async calls
+    const allMetadata = await this.metadataCache.getMetadata();
+
+    // Metadata getter function (now synchronous, reads from cached result)
     const metadataGetter = async (tName: string) => {
-      const metaStart = Date.now();
       try {
-        const metadata = await this.metadataCache.getMetadata();
-        const tableMeta = metadata.tables.get(tName);
+        const tableMeta = allMetadata.tables.get(tName);
         if (!tableMeta) {
-          console.log(`[EXPAND-FIELDS] No metadata found for table: ${tName} | took: ${Date.now() - metaStart}ms`);
           return null;
         }
 
-        console.log(`[EXPAND-FIELDS] Loaded metadata for table: ${tName} | columns: ${tableMeta.columns?.length || 0} | relations: ${tableMeta.relations?.length || 0} | took: ${Date.now() - metaStart}ms`);
         return {
           name: tableMeta.name,
           columns: tableMeta.columns || [],
@@ -1029,12 +1002,10 @@ export class QueryBuilderService {
     };
 
     try {
-      const expandFieldsStart = Date.now();
       const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
-      console.log(`[EXPAND-FIELDS] expandFieldsToJoinsAndSelect completed | total time: ${Date.now() - expandStart}ms | helper took: ${Date.now() - expandFieldsStart}ms`);
       return result;
     } catch (error) {
-      console.error(`[EXPAND-FIELDS] Field expansion failed: ${error.message} | took: ${Date.now() - expandStart}ms`);
+      console.error(`[EXPAND-FIELDS] Field expansion failed: ${error.message}`);
       // Fall back to simple field expansion
       return { joins: [], select: fields };
     }

@@ -73,22 +73,25 @@ export class RouteCacheService implements OnModuleInit {
 
   async reloadRouteCache(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
-    
+
     try {
+      // Try to acquire lock - only one instance should load from DB
       const acquired = await this.cacheService.acquire(
-        ROUTE_RELOAD_LOCK_KEY, 
-        instanceId, 
+        ROUTE_RELOAD_LOCK_KEY,
+        instanceId,
         REDIS_TTL.RELOAD_LOCK_TTL
       );
-      
+
       if (!acquired) {
+        // Another instance is already loading, wait for broadcast
         this.logger.log('🔒 Another instance is reloading routes, waiting for broadcast...');
         return;
       }
 
       this.logger.log(`🔓 Acquired route reload lock (instance ${instanceId.slice(0, 8)})`);
-      
+
       try {
+        // This instance loads from DB and broadcasts to others
         await this.performReload();
       } finally {
         await this.cacheService.release(ROUTE_RELOAD_LOCK_KEY, instanceId);

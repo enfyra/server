@@ -32,9 +32,6 @@ export async function expandFieldsToJoinsAndSelect(
   sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
   listTables?: () => Promise<string[]>,
 ): Promise<FieldExpansionResult> {
-  const funcStart = Date.now();
-  console.log(`[EXPAND-HELPER] Starting expandFieldsToJoinsAndSelect for table: ${tableName}`);
-
   // Helper: find sort for a relation path
   function findSortForPath(pathPrefix: string): { field: string; direction: 'asc' | 'desc' } | null {
     const found = sortOptions.find(s => s.field.startsWith(pathPrefix + '.') || s.field === pathPrefix);
@@ -46,16 +43,13 @@ export async function expandFieldsToJoinsAndSelect(
   const select: string[] = [];
 
   // Get metadata for base table
-  const metaStart = Date.now();
   const baseMeta = await metadataGetter(tableName);
-  console.log(`[EXPAND-HELPER] Loaded base metadata | took: ${Date.now() - metaStart}ms | elapsed: ${Date.now() - funcStart}ms`);
   if (!baseMeta) {
     throw new Error(`Metadata not found for table: ${tableName}`);
   }
 
   // Group fields by parent relation to detect nested structures
   // Example: ['hooks.*', 'hooks.methods.*'] => { 'hooks': ['*', 'methods.*'] }
-  const groupStart = Date.now();
   const fieldsByRelation = new Map<string, string[]>();
 
   for (const field of fields) {
@@ -77,7 +71,6 @@ export async function expandFieldsToJoinsAndSelect(
       fieldsByRelation.get(relationName)!.push(remainingPath);
     }
   }
-  console.log(`[EXPAND-HELPER] Grouped fields by relation | relations: ${fieldsByRelation.size} | took: ${Date.now() - groupStart}ms | elapsed: ${Date.now() - funcStart}ms`);
 
   // Process root-level fields first
   const rootFields = fieldsByRelation.get('') || [];
@@ -118,16 +111,8 @@ export async function expandFieldsToJoinsAndSelect(
   }
 
   // Process relation fields (non-root)
-  const relationsStart = Date.now();
-  console.log(`[EXPAND-HELPER] Processing ${fieldsByRelation.size - 1} relations | elapsed: ${Date.now() - funcStart}ms`);
-
-  let relationCount = 0;
   for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
     if (relationName === '') continue; // Skip root fields, already processed
-
-    relationCount++;
-    const subqueryStart = Date.now();
-    console.log(`[EXPAND-HELPER] Building subquery for relation: ${relationName} (${relationCount}/${fieldsByRelation.size - 1})`);
 
     // Build nested subquery with all nested fields
     const subquery = await buildNestedSubquery(
@@ -140,15 +125,10 @@ export async function expandFieldsToJoinsAndSelect(
       sortOptions,
     );
 
-    console.log(`[EXPAND-HELPER] Subquery for ${relationName} completed | took: ${Date.now() - subqueryStart}ms | elapsed: ${Date.now() - funcStart}ms`);
-
     if (subquery) {
       select.push(`${subquery} as ${"`"}${relationName}${"`"}`);
     }
   }
-
-  console.log(`[EXPAND-HELPER] All relations processed | total took: ${Date.now() - relationsStart}ms | elapsed: ${Date.now() - funcStart}ms`);
-  console.log(`[EXPAND-HELPER] expandFieldsToJoinsAndSelect completed | total time: ${Date.now() - funcStart}ms`);
 
   return { joins, select };
 }

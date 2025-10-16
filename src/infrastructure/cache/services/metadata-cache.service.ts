@@ -22,6 +22,7 @@ export interface EnfyraMetadata {
 @Injectable()
 export class MetadataCacheService implements OnApplicationBootstrap, OnModuleInit {
   private readonly logger = new Logger(MetadataCacheService.name);
+  private inMemoryCache: EnfyraMetadata | null = null; // In-memory cache to avoid Redis calls
 
   constructor(
     @Inject(forwardRef(() => QueryBuilderService))
@@ -61,7 +62,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
 
           this.logger.log(`📥 Received metadata cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-          
+
           const metadata: EnfyraMetadata = {
             tables: new Map(Object.entries(payload.metadata.tables)),
             tablesList: payload.metadata.tablesList,
@@ -69,18 +70,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             timestamp: new Date(payload.metadata.timestamp),
           };
 
-          await this.cacheService.set(
-            METADATA_CACHE_KEY,
-            JSON.stringify({
-              tables: Object.fromEntries(metadata.tables),
-              tablesList: metadata.tablesList,
-              version: metadata.version,
-              timestamp: metadata.timestamp,
-            }),
-            0,
-          );
+          // Update in-memory cache immediately (no Redis write)
+          this.inMemoryCache = metadata;
 
-          // Metadata cache synced - KnexService will automatically use DatabaseSchemaService
           this.logger.log(`✅ Metadata cache synced: ${metadata.tablesList.length} tables`);
         } catch (error) {
           this.logger.error('Failed to parse metadata cache sync message:', error);
@@ -396,26 +388,22 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   /**
-   * Get metadata from cache (no TTL - cache forever until reload)
+   * Get metadata from in-memory cache
+   * Loads from DB on first call
    */
   async getMetadata(): Promise<EnfyraMetadata> {
-    const cachedData = await this.cacheService.get<any>(METADATA_CACHE_KEY);
-
-    if (cachedData) {
-      // Redis converts Map to plain object, so we need to rebuild it
-      if (cachedData.tables && !(cachedData.tables instanceof Map)) {
-        cachedData.tables = new Map(Object.entries(cachedData.tables));
-      }
-      return cachedData;
+    // Return from in-memory cache if available (instant)
+    if (this.inMemoryCache) {
+      return this.inMemoryCache;
     }
 
     // If not in cache, load from DB
-    this.logger.log('📦 Metadata not in cache, loading from DB...');
+    this.logger.log('📦 Metadata not in memory cache, loading from DB...');
     return await this.loadAndCacheMetadata();
   }
 
   /**
-   * Load metadata from DB and cache it (no TTL)
+   * Load metadata from DB and store in memory only
    */
   private async loadAndCacheMetadata(): Promise<EnfyraMetadata> {
     const loadStart = Date.now();
@@ -426,14 +414,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       `📦 Loaded ${metadata.tablesList.length} tables from DB in ${loadTime}ms`,
     );
 
-    // Convert Map to plain object for Redis serialization
-    const cacheData = {
-      tablesList: metadata.tablesList,
-      tables: Object.fromEntries(metadata.tables), // Map → Object
-    };
-
-    // Cache with no TTL (cache forever until manually cleared/reloaded)
-    await this.cacheService.set(METADATA_CACHE_KEY, cacheData, 0);
+    // Store in memory only (no Redis)
+    this.inMemoryCache = metadata;
 
     return metadata;
   }
@@ -472,12 +454,17 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
   private async performReload(): Promise<void> {
     this.logger.log('🔄 Reloading metadata cache...');
-    
-    await this.clearMetadataCache();
+
+    // Clear in-memory cache
+    this.inMemoryCache = null;
+
+    // Load from DB
     const metadata = await this.loadAndCacheMetadata();
-    
+
     this.logger.log(`✅ Metadata cache reloaded - ${metadata.tablesList.length} tables`);
-     await this.publishMetadataCacheSync(metadata);
+
+    // Broadcast to other instances
+    await this.publishMetadataCacheSync(metadata);
   }
 
   private async publishMetadataCacheSync(metadata: EnfyraMetadata): Promise<void> {
@@ -538,10 +525,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   /**
-   * Clear metadata cache
+   * Clear in-memory metadata cache
    */
   async clearMetadataCache(): Promise<void> {
-    await this.cacheService.deleteKey(METADATA_CACHE_KEY);
-    this.logger.log('🗑️ Metadata cache cleared');
+    this.inMemoryCache = null;
+    this.logger.log('🗑️ In-memory metadata cache cleared');
   }
 }
