@@ -380,7 +380,7 @@ export class SchemaMigrationService {
     this.analyzeColumnChanges(oldMetadata.columns || [], newMetadata.columns || [], diff);
 
     // 3. Analyze relations and add FK columns
-    await this.analyzeRelationChanges(oldMetadata.relations || [], newMetadata.relations || [], diff);
+    await this.analyzeRelationChanges(oldMetadata.relations || [], newMetadata.relations || [], diff, newMetadata.name);
 
     // 4. Analyze constraints
     this.analyzeConstraintChanges(oldMetadata, newMetadata, diff);
@@ -459,9 +459,46 @@ export class SchemaMigrationService {
    * Analyze relation changes and add FK columns to diff
    * This handles FK columns that are generated from relations
    */
-  private async analyzeRelationChanges(oldRelations: any[], newRelations: any[], diff: any): Promise<void> {
+  private async analyzeRelationChanges(oldRelations: any[], newRelations: any[], diff: any, tableName: string): Promise<void> {
     this.logger.log('🔍 Relation Analysis (FK Column Generation):');
     this.logger.log(`🔍 DEBUG: oldRelations count: ${oldRelations.length}, newRelations count: ${newRelations.length}`);
+
+    // Normalize targetTable object to targetTableName string
+    // targetTable can be: { id: 22 } or string "address"
+    const targetTableIds = [...oldRelations, ...newRelations]
+      .map(rel => typeof rel.targetTable === 'object' ? rel.targetTable.id : null)
+      .filter(id => id != null);
+
+    const targetTablesMap = new Map<number, string>();
+    if (targetTableIds.length > 0) {
+      const knex = this.knexService.getKnex();
+      const targetTables = await knex('table_definition')
+        .select('id', 'name')
+        .whereIn('id', targetTableIds);
+
+      for (const table of targetTables) {
+        targetTablesMap.set(table.id, table.name);
+      }
+    }
+
+    // Auto-fill sourceTableName and normalize targetTableName for all relations
+    oldRelations = oldRelations.map(rel => {
+      const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : null;
+      return {
+        ...rel,
+        sourceTableName: rel.sourceTableName || tableName,
+        targetTableName: rel.targetTableName || (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable)
+      };
+    });
+    newRelations = newRelations.map(rel => {
+      const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : null;
+      return {
+        ...rel,
+        sourceTableName: rel.sourceTableName || tableName,
+        targetTableName: rel.targetTableName || (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable)
+      };
+    });
+
     // Match by ID instead of propertyName
     const oldRelMap = new Map(oldRelations.map(r => [r.id, r]));
     const newRelMap = new Map(newRelations.map(r => [r.id, r]));
@@ -522,10 +559,6 @@ export class SchemaMigrationService {
 
           if (!newRel.inversePropertyName) {
             throw new Error(`One-to-many relation '${newRel.propertyName}' MUST have inversePropertyName`);
-          }
-
-          if (!newRel.sourceTableName) {
-            throw new Error(`One-to-many relation '${newRel.propertyName}' MUST have sourceTableName`);
           }
 
           if (!newRel.targetTableName) {
