@@ -37,9 +37,14 @@ export class ChildProcessManager {
     resolve: (value: any) => void,
     reject: (error: any) => void,
     code: string,
+    startTime?: number,
   ): void {
     child.on('message', async (msg: any) => {
       if (isDone.value) return;
+
+      if (startTime && msg.type) {
+        console.log(`[SCRIPT-EXEC] Child message type: ${msg.type} | elapsed: ${Date.now() - startTime}ms`);
+      }
 
       if (msg.type === 'call') {
         if (msg.path.includes('$throw')) {
@@ -52,10 +57,16 @@ export class ChildProcessManager {
           reject(error);
         }
         try {
+          if (startTime) {
+            console.log(`[SCRIPT-EXEC] Calling method: ${msg.path} | elapsed: ${Date.now() - startTime}ms`);
+          }
           const { parent, method } = resolvePath(ctx, msg.path);
 
           if (typeof parent[method] !== 'function') return;
           const result = await parent[method](...msg.args);
+          if (startTime) {
+            console.log(`[SCRIPT-EXEC] Method ${msg.path} completed | elapsed: ${Date.now() - startTime}ms`);
+          }
           child.send({
             type: 'call_result',
             callId: msg.callId,
@@ -72,6 +83,9 @@ export class ChildProcessManager {
       }
 
       if (msg.type === 'done') {
+        if (startTime) {
+          console.log(`[SCRIPT-EXEC] Script completed successfully | elapsed: ${Date.now() - startTime}ms`);
+        }
         isDone.value = true;
         child.removeAllListeners();
 

@@ -25,12 +25,21 @@ export class HandlerExecutorService {
     ctx: TDynamicContext,
     timeoutMs = this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
   ): Promise<any> {
+    const startTime = Date.now();
+    console.log(`[SCRIPT-EXEC] Starting script execution | timeout: ${timeoutMs}ms`);
+
     // Get packages for runner
     const packages = await this.packageCacheService.getPackages();
+    console.log(`[SCRIPT-EXEC] Packages loaded: ${packages.length} packages | elapsed: ${Date.now() - startTime}ms`);
+
     const pool = this.executorPoolService.getPool();
     const isDone = { value: false };
+
     return new Promise(async (resolve, reject) => {
+      console.log(`[SCRIPT-EXEC] Acquiring child process | elapsed: ${Date.now() - startTime}ms`);
       const child = await pool.acquire();
+      console.log(`[SCRIPT-EXEC] Child process acquired | elapsed: ${Date.now() - startTime}ms`);
+
       const timeout = ChildProcessManager.setupTimeout(
         child,
         timeoutMs,
@@ -48,8 +57,10 @@ export class HandlerExecutorService {
         resolve,
         reject,
         code,
+        startTime,
       );
 
+      console.log(`[SCRIPT-EXEC] Sending execute message | elapsed: ${Date.now() - startTime}ms`);
       ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code, packages);
     });
   }
