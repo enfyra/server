@@ -44,12 +44,14 @@ export class RelationHandlerService {
         case 'many-to-one':
         case 'one-to-one': {
           // Transform: { user: { id: 1 } } => { userId: 1 }
+          if (!relation.foreignKeyColumn) {
+            throw new Error(`${relation.type} relation '${relationName}' in table '${tableName}' missing foreignKeyColumn in metadata`);
+          }
+
           if (relationValue && typeof relationValue === 'object' && 'id' in relationValue) {
-            const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-            cleanData[fkColumn] = relationValue.id;
+            cleanData[relation.foreignKeyColumn] = relationValue.id;
           } else if (relationValue === null) {
-            const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-            cleanData[fkColumn] = null;
+            cleanData[relation.foreignKeyColumn] = null;
           }
           delete cleanData[relationName];
           break;
@@ -108,15 +110,22 @@ export class RelationHandlerService {
 
     for (const { relationName, ids } of manyToManyRelations) {
       const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
-      if (!relation || !relation.junctionTableName) {
-        this.logger.warn(`⚠️  Relation ${relationName} not found or no junction table`);
-        continue;
+      if (!relation) {
+        throw new Error(`M2M relation '${relationName}' not found in table '${tableName}' metadata`);
+      }
+      if (!relation.junctionTableName) {
+        throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionTableName in metadata`);
+      }
+      if (!relation.junctionSourceColumn) {
+        throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionSourceColumn in metadata`);
+      }
+      if (!relation.junctionTargetColumn) {
+        throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionTargetColumn in metadata`);
       }
 
-      // Check for null values
+      // Check for null recordId
       if (!recordId) {
-        this.logger.error(`❌ RecordId is null for M2M relation ${relationName}`);
-        continue;
+        throw new Error(`RecordId is null for M2M relation '${relationName}' in table '${tableName}'`);
       }
 
       // Clear existing junction records
@@ -128,18 +137,15 @@ export class RelationHandlerService {
       if (ids.length > 0) {
         const junctionRecords = ids.map(targetId => {
           if (!targetId) {
-            this.logger.warn(`⚠️  TargetId is null for M2M relation ${relationName}`);
-            return null;
+            throw new Error(`TargetId is null in M2M relation '${relationName}' for table '${tableName}'`);
           }
           return {
             [relation.junctionSourceColumn]: recordId,
             [relation.junctionTargetColumn]: targetId,
           };
-        }).filter(record => record !== null);
+        });
 
-        if (junctionRecords.length > 0) {
-          await knex(relation.junctionTableName).insert(junctionRecords);
-        }
+        await knex(relation.junctionTableName).insert(junctionRecords);
       }
     }
   }
@@ -156,23 +162,24 @@ export class RelationHandlerService {
   ): Promise<void> {
     const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMetadata) {
-      return;
+      throw new Error(`Metadata not found for table '${tableName}'`);
     }
 
     for (const { relationName, items } of oneToManyRelations) {
       const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
       if (!relation) {
-        continue;
+        throw new Error(`O2M relation '${relationName}' not found in table '${tableName}' metadata`);
       }
 
-      // For O2M relations, FK column is {inversePropertyName}Id in target table
-      if (!relation.inversePropertyName) {
-        this.logger.warn(`⚠️  O2M relation ${relationName} missing inversePropertyName`);
-        continue;
+      if (!relation.foreignKeyColumn) {
+        throw new Error(`O2M relation '${relationName}' in table '${tableName}' missing foreignKeyColumn in metadata`);
       }
 
-      // O2M naming convention: FK column = {inversePropertyName}Id
-      const fkColumn = `${relation.inversePropertyName}Id`;
+      if (!relation.targetTableName) {
+        throw new Error(`O2M relation '${relationName}' in table '${tableName}' missing targetTableName in metadata`);
+      }
+
+      const fkColumn = relation.foreignKeyColumn;
 
       // Get existing children IDs to compare
       const existingChildren = await knex(relation.targetTableName)
