@@ -340,7 +340,9 @@ export class QueryBuilderService {
     }
 
     const queryStartTime = Date.now();
+    const sqlQuery = query.toString();
     console.log(`[QUERY-EXEC] Executing query on table: ${queryOptions.table}`);
+    console.log(`[QUERY-EXEC] Full SQL:\n${sqlQuery}`);
     const results = await query;
     const queryDuration = Date.now() - queryStartTime;
     console.log(`[QUERY-EXEC] Query completed in ${queryDuration}ms | table: ${queryOptions.table} | rows: ${results.length}`);
