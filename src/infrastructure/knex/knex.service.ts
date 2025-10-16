@@ -118,11 +118,17 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         return data;
       }
 
-      // Force auto-set timestamps (strip client-provided values)
+      // Force auto-set timestamps (strip ALL timestamp variants to avoid conflicts)
       const now = this.knexInstance.raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
         return data.map(record => {
-          const { createdAt, updatedAt, ...cleanRecord } = record;
+          // Strip all timestamp field variants (camelCase, snake_case, and any other formats)
+          const {
+            createdAt, updatedAt,
+            created_at, updated_at,
+            CreatedAt, UpdatedAt,
+            ...cleanRecord
+          } = record;
           return {
             ...cleanRecord,
             createdAt: now,
@@ -130,7 +136,13 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           };
         });
       } else {
-        const { createdAt, updatedAt, ...cleanData } = data;
+        // Strip all timestamp field variants (camelCase, snake_case, and any other formats)
+        const {
+          createdAt, updatedAt,
+          created_at, updated_at,
+          CreatedAt, UpdatedAt,
+          ...cleanData
+        } = data;
         return {
           ...cleanData,
           createdAt: now,
@@ -155,7 +167,13 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     // Hook 6: Strip createdAt and non-updatable fields on update
     this.addHook('beforeUpdate', (tableName, data) => {
-      const { createdAt, updatedAt, ...updateData } = data;
+      // Strip all timestamp field variants (especially createdAt - should never be updated)
+      const {
+        createdAt, updatedAt,
+        created_at, updated_at,
+        CreatedAt, UpdatedAt,
+        ...updateData
+      } = data;
       return this.stripNonUpdatableFields(tableName, updateData);
     });
 
