@@ -191,7 +191,7 @@ export class DynamicRepository {
         'relation_definition',
       ].includes(this.tableName)
     ) {
-      await this.metadataCacheService.reloadMetadataCache();
+      await this.metadataCacheService.reload();
     }
 
     if (
@@ -204,7 +204,7 @@ export class DynamicRepository {
         'table_definition',
       ].includes(this.tableName)
     ) {
-      await this.routeCacheService.reloadRouteCache();
+      await this.routeCacheService.reload();
     }
 
     // Reload bootstrap scripts when bootstrap_script_definition changes

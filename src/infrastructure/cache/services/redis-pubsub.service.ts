@@ -11,6 +11,7 @@ import Redis from 'ioredis';
 export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   public pub: Redis;
   public sub: Redis;
+  private subscribedChannels = new Map<string, (channel: string, message: string) => void>();
 
   constructor(
     private configService: ConfigService,
@@ -37,6 +38,29 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       );
       throw new Error(`RedisPubSub initialization failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Subscribe to channel with handler (idempotent - won't add duplicate handlers)
+   */
+  subscribeWithHandler(
+    channel: string,
+    handler: (channel: string, message: string) => void
+  ): boolean {
+    if (this.subscribedChannels.has(channel)) {
+      return false; // Already subscribed to this channel
+    }
+
+    // Store handler for this channel
+    this.subscribedChannels.set(channel, handler);
+
+    // Subscribe to Redis channel
+    this.sub.subscribe(channel);
+
+    // Add message handler
+    this.sub.on('message', handler);
+
+    return true; // Newly subscribed
   }
 
   async publish(channel: string, payload: any) {

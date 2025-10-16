@@ -23,6 +23,7 @@ export interface EnfyraMetadata {
 export class MetadataCacheService implements OnApplicationBootstrap, OnModuleInit {
   private readonly logger = new Logger(MetadataCacheService.name);
   private inMemoryCache: EnfyraMetadata | null = null; // In-memory cache to avoid Redis calls
+  private messageHandler: ((channel: string, message: string) => void) | null = null;
 
   constructor(
     @Inject(forwardRef(() => QueryBuilderService))
@@ -34,30 +35,36 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   ) {}
 
   async onModuleInit() {
-    this.subscribeToMetadataCacheSync();
+    this.subscribe();
   }
 
   async onApplicationBootstrap() {
-    await this.reloadMetadataCache();
+    await this.reload();
   }
 
-  private subscribeToMetadataCacheSync() {
+  /**
+   * Subscribe to metadata sync messages from other instances
+   */
+  private subscribe() {
     const sub = this.redisPubSubService.sub;
     if (!sub) {
       this.logger.warn('Redis subscription not available for metadata cache sync');
       return;
     }
 
-    sub.subscribe(METADATA_CACHE_SYNC_EVENT_KEY);
-    
-    sub.on('message', async (channel: string, message: string) => {
+    // Only subscribe if not already subscribed
+    if (this.messageHandler) {
+      return;
+    }
+
+    // Create and store handler
+    this.messageHandler = async (channel: string, message: string) => {
       if (channel === METADATA_CACHE_SYNC_EVENT_KEY) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();
-          
+
           if (payload.instanceId === myInstanceId) {
-            this.logger.debug('⏭️  Skipping metadata cache sync from self');
             return;
           }
 
@@ -78,7 +85,13 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           this.logger.error('Failed to parse metadata cache sync message:', error);
         }
       }
-    });
+    };
+
+    // Subscribe via RedisPubSubService (prevents duplicates)
+    this.redisPubSubService.subscribeWithHandler(
+      METADATA_CACHE_SYNC_EVENT_KEY,
+      this.messageHandler
+    );
   }
 
   /**
@@ -421,27 +434,35 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   /**
-   * Manually reload metadata cache
+   * Reload metadata from DB (acquire lock → load → publish → save)
    */
-  async reloadMetadataCache(): Promise<void> {
+  async reload(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
-    
+
     try {
       const acquired = await this.cacheService.acquire(
-        METADATA_RELOAD_LOCK_KEY, 
-        instanceId, 
+        METADATA_RELOAD_LOCK_KEY,
+        instanceId,
         REDIS_TTL.RELOAD_LOCK_TTL
       );
-      
+
       if (!acquired) {
         this.logger.log('🔒 Another instance is reloading metadata, waiting for broadcast...');
         return;
       }
 
       this.logger.log(`🔓 Acquired metadata reload lock (instance ${instanceId.slice(0, 8)})`);
-      
+
       try {
-        await this.performReload();
+        // Load from DB
+        const metadata = await this.loadMetadataFromDb();
+        this.logger.log(`✅ Metadata loaded from DB - ${metadata.tablesList.length} tables`);
+
+        // Broadcast to other instances FIRST
+        await this.publish(metadata);
+
+        // Then save to local memory cache
+        this.inMemoryCache = metadata;
       } finally {
         await this.cacheService.release(METADATA_RELOAD_LOCK_KEY, instanceId);
         this.logger.log('🔓 Released metadata reload lock');
@@ -452,22 +473,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     }
   }
 
-  private async performReload(): Promise<void> {
-    this.logger.log('🔄 Reloading metadata cache...');
-
-    // Clear in-memory cache
-    this.inMemoryCache = null;
-
-    // Load from DB
-    const metadata = await this.loadAndCacheMetadata();
-
-    this.logger.log(`✅ Metadata cache reloaded - ${metadata.tablesList.length} tables`);
-
-    // Broadcast to other instances
-    await this.publishMetadataCacheSync(metadata);
-  }
-
-  private async publishMetadataCacheSync(metadata: EnfyraMetadata): Promise<void> {
+  /**
+   * Publish metadata to other instances via Redis PubSub
+   */
+  private async publish(metadata: EnfyraMetadata): Promise<void> {
     try {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),

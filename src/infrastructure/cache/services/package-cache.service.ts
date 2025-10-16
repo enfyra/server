@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
@@ -10,10 +10,11 @@ import {
 } from '../../../shared/utils/constant';
 
 @Injectable()
-export class PackageCacheService implements OnModuleInit {
+export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(PackageCacheService.name);
   private packagesCache: string[] = [];
   private cacheLoaded = false;
+  private messageHandler: ((channel: string, message: string) => void) | null = null;
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
@@ -23,26 +24,36 @@ export class PackageCacheService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    this.subscribeToPackageCacheSync();
+    this.subscribe();
   }
 
-  private subscribeToPackageCacheSync() {
+  async onApplicationBootstrap() {
+    await this.reload();
+  }
+
+  /**
+   * Subscribe to package sync messages from other instances
+   */
+  private subscribe() {
     const sub = this.redisPubSubService.sub;
     if (!sub) {
       this.logger.warn('Redis subscription not available for package cache sync');
       return;
     }
 
-    sub.subscribe(PACKAGE_CACHE_SYNC_EVENT_KEY);
-    
-    sub.on('message', (channel: string, message: string) => {
+    // Only subscribe if not already subscribed
+    if (this.messageHandler) {
+      return;
+    }
+
+    // Create and store handler
+    this.messageHandler = (channel: string, message: string) => {
       if (channel === PACKAGE_CACHE_SYNC_EVENT_KEY) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();
-          
+
           if (payload.instanceId === myInstanceId) {
-            this.logger.debug('⏭️  Skipping package cache sync from self');
             return;
           }
 
@@ -54,21 +65,29 @@ export class PackageCacheService implements OnModuleInit {
           this.logger.error('Failed to parse package cache sync message:', error);
         }
       }
-    });
+    };
+
+    // Subscribe via RedisPubSubService (prevents duplicates)
+    this.redisPubSubService.subscribeWithHandler(
+      PACKAGE_CACHE_SYNC_EVENT_KEY,
+      this.messageHandler
+    );
   }
 
   async getPackages(): Promise<string[]> {
     if (!this.cacheLoaded) {
-      await this.reloadPackageCache();
+      await this.reload();
     }
     return this.packagesCache;
   }
 
-  async reloadPackageCache(): Promise<void> {
+  /**
+   * Reload packages from DB (acquire lock → load → publish → save)
+   */
+  async reload(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
 
     try {
-      // Try to acquire lock - only one instance should load from DB
       const acquired = await this.cacheService.acquire(
         PACKAGE_RELOAD_LOCK_KEY,
         instanceId,
@@ -76,7 +95,6 @@ export class PackageCacheService implements OnModuleInit {
       );
 
       if (!acquired) {
-        // Another instance is already loading, wait for broadcast
         this.logger.log('🔒 Another instance is reloading packages, waiting for broadcast...');
         return;
       }
@@ -84,8 +102,19 @@ export class PackageCacheService implements OnModuleInit {
       this.logger.log(`🔓 Acquired package reload lock (instance ${instanceId.slice(0, 8)})`);
 
       try {
-        // This instance loads from DB and broadcasts to others
-        await this.performReload();
+        const start = Date.now();
+        this.logger.log('🔄 Reloading packages cache...');
+
+        // Load from DB
+        const packages = await this.loadPackages();
+        this.logger.log(`✅ Loaded ${packages.length} packages in ${Date.now() - start}ms`);
+
+        // Broadcast to other instances FIRST
+        await this.publish(packages);
+
+        // Then save to local memory cache
+        this.packagesCache = packages;
+        this.cacheLoaded = true;
       } finally {
         await this.cacheService.release(PACKAGE_RELOAD_LOCK_KEY, instanceId);
         this.logger.log('🔓 Released package reload lock');
@@ -96,22 +125,10 @@ export class PackageCacheService implements OnModuleInit {
     }
   }
 
-  private async performReload(): Promise<void> {
-    const start = Date.now();
-    this.logger.log('🔄 Reloading packages cache...');
-
-    const packages = await this.loadPackages();
-    this.packagesCache = packages;
-    this.cacheLoaded = true;
-
-    this.logger.log(
-      `✅ Loaded ${packages.length} packages in ${Date.now() - start}ms`,
-    );
-
-    await this.publishPackageCacheSync(packages);
-  }
-
-  private async publishPackageCacheSync(packages: string[]): Promise<void> {
+  /**
+   * Publish packages to other instances via Redis PubSub
+   */
+  private async publish(packages: string[]): Promise<void> {
     try {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),

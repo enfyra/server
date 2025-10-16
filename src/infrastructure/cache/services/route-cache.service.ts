@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
@@ -11,10 +11,11 @@ import {
 import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
 
 @Injectable()
-export class RouteCacheService implements OnModuleInit {
+export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(RouteCacheService.name);
   private routesCache: any[] = [];
   private cacheLoaded = false;
+  private messageHandler: ((channel: string, message: string) => void) | null = null;
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
@@ -24,29 +25,36 @@ export class RouteCacheService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    this.subscribeToRouteCacheSync();
+    this.subscribe();
+  }
+
+  async onApplicationBootstrap() {
+    await this.reload();
   }
 
   /**
-   * Subscribe to route cache sync events from other instances
+   * Subscribe to route sync messages from other instances
    */
-  private subscribeToRouteCacheSync() {
+  private subscribe() {
     const sub = this.redisPubSubService.sub;
     if (!sub) {
       this.logger.warn('Redis subscription not available for route cache sync');
       return;
     }
 
-    sub.subscribe(ROUTE_CACHE_SYNC_EVENT_KEY);
-    
-    sub.on('message', (channel: string, message: string) => {
+    // Only subscribe if not already subscribed
+    if (this.messageHandler) {
+      return;
+    }
+
+    // Create and store handler
+    this.messageHandler = (channel: string, message: string) => {
       if (channel === ROUTE_CACHE_SYNC_EVENT_KEY) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();
-          
+
           if (payload.instanceId === myInstanceId) {
-            this.logger.debug('⏭️  Skipping route cache sync from self');
             return;
           }
 
@@ -58,7 +66,13 @@ export class RouteCacheService implements OnModuleInit {
           this.logger.error('Failed to parse route cache sync message:', error);
         }
       }
-    });
+    };
+
+    // Subscribe via RedisPubSubService (prevents duplicates)
+    this.redisPubSubService.subscribeWithHandler(
+      ROUTE_CACHE_SYNC_EVENT_KEY,
+      this.messageHandler
+    );
   }
 
   /**
@@ -66,16 +80,18 @@ export class RouteCacheService implements OnModuleInit {
    */
   async getRoutes(): Promise<any[]> {
     if (!this.cacheLoaded) {
-      await this.reloadRouteCache();
+      await this.reload();
     }
     return this.routesCache;
   }
 
-  async reloadRouteCache(): Promise<void> {
+  /**
+   * Reload routes from DB (acquire lock → load → publish → save)
+   */
+  async reload(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
 
     try {
-      // Try to acquire lock - only one instance should load from DB
       const acquired = await this.cacheService.acquire(
         ROUTE_RELOAD_LOCK_KEY,
         instanceId,
@@ -83,7 +99,6 @@ export class RouteCacheService implements OnModuleInit {
       );
 
       if (!acquired) {
-        // Another instance is already loading, wait for broadcast
         this.logger.log('🔒 Another instance is reloading routes, waiting for broadcast...');
         return;
       }
@@ -91,8 +106,19 @@ export class RouteCacheService implements OnModuleInit {
       this.logger.log(`🔓 Acquired route reload lock (instance ${instanceId.slice(0, 8)})`);
 
       try {
-        // This instance loads from DB and broadcasts to others
-        await this.performReload();
+        const start = Date.now();
+        this.logger.log('🔄 Reloading routes cache...');
+
+        // Load from DB
+        const routes = await this.loadRoutes();
+        this.logger.log(`✅ Loaded ${routes.length} routes in ${Date.now() - start}ms`);
+
+        // Broadcast to other instances FIRST
+        await this.publish(routes);
+
+        // Then save to local memory cache
+        this.routesCache = routes;
+        this.cacheLoaded = true;
       } finally {
         await this.cacheService.release(ROUTE_RELOAD_LOCK_KEY, instanceId);
         this.logger.log('🔓 Released route reload lock');
@@ -103,24 +129,10 @@ export class RouteCacheService implements OnModuleInit {
     }
   }
 
-  private async performReload(): Promise<void> {
-    const start = Date.now();
-    this.logger.log('🔄 Reloading routes cache...');
-
-    const routes = await this.loadRoutes();
-    
-    this.routesCache = routes;
-    this.cacheLoaded = true;
-
-    this.logger.log(`✅ Loaded ${routes.length} routes in ${Date.now() - start}ms`);
-
-    await this.publishRouteCacheSync(routes);
-  }
-
   /**
-   * Publish route cache to other instances via Redis
+   * Publish routes to other instances via Redis PubSub
    */
-  private async publishRouteCacheSync(routes: any[]): Promise<void> {
+  private async publish(routes: any[]): Promise<void> {
     try {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),
