@@ -8,6 +8,7 @@ interface TableMetadata {
     propertyName: string;
     type: 'many-to-one' | 'one-to-many' | 'one-to-one' | 'many-to-many';
     targetTableName: string;
+    inversePropertyName?: string;
     foreignKeyColumn?: string;
     junctionTableName?: string;
     junctionSourceColumn?: string;
@@ -150,14 +151,22 @@ export async function buildNestedSubquery(
     return `(select ${jsonObject} from ${relation.targetTableName} ${nextAlias} where ${nextAlias}.id = ${parentRef}.${"`"}${fkColumn}${"`"} limit 1)`;
   } else if (relation.type === 'one-to-many') {
     // O2M: return array of objects
-    // IMPORTANT: foreignKeyColumn MUST be set in relation metadata
-    // Cannot reliably auto-generate FK name (e.g., route_definition could be routeId or routeDefinitionId)
-    if (!relation.foreignKeyColumn) {
-      console.warn(`[NESTED-SUBQUERY] O2M relation ${relationName} missing foreignKeyColumn in metadata`);
-      return null;
+    // O2M naming convention: FK column = {inversePropertyName}Id
+    let fkColumn = relation.foreignKeyColumn;
+
+    if (!fkColumn) {
+      if (relation.inversePropertyName) {
+        // Use naming convention: {inversePropertyName}Id
+        fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
+        console.log(`[NESTED-SUBQUERY] O2M relation ${relationName} - calculated FK column: ${fkColumn} from inversePropertyName: ${relation.inversePropertyName}`);
+      } else {
+        console.warn(`[NESTED-SUBQUERY] O2M relation ${relationName} missing both foreignKeyColumn and inversePropertyName in metadata`);
+        return null;
+      }
     }
+
     const orderClause = sortField ? ` order by ${nextAlias}.${"`"}${sortField}${"`"} ${relSort!.direction.toUpperCase()}` : '';
-    return `(select ifnull(JSON_ARRAYAGG(${jsonObject}), JSON_ARRAY()) from ${relation.targetTableName} ${nextAlias} where ${nextAlias}.${"`"}${relation.foreignKeyColumn}${"`"} = ${parentRef}.id${orderClause})`;
+    return `(select ifnull(JSON_ARRAYAGG(${jsonObject}), JSON_ARRAY()) from ${relation.targetTableName} ${nextAlias} where ${nextAlias}.${"`"}${fkColumn}${"`"} = ${parentRef}.id${orderClause})`;
   } else if (relation.type === 'many-to-many') {
     // M2M: return array via junction
     const junctionTable = relation.junctionTableName;

@@ -156,41 +156,23 @@ export class RelationHandlerService {
   ): Promise<void> {
     const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMetadata) {
-      this.logger.warn(`⚠️  No metadata found for table ${tableName}`);
       return;
     }
 
     for (const { relationName, items } of oneToManyRelations) {
       const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
       if (!relation) {
-        this.logger.warn(`⚠️  Relation ${relationName} not found in ${tableName} metadata`);
         continue;
       }
 
-      // Find the inverse relation to get the FK column name
-      const targetTableMetadata = metadata.tables?.get?.(relation.targetTableName) || 
-        metadata.tablesList?.find((t: any) => t.name === relation.targetTableName);
-      
-      if (!targetTableMetadata) {
-        this.logger.warn(`⚠️  Target table ${relation.targetTableName} not found in metadata`);
+      // For O2M relations, FK column is {inversePropertyName}Id in target table
+      if (!relation.inversePropertyName) {
+        this.logger.warn(`⚠️  O2M relation ${relationName} missing inversePropertyName`);
         continue;
       }
 
-      const inverseRelation = targetTableMetadata.relations.find(
-        (r: any) => r.propertyName === relation.inversePropertyName && 
-                   r.targetTableName === tableName
-      );
-
-      if (!inverseRelation?.foreignKeyColumn) {
-        this.logger.warn(`⚠️  Inverse relation not found or no FK column:`, { 
-          relationName: relation.inversePropertyName, 
-          targetTable: tableName,
-          availableRelations: targetTableMetadata.relations.map(r => ({ propertyName: r.propertyName, targetTable: r.targetTableName }))
-        });
-        continue;
-      }
-
-      const fkColumn = inverseRelation.foreignKeyColumn;
+      // O2M naming convention: FK column = {inversePropertyName}Id
+      const fkColumn = `${relation.inversePropertyName}Id`;
 
       // Get existing children IDs to compare
       const existingChildren = await knex(relation.targetTableName)

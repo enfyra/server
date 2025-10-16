@@ -114,7 +114,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       try {
         // Get actual schema from database
         const actualSchema = await this.databaseSchemaService.getActualTableSchema(table.name);
-        
+
         if (!actualSchema) {
           this.logger.warn(`⚠️  Table ${table.name} not found in database, skipping...`);
           continue;
@@ -215,24 +215,13 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
           if (rel.type === 'one-to-many') {
             // For O2M, FK is on the target table
-            // Query the inverse M2O relation from target table to get FK column name
-            const inverseRelationResult = await this.queryBuilder.select({
-              tableName: 'relation_definition',
-              filter: {
-                sourceTableId: { _eq: rel.targetTableId },
-                targetTableId: { _eq: table.id },
-                type: { _eq: 'many-to-one' }
-              }
-            });
-
-            if (inverseRelationResult.data.length > 0) {
-              const inverseRelation = inverseRelationResult.data[0];
-              relationMetadata.foreignKeyColumn = getForeignKeyColumnName(inverseRelation.propertyName);
-              relationMetadata.inversePropertyName = inverseRelation.propertyName;
-            } else {
-              // Fallback: use source table name + Id
-              relationMetadata.foreignKeyColumn = getForeignKeyColumnName(table.name.replace('_definition', ''));
+            // O2M naming convention: FK column = {inversePropertyName}Id
+            if (!rel.inversePropertyName) {
+              this.logger.error(`❌ O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
+              throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`);
             }
+
+            relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.inversePropertyName);
           }
 
           if (rel.type === 'many-to-many') {
@@ -341,61 +330,72 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     for (const table of tablesList) {
       for (const relation of table.relations || []) {
         // Only process relations with inversePropertyName
-        if (!relation.inversePropertyName) continue;
-        
+        if (!relation.inversePropertyName) {
+          continue;
+        }
+
         const targetTableName = relation.targetTableName || relation.targetTable;
         const targetTable = tablesMap.get(targetTableName);
-        
-        if (!targetTable) continue;
-        
+
+        if (!targetTable) {
+          continue;
+        }
+
         // Check if inverse relation already exists
         const inverseExists = targetTable.relations?.some(
           (r: any) => r.propertyName === relation.inversePropertyName
         );
-        
-        if (!inverseExists) {
-          // Generate inverse relation
-          let inverseType = 'one-to-many';
-          if (relation.type === 'one-to-many') {
-            inverseType = 'many-to-one';
-          } else if (relation.type === 'many-to-one') {
-            inverseType = 'one-to-many';
-          } else if (relation.type === 'one-to-one') {
-            inverseType = 'one-to-one';
-          } else if (relation.type === 'many-to-many') {
-            inverseType = 'many-to-many';
-          }
-          
-          const inverseRelation: any = {
-            propertyName: relation.inversePropertyName,
-            type: inverseType,
-            targetTable: table.name,
-            targetTableName: table.name,
-            sourceTableName: targetTableName,
-            inversePropertyName: relation.propertyName,
-            isNullable: true,
-            isSystem: relation.isSystem || false,
-            isGenerated: true, // Mark as auto-generated
-          };
-          
-          // Add foreign key column for M2O
-          if (inverseType === 'many-to-one') {
-            inverseRelation.foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName);
-          }
-          
-          // Add junction table info for M2M
-          if (inverseType === 'many-to-many') {
-            inverseRelation.junctionTableName = relation.junctionTableName;
-            inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
-            inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
-          }
-          
-          // Add inverse relation to target table
-          if (!targetTable.relations) {
-            targetTable.relations = [];
-          }
-          targetTable.relations.push(inverseRelation);
+
+        if (inverseExists) {
+          continue;
         }
+
+        // Generate inverse relation
+        let inverseType = 'one-to-many';
+        if (relation.type === 'one-to-many') {
+          inverseType = 'many-to-one';
+        } else if (relation.type === 'many-to-one') {
+          inverseType = 'one-to-many';
+        } else if (relation.type === 'one-to-one') {
+          inverseType = 'one-to-one';
+        } else if (relation.type === 'many-to-many') {
+          inverseType = 'many-to-many';
+        }
+
+        const inverseRelation: any = {
+          propertyName: relation.inversePropertyName,
+          type: inverseType,
+          targetTable: table.name,
+          targetTableName: table.name,
+          sourceTableName: targetTableName,
+          inversePropertyName: relation.propertyName,
+          isNullable: true,
+          isSystem: relation.isSystem || false,
+          isGenerated: true, // Mark as auto-generated
+        };
+
+        // Add foreign key column for M2O
+        if (inverseType === 'many-to-one') {
+          inverseRelation.foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName);
+        }
+
+        // Add foreign key column for O2M
+        if (inverseType === 'one-to-many') {
+          inverseRelation.foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
+        }
+
+        // Add junction table info for M2M
+        if (inverseType === 'many-to-many') {
+          inverseRelation.junctionTableName = relation.junctionTableName;
+          inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
+          inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
+        }
+
+        // Add inverse relation to target table
+        if (!targetTable.relations) {
+          targetTable.relations = [];
+        }
+        targetTable.relations.push(inverseRelation);
       }
     }
   }

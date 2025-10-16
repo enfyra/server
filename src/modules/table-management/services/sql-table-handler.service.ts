@@ -187,15 +187,20 @@ export class SqlTableHandlerService {
           // Add junction table info for M2M relations
           if (rel.type === 'many-to-many') {
             const targetTableName = targetTablesMap.get(targetTableId);
-            
+
             if (!targetTableName) {
               throw new Error(`Target table with ID ${targetTableId} not found`);
             }
-            
+
             const junctionTableName = getJunctionTableName(body.name, rel.propertyName, targetTableName);
             insertData.junctionTableName = junctionTableName;
             insertData.junctionSourceColumn = getForeignKeyColumnName(body.name);
             insertData.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+          } else {
+            // Explicitly set to null for non-M2M relations
+            insertData.junctionTableName = null;
+            insertData.junctionSourceColumn = null;
+            insertData.junctionTargetColumn = null;
           }
 
           relationsToInsert.push(insertData);
@@ -409,15 +414,20 @@ export class SqlTableHandlerService {
           // Add junction table info for M2M relations
           if (rel.type === 'many-to-many') {
             const targetTableName = targetTablesMap.get(targetTableId);
-            
+
             if (!targetTableName) {
               throw new Error(`Target table with ID ${targetTableId} not found`);
             }
-            
+
             const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
             relationData.junctionTableName = junctionTableName;
             relationData.junctionSourceColumn = getForeignKeyColumnName(exists.name);
             relationData.junctionTargetColumn = getForeignKeyColumnName(targetTableName);
+          } else {
+            // Clear junction table metadata if type is NOT M2M
+            relationData.junctionTableName = null;
+            relationData.junctionSourceColumn = null;
+            relationData.junctionTargetColumn = null;
           }
 
           if (rel.id) {
