@@ -36,7 +36,7 @@ export class HandlerExecutorService {
     const isDone = { value: false };
 
     return new Promise(async (resolve, reject) => {
-      console.log(`[SCRIPT-EXEC] Acquiring child process | elapsed: ${Date.now() - startTime}ms`);
+      console.log(`[SCRIPT-EXEC] Acquiring child process | pool size: ${pool.size}, available: ${pool.available}, pending: ${pool.pending} | elapsed: ${Date.now() - startTime}ms`);
       const child = await pool.acquire();
       console.log(`[SCRIPT-EXEC] Child process acquired | elapsed: ${Date.now() - startTime}ms`);
 
