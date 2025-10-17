@@ -16,8 +16,11 @@ export async function generateSQLFromDiff(
     sqlStatements.push(`ALTER TABLE \`${diff.table.update.oldName}\` RENAME TO \`${diff.table.update.newName}\``);
   }
 
+  const renamedColumns = new Set<string>();
   for (const rename of diff.columns.rename) {
     sqlStatements.push(`ALTER TABLE \`${tableName}\` RENAME COLUMN \`${rename.oldName}\` TO \`${rename.newName}\``);
+    renamedColumns.add(rename.oldName);
+    renamedColumns.add(rename.newName);
   }
 
   for (const col of diff.columns.create) {
@@ -33,13 +36,39 @@ export async function generateSQLFromDiff(
   }
 
   for (const col of diff.columns.delete) {
+    const columnExists = await knex.schema.hasColumn(tableName, col.name);
+    if (!columnExists) {
+      logger.log(`  ⏭️  Skipping DROP for ${col.name} - column does not exist`);
+      continue;
+    }
+
     if (col.isForeignKey) {
       await dropForeignKeyIfExists(knex, tableName, col.name);
     }
     sqlStatements.push(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${col.name}\``);
   }
 
+  const processedUpdates = new Set<string>();
   for (const update of diff.columns.update) {
+    const colName = update.newColumn.name;
+
+    if (renamedColumns.has(colName)) {
+      logger.log(`  ⏭️  Skipping MODIFY for ${colName} - column was renamed`);
+      continue;
+    }
+
+    if (processedUpdates.has(colName)) {
+      logger.log(`  ⏭️  Skipping duplicate MODIFY for ${colName}`);
+      continue;
+    }
+
+    const columnExists = await knex.schema.hasColumn(tableName, colName);
+    if (!columnExists) {
+      logger.log(`  ⏭️  Skipping MODIFY for ${colName} - column does not exist`);
+      continue;
+    }
+
+    processedUpdates.add(colName);
     const columnDef = generateColumnDefinition(update.newColumn);
     sqlStatements.push(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${update.newColumn.name}\` ${columnDef}`);
   }
