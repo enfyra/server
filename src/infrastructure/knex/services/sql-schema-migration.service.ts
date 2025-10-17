@@ -206,8 +206,6 @@ export class SqlSchemaMigrationService {
             \`id\` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             \`${junctionSourceColumn}\` INT UNSIGNED NOT NULL,
             \`${junctionTargetColumn}\` INT UNSIGNED NOT NULL,
-            \`createdAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            \`updatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             FOREIGN KEY (\`${junctionSourceColumn}\`) REFERENCES \`${sourceTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
             FOREIGN KEY (\`${junctionTargetColumn}\`) REFERENCES \`${targetTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
             UNIQUE KEY \`unique_${junctionSourceColumn}_${junctionTargetColumn}\` (\`${junctionSourceColumn}\`, \`${junctionTargetColumn}\`)
@@ -351,7 +349,15 @@ export class SqlSchemaMigrationService {
     this.analyzeColumnChanges(oldMetadata.columns || [], newMetadata.columns || [], diff);
 
     const knex = this.knexService.getKnex();
-    await analyzeRelationChanges(knex, oldMetadata.relations || [], newMetadata.relations || [], diff, newMetadata.name);
+    await analyzeRelationChanges(
+      knex,
+      oldMetadata.relations || [],
+      newMetadata.relations || [],
+      diff,
+      newMetadata.name,
+      oldMetadata.columns || [],
+      newMetadata.columns || []
+    );
 
     this.analyzeConstraintChanges(oldMetadata, newMetadata, diff);
 

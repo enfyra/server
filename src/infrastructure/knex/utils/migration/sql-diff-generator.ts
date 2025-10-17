@@ -87,7 +87,16 @@ export async function generateSQLFromDiff(
     } else if (crossOp.operation === 'dropColumn') {
       await dropForeignKeyIfExists(knex, crossOp.targetTable, crossOp.columnName);
       sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` DROP COLUMN \`${crossOp.columnName}\``);
+    } else if (crossOp.operation === 'renameColumn') {
+      sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` RENAME COLUMN \`${crossOp.oldColumnName}\` TO \`${crossOp.newColumnName}\``);
     }
+  }
+
+  // Junction table RENAME should execute before CREATE/DROP to avoid conflicts
+  for (const junctionRename of diff.junctionTables?.rename || []) {
+    const { oldTableName, newTableName } = junctionRename;
+    logger.log(`🔄 Renaming junction table: ${oldTableName} → ${newTableName}`);
+    sqlStatements.push(`RENAME TABLE \`${oldTableName}\` TO \`${newTableName}\``);
   }
 
   for (const junctionCreate of diff.junctionTables?.create || []) {
@@ -104,8 +113,6 @@ export async function generateSQLFromDiff(
         \`id\` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         \`${sourceColumn}\` INT UNSIGNED NOT NULL,
         \`${targetColumn}\` INT UNSIGNED NOT NULL,
-        \`createdAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`updatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (\`${sourceColumn}\`) REFERENCES \`${sourceTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (\`${targetColumn}\`) REFERENCES \`${targetTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
         UNIQUE KEY \`unique_${sourceColumn}_${targetColumn}\` (\`${sourceColumn}\`, \`${targetColumn}\`)

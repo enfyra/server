@@ -8,12 +8,43 @@ import {
 
 const logger = new Logger('RelationChanges');
 
+/**
+ * Validate that FK column name doesn't conflict with existing columns or pending creates
+ * @throws Error if FK column conflicts with existing column
+ */
+function validateFkColumnNotConflict(
+  fkColumnName: string,
+  existingColumns: any[],
+  pendingCreateColumns: any[],
+  pendingDeleteColumns: any[],
+  context: string,
+): void {
+  // Get column names that will exist after migration
+  const deletedColNames = new Set(pendingDeleteColumns.map(c => c.name));
+  const existingColNames = existingColumns
+    .filter(c => !deletedColNames.has(c.name))
+    .map(c => c.name);
+  const pendingColNames = pendingCreateColumns.map(c => c.name);
+
+  const allColNames = new Set([...existingColNames, ...pendingColNames]);
+
+  if (allColNames.has(fkColumnName)) {
+    throw new Error(
+      `Cannot create FK column '${fkColumnName}' (${context}): ` +
+      `A column with this name already exists or will be created. ` +
+      `Please rename the relation property to avoid column name conflict.`
+    );
+  }
+}
+
 export async function analyzeRelationChanges(
   knex: Knex,
   oldRelations: any[],
   newRelations: any[],
   diff: any,
   tableName: string,
+  oldColumns: any[],
+  newColumns: any[],
 ): Promise<void> {
   logger.log('🔍 Relation Analysis (FK Column Generation):');
   logger.log(`🔍 DEBUG: oldRelations count: ${oldRelations.length}, newRelations count: ${newRelations.length}`);
@@ -70,8 +101,8 @@ export async function analyzeRelationChanges(
   logger.log(`📊 Created relation IDs: [${createdRelIds.join(', ')}]`);
 
   await handleDeletedRelations(knex, oldRelations, deletedRelIds, diff, tableName);
-  await handleCreatedRelations(knex, newRelations, createdRelIds, diff, tableName);
-  await handleUpdatedRelations(knex, oldRelMap, newRelMap, diff, tableName);
+  await handleCreatedRelations(knex, newRelations, createdRelIds, diff, tableName, newColumns);
+  await handleUpdatedRelations(knex, oldRelMap, newRelMap, diff, tableName, oldColumns, newColumns);
 }
 
 async function handleDeletedRelations(
@@ -136,6 +167,7 @@ async function handleCreatedRelations(
   createdRelIds: number[],
   diff: any,
   tableName: string,
+  newColumns: any[],
 ): Promise<void> {
   for (const relId of createdRelIds) {
     const rel = newRelations.find(r => r.id === relId);
@@ -144,8 +176,18 @@ async function handleCreatedRelations(
     logger.log(`✨ Created relation: ${rel.propertyName} (${rel.type}) → ${rel.targetTableName}`);
 
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-      const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+      // Always calculate FK column from propertyName (covers rename case)
+      const fkColumn = getForeignKeyColumnName(rel.propertyName);
       logger.log(`  Will create FK column: ${fkColumn} → ${rel.targetTableName}.id`);
+
+      // Validate FK column doesn't conflict with existing columns
+      validateFkColumnNotConflict(
+        fkColumn,
+        newColumns,
+        diff.columns.create,
+        diff.columns.delete,
+        `relation '${rel.propertyName}' (${rel.type})`
+      );
 
       diff.columns.create.push({
         name: fkColumn,
@@ -162,7 +204,8 @@ async function handleCreatedRelations(
         logger.warn(`  ⚠️  O2M relation '${rel.propertyName}' missing inversePropertyName, cannot determine FK column name`);
         continue;
       }
-      const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.inversePropertyName);
+      // Always calculate FK column from inversePropertyName (covers rename case)
+      const fkColumn = getForeignKeyColumnName(rel.inversePropertyName);
       logger.log(`  O2M: Will create FK column ${fkColumn} in target table ${targetTableName}`);
 
       if (!diff.crossTableOperations) {
@@ -209,26 +252,148 @@ async function handleUpdatedRelations(
   newRelMap: Map<number, any>,
   diff: any,
   tableName: string,
+  oldColumns: any[],
+  newColumns: any[],
 ): Promise<void> {
   for (const [relId, newRel] of newRelMap) {
     const oldRel = oldRelMap.get(relId);
     if (!oldRel) continue;
 
     const changes: string[] = [];
-    if (oldRel.propertyName !== newRel.propertyName) changes.push(`propertyName: ${oldRel.propertyName} → ${newRel.propertyName}`);
-    if (oldRel.type !== newRel.type) changes.push(`type: ${oldRel.type} → ${newRel.type}`);
-    if (oldRel.targetTableName !== newRel.targetTableName) changes.push(`target: ${oldRel.targetTableName} → ${newRel.targetTableName}`);
-    if (oldRel.isNullable !== newRel.isNullable) changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
+    const propertyNameChanged = oldRel.propertyName !== newRel.propertyName;
+    const inversePropertyNameChanged = oldRel.inversePropertyName !== newRel.inversePropertyName;
+    const typeChanged = oldRel.type !== newRel.type;
+    const targetTableChanged = oldRel.targetTableName !== newRel.targetTableName;
+    const isNullableChanged = oldRel.isNullable !== newRel.isNullable;
+
+    if (propertyNameChanged) changes.push(`propertyName: ${oldRel.propertyName} → ${newRel.propertyName}`);
+    if (typeChanged) changes.push(`type: ${oldRel.type} → ${newRel.type}`);
+    if (targetTableChanged) changes.push(`target: ${oldRel.targetTableName} → ${newRel.targetTableName}`);
+    if (inversePropertyNameChanged) changes.push(`inversePropertyName: ${oldRel.inversePropertyName} → ${newRel.inversePropertyName}`);
+    if (isNullableChanged) changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
 
     if (changes.length > 0) {
       logger.log(`🔄 Updated relation ${relId}: ${changes.join(', ')}`);
 
-      // Handle TYPE CHANGE - most critical
-      if (oldRel.type !== newRel.type) {
-        await handleRelationTypeChange(knex, oldRel, newRel, diff, tableName);
+      // Handle TYPE CHANGE first (most critical)
+      if (typeChanged) {
+        await handleRelationTypeChange(knex, oldRel, newRel, diff, tableName, newColumns);
       }
-      // Handle other changes (propertyName, targetTable, isNullable) - TODO later
+      // Handle PROPERTY NAME CHANGE (same type) - RENAME to preserve data
+      else if (propertyNameChanged || inversePropertyNameChanged) {
+        await handleRelationPropertyNameChange(knex, oldRel, newRel, diff, tableName, propertyNameChanged, inversePropertyNameChanged);
+      }
+      // Handle other changes (targetTable, isNullable) - TODO later
     }
+  }
+}
+
+async function handleRelationPropertyNameChange(
+  knex: Knex,
+  oldRel: any,
+  newRel: any,
+  diff: any,
+  tableName: string,
+  propertyNameChanged: boolean,
+  inversePropertyNameChanged: boolean,
+): Promise<void> {
+  logger.log(`🔄 Handling relation property name change for ${oldRel.propertyName} (${oldRel.type})`);
+
+  const relationType = oldRel.type; // Type is same (not changed)
+
+  // Case 1: M2O/O2O - propertyName changed → RENAME FK column in current table
+  if ((relationType === 'many-to-one' || relationType === 'one-to-one') && propertyNameChanged) {
+    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
+
+    logger.log(`  🔄 M2O/O2O propertyName change: RENAME FK column ${oldFkColumn} → ${newFkColumn}`);
+
+    // Check if FK columns are actually different (edge case: camelCase collision)
+    if (oldFkColumn !== newFkColumn) {
+      if (!diff.columns.rename) {
+        diff.columns.rename = [];
+      }
+
+      diff.columns.rename.push({
+        oldName: oldFkColumn,
+        newName: newFkColumn,
+        column: {
+          name: newFkColumn,
+          type: 'int',
+          isNullable: newRel.isNullable ?? true,
+          isForeignKey: true,
+        },
+      });
+    } else {
+      logger.log(`  ⏭️  FK column name unchanged (${oldFkColumn}), skipping rename`);
+    }
+  }
+
+  // Case 2: O2M - inversePropertyName changed → RENAME FK column in target table
+  else if (relationType === 'one-to-many' && inversePropertyNameChanged) {
+    if (!oldRel.inversePropertyName || !newRel.inversePropertyName) {
+      logger.warn(`  ⚠️  O2M relation missing inversePropertyName, cannot rename FK column`);
+      return;
+    }
+
+    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.inversePropertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
+
+    logger.log(`  🔄 O2M inversePropertyName change: RENAME FK column ${oldFkColumn} → ${newFkColumn} in target table ${oldRel.targetTableName}`);
+
+    // Check if FK columns are actually different
+    if (oldFkColumn !== newFkColumn) {
+      if (!diff.crossTableOperations) {
+        diff.crossTableOperations = [];
+      }
+
+      diff.crossTableOperations.push({
+        operation: 'renameColumn',
+        targetTable: oldRel.targetTableName,
+        oldColumnName: oldFkColumn,
+        newColumnName: newFkColumn,
+        columnDef: {
+          type: 'int',
+          isNullable: true,
+          isForeignKey: true,
+        },
+      });
+    } else {
+      logger.log(`  ⏭️  FK column name unchanged (${oldFkColumn}), skipping rename`);
+    }
+  }
+
+  // Case 3: O2M - propertyName changed (but inversePropertyName same) → No FK change
+  else if (relationType === 'one-to-many' && propertyNameChanged && !inversePropertyNameChanged) {
+    logger.log(`  ℹ️  O2M propertyName change (inversePropertyName unchanged): FK column name stays the same`);
+    // No action needed - FK column name determined by inversePropertyName
+  }
+
+  // Case 4: M2M - propertyName changed → RENAME junction table
+  else if (relationType === 'many-to-many' && propertyNameChanged) {
+    const oldJunctionTableName = oldRel.junctionTableName;
+    const newJunctionTableName = getJunctionTableName(tableName, newRel.propertyName, newRel.targetTableName);
+
+    logger.log(`  🔄 M2M propertyName change: RENAME junction table ${oldJunctionTableName} → ${newJunctionTableName}`);
+
+    // Check if junction table names are actually different
+    if (oldJunctionTableName !== newJunctionTableName) {
+      if (!diff.junctionTables) {
+        diff.junctionTables = { create: [], drop: [], update: [], rename: [] };
+      }
+
+      // Use RENAME TABLE to preserve data
+      diff.junctionTables.rename.push({
+        oldTableName: oldJunctionTableName,
+        newTableName: newJunctionTableName,
+      });
+    } else {
+      logger.log(`  ⏭️  Junction table name unchanged (${oldJunctionTableName}), skipping rename`);
+    }
+  }
+
+  else {
+    logger.warn(`  ⚠️  Unhandled property name change scenario for ${relationType}`);
   }
 }
 
@@ -238,6 +403,7 @@ async function handleRelationTypeChange(
   newRel: any,
   diff: any,
   tableName: string,
+  newColumns: any[],
 ): Promise<void> {
   logger.log(`🔄 Handling relation type change: ${oldRel.type} → ${newRel.type} for ${newRel.propertyName}`);
 
@@ -281,7 +447,7 @@ async function handleRelationTypeChange(
   else if (oldType === 'many-to-many' && (newType === 'many-to-one' || newType === 'one-to-one')) {
     logger.log(`  🔄 M2M → M2O/O2O: Drop junction table, Create FK column`);
 
-    // 1. Drop old junction table
+    // 1. Drop old junction table (trust metadata)
     const oldJunctionTableName = oldRel.junctionTableName;
     logger.log(`    ➖ Drop junction table: ${oldJunctionTableName}`);
     diff.junctionTables.drop.push({
@@ -289,9 +455,19 @@ async function handleRelationTypeChange(
       reason: 'Relation type changed from M2M to M2O/O2O',
     });
 
-    // 2. Create new FK column
-    const newFkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
+    // 2. Create new FK column (calculate from new propertyName - covers rename)
+    const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
     logger.log(`    ➕ Create FK column: ${newFkColumn} → ${newRel.targetTableName}.id`);
+
+    // Validate FK column doesn't conflict
+    validateFkColumnNotConflict(
+      newFkColumn,
+      newColumns,
+      diff.columns.create,
+      diff.columns.delete,
+      `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`
+    );
+
     diff.columns.create.push({
       name: newFkColumn,
       type: 'int',
@@ -337,7 +513,7 @@ async function handleRelationTypeChange(
   else if (oldType === 'many-to-many' && newType === 'one-to-many') {
     logger.log(`  🔄 M2M → O2M: Drop junction table, Create FK column in target table`);
 
-    // 1. Drop old junction table
+    // 1. Drop old junction table (trust metadata)
     const oldJunctionTableName = oldRel.junctionTableName;
     logger.log(`    ➖ Drop junction table: ${oldJunctionTableName}`);
     diff.junctionTables.drop.push({
@@ -345,12 +521,12 @@ async function handleRelationTypeChange(
       reason: 'Relation type changed from M2M to O2M',
     });
 
-    // 2. Create new FK column in target table
+    // 2. Create new FK column in target table (calculate from new inversePropertyName - covers rename)
     // O2M: FK column in target table = {inversePropertyName}Id
     if (!newRel.inversePropertyName) {
       throw new Error(`O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`);
     }
-    const newFkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.inversePropertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
     logger.log(`    ➕ Create FK column ${newFkColumn} in target table ${newRel.targetTableName}`);
     diff.crossTableOperations.push({
       operation: 'createColumn',
@@ -370,7 +546,7 @@ async function handleRelationTypeChange(
   else if ((oldType === 'many-to-one' || oldType === 'one-to-one') && newType === 'one-to-many') {
     logger.log(`  🔄 M2O/O2O → O2M: Drop FK column, Create FK column in target table`);
 
-    // 1. Drop old FK column in current table
+    // 1. Drop old FK column in current table (trust metadata)
     // M2O/O2O: FK column = {propertyName}Id
     const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
     logger.log(`    ➖ Drop FK column: ${oldFkColumn}`);
@@ -379,12 +555,12 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    // 2. Create new FK column in target table
+    // 2. Create new FK column in target table (calculate from new inversePropertyName - covers rename)
     // O2M: FK column in target table = {inversePropertyName}Id
     if (!newRel.inversePropertyName) {
       throw new Error(`O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`);
     }
-    const newFkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.inversePropertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
     logger.log(`    ➕ Create FK column ${newFkColumn} in target table ${newRel.targetTableName}`);
     diff.crossTableOperations.push({
       operation: 'createColumn',
@@ -404,7 +580,7 @@ async function handleRelationTypeChange(
   else if (oldType === 'one-to-many' && (newType === 'many-to-one' || newType === 'one-to-one')) {
     logger.log(`  🔄 O2M → M2O/O2O: Drop FK column in target table, Create FK column`);
 
-    // 1. Drop old FK column in target table
+    // 1. Drop old FK column in target table (trust metadata)
     // O2M: FK column in target table = {inversePropertyName}Id
     if (!oldRel.inversePropertyName) {
       throw new Error(`O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`);
@@ -418,10 +594,20 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    // 2. Create new FK column in current table
+    // 2. Create new FK column in current table (calculate from new propertyName - covers rename)
     // M2O/O2O: FK column = {propertyName}Id
-    const newFkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
     logger.log(`    ➕ Create FK column: ${newFkColumn} → ${newRel.targetTableName}.id`);
+
+    // Validate FK column doesn't conflict
+    validateFkColumnNotConflict(
+      newFkColumn,
+      newColumns,
+      diff.columns.create,
+      diff.columns.delete,
+      `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`
+    );
+
     diff.columns.create.push({
       name: newFkColumn,
       type: 'int',
