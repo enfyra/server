@@ -23,6 +23,15 @@ export async function generateSQLFromDiff(
     renamedColumns.add(rename.newName);
   }
 
+  // DELETE columns first (before CREATE) to avoid duplicate column name errors
+  for (const col of diff.columns.delete) {
+    if (col.isForeignKey) {
+      await dropForeignKeyIfExists(knex, tableName, col.name);
+    }
+    sqlStatements.push(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${col.name}\``);
+  }
+
+  // CREATE columns after DELETE
   for (const col of diff.columns.create) {
     const columnDef = generateColumnDefinition(col);
     sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${col.name}\` ${columnDef}`);
@@ -33,19 +42,6 @@ export async function generateSQLFromDiff(
         `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`fk_${tableName}_${col.name}\` FOREIGN KEY (\`${col.name}\`) REFERENCES \`${col.foreignKeyTarget}\` (\`${col.foreignKeyColumn || 'id'}\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
       );
     }
-  }
-
-  for (const col of diff.columns.delete) {
-    const columnExists = await knex.schema.hasColumn(tableName, col.name);
-    if (!columnExists) {
-      logger.log(`  ⏭️  Skipping DROP for ${col.name} - column does not exist`);
-      continue;
-    }
-
-    if (col.isForeignKey) {
-      await dropForeignKeyIfExists(knex, tableName, col.name);
-    }
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${col.name}\``);
   }
 
   const processedUpdates = new Set<string>();
@@ -59,12 +55,6 @@ export async function generateSQLFromDiff(
 
     if (processedUpdates.has(colName)) {
       logger.log(`  ⏭️  Skipping duplicate MODIFY for ${colName}`);
-      continue;
-    }
-
-    const columnExists = await knex.schema.hasColumn(tableName, colName);
-    if (!columnExists) {
-      logger.log(`  ⏭️  Skipping MODIFY for ${colName} - column does not exist`);
       continue;
     }
 

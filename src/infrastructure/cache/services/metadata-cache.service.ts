@@ -209,6 +209,17 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             targetTableName: targetTable[0]?.name || rel.targetTableName,
           };
 
+          // Mark inverse relations
+          // O2M is ALWAYS inverse from this table's perspective (FK is on the other side)
+          // M2M with mappedBy is inverse (the other side owns the relation)
+          if (rel.type === 'one-to-many') {
+            relationMetadata.isInverse = true;
+          } else if (rel.type === 'many-to-many' && rel.mappedBy) {
+            relationMetadata.isInverse = true;
+          } else {
+            relationMetadata.isInverse = false;
+          }
+
           if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
             relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
           }
@@ -373,6 +384,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           isNullable: true,
           isSystem: relation.isSystem || false,
           isGenerated: true, // Mark as auto-generated
+          isInverse: true, // Mark as inverse relation
         };
 
         // Add foreign key column for M2O

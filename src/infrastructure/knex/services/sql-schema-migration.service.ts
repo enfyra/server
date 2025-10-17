@@ -360,52 +360,76 @@ export class SqlSchemaMigrationService {
 
   private analyzeColumnChanges(oldColumns: any[], newColumns: any[], diff: any): void {
 
-    const oldColMap = new Map(oldColumns.map(c => [c.id, c]));
-    const newColMap = new Map(newColumns.map(c => [c.id, c]));
+    const oldColMap = new Map(oldColumns.filter(c => c.id != null).map(c => [c.id, c]));
+    const newColMap = new Map(newColumns.filter(c => c.id != null).map(c => [c.id, c]));
 
     this.logger.log('🔍 Column Analysis (Explicit Columns Only):');
     this.logger.log('  Old columns:', oldColumns.map(c => `${c.id}:${c.name}`));
     this.logger.log('  New columns:', newColumns.map(c => `${c.id}:${c.name}`));
-    
+
 
     this.logger.log('🔍 Old columns details:', JSON.stringify(oldColumns.map(c => ({ id: c.id, name: c.name, type: c.type })), null, 2));
     this.logger.log('🔍 New columns details:', JSON.stringify(newColumns.map(c => ({ id: c.id, name: c.name, type: c.type })), null, 2));
 
+    this.logger.log('🔍 Old column IDs (filtered):', Array.from(oldColMap.keys()));
+    this.logger.log('🔍 New column IDs (filtered):', Array.from(newColMap.keys()));
+
     for (const newCol of newColumns) {
-      if (!oldColMap.has(newCol.id)) {
-        this.logger.log(`  ➕ Column to CREATE: ${newCol.name}`);
+      if (newCol.id == null) {
+        this.logger.log(`  ➕ Column to CREATE: ${newCol.name} (no id - new column)`);
+        diff.columns.create.push(newCol);
+        continue;
+      }
+
+      const hasInOld = oldColMap.has(newCol.id);
+      this.logger.log(`  🔍 Checking newCol ${newCol.id}:${newCol.name} - exists in old? ${hasInOld}`);
+
+      if (!hasInOld) {
+        this.logger.log(`  ➕ Column to CREATE: ${newCol.name} (id=${newCol.id})`);
         diff.columns.create.push(newCol);
       }
     }
 
     for (const oldCol of oldColumns) {
+      if (oldCol.id == null) {
+        if (this.isSystemColumn(oldCol.name)) {
+          this.logger.log(`  🛡️  System column protected: ${oldCol.name} (no id - system column)`);
+        } else {
+          this.logger.log(`  ⚠️  Old column without id: ${oldCol.name} - skipping`);
+        }
+        continue;
+      }
+
       const newCol = newColMap.get(oldCol.id);
-      
+
+      this.logger.log(`  🔍 Checking oldCol ${oldCol.id}:${oldCol.name} - found in new? ${!!newCol}`);
+
       if (!newCol) {
 
         if (this.isSystemColumn(oldCol.name)) {
           this.logger.log(`  🛡️  System column protected: ${oldCol.name}`);
         } else {
-          this.logger.log(`  ➖ Column to DELETE: ${oldCol.name}`);
+          this.logger.log(`  ➖ Column to DELETE: ${oldCol.name} (id=${oldCol.id})`);
           diff.columns.delete.push(oldCol);
         }
       } else {
 
         if (oldCol.id && newCol.id && oldCol.id === newCol.id && oldCol.name !== newCol.name) {
-          this.logger.log(`  🔄 Column to RENAME: ${oldCol.name} → ${newCol.name}`);
+          this.logger.log(`  🔄 Column to RENAME: ${oldCol.name} → ${newCol.name} (id=${oldCol.id})`);
           diff.columns.rename.push({
             oldName: oldCol.name,
             newName: newCol.name,
             column: newCol
           });
         } else if (this.hasColumnChanged(oldCol, newCol)) {
-          this.logger.log(`  🔧 Column to UPDATE: ${newCol.name}`);
+          this.logger.log(`  🔧 Column to UPDATE: ${newCol.name} (id=${newCol.id})`);
+          this.logger.log(`    Changed fields: type(${oldCol.type}→${newCol.type}), nullable(${oldCol.isNullable}→${newCol.isNullable}), generated(${oldCol.isGenerated}→${newCol.isGenerated}), default(${JSON.stringify(oldCol.defaultValue)}→${JSON.stringify(newCol.defaultValue)})`);
           diff.columns.update.push({
             oldColumn: oldCol,
             newColumn: newCol
           });
         } else {
-          this.logger.log(`  ✅ Column unchanged: ${newCol.name}`);
+          this.logger.log(`  ✅ Column unchanged: ${newCol.name} (id=${newCol.id})`);
         }
       }
     }

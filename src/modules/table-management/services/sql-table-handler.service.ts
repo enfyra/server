@@ -585,13 +585,32 @@ export class SqlTableHandlerService {
         const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
 
         // Create new metadata from request body (before database update)
+        // IMPORTANT: Preserve inverse relations (relations not owned by this table)
+        // Frontend doesn't always send inverse relations, so we need to preserve them
+        const preserveInverseRelations = (oldRels: any[] = [], newRels: any[] = []) => {
+          // Filter inverse relations using isInverse flag (set by metadata cache)
+          const inverseRels = (oldRels || []).filter(r => r.isInverse === true);
+
+          this.logger.log(`🔍 Preserving ${inverseRels.length} inverse relations: ${inverseRels.map(r => r.propertyName).join(', ')}`);
+
+          // Merge: keep inverse relations from old + new relations from request
+          const newRelIds = new Set(newRels.map(r => r.id).filter(id => id != null));
+          const preservedInverse = inverseRels.filter(r => !newRelIds.has(r.id));
+
+          return [...newRels, ...preservedInverse];
+        };
+
         const newMetadata = {
           name: exists.name,
-          columns: body.columns || [],
-          relations: body.relations || [],
-          uniques: body.uniques || [],
-          indexes: body.indexes || []
+          columns: body.columns !== undefined ? body.columns : (oldMetadata?.columns || []),
+          relations: body.relations !== undefined
+            ? preserveInverseRelations(oldMetadata?.relations, body.relations)
+            : (oldMetadata?.relations || []),
+          uniques: body.uniques !== undefined ? body.uniques : (oldMetadata?.uniques || []),
+          indexes: body.indexes !== undefined ? body.indexes : (oldMetadata?.indexes || [])
         };
+
+        this.logger.log(`📊 Relations after merge: old=${oldMetadata?.relations?.length || 0}, new=${body.relations?.length || 0}, final=${newMetadata.relations.length}`);
 
         // Migrate physical schema
         if (oldMetadata && newMetadata) {
