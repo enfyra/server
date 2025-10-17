@@ -13,6 +13,7 @@ import {
   CountOptions,
 } from '../../shared/types/query-builder.types';
 import { expandFieldsToJoinsAndSelect } from './utils/expand-fields';
+import { buildWhereClause, hasLogicalOperators } from './utils/build-where-clause';
 
 /**
  * QueryBuilderService - Unified database query interface
@@ -196,12 +197,14 @@ export class QueryBuilderService {
       }
     }
 
-    // Convert filter to where conditions
-    // TODO: Implement proper Directus filter conversion
-    // For now, this is a placeholder
-    if (options.filter) {
+    // Store original filter for new buildWhereClause approach
+    const originalFilter = options.filter;
+
+    // Convert filter to where conditions (backward compatible with legacy approach)
+    // If filter contains _and/_or/_not, we'll use buildWhereClause later
+    if (options.filter && !hasLogicalOperators(options.filter)) {
       queryOptions.where = [];
-      // Simple conversion - needs to be expanded
+      // Simple conversion for backward compatibility
       for (const [field, value] of Object.entries(options.filter)) {
         if (typeof value === 'object' && value !== null) {
           // Handle operators like {_eq: value}
@@ -305,7 +308,12 @@ export class QueryBuilderService {
       query = query.select(selectItems);
     }
 
-    if (queryOptions.where && queryOptions.where.length > 0) {
+    // Apply WHERE clause
+    if (originalFilter && hasLogicalOperators(originalFilter)) {
+      // Use new buildWhereClause for complex filters with _and/_or/_not
+      query = buildWhereClause(query, originalFilter, queryOptions.table);
+    } else if (queryOptions.where && queryOptions.where.length > 0) {
+      // Use legacy applyWhereToKnex for simple filters (backward compatible)
       query = this.applyWhereToKnex(query, queryOptions.where);
     }
 
@@ -374,6 +382,9 @@ export class QueryBuilderService {
   /**
    * MongoDB Query Executor - Handles MongoDB query execution
    * Converts queryEngine-style params to MongoDB queries
+   *
+   * Note: MongoDB already handles _and/_or/_not via walkFilter in MongoQueryEngine
+   * This method is primarily for backward compatibility with simple queries
    */
   async mongoExecutor(options: {
     tableName: string;
@@ -406,8 +417,9 @@ export class QueryBuilderService {
       }
     }
 
-    // Convert filter to where
-    if (options.filter) {
+    // Convert filter to where (only for simple filters without logical operators)
+    // Complex filters with _and/_or/_not should use MongoQueryEngine directly
+    if (options.filter && !hasLogicalOperators(options.filter)) {
       queryOptions.where = [];
       for (const [field, value] of Object.entries(options.filter)) {
         if (typeof value === 'object' && value !== null) {
@@ -432,6 +444,10 @@ export class QueryBuilderService {
           queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
         }
       }
+    } else if (options.filter && hasLogicalOperators(options.filter)) {
+      // For complex filters, MongoDB should use MongoQueryEngine with walkFilter
+      // This is a fallback warning
+      console.warn('[QueryBuilderService] Complex MongoDB filters with _and/_or/_not should use MongoQueryEngine directly');
     }
 
     // Convert sort
