@@ -234,7 +234,9 @@ export class QueryBuilderService {
 
     // Convert sort
     if (options.sort) {
-      const sortArray = Array.isArray(options.sort) ? options.sort : [options.sort];
+      const sortArray = Array.isArray(options.sort)
+        ? options.sort
+        : options.sort.split(',').map(s => s.trim());
       queryOptions.sort = sortArray.map(s => {
         const trimmed = s.trim();
         if (trimmed.startsWith('-')) {
@@ -452,7 +454,9 @@ export class QueryBuilderService {
 
     // Convert sort
     if (options.sort) {
-      const sortArray = Array.isArray(options.sort) ? options.sort : [options.sort];
+      const sortArray = Array.isArray(options.sort)
+        ? options.sort
+        : options.sort.split(',').map(s => s.trim());
       queryOptions.sort = sortArray.map(s => {
         const trimmed = s.trim();
         if (trimmed.startsWith('-')) {
