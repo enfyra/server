@@ -13,6 +13,7 @@ import {
   CountOptions,
 } from '../../shared/types/query-builder.types';
 import { expandFieldsToJoinsAndSelect } from './utils/expand-fields';
+import { buildWhereClause, hasLogicalOperators } from './utils/build-where-clause';
 
 /**
  * QueryBuilderService - Unified database query interface
@@ -149,21 +150,341 @@ export class QueryBuilderService {
       }
     }
     
-    const knex = this.knexService.getKnex();
-    
-    // Postgres supports returning, MySQL doesn't
-    if (this.dbType === 'postgres' && options.returning) {
-      return knex(options.table).insert(options.data).returning(options.returning);
+    // SQL: Use KnexService.insertWithCascade for automatic relation handling
+    if (Array.isArray(options.data)) {
+      // Handle multiple records
+      const results = [];
+      for (const record of options.data) {
+        const result = await this.knexService.insertWithCascade(options.table, record);
+        results.push(result);
+      }
+      return results;
+    } else {
+      // Handle single record
+      return await this.knexService.insertWithCascade(options.table, options.data);
     }
-    
-    // MySQL: insert without returning
-    return knex(options.table).insert(options.data);
   }
 
   /**
-   * Find multiple records with unified query options
+   * SQL Query Executor - Executes queries with Directus/queryEngine-style parameters
+   * This is the target method for SqlQueryEngine
+   *
+   * @param options - Query options in queryEngine format (tableName, fields, filter, sort, page, limit, meta, deep)
+   * @returns {data, meta?} - Results wrapped in data property with optional metadata
    */
-  async select(options: QueryOptions): Promise<any[]> {
+  async sqlExecutor(options: {
+    tableName: string;
+    fields?: string | string[];
+    filter?: any;
+    sort?: string | string[];
+    page?: number;
+    limit?: number;
+    meta?: string;
+    deep?: Record<string, any>;
+    debugMode?: boolean;
+  }): Promise<any> {
+    // Convert queryEngine-style params to QueryOptions format
+    const queryOptions: QueryOptions = {
+      table: options.tableName,
+    };
+
+    // Convert fields
+    if (options.fields) {
+      if (Array.isArray(options.fields)) {
+        queryOptions.fields = options.fields;
+      } else if (typeof options.fields === 'string') {
+        queryOptions.fields = options.fields.split(',').map(f => f.trim());
+      }
+    }
+
+    // Store original filter for new buildWhereClause approach
+    const originalFilter = options.filter;
+
+    // Convert filter to where conditions (backward compatible with legacy approach)
+    // If filter contains _and/_or/_not, we'll use buildWhereClause later
+    if (options.filter && !hasLogicalOperators(options.filter)) {
+      queryOptions.where = [];
+      // Simple conversion for backward compatibility
+      for (const [field, value] of Object.entries(options.filter)) {
+        if (typeof value === 'object' && value !== null) {
+          // Handle operators like {_eq: value}
+          for (const [op, val] of Object.entries(value)) {
+            // Convert operator: _eq -> =, _neq -> !=, _in -> in, _is_null -> is null, etc.
+            let operator: string;
+            if (op === '_eq') operator = '=';
+            else if (op === '_neq') operator = '!=';
+            else if (op === '_in') operator = 'in';
+            else if (op === '_not_in') operator = 'not in';
+            else if (op === '_gt') operator = '>';
+            else if (op === '_gte') operator = '>=';
+            else if (op === '_lt') operator = '<';
+            else if (op === '_lte') operator = '<=';
+            else if (op === '_contains') operator = 'like';
+            else if (op === '_is_null') operator = 'is null';
+            else operator = op.replace('_', ' ');
+
+            queryOptions.where.push({ field, operator, value: val } as WhereCondition);
+          }
+        } else {
+          // Direct equality
+          queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
+        }
+      }
+    }
+
+    // Convert sort
+    if (options.sort) {
+      const sortArray = Array.isArray(options.sort)
+        ? options.sort
+        : options.sort.split(',').map(s => s.trim());
+      queryOptions.sort = sortArray.map(s => {
+        const trimmed = s.trim();
+        if (trimmed.startsWith('-')) {
+          return { field: trimmed.substring(1), direction: 'desc' as const };
+        }
+        return { field: trimmed, direction: 'asc' as const };
+      });
+    }
+
+    // Convert pagination
+    if (options.page && options.limit) {
+      queryOptions.offset = (options.page - 1) * options.limit;
+      queryOptions.limit = options.limit;
+    } else if (options.limit) {
+      queryOptions.limit = options.limit;
+    }
+
+    // Separate main table sorts from relation sorts
+    let mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
+    let relationSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
+
+    if (queryOptions.sort) {
+      for (const sortOpt of queryOptions.sort) {
+        if (sortOpt.field.includes('.')) {
+          relationSorts.push(sortOpt);
+        } else {
+          mainTableSorts.push({
+            ...sortOpt,
+            field: `${queryOptions.table}.${sortOpt.field}`,
+          });
+        }
+      }
+    }
+
+    // Auto-expand `fields` into `join` + `select` if provided
+    if (queryOptions.fields && queryOptions.fields.length > 0) {
+      const expanded = await this.expandFields(queryOptions.table, queryOptions.fields, relationSorts);
+      queryOptions.join = [...(queryOptions.join || []), ...expanded.joins];
+      queryOptions.select = [...(queryOptions.select || []), ...expanded.select];
+    }
+
+    // Auto-prefix table name to where conditions if not already qualified
+    if (queryOptions.where) {
+      queryOptions.where = queryOptions.where.map(condition => {
+        if (!condition.field.includes('.')) {
+          return {
+            ...condition,
+            field: `${queryOptions.table}.${condition.field}`,
+          };
+        }
+        return condition;
+      });
+    }
+
+    // Use only main table sorts for the query
+    queryOptions.sort = mainTableSorts;
+
+    // Execute SQL query using Knex
+    const knex = this.knexService.getKnex();
+    let query: any = knex(queryOptions.table);
+
+    if (queryOptions.select) {
+      // Convert subqueries to knex.raw to prevent double-escaping
+      const selectItems = queryOptions.select.map(field => {
+        // Detect if field contains subquery (starts with parenthesis)
+        if (typeof field === 'string' && field.trim().startsWith('(')) {
+          return knex.raw(field);
+        }
+        return field;
+      });
+      query = query.select(selectItems);
+    }
+
+    // Apply WHERE clause
+    if (originalFilter && hasLogicalOperators(originalFilter)) {
+      // Use new buildWhereClause for complex filters with _and/_or/_not
+      query = buildWhereClause(query, originalFilter, queryOptions.table);
+    } else if (queryOptions.where && queryOptions.where.length > 0) {
+      // Use legacy applyWhereToKnex for simple filters (backward compatible)
+      query = this.applyWhereToKnex(query, queryOptions.where);
+    }
+
+    if (queryOptions.join) {
+      for (const joinOpt of queryOptions.join) {
+        const joinMethod = `${joinOpt.type}Join` as 'innerJoin' | 'leftJoin' | 'rightJoin';
+        query = query[joinMethod](joinOpt.table, joinOpt.on.local, joinOpt.on.foreign);
+      }
+    }
+
+    if (queryOptions.sort) {
+      for (const sortOpt of queryOptions.sort) {
+        // Add table prefix if field doesn't contain dot (nested relation sort)
+        const sortField = sortOpt.field.includes('.')
+          ? sortOpt.field
+          : `${queryOptions.table}.${sortOpt.field}`;
+        query = query.orderBy(sortField, sortOpt.direction);
+      }
+    }
+
+    if (queryOptions.groupBy) {
+      query = query.groupBy(queryOptions.groupBy);
+    }
+
+    if (queryOptions.offset) {
+      query = query.offset(queryOptions.offset);
+    }
+
+    // limit=0 means no limit (fetch all), undefined/null means use default
+    if (queryOptions.limit !== undefined && queryOptions.limit !== null && queryOptions.limit > 0) {
+      query = query.limit(queryOptions.limit);
+    }
+
+    const results = await query;
+
+    // Return in queryEngine format
+    return { data: results };
+  }
+
+  /**
+   * Find multiple records - Router method
+   * Routes to sqlExecutor() for SQL databases or handles MongoDB directly
+   * Accepts queryEngine-style parameters (Directus format)
+   */
+  async select(options: {
+    tableName: string;
+    fields?: string | string[];
+    filter?: any;
+    sort?: string | string[];
+    page?: number;
+    limit?: number;
+    meta?: string;
+    deep?: Record<string, any>;
+    debugMode?: boolean;
+    pipeline?: any[]; // MongoDB aggregation pipeline (MongoDB only)
+  }): Promise<any> {
+    // For SQL databases, delegate to sqlExecutor
+    if (this.dbType !== 'mongodb') {
+      return this.sqlExecutor(options);
+    }
+
+    // For MongoDB, delegate to mongoExecutor
+    return this.mongoExecutor(options);
+  }
+
+  /**
+   * MongoDB Query Executor - Handles MongoDB query execution
+   * Converts queryEngine-style params to MongoDB queries
+   *
+   * Note: MongoDB already handles _and/_or/_not via walkFilter in MongoQueryEngine
+   * This method is primarily for backward compatibility with simple queries
+   */
+  async mongoExecutor(options: {
+    tableName: string;
+    fields?: string | string[];
+    filter?: any;
+    sort?: string | string[];
+    page?: number;
+    limit?: number;
+    meta?: string;
+    deep?: Record<string, any>;
+    debugMode?: boolean;
+    pipeline?: any[]; // MongoDB aggregation pipeline (optional)
+  }): Promise<any> {
+    // Convert to QueryOptions format for now
+    const queryOptions: QueryOptions = {
+      table: options.tableName,
+    };
+
+    // Pass through pipeline if provided
+    if (options.pipeline) {
+      queryOptions.pipeline = options.pipeline;
+    }
+
+    // Convert fields
+    if (options.fields) {
+      if (Array.isArray(options.fields)) {
+        queryOptions.fields = options.fields;
+      } else if (typeof options.fields === 'string') {
+        queryOptions.fields = options.fields.split(',').map(f => f.trim());
+      }
+    }
+
+    // Convert filter to where (only for simple filters without logical operators)
+    // Complex filters with _and/_or/_not should use MongoQueryEngine directly
+    if (options.filter && !hasLogicalOperators(options.filter)) {
+      queryOptions.where = [];
+      for (const [field, value] of Object.entries(options.filter)) {
+        if (typeof value === 'object' && value !== null) {
+          for (const [op, val] of Object.entries(value)) {
+            // Convert operator: _eq -> =, _neq -> !=, _is_null -> is null, etc.
+            let operator: string;
+            if (op === '_eq') operator = '=';
+            else if (op === '_neq') operator = '!=';
+            else if (op === '_in') operator = 'in';
+            else if (op === '_not_in') operator = 'not in';
+            else if (op === '_gt') operator = '>';
+            else if (op === '_gte') operator = '>=';
+            else if (op === '_lt') operator = '<';
+            else if (op === '_lte') operator = '<=';
+            else if (op === '_contains') operator = 'like';
+            else if (op === '_is_null') operator = 'is null';
+            else operator = op.replace('_', ' ');
+
+            queryOptions.where.push({ field, operator, value: val } as WhereCondition);
+          }
+        } else {
+          queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
+        }
+      }
+    } else if (options.filter && hasLogicalOperators(options.filter)) {
+      // For complex filters, MongoDB should use MongoQueryEngine with walkFilter
+      // This is a fallback warning
+      console.warn('[QueryBuilderService] Complex MongoDB filters with _and/_or/_not should use MongoQueryEngine directly');
+    }
+
+    // Convert sort
+    if (options.sort) {
+      const sortArray = Array.isArray(options.sort)
+        ? options.sort
+        : options.sort.split(',').map(s => s.trim());
+      queryOptions.sort = sortArray.map(s => {
+        const trimmed = s.trim();
+        if (trimmed.startsWith('-')) {
+          return { field: trimmed.substring(1), direction: 'desc' as const };
+        }
+        return { field: trimmed, direction: 'asc' as const };
+      });
+    }
+
+    // Convert pagination
+    if (options.page && options.limit) {
+      queryOptions.offset = (options.page - 1) * options.limit;
+      queryOptions.limit = options.limit;
+    } else if (options.limit) {
+      queryOptions.limit = options.limit;
+    }
+
+    // Use internal MongoDB execution logic
+    const results = await this.selectLegacy(queryOptions);
+    return { data: results };
+  }
+
+  /**
+   * Legacy select method - INTERNAL USE ONLY
+   * Used by mongoExecutor and sqlExecutor internally
+   * @private
+   */
+  private async selectLegacy(options: QueryOptions): Promise<any[]> {
     // Auto-expand `fields` into `join` + `select` if provided
     if (options.fields && options.fields.length > 0) {
       const expanded = await this.expandFields(options.table, options.fields);
@@ -199,33 +520,33 @@ export class QueryBuilderService {
 
     if (this.dbType === 'mongodb') {
       const collection = this.mongoService.collection(options.table);
-      
+
       // Use custom pipeline if provided (e.g., from MongoQueryEngine)
       if (options.pipeline) {
         const results = await collection.aggregate(options.pipeline).toArray();
         return results.map(doc => this.mongoService['mapDocument'](doc));
       }
-      
+
       // Use aggregation pipeline if joins are present
       if (options.join && options.join.length > 0) {
         const pipeline: any[] = [];
-        
+
         // $match stage
         if (options.where) {
           const filter = this.whereToMongoFilter(options.where);
           pipeline.push({ $match: filter });
         }
-        
+
         // $lookup stages for joins
         for (const joinOpt of options.join) {
           // Extract base table name (remove alias)
           const tableName = joinOpt.table.split(' as ')[0];
           const alias = joinOpt.table.includes(' as ') ? joinOpt.table.split(' as ')[1] : tableName;
-          
+
           // Extract field names from dot notation
-          const localField = joinOpt.on.local.split('.').pop(); // e.g., "route_definition.mainTableId" -> "mainTableId"
-          const foreignField = joinOpt.on.foreign.split('.').pop(); // e.g., "mainTable.id" -> "id"
-          
+          const localField = joinOpt.on.local.split('.').pop();
+          const foreignField = joinOpt.on.foreign.split('.').pop();
+
           pipeline.push({
             $lookup: {
               from: tableName,
@@ -234,7 +555,7 @@ export class QueryBuilderService {
               as: alias,
             },
           });
-          
+
           // Unwind array to single object (for left join behavior)
           pipeline.push({
             $unwind: {
@@ -243,16 +564,14 @@ export class QueryBuilderService {
             },
           });
         }
-        
+
         // $project stage for select fields
         if (options.select) {
           const projection: any = {};
           for (const field of options.select) {
             if (field.includes('.*')) {
-              // Handle wildcard like "relation_definition.*"
               projection[field.replace('.*', '')] = 1;
             } else if (field.includes(' as ')) {
-              // Handle aliases like "mainTable.id as mainTable_id"
               const [source, alias] = field.split(' as ');
               projection[alias.trim()] = `$${source.trim()}`;
             } else {
@@ -261,7 +580,7 @@ export class QueryBuilderService {
           }
           pipeline.push({ $project: projection });
         }
-        
+
         // $sort stage
         if (options.sort) {
           const sortSpec: any = {};
@@ -270,7 +589,7 @@ export class QueryBuilderService {
           }
           pipeline.push({ $sort: sortSpec });
         }
-        
+
         // $skip and $limit
         if (options.offset) {
           pipeline.push({ $skip: options.offset });
@@ -278,15 +597,15 @@ export class QueryBuilderService {
         if (options.limit) {
           pipeline.push({ $limit: options.limit });
         }
-        
+
         const results = await collection.aggregate(pipeline).toArray();
         return results.map(doc => this.mongoService['mapDocument'](doc));
       }
-      
+
       // Simple query without joins
       const filter = options.where ? this.whereToMongoFilter(options.where) : {};
       let cursor = collection.find(filter);
-      
+
       if (options.select) {
         const projection: any = {};
         for (const field of options.select) {
@@ -294,7 +613,7 @@ export class QueryBuilderService {
         }
         cursor = cursor.project(projection);
       }
-      
+
       if (options.sort) {
         const sortSpec: any = {};
         for (const sortOpt of options.sort) {
@@ -302,19 +621,20 @@ export class QueryBuilderService {
         }
         cursor = cursor.sort(sortSpec);
       }
-      
+
       if (options.offset) {
         cursor = cursor.skip(options.offset);
       }
-      
-      if (options.limit) {
+
+      // limit=0 means no limit (fetch all), undefined/null means use default
+      if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
         cursor = cursor.limit(options.limit);
       }
-      
+
       const results = await cursor.toArray();
       return results.map(doc => this.mongoService['mapDocument'](doc));
     }
-    
+
     // SQL (Knex)
     const knex = this.knexService.getKnex();
     let query: any = knex(options.table);
@@ -336,7 +656,11 @@ export class QueryBuilderService {
 
     if (options.sort) {
       for (const sortOpt of options.sort) {
-        query = query.orderBy(sortOpt.field, sortOpt.direction);
+        // Add table prefix if field doesn't contain dot (nested relation sort)
+        const sortField = sortOpt.field.includes('.')
+          ? sortOpt.field
+          : `${options.table}.${sortOpt.field}`;
+        query = query.orderBy(sortField, sortOpt.direction);
       }
     }
 
@@ -348,7 +672,8 @@ export class QueryBuilderService {
       query = query.offset(options.offset);
     }
 
-    if (options.limit) {
+    // limit=0 means no limit (fetch all), undefined/null means use default
+    if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
       query = query.limit(options.limit);
     }
 
@@ -372,6 +697,7 @@ export class QueryBuilderService {
       return collection.find(filter).toArray();
     }
     
+    // SQL: Use KnexService.updateWithCascade for automatic relation handling
     const knex = this.knexService.getKnex();
     let query: any = knex(options.table);
     
@@ -379,13 +705,19 @@ export class QueryBuilderService {
       query = this.applyWhereToKnex(query, options.where);
     }
     
-    await query.update(options.data);
+    // Get records to update first
+    const recordsToUpdate = await query.clone();
+    
+    // Update each record with cascade
+    for (const record of recordsToUpdate) {
+      await this.knexService.updateWithCascade(options.table, record.id, options.data);
+    }
     
     if (options.returning) {
       return query.returning(options.returning);
     }
     
-    return { affected: 1 };
+    return { affected: recordsToUpdate.length };
   }
 
   /**
@@ -516,22 +848,21 @@ export class QueryBuilderService {
 
   /**
    * Insert one and return with ID
+   * Uses insertWithCascade to handle M2M and O2M relations
    */
   async insertAndGet(table: string, data: any): Promise<any> {
     if (this.dbType === 'mongodb') {
       return this.mongoService.insertOne(table, data);
     }
-    
+
+    // Use insertWithCascade for M2M/O2M relation handling
+    const insertedId = await this.knexService.insertWithCascade(table, data);
+
     const knex = this.knexService.getKnex();
-    const dbType = this.getDatabaseType();
-    
-    if (dbType === 'postgres') {
-      const [result] = await knex(table).insert(data).returning('*');
-      return result;
-    } else {
-      const [id] = await knex(table).insert(data);
-      return knex(table).where('id', id).first();
-    }
+    const recordId = insertedId || data.id;
+
+    // Query back the inserted record
+    return knex(table).where('id', recordId).first();
   }
 
   /**
@@ -542,8 +873,9 @@ export class QueryBuilderService {
       return this.mongoService.updateOne(table, id, data);
     }
     
+    // SQL: Use KnexService.updateWithCascade for automatic relation handling
+    await this.knexService.updateWithCascade(table, id, data);
     const knex = this.knexService.getKnex();
-    await knex(table).where('id', id).update(data);
     return knex(table).where('id', id).first();
   }
 
@@ -638,25 +970,16 @@ export class QueryBuilderService {
     return ['mysql', 'postgres'].includes(this.dbType);
   }
 
-  /**
-   * Reload with metadata (SQL only - for Knex hooks)
-   * MongoDB: No-op (doesn't need metadata reload)
-   */
-  async reloadWithMetadata(metadata: any): Promise<void> {
-    if (this.dbType === 'mongodb') {
-      // MongoDB doesn't need metadata reload
-      return;
-    }
-    
-    // SQL: Reload Knex with metadata for hooks and JSON parsing
-    await this.knexService.reloadWithMetadata(metadata);
-  }
 
   /**
    * Expand smart field list into explicit JOINs and SELECT
    * Private helper for auto-relation expansion
    */
-  private async expandFields(tableName: string, fields: string[]): Promise<{
+  private async expandFields(
+    tableName: string,
+    fields: string[],
+    sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = []
+  ): Promise<{
     joins: any[];
     select: string[];
   }> {
@@ -666,12 +989,16 @@ export class QueryBuilderService {
       return { joins: [], select: fields };
     }
 
-    // Metadata getter function
+    // Cache metadata ONCE to avoid repeated async calls
+    const allMetadata = await this.metadataCache.getMetadata();
+
+    // Metadata getter function (now synchronous, reads from cached result)
     const metadataGetter = async (tName: string) => {
       try {
-        const metadata = await this.metadataCache.getMetadata();
-        const tableMeta = metadata.tables.get(tName);
-        if (!tableMeta) return null;
+        const tableMeta = allMetadata.tables.get(tName);
+        if (!tableMeta) {
+          return null;
+        }
 
         return {
           name: tableMeta.name,
@@ -679,15 +1006,16 @@ export class QueryBuilderService {
           relations: tableMeta.relations || [],
         };
       } catch (error) {
-        console.warn(`Failed to get metadata for table ${tName}:`, error.message);
+        console.warn(`[EXPAND-FIELDS] Failed to get metadata for table ${tName}:`, error.message);
         return null;
       }
     };
 
     try {
-      return await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter);
+      const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
+      return result;
     } catch (error) {
-      console.error('Field expansion failed:', error.message);
+      console.error(`[EXPAND-FIELDS] Field expansion failed: ${error.message}`);
       // Fall back to simple field expansion
       return { joins: [], select: fields };
     }

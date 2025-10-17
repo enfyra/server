@@ -71,7 +71,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
    * Apply default values for missing fields
    */
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
       return data;
     }
@@ -107,7 +107,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
    * MongoDB stores JSON natively, so parse string → object before insert/update
    */
   async parseJsonFields(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
       return data;
     }
@@ -231,7 +231,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
    * Update inverse relations on record update (handle remove old + add new)
    */
   async updateInverseRelationsOnUpdate(tableName: string, recordId: ObjectId, oldData: any, newData: any): Promise<void> {
-    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return;
     }
@@ -338,7 +338,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
    * Handles M2O/O2O (objects) and O2M/M2M (arrays)
    */
   async processNestedRelations(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return data;
     }
@@ -496,7 +496,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
    * Removes this record's ID from all related records
    */
   async cleanupInverseRelationsOnDelete(tableName: string, recordId: ObjectId, recordData: any): Promise<void> {
-    const metadata = await this.metadataCache.getTableMetadata(tableName);
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return;
     }

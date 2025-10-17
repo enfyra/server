@@ -33,7 +33,7 @@ export class RelationHandlerService {
 
     for (const relation of tableMetadata.relations) {
       const relationName = relation.propertyName;
-      
+
       if (!(relationName in data)) {
         continue;
       }
@@ -44,12 +44,14 @@ export class RelationHandlerService {
         case 'many-to-one':
         case 'one-to-one': {
           // Transform: { user: { id: 1 } } => { userId: 1 }
+          if (!relation.foreignKeyColumn) {
+            throw new Error(`${relation.type} relation '${relationName}' in table '${tableName}' missing foreignKeyColumn in metadata`);
+          }
+
           if (relationValue && typeof relationValue === 'object' && 'id' in relationValue) {
-            const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-            cleanData[fkColumn] = relationValue.id;
+            cleanData[relation.foreignKeyColumn] = relationValue.id;
           } else if (relationValue === null) {
-            const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-            cleanData[fkColumn] = null;
+            cleanData[relation.foreignKeyColumn] = null;
           }
           delete cleanData[relationName];
           break;
@@ -100,12 +102,38 @@ export class RelationHandlerService {
     manyToManyRelations: Array<{ relationName: string; ids: any[] }>,
     metadata: any,
   ): Promise<void> {
+    this.logger.log(`🔗 [handleManyToManyRelations] Table: ${tableName}, RecordId: ${recordId}`);
+    this.logger.log(`   Relations to process: ${manyToManyRelations.length}`);
+
     const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
-    if (!tableMetadata) return;
+    if (!tableMetadata) {
+      this.logger.warn(`⚠️  No metadata found for table ${tableName}`);
+      return;
+    }
 
     for (const { relationName, ids } of manyToManyRelations) {
+      this.logger.log(`   Processing M2M: ${relationName} with ${ids.length} IDs: [${ids.join(', ')}]`);
+
       const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
-      if (!relation || !relation.junctionTableName) continue;
+      if (!relation) {
+        throw new Error(`M2M relation '${relationName}' not found in table '${tableName}' metadata`);
+      }
+      if (!relation.junctionTableName) {
+        throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionTableName in metadata`);
+      }
+      if (!relation.junctionSourceColumn) {
+        throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionSourceColumn in metadata`);
+      }
+      if (!relation.junctionTargetColumn) {
+        throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionTargetColumn in metadata`);
+      }
+
+      this.logger.log(`   Junction: ${relation.junctionTableName} (${relation.junctionSourceColumn}, ${relation.junctionTargetColumn})`);
+
+      // Check for null recordId
+      if (!recordId) {
+        throw new Error(`RecordId is null for M2M relation '${relationName}' in table '${tableName}'`);
+      }
 
       // Clear existing junction records
       await knex(relation.junctionTableName)
@@ -114,16 +142,21 @@ export class RelationHandlerService {
 
       // Insert new junction records
       if (ids.length > 0) {
-        const junctionRecords = ids.map(targetId => ({
-          [relation.junctionSourceColumn]: recordId,
-          [relation.junctionTargetColumn]: targetId,
-        }));
+        const junctionRecords = ids.map(targetId => {
+          if (!targetId) {
+            throw new Error(`TargetId is null in M2M relation '${relationName}' for table '${tableName}'`);
+          }
+          return {
+            [relation.junctionSourceColumn]: recordId,
+            [relation.junctionTargetColumn]: targetId,
+          };
+        });
 
         await knex(relation.junctionTableName).insert(junctionRecords);
-        
-        this.logger.debug(
-          `🔗 M2M: Linked ${ids.length} ${relationName} to ${tableName}#${recordId}`,
-        );
+
+        this.logger.log(`   ✅ Inserted ${junctionRecords.length} junction records`);
+      } else {
+        this.logger.log(`   ⏭️  No IDs to insert`);
       }
     }
   }
@@ -139,31 +172,42 @@ export class RelationHandlerService {
     metadata: any,
   ): Promise<void> {
     const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
-    if (!tableMetadata) return;
+    if (!tableMetadata) {
+      throw new Error(`Metadata not found for table '${tableName}'`);
+    }
 
     for (const { relationName, items } of oneToManyRelations) {
       const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
-      if (!relation) continue;
+      if (!relation) {
+        throw new Error(`O2M relation '${relationName}' not found in table '${tableName}' metadata`);
+      }
 
-      // Find the inverse relation to get the FK column name
-      const targetTableMetadata = metadata.tables?.get?.(relation.targetTableName) || 
-        metadata.tablesList?.find((t: any) => t.name === relation.targetTableName);
-      
-      if (!targetTableMetadata) continue;
+      if (!relation.foreignKeyColumn) {
+        throw new Error(`O2M relation '${relationName}' in table '${tableName}' missing foreignKeyColumn in metadata`);
+      }
 
-      const inverseRelation = targetTableMetadata.relations.find(
-        (r: any) => r.propertyName === relation.inversePropertyName && 
-                   r.targetTableName === tableName
-      );
+      if (!relation.targetTableName) {
+        throw new Error(`O2M relation '${relationName}' in table '${tableName}' missing targetTableName in metadata`);
+      }
 
-      if (!inverseRelation?.foreignKeyColumn) continue;
+      const fkColumn = relation.foreignKeyColumn;
 
-      const fkColumn = inverseRelation.foreignKeyColumn;
+      // Get existing children IDs to compare
+      const existingChildren = await knex(relation.targetTableName)
+        .select('id')
+        .where(fkColumn, recordId);
+      const existingIds = existingChildren.map(child => child.id);
 
-      // Clear existing children (set FK to null)
-      await knex(relation.targetTableName)
-        .where(fkColumn, recordId)
-        .update({ [fkColumn]: null });
+      // Get new children IDs from input
+      const newIds = items.filter(item => item.id).map(item => item.id);
+
+      // Remove children that are no longer in the list
+      const idsToRemove = existingIds.filter(id => !newIds.includes(id));
+      if (idsToRemove.length > 0) {
+        await knex(relation.targetTableName)
+          .whereIn('id', idsToRemove)
+          .update({ [fkColumn]: null });
+      }
 
       // Update/insert children
       for (const item of items) {
@@ -179,10 +223,6 @@ export class RelationHandlerService {
           await knex(relation.targetTableName).insert(childData);
         }
       }
-
-      this.logger.debug(
-        `🔗 O2M: Updated ${items.length} ${relationName} for ${tableName}#${recordId}`,
-      );
     }
   }
 
@@ -195,12 +235,26 @@ export class RelationHandlerService {
     data: any,
     metadata: any,
   ): Promise<any> {
-    const { cleanData, manyToManyRelations, oneToManyRelations } = 
+    this.logger.log(`🔍 [insertWithCascade] Table: ${tableName}`);
+    this.logger.log(`   Data keys: ${Object.keys(data).join(', ')}`);
+
+    const { cleanData, manyToManyRelations, oneToManyRelations } =
       this.preprocessData(tableName, data, metadata);
+
+    this.logger.log(`   Clean data keys: ${Object.keys(cleanData).join(', ')}`);
+    this.logger.log(`   M2M relations count: ${manyToManyRelations.length}`);
+    if (manyToManyRelations.length > 0) {
+      for (const m2m of manyToManyRelations) {
+        this.logger.log(`     - ${m2m.relationName}: ${m2m.ids.length} IDs`);
+      }
+    }
+    this.logger.log(`   O2M relations count: ${oneToManyRelations.length}`);
 
     // Insert main record
     const [insertedId] = await knex(tableName).insert(cleanData);
     const recordId = insertedId || cleanData.id;
+
+    this.logger.log(`   ✅ Inserted record ID: ${recordId}`);
 
     // Handle relations
     await this.handleManyToManyRelations(
@@ -211,13 +265,16 @@ export class RelationHandlerService {
       metadata,
     );
 
-    await this.handleOneToManyRelations(
-      knex,
-      tableName,
-      recordId,
-      oneToManyRelations,
-      metadata,
-    );
+    // Handle one-to-many relations
+    if (oneToManyRelations.length > 0) {
+      await this.handleOneToManyRelations(
+        knex,
+        tableName,
+        recordId,
+        oneToManyRelations,
+        metadata,
+      );
+    }
 
     return recordId;
   }
@@ -249,13 +306,16 @@ export class RelationHandlerService {
       metadata,
     );
 
-    await this.handleOneToManyRelations(
-      knex,
-      tableName,
-      recordId,
-      oneToManyRelations,
-      metadata,
-    );
+    // Handle one-to-many relations
+    if (oneToManyRelations.length > 0) {
+      await this.handleOneToManyRelations(
+        knex,
+        tableName,
+        recordId,
+        oneToManyRelations,
+        metadata,
+      );
+    }
   }
 }
 

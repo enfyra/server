@@ -56,18 +56,25 @@ export class ChildProcessManager {
 
           if (typeof parent[method] !== 'function') return;
           const result = await parent[method](...msg.args);
-          child.send({
-            type: 'call_result',
-            callId: msg.callId,
-            result,
-          });
+
+          // Check if child is still connected before sending
+          if (!child.killed && child.connected) {
+            child.send({
+              type: 'call_result',
+              callId: msg.callId,
+              result,
+            });
+          }
         } catch (err) {
-          child.send({
-            type: 'call_result',
-            callId: msg.callId,
-            error: true,
-            errorResponse: err.response,
-          });
+          // Check if child is still connected before sending error
+          if (!child.killed && child.connected) {
+            child.send({
+              type: 'call_result',
+              callId: msg.callId,
+              error: true,
+              errorResponse: err.response,
+            });
+          }
         }
       }
 

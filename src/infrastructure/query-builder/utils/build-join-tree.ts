@@ -63,7 +63,9 @@ export function buildJoinTree({
     for (let i = 0; i < path.length; i++) {
       const segment = path[i];
       const found = lookupFieldOrRelation(currentMeta, segment);
-      if (!found || found.kind !== 'relation') return;
+      if (!found || found.kind !== 'relation') {
+        return;
+      }
 
       parentAlias = currentAlias;
       currentAlias = `${rootAlias}_${path.slice(0, i + 1).join('_')}`;
@@ -212,6 +214,7 @@ export function buildJoinTree({
         if (!found) continue;
 
         if (found.kind === 'relation') {
+          // IMPORTANT: Add join for the full path accumulated so far
           const result = addJoin(path);
           if (result) {
             log.push?.(
@@ -222,6 +225,7 @@ export function buildJoinTree({
           const nextMeta = metadataGetter(found.type);
           const val = f[key];
           if (typeof val === 'object') {
+            // Recursively process nested filter with updated path and metadata
             extractPathsFromFilter(val, path, nextMeta);
           }
         } else {

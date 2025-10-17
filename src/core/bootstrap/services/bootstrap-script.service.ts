@@ -123,11 +123,12 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
 
   private async executeBootstrapScriptsWithoutLock() {
     // Get enabled scripts ordered by priority
-    const scripts = await this.queryBuilder.select({
-      table: 'bootstrap_script_definition',
-      where: [{ field: 'isEnabled', operator: '=', value: true }],
-      sort: [{ field: 'priority', direction: 'asc' }],
+    const result = await this.queryBuilder.select({
+      tableName: 'bootstrap_script_definition',
+      filter: { isEnabled: { _eq: true } },
+      sort: ['priority'],
     });
+    const scripts = result.data;
 
     this.logger.log(`📋 Found ${scripts.length} bootstrap scripts to execute`);
 
@@ -153,7 +154,8 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
 
   private async executeScript(script: any) {
     // Get all table definitions to create repositories
-    const tableDefinitions = await this.queryBuilder.select({ table: 'table_definition' });
+    const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
+    const tableDefinitions = tablesResult.data;
     
     // Create dynamic repositories for all tables (similar to route-detect middleware)
     const dynamicFindEntries = await Promise.all(
@@ -206,14 +208,14 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     const timeoutMs = script.timeout || 30000; // Default 30 seconds for bootstrap
     this.logger.log(`⏱️ Executing script with timeout: ${timeoutMs}ms`);
     
-    const result = await this.handlerExecutorService.run(
+    const executionResult = await this.handlerExecutorService.run(
       script.logic,
       ctx,
       timeoutMs,
     );
 
-    this.logger.log(`📝 Script execution result:`, result);
-    return result;
+    this.logger.log(`📝 Script execution result:`, executionResult);
+    return executionResult;
   }
 
   async reloadBootstrapScriptsWithoutClear() {

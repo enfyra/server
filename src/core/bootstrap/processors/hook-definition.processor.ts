@@ -53,11 +53,12 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
         if (hook.methods && Array.isArray(hook.methods)) {
           if (isMongoDB) {
             // MongoDB: Convert method names to method ObjectIds
-            const methods = await this.queryBuilder.select({
-              table: 'method_definition',
-              where: [{ field: 'method', operator: 'in', value: hook.methods }],
-              select: ['_id', 'method'],
+            const result = await this.queryBuilder.select({
+              tableName: 'method_definition',
+              filter: { method: { _in: hook.methods } },
+              fields: ['_id', 'method'],
             });
+            const methods = result.data;
             transformedHook.methods = methods.map((m: any) => 
               typeof m._id === 'string' ? new ObjectId(m._id) : m._id
             );
@@ -81,11 +82,12 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
       const methodNames = record._methods;
       
       // Get method IDs
-      const methods = await this.queryBuilder.select({
-        table: 'method_definition',
-        where: [{ field: 'method', operator: 'in', value: methodNames }],
-        select: ['id', 'method'],
+      const result = await this.queryBuilder.select({
+        tableName: 'method_definition',
+        filter: { method: { _in: methodNames } },
+        fields: ['id', 'method'],
       });
+      const methods = result.data;
       
       const methodIds = methods.map((m: any) => m.id);
       

@@ -112,7 +112,7 @@ export class PackageController {
       });
 
       // Reload package cache after creation
-      await this.packageCacheService.reloadPackageCache();
+      await this.packageCacheService.reload();
 
       // Return using dynamic repo format (same as dynamic repo .create() method)
       const savedPackageId = savedPackage.id || savedPackage._id;
@@ -168,7 +168,7 @@ export class PackageController {
     const result = await packageRepo.update(id, body);
 
     // Reload package cache after update
-    await this.packageCacheService.reloadPackageCache();
+    await this.packageCacheService.reload();
 
     return result;
   }
@@ -209,7 +209,7 @@ export class PackageController {
       const result = await packageRepo.delete(id);
 
       // Reload package cache after deletion
-      await this.packageCacheService.reloadPackageCache();
+      await this.packageCacheService.reload();
 
       return result;
     } catch (error) {

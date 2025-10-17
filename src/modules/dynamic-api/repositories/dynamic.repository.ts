@@ -96,7 +96,7 @@ export class DynamicRepository {
         return await this.find({ where: { id: { _eq: table.id } } });
       }
 
-      const metadata = await this.metadataCacheService.getTableMetadata(this.tableName);
+      const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
       
       // Generate UUID for primary key if needed (SQL only, MongoDB uses _id)
       if (!this.queryBuilder.isMongoDb() && metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
@@ -136,11 +136,14 @@ export class DynamicRepository {
         );
         // MongoDB returns _id, SQL returns id
         const tableId = table._id || table.id;
+        console.log('🔍 DEBUG: tableId after updateTable:', tableId, 'type:', typeof tableId);
+        await this.reload();
         return this.find({ where: { id: { _eq: tableId } } });
       }
 
       await this.queryBuilder.updateById(this.tableName, id, body);
 
+      console.log('🔍 DEBUG: id before find:', id, 'type:', typeof id);
       const result = await this.find({ where: { id: { _eq: id } } });
       await this.reload();
       return result;
@@ -166,6 +169,7 @@ export class DynamicRepository {
 
       if (this.tableName === 'table_definition') {
         await this.tableHandlerService.delete(id); // Keep as string for MongoDB
+        await this.reload();
         return { message: 'Success', statusCode: 200 };
       }
 
@@ -187,7 +191,7 @@ export class DynamicRepository {
         'relation_definition',
       ].includes(this.tableName)
     ) {
-      await this.metadataCacheService.reloadMetadataCache();
+      await this.metadataCacheService.reload();
     }
 
     if (
@@ -200,7 +204,7 @@ export class DynamicRepository {
         'table_definition',
       ].includes(this.tableName)
     ) {
-      await this.routeCacheService.reloadRouteCache();
+      await this.routeCacheService.reload();
     }
 
     // Reload bootstrap scripts when bootstrap_script_definition changes

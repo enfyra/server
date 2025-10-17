@@ -600,7 +600,7 @@ export class MongoTableHandlerService {
       }
 
       // Get old metadata before migration
-      const oldMetadata = await this.metadataCacheService.getTableMetadata(exists.name);
+      const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
 
       // Get new metadata (will be used for migration)
       const newMetadata = await this.getFullTableMetadata(id);

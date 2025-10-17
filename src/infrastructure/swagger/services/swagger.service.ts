@@ -42,9 +42,10 @@ export class SwaggerService implements OnApplicationBootstrap {
 
     // Get all REST methods - cache to avoid querying every time
     if (this.methodsCache.length === 0) {
-      const allMethods = await this.queryBuilder.select({
-        table: 'method_definition',
+      const methodsResult = await this.queryBuilder.select({
+        tableName: 'method_definition',
       });
+      const allMethods = methodsResult.data;
       this.methodsCache = allMethods
         .filter((m: any) => !m.method.startsWith('GQL_'))
         .map((m: any) => m.method);

@@ -38,6 +38,7 @@ import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/s
 import { KnexModule } from './infrastructure/knex/knex.module';
 import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
+import {DatabaseSchemaService} from './infrastructure/knex/services/database-schema.service';
 
 @Global()
 @Module({
@@ -48,6 +49,7 @@ import { QueryBuilderModule } from './infrastructure/query-builder/query-builder
     }),
     KnexModule,
     MongoModule,
+    BootstrapModule,
     QueryBuilderModule,
     ExceptionsModule,
     TableModule,
@@ -85,7 +87,6 @@ import { QueryBuilderModule } from './infrastructure/query-builder/query-builder
     MeModule,
     EnfyraSwaggerModule,
     DynamicModule,
-    BootstrapModule,
     HandlerExecutorModule,
     GraphqlModule, 
   ],
@@ -98,6 +99,7 @@ import { QueryBuilderModule } from './infrastructure/query-builder/query-builder
     PackageCacheService,
     SystemProtectionService,
     FileManagementService,
+    DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RoleGuard },
@@ -115,6 +117,7 @@ import { QueryBuilderModule } from './infrastructure/query-builder/query-builder
     PackageCacheService,
     SystemProtectionService,
     CacheModule,
+    DatabaseSchemaService,
   ],
 })
 export class AppModule implements NestModule {

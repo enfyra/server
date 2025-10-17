@@ -1,7 +1,8 @@
 /**
  * Check if a field name is a relation field (based on joins)
+ * Internal helper function
  */
-export function isRelationField(fieldName: string, joinArr: any[]): boolean {
+function isRelationField(fieldName: string, joinArr: any[]): boolean {
   for (const join of joinArr) {
     if (join.alias && fieldName.startsWith(`${join.alias}_`)) {
       return true;

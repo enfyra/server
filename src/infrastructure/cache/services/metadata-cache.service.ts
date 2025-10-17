@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
-import { ObjectId } from 'mongodb';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { CacheService } from './cache.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { getJunctionTableName, getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
+import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../../shared/utils/naming-helpers';
 import { 
   METADATA_CACHE_KEY, 
   METADATA_CACHE_SYNC_EVENT_KEY,
@@ -22,6 +22,8 @@ export interface EnfyraMetadata {
 @Injectable()
 export class MetadataCacheService implements OnApplicationBootstrap, OnModuleInit {
   private readonly logger = new Logger(MetadataCacheService.name);
+  private inMemoryCache: EnfyraMetadata | null = null; // In-memory cache to avoid Redis calls
+  private messageHandler: ((channel: string, message: string) => void) | null = null;
 
   constructor(
     @Inject(forwardRef(() => QueryBuilderService))
@@ -29,38 +31,45 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     private readonly cacheService: CacheService,
     private readonly redisPubSubService: RedisPubSubService,
     private readonly instanceService: InstanceService,
+    private readonly databaseSchemaService: DatabaseSchemaService,
   ) {}
 
   async onModuleInit() {
-    this.subscribeToMetadataCacheSync();
+    this.subscribe();
   }
 
   async onApplicationBootstrap() {
-    await this.reloadMetadataCache();
+    await this.reload();
   }
 
-  private subscribeToMetadataCacheSync() {
+  /**
+   * Subscribe to metadata sync messages from other instances
+   */
+  private subscribe() {
     const sub = this.redisPubSubService.sub;
     if (!sub) {
       this.logger.warn('Redis subscription not available for metadata cache sync');
       return;
     }
 
-    sub.subscribe(METADATA_CACHE_SYNC_EVENT_KEY);
-    
-    sub.on('message', async (channel: string, message: string) => {
+    // Only subscribe if not already subscribed
+    if (this.messageHandler) {
+      return;
+    }
+
+    // Create and store handler
+    this.messageHandler = async (channel: string, message: string) => {
       if (channel === METADATA_CACHE_SYNC_EVENT_KEY) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();
-          
+
           if (payload.instanceId === myInstanceId) {
-            this.logger.debug('⏭️  Skipping metadata cache sync from self');
             return;
           }
 
           this.logger.log(`📥 Received metadata cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-          
+
           const metadata: EnfyraMetadata = {
             tables: new Map(Object.entries(payload.metadata.tables)),
             tablesList: payload.metadata.tablesList,
@@ -68,295 +77,359 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             timestamp: new Date(payload.metadata.timestamp),
           };
 
-          await this.cacheService.set(
-            METADATA_CACHE_KEY,
-            JSON.stringify({
-              tables: Object.fromEntries(metadata.tables),
-              tablesList: metadata.tablesList,
-              version: metadata.version,
-              timestamp: metadata.timestamp,
-            }),
-            0,
-          );
+          // Update in-memory cache immediately (no Redis write)
+          this.inMemoryCache = metadata;
 
-          await this.queryBuilder.reloadWithMetadata(metadata);
           this.logger.log(`✅ Metadata cache synced: ${metadata.tablesList.length} tables`);
         } catch (error) {
           this.logger.error('Failed to parse metadata cache sync message:', error);
         }
       }
-    });
+    };
+
+    // Subscribe via RedisPubSubService (prevents duplicates)
+    this.redisPubSubService.subscribeWithHandler(
+      METADATA_CACHE_SYNC_EVENT_KEY,
+      this.messageHandler
+    );
   }
 
+  /**
+   * Load metadata from actual database schema + metadata tables
+   * This combines:
+   * 1. Actual schema from INFORMATION_SCHEMA (physical structure)
+   * 2. Metadata from table_definition, column_definition, relation_definition (logical structure)
+   */
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    this.logger.log('🔄 Loading metadata from database schema + metadata tables...');
 
-    const [tables, allColumns, allRelations] = await Promise.all([
-      this.queryBuilder.select({ table: 'table_definition' }),
-      this.queryBuilder.select({ table: 'column_definition' }),
-      this.queryBuilder.select({ table: 'relation_definition' }),
-    ]);
-
-    const columnsByTable = new Map<any, any[]>();
-    for (const col of allColumns) {
-      const tableKey = isMongoDB ? col.table?.toString() : col.tableId;
-      if (!columnsByTable.has(tableKey)) {
-        columnsByTable.set(tableKey, []);
-      }
-      columnsByTable.get(tableKey).push(col);
-    }
-
-    const relationsByTable = new Map<any, any[]>();
-    for (const rel of allRelations) {
-      const tableKey = isMongoDB ? rel.sourceTable?.toString() : rel.sourceTableId;
-      if (!relationsByTable.has(tableKey)) {
-        relationsByTable.set(tableKey, []);
-      }
-      relationsByTable.get(tableKey).push(rel);
-    }
-
+    // Get all table names from metadata
+    const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
+    const tables = tablesResult.data;
+    
     const tablesList: any[] = [];
     const tablesMap = new Map<string, any>();
-    const tablesById = new Map<any, any>();
-    
-    for (const table of tables) {
-      const tableKey = isMongoDB ? table._id?.toString() : table.id;
-      tablesById.set(tableKey, table);
-    }
 
     for (const table of tables) {
-      let uniques = [];
-      let indexes = [];
-      if (table.uniques && typeof table.uniques === 'string') {
-        try {
-          uniques = JSON.parse(table.uniques);
-        } catch (e) {
-          this.logger.warn(`Failed to parse uniques for table ${table.name}`);
+      try {
+        // Get actual schema from database
+        const actualSchema = await this.databaseSchemaService.getActualTableSchema(table.name);
+
+        if (!actualSchema) {
+          this.logger.warn(`⚠️  Table ${table.name} not found in database, skipping...`);
+          continue;
         }
-      }
-      if (table.indexes && typeof table.indexes === 'string') {
-        try {
-          indexes = JSON.parse(table.indexes);
-        } catch (e) {
-          this.logger.warn(`Failed to parse indexes for table ${table.name}`);
-        }
-      }
 
-      const tableKey = isMongoDB ? table._id?.toString() : table.id;
-      const columnsData = columnsByTable.get(tableKey) || [];
-
-      // Parse JSON fields (options, defaultValue) and boolean fields - ALWAYS parse
-      const columns = columnsData.map((col: any) => {
-        const column = { ...col };
-
-        // Parse options (always try if string)
-        if (col.options && typeof col.options === 'string') {
+        // Parse JSON fields from metadata
+        let uniques = [];
+        let indexes = [];
+        if (table.uniques && typeof table.uniques === 'string') {
           try {
-            column.options = JSON.parse(col.options);
+            uniques = JSON.parse(table.uniques);
           } catch (e) {
-            // Keep as string if parse fails
+            this.logger.warn(`Failed to parse uniques for table ${table.name}`);
           }
         }
-
-        // Parse defaultValue (always try if string)
-        if (col.defaultValue && typeof col.defaultValue === 'string') {
+        if (table.indexes && typeof table.indexes === 'string') {
           try {
-            column.defaultValue = JSON.parse(col.defaultValue);
+            indexes = JSON.parse(table.indexes);
           } catch (e) {
-            // Keep as string if parse fails
+            this.logger.warn(`Failed to parse indexes for table ${table.name}`);
           }
         }
 
-        // Parse boolean fields (MySQL returns 1/0, convert to true/false)
-        const booleanFields = ['isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isHidden'];
-        for (const field of booleanFields) {
-          if (column[field] !== undefined && column[field] !== null) {
-            column[field] = column[field] === 1 || column[field] === true;
-          }
-        }
-
-        return column;
-      });
-      
-      // Manually inject timestamp columns (exist in physical DB, not in column_definition)
-      const hasCreatedAt = columns.some((col: any) => col.name === 'createdAt');
-      const hasUpdatedAt = columns.some((col: any) => col.name === 'updatedAt');
-      
-      if (!hasCreatedAt) {
-        columns.push({
-          name: 'createdAt',
-          type: 'timestamp',
-          isPrimary: false,
-          isGenerated: true,
-          isNullable: false,
-          isSystem: true,
-          isUpdatable: false,
-          isHidden: false,
-          tableId: table.id,
+        // Get explicit columns from metadata
+        const columnsResult = await this.queryBuilder.select({
+          tableName: 'column_definition',
+          filter: { tableId: { _eq: table.id } }
         });
-      }
-      
-      if (!hasUpdatedAt) {
-        columns.push({
-          name: 'updatedAt',
-          type: 'timestamp',
-          isPrimary: false,
-          isGenerated: true,
-          isNullable: false,
-          isSystem: true,
-          isUpdatable: false,
-          isHidden: false,
-          tableId: table.id,
-        });
-      }
+        const explicitColumns = columnsResult.data;
 
-      const relationsData = relationsByTable.get(tableKey) || [];
-      const relations: any[] = [];
-      for (const rel of relationsData) {
-        // Parse boolean fields for relation
-        const relBooleanFields = ['isNullable', 'isSystem'];
-        for (const field of relBooleanFields) {
-          if (rel[field] !== undefined && rel[field] !== null) {
-            rel[field] = rel[field] === 1 || rel[field] === true;
+        // Parse explicit columns
+        const parsedExplicitColumns = explicitColumns.map((col: any) => {
+          const column = { ...col };
+
+          // Parse options (always try if string)
+          if (col.options && typeof col.options === 'string') {
+            try {
+              column.options = JSON.parse(col.options);
+            } catch (e) {
+              // Keep as string if parse fails
+            }
+          }
+
+          // Parse defaultValue (always try if string)
+          if (col.defaultValue && typeof col.defaultValue === 'string') {
+            try {
+              column.defaultValue = JSON.parse(col.defaultValue);
+            } catch (e) {
+              // Keep as string if parse fails
+            }
+          }
+
+          // Parse boolean fields (MySQL returns 1/0, convert to true/false)
+          const booleanFields = ['isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isHidden'];
+          for (const field of booleanFields) {
+            if (column[field] !== undefined && column[field] !== null) {
+              column[field] = column[field] === 1 || column[field] === true;
+            }
+          }
+
+          return column;
+        });
+
+        // Get relations from metadata
+        const relationsResult = await this.queryBuilder.select({
+          tableName: 'relation_definition',
+          filter: { sourceTableId: { _eq: table.id } }
+        });
+        const relationsData = relationsResult.data;
+
+        // Parse relations
+        const relations: any[] = [];
+        for (const rel of relationsData) {
+          // Parse boolean fields for relation
+          const relBooleanFields = ['isNullable', 'isSystem'];
+          for (const field of relBooleanFields) {
+            if (rel[field] !== undefined && rel[field] !== null) {
+              rel[field] = rel[field] === 1 || rel[field] === true;
+            }
+          }
+
+          // Get target table name
+          const targetTableResult = await this.queryBuilder.select({
+            tableName: 'table_definition',
+            filter: { id: { _eq: rel.targetTableId } }
+          });
+          const targetTable = targetTableResult.data;
+
+          const relationMetadata: any = {
+            ...rel,
+            sourceTableName: table.name,
+            targetTableName: targetTable[0]?.name || rel.targetTableName,
+          };
+
+          // Mark inverse relations
+          // O2M is ALWAYS inverse from this table's perspective (FK is on the other side)
+          // M2M with mappedBy is inverse (the other side owns the relation)
+          if (rel.type === 'one-to-many') {
+            relationMetadata.isInverse = true;
+          } else if (rel.type === 'many-to-many' && rel.mappedBy) {
+            relationMetadata.isInverse = true;
+          } else {
+            relationMetadata.isInverse = false;
+          }
+
+          if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+            relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+          }
+
+          if (rel.type === 'one-to-many') {
+            // For O2M, FK is on the target table
+            // O2M naming convention: FK column = {inversePropertyName}Id
+            if (!rel.inversePropertyName) {
+              this.logger.error(`❌ O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
+              throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`);
+            }
+
+            relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.inversePropertyName);
+          }
+
+          if (rel.type === 'many-to-many') {
+            // Ensure junction metadata is complete
+            relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
+            const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
+            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
+            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
+          }
+
+          relations.push(relationMetadata);
+        }
+
+        // Combine actual schema columns with explicit metadata columns
+        // Priority: explicit metadata columns > actual schema columns
+        const combinedColumns = [...parsedExplicitColumns];
+        
+        // Add FK columns from relations (if not already in explicit columns)
+        for (const rel of relations) {
+          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+            const fkColumn = rel.foreignKeyColumn;
+            const existsInExplicit = parsedExplicitColumns.some(col => col.name === fkColumn);
+            
+            if (!existsInExplicit) {
+              // Find FK column in actual schema
+              const actualFkColumn = actualSchema.columns.find(col => col.name === fkColumn);
+              if (actualFkColumn) {
+                combinedColumns.push({
+                  ...actualFkColumn,
+                  isForeignKey: true,
+                  relationPropertyName: rel.propertyName,
+                  description: `FK column for ${rel.propertyName} relation`
+                });
+              }
+            }
           }
         }
 
-        const targetTableKey = isMongoDB ? rel.targetTable?.toString() : rel.targetTableId;
-        const targetTable = tablesById.get(targetTableKey);
+        // Add system columns (createdAt, updatedAt) if not present
+        const hasCreatedAt = combinedColumns.some(col => col.name === 'createdAt');
+        const hasUpdatedAt = combinedColumns.some(col => col.name === 'updatedAt');
+        
+        if (!hasCreatedAt) {
+          const actualCreatedAt = actualSchema.columns.find(col => col.name === 'createdAt');
+          if (actualCreatedAt) {
+            combinedColumns.push({
+              ...actualCreatedAt,
+              isSystem: true,
+              isUpdatable: false
+            });
+          }
+        }
+        
+        if (!hasUpdatedAt) {
+          const actualUpdatedAt = actualSchema.columns.find(col => col.name === 'updatedAt');
+          if (actualUpdatedAt) {
+            combinedColumns.push({
+              ...actualUpdatedAt,
+              isSystem: true,
+              isUpdatable: false
+            });
+          }
+        }
 
-        const relationMetadata: any = {
-          ...rel,
-          sourceTableName: table.name,
-          targetTableName: targetTable?.name || rel.targetTableName,
+        // Parse boolean fields for table (MySQL returns 1/0, convert to true/false)
+        const tableData = { ...table };
+        if (tableData.isSystem !== undefined && tableData.isSystem !== null) {
+          tableData.isSystem = tableData.isSystem === 1 || tableData.isSystem === true;
+        }
+
+        // Combine metadata with actual schema
+        const metadata: any = {
+          ...tableData,
+          uniques: uniques.length > 0 ? uniques : actualSchema.uniques,
+          indexes: indexes.length > 0 ? indexes : actualSchema.indexes,
+          columns: combinedColumns,
+          relations,
         };
 
-        if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-          relationMetadata.foreignKeyColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
-        }
+        tablesList.push(metadata);
+        tablesMap.set(table.name, metadata);
 
-        if (rel.type === 'many-to-many') {
-          relationMetadata.junctionTableName = rel.junctionTableName;
-          relationMetadata.junctionSourceColumn = rel.junctionSourceColumn;
-          relationMetadata.junctionTargetColumn = rel.junctionTargetColumn;
-        }
-
-        relations.push(relationMetadata);
-      }
-
-      // Parse boolean fields for table (MySQL returns 1/0, convert to true/false)
-      const tableData = { ...table };
-      if (tableData.isSystem !== undefined && tableData.isSystem !== null) {
-        tableData.isSystem = tableData.isSystem === 1 || tableData.isSystem === true;
-      }
-
-      // Lưu toàn bộ raw data từ table + columns + relations
-      const metadata: any = {
-        ...tableData,
-        uniques,
-        indexes,
-        columns,
-        relations,
-      };
-
-      tablesList.push(metadata);
-      tablesMap.set(table.name, metadata);
-    }
-
-    // Generate inverse relations (for MongoDB and SQL consistency)
-    // This handles O2M relations that are inverse of M2O relations
-    for (const table of tablesList) {
-      for (const relation of table.relations || []) {
-        // Only process relations with inversePropertyName
-        if (!relation.inversePropertyName) continue;
-        
-        const targetTableName = relation.targetTableName || relation.targetTable;
-        const targetTable = tablesMap.get(targetTableName);
-        
-        if (!targetTable) continue;
-        
-        // Check if inverse relation already exists
-        const inverseExists = targetTable.relations?.some(
-          (r: any) => r.propertyName === relation.inversePropertyName
-        );
-        
-        if (!inverseExists) {
-          // Generate inverse relation
-          let inverseType = 'one-to-many';
-          if (relation.type === 'one-to-many') {
-            inverseType = 'many-to-one';
-          } else if (relation.type === 'many-to-one') {
-            inverseType = 'one-to-many';
-          } else if (relation.type === 'one-to-one') {
-            inverseType = 'one-to-one';
-          } else if (relation.type === 'many-to-many') {
-            inverseType = 'many-to-many';
-          }
-          
-          const inverseRelation: any = {
-            propertyName: relation.inversePropertyName,
-            type: inverseType,
-            targetTable: table.name,
-            targetTableName: table.name,
-            sourceTableName: targetTableName,
-            inversePropertyName: relation.propertyName,
-            isNullable: true,
-            isSystem: relation.isSystem || false,
-            isGenerated: true, // Mark as auto-generated
-          };
-          
-          // Add foreign key column for M2O
-          if (inverseType === 'many-to-one') {
-            // Inverse M2O from O2M: FK is based on the ORIGINAL M2O's propertyName
-            // e.g., route_definition.hooks (O2M) → hook_definition.route (M2O) → FK is 'routeId'
-            // So we use the inverse's propertyName (which is the original M2O's propertyName)
-            inverseRelation.foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName);
-          }
-          
-          // Add junction table info for M2M
-          if (inverseType === 'many-to-many') {
-            inverseRelation.junctionTableName = relation.junctionTableName;
-            inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
-            inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
-          }
-          
-          // Add inverse relation to target table
-          if (!targetTable.relations) {
-            targetTable.relations = [];
-          }
-          targetTable.relations.push(inverseRelation);
-        }
+      
+      } catch (error) {
+        this.logger.error(`Failed to load metadata for table ${table.name}:`, error.message);
       }
     }
 
-    return {
+    // Generate inverse relations (for consistency)
+    this.generateInverseRelations(tablesList, tablesMap);
+
+    const result = {
       tables: tablesMap,
       tablesList,
       version: Date.now(),
       timestamp: new Date(),
     };
+
+    this.logger.log(`✅ Loaded metadata for ${tablesList.length} tables from database schema`);
+    return result;
   }
 
   /**
-   * Get metadata from cache (no TTL - cache forever until reload)
+   * Generate inverse relations for consistency
+   */
+  private generateInverseRelations(tablesList: any[], tablesMap: Map<string, any>): void {
+    for (const table of tablesList) {
+      for (const relation of table.relations || []) {
+        // Only process relations with inversePropertyName
+        if (!relation.inversePropertyName) {
+          continue;
+        }
+
+        const targetTableName = relation.targetTableName || relation.targetTable;
+        const targetTable = tablesMap.get(targetTableName);
+
+        if (!targetTable) {
+          continue;
+        }
+
+        // Check if inverse relation already exists
+        const inverseExists = targetTable.relations?.some(
+          (r: any) => r.propertyName === relation.inversePropertyName
+        );
+
+        if (inverseExists) {
+          continue;
+        }
+
+        // Generate inverse relation
+        let inverseType = 'one-to-many';
+        if (relation.type === 'one-to-many') {
+          inverseType = 'many-to-one';
+        } else if (relation.type === 'many-to-one') {
+          inverseType = 'one-to-many';
+        } else if (relation.type === 'one-to-one') {
+          inverseType = 'one-to-one';
+        } else if (relation.type === 'many-to-many') {
+          inverseType = 'many-to-many';
+        }
+
+        const inverseRelation: any = {
+          propertyName: relation.inversePropertyName,
+          type: inverseType,
+          targetTable: table.name,
+          targetTableName: table.name,
+          sourceTableName: targetTableName,
+          inversePropertyName: relation.propertyName,
+          isNullable: true,
+          isSystem: relation.isSystem || false,
+          isGenerated: true, // Mark as auto-generated
+          isInverse: true, // Mark as inverse relation
+        };
+
+        // Add foreign key column for M2O
+        if (inverseType === 'many-to-one') {
+          inverseRelation.foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName);
+        }
+
+        // Add foreign key column for O2M
+        if (inverseType === 'one-to-many') {
+          inverseRelation.foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
+        }
+
+        // Add junction table info for M2M
+        if (inverseType === 'many-to-many') {
+          inverseRelation.junctionTableName = relation.junctionTableName;
+          inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
+          inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
+        }
+
+        // Add inverse relation to target table
+        if (!targetTable.relations) {
+          targetTable.relations = [];
+        }
+        targetTable.relations.push(inverseRelation);
+      }
+    }
+  }
+
+  /**
+   * Get metadata from in-memory cache
+   * Loads from DB on first call
    */
   async getMetadata(): Promise<EnfyraMetadata> {
-    const cachedData = await this.cacheService.get<any>(METADATA_CACHE_KEY);
-
-    if (cachedData) {
-      // Redis converts Map to plain object, so we need to rebuild it
-      if (cachedData.tables && !(cachedData.tables instanceof Map)) {
-        cachedData.tables = new Map(Object.entries(cachedData.tables));
-      }
-      return cachedData;
+    // Return from in-memory cache if available (instant)
+    if (this.inMemoryCache) {
+      return this.inMemoryCache;
     }
 
     // If not in cache, load from DB
-    this.logger.log('📦 Metadata not in cache, loading from DB...');
+    this.logger.log('📦 Metadata not in memory cache, loading from DB...');
     return await this.loadAndCacheMetadata();
   }
 
   /**
-   * Load metadata from DB and cache it (no TTL)
+   * Load metadata from DB and store in memory only
    */
   private async loadAndCacheMetadata(): Promise<EnfyraMetadata> {
     const loadStart = Date.now();
@@ -367,40 +440,42 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       `📦 Loaded ${metadata.tablesList.length} tables from DB in ${loadTime}ms`,
     );
 
-    // Convert Map to plain object for Redis serialization
-    const cacheData = {
-      tablesList: metadata.tablesList,
-      tables: Object.fromEntries(metadata.tables), // Map → Object
-    };
-
-    // Cache with no TTL (cache forever until manually cleared/reloaded)
-    await this.cacheService.set(METADATA_CACHE_KEY, cacheData, 0);
+    // Store in memory only (no Redis)
+    this.inMemoryCache = metadata;
 
     return metadata;
   }
 
   /**
-   * Manually reload metadata cache
+   * Reload metadata from DB (acquire lock → load → publish → save)
    */
-  async reloadMetadataCache(): Promise<void> {
+  async reload(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
-    
+
     try {
       const acquired = await this.cacheService.acquire(
-        METADATA_RELOAD_LOCK_KEY, 
-        instanceId, 
+        METADATA_RELOAD_LOCK_KEY,
+        instanceId,
         REDIS_TTL.RELOAD_LOCK_TTL
       );
-      
+
       if (!acquired) {
         this.logger.log('🔒 Another instance is reloading metadata, waiting for broadcast...');
         return;
       }
 
       this.logger.log(`🔓 Acquired metadata reload lock (instance ${instanceId.slice(0, 8)})`);
-      
+
       try {
-        await this.performReload();
+        // Load from DB
+        const metadata = await this.loadMetadataFromDb();
+        this.logger.log(`✅ Metadata loaded from DB - ${metadata.tablesList.length} tables`);
+
+        // Broadcast to other instances FIRST
+        await this.publish(metadata);
+
+        // Then save to local memory cache
+        this.inMemoryCache = metadata;
       } finally {
         await this.cacheService.release(METADATA_RELOAD_LOCK_KEY, instanceId);
         this.logger.log('🔓 Released metadata reload lock');
@@ -411,19 +486,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     }
   }
 
-  private async performReload(): Promise<void> {
-    this.logger.log('🔄 Reloading metadata cache...');
-    
-    await this.clearMetadataCache();
-    const metadata = await this.loadAndCacheMetadata();
-    
-    this.logger.log(`✅ Metadata cache reloaded - ${metadata.tablesList.length} tables`);
-    
-    await this.queryBuilder.reloadWithMetadata(metadata);
-    await this.publishMetadataCacheSync(metadata);
-  }
-
-  private async publishMetadataCacheSync(metadata: EnfyraMetadata): Promise<void> {
+  /**
+   * Publish metadata to other instances via Redis PubSub
+   */
+  private async publish(metadata: EnfyraMetadata): Promise<void> {
     try {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),
@@ -464,11 +530,27 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   /**
-   * Clear metadata cache
+   * Lookup table metadata by table name
+   * Alias for getTableMetadata() for backward compatibility
+   */
+  async lookupTableByName(tableName: string): Promise<any | null> {
+    return this.getTableMetadata(tableName);
+  }
+
+  /**
+   * Lookup table metadata by table ID
+   */
+  async lookupTableById(tableId: number | string): Promise<any | null> {
+    const metadata = await this.getMetadata();
+    const table = metadata.tablesList.find(t => t.id === tableId || t.id === Number(tableId));
+    return table || null;
+  }
+
+  /**
+   * Clear in-memory metadata cache
    */
   async clearMetadataCache(): Promise<void> {
-    await this.cacheService.deleteKey(METADATA_CACHE_KEY);
-    this.logger.log('🗑️ Metadata cache cleared');
+    this.inMemoryCache = null;
+    this.logger.log('🗑️ In-memory metadata cache cleared');
   }
 }
-

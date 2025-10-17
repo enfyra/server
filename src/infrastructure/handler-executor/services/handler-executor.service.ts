@@ -27,10 +27,13 @@ export class HandlerExecutorService {
   ): Promise<any> {
     // Get packages for runner
     const packages = await this.packageCacheService.getPackages();
+
     const pool = this.executorPoolService.getPool();
     const isDone = { value: false };
+
     return new Promise(async (resolve, reject) => {
       const child = await pool.acquire();
+
       const timeout = ChildProcessManager.setupTimeout(
         child,
         timeoutMs,
