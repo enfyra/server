@@ -1,13 +1,11 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CommonService } from '../../../shared/common/services/common.service';
-// import { SchemaStateService } from '../../../modules/schema-management/services/schema-state.service';
 import { DefaultDataService } from './default-data.service';
 import { CoreInitService } from './core-init.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-// import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 
 @Injectable()
-export class BootstrapService implements OnApplicationBootstrap {
+export class BootstrapService implements OnModuleInit {
   private readonly logger = new Logger(BootstrapService.name);
 
   constructor(
@@ -38,7 +36,7 @@ export class BootstrapService implements OnApplicationBootstrap {
     throw new Error(`Unable to connect to DB after ${maxRetries} attempts.`);
   }
 
-  async onApplicationBootstrap() {
+  async onModuleInit() {
     try {
       await this.waitForDatabaseConnection();
     } catch (err) {
