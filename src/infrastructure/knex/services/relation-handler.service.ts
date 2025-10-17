@@ -102,6 +102,9 @@ export class RelationHandlerService {
     manyToManyRelations: Array<{ relationName: string; ids: any[] }>,
     metadata: any,
   ): Promise<void> {
+    this.logger.log(`🔗 [handleManyToManyRelations] Table: ${tableName}, RecordId: ${recordId}`);
+    this.logger.log(`   Relations to process: ${manyToManyRelations.length}`);
+
     const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMetadata) {
       this.logger.warn(`⚠️  No metadata found for table ${tableName}`);
@@ -109,6 +112,8 @@ export class RelationHandlerService {
     }
 
     for (const { relationName, ids } of manyToManyRelations) {
+      this.logger.log(`   Processing M2M: ${relationName} with ${ids.length} IDs: [${ids.join(', ')}]`);
+
       const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
       if (!relation) {
         throw new Error(`M2M relation '${relationName}' not found in table '${tableName}' metadata`);
@@ -122,6 +127,8 @@ export class RelationHandlerService {
       if (!relation.junctionTargetColumn) {
         throw new Error(`M2M relation '${relationName}' in table '${tableName}' missing junctionTargetColumn in metadata`);
       }
+
+      this.logger.log(`   Junction: ${relation.junctionTableName} (${relation.junctionSourceColumn}, ${relation.junctionTargetColumn})`);
 
       // Check for null recordId
       if (!recordId) {
@@ -146,6 +153,10 @@ export class RelationHandlerService {
         });
 
         await knex(relation.junctionTableName).insert(junctionRecords);
+
+        this.logger.log(`   ✅ Inserted ${junctionRecords.length} junction records`);
+      } else {
+        this.logger.log(`   ⏭️  No IDs to insert`);
       }
     }
   }
@@ -224,12 +235,26 @@ export class RelationHandlerService {
     data: any,
     metadata: any,
   ): Promise<any> {
-    const { cleanData, manyToManyRelations, oneToManyRelations } = 
+    this.logger.log(`🔍 [insertWithCascade] Table: ${tableName}`);
+    this.logger.log(`   Data keys: ${Object.keys(data).join(', ')}`);
+
+    const { cleanData, manyToManyRelations, oneToManyRelations } =
       this.preprocessData(tableName, data, metadata);
+
+    this.logger.log(`   Clean data keys: ${Object.keys(cleanData).join(', ')}`);
+    this.logger.log(`   M2M relations count: ${manyToManyRelations.length}`);
+    if (manyToManyRelations.length > 0) {
+      for (const m2m of manyToManyRelations) {
+        this.logger.log(`     - ${m2m.relationName}: ${m2m.ids.length} IDs`);
+      }
+    }
+    this.logger.log(`   O2M relations count: ${oneToManyRelations.length}`);
 
     // Insert main record
     const [insertedId] = await knex(tableName).insert(cleanData);
     const recordId = insertedId || cleanData.id;
+
+    this.logger.log(`   ✅ Inserted record ID: ${recordId}`);
 
     // Handle relations
     await this.handleManyToManyRelations(

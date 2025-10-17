@@ -828,30 +828,21 @@ export class QueryBuilderService {
 
   /**
    * Insert one and return with ID
+   * Uses insertWithCascade to handle M2M and O2M relations
    */
   async insertAndGet(table: string, data: any): Promise<any> {
     if (this.dbType === 'mongodb') {
       return this.mongoService.insertOne(table, data);
     }
 
-    const knex = this.knexService.getKnex();
-    const dbType = this.getDatabaseType();
+    // Use insertWithCascade for M2M/O2M relation handling
+    const insertedId = await this.knexService.insertWithCascade(table, data);
 
-    if (dbType === 'postgres') {
-      const [result] = await knex(table).insert(data).returning('*');
-      return result;
-    } else {
-      // MySQL/MariaDB
-      // If data has 'id' field (UUID), use it to query back
-      // Otherwise use the auto-increment insertId
-      if (data.id) {
-        await knex(table).insert(data);
-        return knex(table).where('id', data.id).first();
-      } else {
-        const [insertId] = await knex(table).insert(data);
-        return knex(table).where('id', insertId).first();
-      }
-    }
+    const knex = this.knexService.getKnex();
+    const recordId = insertedId || data.id;
+
+    // Query back the inserted record
+    return knex(table).where('id', recordId).first();
   }
 
   /**

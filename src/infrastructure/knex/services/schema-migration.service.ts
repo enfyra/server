@@ -180,7 +180,63 @@ export class SchemaMigrationService {
       }
     }
 
-    this.logger.log(`✅ Created table: ${tableName}`);
+    // Create junction tables for M2M relations
+    for (const rel of tableMetadata.relations || []) {
+      if (rel.type === 'many-to-many') {
+        this.logger.log(`🔍 CREATE TABLE: Processing M2M relation ${rel.propertyName} -> ${rel.targetTableName}`);
+
+        if (!rel.junctionTableName) {
+          this.logger.warn(`⚠️  M2M relation '${rel.propertyName}' missing junctionTableName, skipping junction table creation`);
+          continue;
+        }
+
+        if (!rel.junctionSourceColumn || !rel.junctionTargetColumn) {
+          this.logger.warn(`⚠️  M2M relation '${rel.propertyName}' missing junction column names, skipping`);
+          continue;
+        }
+
+        const junctionTableName = rel.junctionTableName;
+        const junctionSourceColumn = rel.junctionSourceColumn;
+        const junctionTargetColumn = rel.junctionTargetColumn;
+        const sourceTable = tableName;
+        const targetTable = rel.targetTableName || rel.targetTable;
+
+        // Check if junction table already exists
+        const junctionExists = await knex.schema.hasTable(junctionTableName);
+        if (junctionExists) {
+          this.logger.log(`⏭️  Junction table ${junctionTableName} already exists, skipping`);
+          continue;
+        }
+
+        this.logger.log(`🔨 Creating junction table: ${junctionTableName}`);
+        this.logger.log(`   Source: ${sourceTable}.id → ${junctionSourceColumn}`);
+        this.logger.log(`   Target: ${targetTable}.id → ${junctionTargetColumn}`);
+
+        // Create junction table
+        const createJunctionSQL = `
+          CREATE TABLE \`${junctionTableName}\` (
+            \`id\` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            \`${junctionSourceColumn}\` INT UNSIGNED NOT NULL,
+            \`${junctionTargetColumn}\` INT UNSIGNED NOT NULL,
+            \`createdAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            \`updatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (\`${junctionSourceColumn}\`) REFERENCES \`${sourceTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
+            FOREIGN KEY (\`${junctionTargetColumn}\`) REFERENCES \`${targetTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
+            UNIQUE KEY \`unique_${junctionSourceColumn}_${junctionTargetColumn}\` (\`${junctionSourceColumn}\`, \`${junctionTargetColumn}\`)
+          )
+        `.trim().replace(/\s+/g, ' ');
+
+        try {
+          await knex.raw(createJunctionSQL);
+          this.logger.log(`✅ Created junction table: ${junctionTableName}`);
+        } catch (error) {
+          this.logger.error(`❌ Failed to create junction table ${junctionTableName}: ${error.message}`);
+          throw error;
+        }
+      }
+    }
+
+    this.logger.log(`✅ Created table: ${tableName} (with ${tableMetadata.relations?.filter((r: any) => r.type === 'many-to-many').length || 0} junction tables)`);
   }
 
 
