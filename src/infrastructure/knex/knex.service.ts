@@ -5,6 +5,7 @@ import { RelationHandlerService } from './services/relation-handler.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { applyRelations } from './utils/knex-helpers/query-with-relations';
 import { ExtendedKnex } from '../../shared/utils/knex-extended.types';
+import { parseBooleanFields } from '../query-builder/utils/parse-boolean-fields';
 
 @Injectable()
 export class KnexService implements OnModuleInit, OnModuleDestroy {
@@ -150,6 +151,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     this.addHook('afterSelect', (tableName, result) => {
       return this.autoParseJsonFields(result, { table: tableName });
+    });
+
+    this.addHook('afterSelect', (tableName, result) => {
+      return parseBooleanFields(result);
     });
 
     this.logger.log('🪝 Default hooks registered');
