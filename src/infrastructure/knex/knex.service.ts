@@ -12,7 +12,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private knexInstance: Knex;
   private readonly logger = new Logger(KnexService.name);
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
-  
+
   // Hook registry
   private hooks: {
     beforeInsert: Array<(tableName: string, data: any) => any>;
@@ -112,8 +112,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return this.convertDateFields(tableName, data);
     });
 
-    this.addHook('beforeInsert', (tableName, data) => {
-      if (this.isJunctionTable(tableName)) return data;
+    this.addHook('beforeInsert', async (tableName, data) => {
+      if (await this.isJunctionTable(tableName)) return data;
 
       const now = this.knexInstance.raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
@@ -144,8 +144,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return this.stripNonUpdatableFields(tableName, updateData);
     });
 
-    this.addHook('beforeUpdate', (tableName, data) => {
-      if (this.isJunctionTable(tableName)) return data;
+    this.addHook('beforeUpdate', async (tableName, data) => {
+      if (await this.isJunctionTable(tableName)) return data;
       return { ...data, updatedAt: this.knexInstance.raw('CURRENT_TIMESTAMP') };
     });
 
@@ -160,12 +160,19 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('🪝 Default hooks registered');
   }
 
-  private isJunctionTable(tableName: string): boolean {
-    const parts = tableName.split('_');
-    if (parts.length >= 3) {
-      const hasCamelCase = /[a-z][A-Z]/.test(tableName);
-      const hasMultipleTableSuffixes = (tableName.match(/_definition/g) || []).length >= 2;
-      if (hasCamelCase || hasMultipleTableSuffixes) return true;
+  private async isJunctionTable(tableName: string): Promise<boolean> {
+    // Query metadata to check if this table is a junction table
+    const metadata = await this.metadataCacheService.getMetadata();
+    if (!metadata) return false;
+
+    const tables = Array.from(metadata.tables?.values?.() || []) || metadata.tablesList || [];
+    for (const table of tables) {
+      if (!table.relations) continue;
+      for (const rel of table.relations) {
+        if (rel.type === 'many-to-many' && rel.junctionTableName === tableName) {
+          return true;
+        }
+      }
     }
     return false;
   }
