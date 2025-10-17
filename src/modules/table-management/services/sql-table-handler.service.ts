@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { SchemaMigrationService } from '../../../infrastructure/knex/services/schema-migration.service';
+import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -15,18 +15,13 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { getForeignKeyColumnName, getJunctionTableName, getJunctionColumnNames } from '../../../shared/utils/naming-helpers';
 
-/**
- * SqlTableHandlerService - Manages SQL table metadata and physical schema (DDL)
- * 1. Validates and saves metadata to DB
- * 2. Migrates physical schema (CREATE/ALTER/DROP TABLE)
- */
 @Injectable()
 export class SqlTableHandlerService {
   private logger = new Logger(SqlTableHandlerService.name);
 
   constructor(
     private queryBuilder: QueryBuilderService,
-    private schemaMigrationService: SchemaMigrationService,
+    private schemaMigrationService: SqlSchemaMigrationService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
     private moduleRef: ModuleRef,
@@ -351,7 +346,7 @@ export class SqlTableHandlerService {
       const fullMetadata = await this.getFullTableMetadata(tableId);
 
       // Migrate physical schema (after commit)
-      this.logger.log(`🔨 Calling SchemaMigrationService.createTable()...`);
+      this.logger.log(`🔨 Calling SqlSchemaMigrationService.createTable()...`);
       await this.schemaMigrationService.createTable(fullMetadata);
 
       this.logger.log(`\n${'='.repeat(80)}`);
