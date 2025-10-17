@@ -325,7 +325,7 @@ export class SqlSchemaMigrationService {
     }
   }
 
-  async dropTable(tableName: string): Promise<void> {
+  async dropTable(tableName: string, relations?: any[]): Promise<void> {
     const knex = this.knexService.getKnex();
 
     if (!(await knex.schema.hasTable(tableName))) {
@@ -335,9 +335,28 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`🗑️  Dropping table: ${tableName}`);
 
+    // Drop M2M junction tables first (if relations provided)
+    if (relations && relations.length > 0) {
+      for (const rel of relations) {
+        if (rel.type === 'many-to-many' && rel.junctionTableName) {
+          this.logger.log(`🗑️  Dropping M2M junction table: ${rel.junctionTableName}`);
+
+          const hasJunctionTable = await knex.schema.hasTable(rel.junctionTableName);
+          if (hasJunctionTable) {
+            await knex.schema.dropTable(rel.junctionTableName);
+            this.logger.log(`✅ Dropped junction table: ${rel.junctionTableName}`);
+          } else {
+            this.logger.log(`⚠️  Junction table ${rel.junctionTableName} does not exist, skipping`);
+          }
+        }
+      }
+    }
+
+    // Drop all foreign keys referencing this table
     const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
     await dropAllForeignKeysReferencingTable(knex, tableName, dbType);
 
+    // Drop the table itself
     await knex.schema.dropTableIfExists(tableName);
     this.logger.log(`✅ Dropped table: ${tableName}`);
   }

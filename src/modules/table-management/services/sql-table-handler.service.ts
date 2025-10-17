@@ -337,17 +337,17 @@ export class SqlTableHandlerService {
         this.logger.warn(`Route /${body.name} already exists, skipping route creation`);
       }
 
-      // Commit transaction BEFORE physical schema migration
-      this.logger.log(`\n✅ Committing transaction...`);
-      await trx.commit();
-
-      // Fetch full table metadata with columns and relations (after commit)
+      // Fetch full table metadata with columns and relations (before physical migration)
       this.logger.log(`📥 Fetching full table metadata...`);
-      const fullMetadata = await this.getFullTableMetadata(tableId);
+      const fullMetadata = await this.getFullTableMetadataInTransaction(trx, tableId);
 
-      // Migrate physical schema (after commit)
+      // Migrate physical schema INSIDE transaction (before commit)
       this.logger.log(`🔨 Calling SqlSchemaMigrationService.createTable()...`);
       await this.schemaMigrationService.createTable(fullMetadata);
+
+      // Commit transaction AFTER physical schema migration succeeds
+      this.logger.log(`\n✅ Committing transaction...`);
+      await trx.commit();
 
       this.logger.log(`\n${'='.repeat(80)}`);
       this.logger.log(`✅ TABLE CREATED SUCCESSFULLY: ${body.name}`);
@@ -695,13 +695,21 @@ export class SqlTableHandlerService {
           .delete();
         this.logger.log(`🗑️ Deleted source relations for table ${id}`);
         
-        // 2. Delete relations where this table is the target AND drop FK columns
+        // 2. Fetch all relations involving this table (for physical migration later)
+        const allRelations = await trx('relation_definition')
+          .where({ sourceTableId: id })
+          .orWhere({ targetTableId: id })
+          .select('*');
+
+        this.logger.log(`🗑️ Found ${allRelations.length} relations involving table ${tableName}`);
+
+        // 3. Delete relations where this table is the target AND drop FK columns
         const targetRelations = await trx('relation_definition')
           .where({ targetTableId: id })
           .select('*');
-        
+
         this.logger.log(`🗑️ Found ${targetRelations.length} target relations for table ${tableName}`);
-        
+
         // Drop FK columns from source tables before deleting relations
         for (const rel of targetRelations) {
           if (['one-to-many', 'many-to-one', 'one-to-one'].includes(rel.type)) {
@@ -746,7 +754,7 @@ export class SqlTableHandlerService {
           }
         }
 
-        // 3. CRITICAL: Drop ALL FK constraints referencing this table (from actual DB schema)
+        // 4. CRITICAL: Drop ALL FK constraints referencing this table (from actual DB schema)
         // This handles cases where FK columns exist but metadata is missing
         this.logger.log(`🗑️ Checking for ALL FK constraints referencing table ${tableName}...`);
         
@@ -791,7 +799,7 @@ export class SqlTableHandlerService {
           .delete();
         this.logger.log(`🗑️ Deleted target relations for table ${id}`);
 
-        // 3. Delete columns
+        // 5. Delete columns
         await trx('column_definition')
           .where({ tableId: id })
           .delete();
@@ -800,12 +808,26 @@ export class SqlTableHandlerService {
           .where({ id })
           .delete();
 
-        // Drop physical table
-        await this.schemaMigrationService.dropTable(tableName);
+        // Drop physical table and junction tables INSIDE transaction (before commit)
+        // Pass relations so schema migration can drop M2M junction tables
+        await this.schemaMigrationService.dropTable(tableName, allRelations);
+
+        // Commit transaction AFTER physical schema migration succeeds
+        await trx.commit();
 
         this.logger.log(`✅ Table deleted: ${tableName} (metadata + physical schema)`);
         return exists;
       } catch (error) {
+        // Rollback transaction on error (if not already committed)
+        if (trx && !trx.isCompleted()) {
+          try {
+            await trx.rollback();
+            this.logger.log(`🔄 Transaction rolled back due to error`);
+          } catch (rollbackError) {
+            this.logger.error(`Failed to rollback transaction: ${rollbackError.message}`);
+          }
+        }
+
         this.loggingService.error('Table deletion failed', {
           context: 'delete',
           error: error.message,
@@ -822,6 +844,76 @@ export class SqlTableHandlerService {
         );
       }
     });
+  }
+
+  /**
+   * Get full table metadata with columns and relations (within transaction)
+   */
+  private async getFullTableMetadataInTransaction(trx: any, tableId: string | number): Promise<any> {
+    const table = await trx('table_definition').where({ id: tableId }).first();
+    if (!table) return null;
+
+    // Parse JSON fields
+    if (table.uniques && typeof table.uniques === 'string') {
+      try {
+        table.uniques = JSON.parse(table.uniques);
+      } catch (e) {
+        table.uniques = [];
+      }
+    }
+    if (table.indexes && typeof table.indexes === 'string') {
+      try {
+        table.indexes = JSON.parse(table.indexes);
+      } catch (e) {
+        table.indexes = [];
+      }
+    }
+
+    // Load columns
+    table.columns = await trx('column_definition')
+      .where({ tableId })
+      .select('*');
+
+    // Parse column JSON fields
+    for (const col of table.columns) {
+      if (col.defaultValue && typeof col.defaultValue === 'string') {
+        try {
+          col.defaultValue = JSON.parse(col.defaultValue);
+        } catch (e) {
+          // Keep as string
+        }
+      }
+      if (col.options && typeof col.options === 'string') {
+        try {
+          col.options = JSON.parse(col.options);
+        } catch (e) {
+          // Keep as string
+        }
+      }
+    }
+
+    // Load relations with target table names (use JOIN to avoid N+1)
+    const relations = await trx('relation_definition')
+      .where({ 'relation_definition.sourceTableId': tableId })
+      .leftJoin('table_definition', 'relation_definition.targetTableId', 'table_definition.id')
+      .select(
+        'relation_definition.*',
+        'table_definition.name as targetTableName'
+      );
+
+    // Add computed fields
+    for (const rel of relations) {
+      rel.sourceTableName = table.name;
+
+      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+        rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+      }
+      // M2M junction info already stored in DB
+    }
+
+    table.relations = relations;
+
+    return table;
   }
 
   /**
