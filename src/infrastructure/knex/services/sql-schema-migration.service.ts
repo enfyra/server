@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
@@ -26,6 +27,8 @@ export class SqlSchemaMigrationService {
     private readonly knexService: KnexService,
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCacheService: MetadataCacheService,
+    @Inject(forwardRef(() => QueryBuilderService))
+    private readonly queryBuilderService: QueryBuilderService,
   ) {}
 
   async createTable(tableMetadata: any): Promise<void> {
@@ -201,16 +204,49 @@ export class SqlSchemaMigrationService {
         this.logger.log(`   Source: ${sourceTable}.id → ${junctionSourceColumn}`);
         this.logger.log(`   Target: ${targetTable}.id → ${junctionTargetColumn}`);
 
-        const createJunctionSQL = `
-          CREATE TABLE \`${junctionTableName}\` (
-            \`id\` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            \`${junctionSourceColumn}\` INT UNSIGNED NOT NULL,
-            \`${junctionTargetColumn}\` INT UNSIGNED NOT NULL,
-            FOREIGN KEY (\`${junctionSourceColumn}\`) REFERENCES \`${sourceTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
-            FOREIGN KEY (\`${junctionTargetColumn}\`) REFERENCES \`${targetTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
-            UNIQUE KEY \`unique_${junctionSourceColumn}_${junctionTargetColumn}\` (\`${junctionSourceColumn}\`, \`${junctionTargetColumn}\`)
-          )
-        `.trim().replace(/\s+/g, ' ');
+        const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
+        const qt = (id: string) => {
+          if (dbType === 'mysql') return `\`${id}\``;
+          return `"${id}"`;
+        };
+
+        // Generate database-specific CREATE TABLE syntax
+        let createJunctionSQL: string;
+        if (dbType === 'postgres') {
+          createJunctionSQL = `
+            CREATE TABLE ${qt(junctionTableName)} (
+              ${qt('id')} SERIAL PRIMARY KEY,
+              ${qt(junctionSourceColumn)} INTEGER NOT NULL,
+              ${qt(junctionTargetColumn)} INTEGER NOT NULL,
+              FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+              UNIQUE (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
+            )
+          `.trim().replace(/\s+/g, ' ');
+        } else if (dbType === 'sqlite') {
+          createJunctionSQL = `
+            CREATE TABLE ${qt(junctionTableName)} (
+              ${qt('id')} INTEGER PRIMARY KEY AUTOINCREMENT,
+              ${qt(junctionSourceColumn)} INTEGER NOT NULL,
+              ${qt(junctionTargetColumn)} INTEGER NOT NULL,
+              FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+              UNIQUE (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
+            )
+          `.trim().replace(/\s+/g, ' ');
+        } else {
+          // MySQL
+          createJunctionSQL = `
+            CREATE TABLE ${qt(junctionTableName)} (
+              ${qt('id')} INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+              ${qt(junctionSourceColumn)} INT UNSIGNED NOT NULL,
+              ${qt(junctionTargetColumn)} INT UNSIGNED NOT NULL,
+              FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+              UNIQUE KEY ${qt(`unique_${junctionSourceColumn}_${junctionTargetColumn}`)} (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
+            )
+          `.trim().replace(/\s+/g, ' ');
+        }
 
         try {
           await knex.raw(createJunctionSQL);
@@ -299,7 +335,8 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`🗑️  Dropping table: ${tableName}`);
 
-    await dropAllForeignKeysReferencingTable(knex, tableName);
+    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
+    await dropAllForeignKeysReferencingTable(knex, tableName, dbType);
 
     await knex.schema.dropTableIfExists(tableName);
     this.logger.log(`✅ Dropped table: ${tableName}`);
@@ -448,9 +485,9 @@ export class SqlSchemaMigrationService {
 
   private async executeSchemaDiff(tableName: string, diff: any): Promise<void> {
     const knex = this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
-
-    const sqlStatements = await generateSQLFromDiff(knex, tableName, diff);
+    const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType);
 
 
     this.logger.debug('Generated SQL Statements:', sqlStatements);

@@ -2,6 +2,13 @@ import { Knex } from 'knex';
 import { Logger } from '@nestjs/common';
 import { generateColumnDefinition } from './sql-generator';
 import { dropForeignKeyIfExists } from './foreign-key-operations';
+import {
+  quoteIdentifier,
+  generateRenameTableSQL,
+  generateRenameColumnSQL,
+  generateModifyColumnSQL,
+  generateAddIndexSQL,
+} from './sql-dialect';
 
 const logger = new Logger('SqlDiffGenerator');
 
@@ -9,16 +16,18 @@ export async function generateSQLFromDiff(
   knex: Knex,
   tableName: string,
   diff: any,
+  dbType: 'mysql' | 'postgres' | 'sqlite',
 ): Promise<string[]> {
   const sqlStatements: string[] = [];
+  const qt = (id: string) => quoteIdentifier(id, dbType); // Quote helper
 
   if (diff.table.update) {
-    sqlStatements.push(`ALTER TABLE \`${diff.table.update.oldName}\` RENAME TO \`${diff.table.update.newName}\``);
+    sqlStatements.push(generateRenameTableSQL(diff.table.update.oldName, diff.table.update.newName, dbType));
   }
 
   const renamedColumns = new Set<string>();
   for (const rename of diff.columns.rename) {
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` RENAME COLUMN \`${rename.oldName}\` TO \`${rename.newName}\``);
+    sqlStatements.push(generateRenameColumnSQL(tableName, rename.oldName, rename.newName, dbType));
     renamedColumns.add(rename.oldName);
     renamedColumns.add(rename.newName);
   }
@@ -26,20 +35,20 @@ export async function generateSQLFromDiff(
   // DELETE columns first (before CREATE) to avoid duplicate column name errors
   for (const col of diff.columns.delete) {
     if (col.isForeignKey) {
-      await dropForeignKeyIfExists(knex, tableName, col.name);
+      await dropForeignKeyIfExists(knex, tableName, col.name, dbType);
     }
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${col.name}\``);
+    sqlStatements.push(`ALTER TABLE ${qt(tableName)} DROP COLUMN ${qt(col.name)}`);
   }
 
   // CREATE columns after DELETE
   for (const col of diff.columns.create) {
-    const columnDef = generateColumnDefinition(col);
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${col.name}\` ${columnDef}`);
+    const columnDef = generateColumnDefinition(col, dbType);
+    sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`);
 
     if (col.isForeignKey && col.foreignKeyTarget) {
       const onDelete = col.isNullable !== false ? 'SET NULL' : 'RESTRICT';
       sqlStatements.push(
-        `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`fk_${tableName}_${col.name}\` FOREIGN KEY (\`${col.name}\`) REFERENCES \`${col.foreignKeyTarget}\` (\`${col.foreignKeyColumn || 'id'}\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
+        `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(`fk_${tableName}_${col.name}`)} FOREIGN KEY (${qt(col.name)}) REFERENCES ${qt(col.foreignKeyTarget)} (${qt(col.foreignKeyColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`
       );
     }
   }
@@ -59,36 +68,36 @@ export async function generateSQLFromDiff(
     }
 
     processedUpdates.add(colName);
-    const columnDef = generateColumnDefinition(update.newColumn);
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${update.newColumn.name}\` ${columnDef}`);
+    const columnDef = generateColumnDefinition(update.newColumn, dbType);
+    sqlStatements.push(generateModifyColumnSQL(tableName, update.newColumn.name, columnDef, dbType));
   }
 
   for (const uniqueGroup of diff.constraints.uniques.update || []) {
-    const columns = uniqueGroup.map((col: string) => `\`${col}\``).join(', ');
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD UNIQUE (${columns})`);
+    const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
+    sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD UNIQUE (${columns})`);
   }
 
   for (const indexGroup of diff.constraints.indexes.update || []) {
-    const columns = indexGroup.map((col: string) => `\`${col}\``).join(', ');
-    sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD INDEX \`idx_${tableName}_${indexGroup.join('_')}\` (${columns})`);
+    const indexName = `idx_${tableName}_${indexGroup.join('_')}`;
+    sqlStatements.push(generateAddIndexSQL(tableName, indexName, indexGroup, dbType));
   }
 
   for (const crossOp of diff.crossTableOperations || []) {
     if (crossOp.operation === 'createColumn') {
-      const columnDef = generateColumnDefinition(crossOp.column);
-      sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` ADD COLUMN \`${crossOp.column.name}\` ${columnDef}`);
+      const columnDef = generateColumnDefinition(crossOp.column, dbType);
+      sqlStatements.push(`ALTER TABLE ${qt(crossOp.targetTable)} ADD COLUMN ${qt(crossOp.column.name)} ${columnDef}`);
 
       if (crossOp.column.isForeignKey) {
         const onDelete = crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT';
         sqlStatements.push(
-          `ALTER TABLE \`${crossOp.targetTable}\` ADD CONSTRAINT \`fk_${crossOp.targetTable}_${crossOp.column.name}\` FOREIGN KEY (\`${crossOp.column.name}\`) REFERENCES \`${crossOp.column.foreignKeyTarget}\` (\`${crossOp.column.foreignKeyColumn}\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
+          `ALTER TABLE ${qt(crossOp.targetTable)} ADD CONSTRAINT ${qt(`fk_${crossOp.targetTable}_${crossOp.column.name}`)} FOREIGN KEY (${qt(crossOp.column.name)}) REFERENCES ${qt(crossOp.column.foreignKeyTarget)} (${qt(crossOp.column.foreignKeyColumn)}) ON DELETE ${onDelete} ON UPDATE CASCADE`
         );
       }
     } else if (crossOp.operation === 'dropColumn') {
-      await dropForeignKeyIfExists(knex, crossOp.targetTable, crossOp.columnName);
-      sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` DROP COLUMN \`${crossOp.columnName}\``);
+      await dropForeignKeyIfExists(knex, crossOp.targetTable, crossOp.columnName, dbType);
+      sqlStatements.push(`ALTER TABLE ${qt(crossOp.targetTable)} DROP COLUMN ${qt(crossOp.columnName)}`);
     } else if (crossOp.operation === 'renameColumn') {
-      sqlStatements.push(`ALTER TABLE \`${crossOp.targetTable}\` RENAME COLUMN \`${crossOp.oldColumnName}\` TO \`${crossOp.newColumnName}\``);
+      sqlStatements.push(generateRenameColumnSQL(crossOp.targetTable, crossOp.oldColumnName, crossOp.newColumnName, dbType));
     }
   }
 
@@ -96,7 +105,7 @@ export async function generateSQLFromDiff(
   for (const junctionRename of diff.junctionTables?.rename || []) {
     const { oldTableName, newTableName } = junctionRename;
     logger.log(`🔄 Renaming junction table: ${oldTableName} → ${newTableName}`);
-    sqlStatements.push(`RENAME TABLE \`${oldTableName}\` TO \`${newTableName}\``);
+    sqlStatements.push(generateRenameTableSQL(oldTableName, newTableName, dbType));
   }
 
   for (const junctionCreate of diff.junctionTables?.create || []) {
@@ -108,23 +117,50 @@ export async function generateSQLFromDiff(
       continue;
     }
 
-    const createJunctionSQL = `
-      CREATE TABLE \`${junctionName}\` (
-        \`id\` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        \`${sourceColumn}\` INT UNSIGNED NOT NULL,
-        \`${targetColumn}\` INT UNSIGNED NOT NULL,
-        FOREIGN KEY (\`${sourceColumn}\`) REFERENCES \`${sourceTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
-        FOREIGN KEY (\`${targetColumn}\`) REFERENCES \`${targetTable}\` (\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
-        UNIQUE KEY \`unique_${sourceColumn}_${targetColumn}\` (\`${sourceColumn}\`, \`${targetColumn}\`)
-      )
-    `.trim().replace(/\s+/g, ' ');
+    // Generate database-specific CREATE TABLE syntax
+    let createJunctionSQL: string;
+    if (dbType === 'postgres') {
+      createJunctionSQL = `
+        CREATE TABLE ${qt(junctionName)} (
+          ${qt('id')} SERIAL PRIMARY KEY,
+          ${qt(sourceColumn)} INTEGER NOT NULL,
+          ${qt(targetColumn)} INTEGER NOT NULL,
+          FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+          UNIQUE (${qt(sourceColumn)}, ${qt(targetColumn)})
+        )
+      `.trim().replace(/\s+/g, ' ');
+    } else if (dbType === 'sqlite') {
+      createJunctionSQL = `
+        CREATE TABLE ${qt(junctionName)} (
+          ${qt('id')} INTEGER PRIMARY KEY AUTOINCREMENT,
+          ${qt(sourceColumn)} INTEGER NOT NULL,
+          ${qt(targetColumn)} INTEGER NOT NULL,
+          FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+          UNIQUE (${qt(sourceColumn)}, ${qt(targetColumn)})
+        )
+      `.trim().replace(/\s+/g, ' ');
+    } else {
+      // MySQL
+      createJunctionSQL = `
+        CREATE TABLE ${qt(junctionName)} (
+          ${qt('id')} INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          ${qt(sourceColumn)} INT UNSIGNED NOT NULL,
+          ${qt(targetColumn)} INT UNSIGNED NOT NULL,
+          FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
+          UNIQUE KEY ${qt(`unique_${sourceColumn}_${targetColumn}`)} (${qt(sourceColumn)}, ${qt(targetColumn)})
+        )
+      `.trim().replace(/\s+/g, ' ');
+    }
 
     sqlStatements.push(createJunctionSQL);
   }
 
   for (const junctionDrop of diff.junctionTables?.drop || []) {
     const { tableName: junctionName } = junctionDrop;
-    sqlStatements.push(`DROP TABLE IF EXISTS \`${junctionName}\``);
+    sqlStatements.push(`DROP TABLE IF EXISTS ${qt(junctionName)}`);
   }
 
   return sqlStatements;

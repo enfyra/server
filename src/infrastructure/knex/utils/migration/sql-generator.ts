@@ -1,4 +1,4 @@
-export function generateColumnDefinition(col: any): string {
+export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql'): string {
   let definition = '';
 
   switch (col.type) {
@@ -7,40 +7,100 @@ export function generateColumnDefinition(col: any): string {
       break;
     case 'int':
       if (col.isPrimary && col.isGenerated) {
-        definition = 'INT UNSIGNED AUTO_INCREMENT';
+        // Auto-increment primary key
+        if (dbType === 'postgres') {
+          definition = 'SERIAL';
+        } else if (dbType === 'sqlite') {
+          definition = 'INTEGER';
+        } else {
+          definition = 'INT UNSIGNED AUTO_INCREMENT';
+        }
       } else {
-        definition = 'INT UNSIGNED';
+        // Regular integer
+        if (dbType === 'postgres') {
+          definition = 'INTEGER';
+        } else if (dbType === 'sqlite') {
+          definition = 'INTEGER';
+        } else {
+          definition = 'INT UNSIGNED';
+        }
       }
       break;
     case 'bigint':
-      definition = 'BIGINT';
+      if (dbType === 'postgres') {
+        definition = 'BIGINT';
+      } else if (dbType === 'sqlite') {
+        definition = 'INTEGER';
+      } else {
+        definition = 'BIGINT';
+      }
       break;
     case 'varchar':
     case 'text':
       definition = `VARCHAR(${col.options?.length || 255})`;
       break;
     case 'longtext':
-      definition = 'LONGTEXT';
+      if (dbType === 'postgres') {
+        definition = 'TEXT';
+      } else if (dbType === 'sqlite') {
+        definition = 'TEXT';
+      } else {
+        definition = 'LONGTEXT';
+      }
       break;
     case 'boolean':
-      definition = 'BOOLEAN';
+      if (dbType === 'postgres') {
+        definition = 'BOOLEAN';
+      } else if (dbType === 'sqlite') {
+        definition = 'INTEGER'; // SQLite stores boolean as 0/1
+      } else {
+        definition = 'BOOLEAN';
+      }
       break;
     case 'datetime':
     case 'timestamp':
-      definition = 'TIMESTAMP';
+      if (dbType === 'postgres') {
+        definition = 'TIMESTAMP';
+      } else if (dbType === 'sqlite') {
+        definition = 'TEXT'; // SQLite stores timestamps as TEXT or INTEGER
+      } else {
+        definition = 'TIMESTAMP';
+      }
       break;
     case 'date':
-      definition = 'DATE';
+      if (dbType === 'postgres') {
+        definition = 'DATE';
+      } else if (dbType === 'sqlite') {
+        definition = 'TEXT';
+      } else {
+        definition = 'DATE';
+      }
       break;
     case 'decimal':
-      definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;
+      if (dbType === 'sqlite') {
+        definition = 'REAL';
+      } else {
+        definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;
+      }
       break;
     case 'json':
     case 'simple-json':
-      definition = 'JSON';
+      if (dbType === 'postgres') {
+        definition = 'JSONB';
+      } else if (dbType === 'sqlite') {
+        definition = 'TEXT';
+      } else {
+        definition = 'JSON';
+      }
       break;
     case 'enum':
-      if (Array.isArray(col.options)) {
+      if (dbType === 'postgres' && Array.isArray(col.options)) {
+        // PostgreSQL uses CHECK constraint for enums in this context
+        const enumValues = col.options.map(opt => `'${opt}'`).join(', ');
+        definition = `VARCHAR(255) CHECK (${col.name} IN (${enumValues}))`;
+      } else if (dbType === 'sqlite') {
+        definition = 'TEXT';
+      } else if (Array.isArray(col.options)) {
         const enumValues = col.options.map(opt => `'${opt}'`).join(', ');
         definition = `ENUM(${enumValues})`;
       } else {
@@ -53,9 +113,12 @@ export function generateColumnDefinition(col: any): string {
 
   if (col.isPrimary && !col.isGenerated) {
     definition += ' PRIMARY KEY';
+  } else if (col.isPrimary && col.isGenerated && dbType === 'sqlite') {
+    // SQLite needs explicit PRIMARY KEY for INTEGER autoincrement
+    definition += ' PRIMARY KEY AUTOINCREMENT';
   }
 
-  if (col.isNullable === false) {
+  if (col.isNullable === false && !(col.isPrimary && col.isGenerated)) {
     definition += ' NOT NULL';
   }
 
@@ -63,7 +126,11 @@ export function generateColumnDefinition(col: any): string {
     if (typeof col.defaultValue === 'string') {
       definition += ` DEFAULT '${col.defaultValue}'`;
     } else if (typeof col.defaultValue === 'boolean') {
-      definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+      if (dbType === 'sqlite') {
+        definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+      } else {
+        definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+      }
     } else {
       definition += ` DEFAULT ${col.defaultValue}`;
     }
@@ -72,45 +139,3 @@ export function generateColumnDefinition(col: any): string {
   return definition;
 }
 
-export function generateAddColumnSQL(tableName: string, col: any): string[] {
-  const sqlStatements: string[] = [];
-  const columnDef = generateColumnDefinition(col);
-  sqlStatements.push(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${col.name}\` ${columnDef}`);
-
-  if (col.isForeignKey && col.foreignKeyTarget) {
-    const onDelete = col.isNullable !== false ? 'SET NULL' : 'RESTRICT';
-    sqlStatements.push(
-      `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`fk_${tableName}_${col.name}\` FOREIGN KEY (\`${col.name}\`) REFERENCES \`${col.foreignKeyTarget}\` (\`${col.foreignKeyColumn || 'id'}\`) ON DELETE ${onDelete} ON UPDATE CASCADE`
-    );
-  }
-
-  return sqlStatements;
-}
-
-export function generateModifyColumnSQL(tableName: string, col: any): string {
-  const columnDef = generateColumnDefinition(col);
-  return `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ${columnDef}`;
-}
-
-export function generateDropColumnSQL(tableName: string, columnName: string): string {
-  return `ALTER TABLE \`${tableName}\` DROP COLUMN \`${columnName}\``;
-}
-
-export function generateRenameColumnSQL(tableName: string, oldName: string, newName: string): string {
-  return `ALTER TABLE \`${tableName}\` RENAME COLUMN \`${oldName}\` TO \`${newName}\``;
-}
-
-export function generateRenameTableSQL(oldName: string, newName: string): string {
-  return `ALTER TABLE \`${oldName}\` RENAME TO \`${newName}\``;
-}
-
-export function generateAddUniqueSQL(tableName: string, columns: string[]): string {
-  const cols = columns.map((col: string) => `\`${col}\``).join(', ');
-  return `ALTER TABLE \`${tableName}\` ADD UNIQUE (${cols})`;
-}
-
-export function generateAddIndexSQL(tableName: string, columns: string[]): string {
-  const cols = columns.map((col: string) => `\`${col}\``).join(', ');
-  const indexName = `idx_${tableName}_${columns.join('_')}`;
-  return `ALTER TABLE \`${tableName}\` ADD INDEX \`${indexName}\` (${cols})`;
-}
