@@ -68,18 +68,6 @@ function applyFieldCondition(
     ? `${tablePrefix}.${field}`
     : field;
 
-  // Detect database type from Knex client if not provided
-  if (!dbType) {
-    const client = (query as any).client?.config?.client;
-    if (client === 'mysql' || client === 'mysql2') {
-      dbType = 'mysql';
-    } else if (client === 'pg' || client === 'postgres' || client === 'postgresql') {
-      dbType = 'postgres';
-    } else if (client === 'sqlite' || client === 'sqlite3') {
-      dbType = 'sqlite';
-    }
-  }
-
   switch (operator) {
     case '_eq':
       query.where(fullField, '=', value);
@@ -110,15 +98,15 @@ function applyFieldCondition(
       }
       break;
     case '_contains':
-      // Use LOWER and unaccent for case-insensitive search (like walkFilter)
       if (dbType === 'postgres') {
         query.whereRaw(
           `lower(unaccent(${fullField})) ILIKE '%' || lower(unaccent(?)) || '%'`,
           [value]
         );
       } else if (dbType === 'sqlite') {
+        // SQLite: no unaccent, just use lower() for case-insensitive
         query.whereRaw(
-          `${fullField} LIKE '%' || ? || '%'`,
+          `lower(${fullField}) LIKE '%' || lower(?) || '%'`,
           [value]
         );
       } else {
@@ -136,8 +124,9 @@ function applyFieldCondition(
           [value]
         );
       } else if (dbType === 'sqlite') {
+        // SQLite: no unaccent, just use lower() for case-insensitive
         query.whereRaw(
-          `${fullField} LIKE ? || '%'`,
+          `lower(${fullField}) LIKE lower(?) || '%'`,
           [value]
         );
       } else {
@@ -155,8 +144,9 @@ function applyFieldCondition(
           [value]
         );
       } else if (dbType === 'sqlite') {
+        // SQLite: no unaccent, just use lower() for case-insensitive
         query.whereRaw(
-          `${fullField} LIKE '%' || ?`,
+          `lower(${fullField}) LIKE '%' || lower(?)`,
           [value]
         );
       } else {
@@ -201,6 +191,7 @@ function processFilter(
   filter: any,
   tablePrefix?: string,
   logicalOperator: 'and' | 'or' = 'and',
+  dbType?: string,
 ): void {
   if (!filter || typeof filter !== 'object') {
     return;
@@ -211,11 +202,11 @@ function processFilter(
     for (const item of filter) {
       if (logicalOperator === 'and') {
         query.where(function() {
-          processFilter(this, item, tablePrefix, 'and');
+          processFilter(this, item, tablePrefix, 'and', dbType);
         });
       } else {
         query.orWhere(function() {
-          processFilter(this, item, tablePrefix, 'and');
+          processFilter(this, item, tablePrefix, 'and', dbType);
         });
       }
     }
@@ -230,7 +221,7 @@ function processFilter(
         query.where(function() {
           for (const condition of value) {
             this.where(function() {
-              processFilter(this, condition, tablePrefix, 'and');
+              processFilter(this, condition, tablePrefix, 'and', dbType);
             });
           }
         });
@@ -243,7 +234,7 @@ function processFilter(
         query.where(function() {
           for (const condition of value) {
             this.orWhere(function() {
-              processFilter(this, condition, tablePrefix, 'and');
+              processFilter(this, condition, tablePrefix, 'and', dbType);
             });
           }
         });
@@ -253,7 +244,7 @@ function processFilter(
 
     if (key === '_not') {
       query.whereNot(function() {
-        processFilter(this, value, tablePrefix, 'and');
+        processFilter(this, value, tablePrefix, 'and', dbType);
       });
       continue;
     }
@@ -269,11 +260,11 @@ function processFilter(
           if (FIELD_OPERATORS.includes(operator)) {
             if (logicalOperator === 'and') {
               query.where(function() {
-                applyFieldCondition(this, key, operator, operatorValue, tablePrefix);
+                applyFieldCondition(this, key, operator, operatorValue, tablePrefix, dbType);
               });
             } else {
               query.orWhere(function() {
-                applyFieldCondition(this, key, operator, operatorValue, tablePrefix);
+                applyFieldCondition(this, key, operator, operatorValue, tablePrefix, dbType);
               });
             }
           }
@@ -312,19 +303,21 @@ function processFilter(
  * @param query - Knex query builder instance
  * @param filter - Filter object with _and, _or, _not support
  * @param tablePrefix - Optional table name to prefix field names
+ * @param dbType - Database type ('mysql', 'postgres', 'sqlite')
  * @returns Modified query builder
  */
 export function buildWhereClause(
   query: Knex.QueryBuilder,
   filter: any,
   tablePrefix?: string,
+  dbType?: string,
 ): Knex.QueryBuilder {
   if (!filter || typeof filter !== 'object') {
     return query;
   }
 
   // Start processing filter
-  processFilter(query, filter, tablePrefix, 'and');
+  processFilter(query, filter, tablePrefix, 'and', dbType);
 
   return query;
 }

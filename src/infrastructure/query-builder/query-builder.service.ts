@@ -313,7 +313,7 @@ export class QueryBuilderService {
     // Apply WHERE clause
     if (originalFilter && hasLogicalOperators(originalFilter)) {
       // Use new buildWhereClause for complex filters with _and/_or/_not
-      query = buildWhereClause(query, originalFilter, queryOptions.table);
+      query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
     } else if (queryOptions.where && queryOptions.where.length > 0) {
       // Use legacy applyWhereToKnex for simple filters (backward compatible)
       query = this.applyWhereToKnex(query, queryOptions.where);
