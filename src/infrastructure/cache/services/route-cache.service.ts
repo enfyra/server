@@ -10,13 +10,16 @@ import {
   REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { getForeignKeyColumnName, getJunctionTableName } from '../../../shared/utils/naming-helpers';
+import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 
 @Injectable()
 export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(RouteCacheService.name);
   private routesCache: any[] = [];
+  private routeEngine: EnfyraRouteEngine;
   private cacheLoaded = false;
   private messageHandler: ((channel: string, message: string) => void) | null = null;
+  private allMethods: string[] = [];
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
@@ -24,7 +27,9 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     private readonly cacheService: CacheService,
     private readonly metadataCacheService: MetadataCacheService,
     private readonly instanceService: InstanceService,
-  ) {}
+  ) {
+    this.routeEngine = new EnfyraRouteEngine(false);
+  }
 
   async onModuleInit() {
     this.subscribe();
@@ -65,9 +70,13 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
           }
 
           this.logger.log(`📥 Received route cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
+
           this.routesCache = payload.routes;
+          this.allMethods = payload.methods || [];
+          this.buildRouteEngine(this.routesCache);
+
           this.cacheLoaded = true;
-          this.logger.log(`✅ Route cache synced: ${payload.routes.length} routes`);
+          this.logger.log(`✅ Route cache synced: ${payload.routes.length} routes, ${this.allMethods.length} methods`);
         } catch (error) {
           this.logger.error('Failed to parse route cache sync message:', error);
         }
@@ -115,15 +124,13 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
         const start = Date.now();
         this.logger.log('🔄 Reloading routes cache...');
 
-        // Load from DB
         const routes = await this.loadRoutes();
         this.logger.log(`✅ Loaded ${routes.length} routes in ${Date.now() - start}ms`);
 
-        // Broadcast to other instances FIRST
-        await this.publish(routes);
-
-        // Then save to local memory cache
         this.routesCache = routes;
+        await this.publish(routes);
+        this.buildRouteEngine(routes);
+
         this.cacheLoaded = true;
       } finally {
         await this.cacheService.release(ROUTE_RELOAD_LOCK_KEY, instanceId);
@@ -140,6 +147,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),
         routes: routes,
+        methods: this.allMethods,
         timestamp: Date.now(),
       };
 
@@ -148,13 +156,22 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
         JSON.stringify(payload),
       );
 
-      this.logger.log(`📤 Published route cache to other instances (${routes.length} routes)`);
+      this.logger.log(`📤 Published route cache to other instances (${routes.length} routes, ${this.allMethods.length} methods)`);
     } catch (error) {
       this.logger.error('Failed to publish route cache sync:', error);
     }
   }
 
   private async loadRoutes(): Promise<any[]> {
+    // Load all methods if not cached
+    if (this.allMethods.length === 0) {
+      const methodsResult = await this.queryBuilder.select({
+        tableName: 'method_definition',
+      });
+      this.allMethods = methodsResult.data.map((m: any) => m.method);
+      this.logger.log(`📋 Loaded ${this.allMethods.length} methods: [${this.allMethods.join(', ')}]`);
+    }
+
     const result = await this.queryBuilder.select({
       tableName: 'route_definition',
       filter: { isEnabled: { _eq: true } },
@@ -202,5 +219,44 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     }
 
     return routes;
+  }
+
+  private buildRouteEngine(routes: any[]): void {
+    const startTime = Date.now();
+    this.routeEngine = new EnfyraRouteEngine(false);
+
+    let insertedCount = 0;
+    for (const route of routes) {
+      this.insertRouteToEngine(route);
+      insertedCount++;
+    }
+
+    const stats = this.routeEngine.getStats();
+    this.logger.log(
+      `⚡ Built Enfyra Route Engine: ${stats.totalRoutes} route entries from ${insertedCount} route definitions across methods [${stats.methods.join(', ')}] in ${Date.now() - startTime}ms`
+    );
+  }
+
+  private insertRouteToEngine(route: any): void {
+    if (!route.path) {
+      this.logger.warn(`⚠️ Route has no path, skipping:`, route.id);
+      return;
+    }
+
+    const basePath = route.path;
+
+    // Insert route for all methods from database
+    for (const method of this.allMethods) {
+      this.routeEngine.insert(method, basePath, route);
+
+      // Add :id variant for DELETE and PATCH (REST methods only, not GraphQL)
+      if (['DELETE', 'PATCH'].includes(method)) {
+        this.routeEngine.insert(method, `${basePath}/:id`, route);
+      }
+    }
+  }
+
+  getRouteEngine(): EnfyraRouteEngine {
+    return this.routeEngine;
   }
 }

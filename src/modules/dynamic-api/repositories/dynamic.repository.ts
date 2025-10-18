@@ -202,6 +202,7 @@ export class DynamicRepository {
         'route_permission_definition',
         'role_definition',
         'table_definition',
+        'method_definition',
       ].includes(this.tableName)
     ) {
       await this.routeCacheService.reload();
