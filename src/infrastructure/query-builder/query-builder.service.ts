@@ -14,6 +14,7 @@ import {
 } from '../../shared/types/query-builder.types';
 import { expandFieldsToJoinsAndSelect } from './utils/expand-fields';
 import { buildWhereClause, hasLogicalOperators } from './utils/build-where-clause';
+import { separateFilters, applyRelationFilters } from './utils/relation-filter.util';
 
 /**
  * QueryBuilderService - Unified database query interface
@@ -23,6 +24,7 @@ import { buildWhereClause, hasLogicalOperators } from './utils/build-where-claus
 @Injectable()
 export class QueryBuilderService {
   private dbType: DatabaseType;
+  private debugLog: any[] = [];
 
   constructor(
     @Optional() @Inject(forwardRef(() => KnexService))
@@ -33,6 +35,13 @@ export class QueryBuilderService {
     private readonly metadataCache: MetadataCacheService,
   ) {
     this.dbType = (process.env.DB_TYPE as DatabaseType);
+  }
+
+  /**
+   * Add debug info to debug log array
+   */
+  private pushDebug(key: string, data: any): void {
+    this.debugLog.push({ [key]: data });
   }
 
   /**
@@ -183,6 +192,9 @@ export class QueryBuilderService {
     deep?: Record<string, any>;
     debugMode?: boolean;
   }): Promise<any> {
+    // Reset debug log
+    this.debugLog = [];
+
     // Convert queryEngine-style params to QueryOptions format
     const queryOptions: QueryOptions = {
       table: options.tableName,
@@ -310,10 +322,49 @@ export class QueryBuilderService {
       query = query.select(selectItems);
     }
 
-    // Apply WHERE clause
-    if (originalFilter && hasLogicalOperators(originalFilter)) {
-      // Use new buildWhereClause for complex filters with _and/_or/_not
-      query = buildWhereClause(query, originalFilter, queryOptions.table);
+    // Apply WHERE clause with relation filtering support
+    // Skip relation filtering for system metadata tables to avoid infinite loop
+    const isSystemTable = ['table_definition', 'column_definition', 'relation_definition', 'method_definition'].includes(queryOptions.table);
+
+    if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
+      if (!isSystemTable) {
+        // Try to get metadata for relation filtering
+        const metadata = await this.metadataCache.getTableMetadata(queryOptions.table);
+
+        if (metadata && metadata.relations && metadata.relations.length > 0) {
+          // This table has relations - check if filter uses any relations
+          const { hasRelations } = separateFilters(originalFilter, metadata);
+
+          if (hasRelations) {
+            // Debug: log metadata and filter
+            this.pushDebug('table_metadata', {
+              tableName: queryOptions.table,
+              relations: metadata.relations,
+            });
+            this.pushDebug('original_filter', originalFilter);
+
+            // Use applyRelationFilters which handles both field and relation filters with logical operators
+            await applyRelationFilters(
+              knex,
+              query,
+              originalFilter,  // Pass the full filter
+              queryOptions.table,
+              metadata,
+              this.dbType,
+              (tableName: string) => this.metadataCache.getTableMetadata(tableName),
+            );
+          } else {
+            // No relation filters, use regular buildWhereClause
+            query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+          }
+        } else {
+          // No metadata or no relations, use regular buildWhereClause
+          query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+        }
+      } else {
+        // System tables: skip relation filtering to prevent infinite loop
+        query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+      }
     } else if (queryOptions.where && queryOptions.where.length > 0) {
       // Use legacy applyWhereToKnex for simple filters (backward compatible)
       query = this.applyWhereToKnex(query, queryOptions.where);
@@ -349,9 +400,17 @@ export class QueryBuilderService {
       query = query.limit(queryOptions.limit);
     }
 
+    // Add SQL to debug if debugMode is enabled
+    if (options.debugMode) {
+      this.pushDebug('sql', query.toString());
+    }
+
     const results = await query;
 
-    // Return in queryEngine format
+    // Return in queryEngine format with debug if debugMode is enabled
+    if (options.debugMode) {
+      return { data: results, debug: this.debugLog };
+    }
     return { data: results };
   }
 

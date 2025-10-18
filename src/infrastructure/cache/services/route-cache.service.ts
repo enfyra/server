@@ -195,7 +195,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       tableName: 'hook_definition',
       filter: {
         isEnabled: { _eq: true },
-        routeId: { _null: true }
+        routeId: { _is_null: true }
       },
       fields: ['*', 'methods.*'],
       sort: ['priority'],
