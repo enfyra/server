@@ -2,6 +2,17 @@ import { JoinOption, DatabaseType } from '../../../shared/types/query-builder.ty
 import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
 import { buildNestedSubquery } from './nested-subquery-builder';
 
+/**
+ * Quote identifier based on database type
+ */
+function quoteIdentifier(identifier: string, dbType: DatabaseType): string {
+  if (dbType === 'postgres') {
+    return `"${identifier}"`;
+  }
+  // MySQL and SQLite use backticks
+  return `\`${identifier}\``;
+}
+
 interface FieldExpansionResult {
   joins: JoinOption[];
   select: string[];
@@ -126,7 +137,7 @@ export async function expandFieldsToJoinsAndSelect(
     );
 
     if (subquery) {
-      select.push(`${subquery} as ${"`"}${relationName}${"`"}`);
+      select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
     }
   }
 

@@ -1,6 +1,47 @@
 import { DatabaseType } from '../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
 
+/**
+ * Quote identifier based on database type
+ */
+function quoteIdentifier(identifier: string, dbType: DatabaseType): string {
+  if (dbType === 'postgres') {
+    return `"${identifier}"`;
+  }
+  // MySQL and SQLite use backticks
+  return `\`${identifier}\``;
+}
+
+/**
+ * Get JSON object function name based on database type
+ */
+function getJsonObjectFunc(dbType: DatabaseType): string {
+  if (dbType === 'postgres') {
+    return 'json_build_object';
+  }
+  return 'JSON_OBJECT';
+}
+
+/**
+ * Get JSON array aggregate function based on database type
+ */
+function getJsonArrayAggFunc(dbType: DatabaseType): string {
+  if (dbType === 'postgres') {
+    return 'COALESCE(json_agg';
+  }
+  return 'ifnull(JSON_ARRAYAGG';
+}
+
+/**
+ * Get empty JSON array based on database type
+ */
+function getEmptyJsonArray(dbType: DatabaseType): string {
+  if (dbType === 'postgres') {
+    return "'[]'::json";
+  }
+  return 'JSON_ARRAY()';
+}
+
 interface TableMetadata {
   name: string;
   columns: Array<{ name: string; type: string }>;
@@ -86,7 +127,7 @@ export async function buildNestedSubquery(
     }
     for (const col of targetMeta.columns) {
       if (fkColumnsToOmit.has(col.name)) continue;
-      columns.push(`'${col.name}', ${currentAlias}.${"`"}${col.name}${"`"}`);
+      columns.push(`'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`);
     }
 
     // Auto-add all relations with only 'id' field when wildcard is used
@@ -103,7 +144,7 @@ export async function buildNestedSubquery(
         // Verify column exists in metadata
         const col = targetMeta.columns.find(c => c.name === field);
         if (col) {
-          columns.push(`'${col.name}', ${currentAlias}.${"`"}${col.name}${"`"}`);
+          columns.push(`'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`);
         }
       }
     }
@@ -136,7 +177,8 @@ export async function buildNestedSubquery(
   const sortField = relSort?.field.split('.').pop() || '';
 
   // Build the complete subquery based on relation type
-  const jsonObject = `JSON_OBJECT(${columns.join(',')})`;
+  const jsonObjectFunc = getJsonObjectFunc(dbType);
+  const jsonObject = `${jsonObjectFunc}(${columns.join(',')})`;
 
   // Determine next level alias for FROM clause
   const nextAlias = nestingLevel === 0 ? 'c' : `c${nestingLevel}`;
@@ -148,7 +190,7 @@ export async function buildNestedSubquery(
   if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
     // M2O/O2O: return single object
     const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-    return `(select ${jsonObject} from ${relation.targetTableName} ${nextAlias} where ${nextAlias}.id = ${parentRef}.${"`"}${fkColumn}${"`"} limit 1)`;
+    return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${nextAlias}.id = ${parentRef}.${quoteIdentifier(fkColumn, dbType)} limit 1)`;
   } else if (relation.type === 'one-to-many') {
     // O2M: return array of objects
     // O2M naming convention: FK column = {inversePropertyName}Id
@@ -165,8 +207,10 @@ export async function buildNestedSubquery(
       }
     }
 
-    const orderClause = sortField ? ` order by ${nextAlias}.${"`"}${sortField}${"`"} ${relSort!.direction.toUpperCase()}` : '';
-    return `(select ifnull(JSON_ARRAYAGG(${jsonObject}), JSON_ARRAY()) from ${relation.targetTableName} ${nextAlias} where ${nextAlias}.${"`"}${fkColumn}${"`"} = ${parentRef}.id${orderClause})`;
+    const orderClause = sortField ? ` order by ${nextAlias}.${quoteIdentifier(sortField, dbType)} ${relSort!.direction.toUpperCase()}` : '';
+    const jsonArrayAgg = getJsonArrayAggFunc(dbType);
+    const emptyArray = getEmptyJsonArray(dbType);
+    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${nextAlias}.${quoteIdentifier(fkColumn, dbType)} = ${parentRef}.id${orderClause})`;
   } else if (relation.type === 'many-to-many') {
     // M2M: return array via junction
     const junctionTable = relation.junctionTableName;
@@ -178,7 +222,9 @@ export async function buildNestedSubquery(
     const junctionSourceCol = relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
     const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(relation.targetTableName);
 
-    return `(select ifnull(JSON_ARRAYAGG(${jsonObject}), JSON_ARRAY()) from ${junctionTable} j join ${relation.targetTableName} ${nextAlias} on j.${"`"}${junctionTargetCol}${"`"} = ${nextAlias}.id where j.${"`"}${junctionSourceCol}${"`"} = ${parentRef}.id)`;
+    const jsonArrayAgg = getJsonArrayAggFunc(dbType);
+    const emptyArray = getEmptyJsonArray(dbType);
+    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} j join ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} on j.${quoteIdentifier(junctionTargetCol, dbType)} = ${nextAlias}.id where j.${quoteIdentifier(junctionSourceCol, dbType)} = ${parentRef}.id)`;
   }
 
   return null;
