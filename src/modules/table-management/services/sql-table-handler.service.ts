@@ -688,14 +688,8 @@ export class SqlTableHandlerService {
           this.logger.log(`🗑️ Deleted junction records for table ${id}`);
         }
 
-        // Delete metadata - remove ALL relations that reference this table
-        // 1. Delete relations where this table is the source
-        await trx('relation_definition')
-          .where({ sourceTableId: id })
-          .delete();
-        this.logger.log(`🗑️ Deleted source relations for table ${id}`);
-        
-        // 2. Fetch all relations involving this table (for physical migration later)
+        // IMPORTANT: Fetch relations BEFORE deleting them (needed for junction table cleanup)
+        // 1. Fetch all relations involving this table (for physical migration later)
         const allRelations = await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
@@ -703,7 +697,7 @@ export class SqlTableHandlerService {
 
         this.logger.log(`🗑️ Found ${allRelations.length} relations involving table ${tableName}`);
 
-        // 3. Delete relations where this table is the target AND drop FK columns
+        // 2. Fetch target relations (needed for FK column cleanup)
         const targetRelations = await trx('relation_definition')
           .where({ targetTableId: id })
           .select('*');
@@ -792,12 +786,13 @@ export class SqlTableHandlerService {
         } catch (error) {
           this.logger.log(`⚠️ Error checking FK constraints: ${error.message}`);
         }
-        
-        // Now delete the relations metadata
+
+        // Now delete ALL relations metadata (both source and target)
         await trx('relation_definition')
-          .where({ targetTableId: id })
+          .where({ sourceTableId: id })
+          .orWhere({ targetTableId: id })
           .delete();
-        this.logger.log(`🗑️ Deleted target relations for table ${id}`);
+        this.logger.log(`🗑️ Deleted all relations for table ${id}`);
 
         // 5. Delete columns
         await trx('column_definition')

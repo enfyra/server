@@ -28,10 +28,11 @@ export class AuthService {
 
   async login(body: LoginAuthDto) {
     const { email, password } = body;
-    
+
     // Find user by email
     const user = await this.queryBuilder.findOneWhere('user_definition', { email });
-    if (!user || !(await this.bcryptService.compare(password, user.password))) {
+
+    if (!user || !user.password || !(await this.bcryptService.compare(password, user.password))) {
       throw new BadRequestException(`Login failed!`);
     }
 
