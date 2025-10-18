@@ -335,18 +335,26 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`🗑️  Dropping table: ${tableName}`);
 
-    // Drop M2M junction tables first (if relations provided)
-    if (relations && relations.length > 0) {
-      for (const rel of relations) {
-        if (rel.type === 'many-to-many' && rel.junctionTableName) {
-          this.logger.log(`🗑️  Dropping M2M junction table: ${rel.junctionTableName}`);
+    // If relations not provided, get from metadata
+    let relationsToCheck = relations;
+    if (!relationsToCheck) {
+      const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+      if (metadata && metadata.relations) {
+        relationsToCheck = metadata.relations;
+        this.logger.log(`📋 Loaded ${relationsToCheck.length} relations from metadata for table ${tableName}`);
+      }
+    }
 
+    // Drop M2M junction tables first
+    if (relationsToCheck && relationsToCheck.length > 0) {
+      const m2mRelations = relationsToCheck.filter((rel: any) => rel.type === 'many-to-many');
+
+      for (const rel of m2mRelations) {
+        if (rel.junctionTableName) {
           const hasJunctionTable = await knex.schema.hasTable(rel.junctionTableName);
           if (hasJunctionTable) {
             await knex.schema.dropTable(rel.junctionTableName);
             this.logger.log(`✅ Dropped junction table: ${rel.junctionTableName}`);
-          } else {
-            this.logger.log(`⚠️  Junction table ${rel.junctionTableName} does not exist, skipping`);
           }
         }
       }
