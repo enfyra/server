@@ -1,5 +1,4 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { CommonService } from '../common/services/common.service';
 import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
@@ -17,7 +16,6 @@ import { CacheService } from '../../infrastructure/cache/services/cache.service'
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
   constructor(
-    private commonService: CommonService,
     private queryBuilder: QueryBuilderService,
     private jwtService: JwtService,
     private queryEngine: QueryEngine,
@@ -31,8 +29,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
 
   async use(req: any, res: any, next: (error?: any) => void) {
     const method = req.method;
-    const routes: any[] = await this.routeCacheService.getRoutes();
-    const matchedRoute = this.findMatchedRoute(routes, req.baseUrl, method);
+    const routeEngine = this.routeCacheService.getRouteEngine();
+    const matchedRoute = routeEngine.find(method, req.baseUrl);
     const systemTables = [
       'table_definition',
       'column_definition',
@@ -159,28 +157,6 @@ export class RouteDetectMiddleware implements NestMiddleware {
       };
     }
     next();
-  }
-
-  private findMatchedRoute(routes: any[], reqPath: string, method: string) {
-    const matchers = ['DELETE', 'PATCH'].includes(method)
-      ? [(r) => r.path + '/:id', (r) => r.path]
-      : [(r) => r.path];
-
-    for (const route of routes) {
-      const paths = [route.path, ...matchers.map((fn) => fn(route))].map(
-        (p) => '/' + p.replace(/^\/+/, ''),
-      );
-
-      for (const routePath of paths) {
-        const matched = this.commonService.isRouteMatched({
-          routePath,
-          reqPath,
-        });
-        if (matched) return { route, params: matched.params };
-      }
-    }
-
-    return null;
   }
 
   private generateCorrelationId(): string {

@@ -250,11 +250,18 @@ export class DynamicResolver {
       throwGqlError('400', 'Missing table name');
     }
 
-    const routes = await this.routeCacheService.getRoutes();
+    // Use RouteEngine for O(log N) matching instead of O(N) linear search
+    const routeEngine = this.routeCacheService.getRouteEngine();
+    const operation = info.operation.operation; // 'query' or 'mutation'
+    const method = operation === 'query' ? 'GQL_QUERY' : 'GQL_MUTATION';
 
-    const currentRoute = routes.find(
-      (route) => route.path === '/' + mainTableName,
-    );
+    const matchResult = routeEngine.find(method, `/${mainTableName}`);
+
+    if (!matchResult) {
+      throwGqlError('404', 'Route not found');
+    }
+
+    const currentRoute = matchResult.route;
 
     const accessToken =
       context.request?.headers?.get('authorization')?.split('Bearer ')[1] || '';
