@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { getJunctionTableName, getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
 import * as path from 'path';
 
 @Injectable()

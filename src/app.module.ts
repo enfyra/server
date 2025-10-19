@@ -31,7 +31,7 @@ import { DynamicInterceptor } from './shared/interceptors/dynamic.interceptor';
 import { HideFieldInterceptor } from './shared/interceptors/hidden-field.interceptor';
 import { FileUploadMiddleware } from './shared/middleware/file-upload.middleware';
 import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware';
-import { RouteDetectMiddleware } from './shared/middleware/route-detect.middleware';
+import { RouteDetectMiddleware } from './infrastructure/middleware/route-detect.middleware';
 import { FileManagementModule } from './modules/file-management/file-management.module';
 import { PackageManagementModule } from './modules/package-management/package-management.module';
 import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/swagger.module';

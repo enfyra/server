@@ -2,8 +2,8 @@ import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { OpenAPIObject } from '@nestjs/swagger';
 import { RouteCacheService } from '../../cache/services/route-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { generateErrorSchema } from '../../../shared/utils/openapi-schema-generator';
-import { generatePathsFromRoutes, generateCommonResponses } from '../../../shared/utils/openapi-path-generator';
+import { generateErrorSchema } from '../utils/openapi-schema-generator';
+import { generatePathsFromRoutes, generateCommonResponses } from '../utils/openapi-path-generator';
 import { HttpAdapterHost } from '@nestjs/core';
 
 @Injectable()

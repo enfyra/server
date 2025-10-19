@@ -1,5 +1,5 @@
 import { JoinOption, DatabaseType } from '../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
 import { buildNestedSubquery } from './nested-subquery-builder';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 

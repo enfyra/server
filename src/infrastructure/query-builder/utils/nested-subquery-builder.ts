@@ -1,5 +1,5 @@
 import { DatabaseType } from '../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
 import {
   quoteIdentifier,
   getJsonObjectFunc,

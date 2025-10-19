@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
-import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
 
 @Injectable()
 export class RouteDefinitionProcessor extends BaseTableProcessor {

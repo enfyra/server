@@ -10,7 +10,7 @@ import {
   getShortIndexName,
   getShortPkName,
   getShortFkConstraintName,
-} from '../src/shared/utils/naming-helpers';
+} from '../src/infrastructure/knex/utils/naming-helpers';
 import {
   ColumnDef,
   RelationDef,

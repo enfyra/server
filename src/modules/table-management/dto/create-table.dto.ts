@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { IsSafeIdentifier } from '../../../shared/validators/is-safe-identifer.validator';
-import { PrimaryKeyValidCheck } from '../../../shared/validators/primary-key-valid-check.validator';
+import { PrimaryKeyValidCheck } from '../validators/primary-key-valid-check.validator';
 
 export class RelationIdDto {
   @IsNumber()

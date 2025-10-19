@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { TableMetadata } from '../../../shared/utils/knex-types';
+import { TableMetadata } from '../../knex/types/knex-types';
 import { buildWhereClause } from './build-where-clause';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 

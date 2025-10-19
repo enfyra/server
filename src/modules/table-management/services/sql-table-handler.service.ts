@@ -13,7 +13,7 @@ import {
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
-import { getForeignKeyColumnName, getJunctionTableName, getJunctionColumnNames } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName, getJunctionTableName, getJunctionColumnNames } from '../../../infrastructure/knex/utils/naming-helpers';
 
 @Injectable()
 export class SqlTableHandlerService {
@@ -680,7 +680,7 @@ export class SqlTableHandlerService {
         // Delete M2M relations in junction table (route_definition_targetTables_table_definition)
         const junctionTableName = 'route_definition_targetTables_table_definition';
         if (await trx.schema.hasTable(junctionTableName)) {
-          const { getForeignKeyColumnName } = await import('../../../shared/utils/naming-helpers');
+          const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
           const fkColumn = getForeignKeyColumnName('table_definition');
           await trx(junctionTableName)
             .where({ [fkColumn]: id })
@@ -712,7 +712,7 @@ export class SqlTableHandlerService {
               .first();
             
             if (sourceTable) {
-              const { getForeignKeyColumnName } = await import('../../../shared/utils/naming-helpers');
+              const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
               const fkColumn = getForeignKeyColumnName(tableName); // FK column name in source table
               
               this.logger.log(`🗑️ Dropping FK column ${fkColumn} from table ${sourceTable.name}`);

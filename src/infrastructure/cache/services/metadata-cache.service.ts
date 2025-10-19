@@ -4,7 +4,7 @@ import { CacheService } from './cache.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
-import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../../shared/utils/naming-helpers';
+import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/naming-helpers';
 import { 
   METADATA_CACHE_KEY, 
   METADATA_CACHE_SYNC_EVENT_KEY,
