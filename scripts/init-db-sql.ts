@@ -424,12 +424,9 @@ async function addForeignKeys(
             .references('id')
             .inTable(targetTable);
 
-          // Set cascade behavior
-          if (relation.isNullable === false) {
-            fk.onDelete('RESTRICT').onUpdate('CASCADE');
-          } else {
-            fk.onDelete('SET NULL').onUpdate('CASCADE');
-          }
+          // Set cascade behavior - always SET NULL for flexibility
+          // Even if isNullable is false, allow deletion by setting to null
+          fk.onDelete('SET NULL').onUpdate('CASCADE');
 
           // Add index on foreign key
           table.index([foreignKeyColumn]);
@@ -1164,11 +1161,8 @@ async function applyRelationMigrations(
             .references('id')
             .inTable(rel.targetTable);
 
-          if (rel.isNullable === false) {
-            fk.onDelete('RESTRICT').onUpdate('CASCADE');
-          } else {
-            fk.onDelete('SET NULL').onUpdate('CASCADE');
-          }
+          // Always SET NULL for flexibility - allow deletion
+          fk.onDelete('SET NULL').onUpdate('CASCADE');
 
           table.index([fkColumn]);
         });
