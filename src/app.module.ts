@@ -92,7 +92,6 @@ import {DatabaseSchemaService} from './infrastructure/knex/services/database-sch
   ],
   providers: [
     JwtStrategy,
-    HideFieldInterceptor,
     RedisPubSubService,
     SqlFunctionService,
     RouteCacheService,
