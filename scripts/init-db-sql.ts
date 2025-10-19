@@ -576,6 +576,719 @@ async function createAllTables(
   console.log('✅ All tables created successfully!');
 }
 
+// ==================== SCHEMA DIFFING ====================
+
+/**
+ * Get current database schema (columns, relations)
+ */
+async function getCurrentDatabaseSchema(knex: Knex, tableName: string): Promise<{
+  columns: Array<{ name: string; type: string; isNullable: boolean; defaultValue: any }>;
+  foreignKeys: Array<{ column: string; references: string; referencesTable: string }>;
+}> {
+  const dbType = knex.client.config.client;
+
+  if (dbType === 'mysql2') {
+    // Get columns
+    const columnsResult = await knex.raw(`
+      SELECT
+        COLUMN_NAME as name,
+        DATA_TYPE as type,
+        IS_NULLABLE as isNullable,
+        COLUMN_DEFAULT as defaultValue,
+        COLUMN_TYPE as fullType
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME NOT IN ('id', 'createdAt', 'updatedAt')
+      ORDER BY ORDINAL_POSITION
+    `, [tableName]);
+
+    // Get foreign keys
+    const fkResult = await knex.raw(`
+      SELECT
+        COLUMN_NAME as \`column\`,
+        REFERENCED_COLUMN_NAME as \`references\`,
+        REFERENCED_TABLE_NAME as referencesTable
+      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND REFERENCED_TABLE_NAME IS NOT NULL
+    `, [tableName]);
+
+    return {
+      columns: columnsResult[0].map((col: any) => ({
+        name: col.name,
+        type: col.type,
+        isNullable: col.isNullable === 'YES',
+        defaultValue: col.defaultValue,
+      })),
+      foreignKeys: fkResult[0],
+    };
+  } else if (dbType === 'pg') {
+    // PostgreSQL implementation
+    const columnsResult = await knex.raw(`
+      SELECT
+        column_name as name,
+        data_type as type,
+        is_nullable as "isNullable",
+        column_default as "defaultValue"
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = ?
+        AND column_name NOT IN ('id', 'createdAt', 'updatedAt')
+      ORDER BY ordinal_position
+    `, [tableName]);
+
+    const fkResult = await knex.raw(`
+      SELECT
+        kcu.column_name as "column",
+        ccu.column_name as "references",
+        ccu.table_name as "referencesTable"
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+      JOIN information_schema.constraint_column_usage ccu
+        ON tc.constraint_name = ccu.constraint_name
+      WHERE tc.table_name = ?
+        AND tc.constraint_type = 'FOREIGN KEY'
+    `, [tableName]);
+
+    return {
+      columns: columnsResult.rows.map((col: any) => ({
+        name: col.name,
+        type: col.type,
+        isNullable: col.isNullable === 'YES',
+        defaultValue: col.defaultValue,
+      })),
+      foreignKeys: fkResult.rows,
+    };
+  }
+
+  return { columns: [], foreignKeys: [] };
+}
+
+/**
+ * Compare snapshot schema with current DB schema and return diff
+ */
+function compareSchemas(
+  snapshotSchema: KnexTableSchema,
+  currentSchema: { columns: any[]; foreignKeys: any[] }
+): {
+  columnsToAdd: ColumnDef[];
+  columnsToRemove: string[];
+  columnsToModify: Array<{ column: ColumnDef; changes: string[] }>;
+  relationsToAdd: RelationDef[];
+  relationsToRemove: string[];
+} {
+  const diff = {
+    columnsToAdd: [] as ColumnDef[],
+    columnsToRemove: [] as string[],
+    columnsToModify: [] as Array<{ column: ColumnDef; changes: string[] }>,
+    relationsToAdd: [] as RelationDef[],
+    relationsToRemove: [] as string[],
+  };
+
+  // Get snapshot columns (excluding id, createdAt, updatedAt)
+  const snapshotColumns = snapshotSchema.definition.columns.filter(
+    col => !col.isPrimary && col.name !== 'createdAt' && col.name !== 'updatedAt'
+  );
+
+  const snapshotColumnNames = new Set(snapshotColumns.map(c => c.name));
+  const currentColumnNamesSet = new Set(currentSchema.columns.map(c => c.name));
+
+  // Find columns to add
+  for (const col of snapshotColumns) {
+    if (!currentColumnNamesSet.has(col.name)) {
+      diff.columnsToAdd.push(col);
+    }
+  }
+
+  // Get FK column names from snapshot relations (these should NOT be in columnsToRemove)
+  const snapshotFkColumnNames = new Set<string>();
+  if (snapshotSchema.definition.relations) {
+    for (const rel of snapshotSchema.definition.relations) {
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        const fkColumn = getForeignKeyColumnName(rel.propertyName);
+        snapshotFkColumnNames.add(fkColumn);
+      }
+    }
+  }
+
+  // Find columns to remove (exclude FK columns - they are managed via relations)
+  for (const col of currentSchema.columns) {
+    // Skip if column is in snapshot explicit columns
+    if (snapshotColumnNames.has(col.name)) {
+      continue;
+    }
+    // Skip if column is a FK column from current FK constraints (managed via relations)
+    const isCurrentFkColumn = currentSchema.foreignKeys.some(fk => fk.column === col.name);
+    if (isCurrentFkColumn && !snapshotFkColumnNames.has(col.name)) {
+      // This FK column exists in DB but not in snapshot relations
+      // Will be handled by relationsToRemove
+      continue;
+    }
+    // Skip if column is a FK column from snapshot relations (should not be removed)
+    if (snapshotFkColumnNames.has(col.name)) {
+      continue;
+    }
+    // This is a regular column that should be removed
+    diff.columnsToRemove.push(col.name);
+  }
+
+  // Find columns to modify (type or nullable changed)
+  for (const snapshotCol of snapshotColumns) {
+    const currentCol = currentSchema.columns.find(c => c.name === snapshotCol.name);
+    if (currentCol) {
+      const changes: string[] = [];
+
+      // Compare type (simplified - needs more robust comparison)
+      const snapshotType = getKnexColumnType(snapshotCol);
+      if (snapshotType !== currentCol.type && !isTypeCompatible(snapshotType, currentCol.type)) {
+        changes.push('type');
+      }
+
+      // Compare nullable
+      const snapshotNullable = snapshotCol.isNullable !== false;
+      if (snapshotNullable !== currentCol.isNullable) {
+        changes.push('nullable');
+      }
+
+      if (changes.length > 0) {
+        diff.columnsToModify.push({ column: snapshotCol, changes });
+      }
+    }
+  }
+
+  // Get relation columns from snapshot (M2O, O2O)
+  const snapshotFkColumns = new Set<string>();
+  if (snapshotSchema.definition.relations) {
+    for (const rel of snapshotSchema.definition.relations) {
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        snapshotFkColumns.add(getForeignKeyColumnName(rel.propertyName));
+      }
+    }
+  }
+
+  // Get current FK columns
+  const currentFkColumns = new Set(currentSchema.foreignKeys.map(fk => fk.column));
+
+  // Get current column names (to check if FK column exists as regular column)
+  const currentColumnNames = new Set(currentSchema.columns.map(c => c.name));
+
+  // Find relations to add (FK columns in snapshot but not in DB)
+  if (snapshotSchema.definition.relations) {
+    for (const rel of snapshotSchema.definition.relations) {
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        const fkColumn = getForeignKeyColumnName(rel.propertyName);
+        // Only add if: (1) FK constraint doesn't exist AND (2) column doesn't exist
+        if (!currentFkColumns.has(fkColumn) && !currentColumnNames.has(fkColumn)) {
+          diff.relationsToAdd.push(rel);
+        }
+      } else if (rel.type === 'many-to-many') {
+        // M2M relations - will be checked separately via junction tables
+        diff.relationsToAdd.push(rel);
+      }
+    }
+  }
+
+  // Find relations to remove (FK columns in DB but not in snapshot)
+  for (const fk of currentSchema.foreignKeys) {
+    if (!snapshotFkColumns.has(fk.column)) {
+      diff.relationsToRemove.push(fk.column);
+    }
+  }
+
+  return diff;
+}
+
+/**
+ * Check if two column types are compatible (no migration needed)
+ */
+function isTypeCompatible(type1: string, type2: string): boolean {
+  const compatibleTypes: Record<string, string[]> = {
+    'integer': ['int', 'integer', 'bigint', 'smallint', 'tinyint'],
+    'string': ['varchar', 'text', 'char'],
+    'text': ['varchar', 'text', 'longtext', 'mediumtext'],
+    'timestamp': ['timestamp', 'datetime'],
+    'boolean': ['tinyint', 'boolean', 'bool'],
+  };
+
+  for (const [baseType, variants] of Object.entries(compatibleTypes)) {
+    if ((type1 === baseType || variants.includes(type1)) &&
+        (type2 === baseType || variants.includes(type2))) {
+      return true;
+    }
+  }
+
+  return type1 === type2;
+}
+
+/**
+ * Apply column migrations (add/remove/modify)
+ */
+async function applyColumnMigrations(
+  knex: Knex,
+  tableName: string,
+  diff: ReturnType<typeof compareSchemas>,
+  schemas: KnexTableSchema[],
+): Promise<void> {
+  const dbType = knex.client.config.client;
+
+  // Add new columns
+  if (diff.columnsToAdd.length > 0) {
+    console.log(`  📝 Adding ${diff.columnsToAdd.length} column(s) to ${tableName}:`);
+    for (const col of diff.columnsToAdd) {
+      console.log(`    + ${col.name} (${col.type})`);
+    }
+
+    await knex.schema.alterTable(tableName, (table) => {
+      for (const col of diff.columnsToAdd) {
+        let column: Knex.ColumnBuilder;
+        const knexType = getKnexColumnType(col);
+
+        switch (knexType) {
+          case 'integer':
+            column = table.integer(col.name);
+            break;
+          case 'bigInteger':
+            column = table.bigInteger(col.name);
+            break;
+          case 'string':
+            column = table.string(col.name, 255);
+            break;
+          case 'text':
+            column = table.text(col.name);
+            break;
+          case 'boolean':
+            column = table.boolean(col.name);
+            break;
+          case 'uuid':
+            column = table.uuid(col.name);
+            break;
+          case 'timestamp':
+            column = table.timestamp(col.name);
+            break;
+          case 'datetime':
+            column = table.datetime(col.name);
+            break;
+          case 'json':
+            column = table.json(col.name);
+            break;
+          case 'enum':
+            if (Array.isArray(col.options)) {
+              column = table.enum(col.name, col.options);
+            } else {
+              column = table.text(col.name);
+            }
+            break;
+          default:
+            column = table.text(col.name);
+        }
+
+        if (col.isNullable === false) {
+          column.notNullable();
+        } else {
+          column.nullable();
+        }
+
+        if (col.defaultValue !== undefined && col.defaultValue !== null) {
+          column.defaultTo(col.defaultValue);
+        }
+
+        if (col.isUnique) {
+          column.unique();
+        }
+      }
+    });
+  }
+
+  // Remove columns
+  if (diff.columnsToRemove.length > 0) {
+    console.log(`  🗑️  Removing ${diff.columnsToRemove.length} column(s) from ${tableName}:`);
+    for (const colName of diff.columnsToRemove) {
+      console.log(`    - ${colName}`);
+    }
+
+    // First, drop constraints (FK + UNIQUE) on columns to be removed
+    for (const colName of diff.columnsToRemove) {
+      try {
+        if (dbType === 'mysql2') {
+          // Get FK constraints on this column
+          const fkConstraints = await knex.raw(`
+            SELECT CONSTRAINT_NAME
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = ?
+              AND COLUMN_NAME = ?
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+          `, [tableName, colName]);
+
+          // Drop each FK constraint
+          for (const row of fkConstraints[0]) {
+            const constraintName = row.CONSTRAINT_NAME;
+            console.log(`    ⚠️  Dropping FK constraint: ${constraintName}`);
+            await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
+          }
+
+          // Get UNIQUE constraints containing this column
+          const uniqueConstraints = await knex.raw(`
+            SELECT DISTINCT CONSTRAINT_NAME
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = ?
+              AND COLUMN_NAME = ?
+              AND CONSTRAINT_NAME != 'PRIMARY'
+              AND REFERENCED_TABLE_NAME IS NULL
+          `, [tableName, colName]);
+
+          // Drop each UNIQUE constraint (index)
+          for (const row of uniqueConstraints[0]) {
+            const constraintName = row.CONSTRAINT_NAME;
+            console.log(`    ⚠️  Dropping UNIQUE constraint/index: ${constraintName}`);
+            try {
+              await knex.raw(`ALTER TABLE \`${tableName}\` DROP INDEX \`${constraintName}\``);
+            } catch (err) {
+              // Constraint might not exist, ignore
+            }
+          }
+        } else if (dbType === 'pg') {
+          // PostgreSQL: Get FK constraints
+          const fkConstraints = await knex.raw(`
+            SELECT tc.constraint_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+            WHERE tc.table_schema = 'public'
+              AND tc.table_name = ?
+              AND kcu.column_name = ?
+              AND tc.constraint_type = 'FOREIGN KEY'
+          `, [tableName, colName]);
+
+          // Drop each FK constraint
+          for (const row of fkConstraints.rows) {
+            const constraintName = row.constraint_name;
+            console.log(`    ⚠️  Dropping FK constraint: ${constraintName}`);
+            await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+          }
+
+          // Get UNIQUE constraints
+          const uniqueConstraints = await knex.raw(`
+            SELECT tc.constraint_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+            WHERE tc.table_schema = 'public'
+              AND tc.table_name = ?
+              AND kcu.column_name = ?
+              AND tc.constraint_type = 'UNIQUE'
+          `, [tableName, colName]);
+
+          // Drop each UNIQUE constraint
+          for (const row of uniqueConstraints.rows) {
+            const constraintName = row.constraint_name;
+            console.log(`    ⚠️  Dropping UNIQUE constraint: ${constraintName}`);
+            try {
+              await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+            } catch (err) {
+              // Constraint might not exist, ignore
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`    ⚠️  Failed to drop constraints for ${colName}: ${error.message}`);
+      }
+    }
+
+    // Then drop the columns
+    await knex.schema.alterTable(tableName, (table) => {
+      for (const colName of diff.columnsToRemove) {
+        table.dropColumn(colName);
+      }
+    });
+  }
+
+  // Modify columns (type or nullable changed)
+  if (diff.columnsToModify.length > 0) {
+    console.log(`  ✏️  Modifying ${diff.columnsToModify.length} column(s) in ${tableName}:`);
+    for (const { column: col, changes } of diff.columnsToModify) {
+      console.log(`    ~ ${col.name} (${changes.join(', ')})`);
+    }
+
+    // For MySQL, use raw ALTER TABLE
+    if (dbType === 'mysql2') {
+      for (const { column: col } of diff.columnsToModify) {
+        const knexType = getKnexColumnType(col);
+        let sqlType = knexType;
+
+        // Map Knex types to SQL types
+        const typeMap: Record<string, string> = {
+          'integer': 'INT',
+          'bigInteger': 'BIGINT',
+          'string': 'VARCHAR(255)',
+          'text': 'TEXT',
+          'boolean': 'TINYINT(1)',
+          'uuid': 'CHAR(36)',
+          'timestamp': 'TIMESTAMP',
+          'datetime': 'DATETIME',
+          'json': 'JSON',
+        };
+
+        sqlType = typeMap[knexType] || 'TEXT';
+        const nullable = col.isNullable === false ? 'NOT NULL' : 'NULL';
+
+        await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ${sqlType} ${nullable}`);
+      }
+    } else {
+      // For PostgreSQL, use knex alterTable
+      await knex.schema.alterTable(tableName, (table) => {
+        for (const { column: col } of diff.columnsToModify) {
+          const knexType = getKnexColumnType(col);
+          let column: Knex.ColumnBuilder;
+
+          switch (knexType) {
+            case 'integer':
+              column = table.integer(col.name).alter();
+              break;
+            case 'string':
+              column = table.string(col.name, 255).alter();
+              break;
+            case 'text':
+              column = table.text(col.name).alter();
+              break;
+            default:
+              continue;
+          }
+
+          if (col.isNullable === false) {
+            column.notNullable();
+          } else {
+            column.nullable();
+          }
+        }
+      });
+    }
+  }
+}
+
+/**
+ * Apply relation migrations (add/remove FK)
+ */
+async function applyRelationMigrations(
+  knex: Knex,
+  tableName: string,
+  diff: ReturnType<typeof compareSchemas>,
+  schemas: KnexTableSchema[],
+): Promise<void> {
+  // Remove old relations (drop FK constraints and columns)
+  if (diff.relationsToRemove.length > 0) {
+    console.log(`  🗑️  Removing ${diff.relationsToRemove.length} relation(s) from ${tableName}:`);
+    const dbType = knex.client.config.client;
+
+    for (const fkColumn of diff.relationsToRemove) {
+      console.log(`    - ${fkColumn}`);
+
+      // Drop FK constraint first
+      if (dbType === 'mysql2') {
+        const fkConstraints = await knex.raw(`
+          SELECT CONSTRAINT_NAME
+          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?
+            AND REFERENCED_TABLE_NAME IS NOT NULL
+        `, [tableName, fkColumn]);
+
+        if (fkConstraints[0]?.length > 0) {
+          const constraintName = fkConstraints[0][0].CONSTRAINT_NAME;
+          await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
+        }
+      } else if (dbType === 'pg') {
+        const fkConstraints = await knex.raw(`
+          SELECT tc.constraint_name
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage kcu
+            ON tc.constraint_name = kcu.constraint_name
+          WHERE tc.table_schema = 'public'
+            AND tc.table_name = ?
+            AND kcu.column_name = ?
+            AND tc.constraint_type = 'FOREIGN KEY'
+        `, [tableName, fkColumn]);
+
+        if (fkConstraints.rows?.length > 0) {
+          const constraintName = fkConstraints.rows[0].constraint_name;
+          await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+        }
+      }
+
+      // Drop column
+      await knex.schema.alterTable(tableName, (table) => {
+        table.dropColumn(fkColumn);
+      });
+    }
+  }
+
+  // Add new relations (M2O, O2O)
+  if (diff.relationsToAdd.length > 0) {
+    const m2oRelations = diff.relationsToAdd.filter(r => r.type === 'many-to-one' || r.type === 'one-to-one');
+
+    if (m2oRelations.length > 0) {
+      console.log(`  📝 Adding ${m2oRelations.length} relation(s) to ${tableName}:`);
+
+      for (const rel of m2oRelations) {
+        const fkColumn = getForeignKeyColumnName(rel.propertyName);
+        console.log(`    + ${fkColumn} → ${rel.targetTable}.id`);
+
+        // Get target table PK type
+        const targetPkType = getPrimaryKeyType(schemas, rel.targetTable);
+
+        // Add FK column
+        await knex.schema.alterTable(tableName, (table) => {
+          let col;
+          if (targetPkType === 'uuid') {
+            col = table.string(fkColumn, 36);
+          } else {
+            col = table.integer(fkColumn).unsigned();
+          }
+
+          if (rel.isNullable === false) {
+            col.notNullable();
+          } else {
+            col.nullable();
+          }
+        });
+
+        // Add FK constraint
+        await knex.schema.alterTable(tableName, (table) => {
+          const fk = table
+            .foreign(fkColumn)
+            .references('id')
+            .inTable(rel.targetTable);
+
+          if (rel.isNullable === false) {
+            fk.onDelete('RESTRICT').onUpdate('CASCADE');
+          } else {
+            fk.onDelete('SET NULL').onUpdate('CASCADE');
+          }
+
+          table.index([fkColumn]);
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Sync junction tables for M2M relations
+ */
+async function syncJunctionTables(
+  knex: Knex,
+  schemas: KnexTableSchema[],
+): Promise<void> {
+  console.log('🔗 Syncing junction tables...');
+
+  const createdJunctions = new Set<string>();
+
+  for (const schema of schemas) {
+    for (const junction of schema.junctionTables) {
+      if (createdJunctions.has(junction.tableName)) {
+        continue;
+      }
+
+      const exists = await knex.schema.hasTable(junction.tableName);
+
+      if (!exists) {
+        console.log(`  📝 Creating junction table: ${junction.tableName}`);
+
+        const sourcePkType = getPrimaryKeyType(schemas, junction.sourceTable);
+        const targetPkType = getPrimaryKeyType(schemas, junction.targetTable);
+
+        await knex.schema.createTable(junction.tableName, (table) => {
+          const sourceFkName = getShortFkName(junction.sourceTable, junction.sourcePropertyName, 'src');
+          let sourceCol;
+          if (sourcePkType === 'uuid') {
+            sourceCol = table.uuid(junction.sourceColumn).notNullable();
+          } else {
+            sourceCol = table.integer(junction.sourceColumn).unsigned().notNullable();
+          }
+
+          sourceCol
+            .references('id')
+            .inTable(junction.sourceTable)
+            .onDelete('CASCADE')
+            .onUpdate('CASCADE')
+            .withKeyName(sourceFkName);
+
+          const targetFkName = getShortFkName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+          let targetCol;
+          if (targetPkType === 'uuid') {
+            targetCol = table.uuid(junction.targetColumn).notNullable();
+          } else {
+            targetCol = table.integer(junction.targetColumn).unsigned().notNullable();
+          }
+
+          targetCol
+            .references('id')
+            .inTable(junction.targetTable)
+            .onDelete('CASCADE')
+            .onUpdate('CASCADE')
+            .withKeyName(targetFkName);
+
+          table.primary([junction.sourceColumn, junction.targetColumn]);
+
+          const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
+          const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+          table.index([junction.sourceColumn], sourceIndexName);
+          table.index([junction.targetColumn], targetIndexName);
+        });
+
+        console.log(`  ✅ Created junction table: ${junction.tableName}`);
+      } else {
+        console.log(`  ⏩ Junction table already exists: ${junction.tableName}`);
+      }
+
+      createdJunctions.add(junction.tableName);
+    }
+  }
+}
+
+/**
+ * Sync table with snapshot (apply migrations)
+ */
+async function syncTable(
+  knex: Knex,
+  schema: KnexTableSchema,
+  schemas: KnexTableSchema[],
+): Promise<void> {
+  const { tableName } = schema;
+
+  // Get current DB schema
+  const currentSchema = await getCurrentDatabaseSchema(knex, tableName);
+
+  // Compare schemas
+  const diff = compareSchemas(schema, currentSchema);
+
+  // Check if any changes
+  const hasChanges =
+    diff.columnsToAdd.length > 0 ||
+    diff.columnsToRemove.length > 0 ||
+    diff.columnsToModify.length > 0 ||
+    diff.relationsToAdd.length > 0 ||
+    diff.relationsToRemove.length > 0;
+
+  if (!hasChanges) {
+    console.log(`⏩ No changes for table: ${tableName}`);
+    return;
+  }
+
+  console.log(`🔄 Syncing table: ${tableName}`);
+
+  // Apply migrations
+  await applyColumnMigrations(knex, tableName, diff, schemas);
+  await applyRelationMigrations(knex, tableName, diff, schemas);
+
+  console.log(`✅ Synced table: ${tableName}`);
+}
+
 // ==================== MAIN INIT FUNCTION ====================
 
 async function ensureDatabaseExists(): Promise<void> {
@@ -682,10 +1395,35 @@ export async function initializeDatabaseSql(): Promise<void> {
 
     console.log(`📊 Found ${schemas.length} tables to create`);
 
-    // Create all tables
-    await createAllTables(knexInstance, schemas, DB_TYPE);
+    // Create or sync all tables
+    console.log('🚀 Creating/syncing all tables...');
 
-    console.log('🎉 Database initialization completed!');
+    // Phase 1: Create tables that don't exist
+    for (const schema of schemas) {
+      const exists = await knexInstance.schema.hasTable(schema.tableName);
+      if (!exists) {
+        await createTable(knexInstance, schema, DB_TYPE, schemas);
+      } else {
+        console.log(`⏩ Table already exists: ${schema.tableName}`);
+      }
+    }
+
+    // Phase 2: Add foreign key constraints for new tables
+    await addForeignKeys(knexInstance, schemas);
+
+    // Phase 3: Sync existing tables with snapshot (detect and apply changes)
+    console.log('\n🔄 Syncing tables with snapshot...');
+    for (const schema of schemas) {
+      const exists = await knexInstance.schema.hasTable(schema.tableName);
+      if (exists) {
+        await syncTable(knexInstance, schema, schemas);
+      }
+    }
+
+    // Phase 4: Create/sync junction tables
+    await syncJunctionTables(knexInstance, schemas);
+
+    console.log('\n🎉 Database initialization/sync completed!');
   } catch (error) {
     console.error('❌ Error during database initialization:', error);
     throw error;
