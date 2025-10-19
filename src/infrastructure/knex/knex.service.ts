@@ -421,15 +421,39 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     qb._joinedRelations = new Set();
 
     qb.insert = async function(data: any, ...rest: any[]) {
-      const processedData = await self.runHooks('beforeInsert', tableName, data);
-      const result = await originalInsert.call(this, processedData, ...rest);
-      return self.runHooks('afterInsert', tableName, result);
+      // Wrap everything in transaction: beforeInsert hooks + insert + afterInsert hooks
+      return await self.knexInstance.transaction(async (trx) => {
+        // Store trx in context so hooks can use it
+        const originalKnex = self.knexInstance;
+        (self as any).knexInstance = trx;
+
+        try {
+          const processedData = await self.runHooks('beforeInsert', tableName, data);
+          const result = await originalInsert.call(this, processedData, ...rest);
+          return await self.runHooks('afterInsert', tableName, result);
+        } finally {
+          // Restore original knex instance
+          (self as any).knexInstance = originalKnex;
+        }
+      });
     };
 
     qb.update = async function(data: any, ...rest: any[]) {
-      const processedData = await self.runHooks('beforeUpdate', tableName, data);
-      const result = await originalUpdate.call(this, processedData, ...rest);
-      return self.runHooks('afterUpdate', tableName, result);
+      // Wrap everything in transaction: beforeUpdate hooks + update + afterUpdate hooks
+      return await self.knexInstance.transaction(async (trx) => {
+        // Store trx in context so hooks can use it
+        const originalKnex = self.knexInstance;
+        (self as any).knexInstance = trx;
+
+        try {
+          const processedData = await self.runHooks('beforeUpdate', tableName, data);
+          const result = await originalUpdate.call(this, processedData, ...rest);
+          return await self.runHooks('afterUpdate', tableName, result);
+        } finally {
+          // Restore original knex instance
+          (self as any).knexInstance = originalKnex;
+        }
+      });
     };
 
     qb.delete = qb.del = async function(...args: any[]) {
