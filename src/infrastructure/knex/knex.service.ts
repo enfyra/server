@@ -408,8 +408,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
   private wrapQueryBuilder(qb: any): any {
     const self = this;
-    const originalInsert = qb.insert;
-    const originalUpdate = qb.update;
     const originalDelete = qb.delete || qb.del;
     const originalSelect = qb.select;
     const originalThen = qb.then;
@@ -427,7 +425,15 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
         try {
           const processedData = await self.runHooks('beforeInsert', tableName, data);
-          const result = await originalInsert.call(this, processedData, ...rest);
+
+          // Use transaction query builder for actual insert
+          let result: any;
+          if (rest.length > 0) {
+            result = await trx(tableName).insert(processedData, rest[0]);
+          } else {
+            result = await trx(tableName).insert(processedData);
+          }
+
           return await self.runHooks('afterInsert', tableName, result);
         } finally {
           // Restore original knex instance
@@ -445,7 +451,32 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
         try {
           const processedData = await self.runHooks('beforeUpdate', tableName, data);
-          const result = await originalUpdate.call(this, processedData, ...rest);
+
+          // Use transaction query builder for actual update
+          // Need to clone the WHERE conditions from original query builder
+          const whereConditions = this._single?.where;
+          let updateQb = trx(tableName);
+
+          // Apply where conditions if they exist
+          if (whereConditions && whereConditions.length > 0) {
+            for (const condition of whereConditions) {
+              if (condition.type === 'whereBasic') {
+                updateQb = updateQb.where(condition.column, condition.operator, condition.value);
+              } else if (condition.type === 'whereIn') {
+                updateQb = updateQb.whereIn(condition.column, condition.value);
+              } else if (condition.type === 'whereRaw') {
+                updateQb = updateQb.whereRaw(condition.sql, condition.bindings);
+              }
+            }
+          }
+
+          let result: any;
+          if (rest.length > 0) {
+            result = await updateQb.update(processedData, rest[0]);
+          } else {
+            result = await updateQb.update(processedData);
+          }
+
           return await self.runHooks('afterUpdate', tableName, result);
         } finally {
           // Restore original knex instance
@@ -753,17 +784,23 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     }
 
     const metadata = await this.metadataCacheService.getMetadata();
-    const tableMeta = metadata.tables?.get?.(tableName) || 
+    const tableMeta = metadata.tables?.get?.(tableName) ||
                       metadata.tablesList?.find((t: any) => t.name === tableName);
-    
+
     if (!tableMeta || !tableMeta.columns) {
       return data;
     }
 
     const stripped = { ...data };
-    
+
     for (const column of tableMeta.columns) {
+      // Remove non-updatable columns
       if (column.isUpdatable === false && column.name in stripped) {
+        delete stripped[column.name];
+      }
+
+      // Remove primary key columns (cannot be updated)
+      if (column.isPrimary === true && column.name in stripped) {
         delete stripped[column.name];
       }
     }
