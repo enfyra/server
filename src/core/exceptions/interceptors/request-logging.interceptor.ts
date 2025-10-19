@@ -54,15 +54,9 @@ export class RequestLoggingInterceptor implements NestInterceptor {
           );
           this.loggingService.clearContext();
         },
-        error: (error) => {
-          const responseTime = Date.now() - startTime;
-          this.loggingService.logResponse(
-            request.method,
-            request.url,
-            response.statusCode || 500,
-            responseTime,
-            (request as any).user?.id,
-          );
+        error: () => {
+          // Error logging is handled by GlobalExceptionFilter
+          // to avoid duplicate logs. Only clear context here.
           this.loggingService.clearContext();
         },
       }),
