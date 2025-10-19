@@ -68,6 +68,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         user: DB_USERNAME,
         password: DB_PASSWORD,
         database: DB_NAME,
+        // Disable automatic date parsing - return dates as strings
+        typeCast: function (field: any, next: any) {
+          if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
+            // Return raw string instead of Date object
+            return field.string();
+          }
+          return next();
+        },
       },
       pool: {
         min: 2,
@@ -126,12 +134,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return this.stripUnknownColumns(tableName, data);
     });
 
-    this.addHook('beforeInsert', (tableName, data) => {
-      if (Array.isArray(data)) {
-        return data.map(record => this.convertDateFields(tableName, record));
-      }
-      return this.convertDateFields(tableName, data);
-    });
 
     this.addHook('beforeInsert', async (tableName, data) => {
       const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
@@ -184,10 +186,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     this.addHook('beforeUpdate', (tableName, data) => {
       return this.stripUnknownColumns(tableName, data);
-    });
-
-    this.addHook('beforeUpdate', (tableName, data) => {
-      return this.convertDateFields(tableName, data);
     });
 
     this.addHook('beforeUpdate', async (tableName, data) => {
@@ -747,44 +745,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     delete stripped._o2mRelations;
 
     return stripped;
-  }
-
-  private async convertDateFields(tableName: string, data: any): Promise<any> {
-    if (!tableName || !data) {
-      return data;
-    }
-
-    const metadata = await this.metadataCacheService.getMetadata();
-    const tableMeta = metadata.tables?.get?.(tableName) ||
-                      metadata.tablesList?.find((t: any) => t.name === tableName);
-
-    if (!tableMeta || !tableMeta.columns) {
-      return data;
-    }
-
-    const converted = { ...data };
-
-    for (const column of tableMeta.columns) {
-      const value = converted[column.name];
-
-      if (value === null || value === undefined) {
-        continue;
-      }
-
-      if (column.type === 'date' || column.type === 'datetime' || column.type === 'timestamp') {
-        if (typeof value === 'string' && value.includes('T')) {
-          const date = new Date(value);
-
-          if (column.type === 'date') {
-            converted[column.name] = date.toISOString().split('T')[0];
-          } else if (column.type === 'datetime' || column.type === 'timestamp') {
-            converted[column.name] = date.toISOString().slice(0, 19).replace('T', ' ');
-          }
-        }
-      }
-    }
-
-    return converted;
   }
 
   private async stripNonUpdatableFields(tableName: string, data: any): Promise<any> {
