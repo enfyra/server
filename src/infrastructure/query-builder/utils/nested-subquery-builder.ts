@@ -42,6 +42,16 @@ function getEmptyJsonArray(dbType: DatabaseType): string {
   return 'JSON_ARRAY()';
 }
 
+/**
+ * Cast column to text for safe comparison (handles UUID vs VARCHAR in PostgreSQL)
+ */
+function castToText(columnRef: string, dbType: DatabaseType): string {
+  if (dbType === 'postgres') {
+    return `${columnRef}::text`;
+  }
+  return columnRef;
+}
+
 interface TableMetadata {
   name: string;
   columns: Array<{ name: string; type: string }>;
@@ -190,7 +200,10 @@ export async function buildNestedSubquery(
   if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
     // M2O/O2O: return single object
     const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-    return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${nextAlias}.id = ${parentRef}.${quoteIdentifier(fkColumn, dbType)} limit 1)`;
+    // Cast both sides to text for PostgreSQL UUID compatibility
+    const leftSide = castToText(`${nextAlias}.id`, dbType);
+    const rightSide = castToText(`${parentRef}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
+    return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
   } else if (relation.type === 'one-to-many') {
     // O2M: return array of objects
     // O2M naming convention: FK column = {inversePropertyName}Id
@@ -210,7 +223,10 @@ export async function buildNestedSubquery(
     const orderClause = sortField ? ` order by ${nextAlias}.${quoteIdentifier(sortField, dbType)} ${relSort!.direction.toUpperCase()}` : '';
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
-    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${nextAlias}.${quoteIdentifier(fkColumn, dbType)} = ${parentRef}.id${orderClause})`;
+    // Cast both sides to text for PostgreSQL UUID compatibility
+    const leftSide = castToText(`${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
+    const rightSide = castToText(`${parentRef}.id`, dbType);
+    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide}${orderClause})`;
   } else if (relation.type === 'many-to-many') {
     // M2M: return array via junction
     const junctionTable = relation.junctionTableName;
@@ -224,7 +240,14 @@ export async function buildNestedSubquery(
 
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
-    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} j join ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} on j.${quoteIdentifier(junctionTargetCol, dbType)} = ${nextAlias}.id where j.${quoteIdentifier(junctionSourceCol, dbType)} = ${parentRef}.id)`;
+
+    // Cast both sides to text for PostgreSQL UUID compatibility
+    const joinLeft = castToText(`j.${quoteIdentifier(junctionTargetCol, dbType)}`, dbType);
+    const joinRight = castToText(`${nextAlias}.id`, dbType);
+    const whereLeft = castToText(`j.${quoteIdentifier(junctionSourceCol, dbType)}`, dbType);
+    const whereRight = castToText(`${parentRef}.id`, dbType);
+
+    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} j join ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight})`;
   }
 
   return null;

@@ -3,6 +3,17 @@ import { TableMetadata } from '../../../shared/utils/knex-types';
 import { buildWhereClause } from './build-where-clause';
 
 /**
+ * Quote identifier based on database type
+ */
+function quoteIdentifier(identifier: string, dbType: string): string {
+  if (dbType === 'postgres' || dbType === 'pg') {
+    return `"${identifier}"`;
+  }
+  // MySQL and SQLite use backticks
+  return `\`${identifier}\``;
+}
+
+/**
  * Check if a filter contains any relations (recursively checks logical operators)
  */
 function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
@@ -120,7 +131,7 @@ export async function buildRelationSubquery(
       // SELECT 1 FROM related_table WHERE related_table.fk = main_table.id
       subquery = knex(targetTable)
         .select(knex.raw('1'))
-        .whereRaw(`${targetTable}.${relation.foreignKeyColumn} = ${tableName}.id`);
+        .whereRaw(`${quoteIdentifier(targetTable, dbType)}.${quoteIdentifier(relation.foreignKeyColumn!, dbType)} = ${quoteIdentifier(tableName, dbType)}.${quoteIdentifier('id', dbType)}`);
       break;
 
     case 'many-to-many':
@@ -129,10 +140,10 @@ export async function buildRelationSubquery(
         .select(knex.raw('1'))
         .join(
           targetTable,
-          `${relation.junctionTableName}.${relation.junctionTargetColumn}`,
-          `${targetTable}.id`
+          `${quoteIdentifier(relation.junctionTableName!, dbType)}.${quoteIdentifier(relation.junctionTargetColumn!, dbType)}`,
+          `${quoteIdentifier(targetTable, dbType)}.${quoteIdentifier('id', dbType)}`
         )
-        .whereRaw(`${relation.junctionTableName}.${relation.junctionSourceColumn} = ${tableName}.id`);
+        .whereRaw(`${quoteIdentifier(relation.junctionTableName!, dbType)}.${quoteIdentifier(relation.junctionSourceColumn!, dbType)} = ${quoteIdentifier(tableName, dbType)}.${quoteIdentifier('id', dbType)}`);
       break;
 
     case 'many-to-one':
@@ -140,7 +151,7 @@ export async function buildRelationSubquery(
       // SELECT 1 FROM target WHERE target.id = main.fk_column
       subquery = knex(targetTable)
         .select(knex.raw('1'))
-        .whereRaw(`${targetTable}.id = ${tableName}.${relation.foreignKeyColumn}`);
+        .whereRaw(`${quoteIdentifier(targetTable, dbType)}.${quoteIdentifier('id', dbType)} = ${quoteIdentifier(tableName, dbType)}.${quoteIdentifier(relation.foreignKeyColumn!, dbType)}`);
       break;
 
     default:
