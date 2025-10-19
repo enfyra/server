@@ -1,4 +1,6 @@
-export function quoteIdentifier(identifier: string, dbType: string): string {
+import { DatabaseType } from '../../../../shared/types/query-builder.types';
+
+export function quoteIdentifier(identifier: string, dbType: DatabaseType | string): string {
   switch (dbType) {
     case 'mysql':
       return `\`${identifier}\``;
@@ -7,24 +9,26 @@ export function quoteIdentifier(identifier: string, dbType: string): string {
       return `"${identifier}"`;
     case 'sqlite':
       return `"${identifier}"`;
+    case 'mongodb':
+      return identifier;
     default:
       return `\`${identifier}\``;
   }
 }
 
-export function getJsonObjectFunc(dbType: string): string {
+export function getJsonObjectFunc(dbType: DatabaseType | string): string {
   return dbType === 'postgres' || dbType === 'pg' ? 'json_build_object' : 'JSON_OBJECT';
 }
 
-export function getJsonArrayAggFunc(dbType: string): string {
+export function getJsonArrayAggFunc(dbType: DatabaseType | string): string {
   return dbType === 'postgres' || dbType === 'pg' ? 'COALESCE(json_agg' : 'ifnull(JSON_ARRAYAGG';
 }
 
-export function getEmptyJsonArray(dbType: string): string {
+export function getEmptyJsonArray(dbType: DatabaseType | string): string {
   return dbType === 'postgres' || dbType === 'pg' ? "'[]'::json" : 'JSON_ARRAY()';
 }
 
-export function castToText(columnRef: string, dbType: string): string {
+export function castToText(columnRef: string, dbType: DatabaseType | string): string {
   return dbType === 'postgres' || dbType === 'pg' ? `${columnRef}::text` : columnRef;
 }
 

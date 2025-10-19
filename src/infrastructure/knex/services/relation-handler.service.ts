@@ -205,6 +205,7 @@ export class RelationHandlerService {
     tableName: string,
     data: any,
     metadata: any,
+    dbType: string,
   ): Promise<any> {
     this.logger.log(`🔍 [insertWithCascade] Table: ${tableName}`);
     this.logger.log(`   Data keys: ${Object.keys(data).join(', ')}`);
@@ -221,7 +222,6 @@ export class RelationHandlerService {
     }
     this.logger.log(`   O2M relations count: ${oneToManyRelations.length}`);
 
-    const dbType = knex.client.config.client;
     let insertedId: any;
 
     if (dbType === 'pg' || dbType === 'postgres') {
@@ -263,6 +263,7 @@ export class RelationHandlerService {
     recordId: any,
     data: any,
     metadata: any,
+    dbType: string,
   ): Promise<void> {
     const { cleanData, manyToManyRelations, oneToManyRelations } =
       this.preprocessData(tableName, data, metadata);

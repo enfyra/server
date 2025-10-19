@@ -1,9 +1,4 @@
-/**
- * Unified query builder types
- * Used by QueryBuilderService for both SQL and MongoDB
- */
-
-export type DatabaseType = 'mysql' | 'postgres' | 'mongodb';
+export type DatabaseType = 'mysql' | 'postgres' | 'mongodb' | 'sqlite';
 
 export type WhereOperator = '=' | '!=' | '>' | '<' | '>=' | '<=' | 'like' | 'in' | 'not in' | 'is null' | 'is not null';
 

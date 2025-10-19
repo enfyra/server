@@ -37,9 +37,10 @@ export class QueryBuilderService {
     this.dbType = (process.env.DB_TYPE as DatabaseType);
   }
 
-  /**
-   * Add debug info to debug log array
-   */
+  getDbType(): DatabaseType {
+    return this.dbType;
+  }
+
   private pushDebug(key: string, data: any): void {
     this.debugLog.push({ [key]: data });
   }
