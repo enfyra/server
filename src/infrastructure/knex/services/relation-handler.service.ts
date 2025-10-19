@@ -1,18 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 
-/**
- * RelationHandlerService - Handle TypeORM-like cascade behavior in Knex
- * Processes relation fields before insert/update and handles junction tables
- */
 @Injectable()
 export class RelationHandlerService {
   private readonly logger = new Logger(RelationHandlerService.name);
 
-  /**
-   * Pre-process data before insert/update
-   * Transforms relation objects to FK IDs and extracts M2M/O2M relations
-   */
   preprocessData(
     tableName: string,
     data: any,
@@ -43,7 +35,6 @@ export class RelationHandlerService {
       switch (relation.type) {
         case 'many-to-one':
         case 'one-to-one': {
-          // Transform: { user: { id: 1 } } => { userId: 1 }
           if (!relation.foreignKeyColumn) {
             throw new Error(`${relation.type} relation '${relationName}' in table '${tableName}' missing foreignKeyColumn in metadata`);
           }
@@ -58,7 +49,6 @@ export class RelationHandlerService {
         }
 
         case 'many-to-many': {
-          // Extract IDs for junction table insertion
           if (Array.isArray(relationValue)) {
             const ids = relationValue
               .map(item => (typeof item === 'object' && 'id' in item ? item.id : item))
@@ -76,7 +66,6 @@ export class RelationHandlerService {
         }
 
         case 'one-to-many': {
-          // Extract items for child table updates
           if (Array.isArray(relationValue)) {
             oneToManyRelations.push({
               relationName,
@@ -92,9 +81,6 @@ export class RelationHandlerService {
     return { cleanData, manyToManyRelations, oneToManyRelations };
   }
 
-  /**
-   * Handle many-to-many relations after insert/update
-   */
   async handleManyToManyRelations(
     knex: Knex,
     tableName: string,
@@ -130,17 +116,14 @@ export class RelationHandlerService {
 
       this.logger.log(`   Junction: ${relation.junctionTableName} (${relation.junctionSourceColumn}, ${relation.junctionTargetColumn})`);
 
-      // Check for null recordId
       if (!recordId) {
         throw new Error(`RecordId is null for M2M relation '${relationName}' in table '${tableName}'`);
       }
 
-      // Clear existing junction records
       await knex(relation.junctionTableName)
         .where(relation.junctionSourceColumn, recordId)
         .delete();
 
-      // Insert new junction records
       if (ids.length > 0) {
         const junctionRecords = ids.map(targetId => {
           if (!targetId) {
@@ -161,9 +144,6 @@ export class RelationHandlerService {
     }
   }
 
-  /**
-   * Handle one-to-many relations after insert/update
-   */
   async handleOneToManyRelations(
     knex: Knex,
     tableName: string,
@@ -192,16 +172,13 @@ export class RelationHandlerService {
 
       const fkColumn = relation.foreignKeyColumn;
 
-      // Get existing children IDs to compare
       const existingChildren = await knex(relation.targetTableName)
         .select('id')
         .where(fkColumn, recordId);
       const existingIds = existingChildren.map(child => child.id);
 
-      // Get new children IDs from input
       const newIds = items.filter(item => item.id).map(item => item.id);
 
-      // Remove children that are no longer in the list
       const idsToRemove = existingIds.filter(id => !newIds.includes(id));
       if (idsToRemove.length > 0) {
         await knex(relation.targetTableName)
@@ -209,26 +186,20 @@ export class RelationHandlerService {
           .update({ [fkColumn]: null });
       }
 
-      // Update/insert children
       for (const item of items) {
         const childData = { ...item, [fkColumn]: recordId };
 
         if (item.id) {
-          // Update existing child
           await knex(relation.targetTableName)
             .where('id', item.id)
             .update(childData);
         } else {
-          // Insert new child
           await knex(relation.targetTableName).insert(childData);
         }
       }
     }
   }
 
-  /**
-   * Full cascade insert - handles all relation types
-   */
   async insertWithCascade(
     knex: Knex,
     tableName: string,
@@ -250,17 +221,13 @@ export class RelationHandlerService {
     }
     this.logger.log(`   O2M relations count: ${oneToManyRelations.length}`);
 
-    // Insert main record
-    // PostgreSQL requires .returning('id') to get the inserted ID
     const dbType = knex.client.config.client;
     let insertedId: any;
 
     if (dbType === 'pg' || dbType === 'postgres') {
-      // PostgreSQL: use .returning('id')
       const result = await knex(tableName).insert(cleanData).returning('id');
       insertedId = result[0]?.id || result[0];
     } else {
-      // MySQL/SQLite: returns insertId directly
       const result = await knex(tableName).insert(cleanData);
       insertedId = Array.isArray(result) ? result[0] : result;
     }
@@ -269,7 +236,6 @@ export class RelationHandlerService {
 
     this.logger.log(`   ✅ Inserted record ID: ${recordId}`);
 
-    // Handle relations
     await this.handleManyToManyRelations(
       knex,
       tableName,
@@ -278,7 +244,6 @@ export class RelationHandlerService {
       metadata,
     );
 
-    // Handle one-to-many relations
     if (oneToManyRelations.length > 0) {
       await this.handleOneToManyRelations(
         knex,
@@ -292,9 +257,6 @@ export class RelationHandlerService {
     return recordId;
   }
 
-  /**
-   * Full cascade update - handles all relation types
-   */
   async updateWithCascade(
     knex: Knex,
     tableName: string,
@@ -302,15 +264,13 @@ export class RelationHandlerService {
     data: any,
     metadata: any,
   ): Promise<void> {
-    const { cleanData, manyToManyRelations, oneToManyRelations } = 
+    const { cleanData, manyToManyRelations, oneToManyRelations } =
       this.preprocessData(tableName, data, metadata);
 
-    // Update main record
     if (Object.keys(cleanData).length > 0) {
       await knex(tableName).where('id', recordId).update(cleanData);
     }
 
-    // Handle relations
     await this.handleManyToManyRelations(
       knex,
       tableName,
@@ -319,7 +279,6 @@ export class RelationHandlerService {
       metadata,
     );
 
-    // Handle one-to-many relations
     if (oneToManyRelations.length > 0) {
       await this.handleOneToManyRelations(
         knex,

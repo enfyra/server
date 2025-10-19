@@ -1,22 +1,5 @@
 import { Knex } from 'knex';
 
-/**
- * Build WHERE clause with support for _and, _or, _not logical operators
- * Converts Directus-style filters to Knex query builder calls
- *
- * Supports nested logical operators:
- * {
- *   _and: [
- *     { status: { _eq: 'published' } },
- *     { _or: [
- *       { title: { _contains: 'search' } },
- *       { content: { _contains: 'search' } }
- *     ]},
- *     { _not: { author: { _eq: 'blocked' } } }
- *   ]
- * }
- */
-
 const LOGICAL_OPERATORS = ['_and', '_or', '_not'];
 
 const FIELD_OPERATORS = [
@@ -36,9 +19,6 @@ const FIELD_OPERATORS = [
   '_is_not_null',
 ];
 
-/**
- * Convert operator string to Knex operator
- */
 function convertOperator(op: string): string {
   const operatorMap: Record<string, string> = {
     _eq: '=',
@@ -53,16 +33,13 @@ function convertOperator(op: string): string {
   return operatorMap[op] || op;
 }
 
-/**
- * Apply a single field condition to query builder
- */
 function applyFieldCondition(
   query: Knex.QueryBuilder,
   field: string,
   operator: string,
   value: any,
   tablePrefix?: string,
-  dbType?: string, // 'mysql', 'postgres', 'sqlite'
+  dbType?: string,
 ): void {
   const fullField = tablePrefix && !field.includes('.')
     ? `${tablePrefix}.${field}`
@@ -104,13 +81,11 @@ function applyFieldCondition(
           [value]
         );
       } else if (dbType === 'sqlite') {
-        // SQLite: no unaccent, just use lower() for case-insensitive
         query.whereRaw(
           `lower(${fullField}) LIKE '%' || lower(?) || '%'`,
           [value]
         );
       } else {
-        // MySQL
         query.whereRaw(
           `lower(unaccent(${fullField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent(?)) COLLATE utf8mb4_general_ci, '%')`,
           [value]
@@ -124,13 +99,11 @@ function applyFieldCondition(
           [value]
         );
       } else if (dbType === 'sqlite') {
-        // SQLite: no unaccent, just use lower() for case-insensitive
         query.whereRaw(
           `lower(${fullField}) LIKE lower(?) || '%'`,
           [value]
         );
       } else {
-        // MySQL
         query.whereRaw(
           `lower(unaccent(${fullField})) COLLATE utf8mb4_general_ci LIKE CONCAT(lower(unaccent(?)) COLLATE utf8mb4_general_ci, '%')`,
           [value]
@@ -144,13 +117,11 @@ function applyFieldCondition(
           [value]
         );
       } else if (dbType === 'sqlite') {
-        // SQLite: no unaccent, just use lower() for case-insensitive
         query.whereRaw(
           `lower(${fullField}) LIKE '%' || lower(?)`,
           [value]
         );
       } else {
-        // MySQL
         query.whereRaw(
           `lower(unaccent(${fullField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent(?)) COLLATE utf8mb4_general_ci)`,
           [value]
@@ -177,15 +148,10 @@ function applyFieldCondition(
       }
       break;
     default:
-      // Unknown operator, try as direct comparison
       query.where(fullField, convertOperator(operator), value);
   }
 }
 
-/**
- * Process filter object and apply to query builder
- * Recursive function to handle nested _and, _or, _not
- */
 function processFilter(
   query: Knex.QueryBuilder,
   filter: any,
@@ -197,7 +163,6 @@ function processFilter(
     return;
   }
 
-  // Handle array of conditions (for _and, _or)
   if (Array.isArray(filter)) {
     for (const item of filter) {
       if (logicalOperator === 'and') {
@@ -213,9 +178,7 @@ function processFilter(
     return;
   }
 
-  // Process each key in filter object
   for (const [key, value] of Object.entries(filter)) {
-    // Handle logical operators
     if (key === '_and') {
       if (Array.isArray(value)) {
         query.where(function() {
@@ -249,13 +212,10 @@ function processFilter(
       continue;
     }
 
-    // Handle field conditions
     if (typeof value === 'object' && value !== null) {
-      // Check if value contains field operators
       const hasFieldOperator = Object.keys(value).some(k => FIELD_OPERATORS.includes(k));
 
       if (hasFieldOperator) {
-        // Process field operators
         for (const [operator, operatorValue] of Object.entries(value)) {
           if (FIELD_OPERATORS.includes(operator)) {
             if (logicalOperator === 'and') {
@@ -270,7 +230,6 @@ function processFilter(
           }
         }
       } else {
-        // Nested object without operators - treat as direct equality
         const fullField = tablePrefix && !key.includes('.')
           ? `${tablePrefix}.${key}`
           : key;
@@ -282,7 +241,6 @@ function processFilter(
         }
       }
     } else {
-      // Direct value - treat as equality
       const fullField = tablePrefix && !key.includes('.')
         ? `${tablePrefix}.${key}`
         : key;
@@ -296,16 +254,6 @@ function processFilter(
   }
 }
 
-/**
- * Build WHERE clause from Directus-style filter object
- * Main entry point
- *
- * @param query - Knex query builder instance
- * @param filter - Filter object with _and, _or, _not support
- * @param tablePrefix - Optional table name to prefix field names
- * @param dbType - Database type ('mysql', 'postgres', 'sqlite')
- * @returns Modified query builder
- */
 export function buildWhereClause(
   query: Knex.QueryBuilder,
   filter: any,
@@ -316,16 +264,11 @@ export function buildWhereClause(
     return query;
   }
 
-  // Start processing filter
   processFilter(query, filter, tablePrefix, 'and', dbType);
 
   return query;
 }
 
-/**
- * Check if filter contains logical operators OR advanced field operators
- * that need special handling (like _contains with unaccent)
- */
 export function hasLogicalOperators(filter: any): boolean {
   if (!filter || typeof filter !== 'object') {
     return false;
@@ -335,16 +278,13 @@ export function hasLogicalOperators(filter: any): boolean {
     return filter.some(item => hasLogicalOperators(item));
   }
 
-  // Advanced field operators that need special handling
   const ADVANCED_FIELD_OPERATORS = ['_contains', '_starts_with', '_ends_with', '_between'];
 
   for (const key of Object.keys(filter)) {
-    // Check for logical operators
     if (LOGICAL_OPERATORS.includes(key)) {
       return true;
     }
 
-    // Check for advanced field operators
     if (typeof filter[key] === 'object' && filter[key] !== null) {
       for (const operator of Object.keys(filter[key])) {
         if (ADVANCED_FIELD_OPERATORS.includes(operator)) {
@@ -352,7 +292,6 @@ export function hasLogicalOperators(filter: any): boolean {
         }
       }
 
-      // Recursively check nested objects
       if (hasLogicalOperators(filter[key])) {
         return true;
       }
