@@ -5,6 +5,69 @@ import { Knex } from 'knex';
 export class RelationHandlerService {
   private readonly logger = new Logger(RelationHandlerService.name);
 
+  /**
+   * Recursively clean nested objects - remove relation objects at all levels
+   */
+  private cleanNestedObject(obj: any, tableName: string, metadata: any, depth: number = 0): any {
+    if (depth > 10) {
+      this.logger.warn(`⚠️ Max recursion depth (10) reached for table ${tableName}`);
+      return obj;
+    }
+
+    if (typeof obj !== 'object' || obj === null) {
+      return obj;
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.cleanNestedObject(item, tableName, metadata, depth + 1));
+    }
+
+    this.logger.log(`🧹 [cleanNestedObject] Table: ${tableName}, Depth: ${depth}, Keys: ${Object.keys(obj).join(', ')}`);
+
+    const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
+    if (!tableMetadata?.relations) {
+      this.logger.log(`   No relations found for ${tableName}`);
+      return obj;
+    }
+
+    const cleanObj = { ...obj };
+
+    for (const relation of tableMetadata.relations) {
+      const relationName = relation.propertyName;
+
+      if (!(relationName in cleanObj)) {
+        continue;
+      }
+
+      const relationValue = cleanObj[relationName];
+
+      switch (relation.type) {
+        case 'many-to-one':
+        case 'one-to-one': {
+          // Convert relation object to FK value
+          if (relationValue && typeof relationValue === 'object' && 'id' in relationValue && relation.foreignKeyColumn) {
+            cleanObj[relation.foreignKeyColumn] = relationValue.id;
+          } else if (relationValue === null && relation.foreignKeyColumn) {
+            cleanObj[relation.foreignKeyColumn] = null;
+          }
+          delete cleanObj[relationName];
+          break;
+        }
+
+        case 'many-to-many':
+        case 'one-to-many': {
+          // These should not be in nested objects being inserted/updated
+          // Delete them to avoid trying to insert relation arrays
+          delete cleanObj[relationName];
+          break;
+        }
+      }
+    }
+
+    this.logger.log(`   After cleaning relations: ${Object.keys(cleanObj).join(', ')}`);
+    return cleanObj;
+  }
+
   preprocessData(
     tableName: string,
     data: any,
@@ -67,10 +130,24 @@ export class RelationHandlerService {
 
         case 'one-to-many': {
           if (Array.isArray(relationValue)) {
-            oneToManyRelations.push({
-              relationName,
-              items: relationValue,
-            });
+            // Recursively clean nested items at all levels
+            const targetTable = relation.targetTableName || relation.targetTable;
+            if (!targetTable) {
+              this.logger.warn(`⚠️ O2M relation '${relationName}' missing targetTableName, skipping cleaning`);
+              oneToManyRelations.push({
+                relationName,
+                items: relationValue,
+              });
+            } else {
+              const cleanedItems = relationValue.map(item =>
+                this.cleanNestedObject(item, targetTable, metadata)
+              );
+
+              oneToManyRelations.push({
+                relationName,
+                items: cleanedItems,
+              });
+            }
           }
           delete cleanData[relationName];
           break;
