@@ -4,7 +4,7 @@ import { Knex, knex } from 'knex';
 import { RelationHandlerService } from './services/relation-handler.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { applyRelations } from './utils/knex-helpers/query-with-relations';
-import { ExtendedKnex } from '../../shared/utils/knex-extended.types';
+import { ExtendedKnex } from './types/knex-extended.types';
 import { parseBooleanFields } from '../query-builder/utils/parse-boolean-fields';
 
 @Injectable()
@@ -12,6 +12,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private knexInstance: Knex;
   private readonly logger = new Logger(KnexService.name);
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
+  private dbType: string;
 
   // Hook registry
   private hooks: {
@@ -44,7 +45,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
-    
+    this.dbType = DB_TYPE;
+
     // Skip Knex initialization if using MongoDB
     if (DB_TYPE === 'mongodb') {
       this.logger.log('⏭️  Skipping Knex initialization (DB_TYPE=mongodb)');
@@ -653,6 +655,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       tableName,
       data,
       metadata,
+      this.dbType,
     );
   }
 
@@ -688,6 +691,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       recordId,
       updateData,
       metadata,
+      this.dbType,
     );
   }
 

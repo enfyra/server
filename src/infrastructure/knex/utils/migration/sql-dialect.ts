@@ -1,27 +1,37 @@
-/**
- * SQL Dialect Abstraction Layer
- * Provides database-agnostic SQL generation for MySQL, PostgreSQL, and SQLite
- */
+import { DatabaseType } from '../../../../shared/types/query-builder.types';
 
-/**
- * Quote identifier based on database type
- */
-export function quoteIdentifier(identifier: string, dbType: 'mysql' | 'postgres' | 'sqlite'): string {
+export function quoteIdentifier(identifier: string, dbType: DatabaseType | string): string {
   switch (dbType) {
     case 'mysql':
       return `\`${identifier}\``;
     case 'postgres':
+    case 'pg':
       return `"${identifier}"`;
     case 'sqlite':
       return `"${identifier}"`;
+    case 'mongodb':
+      return identifier;
     default:
       return `\`${identifier}\``;
   }
 }
 
-/**
- * Generate ALTER TABLE RENAME TO statement
- */
+export function getJsonObjectFunc(dbType: DatabaseType | string): string {
+  return dbType === 'postgres' || dbType === 'pg' ? 'json_build_object' : 'JSON_OBJECT';
+}
+
+export function getJsonArrayAggFunc(dbType: DatabaseType | string): string {
+  return dbType === 'postgres' || dbType === 'pg' ? 'COALESCE(json_agg' : 'ifnull(JSON_ARRAYAGG';
+}
+
+export function getEmptyJsonArray(dbType: DatabaseType | string): string {
+  return dbType === 'postgres' || dbType === 'pg' ? "'[]'::json" : 'JSON_ARRAY()';
+}
+
+export function castToText(columnRef: string, dbType: DatabaseType | string): string {
+  return dbType === 'postgres' || dbType === 'pg' ? `${columnRef}::text` : columnRef;
+}
+
 export function generateRenameTableSQL(
   oldName: string,
   newName: string,
@@ -41,9 +51,6 @@ export function generateRenameTableSQL(
   }
 }
 
-/**
- * Generate ALTER TABLE RENAME COLUMN statement
- */
 export function generateRenameColumnSQL(
   tableName: string,
   oldColumnName: string,
@@ -65,9 +72,6 @@ export function generateRenameColumnSQL(
   }
 }
 
-/**
- * Generate ALTER TABLE MODIFY COLUMN statement (change column type/constraints)
- */
 export function generateModifyColumnSQL(
   tableName: string,
   columnName: string,
@@ -81,20 +85,14 @@ export function generateModifyColumnSQL(
     case 'mysql':
       return `ALTER TABLE ${table} MODIFY COLUMN ${column} ${columnDef}`;
     case 'postgres':
-      // PostgreSQL requires ALTER COLUMN ... TYPE for type changes
-      // For now, return basic syntax - may need enhancement for complex changes
       return `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${columnDef}`;
     case 'sqlite':
-      // SQLite doesn't support ALTER COLUMN - requires table recreation
       throw new Error('SQLite does not support ALTER COLUMN. Use table recreation instead.');
     default:
       return `ALTER TABLE ${table} MODIFY COLUMN ${column} ${columnDef}`;
   }
 }
 
-/**
- * Generate DROP FOREIGN KEY statement
- */
 export function generateDropForeignKeySQL(
   tableName: string,
   constraintName: string,
@@ -114,9 +112,6 @@ export function generateDropForeignKeySQL(
   }
 }
 
-/**
- * Generate ADD INDEX statement
- */
 export function generateAddIndexSQL(
   tableName: string,
   indexName: string,
@@ -138,9 +133,6 @@ export function generateAddIndexSQL(
   }
 }
 
-/**
- * Get foreign key constraint query for INFORMATION_SCHEMA
- */
 export function getForeignKeyConstraintsQuery(
   tableName: string,
   columnName: string,
@@ -173,7 +165,6 @@ export function getForeignKeyConstraintsQuery(
         bindings: [tableName, columnName],
       };
     case 'sqlite':
-      // SQLite uses pragma foreign_key_list
       return {
         query: `PRAGMA foreign_key_list(${tableName})`,
         bindings: [],
@@ -193,9 +184,6 @@ export function getForeignKeyConstraintsQuery(
   }
 }
 
-/**
- * Get all foreign key constraints referencing a table
- */
 export function getAllForeignKeyConstraintsReferencingTableQuery(
   tableName: string,
   dbType: 'mysql' | 'postgres' | 'sqlite',
@@ -237,7 +225,6 @@ export function getAllForeignKeyConstraintsReferencingTableQuery(
         bindings: [tableName],
       };
     case 'sqlite':
-      // SQLite doesn't have a simple way to query this
       throw new Error('SQLite does not support querying all foreign keys referencing a table');
     default:
       return {

@@ -9,7 +9,7 @@ import {
   getJunctionColumnNames,
   getShortFkName,
   getShortIndexName,
-} from '../../../shared/utils/naming-helpers';
+} from '../../knex/utils/naming-helpers';
 import { addColumnToTable, hasColumnChanged } from '../utils/migration/column-operations';
 import {
   dropForeignKeyIfExists,

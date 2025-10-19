@@ -3,7 +3,7 @@ import {
   ValidationOptions,
   ValidationArguments,
 } from 'class-validator';
-import { CreateColumnDto } from '../../modules/table-management/dto/create-table.dto';
+import { CreateColumnDto } from '../dto/create-table.dto';
 
 export function PrimaryKeyValidCheck(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string) {

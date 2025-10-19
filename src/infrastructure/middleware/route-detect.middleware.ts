@@ -1,17 +1,17 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
 import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynamic.repository';
-import { TDynamicContext } from '../interfaces/dynamic-context.interface';
-import { QueryEngine } from '../../infrastructure/query-engine/services/query-engine.service';
-import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
-import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
+import { TDynamicContext } from '../../shared/interfaces/dynamic-context.interface';
+import { QueryEngine } from '../query-engine/services/query-engine.service';
+import { RouteCacheService } from '../cache/services/route-cache.service';
+import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
-import { autoSlug } from '../utils/auto-slug.helper';
-import { CacheService } from '../../infrastructure/cache/services/cache.service';
+import { autoSlug } from '../../shared/utils/auto-slug.helper';
+import { CacheService } from '../cache/services/cache.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {

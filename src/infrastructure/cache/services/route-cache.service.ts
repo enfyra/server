@@ -9,7 +9,7 @@ import {
   ROUTE_RELOAD_LOCK_KEY,
   REDIS_TTL,
 } from '../../../shared/utils/constant';
-import { getForeignKeyColumnName, getJunctionTableName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName, getJunctionTableName } from '../../knex/utils/naming-helpers';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 
 @Injectable()

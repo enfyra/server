@@ -10,7 +10,7 @@ import {
   RelationMetadata,
   MetadataCache,
   JunctionTableInfo,
-} from './knex-types';
+} from '../types/knex-types';
 import { getJunctionTableName, getForeignKeyColumnName } from './naming-helpers';
 
 /**

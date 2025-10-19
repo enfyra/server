@@ -87,12 +87,3 @@ export function generateUniqueSlug(
   
   return uniqueSlug;
 }
-
-/**
- * Batch process multiple strings into slugs
- * @param inputs - Array of strings to convert
- * @returns Array of slugs
- */
-export function batchAutoSlug(inputs: string[]): string[] {
-  return inputs.map(input => autoSlug(input));
-}

@@ -1,17 +1,7 @@
 import { JoinOption, DatabaseType } from '../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../../shared/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
 import { buildNestedSubquery } from './nested-subquery-builder';
-
-/**
- * Quote identifier based on database type
- */
-function quoteIdentifier(identifier: string, dbType: DatabaseType): string {
-  if (dbType === 'postgres') {
-    return `"${identifier}"`;
-  }
-  // MySQL and SQLite use backticks
-  return `\`${identifier}\``;
-}
+import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 
 interface FieldExpansionResult {
   joins: JoinOption[];

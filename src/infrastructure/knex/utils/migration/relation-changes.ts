@@ -4,7 +4,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../../shared/utils/naming-helpers';
+} from '../naming-helpers';
 
 const logger = new Logger('RelationChanges');
 
