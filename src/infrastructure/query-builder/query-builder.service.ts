@@ -406,13 +406,75 @@ export class QueryBuilderService {
       this.pushDebug('sql', query.toString());
     }
 
+    // Execute count queries for meta before running main query
+    const metaParts = Array.isArray(options.meta)
+      ? options.meta
+      : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+    let totalCount = 0;
+    let filterCount = 0;
+
+    if (metaParts.includes('totalCount') || metaParts.includes('*')) {
+      // Total count (no filters)
+      const totalQuery = knex(queryOptions.table);
+      const totalResult = await totalQuery.count('* as count').first();
+      totalCount = Number(totalResult?.count || 0);
+    }
+
+    if (metaParts.includes('filterCount') || metaParts.includes('*')) {
+      // Filter count (with filters, before pagination)
+      const filterQuery = knex(queryOptions.table);
+
+      // Apply WHERE clause
+      if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
+        if (!isSystemTable) {
+          const metadata = await this.metadataCache.getTableMetadata(queryOptions.table);
+          if (metadata && metadata.relations && metadata.relations.length > 0) {
+            const { hasRelations } = separateFilters(originalFilter, metadata);
+            if (hasRelations) {
+              await applyRelationFilters(
+                knex,
+                filterQuery,
+                originalFilter,
+                queryOptions.table,
+                metadata,
+                this.dbType,
+                (tableName: string) => this.metadataCache.getTableMetadata(tableName),
+              );
+            } else {
+              buildWhereClause(filterQuery, originalFilter, queryOptions.table, this.dbType);
+            }
+          } else {
+            buildWhereClause(filterQuery, originalFilter, queryOptions.table, this.dbType);
+          }
+        } else {
+          buildWhereClause(filterQuery, originalFilter, queryOptions.table, this.dbType);
+        }
+      } else if (queryOptions.where && queryOptions.where.length > 0) {
+        this.applyWhereToKnex(filterQuery, queryOptions.where);
+      }
+
+      const filterResult = await filterQuery.count('* as count').first();
+      filterCount = Number(filterResult?.count || 0);
+    }
+
     const results = await query;
 
-    // Return in queryEngine format with debug if debugMode is enabled
-    if (options.debugMode) {
-      return { data: results, debug: this.debugLog };
-    }
-    return { data: results };
+    // Return in queryEngine format with optional meta and debug
+    return {
+      data: results,
+      ...((metaParts.length > 0) && {
+        meta: {
+          ...(metaParts.includes('totalCount') || metaParts.includes('*')
+            ? { totalCount }
+            : {}),
+          ...(metaParts.includes('filterCount') || metaParts.includes('*')
+            ? { filterCount }
+            : {}),
+        },
+      }),
+      ...(options.debugMode ? { debug: this.debugLog } : {}),
+    };
   }
 
   /**
