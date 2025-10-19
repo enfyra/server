@@ -251,7 +251,20 @@ export class RelationHandlerService {
     this.logger.log(`   O2M relations count: ${oneToManyRelations.length}`);
 
     // Insert main record
-    const [insertedId] = await knex(tableName).insert(cleanData);
+    // PostgreSQL requires .returning('id') to get the inserted ID
+    const dbType = knex.client.config.client;
+    let insertedId: any;
+
+    if (dbType === 'pg' || dbType === 'postgres') {
+      // PostgreSQL: use .returning('id')
+      const result = await knex(tableName).insert(cleanData).returning('id');
+      insertedId = result[0]?.id || result[0];
+    } else {
+      // MySQL/SQLite: returns insertId directly
+      const result = await knex(tableName).insert(cleanData);
+      insertedId = Array.isArray(result) ? result[0] : result;
+    }
+
     const recordId = insertedId || cleanData.id;
 
     this.logger.log(`   ✅ Inserted record ID: ${recordId}`);
