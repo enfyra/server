@@ -14,8 +14,45 @@ export class ParseQueryMiddleware implements NestMiddleware {
         } catch {
           // skip if cannot parse
         }
+      } else if (typeof query[key] === 'object' && query[key] !== null) {
+        // Handle nested object notation like filter[path][_eq]=/test
+        // This is already an object from Express query parser
+        newQuery[key] = query[key];
       }
     }
+
+    // Handle bracket notation for filter, deep, etc.
+    // e.g., filter[path][_eq] -> filter: { path: { _eq: ... } }
+    for (const key of Object.keys(query)) {
+      const match = key.match(/^(filter|deep|sort|aggregate|fields)\[(.+)\]$/);
+      if (match) {
+        const baseKey = match[1];
+        const nestedPath = match[2];
+
+        if (!newQuery[baseKey]) {
+          newQuery[baseKey] = {};
+        }
+
+        // Parse nested path like "path][_eq" -> ["path", "_eq"]
+        const pathParts = nestedPath.split('][');
+        let current = newQuery[baseKey];
+
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          const part = pathParts[i];
+          if (!current[part]) {
+            current[part] = {};
+          }
+          current = current[part];
+        }
+
+        const lastPart = pathParts[pathParts.length - 1];
+        current[lastPart] = query[key];
+
+        // Remove the bracket notation key
+        delete newQuery[key];
+      }
+    }
+
     Object.defineProperty(req, 'query', {
       value: newQuery,
       writable: true,

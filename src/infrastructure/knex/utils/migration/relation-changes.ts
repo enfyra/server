@@ -196,6 +196,7 @@ async function handleCreatedRelations(
         isForeignKey: true,
         foreignKeyTarget: rel.targetTableName,
         foreignKeyColumn: 'id',
+        isUnique: rel.type === 'one-to-one', // O2O needs UNIQUE constraint
       });
     } else if (rel.type === 'one-to-many') {
       const targetTableName = rel.targetTableName;
@@ -479,6 +480,7 @@ async function handleRelationTypeChange(
       isForeignKey: true,
       foreignKeyTarget: newRel.targetTableName,
       foreignKeyColumn: 'id',
+      isUnique: newType === 'one-to-one', // O2O needs UNIQUE constraint
     });
   }
 
@@ -619,15 +621,25 @@ async function handleRelationTypeChange(
       isForeignKey: true,
       foreignKeyTarget: newRel.targetTableName,
       foreignKeyColumn: 'id',
+      isUnique: newType === 'one-to-one', // O2O needs UNIQUE constraint
     });
   }
 
   // Case 7: M2O ↔ O2O (same FK column, just constraint change)
   else if ((oldType === 'many-to-one' && newType === 'one-to-one') || (oldType === 'one-to-one' && newType === 'many-to-one')) {
     logger.log(`  🔄 M2O ↔ O2O: FK column stays, constraint changes`);
-    // Note: O2O should have UNIQUE constraint, M2O should not
-    // For now, just log - constraint change can be handled later
-    logger.log(`    ⚠️  TODO: Handle unique constraint change for ${newRel.propertyName}`);
+
+    const fkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
+
+    if (oldType === 'many-to-one' && newType === 'one-to-one') {
+      // M2O → O2O: Add UNIQUE constraint
+      logger.log(`    ➕ Add UNIQUE constraint on ${fkColumn}`);
+      diff.constraints.uniques.create.push([fkColumn]);
+    } else {
+      // O2O → M2O: Drop UNIQUE constraint
+      logger.log(`    ➖ Drop UNIQUE constraint on ${fkColumn}`);
+      diff.constraints.uniques.delete.push([fkColumn]);
+    }
   }
 
   else {

@@ -17,7 +17,7 @@ import {
   generateForeignKeySQL,
 } from '../utils/migration/foreign-key-operations';
 import { analyzeRelationChanges } from '../utils/migration/relation-changes';
-import { generateSQLFromDiff, executeSQLStatements } from '../utils/migration/sql-diff-generator';
+import { generateSQLFromDiff, generateBatchSQL, executeBatchSQL } from '../utils/migration/sql-diff-generator';
 
 @Injectable()
 export class SqlSchemaMigrationService {
@@ -72,13 +72,16 @@ export class SqlSchemaMigrationService {
           const fkColumn = `${rel.propertyName}Id`;
 
           this.logger.log(`🔍 CREATE TABLE: Creating FK column ${fkColumn} for relation ${rel.propertyName} (target: ${targetTableName})`);
-          
+          this.logger.log(`🔍 DEBUG: rel.isNullable = ${rel.isNullable}, type: ${typeof rel.isNullable}`);
 
           const fkCol = table.integer(fkColumn).unsigned();
-          
-          if (rel.isNullable === false) {
+
+          // isNullable can be 0/1 (number) or true/false (boolean)
+          if (rel.isNullable === false || rel.isNullable === 0) {
+            this.logger.log(`  ✅ Setting FK column as NOT NULL`);
             fkCol.notNullable();
           } else {
+            this.logger.log(`  ⚠️  Setting FK column as NULLABLE (isNullable=${rel.isNullable})`);
             fkCol.nullable();
           }
           
@@ -152,7 +155,8 @@ export class SqlSchemaMigrationService {
 
           await knex.schema.alterTable(targetTable, (table) => {
             const fkCol = table.integer(fkColumn).unsigned();
-            if (rel.isNullable === false) {
+            // isNullable can be 0/1 (number) or true/false (boolean)
+            if (rel.isNullable === false || rel.isNullable === 0) {
               fkCol.notNullable();
             } else {
               fkCol.nullable();
@@ -160,10 +164,10 @@ export class SqlSchemaMigrationService {
 
             table.index([fkColumn]);
           });
-          
+
 
           await knex.schema.alterTable(targetTable, (table) => {
-            const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
+            const onDelete = (rel.isNullable === false || rel.isNullable === 0) ? 'RESTRICT' : 'SET NULL';
             table.foreign(fkColumn).references('id').inTable(sourceTable).onDelete(onDelete).onUpdate('CASCADE');
           });
           
@@ -279,16 +283,22 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`🔄 Updating table: ${tableName}`);
 
-  
-
     const schemaDiff = await this.generateSchemaDiff(oldMetadata, newMetadata);
-    
-    
 
-    await this.executeSchemaDiff(tableName, schemaDiff);
+    const batchSQL = await this.executeSchemaDiff(tableName, schemaDiff);
+
+    // Log executed batch SQL
+    if (batchSQL && batchSQL.trim() !== '' && batchSQL.trim() !== ';') {
+      this.logger.log(`\n${'='.repeat(80)}`);
+      this.logger.log(`📦 EXECUTED BATCH SQL FOR TABLE: ${tableName}`);
+      this.logger.log(`${'='.repeat(80)}`);
+      this.logger.log(batchSQL);
+      this.logger.log(`${'='.repeat(80)}\n`);
+    } else {
+      this.logger.log(`⏭️  No SQL changes required for table: ${tableName}`);
+    }
 
     await this.compareMetadataWithActualSchema(tableName, newMetadata);
-
   }
 
   async compareMetadataWithActualSchema(tableName: string, metadata: any): Promise<void> {
@@ -510,16 +520,22 @@ export class SqlSchemaMigrationService {
     return systemColumns.includes(columnName);
   }
 
-  private async executeSchemaDiff(tableName: string, diff: any): Promise<void> {
+  private async executeSchemaDiff(tableName: string, diff: any): Promise<string> {
     const knex = this.knexService.getKnex();
     const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
+    // Step 1: Generate SQL statements array
     const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType);
-
-
     this.logger.debug('Generated SQL Statements:', sqlStatements);
 
-    await executeSQLStatements(knex, sqlStatements);
+    // Step 2: Generate batch SQL (single string)
+    const batchSQL = generateBatchSQL(sqlStatements);
+
+    // Step 3: Execute batch with database-specific behavior (transaction for PostgreSQL)
+    await executeBatchSQL(knex, batchSQL, dbType);
+
+    // Step 4: Return batch SQL for logging
+    return batchSQL;
   }
 
 
