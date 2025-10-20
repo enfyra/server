@@ -17,7 +17,7 @@ import {
   generateForeignKeySQL,
 } from '../utils/migration/foreign-key-operations';
 import { analyzeRelationChanges } from '../utils/migration/relation-changes';
-import { generateSQLFromDiff, executeSQLStatements } from '../utils/migration/sql-diff-generator';
+import { generateSQLFromDiff, generateBatchSQL, executeBatchSQL } from '../utils/migration/sql-diff-generator';
 
 @Injectable()
 export class SqlSchemaMigrationService {
@@ -283,16 +283,22 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`🔄 Updating table: ${tableName}`);
 
-  
-
     const schemaDiff = await this.generateSchemaDiff(oldMetadata, newMetadata);
-    
-    
 
-    await this.executeSchemaDiff(tableName, schemaDiff);
+    const batchSQL = await this.executeSchemaDiff(tableName, schemaDiff);
+
+    // Log executed batch SQL
+    if (batchSQL && batchSQL.trim() !== '' && batchSQL.trim() !== ';') {
+      this.logger.log(`\n${'='.repeat(80)}`);
+      this.logger.log(`📦 EXECUTED BATCH SQL FOR TABLE: ${tableName}`);
+      this.logger.log(`${'='.repeat(80)}`);
+      this.logger.log(batchSQL);
+      this.logger.log(`${'='.repeat(80)}\n`);
+    } else {
+      this.logger.log(`⏭️  No SQL changes required for table: ${tableName}`);
+    }
 
     await this.compareMetadataWithActualSchema(tableName, newMetadata);
-
   }
 
   async compareMetadataWithActualSchema(tableName: string, metadata: any): Promise<void> {
@@ -514,16 +520,22 @@ export class SqlSchemaMigrationService {
     return systemColumns.includes(columnName);
   }
 
-  private async executeSchemaDiff(tableName: string, diff: any): Promise<void> {
+  private async executeSchemaDiff(tableName: string, diff: any): Promise<string> {
     const knex = this.knexService.getKnex();
     const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
+    // Step 1: Generate SQL statements array
     const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType);
-
-
     this.logger.debug('Generated SQL Statements:', sqlStatements);
 
-    await executeSQLStatements(knex, sqlStatements);
+    // Step 2: Generate batch SQL (single string)
+    const batchSQL = generateBatchSQL(sqlStatements);
+
+    // Step 3: Execute batch
+    await executeBatchSQL(knex, batchSQL);
+
+    // Step 4: Return batch SQL for logging
+    return batchSQL;
   }
 
 

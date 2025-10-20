@@ -193,18 +193,61 @@ export async function generateSQLFromDiff(
   return sqlStatements;
 }
 
+/**
+ * Generate batch SQL from multiple statements
+ * @returns Single SQL string with all statements separated by semicolons
+ */
+export function generateBatchSQL(sqlStatements: string[]): string {
+  if (sqlStatements.length === 0) {
+    return '';
+  }
+
+  // Join all SQL statements with semicolon
+  const batchSQL = sqlStatements.join(';\n') + ';';
+
+  logger.log(`📦 Generated batch SQL with ${sqlStatements.length} statement(s):`);
+  sqlStatements.forEach((sql, i) => {
+    logger.log(`  [${i+1}/${sqlStatements.length}] ${sql.substring(0, 80)}${sql.length > 80 ? '...' : ''}`);
+  });
+
+  return batchSQL;
+}
+
+/**
+ * Execute batch SQL
+ * @param knex - Knex instance
+ * @param batchSQL - SQL string with multiple statements separated by semicolons
+ */
+export async function executeBatchSQL(
+  knex: Knex,
+  batchSQL: string,
+): Promise<void> {
+  if (!batchSQL || batchSQL.trim() === '' || batchSQL.trim() === ';') {
+    logger.log('⏭️  No SQL to execute (empty batch)');
+    return;
+  }
+
+  logger.log(`🚀 Executing batch SQL...`);
+
+  try {
+    await knex.raw(batchSQL);
+    logger.log(`✅ Batch SQL executed successfully`);
+  } catch (error) {
+    logger.error(`❌ Batch SQL execution failed`);
+    logger.error(`Error: ${error.message}`);
+    logger.error(`Failed SQL:\n${batchSQL.substring(0, 500)}${batchSQL.length > 500 ? '...' : ''}`);
+    throw error;
+  }
+}
+
+/**
+ * Legacy function - Generate statements array and execute as batch
+ * @deprecated Use generateBatchSQL + executeBatchSQL for better control
+ */
 export async function executeSQLStatements(
   knex: Knex,
   sqlStatements: string[],
 ): Promise<void> {
-  for (const sql of sqlStatements) {
-    logger.log(`📝 Executing SQL: ${sql.substring(0, 100)}${sql.length > 100 ? '...' : ''}`);
-    try {
-      await knex.raw(sql);
-    } catch (error) {
-      logger.error(`❌ Failed to execute SQL: ${sql}`);
-      logger.error(`Error: ${error.message}`);
-      throw error;
-    }
-  }
+  const batchSQL = generateBatchSQL(sqlStatements);
+  await executeBatchSQL(knex, batchSQL);
 }
