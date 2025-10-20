@@ -311,6 +311,13 @@ export class QueryBuilderService {
     const knex = this.knexService.getKnex();
     let query: any = knex(queryOptions.table);
 
+    // Parse meta requirements early
+    const metaParts = Array.isArray(options.meta)
+      ? options.meta
+      : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+    const needsFilterCount = metaParts.includes('filterCount') || metaParts.includes('*');
+
     if (queryOptions.select) {
       // Convert subqueries to knex.raw to prevent double-escaping
       const selectItems = queryOptions.select.map(field => {
@@ -321,6 +328,10 @@ export class QueryBuilderService {
         return field;
       });
       query = query.select(selectItems);
+    }
+
+    if (needsFilterCount) {
+      query.select(knex.raw('COUNT(*) OVER() as __filter_count__'));
     }
 
     // Apply WHERE clause with relation filtering support
@@ -406,13 +417,8 @@ export class QueryBuilderService {
       this.pushDebug('sql', query.toString());
     }
 
-    // Execute count queries for meta before running main query
-    const metaParts = Array.isArray(options.meta)
-      ? options.meta
-      : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
-
+    // Execute totalCount query separately if needed
     let totalCount = 0;
-    let filterCount = 0;
 
     if (metaParts.includes('totalCount') || metaParts.includes('*')) {
       // Total count (no filters)
@@ -421,44 +427,20 @@ export class QueryBuilderService {
       totalCount = Number(totalResult?.count || 0);
     }
 
-    if (metaParts.includes('filterCount') || metaParts.includes('*')) {
-      // Filter count (with filters, before pagination)
-      const filterQuery = knex(queryOptions.table);
-
-      // Apply WHERE clause
-      if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
-        if (!isSystemTable) {
-          const metadata = await this.metadataCache.getTableMetadata(queryOptions.table);
-          if (metadata && metadata.relations && metadata.relations.length > 0) {
-            const { hasRelations } = separateFilters(originalFilter, metadata);
-            if (hasRelations) {
-              await applyRelationFilters(
-                knex,
-                filterQuery,
-                originalFilter,
-                queryOptions.table,
-                metadata,
-                this.dbType,
-                (tableName: string) => this.metadataCache.getTableMetadata(tableName),
-              );
-            } else {
-              buildWhereClause(filterQuery, originalFilter, queryOptions.table, this.dbType);
-            }
-          } else {
-            buildWhereClause(filterQuery, originalFilter, queryOptions.table, this.dbType);
-          }
-        } else {
-          buildWhereClause(filterQuery, originalFilter, queryOptions.table, this.dbType);
-        }
-      } else if (queryOptions.where && queryOptions.where.length > 0) {
-        this.applyWhereToKnex(filterQuery, queryOptions.where);
-      }
-
-      const filterResult = await filterQuery.count('* as count').first();
-      filterCount = Number(filterResult?.count || 0);
-    }
-
+    // Execute main query (now includes __filter_count__ via window function if needed)
     const results = await query;
+
+    let filterCount = 0;
+
+    if (needsFilterCount && results.length > 0) {
+      // Extract filterCount from first row (all rows have same value from window function)
+      filterCount = Number(results[0].__filter_count__ || 0);
+
+      // Clean up: Remove __filter_count__ column from all result rows
+      results.forEach((row: any) => {
+        delete row.__filter_count__;
+      });
+    }
 
     // Return in queryEngine format with optional meta and debug
     return {
