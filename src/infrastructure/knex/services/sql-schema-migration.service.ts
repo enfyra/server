@@ -531,8 +531,8 @@ export class SqlSchemaMigrationService {
     // Step 2: Generate batch SQL (single string)
     const batchSQL = generateBatchSQL(sqlStatements);
 
-    // Step 3: Execute batch
-    await executeBatchSQL(knex, batchSQL);
+    // Step 3: Execute batch with database-specific behavior (transaction for PostgreSQL)
+    await executeBatchSQL(knex, batchSQL, dbType);
 
     // Step 4: Return batch SQL for logging
     return batchSQL;

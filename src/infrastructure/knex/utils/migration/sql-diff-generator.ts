@@ -214,29 +214,55 @@ export function generateBatchSQL(sqlStatements: string[]): string {
 }
 
 /**
- * Execute batch SQL
+ * Execute batch SQL with transaction support
  * @param knex - Knex instance
  * @param batchSQL - SQL string with multiple statements separated by semicolons
+ * @param dbType - Database type (mysql, postgres, sqlite)
  */
 export async function executeBatchSQL(
   knex: Knex,
   batchSQL: string,
+  dbType?: 'mysql' | 'postgres' | 'sqlite',
 ): Promise<void> {
   if (!batchSQL || batchSQL.trim() === '' || batchSQL.trim() === ';') {
     logger.log('⏭️  No SQL to execute (empty batch)');
     return;
   }
 
-  logger.log(`🚀 Executing batch SQL...`);
+  // Detect DB type if not provided
+  const detectedDbType = dbType || (knex.client.config.client as string);
+  const isPostgres = detectedDbType.includes('pg') || detectedDbType.includes('postgres');
 
-  try {
-    await knex.raw(batchSQL);
-    logger.log(`✅ Batch SQL executed successfully`);
-  } catch (error) {
-    logger.error(`❌ Batch SQL execution failed`);
-    logger.error(`Error: ${error.message}`);
-    logger.error(`Failed SQL:\n${batchSQL.substring(0, 500)}${batchSQL.length > 500 ? '...' : ''}`);
-    throw error;
+  if (isPostgres) {
+    logger.log(`🚀 Executing batch SQL with TRANSACTION (PostgreSQL)...`);
+
+    // PostgreSQL: Use transaction for atomic DDL
+    try {
+      await knex.transaction(async (trx) => {
+        await trx.raw(batchSQL);
+      });
+      logger.log(`✅ Batch SQL executed successfully (transaction committed)`);
+    } catch (error) {
+      logger.error(`❌ Batch SQL execution failed (transaction rolled back)`);
+      logger.error(`Error: ${error.message}`);
+      logger.error(`Failed SQL:\n${batchSQL.substring(0, 500)}${batchSQL.length > 500 ? '...' : ''}`);
+      throw error;
+    }
+  } else {
+    logger.log(`🚀 Executing batch SQL (${detectedDbType})...`);
+    logger.warn(`⚠️  ${detectedDbType.toUpperCase()} does not support transactional DDL - changes cannot be rolled back`);
+
+    // MySQL/SQLite: Execute batch without transaction
+    try {
+      await knex.raw(batchSQL);
+      logger.log(`✅ Batch SQL executed successfully`);
+    } catch (error) {
+      logger.error(`❌ Batch SQL execution failed`);
+      logger.error(`⚠️  Some statements may have been executed before failure - manual recovery may be required`);
+      logger.error(`Error: ${error.message}`);
+      logger.error(`Failed SQL:\n${batchSQL.substring(0, 500)}${batchSQL.length > 500 ? '...' : ''}`);
+      throw error;
+    }
   }
 }
 
