@@ -1177,6 +1177,7 @@ async function applyRelationMigrations(
 async function syncJunctionTables(
   knex: Knex,
   schemas: KnexTableSchema[],
+  dbType: string,
 ): Promise<void> {
   console.log('🔗 Syncing junction tables...');
 
@@ -1227,12 +1228,18 @@ async function syncJunctionTables(
             .onUpdate('CASCADE')
             .withKeyName(targetFkName);
 
-          table.primary([junction.sourceColumn, junction.targetColumn]);
+          // Composite primary key with short name for PostgreSQL 63 char limit
+          const pkName = getShortPkName(junction.tableName);
+          table.primary([junction.sourceColumn, junction.targetColumn], pkName);
 
-          const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
-          const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
-          table.index([junction.sourceColumn], sourceIndexName);
-          table.index([junction.targetColumn], targetIndexName);
+          // Auto-index both FK columns with short names
+          // PostgreSQL automatically creates indexes for PRIMARY KEY columns, so skip for postgres
+          if (dbType !== 'postgres') {
+            const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
+            const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+            table.index([junction.sourceColumn], sourceIndexName);
+            table.index([junction.targetColumn], targetIndexName);
+          }
         });
 
         console.log(`  ✅ Created junction table: ${junction.tableName}`);
@@ -1415,7 +1422,7 @@ export async function initializeDatabaseSql(): Promise<void> {
     }
 
     // Phase 4: Create/sync junction tables
-    await syncJunctionTables(knexInstance, schemas);
+    await syncJunctionTables(knexInstance, schemas, DB_TYPE);
 
     console.log('\n🎉 Database initialization/sync completed!');
   } catch (error) {

@@ -9,7 +9,7 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
 
   async transformRecords(records: any[]): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    
+
     return records.map((record) => {
       const transformed = {
         ...record,
