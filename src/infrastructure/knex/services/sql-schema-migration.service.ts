@@ -72,13 +72,16 @@ export class SqlSchemaMigrationService {
           const fkColumn = `${rel.propertyName}Id`;
 
           this.logger.log(`🔍 CREATE TABLE: Creating FK column ${fkColumn} for relation ${rel.propertyName} (target: ${targetTableName})`);
-          
+          this.logger.log(`🔍 DEBUG: rel.isNullable = ${rel.isNullable}, type: ${typeof rel.isNullable}`);
 
           const fkCol = table.integer(fkColumn).unsigned();
-          
-          if (rel.isNullable === false) {
+
+          // isNullable can be 0/1 (number) or true/false (boolean)
+          if (rel.isNullable === false || rel.isNullable === 0) {
+            this.logger.log(`  ✅ Setting FK column as NOT NULL`);
             fkCol.notNullable();
           } else {
+            this.logger.log(`  ⚠️  Setting FK column as NULLABLE (isNullable=${rel.isNullable})`);
             fkCol.nullable();
           }
           
@@ -152,7 +155,8 @@ export class SqlSchemaMigrationService {
 
           await knex.schema.alterTable(targetTable, (table) => {
             const fkCol = table.integer(fkColumn).unsigned();
-            if (rel.isNullable === false) {
+            // isNullable can be 0/1 (number) or true/false (boolean)
+            if (rel.isNullable === false || rel.isNullable === 0) {
               fkCol.notNullable();
             } else {
               fkCol.nullable();
@@ -160,10 +164,10 @@ export class SqlSchemaMigrationService {
 
             table.index([fkColumn]);
           });
-          
+
 
           await knex.schema.alterTable(targetTable, (table) => {
-            const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
+            const onDelete = (rel.isNullable === false || rel.isNullable === 0) ? 'RESTRICT' : 'SET NULL';
             table.foreign(fkColumn).references('id').inTable(sourceTable).onDelete(onDelete).onUpdate('CASCADE');
           });
           

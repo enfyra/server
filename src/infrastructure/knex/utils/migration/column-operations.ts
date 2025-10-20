@@ -40,6 +40,9 @@ export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void
       break;
 
     case 'datetime':
+      column = table.dateTime(col.name);
+      break;
+
     case 'timestamp':
       column = table.timestamp(col.name);
       break;

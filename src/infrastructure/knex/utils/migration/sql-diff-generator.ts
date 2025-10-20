@@ -60,6 +60,15 @@ export async function generateSQLFromDiff(
         logger.log(`  ⏭️  Skipping FK constraint for nullable column ${col.name} - user must populate data first`);
       }
     }
+
+    // Add UNIQUE constraint for O2O relations
+    if (col.isUnique) {
+      const uniqueConstraintName = `uq_${tableName}_${col.name}`;
+      sqlStatements.push(
+        `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(uniqueConstraintName)} UNIQUE (${qt(col.name)})`
+      );
+      logger.log(`  ✅ Added UNIQUE constraint on ${col.name} for one-to-one relation`);
+    }
   }
 
   const processedUpdates = new Set<string>();
@@ -81,6 +90,15 @@ export async function generateSQLFromDiff(
     sqlStatements.push(generateModifyColumnSQL(tableName, update.newColumn.name, columnDef, dbType));
   }
 
+  // Handle UNIQUE constraint CREATE
+  for (const uniqueGroup of diff.constraints.uniques.create || []) {
+    const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
+    const constraintName = `uq_${tableName}_${uniqueGroup.join('_')}`;
+    sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(constraintName)} UNIQUE (${columns})`);
+    logger.log(`  ✅ Added UNIQUE constraint ${constraintName} on (${uniqueGroup.join(', ')})`);
+  }
+
+  // Handle UNIQUE constraint UPDATE (should be same as CREATE for now)
   for (const uniqueGroup of diff.constraints.uniques.update || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD UNIQUE (${columns})`);
