@@ -34,7 +34,18 @@ export class CascadeHandler {
       return;
     }
 
-    for (const relation of tableMetadata.relations) {
+    // Ensure relations is an array (defensive check for PostgreSQL compatibility)
+    const relations = Array.isArray(tableMetadata.relations)
+      ? tableMetadata.relations
+      : Object.values(tableMetadata.relations || {});
+
+    if (relations.length === 0) {
+      this.logger.log(`   No relations to process`);
+      cascadeContextMap.delete(tableName);
+      return;
+    }
+
+    for (const relation of relations) {
       const relName = relation.propertyName;
 
       if (!(relName in originalRelationData)) {

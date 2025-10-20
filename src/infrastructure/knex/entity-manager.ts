@@ -37,8 +37,19 @@ export class KnexEntityManager {
       // Perform insert using knexOrTrx
       let insertedId: any;
       if (this.dbType === 'pg' || this.dbType === 'postgres') {
-        const result = await this.knexOrTrx(tableName).insert(processedData).returning('id');
-        insertedId = result[0]?.id || result[0];
+        // Detect junction tables: they have composite keys with pattern like "tableA_relationName_tableB"
+        // Junction tables have multiple underscores and contain two table names
+        const isJunctionTable = tableName.split('_').length >= 4; // e.g., "hook_definition_methods_method_definition" has 4+ parts
+
+        if (isJunctionTable) {
+          // Junction table without id column - just insert without returning
+          await this.knexOrTrx(tableName).insert(processedData);
+          insertedId = null; // No auto-generated id for junction tables
+        } else {
+          // Regular table with auto-increment id
+          const result = await this.knexOrTrx(tableName).insert(processedData).returning('id');
+          insertedId = result[0]?.id || result[0];
+        }
       } else {
         const result = await this.knexOrTrx(tableName).insert(processedData);
         insertedId = Array.isArray(result) ? result[0] : result;

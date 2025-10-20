@@ -91,6 +91,8 @@ export abstract class BaseTableProcessor {
         }
       } catch (error) {
         this.logger.error(`❌ Error: ${error.message}`);
+        this.logger.error(`   Stack: ${error.stack}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
       }
     }
 
