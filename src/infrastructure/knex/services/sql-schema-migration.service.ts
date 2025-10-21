@@ -335,10 +335,11 @@ export class SqlSchemaMigrationService {
     }
   }
 
-  async dropTable(tableName: string, relations?: any[]): Promise<void> {
-    const knex = this.knexService.getKnex();
+  async dropTable(tableName: string, relations?: any[], trx?: any): Promise<void> {
+    // Use transaction if provided, otherwise use knex
+    const db = trx || this.knexService.getKnex();
 
-    if (!(await knex.schema.hasTable(tableName))) {
+    if (!(await db.schema.hasTable(tableName))) {
       this.logger.warn(`⚠️  Table ${tableName} does not exist, skipping drop`);
       return;
     }
@@ -361,9 +362,9 @@ export class SqlSchemaMigrationService {
 
       for (const rel of m2mRelations) {
         if (rel.junctionTableName) {
-          const hasJunctionTable = await knex.schema.hasTable(rel.junctionTableName);
+          const hasJunctionTable = await db.schema.hasTable(rel.junctionTableName);
           if (hasJunctionTable) {
-            await knex.schema.dropTable(rel.junctionTableName);
+            await db.schema.dropTable(rel.junctionTableName);
             this.logger.log(`✅ Dropped junction table: ${rel.junctionTableName}`);
           }
         }
@@ -371,11 +372,17 @@ export class SqlSchemaMigrationService {
     }
 
     // Drop all foreign keys referencing this table
-    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
-    await dropAllForeignKeysReferencingTable(knex, tableName, dbType);
+    // NOTE: When called within a transaction (trx is provided), FK constraints are already
+    // handled by SqlTableHandlerService.delete() to avoid transaction isolation issues
+    if (!trx) {
+      const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
+      await dropAllForeignKeysReferencingTable(db, tableName, dbType);
+    } else {
+      this.logger.log(`⏭️  Skipping FK constraint check (already handled in transaction)`);
+    }
 
     // Drop the table itself
-    await knex.schema.dropTableIfExists(tableName);
+    await db.schema.dropTableIfExists(tableName);
     this.logger.log(`✅ Dropped table: ${tableName}`);
   }
 
