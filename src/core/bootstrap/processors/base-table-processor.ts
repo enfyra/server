@@ -80,10 +80,30 @@ export abstract class BaseTableProcessor {
           }
         } else {
           const cleanedRecord = this.cleanRecordForKnex(record);
-          const [insertedId] = await knex(tableName).insert(cleanedRecord);
+
+          // Database-specific insert handling
+          // Get dbType from context (provided by QueryBuilderService.getDatabaseType())
+          const dbType = context?.dbType;
+          this.logger.debug(`🔍 dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`);
+          let insertedId: any;
+
+          if (dbType === 'postgres') {
+            // PostgreSQL: Knex's query builder with proper bindings
+            this.logger.debug('📍 Using PostgreSQL query builder');
+            const result = await knex(tableName).insert(cleanedRecord, ['id']);
+            insertedId = result[0]?.id || result[0];
+            this.logger.debug(`✅ Inserted ID: ${insertedId}`);
+          } else {
+            // MySQL/MariaDB: Standard insert
+            this.logger.debug('📍 Using MySQL query builder');
+            const result = await knex(tableName).insert(cleanedRecord);
+            insertedId = Array.isArray(result) ? result[0] : result;
+            this.logger.debug(`✅ Inserted ID: ${insertedId}`);
+          }
+
           createdCount++;
           this.logger.log(`   ✅ Created: ${this.getRecordIdentifier(record)}`);
-          
+
           // Call afterUpsert hook with new record
           if (this.afterUpsert) {
             await this.afterUpsert({ ...record, id: insertedId }, true, context);
