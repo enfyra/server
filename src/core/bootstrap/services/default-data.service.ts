@@ -104,9 +104,10 @@ export class DefaultDataService {
 
       try {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
-        
-        const context = { knex: qb, tableName };
-        
+
+        const dbType = this.queryBuilder.getDatabaseType();
+        const context = { knex: qb, tableName, dbType };
+
         const result = await processor.processKnex(records, qb, tableName, context);
         
         totalCreated += result.created;
