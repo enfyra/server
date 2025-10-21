@@ -219,14 +219,16 @@ export class SqlTableHandlerService {
       body.isSystem = false;
 
       this.logger.log(`\n💾 Saving table metadata to DB...`);
-      const [tableId] = await trx('table_definition').insert({
+      const dbType = this.queryBuilder.getDatabaseType();
+      const insertResult = await trx('table_definition').insert({
         name: body.name,
         isSystem: body.isSystem,
         alias: body.alias,
         description: body.description,
         uniques: JSON.stringify(body.uniques || []),
         indexes: JSON.stringify(body.indexes || []),
-      });
+      }, dbType === 'postgres' ? ['id'] : undefined);
+      const tableId = dbType === 'postgres' ? insertResult[0]?.id : insertResult[0];
       this.logger.log(`   ✅ Table metadata saved (ID: ${tableId})`);
 
       if (body.columns?.length > 0) {
