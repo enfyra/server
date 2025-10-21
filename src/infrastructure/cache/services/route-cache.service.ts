@@ -172,23 +172,44 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       this.logger.log(`📋 Loaded ${this.allMethods.length} methods: [${this.allMethods.join(', ')}]`);
     }
 
+    // MongoDB: Limit nested field depth to avoid "FieldPath is too long" error
+    // Deep nesting in MongoDB aggregation pipeline can exceed 150 character limit per field path
+    const dbType = this.queryBuilder.getDbType();
+    const fields = dbType === 'mongodb'
+      ? [
+          '*',
+          'mainTable.*',
+          'handlers.*',
+          'hooks.*',
+        ]
+      : [
+          '*',
+          'mainTable.*',
+          'handlers.*',
+          'handlers.method.*',
+          'routePermissions.*',
+          'routePermissions.role.*',
+          'hooks.*',
+          'hooks.methods.*',
+          'publishedMethods.*',
+          'targetTables.*',
+        ];
+
     const result = await this.queryBuilder.select({
       tableName: 'route_definition',
       filter: { isEnabled: { _eq: true } },
-      fields: [
-        '*',
-        'mainTable.*',
-        'handlers.*',
-        'handlers.method.*',
-        'routePermissions.*',
-        'routePermissions.role.*',
-        'hooks.*',
-        'hooks.methods.*',
-        'publishedMethods.*',
-        'targetTables.*',
-      ],
+      fields,
     });
+
     const routes = result.data;
+
+    // Debug: Check all routes mainTable
+    if (dbType === 'mongodb') {
+      this.logger.log(`🔍 Loaded ${routes.length} routes. Sample routes with mainTable:`);
+      routes.slice(0, 3).forEach((r: any) => {
+        this.logger.log(`  - ${r.path}: mainTable = ${typeof r.mainTable === 'object' ? JSON.stringify(r.mainTable) : r.mainTable}`);
+      });
+    }
 
     // Get global hooks separately
     const globalHooksResult = await this.queryBuilder.select({

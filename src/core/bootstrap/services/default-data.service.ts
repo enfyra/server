@@ -129,8 +129,11 @@ export class DefaultDataService {
 
   private async insertAllDefaultRecordsMongo(): Promise<void> {
     this.logger.log('🍃 MongoDB: Inserting default data with processors...');
-    
+
     let totalCreated = 0;
+
+    // Get raw MongoDB connection (no metadata needed during bootstrap)
+    const db = this.queryBuilder.getConnection();
 
     for (const [collectionName, rawRecords] of Object.entries(initJson)) {
       if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
@@ -140,8 +143,8 @@ export class DefaultDataService {
       this.logger.log(`🔄 Processing collection '${collectionName}'...`);
 
       try {
-        // Check if collection already has data
-        const count = await this.queryBuilder.count({ table: collectionName });
+        // Check if collection already has data (raw query)
+        const count = await db.collection(collectionName).countDocuments();
         if (count > 0) {
           this.logger.log(`⏩ '${collectionName}' already has ${count} records, skipping`);
           continue;
@@ -155,17 +158,18 @@ export class DefaultDataService {
         }
 
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
-        
-        // Special handling for menu_definition (needs ordered processing)
+
+        // Special handling for menu_definition (needs ordered processing with raw DB)
         if (collectionName === 'menu_definition' && typeof processor['processMongo'] === 'function') {
-          const created = await processor['processMongo'](records, collectionName);
+          const created = await processor['processMongo'](records, collectionName, db);
           totalCreated += created;
           this.logger.log(`✅ '${collectionName}': ${created} created`);
           continue;
         }
-        
-        // Transform records using processor
-        const transformedRecords = await processor.transformRecords(records);
+
+        // Transform records using processor (with raw DB context)
+        const context = { db, collectionName };
+        const transformedRecords = await processor.transformRecords(records, context);
         const validRecords = transformedRecords.filter(r => r !== null);
 
         if (validRecords.length === 0) {
@@ -173,13 +177,17 @@ export class DefaultDataService {
           continue;
         }
 
-        // Insert transformed records
-        await this.queryBuilder.insert({
-          table: collectionName,
-          data: validRecords,
-        });
+        // Insert transformed records (raw MongoDB insert)
+        const now = new Date();
+        const recordsWithTimestamps = validRecords.map(r => ({
+          ...r,
+          createdAt: r.createdAt || now,
+          updatedAt: r.updatedAt || now,
+        }));
+
+        await db.collection(collectionName).insertMany(recordsWithTimestamps);
         totalCreated += validRecords.length;
-        
+
         this.logger.log(`✅ '${collectionName}': ${validRecords.length} created`);
       } catch (error) {
         this.logger.error(`❌ Error processing '${collectionName}': ${error.message}`);

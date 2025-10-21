@@ -403,26 +403,50 @@ export class CoreInitService {
 
   private async createInitMetadataMongo(snapshot: any): Promise<void> {
     this.logger.log('🍃 MongoDB: Creating metadata from snapshot...');
-    
+
     const tableNameToId: Record<string, any> = {};
-    
-    // Phase 1: Insert table definitions
+
+    // Phase 1: Upsert table definitions with diff detection
     this.logger.log('📝 Phase 1: Processing table definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
-      
+
       const exist = await this.queryBuilder.findOneWhere('table_definition', { name: def.name });
-      
+
       if (exist) {
         tableNameToId[name] = exist._id;
-        this.logger.log(`⏩ Table ${name} exists`);
+
+        // Detect changes in table metadata
+        const hasChanges =
+          exist.isSystem !== (def.isSystem || false) ||
+          exist.alias !== (def.alias || null) ||
+          exist.description !== (def.description || null) ||
+          JSON.stringify(exist.uniques || []) !== JSON.stringify(def.uniques || []) ||
+          JSON.stringify(exist.indexes || []) !== JSON.stringify(def.indexes || []);
+
+        if (hasChanges) {
+          await this.queryBuilder.update({
+            table: 'table_definition',
+            where: [{ field: '_id', operator: '=', value: exist._id }],
+            data: {
+              isSystem: def.isSystem || false,
+              alias: def.alias || null,
+              description: def.description || null,
+              uniques: def.uniques || [],
+              indexes: def.indexes || [],
+            }
+          });
+          this.logger.log(`🔄 Updated table metadata: ${name}`);
+        } else {
+          this.logger.log(`⏩ Table ${name} unchanged`);
+        }
       } else {
         const { columns, relations, ...rest } = def;
         const result = await this.queryBuilder.insertAndGet('table_definition', {
           name: rest.name,
           isSystem: rest.isSystem || false,
-          alias: rest.alias,
-          description: rest.description,
+          alias: rest.alias || null,
+          description: rest.description || null,
           uniques: rest.uniques || [],
           indexes: rest.indexes || [],
         });
@@ -431,20 +455,59 @@ export class CoreInitService {
       }
     }
     
-    // Phase 2: Insert column definitions
+    // Phase 2: Upsert column definitions with diff detection
     this.logger.log('📝 Phase 2: Processing column definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[name];
       if (!tableId) continue;
-      
+
+      // Get all existing columns for this table
+      const existingColumns = await this.queryBuilder.findWhere('column_definition', { tableId });
+      const existingColMap = new Map(existingColumns.map((c: any) => [c.name, c]));
+      const snapshotColNames = new Set((def.columns || []).map((c: any) => c.name));
+
+      // Upsert columns from snapshot
       for (const snapshotCol of def.columns || []) {
-        const exist = await this.queryBuilder.findOneWhere('column_definition', { 
-          tableId, 
-          name: snapshotCol.name 
-        });
-        
-        if (!exist) {
+        const exist = existingColMap.get(snapshotCol.name);
+
+        if (exist) {
+          // Detect changes in column metadata
+          const hasChanges =
+            exist.type !== snapshotCol.type ||
+            exist.isPrimary !== (snapshotCol.isPrimary || false) ||
+            exist.isGenerated !== (snapshotCol.isGenerated || false) ||
+            exist.isNullable !== (snapshotCol.isNullable ?? true) ||
+            exist.isSystem !== (snapshotCol.isSystem || false) ||
+            exist.isUpdatable !== (snapshotCol.isUpdatable ?? true) ||
+            exist.isHidden !== (snapshotCol.isHidden || false) ||
+            JSON.stringify(exist.defaultValue) !== JSON.stringify(snapshotCol.defaultValue || null) ||
+            JSON.stringify(exist.options) !== JSON.stringify(snapshotCol.options || null) ||
+            exist.description !== (snapshotCol.description || null) ||
+            exist.placeholder !== (snapshotCol.placeholder || null);
+
+          if (hasChanges) {
+            await this.queryBuilder.update({
+              table: 'column_definition',
+              where: [{ field: '_id', operator: '=', value: exist._id }],
+              data: {
+                type: snapshotCol.type,
+                isPrimary: snapshotCol.isPrimary || false,
+                isGenerated: snapshotCol.isGenerated || false,
+                isNullable: snapshotCol.isNullable ?? true,
+                isSystem: snapshotCol.isSystem || false,
+                isUpdatable: snapshotCol.isUpdatable ?? true,
+                isHidden: snapshotCol.isHidden || false,
+                defaultValue: snapshotCol.defaultValue || null,
+                options: snapshotCol.options || null,
+                description: snapshotCol.description || null,
+                placeholder: snapshotCol.placeholder || null,
+              }
+            });
+            this.logger.log(`🔄 Updated column ${snapshotCol.name} for ${name}`);
+          }
+        } else {
+          // Insert new column
           await this.queryBuilder.insertAndGet('column_definition', {
             name: snapshotCol.name,
             type: snapshotCol.type,
@@ -456,48 +519,99 @@ export class CoreInitService {
             isHidden: snapshotCol.isHidden || false,
             defaultValue: snapshotCol.defaultValue || null,
             options: snapshotCol.options || null,
-            description: snapshotCol.description,
-            placeholder: snapshotCol.placeholder,
+            description: snapshotCol.description || null,
+            placeholder: snapshotCol.placeholder || null,
             tableId: tableId,
           });
-          this.logger.log(`📌 Added column ${snapshotCol.name} for ${name}`);
+          this.logger.log(`✅ Created column ${snapshotCol.name} for ${name}`);
+        }
+      }
+
+      // Delete orphaned columns (exist in DB but not in snapshot)
+      for (const existingCol of existingColumns) {
+        if (!snapshotColNames.has(existingCol.name)) {
+          await this.queryBuilder.delete({
+            table: 'column_definition',
+            where: [{ field: '_id', operator: '=', value: existingCol._id }]
+          });
+          this.logger.log(`🗑️ Deleted orphaned column ${existingCol.name} from ${name}`);
         }
       }
     }
     
-    // Phase 3: Insert relation definitions
+    // Phase 3: Upsert relation definitions with diff detection
     this.logger.log('📝 Phase 3: Processing relation definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[name];
       if (!tableId) continue;
-      
+
+      // Get all existing relations for this table
+      const existingRelations = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: tableId });
+      const existingRelMap = new Map(existingRelations.map((r: any) => [r.propertyName, r]));
+      const snapshotRelNames = new Set((def.relations || []).map((r: any) => r.propertyName).filter(Boolean));
+
+      // Upsert relations from snapshot
       for (const rel of def.relations || []) {
         if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
         const targetId = tableNameToId[rel.targetTable];
         if (!targetId) continue;
-        
-        const exist = await this.queryBuilder.findOneWhere('relation_definition', {
-          sourceTableId: tableId,
-          propertyName: rel.propertyName,
-        });
-        
-        if (!exist) {
+
+        const exist = existingRelMap.get(rel.propertyName);
+
+        if (exist) {
+          // Detect changes in relation metadata
+          const hasChanges =
+            exist.type !== rel.type ||
+            exist.targetTableId?.toString() !== targetId.toString() ||
+            exist.inversePropertyName !== (rel.inversePropertyName || null) ||
+            exist.isNullable !== (rel.isNullable !== false) ||
+            exist.isSystem !== (rel.isSystem || false) ||
+            exist.description !== (rel.description || null);
+
+          if (hasChanges) {
+            await this.queryBuilder.update({
+              table: 'relation_definition',
+              where: [{ field: '_id', operator: '=', value: exist._id }],
+              data: {
+                type: rel.type,
+                targetTableId: targetId,
+                inversePropertyName: rel.inversePropertyName || null,
+                isNullable: rel.isNullable !== false,
+                isSystem: rel.isSystem || false,
+                description: rel.description || null,
+              }
+            });
+            this.logger.log(`🔄 Updated relation ${rel.propertyName} for ${name}`);
+          }
+        } else {
+          // Insert new relation
           await this.queryBuilder.insertAndGet('relation_definition', {
             propertyName: rel.propertyName,
             type: rel.type,
-            inversePropertyName: rel.inversePropertyName,
+            inversePropertyName: rel.inversePropertyName || null,
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
-            description: rel.description,
+            description: rel.description || null,
             sourceTableId: tableId,
             targetTableId: targetId,
           });
-          this.logger.log(`📌 Added relation ${rel.propertyName} for ${name}`);
+          this.logger.log(`✅ Created relation ${rel.propertyName} for ${name}`);
+        }
+      }
+
+      // Delete orphaned relations (exist in DB but not in snapshot)
+      for (const existingRel of existingRelations) {
+        if (!snapshotRelNames.has(existingRel.propertyName)) {
+          await this.queryBuilder.delete({
+            table: 'relation_definition',
+            where: [{ field: '_id', operator: '=', value: existingRel._id }]
+          });
+          this.logger.log(`🗑️ Deleted orphaned relation ${existingRel.propertyName} from ${name}`);
         }
       }
     }
-    
+
     this.logger.log('🎉 MongoDB metadata creation completed!');
   }
 }

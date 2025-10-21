@@ -93,47 +93,129 @@ export class QueryBuilderService {
    * Convert unified WHERE conditions to MongoDB filter
    */
   private whereToMongoFilter(conditions: WhereCondition[]): any {
+    const { ObjectId } = require('mongodb');
     const filter: any = {};
-    
+
     for (const condition of conditions) {
+      // MongoDB field name normalization:
+      // - 'id' -> '_id' (MongoDB primary key)
+      // - 'sourceTableId' -> 'sourceTable' (relation field in relation_definition)
+      // - 'targetTableId' -> 'targetTable' (relation field in relation_definition)
+      let fieldName = condition.field;
+      let fieldValue = condition.value;
+
+      if (fieldName === 'id') {
+        fieldName = '_id';
+        // Convert string ID to ObjectId for MongoDB
+        if (typeof fieldValue === 'string' && fieldValue.length === 24) {
+          fieldValue = new ObjectId(fieldValue);
+        }
+        console.log(`[WHERE-TO-MONGO] Converting 'id' to '_id' for condition:`, condition);
+      } else if (fieldName === 'sourceTableId') {
+        fieldName = 'sourceTable';
+        // Convert string ID to ObjectId for MongoDB relation fields
+        if (typeof fieldValue === 'string' && fieldValue.length === 24) {
+          fieldValue = new ObjectId(fieldValue);
+        }
+        console.log(`[WHERE-TO-MONGO] Converting 'sourceTableId' to 'sourceTable' for condition:`, condition, '-> ObjectId');
+      } else if (fieldName === 'targetTableId') {
+        fieldName = 'targetTable';
+        // Convert string ID to ObjectId for MongoDB relation fields
+        if (typeof fieldValue === 'string' && fieldValue.length === 24) {
+          fieldValue = new ObjectId(fieldValue);
+        }
+        console.log(`[WHERE-TO-MONGO] Converting 'targetTableId' to 'targetTable' for condition:`, condition);
+      }
+
       switch (condition.operator) {
         case '=':
-          filter[condition.field] = condition.value;
+          filter[fieldName] = fieldValue;
           break;
         case '!=':
-          filter[condition.field] = { $ne: condition.value };
+          filter[fieldName] = { $ne: fieldValue };
           break;
         case '>':
-          filter[condition.field] = { $gt: condition.value };
+          filter[fieldName] = { $gt: fieldValue };
           break;
         case '<':
-          filter[condition.field] = { $lt: condition.value };
+          filter[fieldName] = { $lt: fieldValue };
           break;
         case '>=':
-          filter[condition.field] = { $gte: condition.value };
+          filter[fieldName] = { $gte: fieldValue };
           break;
         case '<=':
-          filter[condition.field] = { $lte: condition.value };
+          filter[fieldName] = { $lte: fieldValue };
           break;
         case 'like':
-          filter[condition.field] = { $regex: condition.value.replace(/%/g, '.*') };
+          filter[fieldName] = { $regex: fieldValue.replace(/%/g, '.*') };
           break;
         case 'in':
-          filter[condition.field] = { $in: condition.value };
+          filter[fieldName] = { $in: fieldValue };
           break;
         case 'not in':
-          filter[condition.field] = { $nin: condition.value };
+          filter[fieldName] = { $nin: fieldValue };
           break;
         case 'is null':
-          filter[condition.field] = null;
+          filter[fieldName] = null;
           break;
         case 'is not null':
-          filter[condition.field] = { $ne: null };
+          filter[fieldName] = { $ne: null };
           break;
       }
     }
     
     return filter;
+  }
+
+  /**
+   * Expand MongoDB nested wildcard fields to $lookup joins
+   * Example: 'mainTable.*' -> { table: 'table_definition', on: { local: 'mainTable', foreign: '_id' } }
+   */
+  private async expandMongoNestedFields(tableName: string, fields: string[]): Promise<any[]> {
+    const joins: any[] = [];
+    const metadata = await this.metadataCache.getTableMetadata(tableName);
+
+    console.log(`[EXPAND-MONGO] Table: ${tableName}, Fields:`, fields);
+    console.log(`[EXPAND-MONGO] Metadata relations:`, metadata?.relations?.map((r: any) => r.propertyName));
+
+    if (!metadata) {
+      console.log(`[EXPAND-MONGO] No metadata found`);
+      return joins;
+    }
+
+    for (const field of fields) {
+      if (!field.includes('.') || !field.includes('*')) {
+        continue; // Not a nested wildcard
+      }
+
+      // Extract relation name from 'relationName.*'
+      const relationName = field.split('.')[0];
+      const relation = metadata.relations?.find((r: any) => r.propertyName === relationName);
+
+      console.log(`[EXPAND-MONGO] Field: ${field}, RelName: ${relationName}, Found: ${!!relation}`);
+
+      if (!relation) {
+        continue; // Relation not found
+      }
+
+      console.log(`[EXPAND-MONGO] Relation object:`, JSON.stringify(relation, null, 2));
+      console.log(`[EXPAND-MONGO] relation.targetTableName =`, relation.targetTableName);
+      console.log(`[EXPAND-MONGO] relation.targetTable =`, relation.targetTable);
+
+      // Build MongoDB $lookup join
+      const join = {
+        table: relation.targetTableName,
+        on: {
+          local: relationName,
+          foreign: '_id',
+        },
+      };
+      console.log(`[EXPAND-MONGO] Adding join:`, join);
+      joins.push(join);
+    }
+
+    console.log(`[EXPAND-MONGO] Total joins: ${joins.length}`);
+    return joins;
   }
 
   /**
@@ -476,6 +558,7 @@ export class QueryBuilderService {
     debugMode?: boolean;
     pipeline?: any[]; // MongoDB aggregation pipeline (MongoDB only)
   }): Promise<any> {
+
     // For SQL databases, delegate to sqlExecutor
     if (this.dbType !== 'mongodb') {
       return this.sqlExecutor(options);
@@ -589,15 +672,40 @@ export class QueryBuilderService {
    * @private
    */
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
-    // Auto-expand `fields` into `join` + `select` if provided
-    if (options.fields && options.fields.length > 0) {
-      const expanded = await this.expandFields(options.table, options.fields);
-      options.join = [...(options.join || []), ...expanded.joins];
-      options.select = [...(options.select || []), ...expanded.select];
+    // Handle field expansion differently for SQL vs MongoDB
+    if (this.dbType !== 'mongodb') {
+      // SQL: Auto-expand `fields` into `join` + `select` using SQL subqueries
+      if (options.fields && options.fields.length > 0) {
+        const expanded = await this.expandFields(options.table, options.fields);
+        options.join = [...(options.join || []), ...expanded.joins];
+        options.select = [...(options.select || []), ...expanded.select];
+      }
+    } else {
+      // MongoDB: Expand nested wildcard fields to $lookup pipeline
+      if (options.fields && options.fields.length > 0) {
+        const hasNestedWildcard = options.fields.some(f => f.includes('.') && f.includes('*'));
+        console.log(`[SELECT-LEGACY-MONGO] Fields:`, options.fields);
+        console.log(`[SELECT-LEGACY-MONGO] hasNestedWildcard:`, hasNestedWildcard);
+
+        if (hasNestedWildcard) {
+          // Build MongoDB-specific joins for nested wildcards
+          console.log(`[SELECT-LEGACY] Calling expandMongoNestedFields...`);
+          const mongoJoins = await this.expandMongoNestedFields(options.table, options.fields);
+          console.log(`[SELECT-LEGACY] Got mongoJoins:`, mongoJoins);
+          options.join = mongoJoins;
+          options.select = options.fields;
+          console.log(`[SELECT-LEGACY] Set options.join for MongoDB:`, options.join);
+        } else {
+          options.select = options.fields;
+        }
+      }
     }
 
-    // Auto-prefix table name to where conditions if not already qualified
-    if (options.where) {
+    console.log(`[SELECT-LEGACY] After field expansion, options.join:`, options.join);
+
+    // Auto-prefix table name to where conditions (SQL only)
+    // MongoDB: Fields don't have table prefixes in documents
+    if (this.dbType !== 'mongodb' && options.where) {
       options.where = options.where.map(condition => {
         if (!condition.field.includes('.')) {
           return {
@@ -609,8 +717,9 @@ export class QueryBuilderService {
       });
     }
 
-    // Auto-prefix table name to sort fields if not already qualified
-    if (options.sort) {
+    // Auto-prefix table name to sort fields (SQL only)
+    // MongoDB: Fields don't have table prefixes in documents
+    if (this.dbType !== 'mongodb' && options.sort) {
       options.sort = options.sort.map(sortOpt => {
         if (!sortOpt.field.includes('.')) {
           return {
@@ -623,6 +732,7 @@ export class QueryBuilderService {
     }
 
     if (this.dbType === 'mongodb') {
+
       const collection = this.mongoService.collection(options.table);
 
       // Use custom pipeline if provided (e.g., from MongoQueryEngine)
@@ -632,7 +742,9 @@ export class QueryBuilderService {
       }
 
       // Use aggregation pipeline if joins are present
+      console.log(`[MONGO-EXEC] Checking joins:`, options.join);
       if (options.join && options.join.length > 0) {
+        console.log(`[MONGO-EXEC] Using aggregation pipeline with ${options.join.length} joins`);
         const pipeline: any[] = [];
 
         // $match stage
@@ -645,11 +757,14 @@ export class QueryBuilderService {
         for (const joinOpt of options.join) {
           // Extract base table name (remove alias)
           const tableName = joinOpt.table.split(' as ')[0];
-          const alias = joinOpt.table.includes(' as ') ? joinOpt.table.split(' as ')[1] : tableName;
 
           // Extract field names from dot notation
           const localField = joinOpt.on.local.split('.').pop();
           const foreignField = joinOpt.on.foreign.split('.').pop();
+
+          // Use localField as alias (e.g., 'mainTable' not 'table_definition')
+          // This ensures the populated object replaces the original field
+          const alias = localField;
 
           pipeline.push({
             $lookup: {
@@ -670,10 +785,14 @@ export class QueryBuilderService {
         }
 
         // $project stage for select fields
-        if (options.select) {
+        // Skip projection if wildcard '*' is present (select all fields)
+        const hasRootWildcard = options.select?.some(f => f === '*');
+
+        if (options.select && !hasRootWildcard) {
           const projection: any = {};
           for (const field of options.select) {
             if (field.includes('.*')) {
+              // Keep nested object: 'mainTable.*' -> include all mainTable fields
               projection[field.replace('.*', '')] = 1;
             } else if (field.includes(' as ')) {
               const [source, alias] = field.split(' as ');
@@ -711,11 +830,18 @@ export class QueryBuilderService {
       let cursor = collection.find(filter);
 
       if (options.select) {
-        const projection: any = {};
-        for (const field of options.select) {
-          projection[field] = 1;
+        // MongoDB: Skip projection if wildcard '*' is present (means select all)
+        // Also skip nested wildcards like 'mainTable.*' for simple queries
+        const hasWildcard = options.select.some(f => f === '*' || f.includes('.*'));
+
+        if (!hasWildcard) {
+          const projection: any = {};
+          for (const field of options.select) {
+            projection[field] = 1;
+          }
+          cursor = cursor.project(projection);
+        } else {
         }
-        cursor = cursor.project(projection);
       }
 
       if (options.sort) {

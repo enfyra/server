@@ -561,33 +561,39 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
   private mapDocument(doc: any, tableName?: string): any {
     if (!doc) return doc;
-    
+
     // Recursively convert ObjectId and Date to proper JSON types
-    const convertTypes = (obj: any): any => {
+    const convertTypes = (obj: any, isRoot: boolean = false): any => {
       if (obj instanceof ObjectId) {
         return obj.toString();
       }
-      
+
       if (obj instanceof Date) {
         return obj.toISOString();
       }
-      
+
       if (Array.isArray(obj)) {
-        return obj.map(item => convertTypes(item));
+        return obj.map(item => convertTypes(item, false));
       }
-      
+
       if (obj !== null && typeof obj === 'object') {
         const converted: any = {};
         for (const [key, value] of Object.entries(obj)) {
-          converted[key] = convertTypes(value);
+          // Normalize MongoDB _id to id for SQL compatibility
+          if (key === '_id' && isRoot) {
+            converted['id'] = convertTypes(value, false);
+            converted['_id'] = convertTypes(value, false);
+          } else {
+            converted[key] = convertTypes(value, false);
+          }
         }
         return converted;
       }
-      
+
       return obj;
     };
-    
-    return convertTypes(doc);
+
+    return convertTypes(doc, true);
   }
 
   private extractDbName(uri: string): string {

@@ -145,7 +145,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
       req.routeData = {
         ...route,
         handler:
-          route.handlers.find((handler) => handler.method?.method === method)
+          route.handlers?.find((handler) => handler.method?.method === method)
             ?.logic ?? null,
         params,
         hooks: filteredHooks,

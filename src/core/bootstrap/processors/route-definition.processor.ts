@@ -21,32 +21,33 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         if (record.mainTable) {
           if (isMongoDB) {
             // MongoDB: Store mainTable as ObjectId
-            const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
-              name: record.mainTable,
-            });
-            
+            // IMPORTANT: Use raw MongoDB query (no metadata expansion during bootstrap)
+            const db = this.queryBuilder.getConnection();
+            const mainTable = await db.collection('table_definition')
+              .findOne({ name: record.mainTable });
+
             if (!mainTable) {
               this.logger.warn(
                 `⚠️ Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            transformedRecord.mainTable = typeof mainTable._id === 'string' 
-              ? new ObjectId(mainTable._id) 
+            transformedRecord.mainTable = typeof mainTable._id === 'string'
+              ? new ObjectId(mainTable._id)
               : mainTable._id;
           } else {
             // SQL: Convert mainTable name to mainTableId (foreign key)
             const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
               name: record.mainTable,
             });
-            
+
             if (!mainTable) {
               this.logger.warn(
                 `⚠️ Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            
+
             transformedRecord.mainTableId = mainTable.id;
             delete transformedRecord.mainTable;
           }
@@ -56,14 +57,14 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
           if (isMongoDB) {
             // MongoDB: Convert method names to method IDs (array of ObjectIds)
-            const result = await this.queryBuilder.select({
-              tableName: 'method_definition',
-              filter: { method: { _in: record.publishedMethods } },
-              fields: ['_id', 'method'],
-            });
-            const methods = result.data;
-            
-            transformedRecord.publishedMethods = methods.map((m: any) => 
+            // IMPORTANT: Use raw MongoDB query (no metadata expansion during bootstrap)
+            const db = this.queryBuilder.getConnection();
+            const methods = await db.collection('method_definition')
+              .find({ method: { $in: record.publishedMethods } })
+              .project({ _id: 1, method: 1 })
+              .toArray();
+
+            transformedRecord.publishedMethods = methods.map((m: any) =>
               typeof m._id === 'string' ? new ObjectId(m._id) : m._id
             );
           } else {

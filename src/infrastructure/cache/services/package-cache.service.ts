@@ -148,8 +148,31 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
   }
 
   private async loadPackages(): Promise<string[]> {
-    // IMPORTANT: Use raw Knex query instead of queryBuilder.select()
+    // IMPORTANT: Use unified query methods instead of direct DB access
     // Reason: Metadata may not be loaded yet during bootstrap
+    const dbType = this.queryBuilder.getDbType();
+
+    if (dbType === 'mongodb') {
+      // MongoDB: Use MongoService directly
+      const collection = this.queryBuilder.getConnection().collection('package_definition');
+
+      // Check if collection exists first
+      const collections = await this.queryBuilder.getConnection().listCollections({ name: 'package_definition' }).toArray();
+      if (collections.length === 0) {
+        this.logger.warn('⚠️ package_definition collection does not exist yet, skipping package cache load');
+        return [];
+      }
+
+      // Load packages using MongoDB native query
+      const packages = await collection.find({
+        isEnabled: true,
+        type: 'Backend'
+      }).toArray();
+
+      return packages.map((p: any) => p.name);
+    }
+
+    // SQL: Use raw Knex query
     const knex = this.queryBuilder.getKnex();
 
     // Check if table exists first

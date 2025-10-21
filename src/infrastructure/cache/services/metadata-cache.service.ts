@@ -119,14 +119,25 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     const tablesList: any[] = [];
     const tablesMap = new Map<string, any>();
 
+    const dbType = this.queryBuilder.getDbType();
+
     for (const table of tables) {
       try {
-        // Get actual schema from database
-        const actualSchema = await this.databaseSchemaService.getActualTableSchema(table.name);
+        // Get actual schema from database (SQL only)
+        let actualSchema = null;
 
-        if (!actualSchema) {
-          this.logger.warn(`⚠️  Table ${table.name} not found in database, skipping...`);
-          continue;
+        if (dbType === 'mongodb') {
+          // MongoDB: No need to query physical schema (no INFORMATION_SCHEMA)
+          // Rely 100% on metadata tables
+          actualSchema = { name: table.name, columns: [] };
+        } else {
+          // SQL: Query physical schema from INFORMATION_SCHEMA
+          actualSchema = await this.databaseSchemaService.getActualTableSchema(table.name);
+
+          if (!actualSchema) {
+            this.logger.warn(`⚠️  Table ${table.name} not found in database, skipping...`);
+            continue;
+          }
         }
 
         // Parse JSON fields from metadata
@@ -188,11 +199,14 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         });
 
         // Get relations from metadata
+        // MongoDB: Relations use 'sourceTable' field, SQL: 'sourceTableId' field
+        // But table.id is now normalized from _id, so this should work
         const relationsResult = await this.queryBuilder.select({
           tableName: 'relation_definition',
           filter: { sourceTableId: { _eq: table.id } }
         });
         const relationsData = relationsResult.data;
+        console.log(`[META-CACHE-REL] Table ${table.name} (id: ${table.id}): found ${relationsData.length} relations`);
 
         // Parse relations
         const relations: any[] = [];
@@ -206,53 +220,71 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
 
           // Get target table name
+          // MongoDB: Field is 'targetTable' (ObjectId), SQL: Field is 'targetTableId' (integer)
+          const targetIdValue = rel.targetTableId || rel.targetTable;
+          console.log(`[META-CACHE] Looking up target table for relation ${rel.propertyName}, targetId:`, targetIdValue);
           const targetTableResult = await this.queryBuilder.select({
             tableName: 'table_definition',
-            filter: { id: { _eq: rel.targetTableId } }
+            filter: { id: { _eq: targetIdValue } }
           });
           const targetTable = targetTableResult.data;
+          console.log(`[META-CACHE] Found ${targetTable.length} target tables:`, targetTable.map((t: any) => t.name));
+
+          const resolvedTargetTableName = targetTable[0]?.name || rel.targetTableName;
+          console.log(`[META-CACHE] Relation ${rel.propertyName}: targetTableName = ${resolvedTargetTableName}`);
 
           const relationMetadata: any = {
             ...rel,
             sourceTableName: table.name,
-            targetTableName: targetTable[0]?.name || rel.targetTableName,
+            targetTableName: resolvedTargetTableName,
           };
 
-          // Mark inverse relations
-          // O2M is ALWAYS inverse from this table's perspective (FK is on the other side)
-          // M2M with mappedBy is inverse (the other side owns the relation)
-          if (rel.type === 'one-to-many') {
-            relationMetadata.isInverse = true;
-          } else if (rel.type === 'many-to-many' && rel.mappedBy) {
-            relationMetadata.isInverse = true;
-          } else {
-            relationMetadata.isInverse = false;
-          }
-
-          if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-            relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
-          }
-
-          if (rel.type === 'one-to-many') {
-            // For O2M, FK is on the target table
-            // O2M naming convention: FK column = {inversePropertyName}Id
-            if (!rel.inversePropertyName) {
-              this.logger.error(`❌ O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
-              throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`);
+          // SQL-specific: Add FK column names and junction table metadata
+          // MongoDB: Skip all SQL-specific naming conventions
+          if (dbType !== 'mongodb') {
+            // Mark inverse relations
+            // O2M is ALWAYS inverse from this table's perspective (FK is on the other side)
+            // M2M with mappedBy is inverse (the other side owns the relation)
+            if (rel.type === 'one-to-many') {
+              relationMetadata.isInverse = true;
+            } else if (rel.type === 'many-to-many' && rel.mappedBy) {
+              relationMetadata.isInverse = true;
+            } else {
+              relationMetadata.isInverse = false;
             }
 
-            relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.inversePropertyName);
-          }
+            if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+              relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
+            }
 
-          if (rel.type === 'many-to-many') {
-            // Ensure junction metadata is complete
-            relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
-            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
-            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
+            if (rel.type === 'one-to-many') {
+              // For O2M, FK is on the target table
+              // O2M naming convention: FK column = {inversePropertyName}Id
+              if (!rel.inversePropertyName) {
+                this.logger.error(`❌ O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
+                throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`);
+              }
+
+              relationMetadata.foreignKeyColumn = getForeignKeyColumnName(rel.inversePropertyName);
+            }
+
+            if (rel.type === 'many-to-many') {
+              // Ensure junction metadata is complete
+              relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
+              const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
+              relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
+              relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
+            }
           }
 
           relations.push(relationMetadata);
+          if (rel.propertyName === 'mainTable') {
+            console.log(`[META-CACHE-PUSH] Pushed mainTable relation:`, JSON.stringify({
+              propertyName: relationMetadata.propertyName,
+              targetTable: relationMetadata.targetTable,
+              targetTableName: relationMetadata.targetTableName
+            }));
+          }
         }
 
         // Combine actual schema columns with explicit metadata columns
@@ -324,6 +356,19 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         tablesList.push(metadata);
         tablesMap.set(table.name, metadata);
 
+        // Debug: Log full metadata for route_definition
+        if (table.name === 'route_definition') {
+          console.log(`[META-STORED] route_definition metadata:`, JSON.stringify({
+            name: metadata.name,
+            relations: metadata.relations.map((r: any) => ({
+              propertyName: r.propertyName,
+              type: r.type,
+              targetTable: r.targetTable,
+              targetTableName: r.targetTableName,
+            }))
+          }, null, 2));
+        }
+
       } catch (error) {
         this.logger.error(`Failed to load metadata for table ${table.name}:`, error.message);
       }
@@ -331,6 +376,19 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
     // Generate inverse relations (for consistency)
     this.generateInverseRelations(tablesList, tablesMap);
+
+    // Debug: Log metadata after inverse relations
+    const routeDefAfterInverse = tablesMap.get('route_definition');
+    if (routeDefAfterInverse) {
+      console.log(`[META-AFTER-INVERSE] route_definition has ${routeDefAfterInverse.relations.length} relations:`, JSON.stringify({
+        relations: routeDefAfterInverse.relations.map((r: any) => ({
+          propertyName: r.propertyName,
+          type: r.type,
+          targetTable: r.targetTable,
+          targetTableName: r.targetTableName,
+        }))
+      }, null, 2));
+    }
 
     const result = {
       tables: tablesMap,
@@ -532,7 +590,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
    */
   async getTableMetadata(tableName: string): Promise<any | null> {
     const metadata = await this.getMetadata();
-    return metadata.tables.get(tableName) || null;
+    const table = metadata.tables.get(tableName) || null;
+    if (table && tableName === 'route_definition') {
+      console.log(`[GET-TABLE-META] ${tableName} has ${table.relations?.length || 0} relations:`, table.relations?.map((r: any) => r.propertyName));
+    }
+    return table;
   }
 
   /**
