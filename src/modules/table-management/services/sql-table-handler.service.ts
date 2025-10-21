@@ -712,39 +712,34 @@ export class SqlTableHandlerService {
             const sourceTable = await trx('table_definition')
               .where({ id: rel.sourceTableId })
               .first();
-            
+
             if (sourceTable) {
               const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
               const fkColumn = getForeignKeyColumnName(tableName); // FK column name in source table
-              
+
               this.logger.log(`🗑️ Dropping FK column ${fkColumn} from table ${sourceTable.name}`);
-              
+
               // Check if column exists before dropping
               const columnExists = await trx.schema.hasColumn(sourceTable.name, fkColumn);
               if (columnExists) {
-                // Drop FK constraint first
+                // Drop FK constraint and column using schema builder (database-agnostic)
                 try {
-                  const fkConstraints = await trx.raw(`
-                    SELECT CONSTRAINT_NAME 
-                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
-                    WHERE TABLE_SCHEMA = DATABASE() 
-                    AND TABLE_NAME = ? 
-                    AND COLUMN_NAME = ? 
-                    AND REFERENCED_TABLE_NAME IS NOT NULL
-                  `, [sourceTable.name, fkColumn]);
-                  
-                  if (fkConstraints[0] && fkConstraints[0].length > 0) {
-                    const actualFkName = fkConstraints[0][0].CONSTRAINT_NAME;
-                    await trx.raw(`ALTER TABLE \`${sourceTable.name}\` DROP FOREIGN KEY \`${actualFkName}\``);
-                    this.logger.log(`🗑️ Dropped FK constraint: ${actualFkName}`);
-                  }
+                  await trx.schema.alterTable(sourceTable.name, (table) => {
+                    table.dropForeign([fkColumn]);
+                  });
+                  this.logger.log(`🗑️ Dropped FK constraint for column: ${fkColumn}`);
                 } catch (error) {
                   this.logger.log(`⚠️ Error dropping FK constraint: ${error.message}`);
                 }
-                
-                // Drop FK column
-                await trx.raw(`ALTER TABLE \`${sourceTable.name}\` DROP COLUMN \`${fkColumn}\``);
-                this.logger.log(`🗑️ Dropped FK column: ${fkColumn} from ${sourceTable.name}`);
+
+                try {
+                  await trx.schema.alterTable(sourceTable.name, (table) => {
+                    table.dropColumn(fkColumn);
+                  });
+                  this.logger.log(`🗑️ Dropped FK column: ${fkColumn} from ${sourceTable.name}`);
+                } catch (error) {
+                  this.logger.log(`⚠️ Error dropping FK column: ${error.message}`);
+                }
               }
             }
           }
@@ -753,34 +748,80 @@ export class SqlTableHandlerService {
         // 4. CRITICAL: Drop ALL FK constraints referencing this table (from actual DB schema)
         // This handles cases where FK columns exist but metadata is missing
         this.logger.log(`🗑️ Checking for ALL FK constraints referencing table ${tableName}...`);
-        
+
         try {
-          const allFkConstraints = await trx.raw(`
-            SELECT 
-              TABLE_NAME,
-              COLUMN_NAME,
-              CONSTRAINT_NAME,
-              REFERENCED_TABLE_NAME,
-              REFERENCED_COLUMN_NAME
-            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
-            WHERE TABLE_SCHEMA = DATABASE() 
-            AND REFERENCED_TABLE_NAME = ?
-            AND REFERENCED_COLUMN_NAME IS NOT NULL
-          `, [tableName]);
-          
-          if (allFkConstraints[0] && allFkConstraints[0].length > 0) {
-            this.logger.log(`🗑️ Found ${allFkConstraints[0].length} FK constraints referencing ${tableName}`);
-            
-            for (const fk of allFkConstraints[0]) {
-              this.logger.log(`🗑️ Dropping FK constraint: ${fk.CONSTRAINT_NAME} from ${fk.TABLE_NAME}.${fk.COLUMN_NAME}`);
-              
-              // Drop FK constraint
-              await trx.raw(`ALTER TABLE \`${fk.TABLE_NAME}\` DROP FOREIGN KEY \`${fk.CONSTRAINT_NAME}\``);
-              this.logger.log(`🗑️ Dropped FK constraint: ${fk.CONSTRAINT_NAME}`);
-              
-              // Drop FK column
-              await trx.raw(`ALTER TABLE \`${fk.TABLE_NAME}\` DROP COLUMN \`${fk.COLUMN_NAME}\``);
-              this.logger.log(`🗑️ Dropped FK column: ${fk.COLUMN_NAME} from ${fk.TABLE_NAME}`);
+          const dbType = this.queryBuilder.getDatabaseType();
+          let allFkConstraints;
+
+          if (dbType === 'postgres') {
+            // PostgreSQL query for FK constraints
+            // Use lowercase column names in result to avoid case sensitivity issues
+            const result = await trx.raw(`
+              SELECT
+                tc.table_name,
+                kcu.column_name,
+                tc.constraint_name,
+                ccu.table_name AS referenced_table_name,
+                ccu.column_name AS referenced_column_name
+              FROM information_schema.table_constraints AS tc
+              JOIN information_schema.key_column_usage AS kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+              JOIN information_schema.constraint_column_usage AS ccu
+                ON ccu.constraint_name = tc.constraint_name
+                AND ccu.table_schema = tc.table_schema
+              WHERE tc.constraint_type = 'FOREIGN KEY'
+                AND tc.table_schema = 'public'
+                AND ccu.table_name = ?
+            `, [tableName]);
+
+            // PostgreSQL returns lowercase column names by default
+            allFkConstraints = result.rows || [];
+          } else {
+            // MySQL query for FK constraints
+            const result = await trx.raw(`
+              SELECT
+                TABLE_NAME as table_name,
+                COLUMN_NAME as column_name,
+                CONSTRAINT_NAME as constraint_name,
+                REFERENCED_TABLE_NAME as referenced_table_name,
+                REFERENCED_COLUMN_NAME as referenced_column_name
+              FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+              WHERE TABLE_SCHEMA = DATABASE()
+              AND REFERENCED_TABLE_NAME = ?
+              AND REFERENCED_COLUMN_NAME IS NOT NULL
+            `, [tableName]);
+
+            allFkConstraints = result[0] || [];
+          }
+
+          if (allFkConstraints && allFkConstraints.length > 0) {
+            this.logger.log(`🗑️ Found ${allFkConstraints.length} FK constraints referencing ${tableName}`);
+
+            for (const fk of allFkConstraints) {
+              this.logger.log(`🗑️ Dropping FK constraint: ${fk.constraint_name} from ${fk.table_name}.${fk.column_name}`);
+
+              try {
+                // Drop FK constraint using schema builder (database-agnostic)
+                await trx.schema.alterTable(fk.table_name, (table: any) => {
+                  table.dropForeign([fk.column_name]);
+                });
+                this.logger.log(`🗑️ Dropped FK constraint: ${fk.constraint_name}`);
+              } catch (error) {
+                this.logger.log(`⚠️ Error dropping FK constraint: ${error.message}`);
+                // Don't rethrow - continue with other constraints
+              }
+
+              try {
+                // Drop FK column using schema builder (database-agnostic)
+                await trx.schema.alterTable(fk.table_name, (table: any) => {
+                  table.dropColumn(fk.column_name);
+                });
+                this.logger.log(`🗑️ Dropped FK column: ${fk.column_name} from ${fk.table_name}`);
+              } catch (error) {
+                this.logger.log(`⚠️ Error dropping FK column: ${error.message}`);
+                // Don't rethrow - continue with other constraints
+              }
             }
           } else {
             this.logger.log(`🗑️ No FK constraints found referencing ${tableName}`);
@@ -807,7 +848,8 @@ export class SqlTableHandlerService {
 
         // Drop physical table and junction tables INSIDE transaction (before commit)
         // Pass relations so schema migration can drop M2M junction tables
-        await this.schemaMigrationService.dropTable(tableName, allRelations);
+        // Pass transaction to avoid issues with transaction isolation
+        await this.schemaMigrationService.dropTable(tableName, allRelations, trx);
 
         // Commit transaction AFTER physical schema migration succeeds
         await trx.commit();
