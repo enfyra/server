@@ -20,6 +20,7 @@ export interface JoinOption {
     local: string;
     foreign: string;
   };
+  relationType?: 'one-to-one' | 'many-to-one' | 'one-to-many' | 'many-to-many'; // MongoDB relation type for proper $lookup handling
 }
 
 export interface QueryOptions {

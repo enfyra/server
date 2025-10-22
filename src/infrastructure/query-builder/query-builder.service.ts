@@ -195,6 +195,7 @@ export class QueryBuilderService {
           local: relationName,
           foreign: '_id',
         },
+        relationType: relation.type, // Pass relation type for proper $lookup handling
       });
     }
 
@@ -339,6 +340,9 @@ export class QueryBuilderService {
           // This ensures the populated object replaces the original field
           const alias = localField;
 
+          const relationType = joinOpt.relationType;
+          const isArrayRelation = relationType === 'one-to-many' || relationType === 'many-to-many';
+
           pipeline.push({
             $lookup: {
               from: tableName,
@@ -348,13 +352,16 @@ export class QueryBuilderService {
             },
           });
 
-          // Unwind array to single object (for left join behavior)
-          pipeline.push({
-            $unwind: {
-              path: `$${alias}`,
-              preserveNullAndEmptyArrays: true,
-            },
-          });
+          // Only unwind for single-object relations (many-to-one, one-to-one)
+          // Keep array for one-to-many and many-to-many
+          if (!isArrayRelation) {
+            pipeline.push({
+              $unwind: {
+                path: `$${alias}`,
+                preserveNullAndEmptyArrays: true,
+              },
+            });
+          }
         }
 
         // $project stage for select fields

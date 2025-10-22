@@ -579,13 +579,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       if (obj !== null && typeof obj === 'object') {
         const converted: any = {};
         for (const [key, value] of Object.entries(obj)) {
-          // Normalize MongoDB _id to id for SQL compatibility
-          if (key === '_id' && isRoot) {
-            converted['id'] = convertTypes(value, false);
-            converted['_id'] = convertTypes(value, false);
-          } else {
-            converted[key] = convertTypes(value, false);
-          }
+          // Just convert types, no field name mapping
+          converted[key] = convertTypes(value, false);
         }
         return converted;
       }

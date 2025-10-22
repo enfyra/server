@@ -464,7 +464,8 @@ export class CoreInitService {
       if (!tableId) continue;
 
       // Get all existing columns for this table
-      const existingColumns = await this.queryBuilder.findWhere('column_definition', { tableId });
+      // MongoDB uses 'table' field, not 'tableId'
+      const existingColumns = await this.queryBuilder.findWhere('column_definition', { table: tableId });
       const existingColMap = new Map(existingColumns.map((c: any) => [c.name, c]));
       const snapshotColNames = new Set((def.columns || []).map((c: any) => c.name));
 
@@ -522,7 +523,7 @@ export class CoreInitService {
             options: snapshotCol.options || null,
             description: snapshotCol.description || null,
             placeholder: snapshotCol.placeholder || null,
-            tableId: tableId,
+            table: tableId, // MongoDB uses 'table' field
           });
           this.logger.log(`✅ Created column ${snapshotCol.name} for ${name}`);
         }
@@ -548,7 +549,8 @@ export class CoreInitService {
       if (!tableId) continue;
 
       // Get all existing relations for this table
-      const existingRelations = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: tableId });
+      // MongoDB uses 'sourceTable' field, not 'sourceTableId'
+      const existingRelations = await this.queryBuilder.findWhere('relation_definition', { sourceTable: tableId });
       const existingRelMap = new Map(existingRelations.map((r: any) => [r.propertyName, r]));
       const snapshotRelNames = new Set((def.relations || []).map((r: any) => r.propertyName).filter(Boolean));
 
@@ -562,9 +564,11 @@ export class CoreInitService {
 
         if (exist) {
           // Detect changes in relation metadata
+          // MongoDB uses 'targetTable' field, not 'targetTableId'
+          const existingTargetId = exist.targetTable || exist.targetTableId;
           const hasChanges =
             exist.type !== rel.type ||
-            exist.targetTableId?.toString() !== targetId.toString() ||
+            existingTargetId?.toString() !== targetId.toString() ||
             exist.inversePropertyName !== (rel.inversePropertyName || null) ||
             exist.isNullable !== (rel.isNullable !== false) ||
             exist.isSystem !== (rel.isSystem || false) ||
@@ -576,7 +580,7 @@ export class CoreInitService {
               where: [{ field: '_id', operator: '=', value: exist._id }],
               data: {
                 type: rel.type,
-                targetTableId: targetId,
+                targetTable: targetId, // MongoDB uses 'targetTable'
                 inversePropertyName: rel.inversePropertyName || null,
                 isNullable: rel.isNullable !== false,
                 isSystem: rel.isSystem || false,
@@ -594,8 +598,8 @@ export class CoreInitService {
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
             description: rel.description || null,
-            sourceTableId: tableId,
-            targetTableId: targetId,
+            sourceTable: tableId, // MongoDB uses 'sourceTable'
+            targetTable: targetId, // MongoDB uses 'targetTable'
           });
           this.logger.log(`✅ Created relation ${rel.propertyName} for ${name}`);
         }
@@ -620,14 +624,16 @@ export class CoreInitService {
       if (!tableId) continue;
 
       // Get all columns for this table (just ObjectId references)
-      const columnsResult = await this.queryBuilder.findWhere('column_definition', { tableId });
+      // MongoDB uses 'table' field, not 'tableId'
+      const columnsResult = await this.queryBuilder.findWhere('column_definition', { table: tableId });
       const columns = columnsResult.map((col: any) => {
         // Ensure ObjectId type (QueryBuilder might return string)
         return typeof col._id === 'string' ? new ObjectId(col._id) : col._id;
       });
 
       // Get all relations for this table (just ObjectId references)
-      const relationsResult = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: tableId });
+      // MongoDB uses 'sourceTable' field, not 'sourceTableId'
+      const relationsResult = await this.queryBuilder.findWhere('relation_definition', { sourceTable: tableId });
       const relations = relationsResult.map((rel: any) => {
         // Ensure ObjectId type (QueryBuilder might return string)
         return typeof rel._id === 'string' ? new ObjectId(rel._id) : rel._id;
