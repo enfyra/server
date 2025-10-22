@@ -213,14 +213,22 @@ export class MongoTableHandlerService {
 
       body.isSystem = false;
 
+      // Normalize empty arrays to null
+      const normalizeArray = (arr: any): any => {
+        if (!arr || !Array.isArray(arr) || arr.length === 0) return null;
+        // Check if array contains only empty arrays like [[]]
+        if (arr.every((item: any) => Array.isArray(item) && item.length === 0)) return null;
+        return arr;
+      };
+
       // Insert table metadata
       const tableRecord = await this.queryBuilder.insertAndGet('table_definition', {
         name: body.name,
         isSystem: body.isSystem,
         alias: body.alias,
         description: body.description,
-        uniques: JSON.stringify(body.uniques || []),
-        indexes: JSON.stringify(body.indexes || []),
+        uniques: normalizeArray(body.uniques), // null if empty or [[]]
+        indexes: normalizeArray(body.indexes), // null if empty or [[]]
         columns: [], // Initialize empty array
         relations: [], // Initialize empty array
       });
@@ -430,13 +438,20 @@ export class MongoTableHandlerService {
 
       validateUniquePropertyNames(body.columns || [], body.relations || []);
 
+      // Normalize empty arrays to null
+      const normalizeArray = (arr: any): any => {
+        if (!arr || !Array.isArray(arr) || arr.length === 0) return null;
+        if (arr.every((item: any) => Array.isArray(item) && item.length === 0)) return null;
+        return arr;
+      };
+
       // Update table metadata
       await this.queryBuilder.updateById('table_definition', id, {
         name: body.name,
         alias: body.alias,
         description: body.description,
-        uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
-        indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
+        uniques: body.uniques !== undefined ? normalizeArray(body.uniques) : exists.uniques,
+        indexes: body.indexes !== undefined ? normalizeArray(body.indexes) : exists.indexes,
       });
 
       // Update columns
@@ -716,20 +731,26 @@ export class MongoTableHandlerService {
     const table = await this.queryBuilder.findOneWhere('table_definition', { _id: queryId });
     if (!table) return null;
 
-    // Parse JSON fields
+    // MongoDB stores uniques/indexes as native arrays, no need to parse
+    // Ensure they are arrays (backward compatibility for old string data)
     if (table.uniques && typeof table.uniques === 'string') {
       try {
         table.uniques = JSON.parse(table.uniques);
       } catch (e) {
         table.uniques = [];
       }
+    } else if (!Array.isArray(table.uniques)) {
+      table.uniques = [];
     }
+
     if (table.indexes && typeof table.indexes === 'string') {
       try {
         table.indexes = JSON.parse(table.indexes);
       } catch (e) {
         table.indexes = [];
       }
+    } else if (!Array.isArray(table.indexes)) {
+      table.indexes = [];
     }
 
     // Load columns (MongoDB uses 'table' field, not 'tableId')
