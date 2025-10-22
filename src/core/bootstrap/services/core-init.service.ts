@@ -471,7 +471,9 @@ export class CoreInitService {
 
       // Upsert columns from snapshot
       for (const snapshotCol of def.columns || []) {
-        const exist = existingColMap.get(snapshotCol.name);
+        // MongoDB: Convert 'id' to '_id' for lookup
+        const lookupName = snapshotCol.name === 'id' ? '_id' : snapshotCol.name;
+        const exist = existingColMap.get(lookupName);
 
         if (exist) {
           // Detect changes in column metadata
@@ -510,8 +512,11 @@ export class CoreInitService {
           }
         } else {
           // Insert new column
+          // MongoDB: Convert 'id' column to '_id'
+          const columnName = snapshotCol.name === 'id' ? '_id' : snapshotCol.name;
+
           await this.queryBuilder.insertAndGet('column_definition', {
-            name: snapshotCol.name,
+            name: columnName,
             type: snapshotCol.type,
             isPrimary: snapshotCol.isPrimary || false,
             isGenerated: snapshotCol.isGenerated || false,
@@ -525,7 +530,7 @@ export class CoreInitService {
             placeholder: snapshotCol.placeholder || null,
             table: tableId, // MongoDB uses 'table' field
           });
-          this.logger.log(`✅ Created column ${snapshotCol.name} for ${name}`);
+          this.logger.log(`✅ Created column ${columnName} for ${name}`);
         }
       }
 
