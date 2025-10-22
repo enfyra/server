@@ -203,12 +203,20 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
 
     const routes = result.data;
 
-    // Debug: Check all routes mainTable
+    // MongoDB: Manually populate mainTable relation (aggregation doesn't expand it)
     if (dbType === 'mongodb') {
-      this.logger.log(`🔍 Loaded ${routes.length} routes. Sample routes with mainTable:`);
-      routes.slice(0, 3).forEach((r: any) => {
-        this.logger.log(`  - ${r.path}: mainTable = ${typeof r.mainTable === 'object' ? JSON.stringify(r.mainTable) : r.mainTable}`);
-      });
+      for (const route of routes) {
+        if (route.mainTable && !route.mainTable.name) {
+          // mainTable is ObjectId (not populated yet), need to populate
+          const tableResult = await this.queryBuilder.select({
+            tableName: 'table_definition',
+            filter: { id: { _eq: route.mainTable } } // Use 'id' to trigger ObjectId conversion
+          });
+          if (tableResult.data && tableResult.data.length > 0) {
+            route.mainTable = tableResult.data[0];
+          }
+        }
+      }
     }
 
     // Get global hooks separately

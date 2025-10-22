@@ -209,6 +209,7 @@ export async function initializeDatabaseMongo(): Promise<void> {
       {
         $set: {
           isInit: false, // Bootstrap will set to true after metadata insertion
+          isSystem: true, // Required by validation schema
           createdAt: new Date(),
           updatedAt: new Date(),
         }

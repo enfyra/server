@@ -159,9 +159,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         }
 
         // Get explicit columns from metadata
+        // MongoDB uses _id, SQL uses id
+        const tableIdForColumns = dbType === 'mongodb' ? table._id : table.id;
         const columnsResult = await this.queryBuilder.select({
           tableName: 'column_definition',
-          filter: { tableId: { _eq: table.id } }
+          filter: { tableId: { _eq: tableIdForColumns } }
         });
         const explicitColumns = columnsResult.data;
 
@@ -199,14 +201,13 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         });
 
         // Get relations from metadata
-        // MongoDB: Relations use 'sourceTable' field, SQL: 'sourceTableId' field
-        // But table.id is now normalized from _id, so this should work
+        // MongoDB uses _id, SQL uses id
+        const tableIdValue = dbType === 'mongodb' ? table._id : table.id;
         const relationsResult = await this.queryBuilder.select({
           tableName: 'relation_definition',
-          filter: { sourceTableId: { _eq: table.id } }
+          filter: { sourceTableId: { _eq: tableIdValue } }
         });
         const relationsData = relationsResult.data;
-        console.log(`[META-CACHE-REL] Table ${table.name} (id: ${table.id}): found ${relationsData.length} relations`);
 
         // Parse relations
         const relations: any[] = [];
@@ -222,16 +223,13 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           // Get target table name
           // MongoDB: Field is 'targetTable' (ObjectId), SQL: Field is 'targetTableId' (integer)
           const targetIdValue = rel.targetTableId || rel.targetTable;
-          console.log(`[META-CACHE] Looking up target table for relation ${rel.propertyName}, targetId:`, targetIdValue);
           const targetTableResult = await this.queryBuilder.select({
             tableName: 'table_definition',
             filter: { id: { _eq: targetIdValue } }
           });
           const targetTable = targetTableResult.data;
-          console.log(`[META-CACHE] Found ${targetTable.length} target tables:`, targetTable.map((t: any) => t.name));
 
           const resolvedTargetTableName = targetTable[0]?.name || rel.targetTableName;
-          console.log(`[META-CACHE] Relation ${rel.propertyName}: targetTableName = ${resolvedTargetTableName}`);
 
           const relationMetadata: any = {
             ...rel,
@@ -278,13 +276,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
 
           relations.push(relationMetadata);
-          if (rel.propertyName === 'mainTable') {
-            console.log(`[META-CACHE-PUSH] Pushed mainTable relation:`, JSON.stringify({
-              propertyName: relationMetadata.propertyName,
-              targetTable: relationMetadata.targetTable,
-              targetTableName: relationMetadata.targetTableName
-            }));
-          }
         }
 
         // Combine actual schema columns with explicit metadata columns
@@ -376,19 +367,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
     // Generate inverse relations (for consistency)
     this.generateInverseRelations(tablesList, tablesMap);
-
-    // Debug: Log metadata after inverse relations
-    const routeDefAfterInverse = tablesMap.get('route_definition');
-    if (routeDefAfterInverse) {
-      console.log(`[META-AFTER-INVERSE] route_definition has ${routeDefAfterInverse.relations.length} relations:`, JSON.stringify({
-        relations: routeDefAfterInverse.relations.map((r: any) => ({
-          propertyName: r.propertyName,
-          type: r.type,
-          targetTable: r.targetTable,
-          targetTableName: r.targetTableName,
-        }))
-      }, null, 2));
-    }
 
     const result = {
       tables: tablesMap,
@@ -486,6 +464,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   async getMetadata(): Promise<EnfyraMetadata> {
     // Return from in-memory cache if available (instant)
     if (this.inMemoryCache) {
+
       return this.inMemoryCache;
     }
 
@@ -590,11 +569,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
    */
   async getTableMetadata(tableName: string): Promise<any | null> {
     const metadata = await this.getMetadata();
-    const table = metadata.tables.get(tableName) || null;
-    if (table && tableName === 'route_definition') {
-      console.log(`[GET-TABLE-META] ${tableName} has ${table.relations?.length || 0} relations:`, table.relations?.map((r: any) => r.propertyName));
-    }
-    return table;
+    return metadata.tables.get(tableName) || null;
   }
 
   /**

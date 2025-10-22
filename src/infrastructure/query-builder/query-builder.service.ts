@@ -110,25 +110,19 @@ export class QueryBuilderService {
 
       if (fieldName === 'id') {
         fieldName = '_id';
-        // Convert string ID to ObjectId for MongoDB
         if (typeof fieldValue === 'string' && fieldValue.length === 24) {
           fieldValue = new ObjectId(fieldValue);
         }
-        console.log(`[WHERE-TO-MONGO] Converting 'id' to '_id' for condition:`, condition);
       } else if (fieldName === 'sourceTableId') {
         fieldName = 'sourceTable';
-        // Convert string ID to ObjectId for MongoDB relation fields
         if (typeof fieldValue === 'string' && fieldValue.length === 24) {
           fieldValue = new ObjectId(fieldValue);
         }
-        console.log(`[WHERE-TO-MONGO] Converting 'sourceTableId' to 'sourceTable' for condition:`, condition, '-> ObjectId');
       } else if (fieldName === 'targetTableId') {
         fieldName = 'targetTable';
-        // Convert string ID to ObjectId for MongoDB relation fields
         if (typeof fieldValue === 'string' && fieldValue.length === 24) {
           fieldValue = new ObjectId(fieldValue);
         }
-        console.log(`[WHERE-TO-MONGO] Converting 'targetTableId' to 'targetTable' for condition:`, condition);
       }
 
       switch (condition.operator) {

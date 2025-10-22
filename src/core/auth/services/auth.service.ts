@@ -136,9 +136,14 @@ export class AuthService {
       throw new BadRequestException('Session not found!');
     }
 
+    // Get user ID from session (MongoDB uses 'user', SQL uses 'userId')
+    const userIdForToken = this.queryBuilder.isMongoDb()
+      ? (session.user?._id || session.user)
+      : session.userId;
+
     const accessToken = this.jwtService.sign(
       {
-        id: session.userId,
+        id: userIdForToken,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),

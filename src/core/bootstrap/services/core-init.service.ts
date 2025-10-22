@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
+import { ObjectId } from 'mongodb';
 import * as path from 'path';
 
 @Injectable()
@@ -610,6 +611,39 @@ export class CoreInitService {
           this.logger.log(`🗑️ Deleted orphaned relation ${existingRel.propertyName} from ${name}`);
         }
       }
+    }
+
+    // Phase 4: Populate columns and relations arrays into table_definition documents
+    this.logger.log('📝 Phase 4: Populating columns and relations arrays into table_definition...');
+    for (const [name, defRaw] of Object.entries(snapshot)) {
+      const tableId = tableNameToId[name];
+      if (!tableId) continue;
+
+      // Get all columns for this table (just ObjectId references)
+      const columnsResult = await this.queryBuilder.findWhere('column_definition', { tableId });
+      const columns = columnsResult.map((col: any) => {
+        // Ensure ObjectId type (QueryBuilder might return string)
+        return typeof col._id === 'string' ? new ObjectId(col._id) : col._id;
+      });
+
+      // Get all relations for this table (just ObjectId references)
+      const relationsResult = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: tableId });
+      const relations = relationsResult.map((rel: any) => {
+        // Ensure ObjectId type (QueryBuilder might return string)
+        return typeof rel._id === 'string' ? new ObjectId(rel._id) : rel._id;
+      });
+
+      // Update table_definition with columns and relations arrays
+      await this.queryBuilder.update({
+        table: 'table_definition',
+        where: [{ field: '_id', operator: '=', value: tableId }],
+        data: {
+          columns,
+          relations,
+        }
+      });
+
+      this.logger.log(`✅ Populated ${columns.length} columns and ${relations.length} relations for ${name}`);
     }
 
     this.logger.log('🎉 MongoDB metadata creation completed!');
