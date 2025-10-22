@@ -15,6 +15,10 @@ import {
 import { expandFieldsToJoinsAndSelect } from './utils/expand-fields';
 import { buildWhereClause, hasLogicalOperators } from './utils/build-where-clause';
 import { separateFilters, applyRelationFilters } from './utils/relation-filter.util';
+import { sqlExecutor as sqlExecutorFunction } from './sql-executor.function';
+import { mongoExecutor as mongoExecutorFunction } from './mongo-executor.function';
+import * as sqlCrud from './sql-crud.functions';
+import * as mongoCrud from './mongo-crud.functions';
 
 /**
  * QueryBuilderService - Unified database query interface
@@ -175,46 +179,31 @@ export class QueryBuilderService {
     const joins: any[] = [];
     const metadata = await this.metadataCache.getTableMetadata(tableName);
 
-    console.log(`[EXPAND-MONGO] Table: ${tableName}, Fields:`, fields);
-    console.log(`[EXPAND-MONGO] Metadata relations:`, metadata?.relations?.map((r: any) => r.propertyName));
-
     if (!metadata) {
-      console.log(`[EXPAND-MONGO] No metadata found`);
       return joins;
     }
 
     for (const field of fields) {
       if (!field.includes('.') || !field.includes('*')) {
-        continue; // Not a nested wildcard
+        continue;
       }
 
-      // Extract relation name from 'relationName.*'
       const relationName = field.split('.')[0];
       const relation = metadata.relations?.find((r: any) => r.propertyName === relationName);
 
-      console.log(`[EXPAND-MONGO] Field: ${field}, RelName: ${relationName}, Found: ${!!relation}`);
-
       if (!relation) {
-        continue; // Relation not found
+        continue;
       }
 
-      console.log(`[EXPAND-MONGO] Relation object:`, JSON.stringify(relation, null, 2));
-      console.log(`[EXPAND-MONGO] relation.targetTableName =`, relation.targetTableName);
-      console.log(`[EXPAND-MONGO] relation.targetTable =`, relation.targetTable);
-
-      // Build MongoDB $lookup join
-      const join = {
+      joins.push({
         table: relation.targetTableName,
         on: {
           local: relationName,
           foreign: '_id',
         },
-      };
-      console.log(`[EXPAND-MONGO] Adding join:`, join);
-      joins.push(join);
+      });
     }
 
-    console.log(`[EXPAND-MONGO] Total joins: ${joins.length}`);
     return joins;
   }
 
@@ -223,327 +212,14 @@ export class QueryBuilderService {
    */
   async insert(options: InsertOptions): Promise<any> {
     if (this.dbType === 'mongodb') {
-      const collection = this.mongoService.collection(options.table);
-      if (Array.isArray(options.data)) {
-        // Process nested relations for each record
-        const processedData = await Promise.all(
-          options.data.map(record => this.mongoService.processNestedRelations(options.table, record))
-        );
-        
-        // Apply timestamps hook
-        const dataWithTimestamps = this.mongoService.applyTimestamps(processedData);
-        const result = await collection.insertMany(dataWithTimestamps as any[]);
-        return Object.values(result.insertedIds).map((id, idx) => ({
-          id: id.toString(),
-          ...(dataWithTimestamps as any[])[idx],
-        }));
-      } else {
-        return this.mongoService.insertOne(options.table, options.data);
-      }
+      return mongoCrud.mongoInsert(options, this.mongoService);
     }
-    
-    // SQL: Use KnexService.insertWithCascade for automatic relation handling
-    if (Array.isArray(options.data)) {
-      // Handle multiple records
-      const results = [];
-      for (const record of options.data) {
-        const result = await this.knexService.insertWithCascade(options.table, record);
-        results.push(result);
-      }
-      return results;
-    } else {
-      // Handle single record
-      return await this.knexService.insertWithCascade(options.table, options.data);
-    }
-  }
-
-  /**
-   * SQL Query Executor - Executes queries with Directus/queryEngine-style parameters
-   * This is the target method for SqlQueryEngine
-   *
-   * @param options - Query options in queryEngine format (tableName, fields, filter, sort, page, limit, meta, deep)
-   * @returns {data, meta?} - Results wrapped in data property with optional metadata
-   */
-  async sqlExecutor(options: {
-    tableName: string;
-    fields?: string | string[];
-    filter?: any;
-    sort?: string | string[];
-    page?: number;
-    limit?: number;
-    meta?: string;
-    deep?: Record<string, any>;
-    debugMode?: boolean;
-  }): Promise<any> {
-    // Reset debug log
-    this.debugLog = [];
-
-    // Convert queryEngine-style params to QueryOptions format
-    const queryOptions: QueryOptions = {
-      table: options.tableName,
-    };
-
-    // Convert fields
-    if (options.fields) {
-      if (Array.isArray(options.fields)) {
-        queryOptions.fields = options.fields;
-      } else if (typeof options.fields === 'string') {
-        queryOptions.fields = options.fields.split(',').map(f => f.trim());
-      }
-    }
-
-    // Store original filter for new buildWhereClause approach
-    const originalFilter = options.filter;
-
-    // Convert filter to where conditions (backward compatible with legacy approach)
-    // If filter contains _and/_or/_not, we'll use buildWhereClause later
-    if (options.filter && !hasLogicalOperators(options.filter)) {
-      queryOptions.where = [];
-      // Simple conversion for backward compatibility
-      for (const [field, value] of Object.entries(options.filter)) {
-        if (typeof value === 'object' && value !== null) {
-          // Handle operators like {_eq: value}
-          for (const [op, val] of Object.entries(value)) {
-            // Convert operator: _eq -> =, _neq -> !=, _in -> in, _is_null -> is null, etc.
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = 'like';
-            else if (op === '_is_null') operator = 'is null';
-            else operator = op.replace('_', ' ');
-
-            queryOptions.where.push({ field, operator, value: val } as WhereCondition);
-          }
-        } else {
-          // Direct equality
-          queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
-        }
-      }
-    }
-
-    // Convert sort
-    if (options.sort) {
-      const sortArray = Array.isArray(options.sort)
-        ? options.sort
-        : options.sort.split(',').map(s => s.trim());
-      queryOptions.sort = sortArray.map(s => {
-        const trimmed = s.trim();
-        if (trimmed.startsWith('-')) {
-          return { field: trimmed.substring(1), direction: 'desc' as const };
-        }
-        return { field: trimmed, direction: 'asc' as const };
-      });
-    }
-
-    // Convert pagination
-    if (options.page && options.limit) {
-      queryOptions.offset = (options.page - 1) * options.limit;
-      queryOptions.limit = options.limit;
-    } else if (options.limit) {
-      queryOptions.limit = options.limit;
-    }
-
-    // Separate main table sorts from relation sorts
-    let mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
-    let relationSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
-
-    if (queryOptions.sort) {
-      for (const sortOpt of queryOptions.sort) {
-        if (sortOpt.field.includes('.')) {
-          relationSorts.push(sortOpt);
-        } else {
-          mainTableSorts.push({
-            ...sortOpt,
-            field: `${queryOptions.table}.${sortOpt.field}`,
-          });
-        }
-      }
-    }
-
-    // Auto-expand `fields` into `join` + `select` if provided
-    if (queryOptions.fields && queryOptions.fields.length > 0) {
-      const expanded = await this.expandFields(queryOptions.table, queryOptions.fields, relationSorts);
-      queryOptions.join = [...(queryOptions.join || []), ...expanded.joins];
-      queryOptions.select = [...(queryOptions.select || []), ...expanded.select];
-    }
-
-    // Auto-prefix table name to where conditions if not already qualified
-    if (queryOptions.where) {
-      queryOptions.where = queryOptions.where.map(condition => {
-        if (!condition.field.includes('.')) {
-          return {
-            ...condition,
-            field: `${queryOptions.table}.${condition.field}`,
-          };
-        }
-        return condition;
-      });
-    }
-
-    // Use only main table sorts for the query
-    queryOptions.sort = mainTableSorts;
-
-    // Execute SQL query using Knex
-    const knex = this.knexService.getKnex();
-    let query: any = knex(queryOptions.table);
-
-    // Parse meta requirements early
-    const metaParts = Array.isArray(options.meta)
-      ? options.meta
-      : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
-
-    const needsFilterCount = metaParts.includes('filterCount') || metaParts.includes('*');
-
-    if (queryOptions.select) {
-      // Convert subqueries to knex.raw to prevent double-escaping
-      const selectItems = queryOptions.select.map(field => {
-        // Detect if field contains subquery (starts with parenthesis)
-        if (typeof field === 'string' && field.trim().startsWith('(')) {
-          return knex.raw(field);
-        }
-        return field;
-      });
-      query = query.select(selectItems);
-    }
-
-    if (needsFilterCount) {
-      query.select(knex.raw('COUNT(*) OVER() as __filter_count__'));
-    }
-
-    // Apply WHERE clause with relation filtering support
-    // Skip relation filtering for system metadata tables to avoid infinite loop
-    const isSystemTable = ['table_definition', 'column_definition', 'relation_definition', 'method_definition'].includes(queryOptions.table);
-
-    if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
-      if (!isSystemTable) {
-        // Try to get metadata for relation filtering
-        const metadata = await this.metadataCache.getTableMetadata(queryOptions.table);
-
-        if (metadata && metadata.relations && metadata.relations.length > 0) {
-          // This table has relations - check if filter uses any relations
-          const { hasRelations } = separateFilters(originalFilter, metadata);
-
-          if (hasRelations) {
-            // Debug: log metadata and filter
-            this.pushDebug('table_metadata', {
-              tableName: queryOptions.table,
-              relations: metadata.relations,
-            });
-            this.pushDebug('original_filter', originalFilter);
-
-            // Use applyRelationFilters which handles both field and relation filters with logical operators
-            await applyRelationFilters(
-              knex,
-              query,
-              originalFilter,  // Pass the full filter
-              queryOptions.table,
-              metadata,
-              this.dbType,
-              (tableName: string) => this.metadataCache.getTableMetadata(tableName),
-            );
-          } else {
-            // No relation filters, use regular buildWhereClause
-            query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
-          }
-        } else {
-          // No metadata or no relations, use regular buildWhereClause
-          query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
-        }
-      } else {
-        // System tables: skip relation filtering to prevent infinite loop
-        query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
-      }
-    } else if (queryOptions.where && queryOptions.where.length > 0) {
-      // Use legacy applyWhereToKnex for simple filters (backward compatible)
-      query = this.applyWhereToKnex(query, queryOptions.where);
-    }
-
-    if (queryOptions.join) {
-      for (const joinOpt of queryOptions.join) {
-        const joinMethod = `${joinOpt.type}Join` as 'innerJoin' | 'leftJoin' | 'rightJoin';
-        query = query[joinMethod](joinOpt.table, joinOpt.on.local, joinOpt.on.foreign);
-      }
-    }
-
-    if (queryOptions.sort) {
-      for (const sortOpt of queryOptions.sort) {
-        // Add table prefix if field doesn't contain dot (nested relation sort)
-        const sortField = sortOpt.field.includes('.')
-          ? sortOpt.field
-          : `${queryOptions.table}.${sortOpt.field}`;
-        query = query.orderBy(sortField, sortOpt.direction);
-      }
-    }
-
-    if (queryOptions.groupBy) {
-      query = query.groupBy(queryOptions.groupBy);
-    }
-
-    if (queryOptions.offset) {
-      query = query.offset(queryOptions.offset);
-    }
-
-    // limit=0 means no limit (fetch all), undefined/null means use default
-    if (queryOptions.limit !== undefined && queryOptions.limit !== null && queryOptions.limit > 0) {
-      query = query.limit(queryOptions.limit);
-    }
-
-    // Add SQL to debug if debugMode is enabled
-    if (options.debugMode) {
-      this.pushDebug('sql', query.toString());
-    }
-
-    // Execute totalCount query separately if needed
-    let totalCount = 0;
-
-    if (metaParts.includes('totalCount') || metaParts.includes('*')) {
-      // Total count (no filters)
-      const totalQuery = knex(queryOptions.table);
-      const totalResult = await totalQuery.count('* as count').first();
-      totalCount = Number(totalResult?.count || 0);
-    }
-
-    // Execute main query (now includes __filter_count__ via window function if needed)
-    const results = await query;
-
-    let filterCount = 0;
-
-    if (needsFilterCount && results.length > 0) {
-      // Extract filterCount from first row (all rows have same value from window function)
-      filterCount = Number(results[0].__filter_count__ || 0);
-
-      // Clean up: Remove __filter_count__ column from all result rows
-      results.forEach((row: any) => {
-        delete row.__filter_count__;
-      });
-    }
-
-    // Return in queryEngine format with optional meta and debug
-    return {
-      data: results,
-      ...((metaParts.length > 0) && {
-        meta: {
-          ...(metaParts.includes('totalCount') || metaParts.includes('*')
-            ? { totalCount }
-            : {}),
-          ...(metaParts.includes('filterCount') || metaParts.includes('*')
-            ? { filterCount }
-            : {}),
-        },
-      }),
-      ...(options.debugMode ? { debug: this.debugLog } : {}),
-    };
+    return sqlCrud.sqlInsert(options, this.knexService);
   }
 
   /**
    * Find multiple records - Router method
-   * Routes to sqlExecutor() for SQL databases or handles MongoDB directly
+   * Routes to appropriate executor (SQL or MongoDB) based on database type
    * Accepts queryEngine-style parameters (Directus format)
    */
   async select(options: {
@@ -559,116 +235,29 @@ export class QueryBuilderService {
     pipeline?: any[]; // MongoDB aggregation pipeline (MongoDB only)
   }): Promise<any> {
 
-    // For SQL databases, delegate to sqlExecutor
+    // Router: delegate to appropriate executor based on database type
     if (this.dbType !== 'mongodb') {
-      return this.sqlExecutor(options);
+      // SQL: Use sqlExecutorFunction
+      const knex = this.knexService.getKnex();
+      return sqlExecutorFunction(
+        options,
+        knex,
+        this.expandFields.bind(this),
+        (tableName: string) => this.metadataCache.getTableMetadata(tableName),
+        this.dbType
+      );
     }
 
-    // For MongoDB, delegate to mongoExecutor
-    return this.mongoExecutor(options);
-  }
-
-  /**
-   * MongoDB Query Executor - Handles MongoDB query execution
-   * Converts queryEngine-style params to MongoDB queries
-   *
-   * Note: MongoDB already handles _and/_or/_not via walkFilter in MongoQueryEngine
-   * This method is primarily for backward compatibility with simple queries
-   */
-  async mongoExecutor(options: {
-    tableName: string;
-    fields?: string | string[];
-    filter?: any;
-    sort?: string | string[];
-    page?: number;
-    limit?: number;
-    meta?: string;
-    deep?: Record<string, any>;
-    debugMode?: boolean;
-    pipeline?: any[]; // MongoDB aggregation pipeline (optional)
-  }): Promise<any> {
-    // Convert to QueryOptions format for now
-    const queryOptions: QueryOptions = {
-      table: options.tableName,
-    };
-
-    // Pass through pipeline if provided
-    if (options.pipeline) {
-      queryOptions.pipeline = options.pipeline;
-    }
-
-    // Convert fields
-    if (options.fields) {
-      if (Array.isArray(options.fields)) {
-        queryOptions.fields = options.fields;
-      } else if (typeof options.fields === 'string') {
-        queryOptions.fields = options.fields.split(',').map(f => f.trim());
-      }
-    }
-
-    // Convert filter to where (only for simple filters without logical operators)
-    // Complex filters with _and/_or/_not should use MongoQueryEngine directly
-    if (options.filter && !hasLogicalOperators(options.filter)) {
-      queryOptions.where = [];
-      for (const [field, value] of Object.entries(options.filter)) {
-        if (typeof value === 'object' && value !== null) {
-          for (const [op, val] of Object.entries(value)) {
-            // Convert operator: _eq -> =, _neq -> !=, _is_null -> is null, etc.
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = 'like';
-            else if (op === '_is_null') operator = 'is null';
-            else operator = op.replace('_', ' ');
-
-            queryOptions.where.push({ field, operator, value: val } as WhereCondition);
-          }
-        } else {
-          queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
-        }
-      }
-    } else if (options.filter && hasLogicalOperators(options.filter)) {
-      // For complex filters, MongoDB should use MongoQueryEngine with walkFilter
-      // This is a fallback warning
-      console.warn('[QueryBuilderService] Complex MongoDB filters with _and/_or/_not should use MongoQueryEngine directly');
-    }
-
-    // Convert sort
-    if (options.sort) {
-      const sortArray = Array.isArray(options.sort)
-        ? options.sort
-        : options.sort.split(',').map(s => s.trim());
-      queryOptions.sort = sortArray.map(s => {
-        const trimmed = s.trim();
-        if (trimmed.startsWith('-')) {
-          return { field: trimmed.substring(1), direction: 'desc' as const };
-        }
-        return { field: trimmed, direction: 'asc' as const };
-      });
-    }
-
-    // Convert pagination
-    if (options.page && options.limit) {
-      queryOptions.offset = (options.page - 1) * options.limit;
-      queryOptions.limit = options.limit;
-    } else if (options.limit) {
-      queryOptions.limit = options.limit;
-    }
-
-    // Use internal MongoDB execution logic
-    const results = await this.selectLegacy(queryOptions);
-    return { data: results };
+    // MongoDB: Use mongoExecutorFunction
+    return mongoExecutorFunction(
+      options,
+      this.selectLegacy.bind(this)
+    );
   }
 
   /**
    * Legacy select method - INTERNAL USE ONLY
-   * Used by mongoExecutor and sqlExecutor internally
+   * Used by mongoExecutorFunction internally
    * @private
    */
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
@@ -684,24 +273,16 @@ export class QueryBuilderService {
       // MongoDB: Expand nested wildcard fields to $lookup pipeline
       if (options.fields && options.fields.length > 0) {
         const hasNestedWildcard = options.fields.some(f => f.includes('.') && f.includes('*'));
-        console.log(`[SELECT-LEGACY-MONGO] Fields:`, options.fields);
-        console.log(`[SELECT-LEGACY-MONGO] hasNestedWildcard:`, hasNestedWildcard);
 
         if (hasNestedWildcard) {
-          // Build MongoDB-specific joins for nested wildcards
-          console.log(`[SELECT-LEGACY] Calling expandMongoNestedFields...`);
           const mongoJoins = await this.expandMongoNestedFields(options.table, options.fields);
-          console.log(`[SELECT-LEGACY] Got mongoJoins:`, mongoJoins);
           options.join = mongoJoins;
           options.select = options.fields;
-          console.log(`[SELECT-LEGACY] Set options.join for MongoDB:`, options.join);
         } else {
           options.select = options.fields;
         }
       }
     }
-
-    console.log(`[SELECT-LEGACY] After field expansion, options.join:`, options.join);
 
     // Auto-prefix table name to where conditions (SQL only)
     // MongoDB: Fields don't have table prefixes in documents
@@ -742,9 +323,7 @@ export class QueryBuilderService {
       }
 
       // Use aggregation pipeline if joins are present
-      console.log(`[MONGO-EXEC] Checking joins:`, options.join);
       if (options.join && options.join.length > 0) {
-        console.log(`[MONGO-EXEC] Using aggregation pipeline with ${options.join.length} joins`);
         const pipeline: any[] = [];
 
         // $match stage
@@ -915,39 +494,9 @@ export class QueryBuilderService {
    */
   async update(options: UpdateOptions): Promise<any> {
     if (this.dbType === 'mongodb') {
-      // Process nested relations first
-      const dataWithRelations = await this.mongoService.processNestedRelations(options.table, options.data);
-      
-      // Apply update timestamp
-      const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(dataWithRelations);
-      
-      const filter = this.whereToMongoFilter(options.where);
-      const collection = this.mongoService.collection(options.table);
-      await collection.updateMany(filter, { $set: dataWithTimestamp });
-      return collection.find(filter).toArray();
+      return mongoCrud.mongoUpdate(options, this.mongoService);
     }
-    
-    // SQL: Use KnexService.updateWithCascade for automatic relation handling
-    const knex = this.knexService.getKnex();
-    let query: any = knex(options.table);
-    
-    if (options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where);
-    }
-    
-    // Get records to update first
-    const recordsToUpdate = await query.clone();
-    
-    // Update each record with cascade
-    for (const record of recordsToUpdate) {
-      await this.knexService.updateWithCascade(options.table, record.id, options.data);
-    }
-    
-    if (options.returning) {
-      return query.returning(options.returning);
-    }
-    
-    return { affected: recordsToUpdate.length };
+    return sqlCrud.sqlUpdate(options, this.knexService);
   }
 
   /**
@@ -955,20 +504,9 @@ export class QueryBuilderService {
    */
   async delete(options: DeleteOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter = this.whereToMongoFilter(options.where);
-      const collection = this.mongoService.collection(options.table);
-      const result = await collection.deleteMany(filter);
-      return result.deletedCount;
+      return mongoCrud.mongoDelete(options, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    let query: any = knex(options.table);
-    
-    if (options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where);
-    }
-    
-    return query.delete();
+    return sqlCrud.sqlDelete(options, this.knexService);
   }
 
   /**
@@ -976,19 +514,9 @@ export class QueryBuilderService {
    */
   async count(options: CountOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter = options.where ? this.whereToMongoFilter(options.where) : {};
-      return this.mongoService.count(options.table, filter);
+      return mongoCrud.mongoCount(options, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    let query: any = knex(options.table);
-    
-    if (options.where && options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where);
-    }
-    
-    const result = await query.count('* as count').first();
-    return Number(result?.count || 0);
+    return sqlCrud.sqlCount(options, this.knexService);
   }
 
   /**
@@ -996,22 +524,9 @@ export class QueryBuilderService {
    */
   async transaction<T>(callback: (trx: any) => Promise<T>): Promise<T> {
     if (this.dbType === 'mongodb') {
-      const session = this.mongoService.getClient().startSession();
-      try {
-        await session.startTransaction();
-        const result = await callback(session);
-        await session.commitTransaction();
-        return result;
-      } catch (error) {
-        await session.abortTransaction();
-        throw error;
-      } finally {
-        await session.endSession();
-      }
+      return mongoCrud.mongoTransaction(callback, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    return knex.transaction(callback);
+    return sqlCrud.sqlTransaction(callback, this.knexService);
   }
 
   /**
@@ -1019,11 +534,9 @@ export class QueryBuilderService {
    */
   async findById(table: string, id: any): Promise<any> {
     if (this.dbType === 'mongodb') {
-      return this.mongoService.findOne(table, { _id: id });
+      return mongoCrud.mongoFindById(table, id, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    return knex(table).where('id', id).first();
+    return sqlCrud.sqlFindById(table, id, this.knexService);
   }
 
   /**
@@ -1031,23 +544,9 @@ export class QueryBuilderService {
    */
   async findOneWhere(table: string, where: Record<string, any>): Promise<any> {
     if (this.dbType === 'mongodb') {
-      // Normalize 'id' to '_id' and convert to ObjectId for MongoDB
-      const { ObjectId } = require('mongodb');
-      const normalizedWhere: any = {};
-      
-      for (const [key, value] of Object.entries(where)) {
-        if (key === 'id' || key === '_id') {
-          normalizedWhere._id = typeof value === 'string' ? new ObjectId(value) : value;
-        } else {
-          normalizedWhere[key] = value;
-        }
-      }
-      
-      return this.mongoService.findOne(table, normalizedWhere);
+      return mongoCrud.mongoFindOneWhere(table, where, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    return knex(table).where(where).first();
+    return sqlCrud.sqlFindOneWhere(table, where, this.knexService);
   }
 
   /**
@@ -1055,25 +554,9 @@ export class QueryBuilderService {
    */
   async findWhere(table: string, where: Record<string, any>): Promise<any[]> {
     if (this.dbType === 'mongodb') {
-      // Normalize 'id' to '_id' and convert to ObjectId for MongoDB
-      const { ObjectId } = require('mongodb');
-      const normalizedWhere: any = {};
-      
-      for (const [key, value] of Object.entries(where)) {
-        if (key === 'id' || key === '_id') {
-          normalizedWhere._id = typeof value === 'string' ? new ObjectId(value) : value;
-        } else {
-          normalizedWhere[key] = value;
-        }
-      }
-      
-      const collection = this.mongoService.collection(table);
-      const results = await collection.find(normalizedWhere).toArray();
-      return results.map(doc => this.mongoService['mapDocument'](doc));
+      return mongoCrud.mongoFindWhere(table, where, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    return knex(table).where(where);
+    return sqlCrud.sqlFindWhere(table, where, this.knexService);
   }
 
   /**
@@ -1082,17 +565,9 @@ export class QueryBuilderService {
    */
   async insertAndGet(table: string, data: any): Promise<any> {
     if (this.dbType === 'mongodb') {
-      return this.mongoService.insertOne(table, data);
+      return mongoCrud.mongoInsertAndGet(table, data, this.mongoService);
     }
-
-    // Use insertWithCascade for M2M/O2M relation handling
-    const insertedId = await this.knexService.insertWithCascade(table, data);
-
-    const knex = this.knexService.getKnex();
-    const recordId = insertedId || data.id;
-
-    // Query back the inserted record
-    return knex(table).where('id', recordId).first();
+    return sqlCrud.sqlInsertAndGet(table, data, this.knexService);
   }
 
   /**
@@ -1100,13 +575,9 @@ export class QueryBuilderService {
    */
   async updateById(table: string, id: any, data: any): Promise<any> {
     if (this.dbType === 'mongodb') {
-      return this.mongoService.updateOne(table, id, data);
+      return mongoCrud.mongoUpdateById(table, id, data, this.mongoService);
     }
-    
-    // SQL: Use KnexService.updateWithCascade for automatic relation handling
-    await this.knexService.updateWithCascade(table, id, data);
-    const knex = this.knexService.getKnex();
-    return knex(table).where('id', id).first();
+    return sqlCrud.sqlUpdateById(table, id, data, this.knexService);
   }
 
   /**
@@ -1114,12 +585,9 @@ export class QueryBuilderService {
    */
   async deleteById(table: string, id: any): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const deleted = await this.mongoService.deleteOne(table, id);
-      return deleted ? 1 : 0;
+      return mongoCrud.mongoDeleteById(table, id, this.mongoService);
     }
-    
-    const knex = this.knexService.getKnex();
-    return knex(table).where('id', id).delete();
+    return sqlCrud.sqlDeleteById(table, id, this.knexService);
   }
 
   /**
@@ -1129,21 +597,9 @@ export class QueryBuilderService {
    */
   async raw(query: string | any, bindings?: any): Promise<any> {
     if (this.dbType === 'mongodb') {
-      // MongoDB: execute command
-      const db = this.mongoService.getDb();
-      if (typeof query === 'string') {
-        // If string, treat as simple ping or eval
-        if (query.toLowerCase().includes('select 1')) {
-          return db.command({ ping: 1 });
-        }
-        throw new Error('String queries not supported for MongoDB. Use db.command() object instead.');
-      }
-      return db.command(query);
+      return mongoCrud.mongoRaw(query, this.mongoService);
     }
-    
-    // SQL: execute raw query
-    const knex = this.knexService.getKnex();
-    return knex.raw(query, bindings);
+    return sqlCrud.sqlRaw(query, bindings, this.knexService);
   }
 
   /**

@@ -553,9 +553,21 @@ export class MongoQueryEngine {
           switch (op) {
             case '_eq':
               // For _id field, convert string to ObjectId
-              match[normalizedKey] = ((key === 'id' || normalizedKey === '_id') && typeof val === 'string') 
-                ? new ObjectId(val) 
-                : val;
+              if ((key === 'id' || normalizedKey === '_id')) {
+                if (typeof val === 'string' && val.length === 24) {
+                  match[normalizedKey] = new ObjectId(val);
+                } else if (typeof val === 'object' && val !== null && val._id) {
+                  // Handle case where val is already an object with _id
+                  match[normalizedKey] = typeof val._id === 'string' ? new ObjectId(val._id) : val._id;
+                } else if (typeof val === 'object' && val !== null) {
+                  // Object without _id - let MongoDB throw error
+                  match[normalizedKey] = val;
+                } else {
+                  match[normalizedKey] = val;
+                }
+              } else {
+                match[normalizedKey] = val;
+              }
               break;
             case '_neq':
             case '_ne':

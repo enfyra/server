@@ -32,7 +32,7 @@ export class SqlQueryEngine {
       // Default fields to '*' if not provided (trigger auto-join)
       const fields = options.fields || '*';
 
-      return await this.queryBuilder.sqlExecutor({
+      return await this.queryBuilder.select({
         tableName: options.tableName,
         fields: fields,
         filter: options.filter,
