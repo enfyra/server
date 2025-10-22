@@ -467,7 +467,8 @@ export class CoreInitService {
       // MongoDB uses 'table' field, not 'tableId'
       const existingColumns = await this.queryBuilder.findWhere('column_definition', { table: tableId });
       const existingColMap = new Map(existingColumns.map((c: any) => [c.name, c]));
-      const snapshotColNames = new Set((def.columns || []).map((c: any) => c.name));
+      // MongoDB: Convert 'id' to '_id' in snapshot names for proper comparison
+      const snapshotColNames = new Set((def.columns || []).map((c: any) => c.name === 'id' ? '_id' : c.name));
 
       // Upsert columns from snapshot
       for (const snapshotCol of def.columns || []) {
