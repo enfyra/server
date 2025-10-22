@@ -58,7 +58,7 @@ export class CascadeHandler {
       }
 
       if (relation.type === 'many-to-many') {
-        // Handle M2M: sync junction table using transaction
+        // Handle M2M: sync junction table using smart diff (only change what's needed)
         this.logger.log(`   Processing M2M relation: ${relName} with ${relValue.length} items`);
 
         const junctionTable = relation.junctionTableName;
@@ -70,27 +70,50 @@ export class CascadeHandler {
           continue;
         }
 
-        const ids = relValue
+        const incomingIds = relValue
           .map(item => (typeof item === 'object' && 'id' in item ? item.id : item))
           .filter(id => id != null);
 
-        this.logger.log(`     Junction: ${junctionTable}, IDs: [${ids.join(', ')}]`);
+        this.logger.log(`     Junction: ${junctionTable}, Incoming IDs: [${incomingIds.join(', ')}]`);
 
-        // Clear existing junction records
-        await this.knexInstance(junctionTable)
+        // 1. Get existing junction records
+        const existingRecords = await this.knexInstance(junctionTable)
           .where(sourceColumn, recordId)
-          .delete();
+          .select(targetColumn);
 
-        // Insert new junction records
-        if (ids.length > 0) {
-          const junctionRecords = ids.map(targetId => ({
+        const existingIds = existingRecords.map((record: any) => record[targetColumn]);
+
+        this.logger.log(`     Existing IDs: [${existingIds.join(', ')}]`);
+
+        // 2. Calculate diff
+        const toDelete = existingIds.filter(id => !incomingIds.includes(id));
+        const toInsert = incomingIds.filter(id => !existingIds.includes(id));
+
+        this.logger.log(`     Diff - Delete: [${toDelete.join(', ')}], Insert: [${toInsert.join(', ')}]`);
+
+        // 3. Delete removed relations
+        if (toDelete.length > 0) {
+          await this.knexInstance(junctionTable)
+            .where(sourceColumn, recordId)
+            .whereIn(targetColumn, toDelete)
+            .delete();
+          this.logger.log(`     🗑️ Deleted ${toDelete.length} junction records`);
+        }
+
+        // 4. Insert new relations
+        if (toInsert.length > 0) {
+          const junctionRecords = toInsert.map(targetId => ({
             [sourceColumn]: recordId,
             [targetColumn]: targetId,
           }));
 
           await this.knexInstance(junctionTable).insert(junctionRecords);
-          this.logger.log(`     ✅ Synced ${junctionRecords.length} M2M junction records`);
+          this.logger.log(`     ➕ Inserted ${toInsert.length} junction records`);
         }
+
+        // 5. Summary
+        const unchanged = existingIds.filter(id => incomingIds.includes(id)).length;
+        this.logger.log(`     ✅ M2M sync complete: ${unchanged} unchanged, ${toDelete.length} deleted, ${toInsert.length} inserted`);
 
       } else if (relation.type === 'one-to-many') {
         // Handle O2M: compare old list vs new list, set FK = NULL for removed items
