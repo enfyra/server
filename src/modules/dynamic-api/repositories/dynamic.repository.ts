@@ -62,9 +62,13 @@ export class DynamicRepository {
     // No need to initialize repo with Knex - direct queries
   }
 
+  private getIdField(): string {
+    return this.queryBuilder.isMongoDb() ? '_id' : 'id';
+  }
+
   async find(opt: { where?: any; fields?: string | string[] }) {
     const debugMode = this.context.$query?.debugMode === 'true' || this.context.$query?.debugMode === true;
-    
+
     return await this.queryEngine.find({
       tableName: this.tableName,
       fields: opt?.fields || this.context.$query?.fields || '',
@@ -93,20 +97,20 @@ export class DynamicRepository {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(body);
         await this.reload();
-        return await this.find({ where: { id: { _eq: table.id } } });
+        const idValue = table._id || table.id;
+        return await this.find({ where: { [this.getIdField()]: { _eq: idValue } } });
       }
 
       const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
-      
-      // Generate UUID for primary key if needed (SQL only, MongoDB uses _id)
+
       if (!this.queryBuilder.isMongoDb() && metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
         body.id = body.id || randomUUID();
       }
 
       const inserted = await this.queryBuilder.insertAndGet(this.tableName, body);
       const createdId = inserted.id || inserted._id || body.id;
-      
-      const result = await this.find({ where: { id: { _eq: createdId } } });
+
+      const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } } });
       await this.reload();
       return result;
     } catch (error) {
@@ -117,7 +121,7 @@ export class DynamicRepository {
 
   async update(id: string | number, body: any) {
     try {
-      const existsResult = await this.find({ where: { id: { _eq: id } } });
+      const existsResult = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
 
@@ -130,19 +134,15 @@ export class DynamicRepository {
       });
 
       if (this.tableName === 'table_definition') {
-        const table: any = await this.tableHandlerService.updateTable(
-          id, // Keep as string for MongoDB
-          body,
-        );
-        // MongoDB returns _id, SQL returns id
+        const table: any = await this.tableHandlerService.updateTable(id, body);
         const tableId = table._id || table.id;
         await this.reload();
-        return this.find({ where: { id: { _eq: tableId } } });
+        return this.find({ where: { [this.getIdField()]: { _eq: tableId } } });
       }
 
       await this.queryBuilder.updateById(this.tableName, id, body);
 
-      const result = await this.find({ where: { id: { _eq: id } } });
+      const result = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
       await this.reload();
       return result;
     } catch (error) {

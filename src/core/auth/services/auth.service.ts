@@ -130,9 +130,14 @@ export class AuthService {
       throw new BadRequestException('Session not found!');
     }
 
+    // MongoDB: session.user (ObjectId or object), SQL: session.userId (string)
+    const userId = this.queryBuilder.isMongoDb()
+      ? (session.user?._id || session.user)
+      : session.userId;
+
     const accessToken = this.jwtService.sign(
       {
-        id: session.userId,
+        id: userId,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
@@ -154,6 +159,8 @@ export class AuthService {
           },
         )
       : body.refreshToken;
+
+     
     const accessTokenDecoded = await this.jwtService.decode(accessToken);
     return {
       accessToken,

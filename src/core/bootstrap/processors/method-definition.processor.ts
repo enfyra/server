@@ -15,14 +15,21 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
         ...record,
         isSystem: true,
       };
-      
-      // MongoDB: Add inverse fields for relations
+
+      // MongoDB: Initialize owner M2M relations and add timestamps
       if (isMongoDB) {
-        // Initialize inverse fields as empty arrays
-        transformed.routes = []; // From route_definition.publishedMethods (many-to-many)
-        transformed.hooks = []; // From hook_definition.methods (many-to-many)
+        // Owner M2M relations - MUST store
+        if (!transformed.routes) transformed.routes = [];
+        if (!transformed.route_permissions) transformed.route_permissions = [];
+
+        // NOTE: hooks and handlers are inverse relations - NOT stored
+
+        // Add timestamps
+        const now = new Date();
+        if (!transformed.createdAt) transformed.createdAt = now;
+        if (!transformed.updatedAt) transformed.updatedAt = now;
       }
-      
+
       return transformed;
     });
   }

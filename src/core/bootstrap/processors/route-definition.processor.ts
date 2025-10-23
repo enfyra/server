@@ -12,11 +12,29 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    
+
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
-        
+
+        // Set default values for optional fields
+        if (transformedRecord.description === undefined) transformedRecord.description = null;
+        if (transformedRecord.icon === undefined) transformedRecord.icon = 'lucide:route';
+        if (transformedRecord.isSystem === undefined) transformedRecord.isSystem = false;
+        if (transformedRecord.isEnabled === undefined) transformedRecord.isEnabled = false;
+
+        // Add timestamps for MongoDB
+        if (isMongoDB) {
+          const now = new Date();
+          if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
+          if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
+
+          // Initialize owner M2M relations
+          if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
+
+          // NOTE: publishedMethods, hooks, handlers, routePermissions are inverse - NOT stored
+        }
+
         // Handle mainTable reference differently for SQL vs MongoDB
         if (record.mainTable) {
           if (isMongoDB) {
@@ -24,48 +42,40 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
               name: record.mainTable,
             });
-            
+
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            transformedRecord.mainTable = typeof mainTable._id === 'string' 
-              ? new ObjectId(mainTable._id) 
+            transformedRecord.mainTable = typeof mainTable._id === 'string'
+              ? new ObjectId(mainTable._id)
               : mainTable._id;
           } else {
             // SQL: Convert mainTable name to mainTableId (foreign key)
             const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
               name: record.mainTable,
             });
-            
+
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            
+
             transformedRecord.mainTableId = mainTable.id;
             delete transformedRecord.mainTable;
           }
         }
-        
-        // Handle publishedMethods differently for SQL vs MongoDB
+
+        // Handle publishedMethods - INVERSE M2M relation (from method_definition.routes)
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
           if (isMongoDB) {
-            // MongoDB: Convert method names to method IDs (array of ObjectIds)
-            const result = await this.queryBuilder.select({
-              tableName: 'method_definition',
-              filter: { method: { _in: record.publishedMethods } },
-              fields: ['_id', 'method'],
-            });
-            const methods = result.data;
-            
-            transformedRecord.publishedMethods = methods.map((m: any) => 
-              typeof m._id === 'string' ? new ObjectId(m._id) : m._id
-            );
+            // MongoDB: publishedMethods is INVERSE - NOT stored
+            transformedRecord._publishedMethods = record.publishedMethods;
+            delete transformedRecord.publishedMethods;
           } else {
             // SQL: Store for junction table processing
             transformedRecord._publishedMethods = record.publishedMethods;
@@ -73,14 +83,14 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           }
         }
 
-        // MongoDB: Add inverse fields for relations
-        if (isMongoDB) {
-          // Initialize inverse fields as empty arrays
-          transformedRecord.routePermissions = []; // From route_permission_definition.route
-          transformedRecord.handlers = []; // From route_handler_definition.route  
-          transformedRecord.hooks = []; // From hook_definition.route
+        // NOTE: Inverse relations (hooks, handlers, routePermissions, publishedMethods)
+        // are NOT stored - they will be computed via $lookup based on metadata
+
+        // Debug: log first route to see what we're trying to insert
+        if (isMongoDB && record.path === '/route_definition') {
+          this.logger.log(`📋 Sample route document to insert: ${JSON.stringify(transformedRecord, null, 2)}`);
         }
-        
+
         return transformedRecord;
       }),
     );
@@ -89,8 +99,13 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
 
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    // Handle publishedMethods using automatic cascade
-    if (record._publishedMethods && Array.isArray(record._publishedMethods)) {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+
+    // MongoDB: No inverse relation updates
+    // publishedMethods is INVERSE - computed from method.routes via $lookup
+
+    // SQL: Handle publishedMethods using automatic cascade
+    if (!isMongoDB && record._publishedMethods && Array.isArray(record._publishedMethods)) {
       const methodNames = record._publishedMethods;
 
       // Get method IDs
@@ -102,14 +117,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methods = result.data;
 
       const methodIds = methods.map((m: any) => m.id);
-      
+
       if (methodIds.length > 0) {
-        // Update the record with publishedMethods relation
-        // This will automatically trigger cascade handling in KnexService hooks
         await this.queryBuilder.updateById('route_definition', record.id, {
           publishedMethods: methodIds
         });
-        
+
         this.logger.log(
           `   🔗 Linked ${methodIds.length} published methods to route ${record.path}`,
         );
@@ -122,7 +135,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['path', 'isEnabled', 'icon', 'description'];
+    return ['path', 'isEnabled', 'icon', 'description', 'isSystem', 'mainTable', 'publishedMethods'];
   }
 
   protected getRecordIdentifier(record: any): string {

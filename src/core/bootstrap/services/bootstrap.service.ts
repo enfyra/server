@@ -56,10 +56,10 @@ export class BootstrapService implements OnModuleInit {
 
     if (!setting || !setting.isInit) {
       this.logger.log('First time initialization...');
-      
+
       // Create metadata (needed for both SQL and MongoDB to track schema)
       await this.coreInitService.createInitMetadata();
-      
+
       await this.defaultDataService.insertAllDefaultRecords();
 
       // Re-fetch setting after default data insertion
@@ -69,17 +69,18 @@ export class BootstrapService implements OnModuleInit {
         limit: 1,
       });
       setting = settings2Result.data[0] || null;
-      
+
       if (!setting) {
         this.logger.error('Setting record not found after initialization');
         throw new Error('Setting record not found. DefaultDataService may have failed.');
       }
-      
+
       // Update isInit flag
       const settingId = setting._id || setting.id;
+      const idField = isMongoDB ? '_id' : 'id';
       await this.queryBuilder.update({
         table: 'setting_definition',
-        where: [{ field: 'id', operator: '=', value: settingId }],
+        where: [{ field: idField, operator: '=', value: settingId }],
         data: { isInit: true },
       });
 

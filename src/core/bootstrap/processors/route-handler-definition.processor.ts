@@ -15,7 +15,14 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
-        
+
+        // Add timestamps for MongoDB
+        if (isMongoDB) {
+          const now = new Date();
+          if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
+          if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
+        }
+
         // Handle route reference
         if (record.route) {
           const routeEntity = await this.queryBuilder.findOneWhere('route_definition', {

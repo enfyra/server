@@ -221,8 +221,8 @@ export class MongoTableHandlerService {
         description: body.description,
         uniques: JSON.stringify(body.uniques || []),
         indexes: JSON.stringify(body.indexes || []),
-        columns: [], // Initialize empty array
-        relations: [], // Initialize empty array
+        // NOTE: columns and relations are inverse one-to-many - NOT stored
+        // They will be computed via $lookup based on metadata
       });
 
       // MongoDB returns _id, not id
@@ -252,16 +252,6 @@ export class MongoTableHandlerService {
             const colId = typeof columnRecord._id === 'string' ? new ObjectId(columnRecord._id) : columnRecord._id;
             insertedColumnIds.push(colId);
             this.logger.log(`   Column inserted: ${col.name}`);
-          }
-          
-          // Update table with column ObjectIds
-          if (insertedColumnIds.length > 0) {
-            await this.queryBuilder.update({
-              table: 'table_definition',
-              where: [{ field: '_id', operator: '=', value: tableId }],
-              data: { columns: insertedColumnIds },
-            });
-            this.logger.log(`   Updated table with ${insertedColumnIds.length} column refs`);
           }
         }
       } catch (error) {
@@ -314,16 +304,9 @@ export class MongoTableHandlerService {
             insertedRelationIds.push(relId);
             this.logger.log(`   Relation inserted: ${rel.propertyName}`);
           }
-          
-          // Update table with relation ObjectIds
-          if (insertedRelationIds.length > 0) {
-            await this.queryBuilder.update({
-              table: 'table_definition',
-              where: [{ field: '_id', operator: '=', value: tableId }],
-              data: { relations: insertedRelationIds },
-            });
-            this.logger.log(`   Updated table with ${insertedRelationIds.length} relation refs`);
-          }
+
+          // NOTE: relations is inverse O2M - NOT stored in table_definition
+          // Computed via $lookup based on relation.sourceTable field
         }
       } catch (error) {
         // Rollback: delete table metadata and columns if relation insert fails
@@ -430,14 +413,17 @@ export class MongoTableHandlerService {
 
       validateUniquePropertyNames(body.columns || [], body.relations || []);
 
-      // Update table metadata
-      await this.queryBuilder.updateById('table_definition', id, {
-        name: body.name,
-        alias: body.alias,
-        description: body.description,
-        uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
-        indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
-      });
+      // Update table metadata (only update fields that are present in body)
+      const updateData: any = {};
+      if ('name' in body) updateData.name = body.name;
+      if ('alias' in body) updateData.alias = body.alias;
+      if ('description' in body) updateData.description = body.description;
+      if ('uniques' in body) updateData.uniques = body.uniques;
+      if ('indexes' in body) updateData.indexes = body.indexes;
+
+      if (Object.keys(updateData).length > 0) {
+        await this.queryBuilder.updateById('table_definition', id, updateData);
+      }
 
       // Update columns
       if (body.columns) {
@@ -519,11 +505,6 @@ export class MongoTableHandlerService {
           }
           columnIds.push(colObjectId);
         }
-        
-        // Update table_definition.columns array
-        await this.queryBuilder.updateById('table_definition', id, {
-          columns: columnIds,
-        });
       }
 
       // Update relations
@@ -592,20 +573,12 @@ export class MongoTableHandlerService {
           }
           relationIds.push(relObjectId);
         }
-        
-        // Update table_definition.relations array
-        await this.queryBuilder.updateById('table_definition', id, {
-          relations: relationIds,
-        });
+
       }
 
-      // Get old metadata before migration
       const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
-
-      // Get new metadata (will be used for migration)
       const newMetadata = await this.getFullTableMetadata(id);
 
-      // Update collection validation and indexes
       if (oldMetadata && newMetadata) {
         await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
       }

@@ -33,6 +33,17 @@ export interface QueryOptions {
   offset?: number;
   groupBy?: string[];
   pipeline?: any[]; // MongoDB aggregation pipeline
+  mongoFieldsExpanded?: { // MongoDB expanded fields from expandFieldsMongo()
+    scalarFields: string[];
+    relations: Array<{
+      propertyName: string;
+      targetTable: string;
+      localField: string;
+      foreignField: string;
+      type: 'one' | 'many';
+      nestedFields?: string[];
+    }>;
+  };
 }
 
 export interface InsertOptions {

@@ -77,16 +77,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     const result = { ...data };
-    
+
     for (const column of metadata.columns) {
-      // Skip if field already has a value
       if (result[column.name] !== undefined && result[column.name] !== null) {
         continue;
       }
-      
-      // Apply defaultValue if defined
+
       if (column.defaultValue !== undefined && column.defaultValue !== null) {
-        // Parse JSON if defaultValue is string representation
         if (typeof column.defaultValue === 'string') {
           try {
             result[column.name] = JSON.parse(column.defaultValue);
@@ -98,7 +95,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
-    
+
     return result;
   }
 
@@ -154,7 +151,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
    */
   static applyTimestampsStatic(data: any | any[]): any | any[] {
     const now = new Date();
-    
+
     if (Array.isArray(data)) {
       return data.map(record => {
         const { id, createdAt, updatedAt, ...cleanRecord } = record;
@@ -174,28 +171,53 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Strip inverse relation fields before insert/update
+   * Inverse O2M/M2M are computed via $lookup, not stored in documents
+   */
+  async stripInverseRelations(tableName: string, data: any): Promise<any> {
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    if (!metadata?.relations) {
+      return data;
+    }
+
+    const result = { ...data };
+
+    for (const relation of metadata.relations) {
+      const isInverse = relation.type === 'one-to-many' ||
+                       (relation.type === 'many-to-many' && relation.mappedBy) ||
+                       relation.isInverse;
+
+      if (isInverse && relation.propertyName in result) {
+        delete result[relation.propertyName];
+      }
+    }
+
+    return result;
+  }
+
   async insertOne(collectionName: string, data: any): Promise<any> {
     const collection = this.collection(collectionName);
-    
-    // 1. Parse JSON fields (string → object)
+
     const dataParsed = await this.parseJsonFields(collectionName, data);
-    
-    // 2. Apply default values for missing fields
     const dataWithDefaults = await this.applyDefaultValues(collectionName, dataParsed);
-    
-    // 3. Process nested relations (create/update related records)
     const dataWithRelations = await this.processNestedRelations(collectionName, dataWithDefaults);
-    
-    // 4. Apply timestamps
-    const dataWithTimestamps = this.applyTimestamps(dataWithRelations);
-    
-    const result = await collection.insertOne(dataWithTimestamps);
-    const insertedId = result.insertedId;
-    
-    // Update inverse relations (add this record's ID to inverse side)
-    // For insert, oldData is null/empty
+    const dataWithoutInverse = await this.stripInverseRelations(collectionName, dataWithRelations);
+    const dataWithTimestamps = this.applyTimestamps(dataWithoutInverse);
+
+    let result;
+    let insertedId;
+    try {
+      result = await collection.insertOne(dataWithTimestamps);
+      insertedId = result.insertedId;
+    } catch (err) {
+      console.error(`[insertOne] Validation error for ${collectionName}:`, err.errInfo);
+      throw err;
+    }
+
+    // Cascade update to target records (dataWithRelations has inverse arrays for cascade)
     await this.updateInverseRelationsOnUpdate(collectionName, insertedId, {}, dataWithRelations);
-    
+
     return {
       ...dataWithTimestamps,
       _id: insertedId,
@@ -240,11 +262,9 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       if (!relation.inversePropertyName) {
         continue;
       }
-      
+
       const fieldName = relation.propertyName;
-      
-      // Only process if field is explicitly in newData
-      // If field is not in newData → user didn't touch it → keep old relations
+
       if (!(fieldName in newData)) {
         continue;
       }
@@ -356,7 +376,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
       // Handle explicit null/undefined → clear relation
       if (fieldValue === null || fieldValue === undefined) {
-        processed[fieldName] = null;
+        // For array relations (one-to-many, many-to-many), use empty array instead of null
+        if (['one-to-many', 'many-to-many'].includes(relation.type)) {
+          processed[fieldName] = [];
+        } else {
+          processed[fieldName] = null;
+        }
         continue;
       }
 
@@ -456,18 +481,14 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     // Get old record to compare relations
     const oldRecord = await this.findOne(collectionName, { _id: objectId });
     
-    // 1. Parse JSON fields (string → object)
     const dataParsed = await this.parseJsonFields(collectionName, data);
-    
-    // 2. Process nested relations (create/update related records)
     const dataWithRelations = await this.processNestedRelations(collectionName, dataParsed);
-    
-    // 3. Apply update timestamp
-    const dataWithTimestamp = this.applyUpdateTimestamp(dataWithRelations);
-    
+    const dataWithoutInverse = await this.stripInverseRelations(collectionName, dataWithRelations);
+    const dataWithTimestamp = this.applyUpdateTimestamp(dataWithoutInverse);
+
     await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
-    
-    // Update inverse relations (handle both add and remove)
+
+    // Cascade update to target records (dataWithRelations has inverse arrays for cascade)
     await this.updateInverseRelationsOnUpdate(collectionName, objectId, oldRecord, dataWithRelations);
     
     return this.findOne(collectionName, { _id: objectId });
@@ -476,74 +497,66 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async deleteOne(collectionName: string, id: string): Promise<boolean> {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
-    
-    // Get record before delete to clean up inverse relations
+
     const record = await this.findOne(collectionName, { _id: objectId });
-    
     if (!record) {
       return false;
     }
-    
-    // Clean up inverse relations before delete
+
     await this.cleanupInverseRelationsOnDelete(collectionName, objectId, record);
-    
+
     const result = await collection.deleteOne({ _id: objectId });
     return result.deletedCount > 0;
   }
 
-  /**
-   * Clean up inverse relations when a record is deleted
-   * Removes this record's ID from all related records
-   */
   async cleanupInverseRelationsOnDelete(tableName: string, recordId: ObjectId, recordData: any): Promise<void> {
     const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata || !metadata.relations) {
+    if (!metadata?.relations) {
       return;
     }
 
     for (const relation of metadata.relations) {
       if (!relation.inversePropertyName) continue;
-      
+
       const fieldName = relation.propertyName;
       const fieldValue = recordData?.[fieldName];
-      
-      if (!fieldValue) continue;
-      
       const targetCollection = relation.targetTableName || relation.targetTable;
 
-      // M2O/O2O: Remove from single target
+      // Skip forward relations with no value
+      if (!fieldValue && !['one-to-many', 'many-to-many'].includes(relation.type)) {
+        continue;
+      }
+
       if (['many-to-one', 'one-to-one'].includes(relation.type)) {
         const targetId = fieldValue instanceof ObjectId ? fieldValue : new ObjectId(fieldValue);
-        
-        if (relation.type === 'many-to-one') {
-          // Inverse is O2M (array) → $pull
-          await this.getDb().collection(targetCollection).updateOne(
-            { _id: targetId },
-            { $pull: { [relation.inversePropertyName]: recordId } } as any
-          );
-        } else {
-          // Inverse is O2O (single) → $unset
+
+        if (relation.type === 'one-to-one') {
           await this.getDb().collection(targetCollection).updateOne(
             { _id: targetId },
             { $unset: { [relation.inversePropertyName]: "" } } as any
           );
         }
+        // M2O inverse is O2M array (not stored), no cleanup needed
       }
-      // O2M/M2M: Remove from multiple targets
       else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
-        const targetIds = Array.isArray(fieldValue) 
-          ? fieldValue.map(v => v instanceof ObjectId ? v : new ObjectId(v))
-          : [];
-        
+        let targetIds = [];
+
+        if (Array.isArray(fieldValue) && fieldValue.length > 0) {
+          targetIds = fieldValue.map(v => v instanceof ObjectId ? v : new ObjectId(v));
+        } else {
+          const targets = await this.getDb().collection(targetCollection)
+            .find({ [relation.inversePropertyName]: recordId })
+            .toArray();
+          targetIds = targets.map(t => t._id);
+        }
+
         for (const targetId of targetIds) {
           if (relation.type === 'one-to-many') {
-            // Inverse is M2O (single) → $unset
             await this.getDb().collection(targetCollection).updateOne(
               { _id: targetId },
-              { $unset: { [relation.inversePropertyName]: "" } } as any
+              { $set: { [relation.inversePropertyName]: null } }
             );
           } else {
-            // Inverse is M2M (array) → $pull
             await this.getDb().collection(targetCollection).updateOne(
               { _id: targetId },
               { $pull: { [relation.inversePropertyName]: recordId } } as any

@@ -3,6 +3,29 @@ import { BaseTableProcessor } from './base-table-processor';
 
 @Injectable()
 export class ExtensionDefinitionProcessor extends BaseTableProcessor {
+  async transformRecords(records: any[]): Promise<any[]> {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+
+    return records.map((record) => {
+      const transformed = { ...record };
+
+      // Add default values
+      if (transformed.type === undefined) transformed.type = 'page';
+      if (transformed.version === undefined) transformed.version = '1.0.0';
+      if (transformed.isEnabled === undefined) transformed.isEnabled = true;
+      if (transformed.isSystem === undefined) transformed.isSystem = false;
+
+      // Add timestamps for MongoDB
+      if (isMongoDB) {
+        const now = new Date();
+        if (!transformed.createdAt) transformed.createdAt = now;
+        if (!transformed.updatedAt) transformed.updatedAt = now;
+      }
+
+      return transformed;
+    });
+  }
+
   getUniqueIdentifier(record: any): object[] {
     // Extension can be identified by multiple strategies
     const identifiers = [];
