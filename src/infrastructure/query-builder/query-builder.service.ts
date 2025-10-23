@@ -628,13 +628,6 @@ export class QueryBuilderService {
     return this.mongoExecutor(options);
   }
 
-  /**
-   * MongoDB Query Executor - Handles MongoDB query execution
-   * Converts queryEngine-style params to MongoDB queries
-   *
-   * Note: MongoDB already handles _and/_or/_not via walkFilter in MongoQueryEngine
-   * This method is primarily for backward compatibility with simple queries
-   */
   async mongoExecutor(options: {
     tableName: string;
     fields?: string | string[];
@@ -645,22 +638,19 @@ export class QueryBuilderService {
     meta?: string;
     deep?: Record<string, any>;
     debugLog?: any[];
-    pipeline?: any[]; // MongoDB aggregation pipeline (optional)
+    pipeline?: any[];
   }): Promise<any> {
-    // Use provided debug log or create new one
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
-    // Convert to QueryOptions format for now
+
     const queryOptions: QueryOptions = {
       table: options.tableName,
     };
 
-    // Pass through pipeline if provided
     if (options.pipeline) {
       queryOptions.pipeline = options.pipeline;
     }
 
-    // Convert fields
     if (options.fields) {
       if (Array.isArray(options.fields)) {
         queryOptions.fields = options.fields;
@@ -669,14 +659,11 @@ export class QueryBuilderService {
       }
     }
 
-    // Convert filter to where (only for simple filters without logical operators)
-    // Complex filters with _and/_or/_not should use MongoQueryEngine directly
     if (options.filter && !hasLogicalOperators(options.filter)) {
       queryOptions.where = [];
       for (const [field, value] of Object.entries(options.filter)) {
         if (typeof value === 'object' && value !== null) {
           for (const [op, val] of Object.entries(value)) {
-            // Convert operator: _eq -> =, _neq -> !=, _is_null -> is null, etc.
             let operator: string;
             if (op === '_eq') operator = '=';
             else if (op === '_neq') operator = '!=';
@@ -696,13 +683,8 @@ export class QueryBuilderService {
           queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
         }
       }
-    } else if (options.filter && hasLogicalOperators(options.filter)) {
-      // For complex filters, MongoDB should use MongoQueryEngine with walkFilter
-      // This is a fallback warning
-      console.warn('[QueryBuilderService] Complex MongoDB filters with _and/_or/_not should use MongoQueryEngine directly');
     }
 
-    // Convert sort
     if (options.sort) {
       const sortArray = Array.isArray(options.sort)
         ? options.sort
@@ -716,7 +698,6 @@ export class QueryBuilderService {
       });
     }
 
-    // Convert pagination
     if (options.page && options.limit) {
       const page = typeof options.page === 'string' ? parseInt(options.page, 10) : options.page;
       const limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
@@ -726,9 +707,44 @@ export class QueryBuilderService {
       queryOptions.limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
     }
 
-    // Use internal MongoDB execution logic
+    const metaParts = Array.isArray(options.meta)
+      ? options.meta
+      : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+    let totalCount = 0;
+    let filterCount = 0;
+
+    if (metaParts.includes('totalCount') || metaParts.includes('*')) {
+      const collection = this.mongoService.collection(options.tableName);
+      totalCount = await collection.countDocuments({});
+    }
+
+    if (metaParts.includes('filterCount') || metaParts.includes('*')) {
+      const collection = this.mongoService.collection(options.tableName);
+      let filter = {};
+
+      if (queryOptions.where && queryOptions.where.length > 0) {
+        filter = this.whereToMongoFilter(queryOptions.where);
+      }
+
+      filterCount = await collection.countDocuments(filter);
+    }
+
     const results = await this.selectLegacy(queryOptions);
-    return { data: results };
+
+    return {
+      data: results,
+      ...((metaParts.length > 0) && {
+        meta: {
+          ...(metaParts.includes('totalCount') || metaParts.includes('*')
+            ? { totalCount }
+            : {}),
+          ...(metaParts.includes('filterCount') || metaParts.includes('*')
+            ? { filterCount }
+            : {}),
+        },
+      }),
+    };
   }
 
   /**

@@ -9,7 +9,6 @@ import {
   ROUTE_RELOAD_LOCK_KEY,
   REDIS_TTL,
 } from '../../../shared/utils/constant';
-import { getForeignKeyColumnName, getJunctionTableName } from '../../knex/utils/naming-helpers';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 
 @Injectable()
@@ -190,7 +189,6 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     });
     const routes = result.data;
 
-    // Get global hooks separately
     const globalHooksResult = await this.queryBuilder.select({
       tableName: 'hook_definition',
       filter: {
@@ -202,13 +200,16 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     });
     const globalHooks = globalHooksResult.data;
 
-    // Merge global hooks with route hooks (remove duplicates by id)
     for (const route of routes) {
       const allHooks = [...globalHooks, ...(route.hooks || [])];
 
-      // Remove duplicate hooks by id
+      const isMongoDB = this.queryBuilder.isMongoDb();
       const uniqueHooks = allHooks.filter((hook, index, self) =>
-        index === self.findIndex((h) => h.id === hook.id)
+        index === self.findIndex((h) => {
+          const hId = isMongoDB ? h._id?.toString() : h.id;
+          const hookId = isMongoDB ? hook._id?.toString() : hook.id;
+          return hId === hookId;
+        })
       );
 
       route.hooks = uniqueHooks;
