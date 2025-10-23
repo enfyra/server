@@ -190,6 +190,13 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     });
     const routes = result.data;
 
+    this.logger.log(`=== ROUTE QUERY RESULT ===`);
+    this.logger.log(`Total routes: ${routes.length}`);
+    if (routes.length > 0) {
+      this.logger.log(`First route sample:`);
+      this.logger.log(JSON.stringify(routes[0], null, 2));
+    }
+
     // Get global hooks separately
     const globalHooksResult = await this.queryBuilder.select({
       tableName: 'hook_definition',
@@ -239,7 +246,8 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
 
   private insertRouteToEngine(route: any): void {
     if (!route.path) {
-      this.logger.warn(`Route has no path, skipping:`, route.id);
+      this.logger.warn(`Route has no path, skipping:`);
+      this.logger.warn(JSON.stringify(route, null, 2));
       return;
     }
 

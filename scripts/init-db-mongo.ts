@@ -36,17 +36,21 @@ function getBsonType(columnDef: ColumnDef): string {
   return typeMap[columnDef.type] || 'string';
 }
 
-function createValidationSchema(tableDef: TableDef): any {
+function createValidationSchema(tableDef: TableDef, allTables: Record<string, TableDef>): any {
   const properties: any = {};
   const required: string[] = [];
 
+  // Add columns
   for (const col of tableDef.columns) {
     if (col.isPrimary && col.name === 'id') continue;
 
     const bsonType = getBsonType(col);
-    properties[col.name] = { bsonType };
 
-    if (col.isNullable === false && !col.isGenerated) {
+    // If nullable, allow both the type and null
+    if (col.isNullable !== false) {
+      properties[col.name] = { bsonType: [bsonType, 'null'] };
+    } else {
+      properties[col.name] = { bsonType };
       required.push(col.name);
     }
 
@@ -56,6 +60,50 @@ function createValidationSchema(tableDef: TableDef): any {
 
     if (col.description) {
       properties[col.name].description = col.description;
+    }
+  }
+
+  // Add relation fields (both direct and inverse)
+  if (tableDef.relations) {
+    for (const rel of tableDef.relations) {
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        properties[rel.propertyName] = {
+          bsonType: ['objectId', 'null'],
+          description: `Reference to ${rel.targetTable}`,
+        };
+      } else if (rel.type === 'one-to-many' || rel.type === 'many-to-many') {
+        properties[rel.propertyName] = {
+          bsonType: 'array',
+          items: { bsonType: 'objectId' },
+          description: `Relation to ${rel.targetTable}`,
+        };
+      }
+    }
+  }
+
+  // Add inverse relation fields (scan ALL tables for relations pointing to this table)
+  for (const [otherTableName, otherTable] of Object.entries(allTables)) {
+    if (!otherTable.relations) continue;
+
+    for (const rel of otherTable.relations) {
+      if (rel.targetTable === tableDef.name && rel.inversePropertyName) {
+        let inverseType = rel.type;
+        if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+        else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+
+        if (inverseType === 'one-to-many' || inverseType === 'many-to-many') {
+          properties[rel.inversePropertyName] = {
+            bsonType: 'array',
+            items: { bsonType: 'objectId' },
+            description: `Inverse relation from ${otherTableName}`,
+          };
+        } else if (inverseType === 'many-to-one' || inverseType === 'one-to-one') {
+          properties[rel.inversePropertyName] = {
+            bsonType: ['objectId', 'null'],
+            description: `Inverse relation from ${otherTableName}`,
+          };
+        }
+      }
     }
   }
 
@@ -129,7 +177,7 @@ async function createIndexes(
 }
 
 
-async function createCollection(db: Db, tableDef: TableDef): Promise<void> {
+async function createCollection(db: Db, tableDef: TableDef, allTables: Record<string, TableDef>): Promise<void> {
   const collectionName = tableDef.name;
 
   console.log(`📝 Creating collection: ${collectionName}`);
@@ -142,15 +190,15 @@ async function createCollection(db: Db, tableDef: TableDef): Promise<void> {
 
   // Skip validation for metadata tables (they have dynamic fields)
   const METADATA_TABLES = ['table_definition', 'column_definition', 'relation_definition'];
-  
+
   if (METADATA_TABLES.includes(collectionName)) {
     // Create without validation for metadata tables
     await db.createCollection(collectionName);
     console.log(`✅ Created collection (no validation): ${collectionName}`);
   } else {
     // Create with validation for data tables
-    const validationSchema = createValidationSchema(tableDef);
-    
+    const validationSchema = createValidationSchema(tableDef, allTables);
+
     await db.createCollection(collectionName, {
       validator: validationSchema,
       validationLevel: 'moderate',
@@ -197,7 +245,7 @@ export async function initializeDatabaseMongo(): Promise<void> {
     console.log(`📊 Found ${tables.length} collections to create`);
 
     for (const tableDef of tables) {
-      await createCollection(db, tableDef);
+      await createCollection(db, tableDef, snapshot);
     }
 
     console.log('🎉 MongoDB database initialization completed!');

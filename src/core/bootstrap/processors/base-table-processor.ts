@@ -266,16 +266,15 @@ export abstract class BaseTableProcessor {
     const cleaned: any = {};
 
     for (const key in record) {
+      // Skip internal fields (except _id)
       if (key.startsWith('_') && key !== '_id') {
         continue;
       }
 
       const value = record[key];
 
-      if (Array.isArray(value)) {
-        continue;
-      }
-
+      // Include arrays - they are valid for MongoDB relations
+      // (publishedMethods, hooks, handlers, routePermissions, targetTables, etc.)
       cleaned[key] = value;
     }
 

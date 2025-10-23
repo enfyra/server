@@ -12,11 +12,16 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    
+
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
-        
+
+        // Set default values for optional fields
+        if (!transformedRecord.description) transformedRecord.description = null;
+        if (!transformedRecord.icon) transformedRecord.icon = 'lucide:route';
+        if (transformedRecord.isSystem === undefined) transformedRecord.isSystem = false;
+
         // Handle mainTable reference differently for SQL vs MongoDB
         if (record.mainTable) {
           if (isMongoDB) {
@@ -24,34 +29,34 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
               name: record.mainTable,
             });
-            
+
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            transformedRecord.mainTable = typeof mainTable._id === 'string' 
-              ? new ObjectId(mainTable._id) 
+            transformedRecord.mainTable = typeof mainTable._id === 'string'
+              ? new ObjectId(mainTable._id)
               : mainTable._id;
           } else {
             // SQL: Convert mainTable name to mainTableId (foreign key)
             const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
               name: record.mainTable,
             });
-            
+
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            
+
             transformedRecord.mainTableId = mainTable.id;
             delete transformedRecord.mainTable;
           }
         }
-        
+
         // Handle publishedMethods differently for SQL vs MongoDB
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
           if (isMongoDB) {
@@ -62,8 +67,8 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
               fields: ['_id', 'method'],
             });
             const methods = result.data;
-            
-            transformedRecord.publishedMethods = methods.map((m: any) => 
+
+            transformedRecord.publishedMethods = methods.map((m: any) =>
               typeof m._id === 'string' ? new ObjectId(m._id) : m._id
             );
           } else {
@@ -71,16 +76,27 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             transformedRecord._publishedMethods = record.publishedMethods;
             delete transformedRecord.publishedMethods;
           }
+        } else {
+          // No publishedMethods provided - set empty array for MongoDB
+          if (isMongoDB) {
+            transformedRecord.publishedMethods = [];
+          }
         }
 
-        // MongoDB: Add inverse fields for relations
+        // MongoDB: Initialize inverse fields as empty arrays
+        // These MUST be stored for performance - other processors will $addToSet to them
         if (isMongoDB) {
-          // Initialize inverse fields as empty arrays
-          transformedRecord.routePermissions = []; // From route_permission_definition.route
-          transformedRecord.handlers = []; // From route_handler_definition.route  
-          transformedRecord.hooks = []; // From hook_definition.route
+          if (!transformedRecord.hooks) transformedRecord.hooks = [];
+          if (!transformedRecord.handlers) transformedRecord.handlers = [];
+          if (!transformedRecord.routePermissions) transformedRecord.routePermissions = [];
+          if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
         }
-        
+
+        // Debug: log first route to see what we're trying to insert
+        if (isMongoDB && record.path === '/route_definition') {
+          this.logger.log(`📋 Sample route document to insert: ${JSON.stringify(transformedRecord, null, 2)}`);
+        }
+
         return transformedRecord;
       }),
     );
@@ -122,7 +138,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['path', 'isEnabled', 'icon', 'description'];
+    return ['path', 'isEnabled', 'icon', 'description', 'isSystem', 'mainTable', 'publishedMethods'];
   }
 
   protected getRecordIdentifier(record: any): string {

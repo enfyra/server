@@ -77,10 +77,35 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
   }
 
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    // Handle methods junction table (SQL only)
-    if (record._methods && Array.isArray(record._methods)) {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+
+    // MongoDB: Add inverse reference to route.hooks for performance
+    if (isMongoDB && record.route) {
+      const db = context?.db;
+      if (!db) {
+        this.logger.warn(`   ⚠️ No db in context, cannot update route.hooks for hook: ${record.name}`);
+      } else {
+        const routeId = typeof record.route === 'string' ? new ObjectId(record.route) : record.route;
+        const hookId = typeof record._id === 'string' ? new ObjectId(record._id) : record._id;
+
+        this.logger.log(`   🔗 Updating route ${routeId} with hook ${hookId}`);
+
+        // Add hookId to route's hooks array (if not already present)
+        const updateResult = await db.collection('route_definition').updateOne(
+          { _id: routeId },
+          { $addToSet: { hooks: hookId } }
+        );
+
+        this.logger.log(`   🔗 Added hook to route.hooks array (matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount})`);
+      }
+    } else if (isMongoDB && !record.route) {
+      this.logger.log(`   ℹ️ Hook "${record.name}" has no route reference, skipping inverse update`);
+    }
+
+    // SQL: Handle methods junction table
+    if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;
-      
+
       // Get method IDs
       const result = await this.queryBuilder.select({
         tableName: 'method_definition',
@@ -88,29 +113,29 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
         fields: ['id', 'method'],
       });
       const methods = result.data;
-      
+
       const methodIds = methods.map((m: any) => m.id);
-      
+
       if (methodIds.length > 0) {
         const junctionTable = 'hook_definition_methods_method_definition';
-        
+
         // Clear existing junction records
         await this.queryBuilder.delete({
           table: junctionTable,
           where: [{ field: 'hookDefinitionId', operator: '=', value: record.id }],
         });
-        
+
         // Insert new junction records
         const junctionData = methodIds.map((methodId) => ({
           methodDefinitionId: methodId,
           hookDefinitionId: record.id,
         }));
-        
+
         await this.queryBuilder.insert({
           table: junctionTable,
           data: junctionData,
         });
-        
+
         this.logger.log(
           `   🔗 Linked ${methodIds.length} methods to hook ${record.name}`,
         );
