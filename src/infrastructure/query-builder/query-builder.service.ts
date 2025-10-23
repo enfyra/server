@@ -111,28 +111,45 @@ export class QueryBuilderService {
         projection[nestedRel.propertyName] = 1;
       }
 
-      // Map unpopulated relations: ObjectId → {_id: ObjectId}
-      for (const rel of unpopulatedRelations) {
-        const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
+      // Map unpopulated OWNER relations: ObjectId → {_id: ObjectId}
+      // BUT: Only if nestedFields contains wildcard '*'
+      // If selecting specific fields, don't map unpopulated relations
+      const hasWildcard = nestedFields.includes('*');
+      const shouldMapRelations = hasWildcard;
 
-        if (isArray) {
-          // Array of ObjectIds → array of {_id: ObjectId}
-          projection[rel.propertyName] = {
-            $map: {
-              input: `$${rel.propertyName}`,
-              as: 'item',
-              in: { _id: '$$item' }
-            }
-          };
-        } else {
-          // Single ObjectId → {_id: ObjectId}
-          projection[rel.propertyName] = {
-            $cond: {
-              if: { $ne: [`$${rel.propertyName}`, null] },
-              then: { _id: `$${rel.propertyName}` },
-              else: null
-            }
-          };
+      if (shouldMapRelations) {
+        // Skip inverse relations (not stored)
+        for (const rel of unpopulatedRelations) {
+          // Skip inverse relations (they are not stored, so no field to map)
+          const isInverse = rel.type === 'one-to-many' ||
+                           (rel.type === 'many-to-many' && rel.mappedBy);
+
+          if (isInverse) {
+            continue; // Inverse relations not stored, skip mapping
+          }
+
+          // Map owner relations only
+          const isArray = rel.type === 'many-to-many';
+
+          if (isArray) {
+            // Array of ObjectIds → array of {_id: ObjectId}
+            projection[rel.propertyName] = {
+              $map: {
+                input: `$${rel.propertyName}`,
+                as: 'item',
+                in: { _id: '$$item' }
+              }
+            };
+          } else {
+            // Single ObjectId → {_id: ObjectId}
+            projection[rel.propertyName] = {
+              $cond: {
+                if: { $ne: [`$${rel.propertyName}`, null] },
+                then: { _id: `$${rel.propertyName}` },
+                else: null
+              }
+            };
+          }
         }
       }
 
@@ -841,16 +858,24 @@ export class QueryBuilderService {
         // This is more efficient than using $lookup for relations when we only need _id
         const baseMeta = await this.metadataCache.lookupTableByName(options.table);
         const allRelations = baseMeta?.relations || [];
+        const allColumns = baseMeta?.columns || [];
 
-        // Check if we need to add $project for unpopulated relations
+        // Check if we need to add $project
         const unpopulatedRelations = allRelations.filter(rel =>
           !relations.some(r => r.propertyName === rel.propertyName)
         );
 
-        if (unpopulatedRelations.length > 0) {
-          const projectStage: any = {};
+        // Check if user selected specific fields (not wildcard)
+        const hasWildcard = scalarFields.length === allColumns.length ||
+                           (scalarFields.length === 0 && relations.length === 0);
 
-          // Include all existing fields
+        // Add $project if:
+        // 1. There are unpopulated owner relations to map, OR
+        // 2. User selected specific fields (not wildcard)
+        if (unpopulatedRelations.length > 0 || !hasWildcard) {
+          const projectStage: any = { _id: 1 };
+
+          // Include selected scalar fields
           for (const field of scalarFields) {
             projectStage[field] = 1;
           }
@@ -860,9 +885,19 @@ export class QueryBuilderService {
             projectStage[rel.propertyName] = 1;
           }
 
-          // Map unpopulated relations: ObjectId → {_id: ObjectId}
+          // Map unpopulated OWNER relations: ObjectId → {_id: ObjectId}
+          // Skip inverse relations (not stored)
           for (const rel of unpopulatedRelations) {
-            const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
+            // Skip inverse relations (they are not stored, so no field to map)
+            const isInverse = rel.type === 'one-to-many' ||
+                             (rel.type === 'many-to-many' && rel.mappedBy);
+
+            if (isInverse) {
+              continue; // Inverse relations not stored, skip mapping
+            }
+
+            // Map owner relations only
+            const isArray = rel.type === 'many-to-many';
 
             if (isArray) {
               // Array of ObjectIds → array of {_id: ObjectId}
@@ -1388,14 +1423,14 @@ export class QueryBuilderService {
     const fieldsByRelation = new Map<string, string[]>();
 
     for (const field of fields) {
-      if (field === '*' || !field.includes('.')) {
-        // Root-level field
+      if (field === '*') {
+        // Wildcard - add to root
         if (!fieldsByRelation.has('')) {
           fieldsByRelation.set('', []);
         }
         fieldsByRelation.get('')!.push(field);
-      } else {
-        // Relation field like 'mainTable.*' or 'handlers.method.*'
+      } else if (field.includes('.')) {
+        // Nested field like 'mainTable.*' or 'handlers.method.*'
         const parts = field.split('.');
         const relationName = parts[0];
         const remainingPath = parts.slice(1).join('.');
@@ -1404,6 +1439,23 @@ export class QueryBuilderService {
           fieldsByRelation.set(relationName, []);
         }
         fieldsByRelation.get(relationName)!.push(remainingPath);
+      } else {
+        // Field without dot - could be scalar or relation
+        // Check if it's a relation
+        const isRelation = baseMeta.relations?.some(r => r.propertyName === field);
+
+        if (isRelation) {
+          // Relation name without nested fields → default to ['_id']
+          if (!fieldsByRelation.has(field)) {
+            fieldsByRelation.set(field, ['_id']);
+          }
+        } else {
+          // Scalar field
+          if (!fieldsByRelation.has('')) {
+            fieldsByRelation.set('', []);
+          }
+          fieldsByRelation.get('')!.push(field);
+        }
       }
     }
 
@@ -1423,9 +1475,16 @@ export class QueryBuilderService {
           }
         }
 
-        // MongoDB: Don't auto-add $lookup for relations with only _id
-        // Instead, keep the raw ObjectId and transform after query (more efficient)
-        // Relations will be transformed in transformMongoResults()
+        // Auto-add all relations with only '_id' field (like SQL auto-join with id only)
+        // This applies to BOTH owner and inverse relations
+        if (baseMeta.relations) {
+          for (const rel of baseMeta.relations) {
+            if (!fieldsByRelation.has(rel.propertyName)) {
+              // Auto-add this relation with _id only
+              fieldsByRelation.set(rel.propertyName, ['_id']);
+            }
+          }
+        }
       } else {
         // Regular scalar field
         if (!scalarFields.includes(field)) {
@@ -1444,18 +1503,48 @@ export class QueryBuilderService {
         continue;
       }
 
-      // For MongoDB:
-      // - one-to-many/many-to-many: localField is the array field (e.g., 'columns'), foreignField is '_id'
-      // - many-to-one: localField is the foreign key field (e.g., 'table'), foreignField is '_id'
+      // Determine if this relation is owner or inverse
+      let localField: string;
+      let foreignField: string;
+      let isInverse = false;
+
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        // Owner side: store ObjectId
+        localField = rel.propertyName;
+        foreignField = '_id';
+        isInverse = false;
+      }
+      else if (rel.type === 'one-to-many') {
+        // Always inverse: NOT stored
+        localField = '_id';
+        foreignField = rel.inversePropertyName || rel.propertyName;
+        isInverse = true;
+      }
+      else if (rel.type === 'many-to-many') {
+        // Check mappedBy to determine owner/inverse
+        if (rel.mappedBy) {
+          // Inverse side: NOT stored
+          localField = '_id';
+          foreignField = rel.mappedBy; // Owner field name in target table
+          isInverse = true;
+        } else {
+          // Owner side: store array of ObjectIds
+          localField = rel.propertyName;
+          foreignField = '_id';
+          isInverse = false;
+        }
+      }
+
       const isToMany = rel.type === 'one-to-many' || rel.type === 'many-to-many';
 
       relations.push({
         propertyName: relationName,
         targetTable: rel.targetTableName,
-        localField: relationName, // Always use the relation property name as localField
-        foreignField: '_id',
+        localField,
+        foreignField,
         type: isToMany ? 'many' : 'one',
-        nestedFields: nestedFields // Keep nested path like ['*'] or ['method.*'] - will expand recursively later
+        isInverse,
+        nestedFields: nestedFields
       });
     }
 

@@ -135,12 +135,11 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
             delete cleanedRecord._plainPassword;
           }
 
-          // MongoDB: Initialize relation fields (must be set explicitly for MongoDB to store them)
+          // MongoDB: Initialize owner relation fields only
           // Many-to-one relation - always set, even if null
           cleanedRecord.role = cleanedRecord.role || null;
 
-          // Inverse many-to-many relation - initialize as empty array
-          cleanedRecord.allowedRoutePermissions = [];
+          // NOTE: allowedRoutePermissions is inverse M2M - NOT stored
 
           const result = await db.collection(collectionName).insertOne(cleanedRecord);
           createdCount++;

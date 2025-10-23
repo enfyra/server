@@ -47,6 +47,9 @@ export class MongoQueryEngine {
       debugMode = false,
     } = options;
 
+    // Default to '*' if no fields specified
+    const normalizedFields = fields || '*';
+
     // Initialize debug log array
     const debugLog: any[] = [];
 
@@ -56,7 +59,7 @@ export class MongoQueryEngine {
     // - Nested relation population
     const result = await this.queryBuilder.mongoExecutor({
       tableName,
-      fields,
+      fields: normalizedFields,
       filter,
       sort,
       page,

@@ -156,9 +156,8 @@ export class CoreInitMongoService {
       // Build record based on table_definition columns
       const record = this.buildRecordFromColumns(tableData, tableDef.columns);
 
-      // Add special array fields that aren't in columns
-      record.columns = [];
-      record.relations = [];
+      // NOTE: columns and relations are inverse one-to-many - NOT stored
+      // They will be computed via $lookup based on metadata
 
       return record;
     });
@@ -177,7 +176,6 @@ export class CoreInitMongoService {
 
     // Step 2: Upsert all columns
     this.logger.log('Step 2: Upserting columns...');
-    const allColumnIds: Record<string, ObjectId[]> = {};
 
     // Get column_definition schema
     if (!columnDef || !columnDef.columns) {
@@ -188,8 +186,6 @@ export class CoreInitMongoService {
       const def = defRaw as any;
       const tableId = tableNameToId[tableName];
       if (!tableId) continue;
-
-      allColumnIds[tableName] = [];
 
       const columnRecords = (def.columns || []).map((col: any) => {
         // Build record based on column_definition columns
@@ -209,32 +205,16 @@ export class CoreInitMongoService {
       if (columnRecords.length > 0) {
         const columnResult = await columnProcessor.processMongo(columnRecords, db, 'column_definition');
         this.logger.log(`${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`);
-
-        // Collect column IDs
-        for (const colRec of columnRecords) {
-          const col = await db.collection('column_definition').findOne({
-            [tableFieldName]: tableId,
-            name: colRec.name,
-          });
-          if (col) {
-            allColumnIds[tableName].push(col._id);
-          }
-        }
       }
     }
 
     // Step 3: Upsert all relations (including inverse)
     this.logger.log('Step 3: Upserting relations...');
-    const allRelationIds: Record<string, ObjectId[]> = {};
     const processedInverseRelations = new Set<string>();
 
     // Get relation_definition schema
     if (!relationDef || !relationDef.columns) {
       throw new Error('relation_definition not found in snapshot');
-    }
-
-    for (const tableName of Object.keys(tableNameToId)) {
-      allRelationIds[tableName] = [];
     }
 
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
@@ -255,15 +235,6 @@ export class CoreInitMongoService {
         directRelationRecord[targetTableFieldName] = targetTableId;
 
         const directResult = await relationProcessor.processMongo([directRelationRecord], db, 'relation_definition');
-
-        // Collect relation ID
-        const directRel = await db.collection('relation_definition').findOne({
-          [sourceTableFieldName]: tableId,
-          propertyName: rel.propertyName,
-        });
-        if (directRel) {
-          allRelationIds[tableName].push(directRel._id);
-        }
 
         // Upsert inverse relation if inversePropertyName exists
         if (rel.inversePropertyName) {
@@ -295,38 +266,14 @@ export class CoreInitMongoService {
             inverseRelationRecord[targetTableFieldName] = tableId;
 
             const inverseResult = await relationProcessor.processMongo([inverseRelationRecord], db, 'relation_definition');
-
-            // Collect inverse relation ID
-            const inverseRel = await db.collection('relation_definition').findOne({
-              [sourceTableFieldName]: targetTableId,
-              propertyName: rel.inversePropertyName,
-            });
-            if (inverseRel) {
-              allRelationIds[rel.targetTable].push(inverseRel._id);
-            }
           }
         }
       }
     }
 
-    // Step 4: Update all tables with their columns and relations arrays
-    this.logger.log('Step 4: Updating tables with columns and relations...');
-    for (const [tableName, tableId] of Object.entries(tableNameToId)) {
-      const columnIds = allColumnIds[tableName] || [];
-      const relationIds = allRelationIds[tableName] || [];
-
-      await db.collection('table_definition').updateOne(
-        { _id: tableId },
-        {
-          $set: {
-            columns: columnIds,
-            relations: relationIds,
-          }
-        }
-      );
-
-      this.logger.log(`Updated table ${tableName}: ${columnIds.length} columns, ${relationIds.length} relations`);
-    }
+    // Step 4: Skip - columns and relations are inverse one-to-many (NOT stored)
+    // They will be computed via $lookup based on metadata
+    this.logger.log('Step 4: Skipped - inverse relations not stored');
 
     this.logger.log('MongoDB metadata creation completed');
   }

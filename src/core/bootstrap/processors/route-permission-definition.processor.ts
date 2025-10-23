@@ -24,6 +24,11 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
           const now = new Date();
           if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
+
+          // Initialize owner M2M relations
+          if (!transformedRecord.allowedUsers) transformedRecord.allowedUsers = [];
+
+          // NOTE: methods is inverse M2M - NOT stored
         }
 
         // Handle route reference

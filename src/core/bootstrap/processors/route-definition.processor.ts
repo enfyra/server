@@ -28,6 +28,11 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           const now = new Date();
           if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
+
+          // Initialize owner M2M relations
+          if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
+
+          // NOTE: publishedMethods, hooks, handlers, routePermissions are inverse - NOT stored
         }
 
         // Handle mainTable reference differently for SQL vs MongoDB
@@ -65,40 +70,21 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           }
         }
 
-        // Handle publishedMethods differently for SQL vs MongoDB
+        // Handle publishedMethods - INVERSE M2M relation (from method_definition.routes)
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
           if (isMongoDB) {
-            // MongoDB: Convert method names to method IDs (array of ObjectIds)
-            const result = await this.queryBuilder.select({
-              tableName: 'method_definition',
-              filter: { method: { _in: record.publishedMethods } },
-              fields: ['_id', 'method'],
-            });
-            const methods = result.data;
-
-            transformedRecord.publishedMethods = methods.map((m: any) =>
-              typeof m._id === 'string' ? new ObjectId(m._id) : m._id
-            );
+            // MongoDB: publishedMethods is INVERSE - NOT stored
+            transformedRecord._publishedMethods = record.publishedMethods;
+            delete transformedRecord.publishedMethods;
           } else {
             // SQL: Store for junction table processing
             transformedRecord._publishedMethods = record.publishedMethods;
             delete transformedRecord.publishedMethods;
           }
-        } else {
-          // No publishedMethods provided - set empty array for MongoDB
-          if (isMongoDB) {
-            transformedRecord.publishedMethods = [];
-          }
         }
 
-        // MongoDB: Initialize inverse fields as empty arrays
-        // These MUST be stored for performance - other processors will $addToSet to them
-        if (isMongoDB) {
-          if (!transformedRecord.hooks) transformedRecord.hooks = [];
-          if (!transformedRecord.handlers) transformedRecord.handlers = [];
-          if (!transformedRecord.routePermissions) transformedRecord.routePermissions = [];
-          if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
-        }
+        // NOTE: Inverse relations (hooks, handlers, routePermissions, publishedMethods)
+        // are NOT stored - they will be computed via $lookup based on metadata
 
         // Debug: log first route to see what we're trying to insert
         if (isMongoDB && record.path === '/route_definition') {
@@ -115,29 +101,8 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
 
-    // MongoDB: Add inverse reference to method.routes for performance
-    if (isMongoDB && record.publishedMethods && Array.isArray(record.publishedMethods) && record.publishedMethods.length > 0) {
-      const db = context?.db;
-      if (!db) {
-        this.logger.warn(`   ⚠️ No db in context, cannot update method.routes for route: ${record.path}`);
-      } else {
-        const routeId = typeof record._id === 'string' ? new ObjectId(record._id) : record._id;
-
-        this.logger.log(`   🔗 Updating ${record.publishedMethods.length} methods with route ${routeId}`);
-
-        // Add routeId to each method's routes array
-        for (const methodId of record.publishedMethods) {
-          const mId = typeof methodId === 'string' ? new ObjectId(methodId) : methodId;
-
-          const updateResult = await db.collection('method_definition').updateOne(
-            { _id: mId },
-            { $addToSet: { routes: routeId } }
-          );
-
-          this.logger.log(`   🔗 Added route to method ${mId} routes array (matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount})`);
-        }
-      }
-    }
+    // MongoDB: No inverse relation updates
+    // publishedMethods is INVERSE - computed from method.routes via $lookup
 
     // SQL: Handle publishedMethods using automatic cascade
     if (!isMongoDB && record._publishedMethods && Array.isArray(record._publishedMethods)) {
@@ -152,14 +117,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methods = result.data;
 
       const methodIds = methods.map((m: any) => m.id);
-      
+
       if (methodIds.length > 0) {
-        // Update the record with publishedMethods relation
-        // This will automatically trigger cascade handling in KnexService hooks
         await this.queryBuilder.updateById('route_definition', record.id, {
           publishedMethods: methodIds
         });
-        
+
         this.logger.log(
           `   🔗 Linked ${methodIds.length} published methods to route ${record.path}`,
         );

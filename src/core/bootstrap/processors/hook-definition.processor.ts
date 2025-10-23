@@ -136,52 +136,7 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
 
-    // MongoDB: Add inverse reference to route.hooks for performance
-    if (isMongoDB && record.route) {
-      const db = context?.db;
-      if (!db) {
-        this.logger.warn(`   ⚠️ No db in context, cannot update route.hooks for hook: ${record.name}`);
-      } else {
-        const routeId = typeof record.route === 'string' ? new ObjectId(record.route) : record.route;
-        const hookId = typeof record._id === 'string' ? new ObjectId(record._id) : record._id;
-
-        this.logger.log(`   🔗 Updating route ${routeId} with hook ${hookId}`);
-
-        // Add hookId to route's hooks array (if not already present)
-        const updateResult = await db.collection('route_definition').updateOne(
-          { _id: routeId },
-          { $addToSet: { hooks: hookId } }
-        );
-
-        this.logger.log(`   🔗 Added hook to route.hooks array (matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount})`);
-      }
-    } else if (isMongoDB && !record.route) {
-      this.logger.log(`   ℹ️ Hook "${record.name}" has no route reference, skipping inverse update`);
-    }
-
-    // MongoDB: Add inverse reference to method.hooks for performance
-    if (isMongoDB && record.methods && Array.isArray(record.methods) && record.methods.length > 0) {
-      const db = context?.db;
-      if (!db) {
-        this.logger.warn(`   ⚠️ No db in context, cannot update method.hooks for hook: ${record.name}`);
-      } else {
-        const hookId = typeof record._id === 'string' ? new ObjectId(record._id) : record._id;
-
-        this.logger.log(`   🔗 Updating ${record.methods.length} methods with hook ${hookId}`);
-
-        // Add hookId to each method's hooks array
-        for (const methodId of record.methods) {
-          const mId = typeof methodId === 'string' ? new ObjectId(methodId) : methodId;
-
-          const updateResult = await db.collection('method_definition').updateOne(
-            { _id: mId },
-            { $addToSet: { hooks: hookId } }
-          );
-
-          this.logger.log(`   🔗 Added hook to method ${mId} hooks array (matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount})`);
-        }
-      }
-    }
+    // MongoDB: No need to update inverse - will be computed via $lookup
 
     // SQL: Handle methods junction table
     if (!isMongoDB && record._methods && Array.isArray(record._methods)) {

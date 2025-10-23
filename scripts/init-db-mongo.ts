@@ -67,46 +67,28 @@ function createValidationSchema(tableDef: TableDef, allTables: Record<string, Ta
     }
   }
 
-  // Add relation fields (both direct and inverse)
+  // Add relation fields defined in this table
   if (tableDef.relations) {
     for (const rel of tableDef.relations) {
+      // Skip one-to-many (always inverse, not stored)
+      if (rel.type === 'one-to-many') {
+        continue;
+      }
+
+      // Store owner side relations:
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        // Single ObjectId reference
         properties[rel.propertyName] = {
           bsonType: ['objectId', 'null'],
           description: `Reference to ${rel.targetTable}`,
         };
-      } else if (rel.type === 'one-to-many' || rel.type === 'many-to-many') {
+      } else if (rel.type === 'many-to-many') {
+        // Array of ObjectIds
         properties[rel.propertyName] = {
           bsonType: 'array',
           items: { bsonType: 'objectId' },
-          description: `Relation to ${rel.targetTable}`,
+          description: `Many-to-many relation to ${rel.targetTable}`,
         };
-      }
-    }
-  }
-
-  // Add inverse relation fields (scan ALL tables for relations pointing to this table)
-  for (const [otherTableName, otherTable] of Object.entries(allTables)) {
-    if (!otherTable.relations) continue;
-
-    for (const rel of otherTable.relations) {
-      if (rel.targetTable === tableDef.name && rel.inversePropertyName) {
-        let inverseType = rel.type;
-        if (rel.type === 'many-to-one') inverseType = 'one-to-many';
-        else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
-
-        if (inverseType === 'one-to-many' || inverseType === 'many-to-many') {
-          properties[rel.inversePropertyName] = {
-            bsonType: 'array',
-            items: { bsonType: 'objectId' },
-            description: `Inverse relation from ${otherTableName}`,
-          };
-        } else if (inverseType === 'many-to-one' || inverseType === 'one-to-one') {
-          properties[rel.inversePropertyName] = {
-            bsonType: ['objectId', 'null'],
-            description: `Inverse relation from ${otherTableName}`,
-          };
-        }
       }
     }
   }
