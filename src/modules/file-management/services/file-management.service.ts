@@ -163,7 +163,7 @@ export class FileManagementService {
     }
   }
 
-  // ✅ File replacement methods
+  // File replacement methods
   async backupFile(location: string): Promise<string> {
     const absolutePath = this.convertToAbsolutePath(location);
     const backupPath = `${absolutePath}.backup.${Date.now()}`;

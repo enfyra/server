@@ -100,7 +100,7 @@ process.on('message', async (msg: any) => {
       try {
         ctx.$pkgs[packageName] = require(packageName);
       } catch (error) {
-        console.warn(`⚠️ Failed to require package "${packageName}":`, error.message);
+        console.warn(`Failed to require package "${packageName}":`, error.message);
       }
     }
 

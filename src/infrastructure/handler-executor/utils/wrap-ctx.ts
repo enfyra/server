@@ -95,7 +95,7 @@ export function wrapCtx(
   return wrapped;
 }
 
-// ✅ Keep Date, remove function/symbol, prevent circular loops
+// Keep Date, remove function/symbol, prevent circular loops
 function toPlainSafe(obj: any, seen = new WeakSet()): any {
   if (obj === null || typeof obj !== 'object') return obj;
   if (seen.has(obj)) return '[Circular]';

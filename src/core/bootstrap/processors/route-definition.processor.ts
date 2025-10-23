@@ -27,7 +27,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             
             if (!mainTable) {
               this.logger.warn(
-                `⚠️ Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
+                `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
@@ -42,7 +42,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             
             if (!mainTable) {
               this.logger.warn(
-                `⚠️ Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
+                `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }

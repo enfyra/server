@@ -24,7 +24,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
           
           if (!routeEntity) {
             this.logger.warn(
-              `⚠️ Route '${record.route}' not found for permission, skipping.`,
+              `Route '${record.route}' not found for permission, skipping.`,
             );
             return null;
           }
@@ -49,7 +49,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
           
           if (!roleEntity) {
             this.logger.warn(
-              `⚠️ Role '${record.role}' not found for permission, skipping.`,
+              `Role '${record.role}' not found for permission, skipping.`,
             );
             return null;
           }

@@ -110,7 +110,7 @@ export class DynamicRepository {
       await this.reload();
       return result;
     } catch (error) {
-      console.error('❌ Error in dynamic repo [create]:', error);
+      console.error('Error in dynamic repo [create]:', error);
       throw new BadRequestException(error.message);
     }
   }
@@ -136,19 +136,17 @@ export class DynamicRepository {
         );
         // MongoDB returns _id, SQL returns id
         const tableId = table._id || table.id;
-        console.log('🔍 DEBUG: tableId after updateTable:', tableId, 'type:', typeof tableId);
         await this.reload();
         return this.find({ where: { id: { _eq: tableId } } });
       }
 
       await this.queryBuilder.updateById(this.tableName, id, body);
 
-      console.log('🔍 DEBUG: id before find:', id, 'type:', typeof id);
       const result = await this.find({ where: { id: { _eq: id } } });
       await this.reload();
       return result;
     } catch (error) {
-      console.error('❌ Error in dynamic repo [update]:', error);
+      console.error('Error in dynamic repo [update]:', error);
       throw new BadRequestException(error.message);
     }
   }
@@ -178,7 +176,7 @@ export class DynamicRepository {
       await this.reload();
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error) {
-      console.error('❌ Error in dynamic repo [delete]:', error);
+      console.error('Error in dynamic repo [delete]:', error);
       throw new BadRequestException(error.message);
     }
   }

@@ -139,7 +139,6 @@ export async function buildNestedSubquery(
     if (!fkColumn) {
       if (relation.inversePropertyName) {
         fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
-        console.log(`[NESTED-SUBQUERY] O2M relation ${relationName} - calculated FK column: ${fkColumn} from inversePropertyName: ${relation.inversePropertyName}`);
       } else {
         console.warn(`[NESTED-SUBQUERY] O2M relation ${relationName} missing both foreignKeyColumn and inversePropertyName in metadata`);
         return null;

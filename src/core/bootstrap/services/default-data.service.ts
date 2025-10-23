@@ -76,7 +76,7 @@ export class DefaultDataService {
   }
 
   async insertAllDefaultRecords(): Promise<void> {
-    this.logger.log('🚀 Starting default data upsert...');
+    this.logger.log('Starting default data upsert...');
     
     // MongoDB: Direct JSON insert (simpler, no processors needed)
     if (this.dbType === 'mongodb') {
@@ -91,7 +91,7 @@ export class DefaultDataService {
     for (const [tableName, rawRecords] of Object.entries(initJson)) {
       const processor = this.processors.get(tableName);
       if (!processor) {
-        this.logger.warn(`⚠️ No processor found for '${tableName}', skipping.`);
+        this.logger.warn(`No processor found for '${tableName}', skipping.`);
         continue;
       }
 
@@ -100,7 +100,7 @@ export class DefaultDataService {
         continue;
       }
 
-      this.logger.log(`🔄 Processing '${tableName}'...`);
+      this.logger.log(`Processing '${tableName}'...`);
 
       try {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
@@ -114,10 +114,10 @@ export class DefaultDataService {
         totalSkipped += result.skipped;
         
         this.logger.log(
-          `✅ '${tableName}': ${result.created} created, ${result.skipped} skipped`
+          `'${tableName}': ${result.created} created, ${result.skipped} skipped`
         );
       } catch (error) {
-        this.logger.error(`❌ Error processing '${tableName}': ${error.message}`);
+        this.logger.error(`Error processing '${tableName}': ${error.message}`);
         this.logger.debug(`Error:`, error);
       }
     }
@@ -137,7 +137,7 @@ export class DefaultDataService {
         continue;
       }
 
-      this.logger.log(`🔄 Processing collection '${collectionName}'...`);
+      this.logger.log(`Processing collection '${collectionName}'...`);
 
       try {
         // Check if collection already has data
@@ -150,7 +150,7 @@ export class DefaultDataService {
         // Get processor (same as SQL flow)
         const processor = this.processors.get(collectionName);
         if (!processor) {
-          this.logger.warn(`⚠️ No processor found for '${collectionName}', skipping.`);
+          this.logger.warn(`No processor found for '${collectionName}', skipping.`);
           continue;
         }
 
@@ -160,7 +160,7 @@ export class DefaultDataService {
         if (collectionName === 'menu_definition' && typeof processor['processMongo'] === 'function') {
           const created = await processor['processMongo'](records, collectionName);
           totalCreated += created;
-          this.logger.log(`✅ '${collectionName}': ${created} created`);
+          this.logger.log(`'${collectionName}': ${created} created`);
           continue;
         }
         
@@ -180,9 +180,9 @@ export class DefaultDataService {
         });
         totalCreated += validRecords.length;
         
-        this.logger.log(`✅ '${collectionName}': ${validRecords.length} created`);
+        this.logger.log(`'${collectionName}': ${validRecords.length} created`);
       } catch (error) {
-        this.logger.error(`❌ Error processing '${collectionName}': ${error.message}`);
+        this.logger.error(`Error processing '${collectionName}': ${error.message}`);
       }
     }
 

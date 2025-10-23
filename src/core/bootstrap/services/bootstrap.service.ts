@@ -40,7 +40,7 @@ export class BootstrapService implements OnModuleInit {
     try {
       await this.waitForDatabaseConnection();
     } catch (err) {
-      this.logger.error('❌ Error during application bootstrap:', err);
+      this.logger.error('Error during application bootstrap:', err);
       return;
     }
 
@@ -55,7 +55,7 @@ export class BootstrapService implements OnModuleInit {
     let setting = settingsResult.data[0] || null;
 
     if (!setting || !setting.isInit) {
-      this.logger.log('🚀 First time initialization...');
+      this.logger.log('First time initialization...');
       
       // Create metadata (needed for both SQL and MongoDB to track schema)
       await this.coreInitService.createInitMetadata();
@@ -71,7 +71,7 @@ export class BootstrapService implements OnModuleInit {
       setting = settings2Result.data[0] || null;
       
       if (!setting) {
-        this.logger.error('❌ Setting record not found after initialization');
+        this.logger.error('Setting record not found after initialization');
         throw new Error('Setting record not found. DefaultDataService may have failed.');
       }
       
@@ -82,19 +82,10 @@ export class BootstrapService implements OnModuleInit {
         where: [{ field: 'id', operator: '=', value: settingId }],
         data: { isInit: true },
       });
-      
-      this.logger.log('✅ Initialization successful');
 
-      // const lastVersion: any = await knex('schema_history')
-      //   .select('*')
-      //   .orderBy('createdAt', 'desc')
-      //   .first();
-
-      // if (lastVersion) {
-      //   this.schemaStateService.setVersion(lastVersion.id);
-      // }
+      this.logger.log('Initialization successful');
     } else {
-      this.logger.log('✅ System already initialized, skipping data sync');
+      this.logger.log('System already initialized, skipping data sync');
     }
   }
 }

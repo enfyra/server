@@ -65,14 +65,14 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           
           await knex(tableName).insert(cleanedRecord);
           createdCount++;
-          this.logger.log(`   ✅ Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           
           if (this.afterUpsert) {
             await this.afterUpsert({ ...record, id: cleanedRecord.id }, true, context);
           }
         }
       } catch (error) {
-        this.logger.error(`❌ Error: ${error.message}`);
+        this.logger.error(`Error: ${error.message}`);
       }
     }
 

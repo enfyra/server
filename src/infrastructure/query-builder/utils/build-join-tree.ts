@@ -214,7 +214,7 @@ export function buildJoinTree({
         if (!found) continue;
 
         if (found.kind === 'relation') {
-          // IMPORTANT: Add join for the full path accumulated so far
+          // Add join for the full path accumulated so far
           const result = addJoin(path);
           if (result) {
             log.push?.(

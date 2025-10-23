@@ -33,7 +33,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
     } catch (error) {
       console.error(
-        '[RedisPubSub] ❌ Failed to initialize Redis connections:',
+        '[RedisPubSub] Failed to initialize Redis connections:',
         error,
       );
       throw new Error(`RedisPubSub initialization failed: ${error.message}`);
@@ -71,7 +71,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
       await this.pub.publish(channel, message);
     } catch (error) {
-      console.error(`[RedisPubSub] ❌ Failed to publish to ${channel}:`, error);
+      console.error(`[RedisPubSub] Failed to publish to ${channel}:`, error);
       throw error;
     }
   }
@@ -80,7 +80,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     try {
       this.sub?.disconnect();
     } catch (error) {
-      console.error('[RedisPubSub] ❌ Error during cleanup:', error);
+      console.error('[RedisPubSub] Error during cleanup:', error);
     }
   }
 }

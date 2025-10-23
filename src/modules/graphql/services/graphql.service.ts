@@ -52,7 +52,7 @@ export class GraphqlService {
         graphiql: true,
       });
 
-      this.logger.log('✅ GraphQL schema generated successfully');
+      this.logger.log('GraphQL schema generated successfully');
     } catch (error) {
       this.logger.error('Failed to reload GraphQL schema:', error.message);
       throw error;

@@ -102,7 +102,7 @@ export class FileController {
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 
-    // ✅ Nếu có file mới → REPLACE FILE
+    // Nếu có file mới → REPLACE FILE
     if (file) {
       try {
         // 1. Process file mới (generate metadata mới)
@@ -166,7 +166,7 @@ export class FileController {
       }
     }
 
-    // ✅ Nếu không có file mới → UPDATE METADATA ONLY (logic cũ)
+    // Nếu không có file mới → UPDATE METADATA ONLY (logic cũ)
     if (body.folder && body.folder !== currentFile.folder) {
       const newFolder =
         typeof body.folder === 'object' ? body.folder : { id: body.folder };

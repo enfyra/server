@@ -97,11 +97,11 @@ export class MongoSchemaMigrationService {
       // Check if collection already exists
       const collections = await db.listCollections({ name: collectionName }).toArray();
       if (collections.length > 0) {
-        this.logger.warn(`⚠️  Collection ${collectionName} already exists, skipping creation`);
+        this.logger.warn(` Collection ${collectionName} already exists, skipping creation`);
         return;
       }
 
-      this.logger.log(`🔨 Creating collection: ${collectionName}`);
+      this.logger.log(`Creating collection: ${collectionName}`);
 
       // Create validation schema
       const validationSchema = this.createValidationSchema(tableMetadata.columns || []);
@@ -113,7 +113,7 @@ export class MongoSchemaMigrationService {
         validationAction: 'error',
       });
 
-      this.logger.log(`✅ Created collection with validation: ${collectionName}`);
+      this.logger.log(`Created collection with validation: ${collectionName}`);
 
       // Create indexes
       await this.createIndexes(
@@ -123,9 +123,9 @@ export class MongoSchemaMigrationService {
         tableMetadata.indexes || []
       );
 
-      this.logger.log(`✅ Collection creation complete: ${collectionName}`);
+      this.logger.log(`Collection creation complete: ${collectionName}`);
     } catch (error) {
-      this.logger.error(`❌ Failed to create collection ${collectionName}: ${error.message}`);
+      this.logger.error(`Failed to create collection ${collectionName}: ${error.message}`);
       throw error;
     }
   }
@@ -153,13 +153,13 @@ export class MongoSchemaMigrationService {
         validationAction: 'error',
       });
 
-      this.logger.log(`✅ Updated validation schema for: ${collectionName}`);
+      this.logger.log(`Updated validation schema for: ${collectionName}`);
 
       // Drop all indexes (except _id)
       const collection = db.collection(collectionName);
       try {
         await collection.dropIndexes();
-        this.logger.log(`🗑️  Dropped all indexes for ${collectionName}`);
+        this.logger.log(` Dropped all indexes for ${collectionName}`);
       } catch (error) {
         this.logger.warn(`Failed to drop indexes: ${error.message}`);
       }
@@ -172,9 +172,9 @@ export class MongoSchemaMigrationService {
         newMetadata.indexes || []
       );
 
-      this.logger.log(`✅ Collection update complete: ${collectionName}`);
+      this.logger.log(`Collection update complete: ${collectionName}`);
     } catch (error) {
-      this.logger.error(`❌ Failed to update collection ${collectionName}: ${error.message}`);
+      this.logger.error(`Failed to update collection ${collectionName}: ${error.message}`);
       throw error;
     }
   }
@@ -189,17 +189,17 @@ export class MongoSchemaMigrationService {
       // Check if collection exists
       const collections = await db.listCollections({ name: collectionName }).toArray();
       if (collections.length === 0) {
-        this.logger.warn(`⚠️  Collection ${collectionName} does not exist, skipping drop`);
+        this.logger.warn(` Collection ${collectionName} does not exist, skipping drop`);
         return;
       }
 
-      this.logger.log(`🗑️  Dropping collection: ${collectionName}`);
+      this.logger.log(` Dropping collection: ${collectionName}`);
 
       await db.collection(collectionName).drop();
 
-      this.logger.log(`✅ Collection dropped: ${collectionName}`);
+      this.logger.log(`Collection dropped: ${collectionName}`);
     } catch (error) {
-      this.logger.error(`❌ Failed to drop collection ${collectionName}: ${error.message}`);
+      this.logger.error(`Failed to drop collection ${collectionName}: ${error.message}`);
       throw error;
     }
   }
@@ -232,7 +232,7 @@ export class MongoSchemaMigrationService {
               name: `${collectionName}_${col.name}_unique`,
             }
           );
-          this.logger.log(`✅ Created unique index on ${collectionName}.${col.name}`);
+          this.logger.log(`Created unique index on ${collectionName}.${col.name}`);
         }
       }
 
@@ -247,7 +247,7 @@ export class MongoSchemaMigrationService {
           name: `${collectionName}_${unique.join('_')}_unique`,
           partialFilterExpression: this.createPartialFilterForUnique(unique),
         });
-        this.logger.log(`✅ Created unique index on ${collectionName}: ${unique.join(', ')}`);
+        this.logger.log(`Created unique index on ${collectionName}: ${unique.join(', ')}`);
       }
 
       // Create regular indexes
@@ -259,7 +259,7 @@ export class MongoSchemaMigrationService {
         await collection.createIndex(indexSpec, {
           name: `${collectionName}_${index.join('_')}_idx`,
         });
-        this.logger.log(`✅ Created index on ${collectionName}: ${index.join(', ')}`);
+        this.logger.log(`Created index on ${collectionName}: ${index.join(', ')}`);
       }
     } catch (error) {
       this.logger.warn(`Failed to create some indexes for ${collectionName}: ${error.message}`);

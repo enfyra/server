@@ -35,25 +35,25 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    this.logger.log('🚀 Starting BootstrapScriptService...');
+    this.logger.log('Starting BootstrapScriptService...');
     
     // Wait for bootstrap_script_definition table to be created
     await this.waitForTableExists();
     await this.executeBootstrapScripts();
-    this.logger.log('✅ BootstrapScriptService completed successfully');
+    this.logger.log('BootstrapScriptService completed successfully');
   }
 
   async reloadBootstrapScripts() {
-    this.logger.log('🔄 Reloading BootstrapScriptService...');
+    this.logger.log('Reloading BootstrapScriptService...');
     
     await this.withBootstrapLock(async () => {
       // Clear all Redis data (like app restart)
       await this.cacheService.clearAll();
-      this.logger.log('🧹 Cleared all Redis data');
+      this.logger.log('Cleared all Redis data');
       
       // Execute bootstrap scripts (already have lock from wrapper method)
       await this.executeBootstrapScriptsWithoutLock();
-      this.logger.log('✅ BootstrapScriptService reload completed successfully');
+      this.logger.log('BootstrapScriptService reload completed successfully');
     }, 'reload');
   }
 
@@ -72,15 +72,15 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     }
     
     try {
-      this.logger.log(`🔒 Bootstrap ${context} acquired lock - starting execution (${lockValue})`);
+      this.logger.log(`Bootstrap ${context} acquired lock - starting execution (${lockValue})`);
       return await operation();
       
     } catch (error) {
-      this.logger.error(`❌ BootstrapScriptService ${context} failed:`, error);
+      this.logger.error(`BootstrapScriptService ${context} failed:`, error);
       throw error;
     } finally {
       await this.cacheService.release(lockKey, lockValue);
-      this.logger.log(`🔓 Bootstrap ${context} lock released (${lockValue})`);
+      this.logger.log(`Bootstrap ${context} lock released (${lockValue})`);
     }
   }
 
@@ -92,7 +92,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           const db = this.queryBuilder.getMongoDb();
           const collections = await db.listCollections({ name: 'bootstrap_script_definition' }).toArray();
           if (collections.length > 0) {
-            this.logger.log(`✅ bootstrap_script_definition collection found on attempt ${attempt}`);
+            this.logger.log(`bootstrap_script_definition collection found on attempt ${attempt}`);
             return;
           }
         } else {
@@ -100,7 +100,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           const knex = this.queryBuilder.getKnex();
           const exists = await knex.schema.hasTable('bootstrap_script_definition');
           if (exists) {
-            this.logger.log(`✅ bootstrap_script_definition table found on attempt ${attempt}`);
+            this.logger.log(`bootstrap_script_definition table found on attempt ${attempt}`);
             return;
           }
         }
@@ -130,26 +130,26 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     });
     const scripts = result.data;
 
-    this.logger.log(`📋 Found ${scripts.length} bootstrap scripts to execute`);
+    this.logger.log(`Found ${scripts.length} bootstrap scripts to execute`);
 
     for (const script of scripts) {
       try {
         if (!script.logic || script.logic.trim() === '') {
-          this.logger.warn(`⚠️ Script ${script.name} has no logic, skipping`);
+          this.logger.warn(`Script ${script.name} has no logic, skipping`);
           continue;
         }
         
-        this.logger.log(`🔄 Executing script: ${script.name} (priority: ${script.priority})`);
+        this.logger.log(`Executing script: ${script.name} (priority: ${script.priority})`);
         
         await this.executeScript(script);
-        this.logger.log(`✅ Script ${script.name} completed successfully`);
+        this.logger.log(`Script ${script.name} completed successfully`);
       } catch (error) {
-        this.logger.error(`❌ Script ${script.name} failed:`, error);
+        this.logger.error(`Script ${script.name} failed:`, error);
         // Continue with other scripts even if one fails
       }
     }
       
-    this.logger.log(`✅ Bootstrap scripts execution completed`);
+    this.logger.log(`Bootstrap scripts execution completed`);
   }
 
   private async executeScript(script: any) {
@@ -206,7 +206,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
 
     // Execute script with timeout
     const timeoutMs = script.timeout || 30000; // Default 30 seconds for bootstrap
-    this.logger.log(`⏱️ Executing script with timeout: ${timeoutMs}ms`);
+    this.logger.log(`Executing script with timeout: ${timeoutMs}ms`);
     
     const executionResult = await this.handlerExecutorService.run(
       script.logic,
@@ -214,7 +214,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
       timeoutMs,
     );
 
-    this.logger.log(`📝 Script execution result:`, executionResult);
+    this.logger.log(`Script execution result:`, executionResult);
     return executionResult;
   }
 

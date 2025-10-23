@@ -21,7 +21,7 @@ export class KnexEntityManager {
    * All operations (main insert + cascades) use the same knexOrTrx
    */
   async insert(tableName: string, data: any): Promise<any> {
-    this.logger.log(`🔍 [EntityManager.insert] Table: ${tableName}, Data keys: ${Object.keys(data).join(', ')}`);
+    this.logger.log(`[EntityManager.insert] Table: ${tableName}, Data keys: ${Object.keys(data).join(', ')}`);
 
     // Temporarily replace knexInstance so hooks use knexOrTrx
     const originalKnex = this.service['knexInstance'];
@@ -56,7 +56,7 @@ export class KnexEntityManager {
       }
 
       const recordId = insertedId || data.id;
-      this.logger.log(`   ✅ Inserted record ID: ${recordId}`);
+      this.logger.log(`   Inserted record ID: ${recordId}`);
 
       // Run afterInsert hooks (cascades)
       let hookResult = recordId;

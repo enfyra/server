@@ -57,10 +57,10 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
             return;
           }
 
-          this.logger.log(`📥 Received package cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
+          this.logger.log(`Received package cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
           this.packagesCache = payload.packages;
           this.cacheLoaded = true;
-          this.logger.log(`✅ Package cache synced: ${payload.packages.length} packages`);
+          this.logger.log(`Package cache synced: ${payload.packages.length} packages`);
         } catch (error) {
           this.logger.error('Failed to parse package cache sync message:', error);
         }
@@ -95,19 +95,19 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
       );
 
       if (!acquired) {
-        this.logger.log('🔒 Another instance is reloading packages, waiting for broadcast...');
+        this.logger.log('Another instance is reloading packages, waiting for broadcast...');
         return;
       }
 
-      this.logger.log(`🔓 Acquired package reload lock (instance ${instanceId.slice(0, 8)})`);
+      this.logger.log(`Acquired package reload lock (instance ${instanceId.slice(0, 8)})`);
 
       try {
         const start = Date.now();
-        this.logger.log('🔄 Reloading packages cache...');
+        this.logger.log('Reloading packages cache...');
 
         // Load from DB
         const packages = await this.loadPackages();
-        this.logger.log(`✅ Loaded ${packages.length} packages in ${Date.now() - start}ms`);
+        this.logger.log(`Loaded ${packages.length} packages in ${Date.now() - start}ms`);
 
         // Broadcast to other instances FIRST
         await this.publish(packages);
@@ -117,10 +117,10 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
         this.cacheLoaded = true;
       } finally {
         await this.cacheService.release(PACKAGE_RELOAD_LOCK_KEY, instanceId);
-        this.logger.log('🔓 Released package reload lock');
+        this.logger.log('Released package reload lock');
       }
     } catch (error) {
-      this.logger.error('❌ Failed to reload package cache:', error);
+      this.logger.error('Failed to reload package cache:', error);
       throw error;
     }
   }
@@ -141,30 +141,22 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
         JSON.stringify(payload),
       );
 
-      this.logger.log(`📤 Published package cache to other instances (${packages.length} packages)`);
+      this.logger.log(`Published package cache to other instances (${packages.length} packages)`);
     } catch (error) {
       this.logger.error('Failed to publish package cache sync:', error);
     }
   }
 
   private async loadPackages(): Promise<string[]> {
-    // IMPORTANT: Use raw Knex query instead of queryBuilder.select()
-    // Reason: Metadata may not be loaded yet during bootstrap
-    const knex = this.queryBuilder.getKnex();
+    const result = await this.queryBuilder.select({
+      tableName: 'package_definition',
+      fields: ['name'],
+      filter: {
+        isEnabled: true,
+        type: 'Backend',
+      },
+    });
 
-    // Check if table exists first
-    const hasPackageTable = await knex.schema.hasTable('package_definition');
-    if (!hasPackageTable) {
-      this.logger.warn('⚠️ package_definition table does not exist yet, skipping package cache load');
-      return [];
-    }
-
-    // Load packages using raw Knex query
-    const packages = await knex('package_definition')
-      .where('isEnabled', true)
-      .where('type', 'Backend')
-      .select('name');
-
-    return packages.map((p: any) => p.name);
+    return result.data.map((p: any) => p.name);
   }
 }
