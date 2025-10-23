@@ -1,6 +1,51 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
+import { BaseTableProcessor } from '../processors/base-table-processor';
+
+class TableDefinitionProcessor extends BaseTableProcessor {
+  getUniqueIdentifier(record: any): object {
+    return { name: record.name };
+  }
+
+  protected getCompareFields(): string[] {
+    return ['isSystem', 'alias', 'description', 'uniques', 'indexes'];
+  }
+}
+
+class ColumnDefinitionProcessor extends BaseTableProcessor {
+  private tableFieldName: string;
+
+  constructor(tableFieldName: string) {
+    super();
+    this.tableFieldName = tableFieldName;
+  }
+
+  getUniqueIdentifier(record: any): object {
+    return { [this.tableFieldName]: record[this.tableFieldName], name: record.name };
+  }
+
+  protected getCompareFields(): string[] {
+    return ['type', 'isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isHidden', 'defaultValue', 'options', 'description', 'placeholder'];
+  }
+}
+
+class RelationDefinitionProcessor extends BaseTableProcessor {
+  private sourceTableFieldName: string;
+
+  constructor(sourceTableFieldName: string) {
+    super();
+    this.sourceTableFieldName = sourceTableFieldName;
+  }
+
+  getUniqueIdentifier(record: any): object {
+    return { [this.sourceTableFieldName]: record[this.sourceTableFieldName], propertyName: record.propertyName };
+  }
+
+  protected getCompareFields(): string[] {
+    return ['type', 'inversePropertyName', 'isNullable', 'isSystem', 'description'];
+  }
+}
 
 @Injectable()
 export class CoreInitMongoService {
@@ -10,135 +55,160 @@ export class CoreInitMongoService {
     private readonly queryBuilder: QueryBuilderService,
   ) {}
 
+  private buildRecordFromColumns(data: any, columns: any[]): any {
+    const record: any = {};
+
+    for (const col of columns) {
+      // Skip id field - MongoDB will auto-generate _id
+      if (col.name === 'id') {
+        continue;
+      }
+
+      const columnName = col.name;
+
+      if (data.hasOwnProperty(col.name)) {
+        record[columnName] = data[col.name];
+      } else if (col.defaultValue !== undefined && col.defaultValue !== null) {
+        record[columnName] = col.defaultValue;
+      } else if (col.isNullable === false) {
+        // Required field missing, skip or set default based on type
+        if (col.type === 'boolean') {
+          record[columnName] = false;
+        } else if (col.type === 'int' || col.type === 'number') {
+          record[columnName] = 0;
+        } else if (col.type === 'varchar' || col.type === 'text') {
+          record[columnName] = '';
+        } else {
+          record[columnName] = null;
+        }
+      } else {
+        record[columnName] = null;
+      }
+    }
+
+    return record;
+  }
+
   async createInitMetadata(snapshot: any): Promise<void> {
     this.logger.log('MongoDB: Creating metadata from snapshot...');
 
     const db = this.queryBuilder.getMongoDb();
     const tableNameToId: Record<string, ObjectId> = {};
-    const tableNameToColumnIds: Record<string, ObjectId[]> = {};
-    const tableNameToRelationIds: Record<string, ObjectId[]> = {};
 
-    // Step 1: Upsert all tables (without columns/relations arrays)
-    this.logger.log('Step 1: Upserting table records...');
-    for (const [tableName, defRaw] of Object.entries(snapshot)) {
-      const def = defRaw as any;
+    // Find relation field names from snapshot
+    const columnDef = snapshot['column_definition'];
+    const tableRelation = columnDef?.relations?.find((r: any) => r.targetTable === 'table_definition');
+    const tableFieldName = tableRelation?.propertyName || 'table';
 
-      const existingTable = await db.collection('table_definition').findOne({ name: def.name });
+    const relationDef = snapshot['relation_definition'];
+    const sourceTableRelation = relationDef?.relations?.find((r: any) => r.propertyName === 'sourceTable');
+    const sourceTableFieldName = sourceTableRelation?.propertyName || 'sourceTable';
+    const targetTableRelation = relationDef?.relations?.find((r: any) => r.propertyName === 'targetTable');
+    const targetTableFieldName = targetTableRelation?.propertyName || 'targetTable';
 
-      if (existingTable) {
-        tableNameToId[tableName] = existingTable._id;
+    this.logger.log(`Field names: table=${tableFieldName}, sourceTable=${sourceTableFieldName}, targetTable=${targetTableFieldName}`);
 
-        // Check if table needs update
-        const { columns, relations, ...tableData } = def;
-        const hasChanges = this.detectTableChanges(tableData, existingTable);
+    // Create processors with correct field names
+    const tableProcessor = new TableDefinitionProcessor();
+    const columnProcessor = new ColumnDefinitionProcessor(tableFieldName);
+    const relationProcessor = new RelationDefinitionProcessor(sourceTableFieldName);
 
-        if (hasChanges) {
-          await db.collection('table_definition').updateOne(
-            { _id: existingTable._id },
-            {
-              $set: {
-                isSystem: tableData.isSystem || false,
-                alias: tableData.alias,
-                description: tableData.description,
-                uniques: tableData.uniques || [],
-                indexes: tableData.indexes || [],
-              }
-            }
-          );
-          this.logger.log(`Updated table: ${tableName}`);
-        } else {
-          this.logger.log(`Skipped table: ${tableName} (no changes)`);
-        }
-      } else {
-        const { columns, relations, ...tableData } = def;
-        const result = await db.collection('table_definition').insertOne({
-          name: tableData.name,
-          isSystem: tableData.isSystem || false,
-          alias: tableData.alias,
-          description: tableData.description,
-          uniques: tableData.uniques || [],
-          indexes: tableData.indexes || [],
-          columns: [],
-          relations: [],
-        });
-        tableNameToId[tableName] = result.insertedId;
-        this.logger.log(`Created table: ${tableName}`);
-      }
+    // Step 1: Upsert all tables
+    this.logger.log('Step 1: Upserting tables...');
 
-      tableNameToColumnIds[tableName] = [];
-      tableNameToRelationIds[tableName] = [];
+    // Get table_definition schema from snapshot
+    const tableDef = snapshot['table_definition'];
+    if (!tableDef || !tableDef.columns) {
+      throw new Error('table_definition not found in snapshot');
     }
 
-    // Step 2: Upsert all columns and collect their _ids
+    const tableRecords = Object.entries(snapshot).map(([tableName, defRaw]) => {
+      const def = defRaw as any;
+      const { columns, relations, ...tableData } = def;
+
+      // Build record based on table_definition columns
+      const record = this.buildRecordFromColumns(tableData, tableDef.columns);
+
+      // Add special array fields that aren't in columns
+      record.columns = [];
+      record.relations = [];
+
+      return record;
+    });
+
+    const tableResult = await tableProcessor.processMongo(tableRecords, db, 'table_definition');
+    this.logger.log(`Tables: ${tableResult.created} created, ${tableResult.skipped} skipped`);
+
+    // Load tableNameToId mapping
+    for (const [tableName, defRaw] of Object.entries(snapshot)) {
+      const def = defRaw as any;
+      const table = await db.collection('table_definition').findOne({ name: def.name });
+      if (table) {
+        tableNameToId[tableName] = table._id;
+      }
+    }
+
+    // Step 2: Upsert all columns
     this.logger.log('Step 2: Upserting columns...');
+    const allColumnIds: Record<string, ObjectId[]> = {};
+
+    // Get column_definition schema
+    if (!columnDef || !columnDef.columns) {
+      throw new Error('column_definition not found in snapshot');
+    }
+
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[tableName];
       if (!tableId) continue;
 
-      for (const col of def.columns || []) {
-        // MongoDB uses _id instead of id
-        const columnName = col.name === 'id' ? '_id' : col.name;
+      allColumnIds[tableName] = [];
 
-        const existingCol = await db.collection('column_definition').findOne({
-          tableId,
-          name: columnName,
-        });
+      const columnRecords = (def.columns || []).map((col: any) => {
+        // Build record based on column_definition columns
+        const record = this.buildRecordFromColumns(col, columnDef.columns);
 
-        if (existingCol) {
-          tableNameToColumnIds[tableName].push(existingCol._id);
+        // Add table reference using correct field name
+        record[tableFieldName] = tableId;
 
-          // Check if column needs update
-          const hasChanges = this.detectColumnChanges(col, existingCol);
+        // Debug: log first column record for table_definition
+        if (tableName === 'table_definition' && col.name === 'name') {
+          this.logger.log(`Sample column record: ${JSON.stringify(record, null, 2)}`);
+        }
 
-          if (hasChanges) {
-            await db.collection('column_definition').updateOne(
-              { _id: existingCol._id },
-              {
-                $set: {
-                  type: col.type,
-                  isPrimary: col.isPrimary || false,
-                  isGenerated: col.isGenerated || false,
-                  isNullable: col.isNullable ?? true,
-                  isSystem: col.isSystem || false,
-                  isUpdatable: col.isUpdatable ?? true,
-                  isHidden: col.isHidden || false,
-                  defaultValue: col.defaultValue || null,
-                  options: col.options || null,
-                  description: col.description,
-                  placeholder: col.placeholder,
-                }
-              }
-            );
-            this.logger.log(`Updated column: ${tableName}.${columnName}`);
-          } else {
-            this.logger.log(`Skipped column: ${tableName}.${columnName} (no changes)`);
-          }
-        } else {
-          const result = await db.collection('column_definition').insertOne({
-            name: columnName,
-            type: col.type,
-            isPrimary: col.isPrimary || false,
-            isGenerated: col.isGenerated || false,
-            isNullable: col.isNullable ?? true,
-            isSystem: col.isSystem || false,
-            isUpdatable: col.isUpdatable ?? true,
-            isHidden: col.isHidden || false,
-            defaultValue: col.defaultValue || null,
-            options: col.options || null,
-            description: col.description,
-            placeholder: col.placeholder,
-            tableId: tableId,
+        return record;
+      });
+
+      if (columnRecords.length > 0) {
+        const columnResult = await columnProcessor.processMongo(columnRecords, db, 'column_definition');
+        this.logger.log(`${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`);
+
+        // Collect column IDs
+        for (const colRec of columnRecords) {
+          const col = await db.collection('column_definition').findOne({
+            [tableFieldName]: tableId,
+            name: colRec.name,
           });
-          tableNameToColumnIds[tableName].push(result.insertedId);
-          this.logger.log(`Created column: ${tableName}.${columnName}`);
+          if (col) {
+            allColumnIds[tableName].push(col._id);
+          }
         }
       }
     }
 
     // Step 3: Upsert all relations (including inverse)
     this.logger.log('Step 3: Upserting relations...');
+    const allRelationIds: Record<string, ObjectId[]> = {};
     const processedInverseRelations = new Set<string>();
+
+    // Get relation_definition schema
+    if (!relationDef || !relationDef.columns) {
+      throw new Error('relation_definition not found in snapshot');
+    }
+
+    for (const tableName of Object.keys(tableNameToId)) {
+      allRelationIds[tableName] = [];
+    }
 
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
@@ -150,49 +220,22 @@ export class CoreInitMongoService {
         const targetTableId = tableNameToId[rel.targetTable];
         if (!targetTableId) continue;
 
-        // Upsert direct relation
-        const existingRel = await db.collection('relation_definition').findOne({
-          sourceTableId: tableId,
+        // Build direct relation record based on relation_definition columns
+        const directRelationRecord = this.buildRecordFromColumns(rel, relationDef.columns);
+
+        // Add source and target table references
+        directRelationRecord[sourceTableFieldName] = tableId;
+        directRelationRecord[targetTableFieldName] = targetTableId;
+
+        const directResult = await relationProcessor.processMongo([directRelationRecord], db, 'relation_definition');
+
+        // Collect relation ID
+        const directRel = await db.collection('relation_definition').findOne({
+          [sourceTableFieldName]: tableId,
           propertyName: rel.propertyName,
         });
-
-        if (existingRel) {
-          tableNameToRelationIds[tableName].push(existingRel._id);
-
-          // Check if relation needs update
-          const hasChanges = this.detectRelationChanges(rel, existingRel, targetTableId);
-
-          if (hasChanges) {
-            await db.collection('relation_definition').updateOne(
-              { _id: existingRel._id },
-              {
-                $set: {
-                  type: rel.type,
-                  inversePropertyName: rel.inversePropertyName,
-                  isNullable: rel.isNullable !== false,
-                  isSystem: rel.isSystem || false,
-                  description: rel.description,
-                  targetTableId: targetTableId,
-                }
-              }
-            );
-            this.logger.log(`Updated relation: ${tableName}.${rel.propertyName}`);
-          } else {
-            this.logger.log(`Skipped relation: ${tableName}.${rel.propertyName} (no changes)`);
-          }
-        } else {
-          const result = await db.collection('relation_definition').insertOne({
-            propertyName: rel.propertyName,
-            type: rel.type,
-            inversePropertyName: rel.inversePropertyName,
-            isNullable: rel.isNullable !== false,
-            isSystem: rel.isSystem || false,
-            description: rel.description,
-            sourceTableId: tableId,
-            targetTableId: targetTableId,
-          });
-          tableNameToRelationIds[tableName].push(result.insertedId);
-          this.logger.log(`Created relation: ${tableName}.${rel.propertyName} -> ${rel.targetTable}`);
+        if (directRel) {
+          allRelationIds[tableName].push(directRel._id);
         }
 
         // Upsert inverse relation if inversePropertyName exists
@@ -210,50 +253,29 @@ export class CoreInitMongoService {
               inverseType = 'many-to-one';
             }
 
-            const existingInverseRel = await db.collection('relation_definition').findOne({
-              sourceTableId: targetTableId,
+            // Build inverse relation from columns
+            const inverseData = {
+              propertyName: rel.inversePropertyName,
+              type: inverseType,
+              inversePropertyName: rel.propertyName,
+              isNullable: rel.isNullable !== false,
+              isSystem: rel.isSystem || false,
+            };
+
+            const inverseRelationRecord = this.buildRecordFromColumns(inverseData, relationDef.columns);
+
+            inverseRelationRecord[sourceTableFieldName] = targetTableId;
+            inverseRelationRecord[targetTableFieldName] = tableId;
+
+            const inverseResult = await relationProcessor.processMongo([inverseRelationRecord], db, 'relation_definition');
+
+            // Collect inverse relation ID
+            const inverseRel = await db.collection('relation_definition').findOne({
+              [sourceTableFieldName]: targetTableId,
               propertyName: rel.inversePropertyName,
             });
-
-            if (existingInverseRel) {
-              tableNameToRelationIds[rel.targetTable].push(existingInverseRel._id);
-
-              const inverseHasChanges =
-                inverseType !== existingInverseRel.type ||
-                rel.propertyName !== existingInverseRel.inversePropertyName ||
-                tableId.toString() !== existingInverseRel.targetTableId?.toString();
-
-              if (inverseHasChanges) {
-                await db.collection('relation_definition').updateOne(
-                  { _id: existingInverseRel._id },
-                  {
-                    $set: {
-                      type: inverseType,
-                      inversePropertyName: rel.propertyName,
-                      isNullable: rel.isNullable !== false,
-                      isSystem: rel.isSystem || false,
-                      description: `Inverse of ${tableName}.${rel.propertyName}`,
-                      targetTableId: tableId,
-                    }
-                  }
-                );
-                this.logger.log(`Updated inverse relation: ${rel.targetTable}.${rel.inversePropertyName}`);
-              } else {
-                this.logger.log(`Skipped inverse relation: ${rel.targetTable}.${rel.inversePropertyName} (no changes)`);
-              }
-            } else {
-              const inverseResult = await db.collection('relation_definition').insertOne({
-                propertyName: rel.inversePropertyName,
-                type: inverseType,
-                inversePropertyName: rel.propertyName,
-                isNullable: rel.isNullable !== false,
-                isSystem: rel.isSystem || false,
-                description: `Inverse of ${tableName}.${rel.propertyName}`,
-                sourceTableId: targetTableId,
-                targetTableId: tableId,
-              });
-              tableNameToRelationIds[rel.targetTable].push(inverseResult.insertedId);
-              this.logger.log(`Created inverse relation: ${rel.targetTable}.${rel.inversePropertyName} -> ${tableName}`);
+            if (inverseRel) {
+              allRelationIds[rel.targetTable].push(inverseRel._id);
             }
           }
         }
@@ -263,8 +285,8 @@ export class CoreInitMongoService {
     // Step 4: Update all tables with their columns and relations arrays
     this.logger.log('Step 4: Updating tables with columns and relations...');
     for (const [tableName, tableId] of Object.entries(tableNameToId)) {
-      const columnIds = tableNameToColumnIds[tableName] || [];
-      const relationIds = tableNameToRelationIds[tableName] || [];
+      const columnIds = allColumnIds[tableName] || [];
+      const relationIds = allRelationIds[tableName] || [];
 
       await db.collection('table_definition').updateOne(
         { _id: tableId },
@@ -280,42 +302,5 @@ export class CoreInitMongoService {
     }
 
     this.logger.log('MongoDB metadata creation completed');
-  }
-
-  private detectTableChanges(newTable: any, existingTable: any): boolean {
-    return (
-      newTable.isSystem !== existingTable.isSystem ||
-      newTable.alias !== existingTable.alias ||
-      newTable.description !== existingTable.description ||
-      JSON.stringify(newTable.uniques || []) !== JSON.stringify(existingTable.uniques || []) ||
-      JSON.stringify(newTable.indexes || []) !== JSON.stringify(existingTable.indexes || [])
-    );
-  }
-
-  private detectColumnChanges(newCol: any, existingCol: any): boolean {
-    return (
-      newCol.type !== existingCol.type ||
-      (newCol.isPrimary || false) !== existingCol.isPrimary ||
-      (newCol.isGenerated || false) !== existingCol.isGenerated ||
-      (newCol.isNullable ?? true) !== existingCol.isNullable ||
-      (newCol.isSystem || false) !== existingCol.isSystem ||
-      (newCol.isUpdatable ?? true) !== existingCol.isUpdatable ||
-      (newCol.isHidden || false) !== existingCol.isHidden ||
-      JSON.stringify(newCol.defaultValue) !== JSON.stringify(existingCol.defaultValue) ||
-      JSON.stringify(newCol.options) !== JSON.stringify(existingCol.options) ||
-      newCol.description !== existingCol.description ||
-      newCol.placeholder !== existingCol.placeholder
-    );
-  }
-
-  private detectRelationChanges(newRel: any, existingRel: any, targetTableId: ObjectId): boolean {
-    return (
-      newRel.type !== existingRel.type ||
-      newRel.inversePropertyName !== existingRel.inversePropertyName ||
-      (newRel.isNullable !== false) !== existingRel.isNullable ||
-      (newRel.isSystem || false) !== existingRel.isSystem ||
-      newRel.description !== existingRel.description ||
-      targetTableId.toString() !== existingRel.targetTableId?.toString()
-    );
   }
 }

@@ -157,8 +157,8 @@ export class DefaultDataService {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
         
         // Special handling for menu_definition (needs ordered processing)
-        if (collectionName === 'menu_definition' && typeof processor['processMongo'] === 'function') {
-          const created = await processor['processMongo'](records, collectionName);
+        if (collectionName === 'menu_definition' && typeof processor['processMenuMongo'] === 'function') {
+          const created = await processor['processMenuMongo'](records, collectionName);
           totalCreated += created;
           this.logger.log(`'${collectionName}': ${created} created`);
           continue;

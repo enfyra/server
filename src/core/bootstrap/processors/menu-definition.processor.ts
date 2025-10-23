@@ -50,7 +50,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   /**
    * Process menu items in order for MongoDB (Mini Sidebar → Dropdown → Menu items)
    */
-  async processMongo(records: any[], collectionName: string): Promise<number> {
+  async processMenuMongo(records: any[], collectionName: string): Promise<number> {
     const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
     const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
     const menuItems = records.filter(r => r.type === 'Menu');
