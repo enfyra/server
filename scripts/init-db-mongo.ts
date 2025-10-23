@@ -51,7 +51,11 @@ function createValidationSchema(tableDef: TableDef, allTables: Record<string, Ta
       properties[col.name] = { bsonType: [bsonType, 'null'] };
     } else {
       properties[col.name] = { bsonType };
-      required.push(col.name);
+      // Only add to required if no defaultValue and not generated
+      // Default values are handled in application layer (MongoService.applyDefaultValues)
+      if (col.defaultValue === undefined && !col.isGenerated) {
+        required.push(col.name);
+      }
     }
 
     if (col.type === 'enum' && Array.isArray(col.options)) {

@@ -1,20 +1,59 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ObjectId } from 'mongodb';
 import { Knex } from 'knex';
 import { Db } from 'mongodb';
 
 @Injectable()
 export class UserDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly bcryptService: BcryptService) {
+  constructor(
+    private readonly bcryptService: BcryptService,
+    private readonly queryBuilder: QueryBuilderService,
+  ) {
     super();
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    return records.map((record) => ({
-      ...record,
-      _plainPassword: record.password,
-    }));
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+
+    const transformedRecords = await Promise.all(
+      records.map(async (record) => {
+        const transformed = {
+          ...record,
+          _plainPassword: record.password,
+        };
+
+        // Handle role reference (many-to-one)
+        if (record.role && typeof record.role === 'string') {
+          const roleName = record.role;
+          const role = await this.queryBuilder.findOneWhere('role_definition', {
+            name: roleName,
+          });
+
+          if (!role) {
+            this.logger.warn(`Role '${roleName}' not found for user ${record.email}, setting to null`);
+            transformed.role = null;
+          } else {
+            if (isMongoDB) {
+              // MongoDB: Store role as ObjectId
+              transformed.role = typeof role._id === 'string'
+                ? new ObjectId(role._id)
+                : role._id;
+            } else {
+              // SQL: Convert to roleId
+              transformed.roleId = role.id;
+              delete transformed.role;
+            }
+          }
+        }
+
+        return transformed;
+      }),
+    );
+
+    return transformedRecords;
   }
 
   async processSql(records: any[], knex: Knex, tableName: string, context?: any): Promise<UpsertResult> {
@@ -63,10 +102,13 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
       return { created: 0, skipped: 0 };
     }
 
+    // Transform records first (handle role reference conversion)
+    const transformedRecords = await this.transformRecords(records, context);
+
     let createdCount = 0;
     let skippedCount = 0;
 
-    for (const record of records) {
+    for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
         const existingRecord = await db.collection(collectionName).findOne(uniqueWhere);
@@ -77,10 +119,16 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
         } else {
           const cleanedRecord = this.cleanRecordForMongo(record);
 
-          if (record.password) {
-            cleanedRecord.password = await this.bcryptService.hash(record.password);
+          if (record._plainPassword) {
+            cleanedRecord.password = await this.bcryptService.hash(record._plainPassword);
+            delete cleanedRecord._plainPassword;
           }
 
+          // MongoDB: Initialize relation fields (must be set explicitly for MongoDB to store them)
+          // Many-to-one relation - always set, even if null
+          cleanedRecord.role = cleanedRecord.role || null;
+
+          // Inverse many-to-many relation - initialize as empty array
           cleanedRecord.allowedRoutePermissions = [];
 
           const result = await db.collection(collectionName).insertOne(cleanedRecord);

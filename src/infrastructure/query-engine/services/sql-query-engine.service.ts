@@ -32,7 +32,10 @@ export class SqlQueryEngine {
       // Default fields to '*' if not provided (trigger auto-join)
       const fields = options.fields || '*';
 
-      return await this.queryBuilder.sqlExecutor({
+      // Initialize debug log array
+      const debugLog: any[] = [];
+
+      const result = await this.queryBuilder.sqlExecutor({
         tableName: options.tableName,
         fields: fields,
         filter: options.filter,
@@ -41,8 +44,18 @@ export class SqlQueryEngine {
         limit: options.limit,
         meta: options.meta,
         deep: options.deep,
-        debugMode: options.debugMode,
+        debugLog: debugLog,
       });
+
+      // Attach debug log to result if debugMode is enabled
+      if (options.debugMode) {
+        return {
+          ...result,
+          debug: debugLog,
+        };
+      }
+
+      return result;
     } catch (error) {
       this.loggingService.error('Query execution failed', {
         context: 'find',

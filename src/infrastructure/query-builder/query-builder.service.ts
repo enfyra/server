@@ -94,38 +94,62 @@ export class QueryBuilderService {
    */
   private whereToMongoFilter(conditions: WhereCondition[]): any {
     const filter: any = {};
+    const { ObjectId } = require('mongodb');
 
     for (const condition of conditions) {
       // Remove table prefix from field name (e.g., "table_definition.name" -> "name")
-      const fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
+      let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
+
+      // MongoDB: Convert 'id' to '_id'
+      if (fieldName === 'id') {
+        fieldName = '_id';
+      }
+
+      // Convert value to ObjectId if field is _id and value is string
+      let value = condition.value;
+      if (fieldName === '_id' && typeof value === 'string') {
+        try {
+          value = new ObjectId(value);
+        } catch (err) {
+          console.error('[whereToMongoFilter] Failed to convert to ObjectId:', err.message);
+        }
+      }
 
       switch (condition.operator) {
         case '=':
-          filter[fieldName] = condition.value;
+          filter[fieldName] = value;
           break;
         case '!=':
-          filter[fieldName] = { $ne: condition.value };
+          filter[fieldName] = { $ne: value };
           break;
         case '>':
-          filter[fieldName] = { $gt: condition.value };
+          filter[fieldName] = { $gt: value };
           break;
         case '<':
-          filter[fieldName] = { $lt: condition.value };
+          filter[fieldName] = { $lt: value };
           break;
         case '>=':
-          filter[fieldName] = { $gte: condition.value };
+          filter[fieldName] = { $gte: value };
           break;
         case '<=':
-          filter[fieldName] = { $lte: condition.value };
+          filter[fieldName] = { $lte: value };
           break;
         case 'like':
-          filter[fieldName] = { $regex: condition.value.replace(/%/g, '.*') };
+          filter[fieldName] = { $regex: value.replace(/%/g, '.*') };
           break;
         case 'in':
-          filter[fieldName] = { $in: condition.value };
+          // Convert array elements to ObjectId if field is _id
+          const inValues = fieldName === '_id'
+            ? (value as any[]).map(v => typeof v === 'string' ? new ObjectId(v) : v)
+            : value;
+          filter[fieldName] = { $in: inValues };
           break;
         case 'not in':
-          filter[fieldName] = { $nin: condition.value };
+          // Convert array elements to ObjectId if field is _id
+          const ninValues = fieldName === '_id'
+            ? (value as any[]).map(v => typeof v === 'string' ? new ObjectId(v) : v)
+            : value;
+          filter[fieldName] = { $nin: ninValues };
           break;
         case 'is null':
           filter[fieldName] = null;
@@ -194,10 +218,11 @@ export class QueryBuilderService {
     limit?: number;
     meta?: string;
     deep?: Record<string, any>;
-    debugMode?: boolean;
+    debugLog?: any[];
   }): Promise<any> {
-    // Reset debug log
-    this.debugLog = [];
+    // Use provided debug log or create new one
+    const debugLog = options.debugLog || [];
+    this.debugLog = debugLog;
 
     // Convert queryEngine-style params to QueryOptions format
     const queryOptions: QueryOptions = {
@@ -264,10 +289,12 @@ export class QueryBuilderService {
 
     // Convert pagination
     if (options.page && options.limit) {
-      queryOptions.offset = (options.page - 1) * options.limit;
-      queryOptions.limit = options.limit;
+      const page = typeof options.page === 'string' ? parseInt(options.page, 10) : options.page;
+      const limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
+      queryOptions.offset = (page - 1) * limit;
+      queryOptions.limit = limit;
     } else if (options.limit) {
-      queryOptions.limit = options.limit;
+      queryOptions.limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
     }
 
     // Separate main table sorts from relation sorts
@@ -287,9 +314,9 @@ export class QueryBuilderService {
       }
     }
 
-    // Auto-expand `fields` into `join` + `select` if provided
+    // Auto-expand `fields` into `join` + `select` if provided (SQL only)
     if (queryOptions.fields && queryOptions.fields.length > 0) {
-      const expanded = await this.expandFields(queryOptions.table, queryOptions.fields, relationSorts);
+      const expanded = await this.expandFieldsSql(queryOptions.table, queryOptions.fields, relationSorts);
       queryOptions.join = [...(queryOptions.join || []), ...expanded.joins];
       queryOptions.select = [...(queryOptions.select || []), ...expanded.select];
     }
@@ -414,8 +441,8 @@ export class QueryBuilderService {
       query = query.limit(queryOptions.limit);
     }
 
-    // Add SQL to debug if debugMode is enabled
-    if (options.debugMode) {
+    // Add SQL to debug log if available
+    if (this.debugLog && this.debugLog.length >= 0) {
       this.pushDebug('sql', query.toString());
     }
 
@@ -444,7 +471,7 @@ export class QueryBuilderService {
       });
     }
 
-    // Return in queryEngine format with optional meta and debug
+    // Return in queryEngine format with optional meta (debug is handled by query engine)
     return {
       data: results,
       ...((metaParts.length > 0) && {
@@ -457,7 +484,6 @@ export class QueryBuilderService {
             : {}),
         },
       }),
-      ...(options.debugMode ? { debug: this.debugLog } : {}),
     };
   }
 
@@ -476,6 +502,7 @@ export class QueryBuilderService {
     meta?: string;
     deep?: Record<string, any>;
     debugMode?: boolean;
+    debugLog?: any[];
     pipeline?: any[]; // MongoDB aggregation pipeline (MongoDB only)
   }): Promise<any> {
     // For SQL databases, delegate to sqlExecutor
@@ -503,9 +530,12 @@ export class QueryBuilderService {
     limit?: number;
     meta?: string;
     deep?: Record<string, any>;
-    debugMode?: boolean;
+    debugLog?: any[];
     pipeline?: any[]; // MongoDB aggregation pipeline (optional)
   }): Promise<any> {
+    // Use provided debug log or create new one
+    const debugLog = options.debugLog || [];
+    this.debugLog = debugLog;
     // Convert to QueryOptions format for now
     const queryOptions: QueryOptions = {
       table: options.tableName,
@@ -574,10 +604,12 @@ export class QueryBuilderService {
 
     // Convert pagination
     if (options.page && options.limit) {
-      queryOptions.offset = (options.page - 1) * options.limit;
-      queryOptions.limit = options.limit;
+      const page = typeof options.page === 'string' ? parseInt(options.page, 10) : options.page;
+      const limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
+      queryOptions.offset = (page - 1) * limit;
+      queryOptions.limit = limit;
     } else if (options.limit) {
-      queryOptions.limit = options.limit;
+      queryOptions.limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
     }
 
     // Use internal MongoDB execution logic
@@ -591,11 +623,18 @@ export class QueryBuilderService {
    * @private
    */
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
-    // Auto-expand `fields` into `join` + `select` if provided
+    // Auto-expand `fields` - use different logic for SQL vs MongoDB
     if (options.fields && options.fields.length > 0) {
-      const expanded = await this.expandFields(options.table, options.fields);
-      options.join = [...(options.join || []), ...expanded.joins];
-      options.select = [...(options.select || []), ...expanded.select];
+      if (this.dbType === 'mongodb') {
+        // MongoDB: Use expandFieldsMongo
+        const expanded = await this.expandFieldsMongo(options.table, options.fields);
+        options.mongoFieldsExpanded = expanded; // Store for MongoDB usage
+      } else {
+        // SQL: Use expandFieldsSql
+        const expanded = await this.expandFieldsSql(options.table, options.fields);
+        options.join = [...(options.join || []), ...expanded.joins];
+        options.select = [...(options.select || []), ...expanded.select];
+      }
     }
 
     // Auto-prefix table name to where conditions if not already qualified
@@ -630,6 +669,109 @@ export class QueryBuilderService {
       // Use custom pipeline if provided (e.g., from MongoQueryEngine)
       if (options.pipeline) {
         const results = await collection.aggregate(options.pipeline).toArray();
+        return results.map(doc => this.mongoService['mapDocument'](doc));
+      }
+
+      // MongoDB with expanded fields - build aggregation pipeline
+      if (options.mongoFieldsExpanded) {
+        const { scalarFields, relations } = options.mongoFieldsExpanded;
+
+        const pipeline: any[] = [];
+
+        // $match stage
+        if (options.where) {
+          const filter = this.whereToMongoFilter(options.where);
+          pipeline.push({ $match: filter });
+        }
+
+        // $lookup stages for each relation
+        for (const rel of relations) {
+
+          // Check if we need to build nested pipeline for this relation
+          const needsNestedPipeline = rel.nestedFields && rel.nestedFields.length > 0;
+
+          if (needsNestedPipeline) {
+            // Build nested aggregation pipeline recursively
+            const nestedExpanded = await this.expandFieldsMongo(rel.targetTable, rel.nestedFields);
+
+            const nestedPipeline: any[] = [];
+
+            // $project stage for nested relation - only include requested fields
+            if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0) {
+              const projection: any = { _id: 1 }; // Always include _id
+
+              // Add scalar fields
+              for (const field of nestedExpanded.scalarFields) {
+                projection[field] = 1;
+              }
+
+              // For nested relations, we need to do recursive $lookup
+              // But for now, just include the ObjectId fields
+              for (const nestedRel of nestedExpanded.relations) {
+                projection[nestedRel.localField] = 1; // Include the foreign key field
+              }
+
+              nestedPipeline.push({ $project: projection });
+            }
+
+            pipeline.push({
+              $lookup: {
+                from: rel.targetTable,
+                localField: rel.localField,
+                foreignField: rel.foreignField,
+                as: rel.propertyName,
+                pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined
+              }
+            });
+          } else {
+            // Simple lookup without nested pipeline
+            pipeline.push({
+              $lookup: {
+                from: rel.targetTable,
+                localField: rel.localField,
+                foreignField: rel.foreignField,
+                as: rel.propertyName
+              }
+            });
+          }
+
+          // Unwind if it's a one-to-one or many-to-one relation
+          if (rel.type === 'one') {
+            pipeline.push({
+              $unwind: {
+                path: `$${rel.propertyName}`,
+                preserveNullAndEmptyArrays: true
+              }
+            });
+          }
+        }
+
+        // $sort stage
+        if (options.sort) {
+          const sortSpec: any = {};
+          for (const sortOpt of options.sort) {
+            let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
+            // MongoDB: Convert 'id' to '_id'
+            if (fieldName === 'id') {
+              fieldName = '_id';
+            }
+            sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
+          }
+          pipeline.push({ $sort: sortSpec });
+        }
+
+        // $skip and $limit
+        if (options.offset) {
+          pipeline.push({ $skip: options.offset });
+        }
+        if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
+          pipeline.push({ $limit: options.limit });
+        }
+
+        // Add pipeline to debug log
+        this.pushDebug('mongoAggregationPipeline', pipeline);
+
+        const results = await collection.aggregate(pipeline).toArray();
         return results.map(doc => this.mongoService['mapDocument'](doc));
       }
 
@@ -681,7 +823,9 @@ export class QueryBuilderService {
               const [source, alias] = field.split(' as ');
               projection[alias.trim()] = `$${source.trim()}`;
             } else {
-              projection[field] = 1;
+              // Remove table prefix for MongoDB (e.g., "route_definition.path" -> "path")
+              const fieldName = field.includes('.') ? field.split('.').pop() : field;
+              projection[fieldName] = 1;
             }
           }
           pipeline.push({ $project: projection });
@@ -691,7 +835,12 @@ export class QueryBuilderService {
         if (options.sort) {
           const sortSpec: any = {};
           for (const sortOpt of options.sort) {
-            sortSpec[sortOpt.field] = sortOpt.direction === 'asc' ? 1 : -1;
+            let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
+            // MongoDB: Convert 'id' to '_id'
+            if (fieldName === 'id') {
+              fieldName = '_id';
+            }
+            sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
           }
           pipeline.push({ $sort: sortSpec });
         }
@@ -1078,10 +1227,123 @@ export class QueryBuilderService {
 
 
   /**
-   * Expand smart field list into explicit JOINs and SELECT
-   * Private helper for auto-relation expansion
+   * Expand smart field list for MongoDB aggregation pipeline
+   * Returns scalar fields and relation lookups
    */
-  private async expandFields(
+  private async expandFieldsMongo(
+    tableName: string,
+    fields: string[]
+  ): Promise<{
+    scalarFields: string[];  // Regular fields to include
+    relations: Array<{      // Relations to $lookup
+      propertyName: string;
+      targetTable: string;
+      localField: string;
+      foreignField: string;
+      type: 'one' | 'many';
+      nestedFields: string[]; // Fields to include from related table (can be nested like 'methods.*')
+    }>;
+  }> {
+    if (!this.metadataCache) {
+      return { scalarFields: [], relations: [] };
+    }
+
+    const baseMeta = await this.metadataCache.getTableMetadata(tableName);
+    if (!baseMeta) {
+      return { scalarFields: [], relations: [] };
+    }
+
+    // Group fields by relation
+    // Example: ['*', 'mainTable.*', 'handlers.method.*']
+    // => { '': ['*'], 'mainTable': ['*'], 'handlers': ['method.*'] }
+    const fieldsByRelation = new Map<string, string[]>();
+
+    for (const field of fields) {
+      if (field === '*' || !field.includes('.')) {
+        // Root-level field
+        if (!fieldsByRelation.has('')) {
+          fieldsByRelation.set('', []);
+        }
+        fieldsByRelation.get('')!.push(field);
+      } else {
+        // Relation field like 'mainTable.*' or 'handlers.method.*'
+        const parts = field.split('.');
+        const relationName = parts[0];
+        const remainingPath = parts.slice(1).join('.');
+
+        if (!fieldsByRelation.has(relationName)) {
+          fieldsByRelation.set(relationName, []);
+        }
+        fieldsByRelation.get(relationName)!.push(remainingPath);
+      }
+    }
+
+    const scalarFields: string[] = [];
+    const relations: Array<any> = [];
+
+    // Process root-level fields
+    const rootFields = fieldsByRelation.get('') || [];
+    for (const field of rootFields) {
+      if (field === '*') {
+        // Add all scalar columns
+        if (baseMeta.columns) {
+          for (const col of baseMeta.columns) {
+            if (!scalarFields.includes(col.name)) {
+              scalarFields.push(col.name);
+            }
+          }
+        }
+
+        // Auto-add all relations with only 'id' field (like SQL at expand-fields.ts:93-99)
+        if (baseMeta.relations) {
+          for (const rel of baseMeta.relations) {
+            if (!fieldsByRelation.has(rel.propertyName)) {
+              // Auto-add this relation with id only
+              fieldsByRelation.set(rel.propertyName, ['id']);
+            }
+          }
+        }
+      } else {
+        // Regular scalar field
+        if (!scalarFields.includes(field)) {
+          scalarFields.push(field);
+        }
+      }
+    }
+
+    // Process relation fields
+    for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
+      if (relationName === '') continue; // Skip root, already processed
+
+      const rel = baseMeta.relations?.find(r => r.propertyName === relationName);
+      if (!rel) {
+        console.warn(`[expandFieldsMongo] Relation ${relationName} not found in ${tableName}`);
+        continue;
+      }
+
+      // For MongoDB:
+      // - one-to-many/many-to-many: localField is the array field (e.g., 'columns'), foreignField is '_id'
+      // - many-to-one: localField is the foreign key field (e.g., 'table'), foreignField is '_id'
+      const isToMany = rel.type === 'one-to-many' || rel.type === 'many-to-many';
+
+      relations.push({
+        propertyName: relationName,
+        targetTable: rel.targetTableName,
+        localField: relationName, // Always use the relation property name as localField
+        foreignField: '_id',
+        type: isToMany ? 'many' : 'one',
+        nestedFields: nestedFields // Keep nested path like ['*'] or ['method.*'] - will expand recursively later
+      });
+    }
+
+    return { scalarFields, relations };
+  }
+
+  /**
+   * Expand smart field list into explicit JOINs and SELECT (SQL only)
+   * Private helper for auto-relation expansion in SQL databases
+   */
+  private async expandFieldsSql(
     tableName: string,
     fields: string[],
     sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = []

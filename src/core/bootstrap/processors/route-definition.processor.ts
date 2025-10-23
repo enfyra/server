@@ -105,8 +105,34 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
 
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    // Handle publishedMethods using automatic cascade
-    if (record._publishedMethods && Array.isArray(record._publishedMethods)) {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+
+    // MongoDB: Add inverse reference to method.routes for performance
+    if (isMongoDB && record.publishedMethods && Array.isArray(record.publishedMethods) && record.publishedMethods.length > 0) {
+      const db = context?.db;
+      if (!db) {
+        this.logger.warn(`   ⚠️ No db in context, cannot update method.routes for route: ${record.path}`);
+      } else {
+        const routeId = typeof record._id === 'string' ? new ObjectId(record._id) : record._id;
+
+        this.logger.log(`   🔗 Updating ${record.publishedMethods.length} methods with route ${routeId}`);
+
+        // Add routeId to each method's routes array
+        for (const methodId of record.publishedMethods) {
+          const mId = typeof methodId === 'string' ? new ObjectId(methodId) : methodId;
+
+          const updateResult = await db.collection('method_definition').updateOne(
+            { _id: mId },
+            { $addToSet: { routes: routeId } }
+          );
+
+          this.logger.log(`   🔗 Added route to method ${mId} routes array (matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount})`);
+        }
+      }
+    }
+
+    // SQL: Handle publishedMethods using automatic cascade
+    if (!isMongoDB && record._publishedMethods && Array.isArray(record._publishedMethods)) {
       const methodNames = record._publishedMethods;
 
       // Get method IDs

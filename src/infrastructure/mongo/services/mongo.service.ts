@@ -73,19 +73,23 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
     const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
+      console.log(`[applyDefaultValues] No metadata for table: ${tableName}`);
       return data;
     }
 
     const result = { ...data };
-    
+
+    console.log(`[applyDefaultValues] Table: ${tableName}, Input data:`, Object.keys(data));
+
     for (const column of metadata.columns) {
       // Skip if field already has a value
       if (result[column.name] !== undefined && result[column.name] !== null) {
         continue;
       }
-      
+
       // Apply defaultValue if defined
       if (column.defaultValue !== undefined && column.defaultValue !== null) {
+        console.log(`[applyDefaultValues] Applying default for ${column.name}:`, column.defaultValue);
         // Parse JSON if defaultValue is string representation
         if (typeof column.defaultValue === 'string') {
           try {
@@ -98,7 +102,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
-    
+
+    console.log(`[applyDefaultValues] Output data:`, Object.keys(result));
     return result;
   }
 
@@ -188,9 +193,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     
     // 4. Apply timestamps
     const dataWithTimestamps = this.applyTimestamps(dataWithRelations);
-    
-    const result = await collection.insertOne(dataWithTimestamps);
-    const insertedId = result.insertedId;
+
+    console.log(`[insertOne] Final data before insert:`, JSON.stringify(dataWithTimestamps, null, 2));
+
+    let result;
+    let insertedId;
+    try {
+      result = await collection.insertOne(dataWithTimestamps);
+      insertedId = result.insertedId;
+    } catch (err) {
+      console.error(`[insertOne] Validation error for ${collectionName}:`, err.errInfo);
+      throw err;
+    }
     
     // Update inverse relations (add this record's ID to inverse side)
     // For insert, oldData is null/empty
@@ -356,7 +370,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
       // Handle explicit null/undefined → clear relation
       if (fieldValue === null || fieldValue === undefined) {
-        processed[fieldName] = null;
+        // For array relations (one-to-many, many-to-many), use empty array instead of null
+        if (['one-to-many', 'many-to-many'].includes(relation.type)) {
+          processed[fieldName] = [];
+        } else {
+          processed[fieldName] = null;
+        }
         continue;
       }
 

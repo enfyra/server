@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -20,9 +21,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate({ id }: { id: string }) {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
-    
-    const user = await this.queryBuilder.findOneWhere('user_definition', { [idField]: id });
-    
+    const idValue = isMongoDB ? (typeof id === 'string' ? new ObjectId(id) : id) : id;
+    const user = await this.queryBuilder.findOneWhere('user_definition', { [idField]: idValue });
     if (user) {
       const roleField = isMongoDB ? 'role' : 'roleId';
       const roleId = user[roleField];

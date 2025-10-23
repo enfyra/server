@@ -102,6 +102,30 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
       this.logger.log(`   ℹ️ Hook "${record.name}" has no route reference, skipping inverse update`);
     }
 
+    // MongoDB: Add inverse reference to method.hooks for performance
+    if (isMongoDB && record.methods && Array.isArray(record.methods) && record.methods.length > 0) {
+      const db = context?.db;
+      if (!db) {
+        this.logger.warn(`   ⚠️ No db in context, cannot update method.hooks for hook: ${record.name}`);
+      } else {
+        const hookId = typeof record._id === 'string' ? new ObjectId(record._id) : record._id;
+
+        this.logger.log(`   🔗 Updating ${record.methods.length} methods with hook ${hookId}`);
+
+        // Add hookId to each method's hooks array
+        for (const methodId of record.methods) {
+          const mId = typeof methodId === 'string' ? new ObjectId(methodId) : methodId;
+
+          const updateResult = await db.collection('method_definition').updateOne(
+            { _id: mId },
+            { $addToSet: { hooks: hookId } }
+          );
+
+          this.logger.log(`   🔗 Added hook to method ${mId} hooks array (matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount})`);
+        }
+      }
+    }
+
     // SQL: Handle methods junction table
     if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;
