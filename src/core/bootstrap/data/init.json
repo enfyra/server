@@ -216,7 +216,7 @@
             "isEnabled": true,
             "afterHook": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
             "name": "Default response",
-            "isSystem":true
+            "isSystem":false
         },
         {
             "isEnabled": true,

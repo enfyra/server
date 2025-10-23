@@ -127,6 +127,19 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     for (const record of records) {
       const transformed = { ...record };
 
+      // Add default values
+      if (transformed.icon === undefined) transformed.icon = 'lucide:menu';
+      if (transformed.isEnabled === undefined) transformed.isEnabled = true;
+      if (transformed.isSystem === undefined) transformed.isSystem = false;
+      if (transformed.order === undefined) transformed.order = 0;
+
+      // Add timestamps for MongoDB
+      if (isMongoDB) {
+        const now = new Date();
+        if (!transformed.createdAt) transformed.createdAt = now;
+        if (!transformed.updatedAt) transformed.updatedAt = now;
+      }
+
       // Set default null for MongoDB fields
       if (isMongoDB) {
         if (!('sidebar' in transformed)) transformed.sidebar = null;

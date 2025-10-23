@@ -18,9 +18,17 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         const transformedRecord = { ...record };
 
         // Set default values for optional fields
-        if (!transformedRecord.description) transformedRecord.description = null;
-        if (!transformedRecord.icon) transformedRecord.icon = 'lucide:route';
+        if (transformedRecord.description === undefined) transformedRecord.description = null;
+        if (transformedRecord.icon === undefined) transformedRecord.icon = 'lucide:route';
         if (transformedRecord.isSystem === undefined) transformedRecord.isSystem = false;
+        if (transformedRecord.isEnabled === undefined) transformedRecord.isEnabled = false;
+
+        // Add timestamps for MongoDB
+        if (isMongoDB) {
+          const now = new Date();
+          if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
+          if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
+        }
 
         // Handle mainTable reference differently for SQL vs MongoDB
         if (record.mainTable) {

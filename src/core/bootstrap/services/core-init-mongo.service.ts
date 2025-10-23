@@ -4,6 +4,15 @@ import { ObjectId } from 'mongodb';
 import { BaseTableProcessor } from '../processors/base-table-processor';
 
 class TableDefinitionProcessor extends BaseTableProcessor {
+  async transformRecords(records: any[]): Promise<any[]> {
+    const now = new Date();
+    return records.map((record) => ({
+      ...record,
+      createdAt: record.createdAt || now,
+      updatedAt: record.updatedAt || now,
+    }));
+  }
+
   getUniqueIdentifier(record: any): object {
     return { name: record.name };
   }
@@ -21,6 +30,15 @@ class ColumnDefinitionProcessor extends BaseTableProcessor {
     this.tableFieldName = tableFieldName;
   }
 
+  async transformRecords(records: any[]): Promise<any[]> {
+    const now = new Date();
+    return records.map((record) => ({
+      ...record,
+      createdAt: record.createdAt || now,
+      updatedAt: record.updatedAt || now,
+    }));
+  }
+
   getUniqueIdentifier(record: any): object {
     return { [this.tableFieldName]: record[this.tableFieldName], name: record.name };
   }
@@ -36,6 +54,15 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
   constructor(sourceTableFieldName: string) {
     super();
     this.sourceTableFieldName = sourceTableFieldName;
+  }
+
+  async transformRecords(records: any[]): Promise<any[]> {
+    const now = new Date();
+    return records.map((record) => ({
+      ...record,
+      createdAt: record.createdAt || now,
+      updatedAt: record.updatedAt || now,
+    }));
   }
 
   getUniqueIdentifier(record: any): object {

@@ -25,6 +25,17 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           _plainPassword: record.password,
         };
 
+        // Add default values
+        if (transformed.isRootAdmin === undefined) transformed.isRootAdmin = false;
+        if (transformed.isSystem === undefined) transformed.isSystem = false;
+
+        // Add timestamps for MongoDB
+        if (isMongoDB) {
+          const now = new Date();
+          if (!transformed.createdAt) transformed.createdAt = now;
+          if (!transformed.updatedAt) transformed.updatedAt = now;
+        }
+
         // Handle role reference (many-to-one)
         if (record.role && typeof record.role === 'string') {
           const roleName = record.role;

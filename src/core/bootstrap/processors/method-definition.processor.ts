@@ -15,14 +15,19 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
         ...record,
         isSystem: true,
       };
-      
-      // MongoDB: Add inverse fields for relations
+
+      // MongoDB: Add inverse fields for relations and timestamps
       if (isMongoDB) {
         // Initialize inverse fields as empty arrays
         transformed.routes = []; // From route_definition.publishedMethods (many-to-many)
         transformed.hooks = []; // From hook_definition.methods (many-to-many)
+
+        // Add timestamps
+        const now = new Date();
+        if (!transformed.createdAt) transformed.createdAt = now;
+        if (!transformed.updatedAt) transformed.updatedAt = now;
       }
-      
+
       return transformed;
     });
   }
