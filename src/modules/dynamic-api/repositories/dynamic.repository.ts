@@ -62,10 +62,6 @@ export class DynamicRepository {
     // No need to initialize repo with Knex - direct queries
   }
 
-  /**
-   * Get the correct ID field name based on database type
-   * MongoDB uses _id, SQL uses id
-   */
   private getIdField(): string {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
   }
@@ -106,8 +102,7 @@ export class DynamicRepository {
       }
 
       const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
-      
-      // Generate UUID for primary key if needed (SQL only, MongoDB uses _id)
+
       if (!this.queryBuilder.isMongoDb() && metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
         body.id = body.id || randomUUID();
       }
@@ -139,10 +134,7 @@ export class DynamicRepository {
       });
 
       if (this.tableName === 'table_definition') {
-        const table: any = await this.tableHandlerService.updateTable(
-          id, // Keep as string for MongoDB
-          body,
-        );
+        const table: any = await this.tableHandlerService.updateTable(id, body);
         const tableId = table._id || table.id;
         await this.reload();
         return this.find({ where: { [this.getIdField()]: { _eq: tableId } } });

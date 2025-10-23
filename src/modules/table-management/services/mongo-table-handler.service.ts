@@ -253,9 +253,6 @@ export class MongoTableHandlerService {
             insertedColumnIds.push(colId);
             this.logger.log(`   Column inserted: ${col.name}`);
           }
-
-          // NOTE: columns is inverse O2M - NOT stored in table_definition
-          // Computed via $lookup based on column.table field
         }
       } catch (error) {
         // Rollback: delete table metadata if column insert fails
@@ -508,9 +505,6 @@ export class MongoTableHandlerService {
           }
           columnIds.push(colObjectId);
         }
-
-        // NOTE: columns is inverse O2M - NOT stored in table_definition
-        // Computed via $lookup based on column.table field
       }
 
       // Update relations
@@ -580,17 +574,11 @@ export class MongoTableHandlerService {
           relationIds.push(relObjectId);
         }
 
-        // NOTE: relations is inverse O2M - NOT stored in table_definition
-        // Computed via $lookup based on relation.sourceTable field
       }
 
-      // Get old metadata before migration
       const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
-
-      // Get new metadata (will be used for migration)
       const newMetadata = await this.getFullTableMetadata(id);
 
-      // Update collection validation and indexes
       if (oldMetadata && newMetadata) {
         await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
       }
