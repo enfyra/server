@@ -25,7 +25,7 @@ export class SqlFunctionService implements OnApplicationBootstrap {
     } else if (dbType === 'postgres') {
       await this.queryBuilder.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
     } else {
-      console.warn(`⚠️ Unsupported DB_TYPE for unaccent: ${dbType}`);
+      console.warn(`Unsupported DB_TYPE for unaccent: ${dbType}`);
     }
   }
 

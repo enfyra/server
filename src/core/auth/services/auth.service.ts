@@ -54,13 +54,7 @@ export class AuthService {
           remember: body.remember,
         };
 
-    console.log('🔍 DEBUG SESSION INSERT:', { 
-      sessionData, 
-      dbType: this.queryBuilder.getDatabaseType(),
-      isMongoDB: this.queryBuilder.isMongoDb()
-    });
     const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
-    console.log('🔍 DEBUG SESSION RESULT:', insertedSession);
       
     // Get session ID (MongoDB uses _id, SQL uses id)
     const sessionId = isMongoDB 

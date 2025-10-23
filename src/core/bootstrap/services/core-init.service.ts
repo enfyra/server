@@ -65,7 +65,7 @@ export class CoreInitService {
       const tableNameToId: Record<string, number> = {};
       
       // Phase 1: Insert/Update table definitions
-      this.logger.log('📝 Phase 1: Processing table definitions...');
+      this.logger.log('Phase 1: Processing table definitions...');
       for (const [name, defRaw] of Object.entries(snapshot)) {
         const def = defRaw as any;
 
@@ -89,7 +89,7 @@ export class CoreInitService {
                 uniques: JSON.stringify(rest.uniques || []),
                 indexes: JSON.stringify(rest.indexes || []),
               });
-            this.logger.log(`🔄 Updated table ${name}`);
+            this.logger.log(`Updated table ${name}`);
           } else {
             this.logger.log(`⏩ Skip ${name}, no changes`);
           }
@@ -106,12 +106,12 @@ export class CoreInitService {
           });
           
           tableNameToId[name] = insertedId;
-          this.logger.log(`✅ Created table metadata: ${name}`);
+          this.logger.log(`Created table metadata: ${name}`);
         }
       }
 
       // Phase 2: Process column definitions
-      this.logger.log('📝 Phase 2: Processing column definitions...');
+      this.logger.log('Phase 2: Processing column definitions...');
       for (const [name, defRaw] of Object.entries(snapshot)) {
         const def = defRaw as any;
         const tableId = tableNameToId[name];
@@ -160,7 +160,7 @@ export class CoreInitService {
                   isUpdatable: snapshotCol.isUpdatable ?? true,
                   isHidden: snapshotCol.isHidden || false,
                 });
-              this.logger.log(`🔄 Updated column ${snapshotCol.name} for ${name}`);
+              this.logger.log(`Updated column ${snapshotCol.name} for ${name}`);
             }
           }
         }
@@ -172,12 +172,12 @@ export class CoreInitService {
         
         for (const colToRemove of columnsToRemove) {
           await trx('column_definition').where('id', colToRemove.id).delete();
-          this.logger.log(`🗑️ Removed column ${colToRemove.name} from ${name}`);
+          this.logger.log(`Removed column ${colToRemove.name} from ${name}`);
         }
       }
 
       // Phase 3: Process relation definitions + auto-generate inverse relations
-      this.logger.log('📝 Phase 3: Processing relation definitions...');
+      this.logger.log('Phase 3: Processing relation definitions...');
       
       // Collect all relations to insert (including inverse)
       const allRelationsToProcess: Array<{
@@ -284,7 +284,7 @@ export class CoreInitService {
               .where('id', existingRel.id)
               .update(updateData);
                 
-            this.logger.log(`🔄 Updated relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`);
+            this.logger.log(`Updated relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`);
           }
         } else {
           const insertData: any = {
@@ -347,7 +347,7 @@ export class CoreInitService {
 
         for (const relToRemove of relationsToRemove) {
           await trx('relation_definition').where('id', relToRemove.id).delete();
-          this.logger.log(`🗑️ Removed relation ${relToRemove.propertyName} from ${name}`);
+          this.logger.log(`Removed relation ${relToRemove.propertyName} from ${name}`);
         }
       }
 
@@ -407,7 +407,7 @@ export class CoreInitService {
     const tableNameToId: Record<string, any> = {};
     
     // Phase 1: Insert table definitions
-    this.logger.log('📝 Phase 1: Processing table definitions...');
+    this.logger.log('Phase 1: Processing table definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       
@@ -427,12 +427,12 @@ export class CoreInitService {
           indexes: rest.indexes || [],
         });
         tableNameToId[name] = result._id;
-        this.logger.log(`✅ Created table metadata: ${name}`);
+        this.logger.log(`Created table metadata: ${name}`);
       }
     }
     
     // Phase 2: Insert column definitions
-    this.logger.log('📝 Phase 2: Processing column definitions...');
+    this.logger.log('Phase 2: Processing column definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[name];
@@ -466,7 +466,7 @@ export class CoreInitService {
     }
     
     // Phase 3: Insert relation definitions
-    this.logger.log('📝 Phase 3: Processing relation definitions...');
+    this.logger.log('Phase 3: Processing relation definitions...');
     for (const [name, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[name];

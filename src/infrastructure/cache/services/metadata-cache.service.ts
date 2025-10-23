@@ -40,12 +40,12 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   async onApplicationBootstrap() {
-    this.logger.log('🚀 MetadataCacheService.onApplicationBootstrap() called');
+    this.logger.log('MetadataCacheService.onApplicationBootstrap() called');
     try {
       await this.reload();
-      this.logger.log('✅ MetadataCacheService initialization completed');
+      this.logger.log('MetadataCacheService initialization completed');
     } catch (error) {
-      this.logger.error('❌ MetadataCacheService initialization failed:', error);
+      this.logger.error('MetadataCacheService initialization failed:', error);
       throw error;
     }
   }
@@ -76,7 +76,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             return;
           }
 
-          this.logger.log(`📥 Received metadata cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
+          this.logger.log(`Received metadata cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
 
           const metadata: EnfyraMetadata = {
             tables: new Map(Object.entries(payload.metadata.tables)),
@@ -88,7 +88,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           // Update in-memory cache immediately (no Redis write)
           this.inMemoryCache = metadata;
 
-          this.logger.log(`✅ Metadata cache synced: ${metadata.tablesList.length} tables`);
+          this.logger.log(`Metadata cache synced: ${metadata.tablesList.length} tables`);
         } catch (error) {
           this.logger.error('Failed to parse metadata cache sync message:', error);
         }
@@ -110,7 +110,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
    */
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
 
-    this.logger.log('🔄 Loading metadata from database schema + metadata tables...');
+    this.logger.log('Loading metadata from database schema + metadata tables...');
 
     // Get all table names from metadata
     const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
@@ -125,7 +125,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         const actualSchema = await this.databaseSchemaService.getActualTableSchema(table.name);
 
         if (!actualSchema) {
-          this.logger.warn(`⚠️  Table ${table.name} not found in database, skipping...`);
+          this.logger.warn(`Table ${table.name} not found in database, skipping...`);
           continue;
         }
 
@@ -237,7 +237,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             // For O2M, FK is on the target table
             // O2M naming convention: FK column = {inversePropertyName}Id
             if (!rel.inversePropertyName) {
-              this.logger.error(`❌ O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
+              this.logger.error(`O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
               throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`);
             }
 
@@ -339,7 +339,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       timestamp: new Date(),
     };
 
-    this.logger.log(`✅ Loaded metadata for ${tablesList.length} tables from database schema`);
+    this.logger.log(`Loaded metadata for ${tablesList.length} tables from database schema`);
     return result;
   }
 
@@ -459,7 +459,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
    * Reload metadata from DB (acquire lock → load → publish → save)
    */
   async reload(): Promise<void> {
-    this.logger.log('🔄 reload() called');
+    this.logger.log('reload() called');
     const instanceId = this.instanceService.getInstanceId();
     this.logger.log(`🆔 Instance ID: ${instanceId.slice(0, 8)}`);
 
@@ -474,16 +474,16 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       this.logger.log(`🔐 Lock acquired: ${acquired}`);
 
       if (!acquired) {
-        this.logger.log('🔒 Another instance is reloading metadata, waiting for broadcast...');
+        this.logger.log('Another instance is reloading metadata, waiting for broadcast...');
         return;
       }
 
-      this.logger.log(`🔓 Acquired metadata reload lock (instance ${instanceId.slice(0, 8)})`);
+      this.logger.log(`Acquired metadata reload lock (instance ${instanceId.slice(0, 8)})`);
 
       try {
         // Load from DB
         const metadata = await this.loadMetadataFromDb();
-        this.logger.log(`✅ Metadata loaded from DB - ${metadata.tablesList.length} tables`);
+        this.logger.log(`Metadata loaded from DB - ${metadata.tablesList.length} tables`);
 
         // Broadcast to other instances FIRST
         await this.publish(metadata);
@@ -492,10 +492,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         this.inMemoryCache = metadata;
       } finally {
         await this.cacheService.release(METADATA_RELOAD_LOCK_KEY, instanceId);
-        this.logger.log('🔓 Released metadata reload lock');
+        this.logger.log('Released metadata reload lock');
       }
     } catch (error) {
-      this.logger.error('❌ Failed to reload metadata cache:', error);
+      this.logger.error('Failed to reload metadata cache:', error);
       throw error;
     }
   }
@@ -521,7 +521,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         JSON.stringify(payload),
       );
 
-      this.logger.log(`📤 Published metadata cache to other instances (${metadata.tablesList.length} tables)`);
+      this.logger.log(`Published metadata cache to other instances (${metadata.tablesList.length} tables)`);
     } catch (error) {
       this.logger.error('Failed to publish metadata cache sync:', error);
     }
@@ -565,6 +565,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
    */
   async clearMetadataCache(): Promise<void> {
     this.inMemoryCache = null;
-    this.logger.log('🗑️ In-memory metadata cache cleared');
+    this.logger.log('In-memory metadata cache cleared');
   }
 }

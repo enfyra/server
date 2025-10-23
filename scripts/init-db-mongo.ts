@@ -128,125 +128,6 @@ async function createIndexes(
   }
 }
 
-/**
- * Insert metadata from snapshot into table_definition, column_definition, relation_definition
- */
-async function insertMetadata(db: Db, tables: TableDef[]): Promise<void> {
-  const tableNameToId: Record<string, any> = {};
-  const columnIdMap: Record<string, any[]> = {}; // tableName -> column ObjectIds
-  const relationIdMap: Record<string, any[]> = {}; // tableName -> relation ObjectIds
-  
-  // Phase 1: Insert table definitions (without columns/relations)
-  console.log('  📝 Phase 1: Inserting table definitions...');
-  for (const tableDef of tables) {
-    const def = tableDef as any;
-    const data = MongoService.applyTimestampsStatic({
-      name: def.name,
-      isSystem: def.isSystem || false,
-      alias: def.alias || null,
-      description: def.description || null,
-      uniques: JSON.stringify(def.uniques || []),
-      indexes: JSON.stringify(def.indexes || []),
-    });
-    const result = await db.collection('table_definition').insertOne(data);
-    tableNameToId[def.name] = result.insertedId;
-    console.log(`    ✅ ${def.name}`);
-  }
-  
-  // Phase 2: Insert column definitions and collect ObjectIds
-  console.log('  📝 Phase 2: Inserting column definitions...');
-  for (const tableDef of tables) {
-    const tableId = tableNameToId[tableDef.name];
-    if (!tableId) continue;
-    
-    const columnIds = [];
-    for (const col of tableDef.columns) {
-      // For MongoDB: primary key column must have name="_id" and type="uuid"
-      const columnName = col.isPrimary ? '_id' : col.name;
-      const columnType = col.isPrimary ? 'uuid' : col.type;
-      
-      const data = MongoService.applyTimestampsStatic({
-        name: columnName,
-        type: columnType,
-        isPrimary: col.isPrimary || false,
-        isGenerated: col.isGenerated || false,
-        isNullable: col.isNullable ?? true,
-        isSystem: col.isSystem || false,
-        isUpdatable: col.isUpdatable ?? true,
-        isHidden: col.isHidden || false,
-        defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
-        options: col.options ? JSON.stringify(col.options) : null,
-        description: col.description || null,
-        placeholder: col.placeholder || null,
-        table: tableId, // Store table ObjectId reference
-      });
-      const result = await db.collection('column_definition').insertOne(data);
-      columnIds.push(result.insertedId);
-    }
-    columnIdMap[tableDef.name] = columnIds;
-    console.log(`    ✅ ${tableDef.name}: ${tableDef.columns.length} columns`);
-  }
-  
-  // Phase 3: Insert relation definitions and collect ObjectIds
-  console.log('  📝 Phase 3: Inserting relation definitions...');
-  for (const tableDef of tables) {
-    const tableId = tableNameToId[tableDef.name];
-    if (!tableId || !tableDef.relations) continue;
-    
-    const relationIds = [];
-    for (const rel of tableDef.relations) {
-      const relDef = rel as any;
-      const targetId = tableNameToId[relDef.targetTable];
-      if (!targetId) continue;
-      
-      const data = MongoService.applyTimestampsStatic({
-        propertyName: relDef.propertyName,
-        type: relDef.type,
-        sourceTable: tableId, // ObjectId reference to source table
-        targetTable: targetId, // ObjectId reference to target table
-        inversePropertyName: relDef.inversePropertyName || null,
-        isNullable: relDef.isNullable ?? true,
-        isSystem: relDef.isSystem || false,
-        description: relDef.description || null,
-      });
-      const result = await db.collection('relation_definition').insertOne(data);
-      relationIds.push(result.insertedId);
-    }
-    relationIdMap[tableDef.name] = relationIds;
-    if (relationIds.length > 0) {
-      console.log(`    ✅ ${tableDef.name}: ${relationIds.length} relations`);
-    }
-  }
-  
-  // Phase 4: Update table_definition with column and relation ObjectIds
-  console.log('  📝 Phase 4: Updating table_definition with column/relation ObjectIds...');
-  for (const tableDef of tables) {
-    const tableId = tableNameToId[tableDef.name];
-    if (!tableId) continue;
-    
-    const updateData: any = {};
-    
-    // Add column ObjectIds if any
-    if (columnIdMap[tableDef.name] && columnIdMap[tableDef.name].length > 0) {
-      updateData.columns = columnIdMap[tableDef.name];
-    }
-    
-    // Add relation ObjectIds if any
-    if (relationIdMap[tableDef.name] && relationIdMap[tableDef.name].length > 0) {
-      updateData.relations = relationIdMap[tableDef.name];
-    }
-    
-    if (Object.keys(updateData).length > 0) {
-      await db.collection('table_definition').updateOne(
-        { _id: tableId },
-        { $set: updateData }
-      );
-      console.log(`    ✅ ${tableDef.name}: Updated with ${updateData.columns?.length || 0} columns, ${updateData.relations?.length || 0} relations`);
-    }
-  }
-  
-  console.log('✅ Metadata insertion completed!');
-}
 
 async function createCollection(db: Db, tableDef: TableDef): Promise<void> {
   const collectionName = tableDef.name;
@@ -318,10 +199,6 @@ export async function initializeDatabaseMongo(): Promise<void> {
     for (const tableDef of tables) {
       await createCollection(db, tableDef);
     }
-
-    // Insert metadata into table_definition, column_definition, relation_definition
-    console.log('📝 Inserting metadata into collections...');
-    await insertMetadata(db, tables);
 
     // Insert setting_definition from init.json first
     console.log('⚙️ Inserting setting_definition...');

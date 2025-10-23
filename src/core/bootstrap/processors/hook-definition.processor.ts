@@ -32,7 +32,7 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
 
           if (!route) {
             this.logger.warn(
-              `⚠️ Route '${hook.route}' not found for hook ${hook.name}, skipping.`,
+              `Route '${hook.route}' not found for hook ${hook.name}, skipping.`,
             );
             return null;
           }
@@ -152,20 +152,4 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
 
     return `[Hook] ${record.name}${routeStr ? ` on ${routeStr}` : ''}${methodsStr ? ` (${methodsStr})` : ''}`;
   }
-
-  // Special update handling for many-to-many relationships
-  // protected async updateRecord(existingId: any, record: any, repo: Repository<any>): Promise<void> {
-  //   const { methods, ...updateData } = record;
-  //
-  //   // Update basic fields
-  //   await repo.update(existingId, updateData);
-  //
-  //   // Handle many-to-many methods separately
-  //   if (methods && Array.isArray(methods)) {
-  //     await repo.save({
-  //       id: existingId,
-  //       methods: methods,
-  //     });
-  //   }
-  // }
 }

@@ -109,7 +109,6 @@ export class MongoQueryEngine {
       // Build MongoDB aggregation pipeline
       const pipeline: any[] = [];
 
-      // 1. Add $match stage for filters
       if (filter && Object.keys(filter).length > 0) {
         // Try direct MongoDB filter parsing first (for GraphQL-style filters)
         const matchStage = this.buildMongoMatch(filter);
@@ -119,21 +118,18 @@ export class MongoQueryEngine {
         }
       }
 
-      // 2. Add $lookup stages for joins (M2O, O2O only - O2M handled separately)
       const { lookupStages, o2mJoins } = this.buildLookupStages(joinArr, tableName, metadataGetter);
       pipeline.push(...lookupStages);
       if (lookupStages.length > 0) {
         this.log.push(`Added ${lookupStages.length} $lookup stages`);
       }
 
-      // 3. Add $addFields stages for fixing null relations after $unwind (grouped by depth)
       const addFieldsStages = this.buildAddFieldsStage(joinArr, tableName);
       if (addFieldsStages.length > 0) {
         pipeline.push(...addFieldsStages);
         this.log.push(`Added ${addFieldsStages.length} $addFields stages for null relation handling`);
       }
 
-      // 4. Add $sort stage
       if (sortArr.length > 0) {
         const sortStage = this.buildSortStage(sortArr);
         pipeline.push({ $sort: sortStage });
@@ -172,7 +168,6 @@ export class MongoQueryEngine {
         this.log.push(`+ filterCount = ${filterCount}`);
       }
 
-      // 5. Add pagination (convert to numbers for MongoDB)
       // limit=0 means no limit (return all), limit=undefined means default 10
       let actualLimit: number | undefined;
       
@@ -200,7 +195,6 @@ export class MongoQueryEngine {
         this.log.push(`Added $limit: ${actualLimit}`);
       }
 
-      // 6. Add $project stage for field selection (only if fields were explicitly requested)
       if (parsedFields && parsedFields.length > 0) {
         const projectStage = this.buildProjectStage(selectArr);
         if (projectStage && Object.keys(projectStage).length > 0) {
@@ -224,7 +218,6 @@ export class MongoQueryEngine {
       // Store raw rows for debug
       const rawRows = debugMode && rows.length > 0 ? JSON.parse(JSON.stringify(rows[0])) : null;
 
-      // 7. Populate O2M relations separately (to avoid document multiplication)
       const o2mDebugInfo: any[] = [];
       if (o2mJoins.length > 0) {
         const result = await this.populateO2MRelations(rows, o2mJoins, tableName, metadataGetter, o2mDebugInfo);
@@ -232,14 +225,9 @@ export class MongoQueryEngine {
         this.log.push(`Populated ${o2mJoins.length} O2M relations`);
       }
 
-      // 8. Convert array of ObjectId strings to array of { _id } objects for relations
-      // This handles O2M/M2M relations that weren't explicitly requested
       rows = this.convertRelationArraysToIdObjects(rows, metadata, metadataGetter);
-
-      // 9. Parse JSON fields (simple-json columns)
       rows = rows.map(row => this.parseJsonFields(row, metadata, metadataGetter));
 
-      // 10. Resolve deep relations
       const metaDeep = await resolveDeepRelations({
         queryEngine: this as any, // MongoQueryEngine implements same interface as SqlQueryEngine
         rows,
@@ -248,10 +236,7 @@ export class MongoQueryEngine {
         log: this.log,
       });
 
-      // 11. Parse boolean fields (convert 1/0 to true/false if needed)
       let parsedRows = rows.map(row => parseBooleanFields(row));
-      
-      // 12. Serialize Date objects to ISO strings
       parsedRows = parsedRows.map(row => serializeDates(row));
 
       // Return results

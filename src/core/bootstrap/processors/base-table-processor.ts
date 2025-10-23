@@ -69,7 +69,7 @@ export abstract class BaseTableProcessor {
           if (hasChanges) {
             await this.updateRecordKnex(existingRecord.id, record, knex, tableName);
             skippedCount++;
-            this.logger.log(`   🔄 Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
             skippedCount++;
             this.logger.log(`   ⏩ Skipped: ${this.getRecordIdentifier(record)}`);
@@ -84,7 +84,7 @@ export abstract class BaseTableProcessor {
           // Database-specific insert handling
           // Get dbType from context (provided by QueryBuilderService.getDatabaseType())
           const dbType = context?.dbType;
-          this.logger.debug(`🔍 dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`);
+          this.logger.debug(`dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`);
           let insertedId: any;
 
           if (dbType === 'postgres') {
@@ -92,17 +92,17 @@ export abstract class BaseTableProcessor {
             this.logger.debug('📍 Using PostgreSQL query builder');
             const result = await knex(tableName).insert(cleanedRecord, ['id']);
             insertedId = result[0]?.id || result[0];
-            this.logger.debug(`✅ Inserted ID: ${insertedId}`);
+            this.logger.debug(`Inserted ID: ${insertedId}`);
           } else {
             // MySQL/MariaDB: Standard insert
             this.logger.debug('📍 Using MySQL query builder');
             const result = await knex(tableName).insert(cleanedRecord);
             insertedId = Array.isArray(result) ? result[0] : result;
-            this.logger.debug(`✅ Inserted ID: ${insertedId}`);
+            this.logger.debug(`Inserted ID: ${insertedId}`);
           }
 
           createdCount++;
-          this.logger.log(`   ✅ Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
 
           // Call afterUpsert hook with new record
           if (this.afterUpsert) {
@@ -110,7 +110,7 @@ export abstract class BaseTableProcessor {
           }
         }
       } catch (error) {
-        this.logger.error(`❌ Error: ${error.message}`);
+        this.logger.error(`Error: ${error.message}`);
         this.logger.error(`   Stack: ${error.stack}`);
         this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
       }

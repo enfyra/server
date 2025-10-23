@@ -82,7 +82,7 @@ export class RelationTransformer {
                 items: cleanedItems,
               });
             } else {
-              this.logger.warn(`⚠️ O2M relation '${relName}' missing targetTableName, skipping cleaning`);
+              this.logger.warn(`O2M relation '${relName}' missing targetTableName, skipping cleaning`);
             }
           }
           delete transformed[relName];
@@ -108,7 +108,7 @@ export class RelationTransformer {
    */
   async cleanNestedRelations(obj: any, tableName: string, metadata: any, depth: number = 0): Promise<any> {
     if (depth > 10) {
-      this.logger.warn(`⚠️ Max recursion depth (10) reached for table ${tableName}`);
+      this.logger.warn(`Max recursion depth (10) reached for table ${tableName}`);
       return obj;
     }
 

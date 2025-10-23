@@ -56,7 +56,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     // Skip Knex initialization if using MongoDB
     if (DB_TYPE === 'mongodb') {
-      this.logger.log('⏭️  Skipping Knex initialization (DB_TYPE=mongodb)');
+      this.logger.log('Skipping Knex initialization (DB_TYPE=mongodb)');
       return;
     }
 
@@ -109,12 +109,12 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     // Register default hooks (replaces postProcessResponse)
     this.registerDefaultHooks();
 
-    // Test connection
+    // Verify connection
     try {
       await this.knexInstance.raw('SELECT 1');
-      this.logger.log('✅ Knex connection established with timestamp hooks');
+      this.logger.log('Knex connection established with timestamp hooks');
     } catch (error) {
-      this.logger.error('❌ Failed to establish Knex connection:', error);
+      this.logger.error('Failed to establish Knex connection:', error);
       throw error;
     }
   }
@@ -228,7 +228,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
       const context = cascadeContextMap.get(tableName);
       if (!context) {
-        this.logger.log(`⚠️ [afterUpdate] No cascade context found for table: ${tableName}`);
+        this.logger.log(`[afterUpdate] No cascade context found for table: ${tableName}`);
         return result;
       }
 
@@ -389,7 +389,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('🔌 Destroying Knex connection...');
     if (this.knexInstance) {
       await this.knexInstance.destroy();
-      this.logger.log('✅ Knex connection destroyed');
+      this.logger.log('Knex connection destroyed');
     }
   }
 

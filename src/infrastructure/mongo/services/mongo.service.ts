@@ -35,9 +35,9 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       this.db = this.client.db(dbName);
       
       await this.db.command({ ping: 1 });
-      this.logger.log(`✅ Connected to MongoDB: ${dbName}`);
+      this.logger.log(`Connected to MongoDB: ${dbName}`);
     } catch (error) {
-      this.logger.error('❌ Failed to connect to MongoDB:', error);
+      this.logger.error('Failed to connect to MongoDB:', error);
       throw error;
     }
   }
@@ -243,7 +243,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       
       const fieldName = relation.propertyName;
       
-      // CRITICAL: Only process if field is explicitly in newData
+      // Only process if field is explicitly in newData
       // If field is not in newData → user didn't touch it → keep old relations
       if (!(fieldName in newData)) {
         continue;

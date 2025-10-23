@@ -162,7 +162,7 @@ export class KnexHookRegistry {
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
       const context = cascadeContextMap.get(tableName);
       if (!context) {
-        this.logger.log(`⚠️ [afterUpdate] No cascade context found for table: ${tableName}`);
+        this.logger.log(`[afterUpdate] No cascade context found for table: ${tableName}`);
         return result;
       }
 

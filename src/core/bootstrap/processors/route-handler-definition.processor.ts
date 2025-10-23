@@ -24,7 +24,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           
           if (!routeEntity) {
             this.logger.warn(
-              `⚠️ Route '${record.route}' not found for handler, skipping.`,
+              `Route '${record.route}' not found for handler, skipping.`,
             );
             return null;
           }
@@ -49,7 +49,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           
           if (!methodEntity) {
             this.logger.warn(
-              `⚠️ Method '${record.method}' not found for handler, skipping.`,
+              `Method '${record.method}' not found for handler, skipping.`,
             );
             return null;
           }

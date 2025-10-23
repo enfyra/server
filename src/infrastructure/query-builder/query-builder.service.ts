@@ -348,7 +348,6 @@ export class QueryBuilderService {
           const { hasRelations } = separateFilters(originalFilter, metadata);
 
           if (hasRelations) {
-            // Debug: log metadata and filter
             this.pushDebug('table_metadata', {
               tableName: queryOptions.table,
               relations: metadata.relations,

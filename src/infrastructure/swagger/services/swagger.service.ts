@@ -25,7 +25,7 @@ export class SwaggerService implements OnApplicationBootstrap {
     try {
       this.currentSpec = await this.generateOpenApiSpec();
     } catch (error) {
-      console.error('❌ Error reloading Swagger:', error);
+      console.error('Error reloading Swagger:', error);
       throw error;
     }
   }

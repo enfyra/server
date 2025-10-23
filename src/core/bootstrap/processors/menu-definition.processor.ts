@@ -110,7 +110,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     const knex = context?.knex;
     
     if (!isMongoDB && !knex) {
-      this.logger.warn('⚠️ Knex not provided in context for SQL, returning records as-is');
+      this.logger.warn('Knex not provided in context for SQL, returning records as-is');
       return records;
     }
 
