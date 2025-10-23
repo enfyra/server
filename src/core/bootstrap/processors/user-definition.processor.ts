@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { BaseTableProcessor } from './base-table-processor';
+import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
+import { Knex } from 'knex';
+import { Db } from 'mongodb';
 
 @Injectable()
 export class UserDefinitionProcessor extends BaseTableProcessor {
@@ -9,41 +11,20 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    
-    if (isMongoDB) {
-      // MongoDB: Hash password immediately in transformRecords
-      const transformedRecords = [];
-      for (const record of records) {
-        const transformed = { ...record };
-        if (record.password) {
-          transformed.password = await this.bcryptService.hash(record.password);
-        }
-        
-        // MongoDB: Add inverse fields for relations
-        transformed.allowedRoutePermissions = []; // From route_permission_definition.allowedUsers (many-to-many)
-        
-        transformedRecords.push(transformed);
-      }
-      return transformedRecords;
-    } else {
-      // SQL: Keep plain password for later hashing in processSql
-      return records.map((record) => ({
-        ...record,
-        _plainPassword: record.password,
-      }));
-    }
+    return records.map((record) => ({
+      ...record,
+      _plainPassword: record.password,
+    }));
   }
-  
-  // Override processSql to handle user creation properly
-  async processSql(records: any[], knex: any, tableName: string, context?: any): Promise<any> {
+
+  async processSql(records: any[], knex: Knex, tableName: string, context?: any): Promise<UpsertResult> {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
 
     const transformedRecords = await this.transformRecords(records, context);
     const { randomUUID } = await import('crypto');
-    
+
     let createdCount = 0;
     let skippedCount = 0;
 
@@ -53,22 +34,61 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
         const existingRecord = await knex(tableName).where(uniqueWhere).first();
 
         if (existingRecord) {
-          // User exists - NEVER update (skip entirely)
           skippedCount++;
-          this.logger.log(`   ⏩ Skipped: ${this.getRecordIdentifier(record)}`);
+          this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
         } else {
-          // New user - generate UUID, hash password and insert
           const cleanedRecord = this.cleanRecordForKnex(record);
-          cleanedRecord.id = cleanedRecord.id || randomUUID(); // Auto UUID
+          cleanedRecord.id = cleanedRecord.id || randomUUID();
           cleanedRecord.password = await this.bcryptService.hash(record._plainPassword);
           delete cleanedRecord._plainPassword;
-          
+
           await knex(tableName).insert(cleanedRecord);
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
-          
+
           if (this.afterUpsert) {
             await this.afterUpsert({ ...record, id: cleanedRecord.id }, true, context);
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+      }
+    }
+
+    return { created: createdCount, skipped: skippedCount };
+  }
+
+  async processMongo(records: any[], db: Db, collectionName: string, context?: any): Promise<UpsertResult> {
+    if (!records || records.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (const record of records) {
+      try {
+        const uniqueWhere = this.getUniqueIdentifier(record);
+        const existingRecord = await db.collection(collectionName).findOne(uniqueWhere);
+
+        if (existingRecord) {
+          skippedCount++;
+          this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+        } else {
+          const cleanedRecord = this.cleanRecordForMongo(record);
+
+          if (record.password) {
+            cleanedRecord.password = await this.bcryptService.hash(record.password);
+          }
+
+          cleanedRecord.allowedRoutePermissions = [];
+
+          const result = await db.collection(collectionName).insertOne(cleanedRecord);
+          createdCount++;
+          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+
+          if (this.afterUpsert) {
+            await this.afterUpsert({ ...record, _id: result.insertedId }, true, context);
           }
         }
       } catch (error) {

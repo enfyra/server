@@ -200,23 +200,6 @@ export async function initializeDatabaseMongo(): Promise<void> {
       await createCollection(db, tableDef);
     }
 
-    // Insert setting_definition from init.json first
-    console.log('⚙️ Inserting setting_definition...');
-    const initJsonPath = path.join(process.cwd(), 'src/core/bootstrap/data/init.json');
-    const initJson = JSON.parse(fs.readFileSync(initJsonPath, 'utf8'));
-    const settingData = initJson.setting_definition;
-    
-    await settingCollection.updateOne(
-      {},
-      { 
-        $set: { 
-          ...settingData,
-          isInit: true, // Override isInit to true after initialization
-        } 
-      },
-      { upsert: true }
-    );
-
     console.log('🎉 MongoDB database initialization completed!');
   } catch (error) {
     console.error('❌ Error during MongoDB initialization:', error);

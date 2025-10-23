@@ -94,45 +94,48 @@ export class QueryBuilderService {
    */
   private whereToMongoFilter(conditions: WhereCondition[]): any {
     const filter: any = {};
-    
+
     for (const condition of conditions) {
+      // Remove table prefix from field name (e.g., "table_definition.name" -> "name")
+      const fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
+
       switch (condition.operator) {
         case '=':
-          filter[condition.field] = condition.value;
+          filter[fieldName] = condition.value;
           break;
         case '!=':
-          filter[condition.field] = { $ne: condition.value };
+          filter[fieldName] = { $ne: condition.value };
           break;
         case '>':
-          filter[condition.field] = { $gt: condition.value };
+          filter[fieldName] = { $gt: condition.value };
           break;
         case '<':
-          filter[condition.field] = { $lt: condition.value };
+          filter[fieldName] = { $lt: condition.value };
           break;
         case '>=':
-          filter[condition.field] = { $gte: condition.value };
+          filter[fieldName] = { $gte: condition.value };
           break;
         case '<=':
-          filter[condition.field] = { $lte: condition.value };
+          filter[fieldName] = { $lte: condition.value };
           break;
         case 'like':
-          filter[condition.field] = { $regex: condition.value.replace(/%/g, '.*') };
+          filter[fieldName] = { $regex: condition.value.replace(/%/g, '.*') };
           break;
         case 'in':
-          filter[condition.field] = { $in: condition.value };
+          filter[fieldName] = { $in: condition.value };
           break;
         case 'not in':
-          filter[condition.field] = { $nin: condition.value };
+          filter[fieldName] = { $nin: condition.value };
           break;
         case 'is null':
-          filter[condition.field] = null;
+          filter[fieldName] = null;
           break;
         case 'is not null':
-          filter[condition.field] = { $ne: null };
+          filter[fieldName] = { $ne: null };
           break;
       }
     }
-    
+
     return filter;
   }
 

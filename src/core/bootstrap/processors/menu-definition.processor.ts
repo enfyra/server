@@ -48,61 +48,69 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   }
 
   /**
-   * Process menu items in order for MongoDB (Mini Sidebar → Dropdown → Menu items)
+   * Process menu items in order for MongoDB (Mini Sidebar → Dropdown → Menu items with parents)
    */
-  async processMenuMongo(records: any[], collectionName: string): Promise<number> {
+  async processMongo(
+    records: any[],
+    db: any,
+    collectionName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
+    if (!records || records.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+
+    // Group menu items by type
     const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
     const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
-    const menuItems = records.filter(r => r.type === 'Menu');
+    const menuItemsWithSidebar = records.filter(r => r.type === 'Menu' && r.sidebar && !r.parent);
+    const menuItemsWithParent = records.filter(r => r.type === 'Menu' && r.parent);
+    const otherMenuItems = records.filter(r => r.type === 'Menu' && !r.sidebar && !r.parent);
 
     let totalCreated = 0;
+    let totalSkipped = 0;
 
     // Process in order: Mini Sidebars first
     if (miniSidebars.length > 0) {
       this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
-      const transformed = await this.transformRecords(miniSidebars);
-      const valid = transformed.filter(r => r !== null);
-      
-      if (valid.length > 0) {
-        await this.queryBuilder.insert({
-          table: collectionName,
-          data: valid,
-        });
-        totalCreated += valid.length;
-      }
+      const result = await super.processMongo(miniSidebars, db, collectionName, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
     }
 
     // Then Dropdown Menus (can reference sidebars)
     if (dropdownMenus.length > 0) {
       this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
-      const transformed = await this.transformRecords(dropdownMenus);
-      const valid = transformed.filter(r => r !== null);
-      
-      if (valid.length > 0) {
-        await this.queryBuilder.insert({
-          table: collectionName,
-          data: valid,
-        });
-        totalCreated += valid.length;
-      }
+      const result = await super.processMongo(dropdownMenus, db, collectionName, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
     }
 
-    // Finally Menu items (can reference sidebars + parents)
-    if (menuItems.length > 0) {
-      this.logger.log(`Processing ${menuItems.length} Menu items...`);
-      const transformed = await this.transformRecords(menuItems);
-      const valid = transformed.filter(r => r !== null);
-      
-      if (valid.length > 0) {
-        await this.queryBuilder.insert({
-          table: collectionName,
-          data: valid,
-        });
-        totalCreated += valid.length;
-      }
+    // Then Menu items with sidebars (no parents yet)
+    if (menuItemsWithSidebar.length > 0) {
+      this.logger.log(`Processing ${menuItemsWithSidebar.length} Menu items with sidebars...`);
+      const result = await super.processMongo(menuItemsWithSidebar, db, collectionName, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
     }
 
-    return totalCreated;
+    // Then other menu items without references
+    if (otherMenuItems.length > 0) {
+      this.logger.log(`Processing ${otherMenuItems.length} other Menu items...`);
+      const result = await super.processMongo(otherMenuItems, db, collectionName, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
+    }
+
+    // Finally Menu items with parent references (must be last)
+    if (menuItemsWithParent.length > 0) {
+      this.logger.log(`Processing ${menuItemsWithParent.length} Menu items with parents...`);
+      const result = await super.processMongo(menuItemsWithParent, db, collectionName, context);
+      totalCreated += result.created;
+      totalSkipped += result.skipped;
+    }
+
+    return { created: totalCreated, skipped: totalSkipped };
   }
   
   async transformRecords(records: any[], context?: any): Promise<any[]> {
