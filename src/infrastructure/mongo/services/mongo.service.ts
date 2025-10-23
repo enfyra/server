@@ -73,24 +73,17 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
     const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
-      console.log(`[applyDefaultValues] No metadata for table: ${tableName}`);
       return data;
     }
 
     const result = { ...data };
 
-    console.log(`[applyDefaultValues] Table: ${tableName}, Input data:`, Object.keys(data));
-
     for (const column of metadata.columns) {
-      // Skip if field already has a value
       if (result[column.name] !== undefined && result[column.name] !== null) {
         continue;
       }
 
-      // Apply defaultValue if defined
       if (column.defaultValue !== undefined && column.defaultValue !== null) {
-        console.log(`[applyDefaultValues] Applying default for ${column.name}:`, column.defaultValue);
-        // Parse JSON if defaultValue is string representation
         if (typeof column.defaultValue === 'string') {
           try {
             result[column.name] = JSON.parse(column.defaultValue);
@@ -103,7 +96,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    console.log(`[applyDefaultValues] Output data:`, Object.keys(result));
     return result;
   }
 

@@ -108,7 +108,7 @@ export class PackageController {
         ...body,
         version: installationResult.version,
         description: body.description || installationResult.description || '',
-        isSystem: isAlreadyInstalled ? 1 : 0,
+        isSystem: isAlreadyInstalled ? true : false,
       });
 
       // Reload package cache after creation
