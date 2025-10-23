@@ -108,7 +108,7 @@ export class DefaultDataService {
         const dbType = this.queryBuilder.getDatabaseType();
         const context = { knex: qb, tableName, dbType };
 
-        const result = await processor.processKnex(records, qb, tableName, context);
+        const result = await processor.processSql(records, qb, tableName, context);
         
         totalCreated += result.created;
         totalSkipped += result.skipped;

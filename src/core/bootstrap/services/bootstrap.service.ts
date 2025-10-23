@@ -44,48 +44,53 @@ export class BootstrapService implements OnModuleInit {
       return;
     }
 
-    // Find first setting record
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const sortField = isMongoDB ? '_id' : 'id';
-    const settingsResult = await this.queryBuilder.select({
-      tableName: 'setting_definition',
-      sort: [sortField],
-      limit: 1,
-    });
-    let setting = settingsResult.data[0] || null;
+    // TEMPORARY: Always run createInitMetadata for testing
+    this.logger.log('Running createInitMetadata for testing...');
+    await this.coreInitService.createInitMetadata();
+    this.logger.log('createInitMetadata completed');
 
-    if (!setting || !setting.isInit) {
-      this.logger.log('First time initialization...');
-      
-      // Create metadata (needed for both SQL and MongoDB to track schema)
-      await this.coreInitService.createInitMetadata();
-      
-      await this.defaultDataService.insertAllDefaultRecords();
+    // // Find first setting record
+    // const isMongoDB = this.queryBuilder.isMongoDb();
+    // const sortField = isMongoDB ? '_id' : 'id';
+    // const settingsResult = await this.queryBuilder.select({
+    //   tableName: 'setting_definition',
+    //   sort: [sortField],
+    //   limit: 1,
+    // });
+    // let setting = settingsResult.data[0] || null;
 
-      // Re-fetch setting after default data insertion
-      const settings2Result = await this.queryBuilder.select({
-        tableName: 'setting_definition',
-        sort: [sortField],
-        limit: 1,
-      });
-      setting = settings2Result.data[0] || null;
-      
-      if (!setting) {
-        this.logger.error('Setting record not found after initialization');
-        throw new Error('Setting record not found. DefaultDataService may have failed.');
-      }
-      
-      // Update isInit flag
-      const settingId = setting._id || setting.id;
-      await this.queryBuilder.update({
-        table: 'setting_definition',
-        where: [{ field: 'id', operator: '=', value: settingId }],
-        data: { isInit: true },
-      });
+    // if (!setting || !setting.isInit) {
+    //   this.logger.log('First time initialization...');
+    //
+    //   // Create metadata (needed for both SQL and MongoDB to track schema)
+    //   await this.coreInitService.createInitMetadata();
+    //
+    //   await this.defaultDataService.insertAllDefaultRecords();
 
-      this.logger.log('Initialization successful');
-    } else {
-      this.logger.log('System already initialized, skipping data sync');
-    }
+    //   // Re-fetch setting after default data insertion
+    //   const settings2Result = await this.queryBuilder.select({
+    //     tableName: 'setting_definition',
+    //     sort: [sortField],
+    //     limit: 1,
+    //   });
+    //   setting = settings2Result.data[0] || null;
+    //
+    //   if (!setting) {
+    //     this.logger.error('Setting record not found after initialization');
+    //     throw new Error('Setting record not found. DefaultDataService may have failed.');
+    //   }
+    //
+    //   // Update isInit flag
+    //   const settingId = setting._id || setting.id;
+    //   await this.queryBuilder.update({
+    //     table: 'setting_definition',
+    //     where: [{ field: 'id', operator: '=', value: settingId }],
+    //     data: { isInit: true },
+    //   });
+
+    //   this.logger.log('Initialization successful');
+    // } else {
+    //   this.logger.log('System already initialized, skipping data sync');
+    // }
   }
 }

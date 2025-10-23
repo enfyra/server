@@ -10,7 +10,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     super();
   }
 
-  async processKnex(
+  async processSql(
     records: any[],
     knex: Knex,
     tableName: string,
@@ -25,21 +25,21 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
     if (miniSidebars.length > 0) {
       this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
-      const result = await super.processKnex(miniSidebars, knex, tableName, { ...context, knex });
+      const result = await super.processSql(miniSidebars, knex, tableName, { ...context, knex });
       totalCreated += result.created;
       totalSkipped += result.skipped;
     }
 
     if (dropdownMenus.length > 0) {
       this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
-      const result = await super.processKnex(dropdownMenus, knex, tableName, { ...context, knex });
+      const result = await super.processSql(dropdownMenus, knex, tableName, { ...context, knex });
       totalCreated += result.created;
       totalSkipped += result.skipped;
     }
 
     if (menuItems.length > 0) {
       this.logger.log(`Processing ${menuItems.length} Menu items...`);
-      const result = await super.processKnex(menuItems, knex, tableName, { ...context, knex });
+      const result = await super.processSql(menuItems, knex, tableName, { ...context, knex });
       totalCreated += result.created;
       totalSkipped += result.skipped;
     }

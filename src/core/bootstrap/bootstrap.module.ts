@@ -1,6 +1,8 @@
 import { Global, Module, forwardRef } from '@nestjs/common';
 import { BootstrapService } from './services/bootstrap.service';
 import { CoreInitService } from './services/core-init.service';
+import { CoreInitSqlService } from './services/core-init-sql.service';
+import { CoreInitMongoService } from './services/core-init-mongo.service';
 import { DefaultDataService } from './services/default-data.service';
 import { BootstrapScriptService } from './services/bootstrap-script.service';
 import { CacheModule } from '../../infrastructure/cache/cache.module';
@@ -21,8 +23,10 @@ import { RoutePermissionDefinitionProcessor } from './processors/route-permissio
 @Global()
 @Module({
   providers: [
-    BootstrapService, 
-    CoreInitService, 
+    BootstrapService,
+    CoreInitService,
+    CoreInitSqlService,
+    CoreInitMongoService,
     DefaultDataService,
     UserDefinitionProcessor,
     MenuDefinitionProcessor,

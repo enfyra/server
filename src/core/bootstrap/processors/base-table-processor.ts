@@ -31,7 +31,7 @@ export abstract class BaseTableProcessor {
     return JSON.stringify(record).substring(0, 50) + '...';
   }
 
-  async processKnex(
+  async processSql(
     records: any[],
     knex: Knex,
     tableName: string,
@@ -42,7 +42,7 @@ export abstract class BaseTableProcessor {
     }
 
     const transformedRecords = await this.transformRecords(records, context);
-    
+
     let createdCount = 0;
     let skippedCount = 0;
 
@@ -59,7 +59,7 @@ export abstract class BaseTableProcessor {
               delete cleanedCondition[key];
             }
           }
-          
+
           existingRecord = await knex(tableName).where(cleanedCondition).first();
           if (existingRecord) break;
         }
@@ -72,7 +72,7 @@ export abstract class BaseTableProcessor {
             this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
             skippedCount++;
-            this.logger.log(`   ⏩ Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
           }
           // Call afterUpsert hook with existing record
           if (this.afterUpsert) {
@@ -82,20 +82,17 @@ export abstract class BaseTableProcessor {
           const cleanedRecord = this.cleanRecordForKnex(record);
 
           // Database-specific insert handling
-          // Get dbType from context (provided by QueryBuilderService.getDatabaseType())
           const dbType = context?.dbType;
           this.logger.debug(`dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`);
           let insertedId: any;
 
           if (dbType === 'postgres') {
-            // PostgreSQL: Knex's query builder with proper bindings
-            this.logger.debug('📍 Using PostgreSQL query builder');
+            this.logger.debug('Using PostgreSQL query builder');
             const result = await knex(tableName).insert(cleanedRecord, ['id']);
             insertedId = result[0]?.id || result[0];
             this.logger.debug(`Inserted ID: ${insertedId}`);
           } else {
-            // MySQL/MariaDB: Standard insert
-            this.logger.debug('📍 Using MySQL query builder');
+            this.logger.debug('Using MySQL query builder');
             const result = await knex(tableName).insert(cleanedRecord);
             insertedId = Array.isArray(result) ? result[0] : result;
             this.logger.debug(`Inserted ID: ${insertedId}`);

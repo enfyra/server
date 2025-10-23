@@ -27,7 +27,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
       }
       return transformedRecords;
     } else {
-      // SQL: Keep plain password for later hashing in processKnex
+      // SQL: Keep plain password for later hashing in processSql
       return records.map((record) => ({
         ...record,
         _plainPassword: record.password,
@@ -35,8 +35,8 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     }
   }
   
-  // Override processKnex to handle user creation properly
-  async processKnex(records: any[], knex: any, tableName: string, context?: any): Promise<any> {
+  // Override processSql to handle user creation properly
+  async processSql(records: any[], knex: any, tableName: string, context?: any): Promise<any> {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
