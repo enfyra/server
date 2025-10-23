@@ -89,16 +89,51 @@ export class QueryBuilderService {
       }
     }
 
-    // $project stage for scalar fields
-    if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0) {
+    // $project stage for scalar fields and map unpopulated relations
+    const baseMeta = await this.metadataCache.lookupTableByName(tableName);
+    const allRelations = baseMeta?.relations || [];
+
+    // Check if we need to add $project
+    const unpopulatedRelations = allRelations.filter(rel =>
+      !nestedExpanded.relations.some(r => r.propertyName === rel.propertyName)
+    );
+
+    if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0 || unpopulatedRelations.length > 0) {
       const projection: any = { _id: 1 };
 
+      // Include scalar fields
       for (const field of nestedExpanded.scalarFields) {
         projection[field] = 1;
       }
 
+      // Include populated relations
       for (const nestedRel of nestedExpanded.relations) {
-        projection[nestedRel.localField] = 1;
+        projection[nestedRel.propertyName] = 1;
+      }
+
+      // Map unpopulated relations: ObjectId → {_id: ObjectId}
+      for (const rel of unpopulatedRelations) {
+        const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
+
+        if (isArray) {
+          // Array of ObjectIds → array of {_id: ObjectId}
+          projection[rel.propertyName] = {
+            $map: {
+              input: `$${rel.propertyName}`,
+              as: 'item',
+              in: { _id: '$$item' }
+            }
+          };
+        } else {
+          // Single ObjectId → {_id: ObjectId}
+          projection[rel.propertyName] = {
+            $cond: {
+              if: { $ne: [`$${rel.propertyName}`, null] },
+              then: { _id: `$${rel.propertyName}` },
+              else: null
+            }
+          };
+        }
       }
 
       nestedPipeline.push({ $project: projection });
@@ -802,6 +837,57 @@ export class QueryBuilderService {
           pipeline.push({ $sort: sortSpec });
         }
 
+        // $project stage to map raw ObjectIds to {_id: ObjectId} format (like SQL auto-join)
+        // This is more efficient than using $lookup for relations when we only need _id
+        const baseMeta = await this.metadataCache.lookupTableByName(options.table);
+        const allRelations = baseMeta?.relations || [];
+
+        // Check if we need to add $project for unpopulated relations
+        const unpopulatedRelations = allRelations.filter(rel =>
+          !relations.some(r => r.propertyName === rel.propertyName)
+        );
+
+        if (unpopulatedRelations.length > 0) {
+          const projectStage: any = {};
+
+          // Include all existing fields
+          for (const field of scalarFields) {
+            projectStage[field] = 1;
+          }
+
+          // Include populated relations
+          for (const rel of relations) {
+            projectStage[rel.propertyName] = 1;
+          }
+
+          // Map unpopulated relations: ObjectId → {_id: ObjectId}
+          for (const rel of unpopulatedRelations) {
+            const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
+
+            if (isArray) {
+              // Array of ObjectIds → array of {_id: ObjectId}
+              projectStage[rel.propertyName] = {
+                $map: {
+                  input: `$${rel.propertyName}`,
+                  as: 'item',
+                  in: { _id: '$$item' }
+                }
+              };
+            } else {
+              // Single ObjectId → {_id: ObjectId}
+              projectStage[rel.propertyName] = {
+                $cond: {
+                  if: { $ne: [`$${rel.propertyName}`, null] },
+                  then: { _id: `$${rel.propertyName}` },
+                  else: null
+                }
+              };
+            }
+          }
+
+          pipeline.push({ $project: projectStage });
+        }
+
         // $skip and $limit
         if (options.offset) {
           pipeline.push({ $skip: options.offset });
@@ -1337,15 +1423,9 @@ export class QueryBuilderService {
           }
         }
 
-        // Auto-add all relations with only '_id' field (like SQL auto-join with id only)
-        if (baseMeta.relations) {
-          for (const rel of baseMeta.relations) {
-            if (!fieldsByRelation.has(rel.propertyName)) {
-              // Auto-add this relation with _id only
-              fieldsByRelation.set(rel.propertyName, ['_id']);
-            }
-          }
-        }
+        // MongoDB: Don't auto-add $lookup for relations with only _id
+        // Instead, keep the raw ObjectId and transform after query (more efficient)
+        // Relations will be transformed in transformMongoResults()
       } else {
         // Regular scalar field
         if (!scalarFields.includes(field)) {
