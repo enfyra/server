@@ -46,6 +46,68 @@ export class QueryBuilderService {
   }
 
   /**
+   * Transform MongoDB results: map documents only
+   */
+  private transformMongoResults(documents: any[]): any[] {
+    return documents.map(doc => this.mongoService['mapDocument'](doc));
+  }
+
+  /**
+   * Build nested $lookup pipeline recursively for MongoDB aggregation
+   */
+  private async buildNestedLookupPipeline(
+    tableName: string,
+    nestedFields: string[]
+  ): Promise<any[]> {
+    const nestedExpanded = await this.expandFieldsMongo(tableName, nestedFields);
+    const nestedPipeline: any[] = [];
+
+    // Recursive $lookup for each nested relation
+    for (const nestedRel of nestedExpanded.relations) {
+      const nestedNestedPipeline = nestedRel.nestedFields && nestedRel.nestedFields.length > 0
+        ? await this.buildNestedLookupPipeline(nestedRel.targetTable, nestedRel.nestedFields)
+        : [];
+
+      nestedPipeline.push({
+        $lookup: {
+          from: nestedRel.targetTable,
+          localField: nestedRel.localField,
+          foreignField: nestedRel.foreignField,
+          as: nestedRel.propertyName,
+          pipeline: nestedNestedPipeline.length > 0 ? nestedNestedPipeline : undefined
+        }
+      });
+
+      // Unwind if one-to-one/many-to-one
+      if (nestedRel.type === 'one') {
+        nestedPipeline.push({
+          $unwind: {
+            path: `$${nestedRel.propertyName}`,
+            preserveNullAndEmptyArrays: true
+          }
+        });
+      }
+    }
+
+    // $project stage for scalar fields
+    if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0) {
+      const projection: any = { _id: 1 };
+
+      for (const field of nestedExpanded.scalarFields) {
+        projection[field] = 1;
+      }
+
+      for (const nestedRel of nestedExpanded.relations) {
+        projection[nestedRel.localField] = 1;
+      }
+
+      nestedPipeline.push({ $project: projection });
+    }
+
+    return nestedPipeline;
+  }
+
+  /**
    * Convert unified WHERE conditions to Knex query
    */
   private applyWhereToKnex(query: any, conditions: WhereCondition[]): any {
@@ -669,7 +731,7 @@ export class QueryBuilderService {
       // Use custom pipeline if provided (e.g., from MongoQueryEngine)
       if (options.pipeline) {
         const results = await collection.aggregate(options.pipeline).toArray();
-        return results.map(doc => this.mongoService['mapDocument'](doc));
+        return this.transformMongoResults( results);
       }
 
       // MongoDB with expanded fields - build aggregation pipeline
@@ -691,28 +753,8 @@ export class QueryBuilderService {
           const needsNestedPipeline = rel.nestedFields && rel.nestedFields.length > 0;
 
           if (needsNestedPipeline) {
-            // Build nested aggregation pipeline recursively
-            const nestedExpanded = await this.expandFieldsMongo(rel.targetTable, rel.nestedFields);
-
-            const nestedPipeline: any[] = [];
-
-            // $project stage for nested relation - only include requested fields
-            if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0) {
-              const projection: any = { _id: 1 }; // Always include _id
-
-              // Add scalar fields
-              for (const field of nestedExpanded.scalarFields) {
-                projection[field] = 1;
-              }
-
-              // For nested relations, we need to do recursive $lookup
-              // But for now, just include the ObjectId fields
-              for (const nestedRel of nestedExpanded.relations) {
-                projection[nestedRel.localField] = 1; // Include the foreign key field
-              }
-
-              nestedPipeline.push({ $project: projection });
-            }
+            // Build nested aggregation pipeline recursively using helper
+            const nestedPipeline = await this.buildNestedLookupPipeline(rel.targetTable, rel.nestedFields);
 
             pipeline.push({
               $lookup: {
@@ -772,7 +814,7 @@ export class QueryBuilderService {
         this.pushDebug('mongoAggregationPipeline', pipeline);
 
         const results = await collection.aggregate(pipeline).toArray();
-        return results.map(doc => this.mongoService['mapDocument'](doc));
+        return this.transformMongoResults( results);
       }
 
       // Use aggregation pipeline if joins are present
@@ -854,7 +896,7 @@ export class QueryBuilderService {
         }
 
         const results = await collection.aggregate(pipeline).toArray();
-        return results.map(doc => this.mongoService['mapDocument'](doc));
+        return this.transformMongoResults( results);
       }
 
       // Simple query without joins
@@ -887,7 +929,7 @@ export class QueryBuilderService {
       }
 
       const results = await cursor.toArray();
-      return results.map(doc => this.mongoService['mapDocument'](doc));
+      return this.transformMongoResults( results);
     }
 
     // SQL (Knex)
@@ -949,7 +991,8 @@ export class QueryBuilderService {
       const filter = this.whereToMongoFilter(options.where);
       const collection = this.mongoService.collection(options.table);
       await collection.updateMany(filter, { $set: dataWithTimestamp });
-      return collection.find(filter).toArray();
+      const results = await collection.find(filter).toArray();
+      return this.transformMongoResults( results);
     }
     
     // SQL: Use KnexService.updateWithCascade for automatic relation handling
@@ -1094,7 +1137,7 @@ export class QueryBuilderService {
       
       const collection = this.mongoService.collection(table);
       const results = await collection.find(normalizedWhere).toArray();
-      return results.map(doc => this.mongoService['mapDocument'](doc));
+      return this.transformMongoResults( results);
     }
     
     const knex = this.knexService.getKnex();
@@ -1294,12 +1337,12 @@ export class QueryBuilderService {
           }
         }
 
-        // Auto-add all relations with only 'id' field (like SQL at expand-fields.ts:93-99)
+        // Auto-add all relations with only '_id' field (like SQL auto-join with id only)
         if (baseMeta.relations) {
           for (const rel of baseMeta.relations) {
             if (!fieldsByRelation.has(rel.propertyName)) {
-              // Auto-add this relation with id only
-              fieldsByRelation.set(rel.propertyName, ['id']);
+              // Auto-add this relation with _id only
+              fieldsByRelation.set(rel.propertyName, ['_id']);
             }
           }
         }
