@@ -1,14 +1,9 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { SqlQueryEngine } from './sql-query-engine.service';
 import { MongoQueryEngine } from './mongo-query-engine.service';
 
-/**
- * QueryEngine - Router for database-specific query engines
- * Routes to SqlQueryEngine or MongoQueryEngine based on DB_TYPE
- */
 @Injectable()
 export class QueryEngine {
-  private logger = new Logger(QueryEngine.name);
 
   constructor(
     @Inject(forwardRef(() => SqlQueryEngine))

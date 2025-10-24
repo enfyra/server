@@ -1,29 +1,13 @@
-// @nestjs packages
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-
-// Internal imports
+import { Injectable } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
-import { LoggingService } from '../../../core/exceptions/services/logging.service';
 
-/**
- * MongoQueryEngine - Delegates to QueryBuilderService for MongoDB queries
- * Maintains API compatibility with SqlQueryEngine
- */
+
 @Injectable()
 export class MongoQueryEngine {
   constructor(
     private queryBuilder: QueryBuilderService,
-    private metadataCacheService: MetadataCacheService,
-    private loggingService: LoggingService,
-    private configService: ConfigService,
   ) {}
 
-  /**
-   * Find records using QueryBuilderService
-   * Delegates all logic to QueryBuilderService.select() which has proper MongoDB support
-   */
   async find(options: {
     tableName: string;
     fields?: string | string[];
@@ -47,17 +31,10 @@ export class MongoQueryEngine {
       debugMode = false,
     } = options;
 
-    // Default to '*' if no fields specified
     const normalizedFields = fields || '*';
-
-    // Initialize debug log array
     const debugLog: any[] = [];
 
-    // Delegate to QueryBuilderService.mongoExecutor() which handles:
-    // - expandFieldsMongo() for proper field expansion
-    // - Aggregation pipeline building with $lookup
-    // - Nested relation population
-    const result = await this.queryBuilder.mongoExecutor({
+    const result = await this.queryBuilder.select({
       tableName,
       fields: normalizedFields,
       filter,
@@ -68,7 +45,6 @@ export class MongoQueryEngine {
       debugLog,
     });
 
-    // Attach debug log to result if debugMode is enabled
     if (debugMode) {
       return {
         ...result,
