@@ -1,10 +1,9 @@
-import { JoinOption, DatabaseType } from '../../../shared/types/query-builder.types';
+import { DatabaseType } from '../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
 import { buildNestedSubquery } from './nested-subquery-builder';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 
 interface FieldExpansionResult {
-  joins: JoinOption[];
   select: string[];
 }
 
@@ -40,7 +39,6 @@ export async function expandFieldsToJoinsAndSelect(
     return found;
   }
 
-  const joins: JoinOption[] = [];
   const select: string[] = [];
 
   // Get metadata for base table
@@ -163,5 +161,5 @@ export async function expandFieldsToJoinsAndSelect(
     }
   }
 
-  return { joins, select };
+  return { select };
 }

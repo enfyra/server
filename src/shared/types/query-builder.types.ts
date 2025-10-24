@@ -13,21 +13,11 @@ export interface SortOption {
   direction: 'asc' | 'desc';
 }
 
-export interface JoinOption {
-  table: string;
-  type: 'inner' | 'left' | 'right';
-  on: {
-    local: string;
-    foreign: string;
-  };
-}
-
 export interface QueryOptions {
   table: string;
   select?: string[]; // Raw column selection (old way)
   fields?: string[]; // Smart field selection with auto-relation expansion (new way)
   where?: WhereCondition[];
-  join?: JoinOption[];
   sort?: SortOption[];
   limit?: number;
   offset?: number;
@@ -44,6 +34,8 @@ export interface QueryOptions {
       nestedFields?: string[];
     }>;
   };
+  mongoRawFilter?: any; // Raw filter to be processed after $lookup
+  mongoCountOnly?: boolean; // Return count instead of data (for filterCount with relation filters)
 }
 
 export interface InsertOptions {

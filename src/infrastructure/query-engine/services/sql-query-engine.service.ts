@@ -1,7 +1,4 @@
-// @nestjs packages
 import { Injectable } from '@nestjs/common';
-
-// Internal imports
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -29,13 +26,10 @@ export class SqlQueryEngine {
     debugMode?: boolean;
   }): Promise<any> {
     try {
-      // Default fields to '*' if not provided (trigger auto-join)
       const fields = options.fields || '*';
-
-      // Initialize debug log array
       const debugLog: any[] = [];
 
-      const result = await this.queryBuilder.sqlExecutor({
+      const result = await this.queryBuilder.select({
         tableName: options.tableName,
         fields: fields,
         filter: options.filter,
@@ -47,7 +41,6 @@ export class SqlQueryEngine {
         debugLog: debugLog,
       });
 
-      // Attach debug log to result if debugMode is enabled
       if (options.debugMode) {
         return {
           ...result,
@@ -70,7 +63,6 @@ export class SqlQueryEngine {
         hasDeepRelations: options.deep && Object.keys(options.deep).length > 0,
       });
 
-      // Handle specific database errors
       if (
         error.message?.includes('relation') &&
         error.message?.includes('does not exist')
