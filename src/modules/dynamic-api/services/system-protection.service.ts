@@ -84,16 +84,19 @@ export class SystemProtectionService {
 
     // For simple reload, just get the record
     // Relations will be loaded on-demand if needed
-    const full = await this.queryBuilder.findOneWhere(tableName, { id: existing.id });
+    const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const existingId = existing._id || existing.id;
+    const full = await this.queryBuilder.findOneWhere(tableName, { [idField]: existingId });
 
     if (!full) throw new Error('Full system record not found');
-    
+
     // Load basic relations needed for validation
     if (tableName === 'table_definition') {
-      full.columns = await this.queryBuilder.findWhere('column_definition', { tableId: full.id });
-      full.relations = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: full.id });
+      const fullId = full._id || full.id;
+      full.columns = await this.queryBuilder.findWhere('column_definition', { tableId: fullId });
+      full.relations = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: fullId });
     }
-    
+
     return full;
   }
 
@@ -111,11 +114,14 @@ export class SystemProtectionService {
 
       if (!Array.isArray(oldItems) || !Array.isArray(newItems)) continue;
 
+      // Get ID from either _id (MongoDB) or id (SQL)
+      const getItemId = (item: any) => item?._id || item?.id;
+
       const oldSystemIds = oldItems
         .filter((i: any) => i?.isSystem)
-        .map((i) => i.id);
-      const newIds = newItems.filter((i: any) => i?.id).map((i) => i.id);
-      const newCreated = newItems.filter((i: any) => !i?.id);
+        .map((i) => getItemId(i));
+      const newIds = newItems.filter((i: any) => getItemId(i)).map((i) => getItemId(i));
+      const newCreated = newItems.filter((i: any) => !getItemId(i));
 
       for (const id of oldSystemIds) {
         if (!newIds.includes(id)) {
@@ -187,10 +193,11 @@ export class SystemProtectionService {
       }
 
       if ('handlers' in data) {
+        const getItemId = (item: any) => item?._id || item?.id;
         const oldIds = (fullExisting.handlers || [])
-          .map((h: any) => h.id)
+          .map((h: any) => getItemId(h))
           .sort();
-        const newIds = (data.handlers || []).map((h: any) => h.id).sort();
+        const newIds = (data.handlers || []).map((h: any) => getItemId(h)).sort();
         const isSame =
           oldIds.length === newIds.length &&
           oldIds.every((id, i) => id === newIds[i]);
@@ -211,18 +218,22 @@ export class SystemProtectionService {
             `Cannot modify system hook (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
           );
 
+        const getItemId = (item: any) => item?._id || item?.id;
+        const dataRouteId = getItemId(data.route);
+        const existingRouteId = getItemId(fullExisting.route);
+
         if (
-          data.route?.id &&
-          fullExisting.route?.id &&
-          data.route.id !== fullExisting.route.id
+          dataRouteId &&
+          existingRouteId &&
+          dataRouteId !== existingRouteId
         ) {
           throw new Error(`Cannot change 'route' of system hook`);
         }
 
         const oldIds = (fullExisting.methods || [])
-          .map((m: any) => m.id)
+          .map((m: any) => getItemId(m))
           .sort();
-        const newIds = (data.methods || []).map((m: any) => m.id).sort();
+        const newIds = (data.methods || []).map((m: any) => getItemId(m)).sort();
         if (!isEqual(oldIds, newIds))
           throw new Error(`Cannot change 'methods' of system hook`);
       }
@@ -243,7 +254,8 @@ export class SystemProtectionService {
           throw new Error('Cannot modify isRootAdmin');
         }
 
-        const isSelf = currentUser?.id === fullExisting?.id;
+        const getItemId = (item: any) => item?._id || item?.id;
+        const isSelf = getItemId(currentUser) === getItemId(fullExisting);
 
         // Only Root Admin can modify themselves
         if (isRoot && !isSelf)
@@ -268,13 +280,14 @@ export class SystemProtectionService {
             `Cannot modify system table (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
           );
 
+        const getItemId = (item: any) => item?._id || item?.id;
         const oldCols = fullExisting.columns || [];
         const newCols = data?.columns || [];
         const oldRels = fullExisting.relations || [];
         const newRels = data?.relations || [];
 
         const removedCols = oldCols.filter(
-          (col) => !newCols.some((c) => c.id === col.id),
+          (col) => !newCols.some((c) => getItemId(c) === getItemId(col)),
         );
         for (const col of removedCols) {
           if (col.isSystem)
@@ -282,7 +295,7 @@ export class SystemProtectionService {
         }
 
         const removedRels = oldRels.filter(
-          (rel) => !newRels.some((r) => r.id === rel.id),
+          (rel) => !newRels.some((r) => getItemId(r) === getItemId(rel)),
         );
         for (const rel of removedRels) {
           if (rel.isSystem)
@@ -292,29 +305,29 @@ export class SystemProtectionService {
         }
 
         for (const oldCol of oldCols.filter((c) => c.isSystem)) {
-          const updated = newCols.find((c) => c.id === oldCol.id);
+          const updated = newCols.find((c) => getItemId(c) === getItemId(oldCol));
           if (!updated || typeof updated !== 'object') continue;
-          
+
           // Only check fields that actually changed, with special handling for reference fields
           const changedFields = Object.keys(updated).filter((key) => {
             // Special handling for table reference - compare by ID only
             if (key === 'table') {
-              const updatedTableId = updated[key]?.id;
-              const oldTableId = oldCol[key]?.id;
-              
+              const updatedTableId = getItemId(updated[key]);
+              const oldTableId = getItemId(oldCol[key]);
+
               // If old table is undefined, infer from parent context
               // Column belongs to the table being updated, so table ID should match
-              const inferredOldTableId = oldTableId || fullExisting.id;
-              
+              const inferredOldTableId = oldTableId || getItemId(fullExisting);
+
               return updatedTableId !== inferredOldTableId;
             }
             return !isEqual(updated[key], oldCol[key]);
           });
-          
-          
+
+
           const allowed = this.getAllowedFields(['description']);
           const disallowedChanges = changedFields.filter((k) => !allowed.includes(k));
-          
+
           if (disallowedChanges.length > 0)
             throw new Error(
               `Cannot modify system column '${oldCol.name}' (only allowed: ${allowed.join(', ')}): ${disallowedChanges.join(', ')}`,
@@ -322,36 +335,36 @@ export class SystemProtectionService {
         }
 
         for (const oldRel of oldRels.filter((r) => r.isSystem)) {
-          const updated = newRels.find((r) => r.id === oldRel.id);
+          const updated = newRels.find((r) => getItemId(r) === getItemId(oldRel));
           if (!updated || typeof updated !== 'object') continue;
-          
-          // Only check fields that actually changed, with special handling for reference fields  
+
+          // Only check fields that actually changed, with special handling for reference fields
           const changedFields = Object.keys(updated).filter((key) => {
             // Special handling for table references - compare by ID only
             if (key === 'sourceTable' || key === 'targetTable') {
-              const updatedTableId = updated[key]?.id;
-              const oldTableId = oldRel[key]?.id;
-              
+              const updatedTableId = getItemId(updated[key]);
+              const oldTableId = getItemId(oldRel[key]);
+
               // If old is undefined, the relation reference hasn't changed if IDs match
               // This handles the case where TypeORM doesn't always populate nested relations
               if (!oldTableId && updatedTableId) {
                 // For sourceTable, it should match the parent table being updated
                 if (key === 'sourceTable') {
-                  return updatedTableId !== fullExisting.id;
+                  return updatedTableId !== getItemId(fullExisting);
                 }
                 // For targetTable, we can't infer - assume no change if old was undefined
                 return false;
               }
-              
+
               return updatedTableId !== oldTableId;
             }
             return !isEqual(updated[key], oldRel[key]);
           });
-          
-          
+
+
           const allowed = this.getAllowedFields(['description']);
           const disallowedChanges = changedFields.filter((k) => !allowed.includes(k));
-          
+
           if (disallowedChanges.length > 0)
             throw new Error(
               `Cannot modify system relation '${oldRel.propertyName}' (only allowed: ${allowed.join(', ')}): ${disallowedChanges.join(', ')}`,
