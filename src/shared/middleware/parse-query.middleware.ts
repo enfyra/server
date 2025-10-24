@@ -53,11 +53,38 @@ export class ParseQueryMiddleware implements NestMiddleware {
       }
     }
 
+    const convertedQuery = this.convertNumericKeysToArrays(newQuery);
+
     Object.defineProperty(req, 'query', {
-      value: newQuery,
+      value: convertedQuery,
       writable: true,
       configurable: true,
     });
     next();
+  }
+
+  private convertNumericKeysToArrays(obj: any): any {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+      return obj;
+    }
+
+    const keys = Object.keys(obj);
+    const allNumeric = keys.length > 0 && keys.every(k => /^\d+$/.test(k));
+
+    if (allNumeric) {
+      const arr: any[] = [];
+      for (const key of keys) {
+        arr[parseInt(key, 10)] = this.convertNumericKeysToArrays(obj[key]);
+      }
+      return arr;
+    }
+
+    const result: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        result[key] = this.convertNumericKeysToArrays(obj[key]);
+      }
+    }
+    return result;
   }
 }

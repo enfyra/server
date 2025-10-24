@@ -65,14 +65,22 @@ function applyFieldCondition(
       query.where(fullField, '<=', value);
       break;
     case '_in':
-      if (Array.isArray(value)) {
-        query.whereIn(fullField, value);
+      let inValues = value;
+      if (!Array.isArray(inValues)) {
+        inValues = typeof inValues === 'string' && inValues.includes(',')
+          ? inValues.split(',').map(v => v.trim())
+          : [inValues];
       }
+      query.whereIn(fullField, inValues);
       break;
     case '_not_in':
-      if (Array.isArray(value)) {
-        query.whereNotIn(fullField, value);
+      let notInValues = value;
+      if (!Array.isArray(notInValues)) {
+        notInValues = typeof notInValues === 'string' && notInValues.includes(',')
+          ? notInValues.split(',').map(v => v.trim())
+          : [notInValues];
       }
+      query.whereNotIn(fullField, notInValues);
       break;
     case '_contains':
       if (dbType === 'postgres') {
