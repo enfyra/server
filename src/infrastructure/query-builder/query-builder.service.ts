@@ -106,25 +106,6 @@ export class QueryBuilderService {
     }
   }
 
-  async sqlExecutor(options: {
-    tableName: string;
-    fields?: string | string[];
-    filter?: any;
-    sort?: string | string[];
-    page?: number;
-    limit?: number;
-    meta?: string;
-    deep?: Record<string, any>;
-    debugLog?: any[];
-  }): Promise<any> {
-    const executor = new SqlQueryExecutor(
-      this.knexService.getKnex(),
-      this.dbType as 'postgres' | 'mysql' | 'sqlite',
-      this.metadataCache,
-    );
-    return executor.execute(options);
-  }
-
   async select(options: {
     tableName: string;
     fields?: string | string[];
@@ -136,14 +117,20 @@ export class QueryBuilderService {
     deep?: Record<string, any>;
     debugMode?: boolean;
     debugLog?: any[];
-    pipeline?: any[]; // MongoDB aggregation pipeline (MongoDB only)
+    pipeline?: any[];
   }): Promise<any> {
-    if (this.dbType !== 'mongodb') {
-      return this.sqlExecutor(options);
+    const metadata = this.metadataCache.getDirectMetadata();
+
+    if (this.dbType === 'mongodb') {
+      const executor = new MongoQueryExecutor(this.mongoService);
+      return executor.execute({ ...options, metadata });
     }
 
-    const executor = new MongoQueryExecutor(this.mongoService, this.metadataCache);
-    return executor.execute(options);
+    const executor = new SqlQueryExecutor(
+      this.knexService.getKnex(),
+      this.dbType as 'postgres' | 'mysql' | 'sqlite',
+    );
+    return executor.execute({ ...options, metadata });
   }
 
 

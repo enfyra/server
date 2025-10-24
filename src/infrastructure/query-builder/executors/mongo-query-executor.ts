@@ -8,11 +8,9 @@ import { hasLogicalOperators } from '../utils/build-where-clause';
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
   private readonly db: Db;
+  private metadata: any;
 
-  constructor(
-    private readonly mongoService: any,
-    private readonly metadataCache: any,
-  ) {
+  constructor(private readonly mongoService: any) {
     this.db = mongoService.getDb();
   }
 
@@ -27,7 +25,9 @@ export class MongoQueryExecutor {
     deep?: Record<string, any>;
     debugLog?: any[];
     pipeline?: any[];
+    metadata?: any;
   }): Promise<any> {
+    this.metadata = options.metadata;
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
 
@@ -393,7 +393,7 @@ export class MongoQueryExecutor {
     scalarFields: string[],
     relations: any[]
   ): Promise<void> {
-    const baseMeta = await this.metadataCache.lookupTableByName(options.table);
+    const baseMeta = this.metadata?.tables?.get(options.table);
     const allRelations = baseMeta?.relations || [];
     const allColumns = baseMeta?.columns || [];
 
@@ -721,7 +721,7 @@ export class MongoQueryExecutor {
       }
     }
 
-    const baseMeta = await this.metadataCache.lookupTableByName(tableName);
+    const baseMeta = this.metadata?.tables?.get(tableName);
     const allRelations = baseMeta?.relations || [];
 
     const additionalRelations: any[] = [];
@@ -865,11 +865,11 @@ export class MongoQueryExecutor {
       nestedFields: string[]; // Fields to include from related table (can be nested like 'methods.*')
     }>;
   }> {
-    if (!this.metadataCache) {
+    if (!this.metadata) {
       return { scalarFields: [], relations: [] };
     }
 
-    const baseMeta = await this.metadataCache.getTableMetadata(tableName);
+    const baseMeta = this.metadata.tables?.get(tableName);
     if (!baseMeta) {
       return { scalarFields: [], relations: [] };
     }

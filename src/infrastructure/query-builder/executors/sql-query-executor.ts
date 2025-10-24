@@ -9,11 +9,11 @@ import { separateFilters, applyRelationFilters } from '../utils/relation-filter.
 
 export class SqlQueryExecutor {
   private debugLog: any[] = [];
+  private metadata: any;
 
   constructor(
     private readonly knex: Knex,
     private readonly dbType: 'postgres' | 'mysql' | 'sqlite',
-    private readonly metadataCache: any,
   ) {}
 
   async execute(options: {
@@ -26,7 +26,9 @@ export class SqlQueryExecutor {
     meta?: string;
     deep?: Record<string, any>;
     debugLog?: any[];
+    metadata?: any;
   }): Promise<any> {
+    this.metadata = options.metadata;
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
 
@@ -157,7 +159,7 @@ export class SqlQueryExecutor {
 
     if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
       if (!isSystemTable) {
-        const metadata = await this.metadataCache.getTableMetadata(queryOptions.table);
+        const metadata = this.metadata?.tables?.get(queryOptions.table);
 
         if (metadata && metadata.relations && metadata.relations.length > 0) {
           const { hasRelations } = separateFilters(originalFilter, metadata);
@@ -166,11 +168,11 @@ export class SqlQueryExecutor {
             await applyRelationFilters(
               this.knex,
               query,
-              originalFilter,  // Pass the full filter
+              originalFilter,
               queryOptions.table,
               metadata,
               this.dbType,
-              (tableName: string) => this.metadataCache.getTableMetadata(tableName),
+              (tableName: string) => this.metadata?.tables?.get(tableName),
             );
           } else {
             query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
@@ -295,11 +297,11 @@ export class SqlQueryExecutor {
     fields: string[],
     sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = []
   ): Promise<string[]> {
-    if (!this.metadataCache) {
+    if (!this.metadata) {
       return fields;
     }
 
-    const allMetadata = await this.metadataCache.getMetadata();
+    const allMetadata = this.metadata;
 
     const metadataGetter = async (tName: string) => {
       try {
