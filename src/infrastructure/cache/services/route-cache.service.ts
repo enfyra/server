@@ -195,14 +195,20 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     const globalHooksResult = await this.queryBuilder.select({
       tableName: 'hook_definition',
       filter: {
-        isEnabled: { _eq: true },
-        [routeFieldName]: { _is_null: true }
+        _and: [
+          {
+            isEnabled: { _eq: true },
+          },
+          {
+            [routeFieldName]: { _is_null: true }
+          }
+        ],
       },
       fields: ['*', 'methods.*'],
       sort: ['priority'],
     });
     const globalHooks = globalHooksResult.data;
-
+    console.log(globalHooks)
     for (const route of routes) {
       const allHooks = [...globalHooks, ...(route.hooks || [])];
 

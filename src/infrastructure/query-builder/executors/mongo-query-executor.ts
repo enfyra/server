@@ -47,43 +47,47 @@ export class MongoQueryExecutor {
       }
     }
 
-    if (options.filter && !hasLogicalOperators(options.filter)) {
-      queryOptions.where = [];
-
+    if (options.filter) {
       queryOptions.mongoRawFilter = options.filter;
 
-      for (const [field, value] of Object.entries(options.filter)) {
-        if (typeof value === 'object' && value !== null) {
-          const firstKey = Object.keys(value)[0];
-          const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+      if (!hasLogicalOperators(options.filter)) {
+        queryOptions.where = [];
 
-          if (!isOperator) {
-            continue;
+        for (const [field, value] of Object.entries(options.filter)) {
+          if (typeof value === 'object' && value !== null) {
+            const firstKey = Object.keys(value)[0];
+            const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+
+            if (!isOperator) {
+              continue;
+            }
+
+            for (const [op, val] of Object.entries(value)) {
+              let operator: string;
+              if (op === '_eq') operator = '=';
+              else if (op === '_neq') operator = '!=';
+              else if (op === '_in') operator = 'in';
+              else if (op === '_not_in') operator = 'not in';
+              else if (op === '_gt') operator = '>';
+              else if (op === '_gte') operator = '>=';
+              else if (op === '_lt') operator = '<';
+              else if (op === '_lte') operator = '<=';
+              else if (op === '_contains') operator = '_contains';
+              else if (op === '_starts_with') operator = '_starts_with';
+              else if (op === '_ends_with') operator = '_ends_with';
+              else if (op === '_between') operator = '_between';
+              else if (op === '_is_null') operator = '_is_null';
+              else if (op === '_is_not_null') operator = '_is_not_null';
+              else operator = op.replace('_', ' ');
+
+              queryOptions.where.push({ field, operator, value: val } as WhereCondition);
+            }
+          } else {
+            queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
           }
-
-          for (const [op, val] of Object.entries(value)) {
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = '_contains';
-            else if (op === '_starts_with') operator = '_starts_with';
-            else if (op === '_ends_with') operator = '_ends_with';
-            else if (op === '_between') operator = '_between';
-            else if (op === '_is_null') operator = '_is_null';
-            else if (op === '_is_not_null') operator = '_is_not_null';
-            else operator = op.replace('_', ' ');
-
-            queryOptions.where.push({ field, operator, value: val } as WhereCondition);
-          }
-        } else {
-          queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
         }
+      } else {
+        queryOptions.mongoLogicalFilter = this.convertLogicalFilterToMongo(options.filter);
       }
     }
 
@@ -226,6 +230,8 @@ export class MongoQueryExecutor {
     if (options.where) {
       const filter = this.whereToMongoFilter(options.where);
       pipeline.push({ $match: filter });
+    } else if (options.mongoLogicalFilter) {
+      pipeline.push({ $match: options.mongoLogicalFilter });
     }
 
     for (const rel of relations) {
@@ -397,7 +403,11 @@ export class MongoQueryExecutor {
   }
 
   private async executeSimpleQuery(collection: Collection, options: QueryOptions): Promise<any[]> {
-    const filter = options.where ? this.whereToMongoFilter(options.where) : {};
+    const filter = options.where
+      ? this.whereToMongoFilter(options.where)
+      : options.mongoLogicalFilter
+      ? options.mongoLogicalFilter
+      : {};
     let cursor = collection.find(filter);
 
     const debugInfo: any = {
@@ -523,15 +533,71 @@ export class MongoQueryExecutor {
           }
           break;
         case '_is_null':
-          filter[fieldName] = value === true ? null : { $ne: null };
+          const isNullBool = value === true || value === 'true';
+          filter[fieldName] = isNullBool ? { $eq: null } : { $ne: null };
           break;
         case '_is_not_null':
-          filter[fieldName] = value === true ? { $ne: null } : null;
+          const isNotNullBool = value === true || value === 'true';
+          filter[fieldName] = isNotNullBool ? { $ne: null } : { $eq: null };
           break;
       }
     }
 
     return filter;
+  }
+
+  private convertLogicalFilterToMongo(filter: any): any {
+    if (!filter || typeof filter !== 'object') {
+      return {};
+    }
+
+    if (filter._and) {
+      const conditions = Array.isArray(filter._and)
+        ? filter._and
+        : Object.values(filter._and);
+      return {
+        $and: conditions.map((condition: any) => this.convertLogicalFilterToMongo(condition))
+      };
+    }
+
+    if (filter._or) {
+      const conditions = Array.isArray(filter._or)
+        ? filter._or
+        : Object.values(filter._or);
+      return {
+        $or: conditions.map((condition: any) => this.convertLogicalFilterToMongo(condition))
+      };
+    }
+
+    if (filter._not) {
+      return {
+        $nor: [this.convertLogicalFilterToMongo(filter._not)]
+      };
+    }
+
+    const mongoFilter: any = {};
+    for (const [field, value] of Object.entries(filter)) {
+      if (field === '_and' || field === '_or' || field === '_not') {
+        continue;
+      }
+
+      if (typeof value === 'object' && value !== null) {
+        const firstKey = Object.keys(value)[0];
+        const isOperator = firstKey?.startsWith('_');
+
+        if (isOperator) {
+          for (const [op, val] of Object.entries(value)) {
+            this.applyOperatorToMatch(mongoFilter, field, op, val);
+          }
+        } else {
+          mongoFilter[field] = value;
+        }
+      } else {
+        mongoFilter[field] = value;
+      }
+    }
+
+    return mongoFilter;
   }
 
   private applyOperatorToMatch(matchCondition: any, field: string, op: string, val: any): void {
@@ -542,8 +608,12 @@ export class MongoQueryExecutor {
       try {
         value = new ObjectId(value);
       } catch (err) {
-        // Keep as string if conversion fails
       }
+    }
+
+    if (typeof value === 'string') {
+      if (value === 'true') value = true;
+      else if (value === 'false') value = false;
     }
 
     switch (op) {
@@ -590,10 +660,12 @@ export class MongoQueryExecutor {
         matchCondition[field] = { $lte: value };
         break;
       case '_is_null':
-        matchCondition[field] = val === true ? null : { $ne: null };
+        const isNullMatch = val === true || val === 'true';
+        matchCondition[field] = isNullMatch ? { $eq: null } : { $ne: null };
         break;
       case '_is_not_null':
-        matchCondition[field] = val === true ? { $ne: null } : null;
+        const isNotNullMatch = val === true || val === 'true';
+        matchCondition[field] = isNotNullMatch ? { $ne: null } : { $eq: null };
         break;
       case '_between':
         if (Array.isArray(val) && val.length === 2) {
