@@ -225,7 +225,7 @@ export class QueryBuilderService {
         try {
           value = new ObjectId(value);
         } catch (err) {
-          console.error('[whereToMongoFilter] Failed to convert to ObjectId:', err.message);
+          // Silently fail - keep original value
         }
       }
 
@@ -249,7 +249,8 @@ export class QueryBuilderService {
           filter[fieldName] = { $lte: value };
           break;
         case 'like':
-          filter[fieldName] = { $regex: value.replace(/%/g, '.*') };
+          // Case-insensitive regex matching SQL LIKE behavior
+          filter[fieldName] = { $regex: value.replace(/%/g, '.*'), $options: 'i' };
           break;
         case 'in':
           // Convert array elements to ObjectId if field is _id
@@ -270,6 +271,39 @@ export class QueryBuilderService {
           break;
         case 'is not null':
           filter[fieldName] = { $ne: null };
+          break;
+        // String operators (matching SQL behavior with case-insensitive)
+        case '_contains':
+          // Escape regex special characters except the value itself
+          const escapedContains = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          filter[fieldName] = { $regex: escapedContains, $options: 'i' };
+          break;
+        case '_starts_with':
+          const escapedStarts = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          filter[fieldName] = { $regex: `^${escapedStarts}`, $options: 'i' };
+          break;
+        case '_ends_with':
+          const escapedEnds = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          filter[fieldName] = { $regex: `${escapedEnds}$`, $options: 'i' };
+          break;
+        case '_between':
+          if (Array.isArray(value) && value.length === 2) {
+            filter[fieldName] = { $gte: value[0], $lte: value[1] };
+          }
+          break;
+        case '_is_null':
+          if (value === true) {
+            filter[fieldName] = null;
+          } else {
+            filter[fieldName] = { $ne: null };
+          }
+          break;
+        case '_is_not_null':
+          if (value === true) {
+            filter[fieldName] = { $ne: null };
+          } else {
+            filter[fieldName] = null;
+          }
           break;
       }
     }
@@ -374,8 +408,12 @@ export class QueryBuilderService {
             else if (op === '_gte') operator = '>=';
             else if (op === '_lt') operator = '<';
             else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = 'like';
-            else if (op === '_is_null') operator = 'is null';
+            else if (op === '_contains') operator = '_contains';
+            else if (op === '_starts_with') operator = '_starts_with';
+            else if (op === '_ends_with') operator = '_ends_with';
+            else if (op === '_between') operator = '_between';
+            else if (op === '_is_null') operator = '_is_null';
+            else if (op === '_is_not_null') operator = '_is_not_null';
             else operator = op.replace('_', ' ');
 
             queryOptions.where.push({ field, operator, value: val } as WhereCondition);
@@ -492,13 +530,6 @@ export class QueryBuilderService {
           const { hasRelations } = separateFilters(originalFilter, metadata);
 
           if (hasRelations) {
-            this.pushDebug('table_metadata', {
-              tableName: queryOptions.table,
-              relations: metadata.relations,
-            });
-            this.pushDebug('original_filter', originalFilter);
-
-            // Use applyRelationFilters which handles both field and relation filters with logical operators
             await applyRelationFilters(
               knex,
               query,
@@ -553,11 +584,6 @@ export class QueryBuilderService {
     // limit=0 means no limit (fetch all), undefined/null means use default
     if (queryOptions.limit !== undefined && queryOptions.limit !== null && queryOptions.limit > 0) {
       query = query.limit(queryOptions.limit);
-    }
-
-    // Add SQL to debug log if available
-    if (this.debugLog && this.debugLog.length >= 0) {
-      this.pushDebug('sql', query.toString());
     }
 
     // Execute totalCount query separately if needed
@@ -673,8 +699,12 @@ export class QueryBuilderService {
             else if (op === '_gte') operator = '>=';
             else if (op === '_lt') operator = '<';
             else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = 'like';
-            else if (op === '_is_null') operator = 'is null';
+            else if (op === '_contains') operator = '_contains';
+            else if (op === '_starts_with') operator = '_starts_with';
+            else if (op === '_ends_with') operator = '_ends_with';
+            else if (op === '_between') operator = '_between';
+            else if (op === '_is_null') operator = '_is_null';
+            else if (op === '_is_not_null') operator = '_is_not_null';
             else operator = op.replace('_', ' ');
 
             queryOptions.where.push({ field, operator, value: val } as WhereCondition);
@@ -753,7 +783,6 @@ export class QueryBuilderService {
    * @private
    */
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
-    // Auto-expand `fields` - use different logic for SQL vs MongoDB
     if (options.fields && options.fields.length > 0) {
       if (this.dbType === 'mongodb') {
         // MongoDB: Use expandFieldsMongo
@@ -946,9 +975,6 @@ export class QueryBuilderService {
         if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
           pipeline.push({ $limit: options.limit });
         }
-
-        // Add pipeline to debug log
-        this.pushDebug('mongoAggregationPipeline', pipeline);
 
         const results = await collection.aggregate(pipeline).toArray();
         return this.transformMongoResults( results);
@@ -1511,11 +1537,10 @@ export class QueryBuilderService {
 
     // Process relation fields
     for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
-      if (relationName === '') continue; // Skip root, already processed
+      if (relationName === '') continue;
 
       const rel = baseMeta.relations?.find(r => r.propertyName === relationName);
       if (!rel) {
-        console.warn(`[expandFieldsMongo] Relation ${relationName} not found in ${tableName}`);
         continue;
       }
 
@@ -1602,7 +1627,6 @@ export class QueryBuilderService {
           relations: tableMeta.relations || [],
         };
       } catch (error) {
-        console.warn(`[EXPAND-FIELDS] Failed to get metadata for table ${tName}:`, error.message);
         return null;
       }
     };
@@ -1611,8 +1635,6 @@ export class QueryBuilderService {
       const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
       return result;
     } catch (error) {
-      console.error(`[EXPAND-FIELDS] Field expansion failed: ${error.message}`);
-      // Fall back to simple field expansion
       return { joins: [], select: fields };
     }
   }
