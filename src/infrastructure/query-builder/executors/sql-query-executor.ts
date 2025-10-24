@@ -184,7 +184,7 @@ export class SqlQueryExecutor {
         query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
       }
     } else if (queryOptions.where && queryOptions.where.length > 0) {
-      query = this.applyWhereToKnex(query, queryOptions.where);
+      query = this.applyWhereToKnex(query, queryOptions.where, queryOptions.table);
     }
 
     if (queryOptions.sort) {
@@ -251,41 +251,130 @@ export class SqlQueryExecutor {
     };
   }
 
-  private applyWhereToKnex(query: any, conditions: WhereCondition[]): any {
+  private convertValueByType(tableName: string, field: string, value: any): any {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    const tableMeta = this.metadata?.tables?.get(tableName);
+    if (!tableMeta?.columns) {
+      return value;
+    }
+
+    const column = tableMeta.columns.find(col => col.name === field);
+    if (!column) {
+      return value;
+    }
+
+    switch (column.type) {
+      case 'int':
+      case 'integer':
+      case 'bigint':
+      case 'smallint':
+      case 'tinyint':
+        return typeof value === 'string' ? parseInt(value, 10) : Number(value);
+
+      case 'float':
+      case 'double':
+      case 'decimal':
+      case 'numeric':
+      case 'real':
+        return typeof value === 'string' ? parseFloat(value) : Number(value);
+
+      case 'boolean':
+      case 'bool':
+        if (typeof value === 'string') {
+          return value === 'true' || value === '1';
+        }
+        return Boolean(value);
+
+      case 'date':
+      case 'datetime':
+      case 'timestamp':
+        if (typeof value === 'string') {
+          return new Date(value);
+        }
+        return value;
+
+      default:
+        return value;
+    }
+  }
+
+  private applyWhereToKnex(query: any, conditions: WhereCondition[], tableName?: string): any {
     for (const condition of conditions) {
+      const fieldParts = condition.field.split('.');
+      const tableForConversion = tableName || fieldParts[0];
+      const columnName = fieldParts[fieldParts.length - 1];
+      const convertedValue = this.convertValueByType(tableForConversion, columnName, condition.value);
+
       switch (condition.operator) {
         case '=':
-          query = query.where(condition.field, '=', condition.value);
+          query = query.where(condition.field, '=', convertedValue);
           break;
         case '!=':
-          query = query.where(condition.field, '!=', condition.value);
+          query = query.where(condition.field, '!=', convertedValue);
           break;
         case '>':
-          query = query.where(condition.field, '>', condition.value);
+          query = query.where(condition.field, '>', convertedValue);
           break;
         case '<':
-          query = query.where(condition.field, '<', condition.value);
+          query = query.where(condition.field, '<', convertedValue);
           break;
         case '>=':
-          query = query.where(condition.field, '>=', condition.value);
+          query = query.where(condition.field, '>=', convertedValue);
           break;
         case '<=':
-          query = query.where(condition.field, '<=', condition.value);
+          query = query.where(condition.field, '<=', convertedValue);
           break;
         case 'like':
-          query = query.where(condition.field, 'like', condition.value);
+          query = query.where(condition.field, 'like', convertedValue);
           break;
         case 'in':
-          query = query.whereIn(condition.field, condition.value);
+          const inValues = Array.isArray(condition.value)
+            ? condition.value.map(v => this.convertValueByType(tableForConversion, columnName, v))
+            : [convertedValue];
+          query = query.whereIn(condition.field, inValues);
           break;
         case 'not in':
-          query = query.whereNotIn(condition.field, condition.value);
+          const ninValues = Array.isArray(condition.value)
+            ? condition.value.map(v => this.convertValueByType(tableForConversion, columnName, v))
+            : [convertedValue];
+          query = query.whereNotIn(condition.field, ninValues);
           break;
         case 'is null':
           query = query.whereNull(condition.field);
           break;
         case 'is not null':
           query = query.whereNotNull(condition.field);
+          break;
+        case '_contains':
+          query = query.where(condition.field, 'like', `%${condition.value}%`);
+          break;
+        case '_starts_with':
+          query = query.where(condition.field, 'like', `${condition.value}%`);
+          break;
+        case '_ends_with':
+          query = query.where(condition.field, 'like', `%${condition.value}`);
+          break;
+        case '_between':
+          let betweenValues = condition.value;
+          if (typeof betweenValues === 'string') {
+            betweenValues = betweenValues.split(',').map(v => v.trim());
+          }
+          if (Array.isArray(betweenValues) && betweenValues.length === 2) {
+            const val0 = this.convertValueByType(tableForConversion, columnName, betweenValues[0]);
+            const val1 = this.convertValueByType(tableForConversion, columnName, betweenValues[1]);
+            query = query.whereBetween(condition.field, [val0, val1]);
+          }
+          break;
+        case '_is_null':
+          const isNullBool = convertedValue === true || convertedValue === 'true';
+          query = isNullBool ? query.whereNull(condition.field) : query.whereNotNull(condition.field);
+          break;
+        case '_is_not_null':
+          const isNotNullBool = convertedValue === true || convertedValue === 'true';
+          query = isNotNullBool ? query.whereNotNull(condition.field) : query.whereNull(condition.field);
           break;
       }
     }
