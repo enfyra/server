@@ -525,8 +525,25 @@ export class MongoTableHandlerService {
           body.relations,
         );
 
-        // Delete removed relations
+        // Delete removed relations and cleanup data
         for (const relId of deletedRelationIds) {
+          const deletedRelation = existingRelations.find((r: any) => r._id?.toString() === relId.toString());
+
+          if (deletedRelation) {
+            // Owner side relations store data - need to cleanup
+            if (deletedRelation.type === 'many-to-one' ||
+                deletedRelation.type === 'one-to-one' ||
+                (deletedRelation.type === 'many-to-many' && !deletedRelation.mappedBy)) {
+
+              const fieldName = deletedRelation.propertyName;
+              await this.mongoService.getDb().collection(exists.name).updateMany(
+                {},
+                { $unset: { [fieldName]: "" } }
+              );
+              this.logger.log(`  Cleaned up relation field '${fieldName}' from all records in ${exists.name}`);
+            }
+          }
+
           await this.queryBuilder.deleteById('relation_definition', relId);
         }
 
@@ -728,9 +745,9 @@ export class MongoTableHandlerService {
       }
     }
 
-    // Load relations
+    // Load relations (MongoDB uses 'sourceTable' field, not 'sourceTableId')
     table.relations = await this.queryBuilder.findWhere('relation_definition', {
-      sourceTableId: queryId,
+      sourceTable: queryId,
     });
 
     return table;

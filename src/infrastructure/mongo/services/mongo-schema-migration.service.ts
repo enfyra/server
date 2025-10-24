@@ -120,7 +120,8 @@ export class MongoSchemaMigrationService {
         collectionName,
         tableMetadata.columns || [],
         tableMetadata.uniques || [],
-        tableMetadata.indexes || []
+        tableMetadata.indexes || [],
+        tableMetadata.relations || []
       );
 
       this.logger.log(`Collection creation complete: ${collectionName}`);
@@ -169,7 +170,8 @@ export class MongoSchemaMigrationService {
         collectionName,
         newMetadata.columns || [],
         newMetadata.uniques || [],
-        newMetadata.indexes || []
+        newMetadata.indexes || [],
+        newMetadata.relations || []
       );
 
       this.logger.log(`Collection update complete: ${collectionName}`);
@@ -211,7 +213,8 @@ export class MongoSchemaMigrationService {
     collectionName: string,
     columns: any[],
     uniques: any[] = [],
-    indexes: any[] = []
+    indexes: any[] = [],
+    relations: any[] = []
   ): Promise<void> {
     const db = this.mongoService.getDb();
     const collection = db.collection(collectionName);
@@ -219,11 +222,10 @@ export class MongoSchemaMigrationService {
     try {
       // Create unique indexes from column definitions
       for (const col of columns) {
-        // Skip _id - MongoDB creates unique index automatically
         if (col.name === '_id') {
           continue;
         }
-        
+
         if (col.isPrimary || col.name === 'id') {
           await collection.createIndex(
             { [col.name]: 1 },
@@ -260,6 +262,29 @@ export class MongoSchemaMigrationService {
           name: `${collectionName}_${index.join('_')}_idx`,
         });
         this.logger.log(`Created index on ${collectionName}: ${index.join(', ')}`);
+      }
+
+      // Create indexes for relation fields (owner side only)
+      for (const relation of relations) {
+        // Owner M2O/O2O relations store ObjectId
+        if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+          const fieldName = relation.propertyName;
+          await collection.createIndex(
+            { [fieldName]: 1 },
+            { name: `${collectionName}_${fieldName}_fk_idx` }
+          );
+          this.logger.log(`Created FK index on ${collectionName}.${fieldName}`);
+        }
+
+        // Owner M2M relations (without mappedBy) store array of ObjectIds
+        if (relation.type === 'many-to-many' && !relation.mappedBy) {
+          const fieldName = relation.propertyName;
+          await collection.createIndex(
+            { [fieldName]: 1 },
+            { name: `${collectionName}_${fieldName}_fk_idx` }
+          );
+          this.logger.log(`Created M2M FK index on ${collectionName}.${fieldName}`);
+        }
       }
     } catch (error) {
       this.logger.warn(`Failed to create some indexes for ${collectionName}: ${error.message}`);
