@@ -208,7 +208,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       sort: ['priority'],
     });
     const globalHooks = globalHooksResult.data;
-    console.log(globalHooks)
+
     for (const route of routes) {
       const allHooks = [...globalHooks, ...(route.hooks || [])];
 
