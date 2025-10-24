@@ -475,4 +475,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   async clearMetadataCache(): Promise<void> {
     this.inMemoryCache = null;
   }
+
+  getDirectMetadata(): EnfyraMetadata {
+    return this.inMemoryCache;
+  }
 }
