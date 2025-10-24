@@ -312,6 +312,65 @@ export class QueryBuilderService {
   }
 
   /**
+   * Build MongoDB match condition for relation filters
+   * e.g., {mainTable: {name: {_contains: "user"}}} → {"mainTable.name": {$regex: "user", $options: "i"}}
+   */
+  private buildRelationMatchCondition(relationName: string, nestedFilter: any, output: any): void {
+    for (const [field, value] of Object.entries(nestedFilter)) {
+      if (typeof value === 'object' && value !== null) {
+        for (const [op, val] of Object.entries(value)) {
+          const fullFieldPath = `${relationName}.${field}`;
+
+          switch (op) {
+            case '_eq':
+              output[fullFieldPath] = val;
+              break;
+            case '_neq':
+              output[fullFieldPath] = { $ne: val };
+              break;
+            case '_gt':
+              output[fullFieldPath] = { $gt: val };
+              break;
+            case '_gte':
+              output[fullFieldPath] = { $gte: val };
+              break;
+            case '_lt':
+              output[fullFieldPath] = { $lt: val };
+              break;
+            case '_lte':
+              output[fullFieldPath] = { $lte: val };
+              break;
+            case '_contains':
+              const escapedContains = String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              output[fullFieldPath] = { $regex: escapedContains, $options: 'i' };
+              break;
+            case '_starts_with':
+              const escapedStarts = String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              output[fullFieldPath] = { $regex: `^${escapedStarts}`, $options: 'i' };
+              break;
+            case '_ends_with':
+              const escapedEnds = String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              output[fullFieldPath] = { $regex: `${escapedEnds}$`, $options: 'i' };
+              break;
+            case '_in':
+              output[fullFieldPath] = { $in: val };
+              break;
+            case '_not_in':
+              output[fullFieldPath] = { $nin: val };
+              break;
+            case '_is_null':
+              output[fullFieldPath] = val === true ? null : { $ne: null };
+              break;
+            case '_is_not_null':
+              output[fullFieldPath] = val === true ? { $ne: null } : null;
+              break;
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Insert records (one or multiple)
    */
   async insert(options: InsertOptions): Promise<any> {
@@ -466,11 +525,10 @@ export class QueryBuilderService {
       }
     }
 
-    // Auto-expand `fields` into `join` + `select` if provided (SQL only)
+    // Auto-expand `fields` into `select` if provided (SQL only)
     if (queryOptions.fields && queryOptions.fields.length > 0) {
-      const expanded = await this.expandFieldsSql(queryOptions.table, queryOptions.fields, relationSorts);
-      queryOptions.join = [...(queryOptions.join || []), ...expanded.joins];
-      queryOptions.select = [...(queryOptions.select || []), ...expanded.select];
+      const expandedSelects = await this.expandFieldsToSelect(queryOptions.table, queryOptions.fields, relationSorts);
+      queryOptions.select = [...(queryOptions.select || []), ...expandedSelects];
     }
 
     // Auto-prefix table name to where conditions if not already qualified
@@ -554,13 +612,6 @@ export class QueryBuilderService {
     } else if (queryOptions.where && queryOptions.where.length > 0) {
       // Use legacy applyWhereToKnex for simple filters (backward compatible)
       query = this.applyWhereToKnex(query, queryOptions.where);
-    }
-
-    if (queryOptions.join) {
-      for (const joinOpt of queryOptions.join) {
-        const joinMethod = `${joinOpt.type}Join` as 'innerJoin' | 'leftJoin' | 'rightJoin';
-        query = query[joinMethod](joinOpt.table, joinOpt.on.local, joinOpt.on.foreign);
-      }
     }
 
     if (queryOptions.sort) {
@@ -687,8 +738,23 @@ export class QueryBuilderService {
 
     if (options.filter && !hasLogicalOperators(options.filter)) {
       queryOptions.where = [];
+
+      // Store raw filter for potential relation filtering in selectLegacy
+      queryOptions.mongoRawFilter = options.filter;
+
       for (const [field, value] of Object.entries(options.filter)) {
         if (typeof value === 'object' && value !== null) {
+          // Check if this is a relation filter (nested filter with no operators at first level)
+          const firstKey = Object.keys(value)[0];
+          const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+
+          if (!isOperator) {
+            // This is likely a relation filter (e.g., {mainTable: {name: {_contains: "user"}}})
+            // Skip it here, will be handled in selectLegacy after $lookup
+            continue;
+          }
+
+          // This is a field filter with operators
           for (const [op, val] of Object.entries(value)) {
             let operator: string;
             if (op === '_eq') operator = '=';
@@ -749,18 +815,43 @@ export class QueryBuilderService {
       totalCount = await collection.countDocuments({});
     }
 
+    // filterCount will be calculated from actual query results if there are relation filters
+    // Otherwise use simple countDocuments
+    const hasRelationFilters = queryOptions.mongoRawFilter &&
+      Object.keys(queryOptions.mongoRawFilter).some(key => {
+        const value = queryOptions.mongoRawFilter[key];
+        if (typeof value === 'object' && value !== null) {
+          const firstKey = Object.keys(value)[0];
+          const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+          return !isOperator; // Has relation filter
+        }
+        return false;
+      });
+
     if (metaParts.includes('filterCount') || metaParts.includes('*')) {
-      const collection = this.mongoService.collection(options.tableName);
-      let filter = {};
+      if (!hasRelationFilters) {
+        // Simple case: no relation filters, use countDocuments
+        const collection = this.mongoService.collection(options.tableName);
+        let filter = {};
 
-      if (queryOptions.where && queryOptions.where.length > 0) {
-        filter = this.whereToMongoFilter(queryOptions.where);
+        if (queryOptions.where && queryOptions.where.length > 0) {
+          filter = this.whereToMongoFilter(queryOptions.where);
+        }
+
+        filterCount = await collection.countDocuments(filter);
       }
-
-      filterCount = await collection.countDocuments(filter);
+      // If has relation filters, filterCount will be calculated from results after query
     }
 
     const results = await this.selectLegacy(queryOptions);
+
+    // Calculate filterCount from aggregation if relation filters were applied
+    if (hasRelationFilters && (metaParts.includes('filterCount') || metaParts.includes('*'))) {
+      // Run count aggregation (same pipeline but with $count instead of data)
+      queryOptions.mongoCountOnly = true;
+      const countResults = await this.selectLegacy(queryOptions);
+      filterCount = countResults.length > 0 ? countResults[0].count : 0;
+    }
 
     return {
       data: results,
@@ -789,10 +880,9 @@ export class QueryBuilderService {
         const expanded = await this.expandFieldsMongo(options.table, options.fields);
         options.mongoFieldsExpanded = expanded; // Store for MongoDB usage
       } else {
-        // SQL: Use expandFieldsSql
-        const expanded = await this.expandFieldsSql(options.table, options.fields);
-        options.join = [...(options.join || []), ...expanded.joins];
-        options.select = [...(options.select || []), ...expanded.select];
+        // SQL: Use expandFieldsToSelect
+        const expandedSelects = await this.expandFieldsToSelect(options.table, options.fields);
+        options.select = [...(options.select || []), ...expandedSelects];
       }
     }
 
@@ -885,6 +975,26 @@ export class QueryBuilderService {
           }
         }
 
+        // Apply relation filters AFTER $lookup (filter on joined data)
+        if (options.mongoRawFilter) {
+          const relationMatchConditions: any = {};
+
+          for (const [field, value] of Object.entries(options.mongoRawFilter)) {
+            // Check if this field was populated via $lookup
+            const wasLookedUp = relations.some(r => r.propertyName === field);
+
+            if (wasLookedUp && typeof value === 'object' && value !== null) {
+              // Build match condition for relation field
+              // e.g., {mainTable: {name: {_contains: "user"}}} → {"mainTable.name": {$regex: "user", $options: "i"}}
+              this.buildRelationMatchCondition(field, value, relationMatchConditions);
+            }
+          }
+
+          if (Object.keys(relationMatchConditions).length > 0) {
+            pipeline.push({ $match: relationMatchConditions });
+          }
+        }
+
         // $sort stage
         if (options.sort) {
           const sortSpec: any = {};
@@ -968,97 +1078,26 @@ export class QueryBuilderService {
           pipeline.push({ $project: projectStage });
         }
 
-        // $skip and $limit
-        if (options.offset) {
-          pipeline.push({ $skip: options.offset });
-        }
-        if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
-          pipeline.push({ $limit: options.limit });
+        // If counting only, add $count instead of $skip/$limit
+        if (options.mongoCountOnly) {
+          pipeline.push({ $count: 'count' });
+        } else {
+          // $skip and $limit
+          if (options.offset) {
+            pipeline.push({ $skip: options.offset });
+          }
+          if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
+            pipeline.push({ $limit: options.limit });
+          }
         }
 
         const results = await collection.aggregate(pipeline).toArray();
-        return this.transformMongoResults( results);
-      }
 
-      // Use aggregation pipeline if joins are present
-      if (options.join && options.join.length > 0) {
-        const pipeline: any[] = [];
-
-        // $match stage
-        if (options.where) {
-          const filter = this.whereToMongoFilter(options.where);
-          pipeline.push({ $match: filter });
+        // Return raw results for count queries
+        if (options.mongoCountOnly) {
+          return results;
         }
 
-        // $lookup stages for joins
-        for (const joinOpt of options.join) {
-          // Extract base table name (remove alias)
-          const tableName = joinOpt.table.split(' as ')[0];
-          const alias = joinOpt.table.includes(' as ') ? joinOpt.table.split(' as ')[1] : tableName;
-
-          // Extract field names from dot notation
-          const localField = joinOpt.on.local.split('.').pop();
-          const foreignField = joinOpt.on.foreign.split('.').pop();
-
-          pipeline.push({
-            $lookup: {
-              from: tableName,
-              localField,
-              foreignField,
-              as: alias,
-            },
-          });
-
-          // Unwind array to single object (for left join behavior)
-          pipeline.push({
-            $unwind: {
-              path: `$${alias}`,
-              preserveNullAndEmptyArrays: true,
-            },
-          });
-        }
-
-        // $project stage for select fields
-        if (options.select) {
-          const projection: any = {};
-          for (const field of options.select) {
-            if (field.includes('.*')) {
-              projection[field.replace('.*', '')] = 1;
-            } else if (field.includes(' as ')) {
-              const [source, alias] = field.split(' as ');
-              projection[alias.trim()] = `$${source.trim()}`;
-            } else {
-              // Remove table prefix for MongoDB (e.g., "route_definition.path" -> "path")
-              const fieldName = field.includes('.') ? field.split('.').pop() : field;
-              projection[fieldName] = 1;
-            }
-          }
-          pipeline.push({ $project: projection });
-        }
-
-        // $sort stage
-        if (options.sort) {
-          const sortSpec: any = {};
-          for (const sortOpt of options.sort) {
-            let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
-            // MongoDB: Convert 'id' to '_id'
-            if (fieldName === 'id') {
-              fieldName = '_id';
-            }
-            sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
-          }
-          pipeline.push({ $sort: sortSpec });
-        }
-
-        // $skip and $limit
-        if (options.offset) {
-          pipeline.push({ $skip: options.offset });
-        }
-        if (options.limit) {
-          pipeline.push({ $limit: options.limit });
-        }
-
-        const results = await collection.aggregate(pipeline).toArray();
         return this.transformMongoResults( results);
       }
 
@@ -1105,13 +1144,6 @@ export class QueryBuilderService {
 
     if (options.where && options.where.length > 0) {
       query = this.applyWhereToKnex(query, options.where);
-    }
-
-    if (options.join) {
-      for (const joinOpt of options.join) {
-        const joinMethod = `${joinOpt.type}Join` as 'innerJoin' | 'leftJoin' | 'rightJoin';
-        query = query[joinMethod](joinOpt.table, joinOpt.on.local, joinOpt.on.foreign);
-      }
     }
 
     if (options.sort) {
@@ -1593,21 +1625,18 @@ export class QueryBuilderService {
   }
 
   /**
-   * Expand smart field list into explicit JOINs and SELECT (SQL only)
+   * Expand smart field list into SELECT statements (SQL only)
    * Private helper for auto-relation expansion in SQL databases
    */
-  private async expandFieldsSql(
+  private async expandFieldsToSelect(
     tableName: string,
     fields: string[],
     sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = []
-  ): Promise<{
-    joins: any[];
-    select: string[];
-  }> {
+  ): Promise<string[]> {
     if (!this.metadataCache) {
       // Metadata cache not available (e.g., during early bootstrap)
       // Fall back to simple field expansion
-      return { joins: [], select: fields };
+      return fields;
     }
 
     // Cache metadata ONCE to avoid repeated async calls
@@ -1633,9 +1662,9 @@ export class QueryBuilderService {
 
     try {
       const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
-      return result;
+      return result.select;
     } catch (error) {
-      return { joins: [], select: fields };
+      return fields;
     }
   }
 }
