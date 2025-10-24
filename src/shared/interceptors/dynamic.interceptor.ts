@@ -33,7 +33,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             preHookTimeout,
           );
 
-          // Sync modified body back to req.body so controllers can access it
           req.body = req.routeData.context.$body;
 
           if (result !== undefined) {
@@ -66,7 +65,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                 .switchToHttp()
                 .getResponse().statusCode;
 
-              // Update API response info
               const responseTime = Date.now() - new Date(req.routeData.context.$api.request.timestamp).getTime();
               req.routeData.context.$api.response = {
                 statusCode: req.routeData.context.$statusCode,
@@ -80,11 +78,9 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                 afterHookTimeout,
               );
 
-              // Check if afterHook returned a value, use it
               if (result !== undefined) {
                 data = result;
               } else {
-                // Otherwise use the modified $data from context
                 data = req.routeData.context.$data;
               }
             } catch (error) {
@@ -98,7 +94,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           : data;
       }),
       catchError(async (error) => {
-        // Store error in context for afterHook to handle
         req.routeData.context.$api.error = {
           message: error.message,
           stack: error.stack,
@@ -108,7 +103,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           details: error.details || {},
         };
         
-        // Run afterHook even when there's an error
         if (hooks?.length) {
           for (const hook of hooks) {
             if (!hook.afterHook) continue;
@@ -118,7 +112,6 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               req.routeData.context.$data = null; // No data when error occurs
               req.routeData.context.$statusCode = error.status || 500;
 
-              // Update API response info for error case
               const responseTime = Date.now() - new Date(req.routeData.context.$api.request.timestamp).getTime();
               req.routeData.context.$api.response = {
                 statusCode: req.routeData.context.$statusCode,
@@ -132,22 +125,18 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                 afterHookTimeout,
               );
 
-              // Check if afterHook returned a value, use it
               if (result !== undefined) {
-                // Return the afterHook result even in error case
                 return new Observable(subscriber => {
                   subscriber.next(result);
                   subscriber.complete();
                 });
               }
             } catch (afterHookError) {
-              // If afterHook itself fails, log it but don't override original error
               console.error('AfterHook failed during error handling:', afterHookError);
             }
           }
         }
         
-        // Re-throw the original error
         throw error;
       }),
     );

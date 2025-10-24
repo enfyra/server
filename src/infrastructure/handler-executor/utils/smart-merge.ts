@@ -7,7 +7,6 @@ export function smartMergeContext(
 ): TDynamicContext {
   const mergedCtx = { ...originalCtx };
 
-  // SPECIFY OBJECTS THAT SHOULD NOT BE MERGED
   const nonMergeableProperties = [
     '$repos', // Repository functions
     '$logs', // Log function
@@ -17,20 +16,16 @@ export function smartMergeContext(
     '$throw', // Throw object
   ];
 
-  // MERGE ALL PROPERTIES EXCEPT NON-MERGEABLE ONES
   for (const key in childCtx) {
     if (!nonMergeableProperties.includes(key)) {
       const value = childCtx[key];
 
-      // SPECIAL HANDLING FOR $data - ALWAYS REPLACE
       if (key === '$data') {
         mergedCtx[key] = value;
       }
-      // MERGE PRIMITIVES DIRECTLY (but not null/undefined)
       else if (isPrimitive(value) && value !== null && value !== undefined) {
         mergedCtx[key] = value;
       }
-      // MERGE OBJECTS IF MERGEABLE
       else if (isMergeableProperty(value)) {
         mergedCtx[key] = merge({}, mergedCtx[key] || {}, value);
       }
@@ -40,7 +35,6 @@ export function smartMergeContext(
   return mergedCtx;
 }
 
-// CHECK IF PROPERTY IS MERGEABLE - ACCURATE
 function isMergeableProperty(value: any): boolean {
   return (
     value !== null &&
@@ -49,14 +43,12 @@ function isMergeableProperty(value: any): boolean {
     !Array.isArray(value) &&
     !(value instanceof Date) &&
     !(value instanceof Function) &&
-    // DO NOT MERGE OBJECTS CONTAINING FUNCTIONS, ARRAYS, OR DATES
     !containsFunctions(value) &&
     !containsArrays(value) &&
     !containsDates(value)
   );
 }
 
-// CHECK IF VALUE IS PRIMITIVE
 function isPrimitive(value: any): boolean {
   return (
     value === null ||
@@ -68,7 +60,6 @@ function isPrimitive(value: any): boolean {
   );
 }
 
-// CHECK IF OBJECT CONTAINS FUNCTIONS
 function containsFunctions(obj: any): boolean {
   if (typeof obj !== 'object' || obj === null) return false;
 
@@ -82,7 +73,6 @@ function containsFunctions(obj: any): boolean {
   return false;
 }
 
-// CHECK IF OBJECT CONTAINS ARRAYS
 function containsArrays(obj: any): boolean {
   if (typeof obj !== 'object' || obj === null) return false;
 
@@ -96,7 +86,6 @@ function containsArrays(obj: any): boolean {
   return false;
 }
 
-// CHECK IF OBJECT CONTAINS DATES
 function containsDates(obj: any): boolean {
   if (typeof obj !== 'object' || obj === null) return false;
 

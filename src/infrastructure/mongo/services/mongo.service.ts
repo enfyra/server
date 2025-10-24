@@ -67,9 +67,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return this.getDb().collection<T>(name);
   }
 
-  /**
-   * Apply default values for missing fields
-   */
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
     const metadata = await this.metadataCache.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {

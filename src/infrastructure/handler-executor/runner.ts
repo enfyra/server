@@ -5,10 +5,8 @@ import {
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-// Pre-compiled regex patterns for performance optimization
 const COMBINED_PATTERN = /(#([a-z_]+)|%([a-z_-]+)|@THROW\['([^']+)'\]|@THROW[0-9]+|@[A-Z_]+)/g;
 
-// Template replacement map for cleaner syntax
 const templateMap = new Map([
   ['@CACHE', '$ctx.$cache'],
   ['@REPOS', '$ctx.$repos'], 
@@ -25,7 +23,6 @@ const templateMap = new Map([
   ['@API', '$ctx.$api'],
   ['@UPLOADED', '$ctx.$uploadedFile'],
   ['@PKGS', '$ctx.$pkgs'],
-  // HTTP status code shortcuts
   ['@THROW400', '$ctx.$throw[\'400\']'],
   ['@THROW401', '$ctx.$throw[\'401\']'],
   ['@THROW403', '$ctx.$throw[\'403\']'],
@@ -38,24 +35,18 @@ const templateMap = new Map([
   ['@THROW', '$ctx.$throw'],
 ]);
 
-// Single-pass template processor for optimal performance
 const processTemplate = (code: string): string => {
   return code.replace(COMBINED_PATTERN, (match, ...groups) => {
-    // Handle table access syntax (#table_name) - groups[1] = table name
     if (groups[1]) return `$ctx.$repos.${groups[1]}`;
     
-    // Handle package access syntax (%pkg_name) - groups[2] = package name  
     if (groups[2]) return `$ctx.$pkgs.${groups[2]}`;
     
-    // Handle @THROW['xxx'] pattern - groups[3] = status code
     if (groups[3]) return `$ctx.$throw['${groups[3]}']`;
     
-    // Handle @THROW[0-9]+ patterns (HTTP status code shortcuts)
     if (match.match(/@THROW[0-9]+/)) {
       return templateMap.get(match) || match;
     }
     
-    // Handle other @ templates
     return templateMap.get(match) || match;
   });
 };

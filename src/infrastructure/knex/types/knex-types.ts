@@ -1,9 +1,4 @@
-/**
- * Common types and interfaces for Knex-based database operations
- * All types are based on data from table_definition, column_definition, relation_definition
- */
 
-// ==================== COLUMN TYPES ====================
 
 export interface ColumnMetadata {
   id: number;
@@ -22,7 +17,6 @@ export interface ColumnMetadata {
   tableId: number;
 }
 
-// ==================== RELATION TYPES ====================
 
 export interface RelationMetadata {
   id: number;
@@ -37,16 +31,13 @@ export interface RelationMetadata {
   isSystem: boolean;
   description?: string;
   
-  // Foreign key column name (for many-to-one, one-to-one)
   foreignKeyColumn?: string;
   
-  // For many-to-many relations
   junctionTableName?: string;
   junctionSourceColumn?: string;
   junctionTargetColumn?: string;
 }
 
-// ==================== TABLE TYPES ====================
 
 export interface TableMetadata {
   id: number;
@@ -60,7 +51,6 @@ export interface TableMetadata {
   relations: RelationMetadata[];
 }
 
-// ==================== QUERY TYPES ====================
 
 export interface QueryFilter {
   [key: string]: any;
@@ -91,7 +81,6 @@ export interface QueryResult<T = any> {
   };
 }
 
-// ==================== JOIN TYPES ====================
 
 export interface JoinInfo {
   tableName: string;
@@ -109,7 +98,6 @@ export interface SelectField {
   asName?: string;
 }
 
-// ==================== FILTER PARSING ====================
 
 export interface FilterPart {
   operator: 'AND' | 'OR';
@@ -122,7 +110,6 @@ export interface ParsedFilter {
   joins: JoinInfo[];
 }
 
-// ==================== CASCADE TYPES ====================
 
 export interface CascadeConfig {
   cascadeInsert: boolean;
@@ -130,15 +117,13 @@ export interface CascadeConfig {
   cascadeDelete: boolean;
 }
 
-// ==================== METADATA CACHE ====================
 
 export interface MetadataCache {
   tables: Map<string, TableMetadata>;
   lastUpdated: number;
-  ttl: number; // Time to live in milliseconds
+  ttl: number;
 }
 
-// ==================== HELPER TYPES ====================
 
 export type PrimaryKeyType = 'uuid' | 'integer' | 'bigint';
 

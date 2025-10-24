@@ -17,7 +17,6 @@ export class ErrorHandler {
     code?: string,
     details?: any,
   ): any {
-    // Handle $throw calls from child process
     if (errorPath?.includes('$throw')) {
       switch (errorPath) {
         case '$throw.400':
@@ -35,7 +34,6 @@ export class ErrorHandler {
       }
     }
 
-    // Handle status code based errors
     if (statusCode) {
       switch (statusCode) {
         case 400:
@@ -57,7 +55,6 @@ export class ErrorHandler {
       }
     }
 
-    // Default fallback
     return new ScriptExecutionException(
       message || 'Unknown error',
       code,
@@ -65,9 +62,6 @@ export class ErrorHandler {
     );
   }
 
-  /**
-   * Log error with consistent format
-   */
   static logError(
     errorType: string,
     message: string,
@@ -76,14 +70,11 @@ export class ErrorHandler {
   ): void {
     this.logger.error(`Handler Executor ${errorType}`, {
       message,
-      code: code.substring(0, 100), // Log first 100 chars of script
+      code: code.substring(0, 100),
       ...additionalData,
     });
   }
 
-  /**
-   * Handle child process error with cleanup
-   */
   static handleChildError(
     isDone: boolean,
     child: any,
