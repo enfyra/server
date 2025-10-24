@@ -214,6 +214,14 @@ export class SqlQueryExecutor {
       totalCount = Number(totalResult?.count || 0);
     }
 
+    if (this.debugLog && this.debugLog.length >= 0) {
+      this.debugLog.push({
+        type: 'SQL Query',
+        table: queryOptions.table,
+        sql: query.toSQL().toNative(),
+      });
+    }
+
     const results = await query;
 
     let filterCount = 0;
