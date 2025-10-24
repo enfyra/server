@@ -4,8 +4,8 @@ import {
   QueryOptions,
   WhereCondition,
 } from '../../../shared/types/query-builder.types';
-import { buildWhereClause, hasLogicalOperators } from '../utils/build-where-clause';
-import { separateFilters, applyRelationFilters } from '../utils/relation-filter.util';
+import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-clause';
+import { separateFilters, applyRelationFilters } from '../utils/sql/relation-filter.util';
 
 export class SqlQueryExecutor {
   private debugLog: any[] = [];
@@ -410,7 +410,7 @@ export class SqlQueryExecutor {
     };
 
     try {
-      const { expandFieldsToJoinsAndSelect } = await import('../utils/expand-fields');
+      const { expandFieldsToJoinsAndSelect } = await import('../utils/sql/expand-fields');
       const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
       return result.select;
     } catch (error) {

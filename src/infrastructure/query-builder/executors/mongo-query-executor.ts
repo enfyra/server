@@ -3,7 +3,8 @@ import {
   QueryOptions,
   WhereCondition,
 } from '../../../shared/types/query-builder.types';
-import { hasLogicalOperators } from '../utils/build-where-clause';
+import { hasLogicalOperators } from '../utils/shared/logical-operators.util';
+import { separateFilters } from '../utils/shared/filter-separator.util';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -222,7 +223,12 @@ export class MongoQueryExecutor {
   private async executeAggregationPipeline(collection: Collection, options: QueryOptions): Promise<any[]> {
     const pipeline: any[] = [];
 
-    if (options.where) {
+    if (options.mongoRawFilter && this.metadata) {
+      const tableMeta = this.metadata.tables?.get(options.table);
+      if (tableMeta) {
+        await this.applyMixedFilters(pipeline, options.mongoRawFilter, options.table, tableMeta);
+      }
+    } else if (options.where) {
       const filter = this.whereToMongoFilter(options.where, options.table);
       pipeline.push({ $match: filter });
     } else if (options.mongoLogicalFilter) {
@@ -488,16 +494,24 @@ export class MongoQueryExecutor {
           filter[fieldName] = { $regex: value.replace(/%/g, '.*'), $options: 'i' };
           break;
         case 'in':
-          const inValues = Array.isArray(condition.value)
-            ? condition.value.map(v => this.convertValueByType(tableNameForConversion, fieldName, v))
-            : [value];
-          filter[fieldName] = { $in: inValues };
+          let inValues = condition.value;
+          if (!Array.isArray(inValues)) {
+            inValues = typeof inValues === 'string' && inValues.includes(',')
+              ? inValues.split(',').map(v => v.trim())
+              : [inValues];
+          }
+          const convertedInValues = inValues.map(v => this.convertValueByType(tableNameForConversion, fieldName, v));
+          filter[fieldName] = { $in: convertedInValues };
           break;
         case 'not in':
-          const ninValues = Array.isArray(condition.value)
-            ? condition.value.map(v => this.convertValueByType(tableNameForConversion, fieldName, v))
-            : [value];
-          filter[fieldName] = { $nin: ninValues };
+          let notInValues = condition.value;
+          if (!Array.isArray(notInValues)) {
+            notInValues = typeof notInValues === 'string' && notInValues.includes(',')
+              ? notInValues.split(',').map(v => v.trim())
+              : [notInValues];
+          }
+          const convertedNotInValues = notInValues.map(v => this.convertValueByType(tableNameForConversion, fieldName, v));
+          filter[fieldName] = { $nin: convertedNotInValues };
           break;
         case 'is null':
           filter[fieldName] = null;
@@ -689,16 +703,24 @@ export class MongoQueryExecutor {
         matchCondition[field] = { $ne: value };
         break;
       case '_in':
-        const inValues = Array.isArray(val)
-          ? val.map(v => this.convertValueByType(tableName, field, v))
-          : [value];
-        matchCondition[field] = { $in: inValues };
+        let inValues = value;
+        if (!Array.isArray(inValues)) {
+          inValues = typeof inValues === 'string' && inValues.includes(',')
+            ? inValues.split(',').map(v => v.trim())
+            : [inValues];
+        }
+        const convertedInValues = inValues.map(v => this.convertValueByType(tableName, field, v));
+        matchCondition[field] = { $in: convertedInValues };
         break;
       case '_not_in':
-        const ninValues = Array.isArray(val)
-          ? val.map(v => this.convertValueByType(tableName, field, v))
-          : [value];
-        matchCondition[field] = { $nin: ninValues };
+        let notInValues = value;
+        if (!Array.isArray(notInValues)) {
+          notInValues = typeof notInValues === 'string' && notInValues.includes(',')
+            ? notInValues.split(',').map(v => v.trim())
+            : [notInValues];
+        }
+        const convertedNotInValues = notInValues.map(v => this.convertValueByType(tableName, field, v));
+        matchCondition[field] = { $nin: convertedNotInValues };
         break;
       case '_gt':
         matchCondition[field] = { $gt: value };
@@ -1040,5 +1062,335 @@ export class MongoQueryExecutor {
     }
 
     return { scalarFields, relations };
+  }
+
+  private async applyRelationFilters(
+    pipeline: any[],
+    relationFilters: any,
+    tableName: string,
+    invert: boolean = false
+  ): Promise<void> {
+    if (!this.metadata) {
+      return;
+    }
+
+    const tableMeta = this.metadata.tables?.get(tableName);
+    if (!tableMeta) {
+      return;
+    }
+
+    for (const [relationName, relationFilter] of Object.entries(relationFilters)) {
+      const relation = tableMeta.relations.find((r: any) => r.propertyName === relationName);
+      if (!relation) {
+        continue;
+      }
+
+      const targetTable = relation.targetTableName || relation.targetTable;
+      const targetMeta = this.metadata.tables?.get(targetTable);
+      if (!targetMeta) {
+        continue;
+      }
+
+      const lookupFieldName = `__lookup_${relationName}`;
+
+      const lookupPipeline = await this.buildRelationLookupPipeline(
+        targetTable,
+        relationFilter,
+        targetMeta
+      );
+
+      let localField: string;
+      let foreignField: string;
+
+      if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+        localField = relation.foreignKeyColumn || `${relationName}Id`;
+        foreignField = '_id';
+      } else if (relation.type === 'one-to-many') {
+        localField = '_id';
+        foreignField = relation.foreignKeyColumn || 'id';
+      } else {
+        continue;
+      }
+
+      pipeline.push({
+        $lookup: {
+          from: targetTable,
+          localField,
+          foreignField,
+          as: lookupFieldName,
+          pipeline: lookupPipeline
+        }
+      });
+
+      pipeline.push({
+        $match: {
+          $expr: invert
+            ? { $eq: [{ $size: `$${lookupFieldName}` }, 0] }
+            : { $gt: [{ $size: `$${lookupFieldName}` }, 0] }
+        }
+      });
+
+      pipeline.push({
+        $project: {
+          [lookupFieldName]: 0
+        }
+      });
+    }
+  }
+
+  private async buildRelationLookupPipeline(
+    targetTable: string,
+    filter: any,
+    targetMeta: any
+  ): Promise<any[]> {
+    const subPipeline: any[] = [];
+
+    const separated = separateFilters(filter, targetMeta);
+    const { fieldFilters, relationFilters } = separated;
+
+    if (fieldFilters && Object.keys(fieldFilters).length > 0) {
+      if (!hasLogicalOperators(fieldFilters)) {
+        const whereConditions: WhereCondition[] = [];
+        for (const [field, value] of Object.entries(fieldFilters)) {
+          if (typeof value === 'object' && value !== null) {
+            for (const [op, val] of Object.entries(value)) {
+              let operator: string;
+              if (op === '_eq') operator = '=';
+              else if (op === '_neq') operator = '!=';
+              else if (op === '_in') operator = 'in';
+              else if (op === '_not_in') operator = 'not in';
+              else if (op === '_gt') operator = '>';
+              else if (op === '_gte') operator = '>=';
+              else if (op === '_lt') operator = '<';
+              else if (op === '_lte') operator = '<=';
+              else if (op === '_contains') operator = '_contains';
+              else if (op === '_starts_with') operator = '_starts_with';
+              else if (op === '_ends_with') operator = '_ends_with';
+              else if (op === '_between') operator = '_between';
+              else if (op === '_is_null') operator = '_is_null';
+              else if (op === '_is_not_null') operator = '_is_not_null';
+              else operator = op.replace('_', ' ');
+
+              whereConditions.push({ field, operator, value: val } as WhereCondition);
+            }
+          } else {
+            whereConditions.push({ field, operator: '=', value } as WhereCondition);
+          }
+        }
+        const matchFilter = this.whereToMongoFilter(whereConditions, targetTable);
+        subPipeline.push({ $match: matchFilter });
+      } else {
+        const logicalFilter = this.convertLogicalFilterToMongo(fieldFilters, targetTable);
+        subPipeline.push({ $match: logicalFilter });
+      }
+    }
+
+    if (relationFilters && Object.keys(relationFilters).length > 0) {
+      await this.applyRelationFilters(subPipeline, relationFilters, targetTable);
+    }
+
+    return subPipeline;
+  }
+
+  private async applyMixedFilters(
+    pipeline: any[],
+    filter: any,
+    tableName: string,
+    tableMeta: any
+  ): Promise<void> {
+    if (filter._and && Array.isArray(filter._and)) {
+      const fieldConditions: any[] = [];
+      const allRelationFilters: any = {};
+
+      for (const condition of filter._and) {
+        const separated = separateFilters(condition, tableMeta);
+
+        if (Object.keys(separated.fieldFilters).length > 0) {
+          fieldConditions.push(separated.fieldFilters);
+        }
+
+        for (const [relName, relFilter] of Object.entries(separated.relationFilters)) {
+          if (!allRelationFilters[relName]) {
+            allRelationFilters[relName] = [];
+          }
+          allRelationFilters[relName].push(relFilter);
+        }
+      }
+
+      if (fieldConditions.length > 0) {
+        const mongoFieldConditions = fieldConditions.map(fc =>
+          this.convertLogicalFilterToMongo(fc, tableName)
+        );
+        pipeline.push({ $match: { $and: mongoFieldConditions } });
+      }
+
+      for (const [relName, relFilters] of Object.entries(allRelationFilters)) {
+        for (const relFilter of relFilters as any[]) {
+          await this.applyRelationFilters(pipeline, { [relName]: relFilter }, tableName);
+        }
+      }
+      return;
+    }
+
+    if (filter._or && Array.isArray(filter._or)) {
+      const fieldConditions: any[] = [];
+      const relationConditions: Array<{ relationName: string; filter: any }> = [];
+
+      let hasRelations = false;
+      for (const condition of filter._or) {
+        const separated = separateFilters(condition, tableMeta);
+
+        if (Object.keys(separated.fieldFilters).length > 0) {
+          fieldConditions.push(separated.fieldFilters);
+        }
+
+        if (Object.keys(separated.relationFilters).length > 0) {
+          hasRelations = true;
+          for (const [relName, relFilter] of Object.entries(separated.relationFilters)) {
+            relationConditions.push({ relationName: relName, filter: relFilter });
+          }
+        }
+      }
+
+      if (hasRelations) {
+        // First, add all lookups
+        const lookupFields: string[] = [];
+        for (const relCondition of relationConditions) {
+          const relation = tableMeta.relations.find((r: any) => r.propertyName === relCondition.relationName);
+          if (!relation) continue;
+
+          const targetTable = relation.targetTableName || relation.targetTable;
+          const targetMeta = this.metadata.tables?.get(targetTable);
+          if (!targetMeta) continue;
+
+          const lookupFieldName = `__lookup_${relCondition.relationName}`;
+          lookupFields.push(lookupFieldName);
+
+          const lookupPipeline = await this.buildRelationLookupPipeline(
+            targetTable,
+            relCondition.filter,
+            targetMeta
+          );
+
+          let localField: string;
+          let foreignField: string;
+
+          if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+            localField = relation.foreignKeyColumn || `${relCondition.relationName}Id`;
+            foreignField = '_id';
+          } else if (relation.type === 'one-to-many') {
+            localField = '_id';
+            foreignField = relation.foreignKeyColumn || 'id';
+          } else {
+            continue;
+          }
+
+          pipeline.push({
+            $lookup: {
+              from: targetTable,
+              localField,
+              foreignField,
+              as: lookupFieldName,
+              pipeline: lookupPipeline
+            }
+          });
+        }
+
+        // Now combine field and relation conditions in a single $or
+        const orConditions: any[] = [];
+
+        // Add field conditions
+        for (const fc of fieldConditions) {
+          orConditions.push(this.convertLogicalFilterToMongo(fc, tableName));
+        }
+
+        // Add relation size checks
+        for (const lookupField of lookupFields) {
+          orConditions.push({
+            $expr: {
+              $gt: [{ $size: `$${lookupField}` }, 0]
+            }
+          });
+        }
+
+        if (orConditions.length > 0) {
+          pipeline.push({ $match: { $or: orConditions } });
+        }
+
+        // Clean up lookup fields
+        const projectFields: any = {};
+        for (const lookupField of lookupFields) {
+          projectFields[lookupField] = 0;
+        }
+        if (Object.keys(projectFields).length > 0) {
+          pipeline.push({ $project: projectFields });
+        }
+      } else {
+        // No relations, just field conditions
+        const mongoFieldConditions = filter._or.map((condition: any) =>
+          this.convertLogicalFilterToMongo(condition, tableName)
+        );
+        pipeline.push({ $match: { $or: mongoFieldConditions } });
+      }
+      return;
+    }
+
+    if (filter._not) {
+      const separated = separateFilters(filter._not, tableMeta);
+
+      if (Object.keys(separated.fieldFilters).length > 0) {
+        const mongoFilter = this.convertLogicalFilterToMongo(separated.fieldFilters, tableName);
+        pipeline.push({ $match: { $nor: [mongoFilter] } });
+      }
+
+      if (Object.keys(separated.relationFilters).length > 0) {
+        await this.applyRelationFilters(pipeline, separated.relationFilters, tableName, true);
+      }
+      return;
+    }
+
+    const separated = separateFilters(filter, tableMeta);
+    const { fieldFilters, relationFilters } = separated;
+
+    if (fieldFilters && Object.keys(fieldFilters).length > 0) {
+      if (!hasLogicalOperators(fieldFilters)) {
+        const whereConditions: WhereCondition[] = [];
+        for (const [field, value] of Object.entries(fieldFilters)) {
+          if (typeof value === 'object' && value !== null) {
+            for (const [op, val] of Object.entries(value)) {
+              let operator: string;
+              if (op === '_eq') operator = '=';
+              else if (op === '_neq') operator = '!=';
+              else if (op === '_in') operator = 'in';
+              else if (op === '_not_in') operator = 'not in';
+              else if (op === '_gt') operator = '>';
+              else if (op === '_gte') operator = '>=';
+              else if (op === '_lt') operator = '<';
+              else if (op === '_lte') operator = '<=';
+              else if (op === '_contains') operator = '_contains';
+              else if (op === '_starts_with') operator = '_starts_with';
+              else if (op === '_ends_with') operator = '_ends_with';
+              else if (op === '_between') operator = '_between';
+              else if (op === '_is_null') operator = '_is_null';
+              else if (op === '_is_not_null') operator = '_is_not_null';
+              else operator = op.replace('_', ' ');
+
+              whereConditions.push({ field, operator, value: val } as WhereCondition);
+            }
+          } else {
+            whereConditions.push({ field, operator: '=', value } as WhereCondition);
+          }
+        }
+        const matchFilter = this.whereToMongoFilter(whereConditions, tableName);
+        pipeline.push({ $match: matchFilter });
+      } else {
+        const logicalFilter = this.convertLogicalFilterToMongo(fieldFilters, tableName);
+        pipeline.push({ $match: logicalFilter });
+      }
+    }
+
+    if (relationFilters && Object.keys(relationFilters).length > 0) {
+      await this.applyRelationFilters(pipeline, relationFilters, tableName);
+    }
   }
 }

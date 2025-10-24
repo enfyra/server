@@ -1,12 +1,12 @@
-import { DatabaseType } from '../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
+import { DatabaseType } from '../../../../shared/types/query-builder.types';
+import { getForeignKeyColumnName } from '../../../knex/utils/naming-helpers';
 import {
   quoteIdentifier,
   getJsonObjectFunc,
   getJsonArrayAggFunc,
   getEmptyJsonArray,
   castToText,
-} from '../../knex/utils/migration/sql-dialect';
+} from '../../../knex/utils/migration/sql-dialect';
 
 interface TableMetadata {
   name: string;

@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
-import { parseBooleanFields } from '../../query-builder/utils/parse-boolean-fields';
+import { parseBooleanFields } from '../../query-builder/utils/sql/parse-boolean-fields';
 
 export type HookEvent = 'beforeInsert' | 'afterInsert' | 'beforeUpdate' | 'afterUpdate' | 'beforeDelete' | 'afterDelete' | 'beforeSelect' | 'afterSelect';
 
