@@ -63,7 +63,6 @@ export class DynamicResolver {
       .filter((f) => f.startsWith('meta.'))
       .map((f) => f.replace(/^meta\./, ''));
 
-    // Create context compatible with DynamicRepository
     const handlerCtx: any = {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: {

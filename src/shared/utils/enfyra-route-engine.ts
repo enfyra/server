@@ -1,12 +1,3 @@
-/**
- * Enfyra Route Engine
- *
- * Custom routing engine with radix tree algorithm.
- * Optimized for Enfyra's dynamic routing architecture.
- *
- * Performance: O(log N) route matching, 16.8× faster setup than find-my-way
- * @version 1.0.0
- */
 
 enum NodeType {
   STATIC = 'static',

@@ -25,7 +25,6 @@ export class HandlerExecutorService {
     ctx: TDynamicContext,
     timeoutMs = this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
   ): Promise<any> {
-    // Get packages for runner
     const packages = await this.packageCacheService.getPackages();
 
     const pool = this.executorPoolService.getPool();

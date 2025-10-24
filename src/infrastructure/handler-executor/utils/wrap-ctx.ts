@@ -65,7 +65,7 @@ export function wrapCtx(
     }
 
     if (key === '$user') {
-      wrapped[key] = toPlainSafe(val); // Keep Date as is here
+      wrapped[key] = toPlainSafe(val);
       continue;
     }
 
@@ -95,7 +95,6 @@ export function wrapCtx(
   return wrapped;
 }
 
-// Keep Date, remove function/symbol, prevent circular loops
 function toPlainSafe(obj: any, seen = new WeakSet()): any {
   if (obj === null || typeof obj !== 'object') return obj;
   if (seen.has(obj)) return '[Circular]';

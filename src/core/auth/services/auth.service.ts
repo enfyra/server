@@ -1,17 +1,13 @@
-// External packages
 import { Request } from 'express';
 import { randomUUID } from 'crypto';
 import { ObjectId } from 'mongodb';
 
-// @nestjs packages
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
-// Internal imports
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
-// Relative imports
 import { LoginAuthDto } from '../dto/login-auth.dto';
 import { LogoutAuthDto } from '../dto/logout-auth.dto';
 import { RefreshTokenAuthDto } from '../dto/refresh-token-auth.dto';
@@ -29,34 +25,31 @@ export class AuthService {
   async login(body: LoginAuthDto) {
     const { email, password } = body;
 
-    // Find user by email
     const user = await this.queryBuilder.findOneWhere('user_definition', { email });
 
     if (!user || !user.password || !(await this.bcryptService.compare(password, user.password))) {
       throw new BadRequestException(`Login failed!`);
     }
 
-    // Create session
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const userId = isMongoDB 
+    const userId = isMongoDB
       ? (typeof user._id === 'string' ? new ObjectId(user._id) : user._id)
       : (user.id || user._id);
-    
-    const sessionData: any = isMongoDB 
+
+    const sessionData: any = isMongoDB
       ? {
-          user: userId, // MongoDB: ObjectId
-          expiredAt: new Date(), // MongoDB doesn't auto-set defaultValue
+          user: userId,
+          expiredAt: new Date(),
           remember: body.remember || false,
         }
       : {
-          id: randomUUID(), // SQL: UUID for primary key
-          userId: userId.toString(), // SQL: convert to string for varchar(36)
+          id: randomUUID(),
+          userId: userId.toString(),
           remember: body.remember,
         };
 
     const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
-      
-    // Get session ID (MongoDB uses _id, SQL uses id)
+
     const sessionId = isMongoDB 
       ? (insertedSession._id?.toString() || insertedSession.id)
       : (insertedSession.id || sessionData.id);
@@ -96,8 +89,7 @@ export class AuthService {
     }
     
     const { sessionId } = decoded;
-    
-    // Find session with user (normalize id vs _id for MongoDB)
+
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
     const session = await this.queryBuilder.findOneWhere('session_definition', { [sessionIdField]: sessionId });
 
@@ -119,18 +111,16 @@ export class AuthService {
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
-    
-    // Find session (normalize id vs _id for MongoDB)
+
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const session = await this.queryBuilder.findOneWhere('session_definition', { 
-      [sessionIdField]: decoded.sessionId 
+    const session = await this.queryBuilder.findOneWhere('session_definition', {
+      [sessionIdField]: decoded.sessionId
     });
 
     if (!session) {
       throw new BadRequestException('Session not found!');
     }
 
-    // MongoDB: session.user (ObjectId or object), SQL: session.userId (string)
     const userId = this.queryBuilder.isMongoDb()
       ? (session.user?._id || session.user)
       : session.userId;
@@ -143,8 +133,7 @@ export class AuthService {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
       },
     );
-    
-    // Get session ID for new refresh token (MongoDB uses _id, SQL uses id)
+
     const sessionIdForRefresh = this.queryBuilder.isMongoDb() 
       ? (session._id?.toString() || session._id)
       : session.id;

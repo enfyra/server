@@ -65,14 +65,8 @@ export class KnexHookRegistry {
     return result;
   }
 
-  /**
-   * Register all default hooks
-   * cascadeContextMap: shared context between beforeInsert/afterInsert and beforeUpdate/afterUpdate
-   */
   registerDefaultHooks(cascadeContextMap: Map<string, any>): void {
-    // ============ beforeInsert hooks ============
     this.addHook('beforeInsert', async (tableName, data) => {
-      // Store original M2M/O2M relation data before transformation
       const relationData: any = {};
       if (typeof data === 'object' && !Array.isArray(data)) {
         for (const key in data) {
@@ -111,22 +105,18 @@ export class KnexHookRegistry {
       return { ...cleanData, createdAt: now, updatedAt: now };
     });
 
-    // ============ afterInsert hooks ============
     this.addHook('afterInsert', async (tableName, result) => {
       await this.handleCascadeRelations(tableName, result, cascadeContextMap);
       return result;
     });
 
-    // ============ beforeUpdate hooks ============
     this.addHook('beforeUpdate', async (tableName, data) => {
-      // Store original O2M data and recordId for afterUpdate hook
       const originalRelationData: any = {};
       let recordId = data.id;
 
       if (typeof data === 'object' && !Array.isArray(data)) {
         for (const key in data) {
           if (Array.isArray(data[key])) {
-            // Might be O2M relation - store it
             originalRelationData[key] = data[key];
           }
         }
@@ -158,7 +148,6 @@ export class KnexHookRegistry {
       return { ...data, updatedAt: this.knexInstance.raw('CURRENT_TIMESTAMP') };
     });
 
-    // ============ afterUpdate hooks ============
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
       const context = cascadeContextMap.get(tableName);
       if (!context) {
@@ -171,7 +160,6 @@ export class KnexHookRegistry {
       return result;
     });
 
-    // ============ afterSelect hooks ============
     this.addHook('afterSelect', (tableName, result) => {
       return this.autoParseJsonFields(result, { table: tableName });
     });
