@@ -1,7 +1,7 @@
-import { DatabaseType } from '../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
+import { DatabaseType } from '../../../../shared/types/query-builder.types';
+import { getForeignKeyColumnName } from '../../../knex/utils/naming-helpers';
 import { buildNestedSubquery } from './nested-subquery-builder';
-import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
+import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 
 interface FieldExpansionResult {
   select: string[];
@@ -140,8 +140,8 @@ export async function expandFieldsToJoinsAndSelect(
       const fkRef = `${quotedTable}.${quotedFkCol}`;
 
       // Map FK to {id: value} format (matching MongoDB's {_id: ObjectId} pattern)
-      // Build as raw SQL expression (not to be quoted again)
-      const mapping = `(${jsonObjectFunc}('id', ${fkRef})) as ${quotedRelation}`;
+      // Return NULL if FK is NULL, otherwise return JSON object
+      const mapping = `(CASE WHEN ${fkRef} IS NULL THEN NULL ELSE ${jsonObjectFunc}('id', ${fkRef}) END) as ${quotedRelation}`;
       select.push(mapping);
     } else {
       // Build nested subquery with all nested fields

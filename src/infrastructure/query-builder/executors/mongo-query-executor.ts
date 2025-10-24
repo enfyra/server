@@ -3,7 +3,11 @@ import {
   QueryOptions,
   WhereCondition,
 } from '../../../shared/types/query-builder.types';
-import { hasLogicalOperators } from '../utils/build-where-clause';
+import { hasLogicalOperators } from '../utils/shared/logical-operators.util';
+import { whereToMongoFilter, convertLogicalFilterToMongo } from '../utils/mongo/filter-builder';
+import { expandFieldsMongo } from '../utils/mongo/expand-fields';
+import { buildNestedLookupPipeline, addProjectionStage } from '../utils/mongo/pipeline-builder';
+import { applyMixedFilters } from '../utils/mongo/relation-filter';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -87,7 +91,7 @@ export class MongoQueryExecutor {
           }
         }
       } else {
-        queryOptions.mongoLogicalFilter = this.convertLogicalFilterToMongo(options.filter, options.tableName);
+        queryOptions.mongoLogicalFilter = convertLogicalFilterToMongo(this.metadata, options.filter, options.tableName);
       }
     }
 
@@ -142,7 +146,7 @@ export class MongoQueryExecutor {
         let filter = {};
 
         if (queryOptions.where && queryOptions.where.length > 0) {
-          filter = this.whereToMongoFilter(queryOptions.where, options.tableName);
+          filter = whereToMongoFilter(this.metadata, queryOptions.where, options.tableName);
         }
 
         filterCount = await collection.countDocuments(filter);
@@ -174,7 +178,7 @@ export class MongoQueryExecutor {
 
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
     if (options.fields && options.fields.length > 0) {
-      const expanded = await this.expandFieldsMongo(options.table, options.fields);
+      const expanded = await expandFieldsMongo(this.metadata, options.table, options.fields);
       options.mongoFieldsExpanded = expanded; // Store for MongoDB usage
     }
 
@@ -222,8 +226,13 @@ export class MongoQueryExecutor {
   private async executeAggregationPipeline(collection: Collection, options: QueryOptions): Promise<any[]> {
     const pipeline: any[] = [];
 
-    if (options.where) {
-      const filter = this.whereToMongoFilter(options.where, options.table);
+    if (options.mongoRawFilter && this.metadata) {
+      const tableMeta = this.metadata.tables?.get(options.table);
+      if (tableMeta) {
+        await applyMixedFilters(this.metadata, pipeline, options.mongoRawFilter, options.table, tableMeta);
+      }
+    } else if (options.where) {
+      const filter = whereToMongoFilter(this.metadata, options.where, options.table);
       pipeline.push({ $match: filter });
     } else if (options.mongoLogicalFilter) {
       pipeline.push({ $match: options.mongoLogicalFilter });
@@ -285,7 +294,8 @@ export class MongoQueryExecutor {
       const relationFilter = options.mongoRawFilter?.[rel.propertyName];
 
       if (needsNestedPipeline) {
-        const nestedPipeline = await this.buildNestedLookupPipeline(
+        const nestedPipeline = await buildNestedLookupPipeline(
+          this.metadata,
           rel.targetTable,
           rel.nestedFields,
           relationFilter
@@ -301,7 +311,8 @@ export class MongoQueryExecutor {
           }
         });
       } else if (relationFilter) {
-        const nestedPipeline = await this.buildNestedLookupPipeline(
+        const nestedPipeline = await buildNestedLookupPipeline(
+          this.metadata,
           rel.targetTable,
           ['_id'],
           relationFilter
@@ -357,7 +368,7 @@ export class MongoQueryExecutor {
       pipeline.push({ $sort: sortSpec });
     }
 
-    await this.addProjectionStage(pipeline, options, scalarFields, relations);
+    await addProjectionStage(this.metadata, pipeline, options.table, scalarFields, relations);
 
     if (options.mongoCountOnly) {
       pipeline.push({ $count: 'count' });
@@ -450,595 +461,5 @@ export class MongoQueryExecutor {
 
   private transformMongoResults(documents: any[]): any[] {
     return documents.map(doc => this.mongoService['mapDocument'](doc));
-  }
-
-  private whereToMongoFilter(conditions: WhereCondition[], tableName?: string): any {
-    const filter: any = {};
-
-    for (const condition of conditions) {
-      let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
-      const tableNameForConversion = tableName || condition.field.split('.')[0];
-
-      if (fieldName === 'id') {
-        fieldName = '_id';
-      }
-
-      let value = this.convertValueByType(tableNameForConversion, fieldName, condition.value);
-
-      switch (condition.operator) {
-        case '=':
-          filter[fieldName] = value;
-          break;
-        case '!=':
-          filter[fieldName] = { $ne: value };
-          break;
-        case '>':
-          filter[fieldName] = { $gt: value };
-          break;
-        case '<':
-          filter[fieldName] = { $lt: value };
-          break;
-        case '>=':
-          filter[fieldName] = { $gte: value };
-          break;
-        case '<=':
-          filter[fieldName] = { $lte: value };
-          break;
-        case 'like':
-          filter[fieldName] = { $regex: value.replace(/%/g, '.*'), $options: 'i' };
-          break;
-        case 'in':
-          const inValues = Array.isArray(condition.value)
-            ? condition.value.map(v => this.convertValueByType(tableNameForConversion, fieldName, v))
-            : [value];
-          filter[fieldName] = { $in: inValues };
-          break;
-        case 'not in':
-          const ninValues = Array.isArray(condition.value)
-            ? condition.value.map(v => this.convertValueByType(tableNameForConversion, fieldName, v))
-            : [value];
-          filter[fieldName] = { $nin: ninValues };
-          break;
-        case 'is null':
-          filter[fieldName] = null;
-          break;
-        case 'is not null':
-          filter[fieldName] = { $ne: null };
-          break;
-        case '_contains':
-          const escapedContains = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          filter[fieldName] = { $regex: escapedContains, $options: 'i' };
-          break;
-        case '_starts_with':
-          const escapedStarts = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          filter[fieldName] = { $regex: `^${escapedStarts}`, $options: 'i' };
-          break;
-        case '_ends_with':
-          const escapedEnds = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          filter[fieldName] = { $regex: `${escapedEnds}$`, $options: 'i' };
-          break;
-        case '_between':
-          let betweenValues = condition.value;
-          if (typeof betweenValues === 'string') {
-            betweenValues = betweenValues.split(',').map(v => v.trim());
-          }
-          if (Array.isArray(betweenValues) && betweenValues.length === 2) {
-            const val0 = this.convertValueByType(tableNameForConversion, fieldName, betweenValues[0]);
-            const val1 = this.convertValueByType(tableNameForConversion, fieldName, betweenValues[1]);
-            filter[fieldName] = { $gte: val0, $lte: val1 };
-          }
-          break;
-        case '_is_null':
-          const isNullBool = value === true || value === 'true';
-          filter[fieldName] = isNullBool ? { $eq: null } : { $ne: null };
-          break;
-        case '_is_not_null':
-          const isNotNullBool = value === true || value === 'true';
-          filter[fieldName] = isNotNullBool ? { $ne: null } : { $eq: null };
-          break;
-      }
-    }
-
-    return filter;
-  }
-
-  private convertLogicalFilterToMongo(filter: any, tableName?: string): any {
-    if (!filter || typeof filter !== 'object') {
-      return {};
-    }
-
-    if (filter._and) {
-      const conditions = Array.isArray(filter._and)
-        ? filter._and
-        : Object.values(filter._and);
-      return {
-        $and: conditions.map((condition: any) => this.convertLogicalFilterToMongo(condition, tableName))
-      };
-    }
-
-    if (filter._or) {
-      const conditions = Array.isArray(filter._or)
-        ? filter._or
-        : Object.values(filter._or);
-      return {
-        $or: conditions.map((condition: any) => this.convertLogicalFilterToMongo(condition, tableName))
-      };
-    }
-
-    if (filter._not) {
-      return {
-        $nor: [this.convertLogicalFilterToMongo(filter._not, tableName)]
-      };
-    }
-
-    const mongoFilter: any = {};
-    for (const [field, value] of Object.entries(filter)) {
-      if (field === '_and' || field === '_or' || field === '_not') {
-        continue;
-      }
-
-      if (typeof value === 'object' && value !== null) {
-        const firstKey = Object.keys(value)[0];
-        const isOperator = firstKey?.startsWith('_');
-
-        if (isOperator) {
-          for (const [op, val] of Object.entries(value)) {
-            this.applyOperatorToMatch(mongoFilter, tableName || '', field, op, val);
-          }
-        } else {
-          mongoFilter[field] = value;
-        }
-      } else {
-        mongoFilter[field] = value;
-      }
-    }
-
-    return mongoFilter;
-  }
-
-  private convertValueByType(tableName: string, field: string, value: any): any {
-    const { ObjectId } = require('mongodb');
-
-    if (field === '_id' && typeof value === 'string') {
-      try {
-        return new ObjectId(value);
-      } catch (err) {
-        return value;
-      }
-    }
-
-    const tableMeta = this.metadata?.tables?.get(tableName);
-    if (!tableMeta?.columns) {
-      return value;
-    }
-
-    const column = tableMeta.columns.find(col => col.name === field);
-    if (!column) {
-      return value;
-    }
-
-    if (value === null || value === undefined) {
-      return value;
-    }
-
-    switch (column.type) {
-      case 'int':
-      case 'integer':
-      case 'bigint':
-      case 'smallint':
-      case 'tinyint':
-        return typeof value === 'string' ? parseInt(value, 10) : Number(value);
-
-      case 'float':
-      case 'double':
-      case 'decimal':
-      case 'numeric':
-      case 'real':
-        return typeof value === 'string' ? parseFloat(value) : Number(value);
-
-      case 'boolean':
-      case 'bool':
-        if (typeof value === 'string') {
-          return value === 'true' || value === '1';
-        }
-        return Boolean(value);
-
-      case 'date':
-      case 'datetime':
-      case 'timestamp':
-        if (typeof value === 'string') {
-          return new Date(value);
-        }
-        return value;
-
-      case 'uuid':
-        if (typeof value === 'string') {
-          try {
-            return new ObjectId(value);
-          } catch (err) {
-            return value;
-          }
-        }
-        return value;
-
-      default:
-        return value;
-    }
-  }
-
-  private applyOperatorToMatch(matchCondition: any, tableName: string, field: string, op: string, val: any): void {
-    let value = this.convertValueByType(tableName, field, val);
-
-    switch (op) {
-      case '_contains':
-        const escapedContains = String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        matchCondition[field] = { $regex: escapedContains, $options: 'i' };
-        break;
-      case '_starts_with':
-        const escapedStarts = String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        matchCondition[field] = { $regex: `^${escapedStarts}`, $options: 'i' };
-        break;
-      case '_ends_with':
-        const escapedEnds = String(val).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        matchCondition[field] = { $regex: `${escapedEnds}$`, $options: 'i' };
-        break;
-      case '_eq':
-        matchCondition[field] = value;
-        break;
-      case '_neq':
-        matchCondition[field] = { $ne: value };
-        break;
-      case '_in':
-        const inValues = Array.isArray(val)
-          ? val.map(v => this.convertValueByType(tableName, field, v))
-          : [value];
-        matchCondition[field] = { $in: inValues };
-        break;
-      case '_not_in':
-        const ninValues = Array.isArray(val)
-          ? val.map(v => this.convertValueByType(tableName, field, v))
-          : [value];
-        matchCondition[field] = { $nin: ninValues };
-        break;
-      case '_gt':
-        matchCondition[field] = { $gt: value };
-        break;
-      case '_gte':
-        matchCondition[field] = { $gte: value };
-        break;
-      case '_lt':
-        matchCondition[field] = { $lt: value };
-        break;
-      case '_lte':
-        matchCondition[field] = { $lte: value };
-        break;
-      case '_is_null':
-        const isNullMatch = val === true || val === 'true';
-        matchCondition[field] = isNullMatch ? { $eq: null } : { $ne: null };
-        break;
-      case '_is_not_null':
-        const isNotNullMatch = val === true || val === 'true';
-        matchCondition[field] = isNotNullMatch ? { $ne: null } : { $eq: null };
-        break;
-      case '_between':
-        let betweenVals = val;
-        if (typeof betweenVals === 'string') {
-          betweenVals = betweenVals.split(',').map(v => v.trim());
-        }
-        if (Array.isArray(betweenVals) && betweenVals.length === 2) {
-          const val0 = this.convertValueByType(tableName, field, betweenVals[0]);
-          const val1 = this.convertValueByType(tableName, field, betweenVals[1]);
-          matchCondition[field] = { $gte: val0, $lte: val1 };
-        }
-        break;
-    }
-  }
-
-  private async buildNestedLookupPipeline(
-    tableName: string,
-    nestedFields: string[],
-    relationFilter?: any
-  ): Promise<any[]> {
-    const nestedExpanded = await this.expandFieldsMongo(tableName, nestedFields);
-    const nestedPipeline: any[] = [];
-
-    const fieldFilters: any = {};
-    const relationFilters: any = {};
-
-    if (relationFilter && typeof relationFilter === 'object') {
-      for (const [key, value] of Object.entries(relationFilter)) {
-        if (typeof value === 'object' && value !== null) {
-          const firstKey = Object.keys(value)[0];
-          const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
-
-          if (isOperator) {
-            fieldFilters[key] = value;
-          } else {
-            relationFilters[key] = value;
-          }
-        } else {
-          fieldFilters[key] = value;
-        }
-      }
-    }
-
-    if (Object.keys(fieldFilters).length > 0) {
-      const matchCondition: any = {};
-      for (const [field, value] of Object.entries(fieldFilters)) {
-        if (typeof value === 'object' && value !== null) {
-          for (const [op, val] of Object.entries(value)) {
-            this.applyOperatorToMatch(matchCondition, tableName, field, op, val);
-          }
-        } else {
-          matchCondition[field] = value;
-        }
-      }
-      if (Object.keys(matchCondition).length > 0) {
-        nestedPipeline.push({ $match: matchCondition });
-      }
-    }
-
-    const baseMeta = this.metadata?.tables?.get(tableName);
-    const allRelations = baseMeta?.relations || [];
-
-    const additionalRelations: any[] = [];
-    for (const [relationName, _] of Object.entries(relationFilters)) {
-      const existsInExpanded = nestedExpanded.relations.some(r => r.propertyName === relationName);
-      if (!existsInExpanded) {
-        const relMeta = allRelations.find(r => r.propertyName === relationName);
-        if (relMeta) {
-          let localField: string;
-          let foreignField: string;
-
-          if (relMeta.type === 'many-to-one' || relMeta.type === 'one-to-one') {
-            localField = relMeta.propertyName;
-            foreignField = '_id';
-          } else if (relMeta.type === 'one-to-many') {
-            localField = '_id';
-            foreignField = relMeta.inversePropertyName || relMeta.propertyName;
-          } else if (relMeta.type === 'many-to-many') {
-            if (relMeta.mappedBy) {
-              localField = '_id';
-              foreignField = relMeta.mappedBy;
-            } else {
-              localField = relMeta.propertyName;
-              foreignField = '_id';
-            }
-          }
-
-          const isToMany = relMeta.type === 'one-to-many' || relMeta.type === 'many-to-many';
-
-          additionalRelations.push({
-            propertyName: relationName,
-            targetTable: relMeta.targetTableName,
-            localField,
-            foreignField,
-            type: isToMany ? 'many' : 'one',
-            nestedFields: []
-          });
-        }
-      }
-    }
-
-    const allRelationsToProcess = [...nestedExpanded.relations, ...additionalRelations];
-
-    for (const nestedRel of allRelationsToProcess) {
-      const nestedRelationFilter = relationFilters[nestedRel.propertyName];
-      const nestedNestedPipeline = nestedRel.nestedFields && nestedRel.nestedFields.length > 0
-        ? await this.buildNestedLookupPipeline(nestedRel.targetTable, nestedRel.nestedFields, nestedRelationFilter)
-        : nestedRelationFilter
-        ? await this.buildNestedLookupPipeline(nestedRel.targetTable, ['_id'], nestedRelationFilter)
-        : [];
-
-      nestedPipeline.push({
-        $lookup: {
-          from: nestedRel.targetTable,
-          localField: nestedRel.localField,
-          foreignField: nestedRel.foreignField,
-          as: nestedRel.propertyName,
-          pipeline: nestedNestedPipeline.length > 0 ? nestedNestedPipeline : undefined
-        }
-      });
-
-      if (nestedRel.type === 'one') {
-        nestedPipeline.push({
-          $unwind: {
-            path: `$${nestedRel.propertyName}`,
-            preserveNullAndEmptyArrays: true
-          }
-        });
-
-        if (nestedRelationFilter) {
-          nestedPipeline.push({
-            $match: {
-              [nestedRel.propertyName]: { $ne: null }
-            }
-          });
-        }
-      }
-    }
-
-    const unpopulatedRelations = allRelations.filter(rel =>
-      !allRelationsToProcess.some(r => r.propertyName === rel.propertyName)
-    );
-
-    if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0 || unpopulatedRelations.length > 0) {
-      const projection: any = { _id: 1 };
-
-      for (const field of nestedExpanded.scalarFields) {
-        projection[field] = 1;
-      }
-
-      for (const nestedRel of allRelationsToProcess) {
-        projection[nestedRel.propertyName] = 1;
-      }
-
-      const hasWildcard = nestedFields.includes('*');
-
-      if (hasWildcard) {
-        for (const rel of unpopulatedRelations) {
-          const isInverse = rel.type === 'one-to-many' || (rel.type === 'many-to-many' && rel.mappedBy);
-          if (isInverse) continue;
-
-          const isArray = rel.type === 'many-to-many';
-
-          if (isArray) {
-            projection[rel.propertyName] = {
-              $map: {
-                input: `$${rel.propertyName}`,
-                as: 'item',
-                in: { _id: '$$item' }
-              }
-            };
-          } else {
-            projection[rel.propertyName] = {
-              $cond: {
-                if: { $ne: [`$${rel.propertyName}`, null] },
-                then: { _id: `$${rel.propertyName}` },
-                else: null
-              }
-            };
-          }
-        }
-      }
-
-      nestedPipeline.push({ $project: projection });
-    }
-
-    return nestedPipeline;
-  }
-
-  private async expandFieldsMongo(
-    tableName: string,
-    fields: string[]
-  ): Promise<{
-    scalarFields: string[];  // Regular fields to include
-    relations: Array<{      // Relations to $lookup
-      propertyName: string;
-      targetTable: string;
-      localField: string;
-      foreignField: string;
-      type: 'one' | 'many';
-      nestedFields: string[]; // Fields to include from related table (can be nested like 'methods.*')
-    }>;
-  }> {
-    if (!this.metadata) {
-      return { scalarFields: [], relations: [] };
-    }
-
-    const baseMeta = this.metadata.tables?.get(tableName);
-    if (!baseMeta) {
-      return { scalarFields: [], relations: [] };
-    }
-
-    const fieldsByRelation = new Map<string, string[]>();
-
-    for (const field of fields) {
-      if (field === '*') {
-        if (!fieldsByRelation.has('')) {
-          fieldsByRelation.set('', []);
-        }
-        fieldsByRelation.get('')!.push(field);
-      } else if (field.includes('.')) {
-        const parts = field.split('.');
-        const relationName = parts[0];
-        const remainingPath = parts.slice(1).join('.');
-
-        if (!fieldsByRelation.has(relationName)) {
-          fieldsByRelation.set(relationName, []);
-        }
-        fieldsByRelation.get(relationName)!.push(remainingPath);
-      } else {
-        const isRelation = baseMeta.relations?.some(r => r.propertyName === field);
-
-        if (isRelation) {
-          if (!fieldsByRelation.has(field)) {
-            fieldsByRelation.set(field, ['_id']);
-          }
-        } else {
-          if (!fieldsByRelation.has('')) {
-            fieldsByRelation.set('', []);
-          }
-          fieldsByRelation.get('')!.push(field);
-        }
-      }
-    }
-
-    const scalarFields: string[] = [];
-    const relations: Array<any> = [];
-
-    const rootFields = fieldsByRelation.get('') || [];
-    for (const field of rootFields) {
-      if (field === '*') {
-        if (baseMeta.columns) {
-          for (const col of baseMeta.columns) {
-            if (!scalarFields.includes(col.name)) {
-              scalarFields.push(col.name);
-            }
-          }
-        }
-
-        if (baseMeta.relations) {
-          for (const rel of baseMeta.relations) {
-            if (!fieldsByRelation.has(rel.propertyName)) {
-              fieldsByRelation.set(rel.propertyName, ['_id']);
-            }
-          }
-        }
-      } else {
-        if (!scalarFields.includes(field)) {
-          scalarFields.push(field);
-        }
-      }
-    }
-
-    for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
-      if (relationName === '') continue;
-
-      const rel = baseMeta.relations?.find(r => r.propertyName === relationName);
-      if (!rel) {
-        continue;
-      }
-
-      let localField: string;
-      let foreignField: string;
-      let isInverse = false;
-
-      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        localField = rel.propertyName;
-        foreignField = '_id';
-        isInverse = false;
-      }
-      else if (rel.type === 'one-to-many') {
-        localField = '_id';
-        foreignField = rel.inversePropertyName || rel.propertyName;
-        isInverse = true;
-      }
-      else if (rel.type === 'many-to-many') {
-        if (rel.mappedBy) {
-          localField = '_id';
-          foreignField = rel.mappedBy; // Owner field name in target table
-          isInverse = true;
-        } else {
-          localField = rel.propertyName;
-          foreignField = '_id';
-          isInverse = false;
-        }
-      }
-
-      const isToMany = rel.type === 'one-to-many' || rel.type === 'many-to-many';
-
-      relations.push({
-        propertyName: relationName,
-        targetTable: rel.targetTableName,
-        localField,
-        foreignField,
-        type: isToMany ? 'many' : 'one',
-        isInverse,
-        nestedFields: nestedFields
-      });
-    }
-
-    return { scalarFields, relations };
   }
 }

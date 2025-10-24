@@ -10,7 +10,7 @@ import {
   DeleteOptions,
   CountOptions,
 } from '../../shared/types/query-builder.types';
-import { expandFieldsToJoinsAndSelect } from './utils/expand-fields';
+import { expandFieldsToJoinsAndSelect } from './utils/sql/expand-fields';
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 
