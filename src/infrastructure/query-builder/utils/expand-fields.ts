@@ -107,6 +107,16 @@ export async function expandFieldsToJoinsAndSelect(
       continue;
     }
 
+    // Check if field is a relation property name
+    const matchingRelation = baseMeta.relations?.find(r => r.propertyName === field);
+    if (matchingRelation) {
+      // This is a relation, not a scalar column - add to relation processing
+      if (!fieldsByRelation.has(field)) {
+        fieldsByRelation.set(field, ['id']); // Default to id only
+      }
+      continue;
+    }
+
     // Regular scalar column
     select.push(`${tableName}.${field}`);
   }
@@ -115,19 +125,41 @@ export async function expandFieldsToJoinsAndSelect(
   for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
     if (relationName === '') continue; // Skip root fields, already processed
 
-    // Build nested subquery with all nested fields
-    const subquery = await buildNestedSubquery(
-      tableName,
-      baseMeta,
-      relationName,
-      nestedFields,
-      dbType,
-      metadataGetter,
-      sortOptions,
-    );
+    const relation = baseMeta.relations?.find(r => r.propertyName === relationName);
+    if (!relation) continue;
 
-    if (subquery) {
-      select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
+    // Optimization: For M2O/O2O relations requesting only 'id', use FK mapping instead of subquery
+    const isIdOnly = nestedFields.length === 1 && (nestedFields[0] === 'id' || nestedFields[0] === '_id');
+    const isOwnerRelation = relation.type === 'many-to-one' || relation.type === 'one-to-one';
+
+    if (isIdOnly && isOwnerRelation) {
+      // Use direct FK mapping: JSON_OBJECT('id', fkColumn)
+      const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.targetTableName);
+      const jsonObjectFunc = dbType === 'postgres' ? 'jsonb_build_object' : 'JSON_OBJECT';
+      const quotedTable = quoteIdentifier(tableName, dbType);
+      const quotedFkCol = quoteIdentifier(fkColumn, dbType);
+      const quotedRelation = quoteIdentifier(relationName, dbType);
+      const fkRef = `${quotedTable}.${quotedFkCol}`;
+
+      // Map FK to {id: value} format (matching MongoDB's {_id: ObjectId} pattern)
+      // Build as raw SQL expression (not to be quoted again)
+      const mapping = `(${jsonObjectFunc}('id', ${fkRef})) as ${quotedRelation}`;
+      select.push(mapping);
+    } else {
+      // Build nested subquery with all nested fields
+      const subquery = await buildNestedSubquery(
+        tableName,
+        baseMeta,
+        relationName,
+        nestedFields,
+        dbType,
+        metadataGetter,
+        sortOptions,
+      );
+
+      if (subquery) {
+        select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
+      }
     }
   }
 
