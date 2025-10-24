@@ -216,15 +216,10 @@ export class MongoQueryExecutor {
       return this.transformMongoResults(results);
     }
 
-    if (options.mongoFieldsExpanded) {
-      return this.executeAggregationPipeline(collection, options);
-    }
-
-    return this.executeSimpleQuery(collection, options);
+    return this.executeAggregationPipeline(collection, options);
   }
 
   private async executeAggregationPipeline(collection: Collection, options: QueryOptions): Promise<any[]> {
-    const { scalarFields, relations } = options.mongoFieldsExpanded!;
     const pipeline: any[] = [];
 
     if (options.where) {
@@ -233,6 +228,57 @@ export class MongoQueryExecutor {
     } else if (options.mongoLogicalFilter) {
       pipeline.push({ $match: options.mongoLogicalFilter });
     }
+
+    if (!options.mongoFieldsExpanded) {
+      if (options.select) {
+        const projection: any = {};
+        for (const field of options.select) {
+          projection[field] = 1;
+        }
+        pipeline.push({ $project: projection });
+      }
+
+      if (options.sort) {
+        const sortSpec: any = {};
+        for (const sortOpt of options.sort) {
+          let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
+          if (fieldName === 'id') {
+            fieldName = '_id';
+          }
+          sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
+        }
+        pipeline.push({ $sort: sortSpec });
+      }
+
+      if (options.mongoCountOnly) {
+        pipeline.push({ $count: 'count' });
+      } else {
+        if (options.offset) {
+          pipeline.push({ $skip: options.offset });
+        }
+        if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
+          pipeline.push({ $limit: options.limit });
+        }
+      }
+
+      if (this.debugLog && this.debugLog.length >= 0) {
+        this.debugLog.push({
+          type: 'MongoDB Aggregation Pipeline',
+          collection: options.table,
+          pipeline: JSON.parse(JSON.stringify(pipeline)),
+        });
+      }
+
+      const results = await collection.aggregate(pipeline).toArray();
+
+      if (options.mongoCountOnly) {
+        return results;
+      }
+
+      return this.transformMongoResults(results);
+    }
+
+    const { scalarFields, relations } = options.mongoFieldsExpanded;
 
     for (const rel of relations) {
       const needsNestedPipeline = rel.nestedFields && rel.nestedFields.length > 0;
@@ -402,56 +448,6 @@ export class MongoQueryExecutor {
     }
   }
 
-  private async executeSimpleQuery(collection: Collection, options: QueryOptions): Promise<any[]> {
-    const filter = options.where
-      ? this.whereToMongoFilter(options.where)
-      : options.mongoLogicalFilter
-      ? options.mongoLogicalFilter
-      : {};
-    let cursor = collection.find(filter);
-
-    const debugInfo: any = {
-      type: 'MongoDB Simple Query',
-      collection: options.table,
-      filter,
-    };
-
-    if (options.select) {
-      const projection: any = {};
-      for (const field of options.select) {
-        projection[field] = 1;
-      }
-      cursor = cursor.project(projection);
-      debugInfo.projection = projection;
-    }
-
-    if (options.sort) {
-      const sortSpec: any = {};
-      for (const sortOpt of options.sort) {
-        sortSpec[sortOpt.field] = sortOpt.direction === 'asc' ? 1 : -1;
-      }
-      cursor = cursor.sort(sortSpec);
-      debugInfo.sort = sortSpec;
-    }
-
-    if (options.offset) {
-      cursor = cursor.skip(options.offset);
-      debugInfo.offset = options.offset;
-    }
-
-    if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
-      cursor = cursor.limit(options.limit);
-      debugInfo.limit = options.limit;
-    }
-
-    if (this.debugLog && this.debugLog.length >= 0) {
-      this.debugLog.push(debugInfo);
-    }
-
-    const results = await cursor.toArray();
-    return this.transformMongoResults(results);
-  }
-
   private transformMongoResults(documents: any[]): any[] {
     return documents.map(doc => this.mongoService['mapDocument'](doc));
   }
@@ -498,15 +494,17 @@ export class MongoQueryExecutor {
           filter[fieldName] = { $regex: value.replace(/%/g, '.*'), $options: 'i' };
           break;
         case 'in':
-          const inValues = fieldName === '_id'
-            ? (value as any[]).map(v => typeof v === 'string' ? new ObjectId(v) : v)
-            : value;
+          let inValues = value;
+          if (fieldName === '_id') {
+            inValues = (value as any[]).map(v => typeof v === 'string' ? new ObjectId(v) : v);
+          }
           filter[fieldName] = { $in: inValues };
           break;
         case 'not in':
-          const ninValues = fieldName === '_id'
-            ? (value as any[]).map(v => typeof v === 'string' ? new ObjectId(v) : v)
-            : value;
+          let ninValues = value;
+          if (fieldName === '_id') {
+            ninValues = (value as any[]).map(v => typeof v === 'string' ? new ObjectId(v) : v);
+          }
           filter[fieldName] = { $nin: ninValues };
           break;
         case 'is null':
@@ -528,8 +526,12 @@ export class MongoQueryExecutor {
           filter[fieldName] = { $regex: `${escapedEnds}$`, $options: 'i' };
           break;
         case '_between':
-          if (Array.isArray(value) && value.length === 2) {
-            filter[fieldName] = { $gte: value[0], $lte: value[1] };
+          let betweenValues = value;
+          if (typeof value === 'string') {
+            betweenValues = value.split(',').map(v => v.trim());
+          }
+          if (Array.isArray(betweenValues) && betweenValues.length === 2) {
+            filter[fieldName] = { $gte: betweenValues[0], $lte: betweenValues[1] };
           }
           break;
         case '_is_null':
