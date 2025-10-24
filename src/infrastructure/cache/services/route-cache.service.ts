@@ -189,11 +189,14 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     });
     const routes = result.data;
 
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const routeFieldName = isMongoDB ? 'route' : 'routeId';
+
     const globalHooksResult = await this.queryBuilder.select({
       tableName: 'hook_definition',
       filter: {
         isEnabled: { _eq: true },
-        routeId: { _is_null: true }
+        [routeFieldName]: { _is_null: true }
       },
       fields: ['*', 'methods.*'],
       sort: ['priority'],

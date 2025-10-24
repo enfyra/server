@@ -153,10 +153,46 @@ async function createIndexes(
 
   if (tableDef.relations) {
     for (const relation of tableDef.relations) {
+      // Owner M2O/O2O relations store ObjectId directly with propertyName
       if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
-        const fieldName = `${relation.propertyName}Id`;
-        await collection.createIndex({ [fieldName]: 1 });
-        console.log(`  Created index on FK: ${fieldName}`);
+        const fieldName = relation.propertyName;
+        const indexName = `${collectionName}_${fieldName}_fk_idx`;
+
+        try {
+          await collection.createIndex(
+            { [fieldName]: 1 },
+            { name: indexName }
+          );
+          console.log(`  Created index on M2O/O2O field: ${fieldName}`);
+        } catch (error: any) {
+          if (error.code === 85 || error.code === 86) {
+            // Index already exists with same or different name, skip
+            console.log(`  Index on ${fieldName} already exists, skipping`);
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      // Owner M2M relations (without mappedBy) store array of ObjectIds
+      if (relation.type === 'many-to-many' && !relation.mappedBy) {
+        const fieldName = relation.propertyName;
+        const indexName = `${collectionName}_${fieldName}_fk_idx`;
+
+        try {
+          await collection.createIndex(
+            { [fieldName]: 1 },
+            { name: indexName }
+          );
+          console.log(`  Created index on M2M field: ${fieldName}`);
+        } catch (error: any) {
+          if (error.code === 85 || error.code === 86) {
+            // Index already exists with same or different name, skip
+            console.log(`  Index on ${fieldName} already exists, skipping`);
+          } else {
+            throw error;
+          }
+        }
       }
     }
   }
