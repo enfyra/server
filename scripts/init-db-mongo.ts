@@ -40,19 +40,15 @@ function createValidationSchema(tableDef: TableDef, allTables: Record<string, Ta
   const properties: any = {};
   const required: string[] = [];
 
-  // Add columns
   for (const col of tableDef.columns) {
     if (col.isPrimary && col.name === 'id') continue;
 
     const bsonType = getBsonType(col);
 
-    // If nullable, allow both the type and null
     if (col.isNullable !== false) {
       properties[col.name] = { bsonType: [bsonType, 'null'] };
     } else {
       properties[col.name] = { bsonType };
-      // Only add to required if no defaultValue and not generated
-      // Default values are handled in application layer (MongoService.applyDefaultValues)
       if (col.defaultValue === undefined && !col.isGenerated) {
         required.push(col.name);
       }
@@ -67,23 +63,18 @@ function createValidationSchema(tableDef: TableDef, allTables: Record<string, Ta
     }
   }
 
-  // Add relation fields defined in this table
   if (tableDef.relations) {
     for (const rel of tableDef.relations) {
-      // Skip one-to-many (always inverse, not stored)
       if (rel.type === 'one-to-many') {
         continue;
       }
 
-      // Store owner side relations:
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        // Single ObjectId reference
         properties[rel.propertyName] = {
           bsonType: ['objectId', 'null'],
           description: `Reference to ${rel.targetTable}`,
         };
       } else if (rel.type === 'many-to-many') {
-        // Array of ObjectIds
         properties[rel.propertyName] = {
           bsonType: 'array',
           items: { bsonType: 'objectId' },
@@ -121,15 +112,13 @@ async function createIndexes(
         for (const fieldName of uniqueGroup) {
           indexSpec[fieldName] = 1;
         }
-        
-        // Use partial index to exclude null values from unique constraint
-        // This prevents duplicate key errors when multiple documents have null values
+
         const partialFilter: any = {};
         for (const fieldName of uniqueGroup) {
-          partialFilter[fieldName] = { $type: 'string' }; // Only index non-null values
+          partialFilter[fieldName] = { $type: 'string' };
         }
-        
-        await collection.createIndex(indexSpec, { 
+
+        await collection.createIndex(indexSpec, {
           unique: true,
           partialFilterExpression: partialFilter,
         });
@@ -153,7 +142,6 @@ async function createIndexes(
 
   if (tableDef.relations) {
     for (const relation of tableDef.relations) {
-      // Owner M2O/O2O relations store ObjectId directly with propertyName
       if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
         const fieldName = relation.propertyName;
         const indexName = `${collectionName}_${fieldName}_fk_idx`;
@@ -166,7 +154,6 @@ async function createIndexes(
           console.log(`  Created index on M2O/O2O field: ${fieldName}`);
         } catch (error: any) {
           if (error.code === 85 || error.code === 86) {
-            // Index already exists with same or different name, skip
             console.log(`  Index on ${fieldName} already exists, skipping`);
           } else {
             throw error;
@@ -174,7 +161,6 @@ async function createIndexes(
         }
       }
 
-      // Owner M2M relations (without mappedBy) store array of ObjectIds
       if (relation.type === 'many-to-many' && !relation.mappedBy) {
         const fieldName = relation.propertyName;
         const indexName = `${collectionName}_${fieldName}_fk_idx`;
@@ -187,7 +173,6 @@ async function createIndexes(
           console.log(`  Created index on M2M field: ${fieldName}`);
         } catch (error: any) {
           if (error.code === 85 || error.code === 86) {
-            // Index already exists with same or different name, skip
             console.log(`  Index on ${fieldName} already exists, skipping`);
           } else {
             throw error;
@@ -210,15 +195,12 @@ async function createCollection(db: Db, tableDef: TableDef, allTables: Record<st
     return;
   }
 
-  // Skip validation for metadata tables (they have dynamic fields)
   const METADATA_TABLES = ['table_definition', 'column_definition', 'relation_definition'];
 
   if (METADATA_TABLES.includes(collectionName)) {
-    // Create without validation for metadata tables
     await db.createCollection(collectionName);
     console.log(`✅ Created collection (no validation): ${collectionName}`);
   } else {
-    // Create with validation for data tables
     const validationSchema = createValidationSchema(tableDef, allTables);
 
     await db.createCollection(collectionName, {
@@ -290,4 +272,5 @@ if (require.main === module) {
       process.exit(1);
     });
 }
+
 

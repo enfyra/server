@@ -43,9 +43,9 @@ export class FieldStripper {
       }
     }
 
-    // Also remove special cascade metadata properties (these should not be inserted into DB)
     delete stripped._m2mRelations;
     delete stripped._o2mRelations;
+    delete stripped._o2oRelations;
 
     return stripped;
   }

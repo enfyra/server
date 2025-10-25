@@ -17,12 +17,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
   private dbType: string;
 
-  // Helper classes
   private cascadeHandler: CascadeHandler;
   private fieldStripper: FieldStripper;
   private relationTransformer: RelationTransformer;
 
-  // Hook registry
   private hooks: {
     beforeInsert: Array<(tableName: string, data: any) => any>;
     afterInsert: Array<(tableName: string, result: any) => any>;
@@ -53,7 +51,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
     this.dbType = DB_TYPE;
 
-    // Skip Knex initialization if using MongoDB
     if (DB_TYPE === 'mongodb') {
       this.logger.log('Skipping Knex initialization (DB_TYPE=mongodb)');
       return;
@@ -76,10 +73,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         user: DB_USERNAME,
         password: DB_PASSWORD,
         database: DB_NAME,
-        // Disable automatic date parsing - return dates as strings
         typeCast: function (field: any, next: any) {
           if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
-            // Return raw string instead of Date object
             return field.string();
           }
           return next();
@@ -93,7 +88,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       debug: false,
     });
 
-    // Initialize helper classes
     this.cascadeHandler = new CascadeHandler(
       this.knexInstance,
       this.metadataCacheService,
@@ -105,10 +99,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       this.logger,
     );
 
-    // Register default hooks (replaces postProcessResponse)
     this.registerDefaultHooks();
 
-    // Verify connection
     try {
       await this.knexInstance.raw('SELECT 1');
       this.logger.log('Knex connection established with timestamp hooks');
@@ -119,24 +111,22 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   private registerDefaultHooks() {
-    // Store M2M and O2M data in a Map with tableName as key (since we process one insert at a time)
     const cascadeContextMap = new Map<string, any>();
 
     this.addHook('beforeInsert', (tableName, data) => {
-      // Store original M2M and O2M data for afterInsert hook
-      // Extract relations BEFORE transformRelationsToFK deletes them
       const originalRelationData: any = {};
 
       if (typeof data === 'object' && !Array.isArray(data)) {
         for (const key in data) {
-          if (Array.isArray(data[key])) {
-            // Might be M2M or O2M relation - store it
-            originalRelationData[key] = data[key];
+          const value = data[key];
+          if (Array.isArray(value)) {
+            originalRelationData[key] = value;
+          } else if (value && typeof value === 'object' && !Buffer.isBuffer(value) && !(value instanceof Date)) {
+            originalRelationData[key] = value;
           }
         }
       }
 
-      // Store relation data for afterInsert hook
       cascadeContextMap.set(tableName, {
         relationData: originalRelationData
       });
@@ -185,15 +175,16 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.addHook('beforeUpdate', async (tableName, data) => {
-      // Store original O2M data and recordId for afterUpdate hook
       const originalRelationData: any = {};
       let recordId = data.id;
 
       if (typeof data === 'object' && !Array.isArray(data)) {
         for (const key in data) {
-          if (Array.isArray(data[key])) {
-            // Might be O2M relation - store it
-            originalRelationData[key] = data[key];
+          const value = data[key];
+          if (Array.isArray(value)) {
+            originalRelationData[key] = value;
+          } else if (value && typeof value === 'object' && !Buffer.isBuffer(value) && !(value instanceof Date)) {
+            originalRelationData[key] = value;
           }
         }
       }
@@ -252,7 +243,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
-    // Query metadata to check if this table is a junction table
     const metadata = await this.metadataCacheService.getMetadata();
     if (!metadata) return false;
 
@@ -353,16 +343,13 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     if (!this.knexInstance) {
       throw new Error('Knex instance not initialized. Call onModuleInit first.');
     }
-    
-    // Return a proxy that intercepts all knex calls and wraps query builders
+
     const self = this;
     return new Proxy(this.knexInstance, {
       get(target, prop) {
         const value = target[prop];
-        
-        // If accessing a method that might return a query builder, wrap it
+
         if (typeof value === 'function') {
-          // Special handling for methods that return query builders
           if (prop === 'table' || prop === 'from' || prop === 'queryBuilder') {
             return function(...args: any[]) {
               const qb = value.apply(target, args);
@@ -370,14 +357,12 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
             };
           }
 
-          // Bind other methods to the target but don't wrap
           return value.bind(target);
         }
 
         return value;
       },
       apply(target, thisArg, args: [string]) {
-        // Intercept knex(tableName) calls
         const qb = Reflect.apply(target, thisArg, args);
         return self.wrapQueryBuilder(qb);
       },
@@ -420,23 +405,21 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const records = Array.isArray(data) ? data : [data];
     const tableColumns = this.columnTypesMap.get(tableName);
     const now = this.knexInstance.fn.now();
-    
+
     if (tableColumns) {
       const { randomUUID } = await import('crypto');
-      // Auto-generate UUID for UUID columns that are null/undefined
       for (const record of records) {
         for (const [colName, colType] of tableColumns.entries()) {
           if (colType === 'uuid' && (record[colName] === null || record[colName] === undefined)) {
             record[colName] = randomUUID();
           }
         }
-        
-        // Auto-add timestamps (runtime behavior, not metadata-driven)
+
         if (record.createdAt === undefined) {
           record.createdAt = now;
         }
           record.updatedAt = now;
-        
+
       }
     }
     
@@ -451,23 +434,18 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private autoParseJsonFields(result: any, queryContext?: any): any {
     if (!result) return result;
 
-    // Get table name from query context
     const tableName = queryContext?.table || queryContext?.__knexQueryUid?.split('.')[0];
 
-    // If no table name or no metadata for this table, return as-is
     if (!tableName || !this.columnTypesMap.has(tableName)) {
       return result;
     }
 
-    // Get column types for this table
     const columnTypes = this.columnTypesMap.get(tableName)!;
 
-    // Handle array of records
     if (Array.isArray(result)) {
       return result.map(record => this.parseRecord(record, columnTypes));
     }
 
-    // Handle single record
     if (typeof result === 'object' && !Buffer.isBuffer(result)) {
       return this.parseRecord(result, columnTypes);
     }
@@ -482,15 +460,13 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     const parsed = { ...record };
 
-    // Parse JSON fields only
     for (const [fieldName, fieldType] of columnTypes) {
-      if ((fieldType === 'simple-json' || fieldType === 'json') && 
-          parsed[fieldName] && 
+      if ((fieldType === 'simple-json' || fieldType === 'json') &&
+          parsed[fieldName] &&
           typeof parsed[fieldName] === 'string') {
         try {
           parsed[fieldName] = JSON.parse(parsed[fieldName]);
         } catch (e) {
-          // Keep as string if parse fails
         }
       }
     }
@@ -499,7 +475,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   async insertWithCascade(tableName: string, data: any): Promise<any> {
-    // Create EntityManager with knexInstance (no transaction)
     const manager = new KnexEntityManager(
       this.knexInstance,
       this.hooks,
@@ -512,7 +487,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateWithCascade(tableName: string, recordId: any, data: any): Promise<void> {
-    // Create EntityManager with knexInstance (no transaction)
     const manager = new KnexEntityManager(
       this.knexInstance,
       this.hooks,

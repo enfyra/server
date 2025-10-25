@@ -71,7 +71,7 @@ export async function buildNestedSubquery(
   if (rootFields.includes('*')) {
     const fkColumnsToOmit = new Set<string>();
     for (const rel of targetMeta.relations || []) {
-      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+      if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
         const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.targetTableName);
         if (fkCol) fkColumnsToOmit.add(fkCol);
       }
@@ -128,10 +128,15 @@ export async function buildNestedSubquery(
 
   const parentRef = nestingLevel === 0 ? parentTable : parentAlias;
 
-  if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+  if (relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse)) {
     const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
     const leftSide = castToText(`${nextAlias}.id`, dbType);
     const rightSide = castToText(`${parentRef}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
+    return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
+  } else if (relation.type === 'one-to-one' && (relation as any).isInverse) {
+    const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName || relationName);
+    const leftSide = castToText(`${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
+    const rightSide = castToText(`${parentRef}.id`, dbType);
     return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
   } else if (relation.type === 'one-to-many') {
     let fkColumn = relation.foreignKeyColumn;

@@ -204,14 +204,34 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             relationMetadata.isInverse = true;
           } else if (rel.type === 'many-to-many' && rel.mappedBy) {
             relationMetadata.isInverse = true;
+          } else if (rel.type === 'one-to-one') {
+            if (rel.mappedBy) {
+              relationMetadata.isInverse = true;
+            } else {
+              const fkColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
+              const hasFkColumn = actualSchema?.columns?.some((col: any) => col.name === fkColumn);
+              relationMetadata.isInverse = !hasFkColumn;
+            }
           } else {
             relationMetadata.isInverse = false;
           }
 
-          if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+          if (rel.type === 'many-to-one') {
             relationMetadata.foreignKeyColumn = isMongoDB
               ? rel.propertyName
               : getForeignKeyColumnName(rel.propertyName);
+          }
+
+          if (rel.type === 'one-to-one') {
+            if (relationMetadata.isInverse) {
+              relationMetadata.foreignKeyColumn = isMongoDB
+                ? rel.inversePropertyName
+                : getForeignKeyColumnName(rel.inversePropertyName);
+            } else {
+              relationMetadata.foreignKeyColumn = isMongoDB
+                ? rel.propertyName
+                : getForeignKeyColumnName(rel.propertyName);
+            }
           }
 
           if (rel.type === 'one-to-many') {
@@ -376,10 +396,18 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             : getForeignKeyColumnName(relation.propertyName);
         }
 
+        if (inverseType === 'one-to-one') {
+          inverseRelation.mappedBy = relation.propertyName;
+          inverseRelation.isInverse = true;
+        }
+
         if (inverseType === 'many-to-many') {
           inverseRelation.junctionTableName = relation.junctionTableName;
           inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
           inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
+          if (relation.propertyName) {
+            inverseRelation.mappedBy = relation.propertyName;
+          }
         }
 
         if (!targetTable.relations) {
