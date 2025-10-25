@@ -78,7 +78,7 @@ export async function expandFieldsToJoinsAndSelect(
       // Root wildcard: add all scalar columns from base table
       const fkColumnsToOmit = new Set<string>();
       for (const rel of baseMeta.relations || []) {
-        if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
           const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.targetTableName);
           if (fkCol) fkColumnsToOmit.add(fkCol);
         }
@@ -128,7 +128,7 @@ export async function expandFieldsToJoinsAndSelect(
 
     // Optimization: For M2O/O2O relations requesting only 'id', use FK mapping instead of subquery
     const isIdOnly = nestedFields.length === 1 && (nestedFields[0] === 'id' || nestedFields[0] === '_id');
-    const isOwnerRelation = relation.type === 'many-to-one' || relation.type === 'one-to-one';
+    const isOwnerRelation = relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse);
 
     if (isIdOnly && isOwnerRelation) {
       // Use direct FK mapping: JSON_OBJECT('id', fkColumn)
