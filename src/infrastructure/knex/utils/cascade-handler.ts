@@ -11,8 +11,13 @@ export class CascadeHandler {
 
   /**
    * Handle cascade relations for both INSERT and UPDATE
-   * Logic: For each relation item with ID -> update its FK to point to parent
-   *        For each relation item without ID -> create new with FK pointing to parent
+   * Logic:
+   *   - M2M: sync junction table
+   *   - O2M: For each relation item with ID -> update its FK to point to parent
+   *          For each relation item without ID -> create new with FK pointing to parent
+   *   - O2O: For owner side (has FK column):
+   *          If relation item has ID -> link to existing entity
+   *          If relation item has no ID -> create new entity and link to it
    */
   async handleCascadeRelations(tableName: string, recordId: any, cascadeContextMap: Map<string, any>): Promise<void> {
     const contextData = cascadeContextMap.get(tableName);
@@ -53,8 +58,15 @@ export class CascadeHandler {
       }
 
       const relValue = originalRelationData[relName];
-      if (!Array.isArray(relValue) || relValue.length === 0) {
-        continue;
+
+      if (relation.type === 'one-to-one') {
+        if (!relValue || (Array.isArray(relValue) && relValue.length === 0)) {
+          continue;
+        }
+      } else {
+        if (!Array.isArray(relValue) || relValue.length === 0) {
+          continue;
+        }
       }
 
       if (relation.type === 'many-to-many') {
@@ -157,6 +169,59 @@ export class CascadeHandler {
         }
 
         this.logger.log(`     O2M complete: ${idsToRemove.length} removed (FK=NULL), ${updateCount} updated, ${createCount} created`);
+      } else if (relation.type === 'one-to-one') {
+        // Handle O2O: cascade create related entity if needed
+        this.logger.log(`   Processing O2O relation: ${relName}`);
+
+        const targetTableName = relation.targetTableName || relation.targetTable;
+        const foreignKeyColumn = relation.foreignKeyColumn;
+        const isInverse = relation.isInverse;
+
+        if (!targetTableName || !foreignKeyColumn) {
+          this.logger.warn(`     Missing O2O metadata`);
+          continue;
+        }
+
+        // Only handle owner side (non-inverse) - the side with the FK column
+        if (isInverse) {
+          this.logger.log(`     Skipping inverse side of O2O relation`);
+          continue;
+        }
+
+        this.logger.log(`     Target: ${targetTableName}, FK: ${foreignKeyColumn}`);
+
+        // relValue should contain the cascade data (objects without ID)
+        // For O2O, relValue should be a single object, not an array
+        const items = Array.isArray(relValue) ? relValue : [relValue];
+
+        for (const item of items) {
+          if (!item || typeof item !== 'object') {
+            continue;
+          }
+
+          if (item.id) {
+            // Item has ID -> just update the parent's FK to point to it
+            this.logger.log(`     Linking to existing item id=${item.id}, set ${foreignKeyColumn}=${item.id}`);
+
+            await this.knexInstance(tableName)
+              .where('id', recordId)
+              .update({ [foreignKeyColumn]: item.id });
+          } else {
+            // Item has no ID -> CREATE new related entity and set parent's FK
+            this.logger.log(`     Creating new related entity in ${targetTableName}`);
+
+            const result = await this.knexInstance(targetTableName).insert(item);
+            const newRelatedId = Array.isArray(result) ? result[0] : result;
+
+            this.logger.log(`     Created related entity with id=${newRelatedId}, updating parent ${foreignKeyColumn}=${newRelatedId}`);
+
+            await this.knexInstance(tableName)
+              .where('id', recordId)
+              .update({ [foreignKeyColumn]: newRelatedId });
+          }
+        }
+
+        this.logger.log(`     O2O complete: cascade created/linked related entity`);
       }
     }
 

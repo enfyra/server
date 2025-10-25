@@ -9,7 +9,7 @@ export class RelationTransformer {
 
   /**
    * Transform relation objects to foreign key values
-   * Extracts M2M and O2M data into special properties
+   * Extracts M2M, O2M, and O2O cascade data into special properties
    */
   async transformRelationsToFK(tableName: string, data: any): Promise<any> {
     if (!tableName) return data;
@@ -23,6 +23,7 @@ export class RelationTransformer {
     const transformed = { ...data };
     const manyToManyRelations: Array<{ relationName: string; ids: any[] }> = [];
     const oneToManyRelations: Array<{ relationName: string; items: any[] }> = [];
+    const oneToOneRelations: Array<{ relationName: string; item: any; foreignKeyColumn: string; targetTable: string }> = [];
 
     for (const relation of tableMeta.relations) {
       const relName = relation.propertyName;
@@ -34,14 +35,48 @@ export class RelationTransformer {
       const relValue = transformed[relName];
 
       switch (relation.type) {
-        case 'many-to-one':
-        case 'one-to-one': {
+        case 'many-to-one': {
           const fkColumn = relation.foreignKeyColumn || `${relName}Id`;
 
           if (relValue === null) {
             transformed[fkColumn] = null;
           } else if (typeof relValue === 'object' && relValue.id !== undefined) {
             transformed[fkColumn] = relValue.id;
+          } else if (typeof relValue === 'number' || typeof relValue === 'string') {
+            transformed[fkColumn] = relValue;
+          }
+
+          delete transformed[relName];
+          break;
+        }
+
+        case 'one-to-one': {
+          const isInverse = relation.isInverse || relation.mappedBy;
+
+          if (isInverse) {
+            delete transformed[relName];
+            break;
+          }
+
+          const fkColumn = relation.foreignKeyColumn || `${relName}Id`;
+
+          if (relValue === null) {
+            transformed[fkColumn] = null;
+          } else if (typeof relValue === 'object') {
+            if (relValue.id !== undefined) {
+              transformed[fkColumn] = relValue.id;
+            } else {
+              const targetTable = relation.targetTableName || relation.targetTable;
+              if (targetTable) {
+                const cleanedItem = await this.cleanNestedRelations(relValue, targetTable, metadata);
+                oneToOneRelations.push({
+                  relationName: relName,
+                  item: cleanedItem,
+                  foreignKeyColumn: fkColumn,
+                  targetTable,
+                });
+              }
+            }
           } else if (typeof relValue === 'number' || typeof relValue === 'string') {
             transformed[fkColumn] = relValue;
           }
@@ -91,12 +126,15 @@ export class RelationTransformer {
       }
     }
 
-    // Store M2M and O2M data in special properties for insertWithCascade to use
+    // Store M2M, O2M, and O2O data in special properties for insertWithCascade to use
     if (manyToManyRelations.length > 0) {
       transformed._m2mRelations = manyToManyRelations;
     }
     if (oneToManyRelations.length > 0) {
       transformed._o2mRelations = oneToManyRelations;
+    }
+    if (oneToOneRelations.length > 0) {
+      transformed._o2oRelations = oneToOneRelations;
     }
 
     return transformed;

@@ -397,11 +397,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         }
 
         if (inverseType === 'one-to-one') {
-          const isMongoDB = this.queryBuilder.isMongoDb();
-          inverseRelation.foreignKeyColumn = isMongoDB
-            ? relation.propertyName
-            : getForeignKeyColumnName(relation.propertyName);
           inverseRelation.mappedBy = relation.propertyName;
+          inverseRelation.isInverse = true;
         }
 
         if (inverseType === 'many-to-many') {
