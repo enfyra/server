@@ -166,7 +166,7 @@ export class QueryBuilderService {
       const collection = this.mongoService.collection(options.table);
       await collection.updateMany(filter, { $set: dataWithTimestamp });
       const results = await collection.find(filter).toArray();
-      return results.map(doc => this.mongoService['mapDocument'](doc));
+      return results;
     }
     
     const knex = this.knexService.getKnex();
@@ -333,7 +333,7 @@ export class QueryBuilderService {
       
       const collection = this.mongoService.collection(table);
       const results = await collection.find(normalizedWhere).toArray();
-      return results.map(doc => this.mongoService['mapDocument'](doc));
+      return results;
     }
     
     const knex = this.knexService.getKnex();

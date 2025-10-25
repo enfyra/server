@@ -217,7 +217,7 @@ export class MongoQueryExecutor {
         });
       }
       const results = await collection.aggregate(options.pipeline).toArray();
-      return this.transformMongoResults(results);
+      return results;
     }
 
     return this.executeAggregationPipeline(collection, options);
@@ -294,7 +294,7 @@ export class MongoQueryExecutor {
         return results;
       }
 
-      return this.transformMongoResults(results);
+      return results;
     }
 
     const { scalarFields, relations } = options.mongoFieldsExpanded;
@@ -436,7 +436,7 @@ export class MongoQueryExecutor {
       return results;
     }
 
-    return this.transformMongoResults(results);
+    return results;
   }
 
   private async addProjectionStage(
@@ -500,7 +500,4 @@ export class MongoQueryExecutor {
     }
   }
 
-  private transformMongoResults(documents: any[]): any[] {
-    return documents.map(doc => this.mongoService['mapDocument'](doc));
-  }
 }

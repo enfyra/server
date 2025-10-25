@@ -237,13 +237,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     if (limit) cursor = cursor.limit(limit);
     
     const results = await cursor.toArray();
-    return results.map(doc => this.mapDocument(doc, tableName));
+    return results;
   }
 
   async findOne(collectionName: string, filter: any): Promise<any> {
     const collection = this.collection(collectionName);
     const result = await collection.findOne(filter);
-    return result ? this.mapDocument(result, collectionName) : null;
+    return result;
   }
 
   /**
@@ -567,37 +567,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async count(collectionName: string, filter: any = {}): Promise<number> {
     const collection = this.collection(collectionName);
     return collection.countDocuments(filter);
-  }
-
-  private mapDocument(doc: any, tableName?: string): any {
-    if (!doc) return doc;
-    
-    // Recursively convert ObjectId and Date to proper JSON types
-    const convertTypes = (obj: any): any => {
-      if (obj instanceof ObjectId) {
-        return obj.toString();
-      }
-      
-      if (obj instanceof Date) {
-        return obj.toISOString();
-      }
-      
-      if (Array.isArray(obj)) {
-        return obj.map(item => convertTypes(item));
-      }
-      
-      if (obj !== null && typeof obj === 'object') {
-        const converted: any = {};
-        for (const [key, value] of Object.entries(obj)) {
-          converted[key] = convertTypes(value);
-        }
-        return converted;
-      }
-      
-      return obj;
-    };
-    
-    return convertTypes(doc);
   }
 
   private extractDbName(uri: string): string {
