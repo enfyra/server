@@ -104,6 +104,18 @@ export class SqlSchemaMigrationService {
           table.index(indexGroup);
         }
       }
+
+      table.index(['createdAt']);
+      table.index(['updatedAt']);
+      table.index(['createdAt', 'updatedAt']);
+
+      const timestampFields = (tableMetadata.columns || []).filter(col =>
+        col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+      );
+
+      for (const field of timestampFields) {
+        table.index([field.name]);
+      }
     });
 
     for (const rel of tableMetadata.relations || []) {

@@ -321,6 +321,18 @@ async function createTable(
         }
       }
     }
+
+    table.index(['createdAt']);
+    table.index(['updatedAt']);
+    table.index(['createdAt', 'updatedAt']);
+
+    const timestampFields = definition.columns.filter(col =>
+      col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+    );
+
+    for (const field of timestampFields) {
+      table.index([field.name]);
+    }
   });
 
   console.log(`✅ Created table: ${tableName}`);
@@ -771,6 +783,10 @@ async function applyColumnMigrations(
 
         if (col.isUnique) {
           column.unique();
+        }
+
+        if (col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date') {
+          table.index([col.name]);
         }
       }
     });

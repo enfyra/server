@@ -108,6 +108,10 @@ export async function applyRelationFilters(
       continue;
     }
 
+    if ((relation.type === 'many-to-one' || relation.type === 'one-to-one') && lookupPipeline.length > 0) {
+      lookupPipeline.push({ $limit: 1 });
+    }
+
     pipeline.push({
       $lookup: {
         from: targetTable,
@@ -227,6 +231,11 @@ export async function applyMixedFilters(
           foreignField = relation.foreignKeyColumn || 'id';
         } else {
           continue;
+        }
+
+        // OPTIMIZATION: Add $limit for many-to-one/one-to-one relations
+        if ((relation.type === 'many-to-one' || relation.type === 'one-to-one') && lookupPipeline.length > 0) {
+          lookupPipeline.push({ $limit: 1 });
         }
 
         pipeline.push({

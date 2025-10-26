@@ -98,6 +98,10 @@ export async function buildNestedLookupPipeline(
       ? await buildNestedLookupPipeline(metadata, nestedRel.targetTable, ['_id'], nestedRelationFilter)
       : [];
 
+    if (nestedRel.type === 'one' && nestedNestedPipeline.length > 0) {
+      nestedNestedPipeline.push({ $limit: 1 });
+    }
+
     nestedPipeline.push({
       $lookup: {
         from: nestedRel.targetTable,

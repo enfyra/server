@@ -3,19 +3,12 @@ import { MongoService } from './mongo.service';
 
 type BsonType = 'string' | 'int' | 'long' | 'double' | 'bool' | 'date' | 'objectId' | 'object' | 'array';
 
-/**
- * MongoSchemaMigrationService - Handle MongoDB schema migrations
- * Creates/updates collections with JSON Schema validation and indexes
- */
 @Injectable()
 export class MongoSchemaMigrationService {
   private readonly logger = new Logger(MongoSchemaMigrationService.name);
 
   constructor(private readonly mongoService: MongoService) {}
 
-  /**
-   * Map application types to BSON types for MongoDB validation
-   */
   private getBsonType(type: string): BsonType {
     const typeMap: Record<string, BsonType> = {
       'string': 'string',
@@ -36,28 +29,22 @@ export class MongoSchemaMigrationService {
     return typeMap[type] || 'string';
   }
 
-  /**
-   * Create JSON Schema validation for MongoDB collection
-   */
   private createValidationSchema(columns: any[]): any {
     const properties: any = {};
     const required: string[] = [];
 
     for (const col of columns) {
-      // Skip auto-generated fields from validation
       if (col.name === '_id' || col.name === 'createdAt' || col.name === 'updatedAt') {
         continue;
       }
-      
+
       const bsonType = this.getBsonType(col.type);
-      
+
       properties[col.name] = {
         bsonType: col.isNullable ? [bsonType, 'null'] : bsonType,
         description: col.description || col.name,
       };
 
-      // Add to required if not nullable AND no default value AND not generated
-      // If field has defaultValue or isGenerated, client doesn't need to provide it
       if (!col.isNullable && !col.defaultValue && !col.isGenerated) {
         required.push(col.name);
       }
@@ -75,9 +62,6 @@ export class MongoSchemaMigrationService {
     return schema;
   }
 
-  /**
-   * Create partial filter expression to allow multiple null values in unique indexes
-   */
   private createPartialFilterForUnique(fields: string[]): any {
     const filter: any = {};
     for (const field of fields) {
@@ -86,15 +70,11 @@ export class MongoSchemaMigrationService {
     return filter;
   }
 
-  /**
-   * Create a new collection with validation schema and indexes
-   */
   async createCollection(tableMetadata: any): Promise<void> {
     const db = this.mongoService.getDb();
     const collectionName = tableMetadata.name;
 
     try {
-      // Check if collection already exists
       const collections = await db.listCollections({ name: collectionName }).toArray();
       if (collections.length > 0) {
         this.logger.warn(` Collection ${collectionName} already exists, skipping creation`);
@@ -103,10 +83,8 @@ export class MongoSchemaMigrationService {
 
       this.logger.log(`Creating collection: ${collectionName}`);
 
-      // Create validation schema
       const validationSchema = this.createValidationSchema(tableMetadata.columns || []);
 
-      // Create collection with validation
       await db.createCollection(collectionName, {
         validator: { $jsonSchema: validationSchema },
         validationLevel: 'moderate',
@@ -115,7 +93,6 @@ export class MongoSchemaMigrationService {
 
       this.logger.log(`Created collection with validation: ${collectionName}`);
 
-      // Create indexes
       await this.createIndexes(
         collectionName,
         tableMetadata.columns || [],
@@ -131,9 +108,6 @@ export class MongoSchemaMigrationService {
     }
   }
 
-  /**
-   * Update collection validation schema and indexes
-   */
   async updateCollection(
     collectionName: string,
     oldMetadata: any,
@@ -144,9 +118,8 @@ export class MongoSchemaMigrationService {
     try {
       this.logger.log(`🔧 Updating collection: ${collectionName}`);
 
-      // Update validation schema
       const validationSchema = this.createValidationSchema(newMetadata.columns || []);
-      
+
       await db.command({
         collMod: collectionName,
         validator: { $jsonSchema: validationSchema },
@@ -156,7 +129,6 @@ export class MongoSchemaMigrationService {
 
       this.logger.log(`Updated validation schema for: ${collectionName}`);
 
-      // Drop all indexes (except _id)
       const collection = db.collection(collectionName);
       try {
         await collection.dropIndexes();
@@ -165,7 +137,6 @@ export class MongoSchemaMigrationService {
         this.logger.warn(`Failed to drop indexes: ${error.message}`);
       }
 
-      // Recreate indexes
       await this.createIndexes(
         collectionName,
         newMetadata.columns || [],
@@ -181,14 +152,10 @@ export class MongoSchemaMigrationService {
     }
   }
 
-  /**
-   * Drop a collection
-   */
   async dropCollection(collectionName: string): Promise<void> {
     const db = this.mongoService.getDb();
 
     try {
-      // Check if collection exists
       const collections = await db.listCollections({ name: collectionName }).toArray();
       if (collections.length === 0) {
         this.logger.warn(` Collection ${collectionName} does not exist, skipping drop`);
@@ -206,9 +173,6 @@ export class MongoSchemaMigrationService {
     }
   }
 
-  /**
-   * Create indexes for collection
-   */
   private async createIndexes(
     collectionName: string,
     columns: any[],
@@ -220,7 +184,6 @@ export class MongoSchemaMigrationService {
     const collection = db.collection(collectionName);
 
     try {
-      // Create unique indexes from column definitions
       for (const col of columns) {
         if (col.name === '_id') {
           continue;
@@ -238,7 +201,6 @@ export class MongoSchemaMigrationService {
         }
       }
 
-      // Create unique constraints
       for (const unique of uniques) {
         const indexSpec: any = {};
         for (const field of unique) {
@@ -252,7 +214,6 @@ export class MongoSchemaMigrationService {
         this.logger.log(`Created unique index on ${collectionName}: ${unique.join(', ')}`);
       }
 
-      // Create regular indexes
       for (const index of indexes) {
         const indexSpec: any = {};
         for (const field of index) {
@@ -264,9 +225,7 @@ export class MongoSchemaMigrationService {
         this.logger.log(`Created index on ${collectionName}: ${index.join(', ')}`);
       }
 
-      // Create indexes for relation fields (owner side only)
       for (const relation of relations) {
-        // Owner M2O/O2O relations store ObjectId
         if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
           const fieldName = relation.propertyName;
           await collection.createIndex(
@@ -276,7 +235,6 @@ export class MongoSchemaMigrationService {
           this.logger.log(`Created FK index on ${collectionName}.${fieldName}`);
         }
 
-        // Owner M2M relations (without mappedBy) store array of ObjectIds
         if (relation.type === 'many-to-many' && !relation.mappedBy) {
           const fieldName = relation.propertyName;
           await collection.createIndex(
@@ -286,10 +244,39 @@ export class MongoSchemaMigrationService {
           this.logger.log(`Created M2M FK index on ${collectionName}.${fieldName}`);
         }
       }
+
+      await collection.createIndex(
+        { createdAt: -1 },
+        { name: `${collectionName}_createdAt_idx` }
+      );
+      this.logger.log(`Created timestamp index on ${collectionName}.createdAt`);
+
+      await collection.createIndex(
+        { updatedAt: -1 },
+        { name: `${collectionName}_updatedAt_idx` }
+      );
+      this.logger.log(`Created timestamp index on ${collectionName}.updatedAt`);
+
+      await collection.createIndex(
+        { createdAt: -1, updatedAt: -1 },
+        { name: `${collectionName}_timestamps_idx` }
+      );
+      this.logger.log(`Created compound timestamp index on ${collectionName}: createdAt + updatedAt`);
+
+      const timestampFields = columns.filter(col =>
+        col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+      );
+
+      for (const field of timestampFields) {
+        await collection.createIndex(
+          { [field.name]: -1 },
+          { name: `${collectionName}_${field.name}_idx` }
+        );
+        this.logger.log(`Created timestamp index on ${collectionName}.${field.name}`);
+      }
     } catch (error) {
       this.logger.warn(`Failed to create some indexes for ${collectionName}: ${error.message}`);
     }
   }
 
 }
-

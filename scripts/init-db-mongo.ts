@@ -140,6 +140,51 @@ async function createIndexes(
     }
   }
 
+  // Create indexes for datetime/timestamp fields (for sorting/filtering)
+  const dateTimeFields = tableDef.columns.filter(col =>
+    col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+  );
+
+  for (const field of dateTimeFields) {
+    const indexName = `${collectionName}_${field.name}_idx`;
+
+    try {
+      await collection.createIndex(
+        { [field.name]: -1 }, // -1 for descending (most recent first)
+        { name: indexName }
+      );
+      console.log(`  Created index on datetime field: ${field.name}`);
+    } catch (error: any) {
+      if (error.code === 85 || error.code === 86) {
+        console.log(`  Index on ${field.name} already exists, skipping`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  // Create compound index for createdAt + updatedAt (common pattern)
+  const hasCreatedAt = tableDef.columns.some(col => col.name === 'createdAt');
+  const hasUpdatedAt = tableDef.columns.some(col => col.name === 'updatedAt');
+
+  if (hasCreatedAt && hasUpdatedAt) {
+    const indexName = `${collectionName}_timestamps_idx`;
+
+    try {
+      await collection.createIndex(
+        { createdAt: -1, updatedAt: -1 },
+        { name: indexName }
+      );
+      console.log(`  Created compound index: createdAt + updatedAt`);
+    } catch (error: any) {
+      if (error.code === 85 || error.code === 86) {
+        console.log(`  Compound timestamps index already exists, skipping`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
   if (tableDef.relations) {
     for (const relation of tableDef.relations) {
       if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
