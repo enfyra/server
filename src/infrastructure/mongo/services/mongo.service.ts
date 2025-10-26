@@ -248,8 +248,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       const targetCollection = relation.targetTableName || relation.targetTable;
 
       if (['many-to-one', 'one-to-one'].includes(relation.type)) {
-        const oldId = oldValue instanceof ObjectId ? oldValue : (oldValue ? new ObjectId(oldValue) : null);
-        const newId = newValue instanceof ObjectId ? newValue : (newValue ? new ObjectId(newValue) : null);
+        const oldId = oldValue instanceof ObjectId ? oldValue : (oldValue ? (typeof oldValue === 'object' && oldValue._id ? new ObjectId(oldValue._id) : new ObjectId(oldValue)) : null);
+        const newId = newValue instanceof ObjectId ? newValue : (newValue ? (typeof newValue === 'object' && newValue._id ? new ObjectId(newValue._id) : new ObjectId(newValue)) : null);
 
         if (oldId && (!newId || oldId.toString() !== newId.toString())) {
           if (relation.type === 'many-to-one') {
@@ -280,8 +280,16 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         }
       }
       else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
-        const oldIds = Array.isArray(oldValue) ? oldValue.map(v => v instanceof ObjectId ? v : new ObjectId(v)) : [];
-        const newIds = Array.isArray(newValue) ? newValue.map(v => v instanceof ObjectId ? v : new ObjectId(v)) : [];
+        const oldIds = Array.isArray(oldValue) ? oldValue.map(v => {
+          if (v instanceof ObjectId) return v;
+          if (typeof v === 'object' && v._id) return new ObjectId(v._id);
+          return new ObjectId(v);
+        }) : [];
+        const newIds = Array.isArray(newValue) ? newValue.map(v => {
+          if (v instanceof ObjectId) return v;
+          if (typeof v === 'object' && v._id) return new ObjectId(v._id);
+          return new ObjectId(v);
+        }) : [];
 
         const removed = oldIds.filter(oldId => !newIds.some(newId => newId.toString() === oldId.toString()));
         const added = newIds.filter(newId => !oldIds.some(oldId => oldId.toString() === newId.toString()));
