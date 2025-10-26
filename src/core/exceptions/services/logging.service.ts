@@ -24,32 +24,20 @@ export class LoggingService implements LoggerService {
   private correlationId: string | null = null;
   private context: LogContext = {};
 
-  /**
-   * Set correlation ID for the current request
-   */
   setCorrelationId(correlationId: string): void {
     this.correlationId = correlationId;
     this.context.correlationId = correlationId;
   }
 
-  /**
-   * Set context for the current request
-   */
   setContext(context: Partial<LogContext>): void {
     this.context = { ...this.context, ...context };
   }
 
-  /**
-   * Clear context and correlation ID
-   */
   clearContext(): void {
     this.correlationId = null;
     this.context = {};
   }
 
-  /**
-   * Create structured log data with context
-   */
   private createLogData(message: string, data?: any): any {
     const logData: any = {
       message,
@@ -64,88 +52,51 @@ export class LoggingService implements LoggerService {
     return logData;
   }
 
-  /**
-   * Log error with structured format
-   */
   error(message: string, data?: any): void {
     const logData = this.createLogData(message, data);
     this.logger.error(logData);
   }
 
-  /**
-   * Log warning with structured format
-   */
   warn(message: string, data?: any): void {
     const logData = this.createLogData(message, data);
     this.logger.warn(logData);
   }
 
-  /**
-   * Log info with structured format
-   */
   log(message: string, data?: any): void {
     const logData = this.createLogData(message, data);
     this.logger.log(logData);
   }
 
-  /**
-   * Log debug with structured format
-   */
   debug(message: string, data?: any): void {
     const logData = this.createLogData(message, data);
     this.logger.debug(logData);
   }
 
-  /**
-   * Log verbose with structured format
-   */
   verbose(message: string, data?: any): void {
     const logData = this.createLogData(message, data);
     this.logger.verbose(logData);
   }
 
-  /**
-   * Log API request
-   */
-  logRequest(
-    method: string,
-    url: string,
-    userId?: string,
-    additionalData?: any,
-  ): void {
-    // Remove userId from additionalData to avoid duplication
-    const { userId: _, ...cleanAdditionalData } = additionalData || {};
-    
-    this.log('API Request', {
-      method,
-      url,
-      userId,
-      ...cleanAdditionalData,
-    });
-  }
-
-  /**
-   * Log API response
-   */
   logResponse(
     method: string,
     url: string,
     statusCode: number,
     responseTime: number,
     userId?: string,
+    requestData?: any,
   ): void {
+    const { userId: _, ...cleanRequestData } = requestData || {};
+
     this.log('API Response', {
       method,
       url,
       statusCode,
       responseTime: `${responseTime}ms`,
       userId,
+      ...cleanRequestData,
     });
   }
 
-  /**
-   * Log database operation
-   */
   logDatabaseOperation(
     operation: string,
     table: string,
@@ -171,9 +122,6 @@ export class LoggingService implements LoggerService {
     }
   }
 
-  /**
-   * Log external service call
-   */
   logExternalServiceCall(
     service: string,
     endpoint: string,
@@ -201,9 +149,6 @@ export class LoggingService implements LoggerService {
     }
   }
 
-  /**
-   * Log script execution
-   */
   logScriptExecution(
     scriptId: string,
     duration: number,
@@ -227,9 +172,6 @@ export class LoggingService implements LoggerService {
     }
   }
 
-  /**
-   * Log performance metrics
-   */
   logPerformance(operation: string, duration: number, metadata?: any): void {
     this.log('Performance Metric', {
       operation,
@@ -238,9 +180,6 @@ export class LoggingService implements LoggerService {
     });
   }
 
-  /**
-   * Log security events
-   */
   logSecurityEvent(
     event: string,
     userId?: string,
@@ -255,9 +194,6 @@ export class LoggingService implements LoggerService {
     });
   }
 
-  /**
-   * Log business events
-   */
   logBusinessEvent(
     event: string,
     userId?: string,

@@ -18,10 +18,8 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
-    // Generate or extract correlation ID
     const correlationId = this.getCorrelationId(request);
 
-    // Set up logging context
     this.loggingService.setCorrelationId(correlationId);
     this.loggingService.setContext({
       method: request.method,
@@ -31,14 +29,6 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       userId: (request as any).user?.id,
     });
 
-    // Log incoming request
-    this.loggingService.logRequest(request.method, request.url, (request as any).user?.id, {
-      query: request.query,
-      body: this.sanitizeBody(request.body),
-      headers: this.sanitizeHeaders(request.headers),
-    });
-
-    // Add correlation ID to response headers
     response.setHeader('X-Correlation-ID', correlationId);
 
     return next.handle().pipe(
@@ -51,35 +41,30 @@ export class RequestLoggingInterceptor implements NestInterceptor {
             response.statusCode,
             responseTime,
             (request as any).user?.id,
+            {
+              query: request.query,
+              body: this.sanitizeBody(request.body),
+              headers: this.sanitizeHeaders(request.headers),
+            },
           );
           this.loggingService.clearContext();
         },
         error: () => {
-          // Error logging is handled by GlobalExceptionFilter
-          // to avoid duplicate logs. Only clear context here.
           this.loggingService.clearContext();
         },
       }),
     );
   }
 
-  /**
-   * Get correlation ID from headers or generate new one
-   */
   private getCorrelationId(req: Request): string {
-    // Check if correlation ID is provided in headers
     const providedCorrelationId = req.headers['x-correlation-id'] as string;
     if (providedCorrelationId) {
       return providedCorrelationId;
     }
 
-    // Generate new correlation ID
     return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  /**
-   * Sanitize request body for logging
-   */
   private sanitizeBody(body: any): any {
     if (!body || typeof body !== 'object') {
       return body;
@@ -97,9 +82,6 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     return sanitized;
   }
 
-  /**
-   * Sanitize headers for logging
-   */
   private sanitizeHeaders(headers: any): any {
     if (!headers || typeof headers !== 'object') {
       return headers;
