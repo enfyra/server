@@ -69,6 +69,13 @@ export async function generateSQLFromDiff(
       );
       logger.log(`  Added UNIQUE constraint on ${col.name} for one-to-one relation`);
     }
+
+    // Add index for datetime/timestamp/date columns
+    if (col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date') {
+      const indexName = `idx_${tableName}_${col.name}`;
+      sqlStatements.push(generateAddIndexSQL(tableName, indexName, [col.name], dbType));
+      logger.log(`  Added index on datetime column: ${col.name}`);
+    }
   }
 
   const processedUpdates = new Set<string>();

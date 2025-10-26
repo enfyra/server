@@ -337,6 +337,10 @@ export class MongoQueryExecutor {
           relationFilter
         );
 
+        if (rel.type === 'one' && nestedPipeline.length > 0) {
+          nestedPipeline.push({ $limit: 1 });
+        }
+
         pipeline.push({
           $lookup: {
             from: rel.targetTable,
@@ -353,6 +357,10 @@ export class MongoQueryExecutor {
           ['_id'],
           relationFilter
         );
+
+        if (rel.type === 'one' && nestedPipeline.length > 0) {
+          nestedPipeline.push({ $limit: 1 });
+        }
 
         pipeline.push({
           $lookup: {
