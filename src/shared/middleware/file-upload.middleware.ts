@@ -22,14 +22,13 @@ export class FileUploadMiddleware implements NestMiddleware {
   });
 
   use(req: RequestWithRouteData, res: Response, next: NextFunction) {
-    const actualPath = req.originalUrl || req.url;
-    const isFileDefinitionRoute = actualPath.includes('/file_definition');
     const isPostOrPatch = ['POST', 'PATCH'].includes(req.method);
     const isMultipartContent = req.headers['content-type']?.includes(
       'multipart/form-data',
     );
 
-    if (!isFileDefinitionRoute || !isPostOrPatch || !isMultipartContent) {
+    // Skip if not POST/PATCH or not multipart content
+    if (!isPostOrPatch || !isMultipartContent) {
       return next();
     }
 

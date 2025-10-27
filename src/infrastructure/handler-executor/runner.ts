@@ -102,7 +102,15 @@ process.on('message', async (msg: any) => {
     ctx.$helpers = buildFunctionProxy('$helpers');
     ctx.$logs = buildCallableFunctionProxy('$logs');
     ctx.$cache = buildFunctionProxy('$cache');
-    
+
+    // Auto-reconstruct Buffer for uploaded files (IPC serializes Buffer as { type: 'Buffer', data: [...] })
+    if (ctx.$uploadedFile?.buffer) {
+      const bufData = ctx.$uploadedFile.buffer;
+      if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
+        ctx.$uploadedFile.buffer = Buffer.from(bufData.data);
+      }
+    }
+
     // Process template syntax with optimized single-pass replacement
     const processedCode = processTemplate(msg.code);
     
