@@ -164,10 +164,47 @@ export class KnexHookRegistry {
       return this.autoParseJsonFields(result, { table: tableName });
     });
 
-    this.addHook('afterSelect', (tableName, result) => {
-      return parseBooleanFields(result);
+    this.addHook('afterSelect', async (tableName, result) => {
+      const booleanFields = await this.getBooleanFieldsForTable(tableName);
+      return parseBooleanFields(result, booleanFields);
     });
 
     this.logger.log('🪝 Default hooks registered');
+  }
+
+  private async getBooleanFieldsForTable(tableName: string): Promise<Set<string>> {
+    const booleanFields = new Set<string>();
+
+    const metadata = this.metadataCacheService.getDirectMetadata();
+    if (!metadata) return booleanFields;
+
+    const tableMetadata = await this.metadataCacheService.lookupTableByName(tableName);
+    if (!tableMetadata) return booleanFields;
+
+    if (tableMetadata.columns) {
+      for (const column of tableMetadata.columns) {
+        if (column.type === 'boolean') {
+          booleanFields.add(column.name);
+        }
+      }
+    }
+
+    if (tableMetadata.relations) {
+      for (const relation of tableMetadata.relations) {
+        const relatedTableName = relation.targetTableName || relation.targetTable;
+        if (relatedTableName) {
+          const relatedMetadata = await this.metadataCacheService.lookupTableByName(relatedTableName);
+          if (relatedMetadata?.columns) {
+            for (const column of relatedMetadata.columns) {
+              if (column.type === 'boolean') {
+                booleanFields.add(column.name);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return booleanFields;
   }
 }
