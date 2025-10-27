@@ -15,7 +15,7 @@ export async function buildRelationSubquery(
   metadata: TableMetadata,
   dbType: string,
   getMetadata?: (tableName: string) => Promise<TableMetadata | null>,
-): Promise<string> {
+): Promise<string | null> {
   const relation = metadata.relations.find(r => r.propertyName === relationName);
 
   if (!relation) {
@@ -29,6 +29,18 @@ export async function buildRelationSubquery(
       `Relation "${relationName}" in table "${tableName}" is missing targetTable/targetTableName. ` +
       `Relation metadata: ${JSON.stringify(relation, null, 2)}`
     );
+  }
+
+  if ((relation.type === 'many-to-one' || relation.type === 'one-to-one') && relation.foreignKeyColumn) {
+    const filterKeys = Object.keys(relationFilter || {});
+    const isOnlyIdNull = filterKeys.length === 1 &&
+                         filterKeys[0] === 'id' &&
+                         typeof relationFilter.id === 'object' &&
+                         ('_is_null' in relationFilter.id || '_is_not_null' in relationFilter.id);
+
+    if (isOnlyIdNull) {
+      return null;
+    }
   }
 
   let subquery: Knex.QueryBuilder;
@@ -118,7 +130,25 @@ async function applyFiltersToSubquery(
           dbType,
           getMetadata,
         );
-        query.whereRaw(`EXISTS (${nestedSubquerySql})`);
+
+        if (nestedSubquerySql === null) {
+          const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
+          if (relation && relation.foreignKeyColumn) {
+            const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
+            const filterObj = nestedRelFilter as any;
+            if (filterObj.id?._is_null === true) {
+              query.whereNull(fkColumn);
+            } else if (filterObj.id?._is_null === false) {
+              query.whereNotNull(fkColumn);
+            } else if (filterObj.id?._is_not_null === true) {
+              query.whereNotNull(fkColumn);
+            } else if (filterObj.id?._is_not_null === false) {
+              query.whereNull(fkColumn);
+            }
+          }
+        } else {
+          query.whereRaw(`EXISTS (${nestedSubquerySql})`);
+        }
       }
     }
     return;
@@ -141,7 +171,25 @@ async function applyFiltersToSubquery(
           dbType,
           getMetadata,
         );
-        subqueries.push(`EXISTS (${nestedSubquerySql})`);
+
+        if (nestedSubquerySql !== null) {
+          subqueries.push(`EXISTS (${nestedSubquerySql})`);
+        } else {
+          const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
+          if (relation && relation.foreignKeyColumn) {
+            const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
+            const filterObj = nestedRelFilter as any;
+            if (filterObj.id?._is_null === true) {
+              subqueries.push(`${fkColumn} IS NULL`);
+            } else if (filterObj.id?._is_null === false) {
+              subqueries.push(`${fkColumn} IS NOT NULL`);
+            } else if (filterObj.id?._is_not_null === true) {
+              subqueries.push(`${fkColumn} IS NOT NULL`);
+            } else if (filterObj.id?._is_not_null === false) {
+              subqueries.push(`${fkColumn} IS NULL`);
+            }
+          }
+        }
       }
 
       orParts.push({ fieldFilters, subqueries });
@@ -195,7 +243,25 @@ async function applyFiltersToSubquery(
         dbType,
         getMetadata,
       );
-      query.whereRaw(`NOT EXISTS (${nestedSubquerySql})`);
+
+      if (nestedSubquerySql === null) {
+        const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
+        if (relation && relation.foreignKeyColumn) {
+          const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
+          const filterObj = nestedRelFilter as any;
+          if (filterObj.id?._is_null === true) {
+            query.whereNotNull(fkColumn);
+          } else if (filterObj.id?._is_null === false) {
+            query.whereNull(fkColumn);
+          } else if (filterObj.id?._is_not_null === true) {
+            query.whereNull(fkColumn);
+          } else if (filterObj.id?._is_not_null === false) {
+            query.whereNotNull(fkColumn);
+          }
+        }
+      } else {
+        query.whereRaw(`NOT EXISTS (${nestedSubquerySql})`);
+      }
     }
     return;
   }
@@ -216,7 +282,25 @@ async function applyFiltersToSubquery(
       dbType,
       getMetadata,
     );
-    query.whereRaw(`EXISTS (${nestedSubquerySql})`);
+
+    if (nestedSubquerySql === null) {
+      const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
+      if (relation && relation.foreignKeyColumn) {
+        const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
+        const filterObj = nestedRelFilter as any;
+        if (filterObj.id?._is_null === true) {
+          query.whereNull(fkColumn);
+        } else if (filterObj.id?._is_null === false) {
+          query.whereNotNull(fkColumn);
+        } else if (filterObj.id?._is_not_null === true) {
+          query.whereNotNull(fkColumn);
+        } else if (filterObj.id?._is_not_null === false) {
+          query.whereNull(fkColumn);
+        }
+      }
+    } else {
+      query.whereRaw(`EXISTS (${nestedSubquerySql})`);
+    }
   }
 }
 

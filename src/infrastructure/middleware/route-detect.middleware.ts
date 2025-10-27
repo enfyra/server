@@ -85,7 +85,15 @@ export class RouteDetectMiddleware implements NestMiddleware {
         context.$share.$logs.push(...args);
       };
 
-      // Create dynamic repositories without context first to avoid circular reference
+      if (req.file) {
+        context.$uploadedFile = {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          buffer: req.file.buffer,
+          size: req.file.size,
+          fieldname: req.file.fieldname,
+        };
+      }
       const dynamicFindEntries = await Promise.all(
         [
           matchedRoute.route.mainTable,
@@ -154,6 +162,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
             (pubMethod: any) => pubMethod.method === req.method,
           ) || false,
         context,
+        res, // Store response object for handler access
       };
     }
     next();

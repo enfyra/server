@@ -122,7 +122,7 @@ import {DatabaseSchemaService} from './infrastructure/knex/services/database-sch
 export class AppModule implements NestModule {
   async configure(consumer: MiddlewareConsumer) {
     consumer.apply(ParseQueryMiddleware).forRoutes('*');
+    consumer.apply(FileUploadMiddleware).forRoutes('*');
     consumer.apply(RouteDetectMiddleware).forRoutes('*');
-    consumer.apply(FileUploadMiddleware).forRoutes('file_definition');
   }
 }
