@@ -56,6 +56,30 @@ export function wrapCtx(
       continue;
     }
 
+    if (key === '$res') {
+      wrapped[key] = {};
+
+      // Expose response methods as proxies to parent process
+      const resMethods = [
+        'status', 'send', 'json', 'sendFile', 'download',
+        'setHeader', 'set', 'contentType', 'type',
+        'end', 'redirect', 'write', 'sendStatus',
+        'cookie', 'clearCookie', 'attachment', 'location',
+      ];
+
+      for (const method of resMethods) {
+        wrapped[key][method] = {
+          __type: 'function',
+          path: [...path, key, method].join('.'),
+        };
+      }
+
+      // Expose headersSent property (read-only)
+      wrapped[key].headersSent = val.headersSent || false;
+
+      continue;
+    }
+
     if (key === '$headers') {
       wrapped[key] = {
         authorization: val['authorization'],

@@ -1,10 +1,48 @@
 import { pendingCalls } from '../runner';
 
+function serializeBuffers(obj: any): any {
+  if (Buffer.isBuffer(obj)) {
+    return {
+      type: 'Buffer',
+      data: Array.from(obj),
+    };
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(serializeBuffers);
+  }
+
+  if (obj && typeof obj === 'object' && obj.type === 'Buffer' && Array.isArray(obj.data)) {
+    return obj;
+  }
+
+  if (obj && typeof obj === 'object' && obj.constructor === Object) {
+    const keys = Object.keys(obj);
+    const isNumericKeys = keys.length > 0 && keys.every(k => /^\d+$/.test(k));
+
+    if (isNumericKeys) {
+      const sortedKeys = keys.map(Number).sort((a, b) => a - b);
+      const data = sortedKeys.map(k => obj[k]);
+      return {
+        type: 'Buffer',
+        data,
+      };
+    }
+
+    const serialized: any = {};
+    for (const key in obj) {
+      serialized[key] = serializeBuffers(obj[key]);
+    }
+    return serialized;
+  }
+
+  return obj;
+}
+
 let callCounter = 1;
 export function buildFunctionProxy(prefixPath: string): any {
   return new Proxy(async function () {}, {
     get(_, prop: string | symbol) {
-      // Skip special properties during debug/log
       if (
         prop === 'toJSON' ||
         prop === 'inspect' ||
@@ -14,7 +52,6 @@ export function buildFunctionProxy(prefixPath: string): any {
         return () => `[FunctionProxy: ${prefixPath}]`;
       }
 
-      // Allow nested calls like $helpers.$bcrypt.hash
       const newPath = `${prefixPath}.${String(prop)}`;
       return buildFunctionProxy(newPath);
     },
@@ -22,13 +59,16 @@ export function buildFunctionProxy(prefixPath: string): any {
     apply(_, __, args: any[]) {
       return (async () => {
         const callId = `call_${++callCounter}`;
+        const serializedArgs = args.map(serializeBuffers);
+
         process.send?.({
           type: 'call',
           callId,
           path: prefixPath,
-          args,
+          args: serializedArgs,
         });
-        return await waitForParentResponse(callId);
+        const result = await waitForParentResponse(callId, prefixPath);
+        return result;
       })();
     },
   });
@@ -37,21 +77,35 @@ export function buildFunctionProxy(prefixPath: string): any {
 export function buildCallableFunctionProxy(path: string) {
   return async (...args: any[]) => {
     const callId = `call_${++callCounter}`;
+    const serializedArgs = args.map(serializeBuffers);
+
     process.send?.({
       type: 'call',
       callId,
       path,
-      args,
+      args: serializedArgs,
     });
-    return await waitForParentResponse(callId);
+    const result = await waitForParentResponse(callId, path);
+    return result;
   };
 }
 
-/**
- * Wait for response from parent process
- */
-function waitForParentResponse(callId: string): Promise<any> {
+function waitForParentResponse(callId: string, path: string, timeoutMs: number = 10000): Promise<any> {
   return new Promise((resolve, reject) => {
-    pendingCalls.set(callId, { resolve, reject });
+    const timeout = setTimeout(() => {
+      pendingCalls.delete(callId);
+      reject(new Error(`IPC call timeout: ${path} did not respond within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    pendingCalls.set(callId, {
+      resolve: (value: any) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      reject: (error: any) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    });
   });
 }

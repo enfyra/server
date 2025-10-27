@@ -54,19 +54,32 @@ export class ChildProcessManager {
         try {
           const { parent, method } = resolvePath(ctx, msg.path);
 
-          if (typeof parent[method] !== 'function') return;
-          const result = await parent[method](...msg.args);
+          if (typeof parent[method] !== 'function') {
+            return;
+          }
 
-          // Check if child is still connected before sending
+          const reconstructedArgs = msg.args.map((arg: any) => {
+            if (arg && typeof arg === 'object' && arg.type === 'Buffer' && Array.isArray(arg.data)) {
+              return Buffer.from(arg.data);
+            }
+            return arg;
+          });
+
+          const result = await parent[method](...reconstructedArgs);
+
+          let safeResult = result;
+          if (msg.path.startsWith('$res.')) {
+            safeResult = undefined;
+          }
+
           if (!child.killed && child.connected) {
             child.send({
               type: 'call_result',
               callId: msg.callId,
-              result,
+              result: safeResult,
             });
           }
         } catch (err) {
-          // Check if child is still connected before sending error
           if (!child.killed && child.connected) {
             child.send({
               type: 'call_result',
@@ -82,10 +95,8 @@ export class ChildProcessManager {
         isDone.value = true;
         child.removeAllListeners();
 
-        // SMART MERGE CONTEXT - ONLY MERGE SIMPLE OBJECTS
         if (msg.ctx) {
           const mergedCtx = smartMergeContext(ctx, msg.ctx);
-          // Update the original context with merged changes
           Object.assign(ctx, mergedCtx);
         }
 

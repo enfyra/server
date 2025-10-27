@@ -52,11 +52,20 @@ export class DynamicService {
       );
       const timeoutMs = routeHandler?.timeout || this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000);
 
+      // Inject $res ONLY for handler (not for hooks)
+      const res = req.routeData.res;
+      if (res) {
+        req.routeData.context.$res = res;
+      }
+
       const result = await this.handlerExecutorService.run(
         scriptCode,
         req.routeData.context,
         timeoutMs,
       );
+
+      // Remove $res after handler to prevent hooks from using it
+      delete req.routeData.context.$res;
 
       return result;
     } catch (error) {

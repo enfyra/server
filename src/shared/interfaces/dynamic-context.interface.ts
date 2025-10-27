@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { UploadedFileInfo } from './file-management.interface';
 
 export interface TDynamicContext {
@@ -30,6 +30,7 @@ export interface TDynamicContext {
   $user?: any;
   $repos?: Record<string, any>;
   $req?: Request;
+  $res?: Response;
   $share?: {
     $logs?: any[];
   };
@@ -70,6 +71,7 @@ export interface RequestWithRouteData extends Request {
     mainTable?: any;
     targetTables?: any[];
     route?: any;
+    res?: Response;
   };
   user?: any;
   file?: any; // Multer file object

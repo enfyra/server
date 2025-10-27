@@ -54,6 +54,12 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
     }
     return next.handle().pipe(
       mergeMap(async (data) => {
+        const res = context.switchToHttp().getResponse();
+
+        if (res.headersSent) {
+          return undefined;
+        }
+
         if (hooks?.length) {
           for (const hook of hooks) {
             if (!hook.afterHook) continue;
@@ -88,7 +94,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             }
           }
         }
-        
+
         return req.routeData.context.$share.$logs.length
           ? { ...data, logs: req.routeData.context.$share.$logs }
           : data;
