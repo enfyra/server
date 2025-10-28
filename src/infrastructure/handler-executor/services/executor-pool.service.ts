@@ -11,6 +11,7 @@ export class ExecutorPoolService implements OnModuleInit {
       async create() {
         const child = fork(path.resolve(__dirname, '..', 'runner.js'), {
           execArgv: ['--max-old-space-size=256'],
+          silent: true,
         });
         return child;
       },
@@ -18,7 +19,6 @@ export class ExecutorPoolService implements OnModuleInit {
         child.kill();
       },
       async validate(child) {
-        // Check if child process is still alive and connected
         return child && !child.killed && child.connected;
       },
     };
@@ -26,12 +26,12 @@ export class ExecutorPoolService implements OnModuleInit {
       min: 2,
       max: 4,
       idleTimeoutMillis: 30000,
-      acquireTimeoutMillis: 10000, // Timeout acquire after 10s
-      evictionRunIntervalMillis: 5000, // Check for idle resources every 5s
-      numTestsPerEvictionRun: 2, // Test 2 resources per eviction run
-      softIdleTimeoutMillis: 10000, // Min idle time before eviction
-      testOnBorrow: true, // Validate before borrowing
-      testOnReturn: false, // Don't validate on return (faster)
+      acquireTimeoutMillis: 10000,
+      evictionRunIntervalMillis: 5000,
+      numTestsPerEvictionRun: 2,
+      softIdleTimeoutMillis: 10000,
+      testOnBorrow: true,
+      testOnReturn: false,
     });
   }
   getPool() {

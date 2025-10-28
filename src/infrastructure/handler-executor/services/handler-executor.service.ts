@@ -1,12 +1,7 @@
-// @nestjs packages
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-
-// Internal imports
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { PackageCacheService } from '../../cache/services/package-cache.service';
-
-// Relative imports
 import { ChildProcessManager } from '../utils/child-process-manager';
 import { wrapCtx } from '../utils/wrap-ctx';
 import { ExecutorPoolService } from './executor-pool.service';

@@ -72,6 +72,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    // Attach logs if available
+    const logs = (exception as any)?.logs;
+    if (logs && Array.isArray(logs) && logs.length > 0) {
+      (errorResponse as any).logs = logs;
+    }
+
     // Send HTTP response
     response.status(statusCode).json(errorResponse);
   }

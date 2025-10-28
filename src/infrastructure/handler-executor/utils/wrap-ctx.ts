@@ -59,7 +59,6 @@ export function wrapCtx(
     if (key === '$res') {
       wrapped[key] = {};
 
-      // Expose response methods as proxies to parent process
       const resMethods = [
         'status', 'send', 'json', 'sendFile', 'download',
         'setHeader', 'set', 'contentType', 'type',
@@ -74,7 +73,6 @@ export function wrapCtx(
         };
       }
 
-      // Expose headersSent property (read-only)
       wrapped[key].headersSent = val.headersSent || false;
 
       continue;
@@ -124,7 +122,6 @@ function toPlainSafe(obj: any, seen = new WeakSet()): any {
   if (seen.has(obj)) return '[Circular]';
   seen.add(obj);
 
-  // Keep Date object as is
   if (obj instanceof Date) return obj;
 
   if (Array.isArray(obj)) {

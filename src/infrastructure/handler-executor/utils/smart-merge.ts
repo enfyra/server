@@ -8,12 +8,11 @@ export function smartMergeContext(
   const mergedCtx = { ...originalCtx };
 
   const nonMergeableProperties = [
-    '$repos', // Repository functions
-    '$logs', // Log function
-    '$helpers', // Helper functions
-    // '$user', // User object should be mergeable
-    '$req', // Request object (complex)
-    '$throw', // Throw object
+    '$repos',
+    '$logs',
+    '$helpers',
+    '$req',
+    '$throw',
   ];
 
   for (const key in childCtx) {

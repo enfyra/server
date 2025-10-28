@@ -38,13 +38,18 @@ export class ChildProcessManager {
     reject: (error: any) => void,
     code: string,
   ): void {
-    // Track active streams
     const activeStreams = new Map<string, { started: boolean }>();
+
+    let stderrOutput = '';
+    if (child.stderr) {
+      child.stderr.on('data', (data: Buffer) => {
+        stderrOutput += data.toString();
+      });
+    }
 
     child.on('message', async (msg: any) => {
       if (isDone.value) return;
 
-      // Handle streaming messages
       if (msg.type === 'stream_start') {
         const { callId, options } = msg;
         activeStreams.set(callId, { started: true });
@@ -60,7 +65,6 @@ export class ChildProcessManager {
           return;
         }
 
-        // Set headers
         if (options.mimetype) {
           res.setHeader('Content-Type', options.mimetype);
         }
@@ -79,7 +83,6 @@ export class ChildProcessManager {
         const res = ctx.$res;
         if (!res) return;
 
-        // Reconstruct buffer from serialized data
         let buffer: Buffer;
         if (chunk && chunk.type === 'Buffer' && Array.isArray(chunk.data)) {
           buffer = Buffer.from(chunk.data);
@@ -87,7 +90,6 @@ export class ChildProcessManager {
           buffer = Buffer.from(chunk);
         }
 
-        // Write chunk to response
         res.write(buffer);
         return;
       }
@@ -104,7 +106,6 @@ export class ChildProcessManager {
 
         activeStreams.delete(callId);
 
-        // Send confirmation back to child
         if (!child.killed && child.connected) {
           child.send({
             type: 'call_result',
@@ -200,55 +201,90 @@ export class ChildProcessManager {
       }
 
       if (msg.type === 'error') {
+        const simpleMessage = msg.error.message;
+
+        const errorDetails: any = {
+          type: msg.error.name || 'Error',
+          message: msg.error.message,
+          stack: msg.error.stack,
+          statusCode: msg.error.statusCode,
+        };
+
+        if (msg.error.errorLine && msg.error.codeContextArray) {
+          errorDetails.location = {
+            line: msg.error.errorLine,
+            column: msg.error.errorColumn,
+          };
+          errorDetails.code = msg.error.codeContextArray;
+        }
+
         const error = ErrorHandler.createException(
           undefined,
           msg.error.statusCode,
-          msg.error.message,
+          simpleMessage,
           code,
-          {
-            statusCode: msg.error.statusCode,
-            stack: msg.error.stack,
-          },
+          errorDetails,
         );
 
         ErrorHandler.handleChildError(
-          isDone.value,
+          isDone,
           child,
           timeout,
           pool,
           error,
-          'Child Process Error',
-          msg.error.message,
+          'Handler Execution Error',
+          simpleMessage,
           code,
           reject,
-          {
-            statusCode: msg.error.statusCode,
-            stack: msg.error.stack,
-          },
+          errorDetails,
         );
       }
     });
 
     child.once('exit', async (exitCode: number, signal: string) => {
+      if (isDone.value) return;
+
+      let errorMessage = `Child process exited with code ${exitCode}, signal ${signal}`;
+      const errorDetails: any = { exitCode, signal };
+
+      if (stderrOutput) {
+        const syntaxErrorMatch = stderrOutput.match(/SyntaxError: (.+)/);
+        const referenceErrorMatch = stderrOutput.match(/ReferenceError: (.+)/);
+        const typeErrorMatch = stderrOutput.match(/TypeError: (.+)/);
+
+        if (syntaxErrorMatch) {
+          errorMessage = syntaxErrorMatch[1];
+          errorDetails.type = 'SyntaxError';
+        } else if (referenceErrorMatch) {
+          errorMessage = referenceErrorMatch[1];
+          errorDetails.type = 'ReferenceError';
+        } else if (typeErrorMatch) {
+          errorMessage = typeErrorMatch[1];
+          errorDetails.type = 'TypeError';
+        }
+
+        errorDetails.stderr = stderrOutput;
+      }
+
       const error = ErrorHandler.createException(
         undefined,
         undefined,
-        `Child process exited with code ${exitCode}, signal ${signal}`,
+        errorMessage,
         code,
-        { exitCode, signal },
+        errorDetails,
       );
 
       ErrorHandler.handleChildError(
-        isDone.value,
+        isDone,
         child,
         timeout,
         pool,
         error,
-        'Child Process Exit',
-        `Child process exited with code ${exitCode}, signal ${signal}`,
+        'Child Process Error',
+        errorMessage,
         code,
         reject,
-        { exitCode, signal },
+        errorDetails,
       );
     });
 
@@ -262,7 +298,7 @@ export class ChildProcessManager {
       );
 
       ErrorHandler.handleChildError(
-        isDone.value,
+        isDone,
         child,
         timeout,
         pool,
