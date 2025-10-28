@@ -1,6 +1,7 @@
 import {
   buildCallableFunctionProxy,
   buildFunctionProxy,
+  buildResponseProxy,
 } from './utils/build-fn-proxy';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -39,35 +40,44 @@ const templateMap = new Map([
 function stripStringsAndComments(code: string) {
   const placeholders: Array<{ placeholder: string; original: string }> = [];
   let counter = 0;
-  let result = code;
 
-  result = result.replace(/\/\*[\s\S]*?\*\//g, (match) => {
-    const placeholder = `__COMMENT_${counter++}__`;
-    placeholders.push({ placeholder, original: match });
-    return placeholder;
-  });
+  // IMPORTANT: Use single-pass regex to match ALL patterns in priority order
+  // This ensures we respect context (e.g., quotes inside comments are ignored)
+  //
+  // Priority order:
+  // 1. Template literals (can contain anything)
+  // 2. Strings (double or single quoted)
+  // 3. Multi-line comments (can span lines)
+  // 4. Single-line comments (to end of line)
+  //
+  // Using alternation (|), the regex engine tries patterns left-to-right
+  // Once a pattern matches, that text is "consumed" and won't match later patterns
 
-  result = result.replace(/\/\/.*$/gm, (match) => {
-    const placeholder = `__COMMENT_${counter++}__`;
-    placeholders.push({ placeholder, original: match });
-    return placeholder;
-  });
+  const combinedRegex = /(`(?:[^`\\]|\\.)*`)|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')|(\/\*[\s\S]*?\*\/)|(\/\/.*$)/gm;
 
-  result = result.replace(/`(?:[^`\\]|\\.)*`/g, (match) => {
-    const placeholder = `__TEMPLATE_${counter++}__`;
-    placeholders.push({ placeholder, original: match });
-    return placeholder;
-  });
+  const result = code.replace(combinedRegex, (match, template, doubleQuote, singleQuote, multiComment, singleComment) => {
+    let placeholder: string;
 
-  result = result.replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
-    const placeholder = `__STRING_${counter++}__`;
-    placeholders.push({ placeholder, original: match });
-    return placeholder;
-  });
+    if (template) {
+      placeholder = `__TEMPLATE_${counter++}__`;
+      placeholders.push({ placeholder, original: template });
+    } else if (doubleQuote) {
+      placeholder = `__STRING_${counter++}__`;
+      placeholders.push({ placeholder, original: doubleQuote });
+    } else if (singleQuote) {
+      placeholder = `__STRING_${counter++}__`;
+      placeholders.push({ placeholder, original: singleQuote });
+    } else if (multiComment) {
+      placeholder = `__COMMENT_${counter++}__`;
+      placeholders.push({ placeholder, original: multiComment });
+    } else if (singleComment) {
+      placeholder = `__COMMENT_${counter++}__`;
+      placeholders.push({ placeholder, original: singleComment });
+    } else {
+      // Should never happen
+      placeholder = match;
+    }
 
-  result = result.replace(/'(?:[^'\\]|\\.)*'/g, (match) => {
-    const placeholder = `__STRING_${counter++}__`;
-    placeholders.push({ placeholder, original: match });
     return placeholder;
   });
 
@@ -167,7 +177,7 @@ process.on('message', async (msg: any) => {
     ctx.$cache = buildFunctionProxy('$cache');
 
     if (ctx.$res) {
-      ctx.$res = buildFunctionProxy('$res');
+      ctx.$res = buildResponseProxy();
     }
 
     if (ctx.$uploadedFile?.buffer) {

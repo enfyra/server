@@ -109,3 +109,78 @@ function waitForParentResponse(callId: string, path: string, timeoutMs: number =
     });
   });
 }
+
+export function buildResponseProxy(): any {
+  const baseProxy = buildFunctionProxy('$res');
+
+  return new Proxy(baseProxy, {
+    get(target, prop: string | symbol) {
+      if (prop === 'stream') {
+        return async (streamOrIterable: any, options?: { mimetype?: string; filename?: string }) => {
+          const callId = `stream_${++callCounter}`;
+
+          // Send stream start message with options
+          process.send?.({
+            type: 'stream_start',
+            callId,
+            options: options || {},
+          });
+
+          try {
+            // Handle different stream types
+            const { Readable } = require('stream');
+
+            let readable: any;
+            if (streamOrIterable?.pipe && typeof streamOrIterable.pipe === 'function') {
+              // Already a readable stream
+              readable = streamOrIterable;
+            } else if (streamOrIterable?.[Symbol.asyncIterator]) {
+              // Async iterable - convert to stream
+              readable = Readable.from(streamOrIterable);
+            } else {
+              throw new Error('stream() requires a Readable stream or async iterable');
+            }
+
+            // Read and send chunks
+            for await (const chunk of readable) {
+              const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              const serializedChunk = {
+                type: 'Buffer',
+                data: Array.from(buffer),
+              };
+
+              process.send?.({
+                type: 'stream_chunk',
+                callId,
+                chunk: serializedChunk,
+              });
+            }
+
+            // Send stream end
+            process.send?.({
+              type: 'stream_end',
+              callId,
+            });
+
+            // Wait for confirmation
+            await waitForParentResponse(callId, '$res.stream');
+          } catch (error) {
+            // Send stream error
+            process.send?.({
+              type: 'stream_error',
+              callId,
+              error: {
+                message: error.message,
+                stack: error.stack,
+              },
+            });
+            throw error;
+          }
+        };
+      }
+
+      // Delegate other properties to base proxy
+      return target[prop];
+    },
+  });
+}

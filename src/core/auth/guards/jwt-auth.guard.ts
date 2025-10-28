@@ -13,6 +13,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     if (err || !user) {
       req.user = null;
+      // Always set $user in context (null if no user)
+      if (req.routeData) {
+        req.routeData.context.$user = null;
+      }
       return null;
     }
 
