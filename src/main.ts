@@ -26,6 +26,19 @@ async function bootstrap() {
 
   const nestStart = Date.now();
   const app = await NestFactory.create(AppModule);
+
+  const expressApp = app.getHttpAdapter().getInstance();
+  const qs = require('qs');
+  expressApp.set('query parser', (str: string) => {
+    return qs.parse(str, {
+      allowPrototypes: false,
+      depth: 10,
+      parameterLimit: 1000,
+      strictNullHandling: false,
+      arrayLimit: 200,
+    });
+  });
+
   logger.log(`NestJS Create: ${Date.now() - nestStart}ms`);
 
   // Setup GraphQL endpoint

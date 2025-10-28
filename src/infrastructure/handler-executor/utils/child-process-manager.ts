@@ -38,8 +38,102 @@ export class ChildProcessManager {
     reject: (error: any) => void,
     code: string,
   ): void {
+    // Track active streams
+    const activeStreams = new Map<string, { started: boolean }>();
+
     child.on('message', async (msg: any) => {
       if (isDone.value) return;
+
+      // Handle streaming messages
+      if (msg.type === 'stream_start') {
+        const { callId, options } = msg;
+        activeStreams.set(callId, { started: true });
+
+        const res = ctx.$res;
+        if (!res) {
+          child.send({
+            type: 'call_result',
+            callId,
+            error: true,
+            errorResponse: { message: 'Response object not available' },
+          });
+          return;
+        }
+
+        // Set headers
+        if (options.mimetype) {
+          res.setHeader('Content-Type', options.mimetype);
+        }
+        if (options.filename) {
+          res.setHeader('Content-Disposition', `attachment; filename="${options.filename}"`);
+        }
+
+        return;
+      }
+
+      if (msg.type === 'stream_chunk') {
+        const { callId, chunk } = msg;
+        const streamInfo = activeStreams.get(callId);
+        if (!streamInfo) return;
+
+        const res = ctx.$res;
+        if (!res) return;
+
+        // Reconstruct buffer from serialized data
+        let buffer: Buffer;
+        if (chunk && chunk.type === 'Buffer' && Array.isArray(chunk.data)) {
+          buffer = Buffer.from(chunk.data);
+        } else {
+          buffer = Buffer.from(chunk);
+        }
+
+        // Write chunk to response
+        res.write(buffer);
+        return;
+      }
+
+      if (msg.type === 'stream_end') {
+        const { callId } = msg;
+        const streamInfo = activeStreams.get(callId);
+        if (!streamInfo) return;
+
+        const res = ctx.$res;
+        if (res) {
+          res.end();
+        }
+
+        activeStreams.delete(callId);
+
+        // Send confirmation back to child
+        if (!child.killed && child.connected) {
+          child.send({
+            type: 'call_result',
+            callId,
+            result: undefined,
+          });
+        }
+        return;
+      }
+
+      if (msg.type === 'stream_error') {
+        const { callId, error } = msg;
+        activeStreams.delete(callId);
+
+        const res = ctx.$res;
+        if (res && !res.headersSent) {
+          res.status(500).json({ error: error.message });
+        }
+
+        if (!child.killed && child.connected) {
+          child.send({
+            type: 'call_result',
+            callId,
+            error: true,
+            errorResponse: error,
+          });
+        }
+        return;
+      }
 
       if (msg.type === 'call') {
         if (msg.path.includes('$throw')) {

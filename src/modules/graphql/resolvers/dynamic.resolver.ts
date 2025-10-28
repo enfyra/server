@@ -87,7 +87,7 @@ export class DynamicResolver {
         sort: args.sort,
         aggregate: args.aggregate,
       },
-      $user: user ?? undefined,
+      $user: user ?? null, // Always exists (null if no user)
       $repos: {}, // Will be populated below
       $req: context.request,
       $body: {},
@@ -161,7 +161,7 @@ export class DynamicResolver {
 
       // Setup context similar to query resolver
       const handlerCtx = {
-        $user: user ?? undefined,
+        $user: user ?? null, // Always exists (null if no user)
         $repos: {},
         $req: context.request,
         $body: args.input || {},

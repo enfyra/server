@@ -61,7 +61,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
         $cache: this.cacheService,
         $params: matchedRoute.params ?? {},
         $query: req.query ?? {},
-        $user: req.user ?? undefined,
+        $user: req.user ?? null, // Always exists (null if no user)
         $repos: {}, // Will be populated after repos are created
           $req: {
             ...req,
