@@ -12,10 +12,11 @@ import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.inte
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { 
-  BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY, 
-  REDIS_TTL 
+import {
+  BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
+  REDIS_TTL
 } from '../../../shared/utils/constant';
+import { transformCode } from '../../../infrastructure/handler-executor/code-transformer';
 
 @Injectable()
 export class BootstrapScriptService implements OnApplicationBootstrap {
@@ -129,6 +130,12 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
       sort: ['priority'],
     });
     const scripts = result.data;
+
+    for (const script of scripts) {
+      if (script.logic) {
+        script.logic = transformCode(script.logic);
+      }
+    }
 
     this.logger.log(`Found ${scripts.length} bootstrap scripts to execute`);
 
