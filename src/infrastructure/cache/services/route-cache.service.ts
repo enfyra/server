@@ -10,6 +10,7 @@ import {
   REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
+import { transformCode } from '../../handler-executor/code-transformer';
 
 @Injectable()
 export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
@@ -209,6 +210,15 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     });
     const globalHooks = globalHooksResult.data;
 
+    for (const hook of globalHooks) {
+      if (hook.preHook) {
+        hook.preHook = transformCode(hook.preHook);
+      }
+      if (hook.afterHook) {
+        hook.afterHook = transformCode(hook.afterHook);
+      }
+    }
+
     for (const route of routes) {
       const allHooks = [...globalHooks, ...(route.hooks || [])];
 
@@ -225,6 +235,25 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
 
       if (!route.targetTables) {
         route.targetTables = [];
+      }
+
+      if (route.handlers && Array.isArray(route.handlers)) {
+        for (const handler of route.handlers) {
+          if (handler.logic) {
+            handler.logic = transformCode(handler.logic);
+          }
+        }
+      }
+
+      if (route.hooks && Array.isArray(route.hooks)) {
+        for (const hook of route.hooks) {
+          if (hook.preHook) {
+            hook.preHook = transformCode(hook.preHook);
+          }
+          if (hook.afterHook) {
+            hook.afterHook = transformCode(hook.afterHook);
+          }
+        }
       }
     }
 

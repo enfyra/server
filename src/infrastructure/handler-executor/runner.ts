@@ -6,37 +6,6 @@ import {
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-const COMBINED_PATTERN = /(#([a-z_]+)|%([a-z_-]+)|@THROW\['([^']+)'\]|@THROW[0-9]+|@[A-Z_]+)/g;
-
-const templateMap = new Map([
-  ['@CACHE', '$ctx.$cache'],
-  ['@REPOS', '$ctx.$repos'],
-  ['@HELPERS', '$ctx.$helpers'],
-  ['@LOGS', '$ctx.$logs'],
-  ['@BODY', '$ctx.$body'],
-  ['@DATA', '$ctx.$data'],
-  ['@STATUS', '$ctx.$statusCode'],
-  ['@PARAMS', '$ctx.$params'],
-  ['@QUERY', '$ctx.$query'],
-  ['@USER', '$ctx.$user'],
-  ['@REQ', '$ctx.$req'],
-  ['@RES', '$ctx.$res'],
-  ['@SHARE', '$ctx.$share'],
-  ['@API', '$ctx.$api'],
-  ['@UPLOADED', '$ctx.$uploadedFile'],
-  ['@PKGS', '$ctx.$pkgs'],
-  ['@THROW400', '$ctx.$throw[\'400\']'],
-  ['@THROW401', '$ctx.$throw[\'401\']'],
-  ['@THROW403', '$ctx.$throw[\'403\']'],
-  ['@THROW404', '$ctx.$throw[\'404\']'],
-  ['@THROW409', '$ctx.$throw[\'409\']'],
-  ['@THROW422', '$ctx.$throw[\'422\']'],
-  ['@THROW429', '$ctx.$throw[\'429\']'],
-  ['@THROW500', '$ctx.$throw[\'500\']'],
-  ['@THROW503', '$ctx.$throw[\'503\']'],
-  ['@THROW', '$ctx.$throw'],
-]);
-
 function stripStringsAndComments(code: string) {
   const placeholders: Array<{ placeholder: string; original: string }> = [];
   let counter = 0;
@@ -79,22 +48,6 @@ function restoreStringsAndComments(code: string, placeholders: Array<{ placehold
   }
   return result;
 }
-
-const processTemplate = (code: string): string => {
-  const { result: stripped, placeholders } = stripStringsAndComments(code);
-
-  const processed = stripped.replace(COMBINED_PATTERN, (match, ...groups) => {
-    if (groups[1]) return `$ctx.$repos.${groups[1]}`;
-    if (groups[2]) return `$ctx.$pkgs.${groups[2]}`;
-    if (groups[3]) return `$ctx.$throw['${groups[3]}']`;
-    if (match.match(/@THROW[0-9]+/)) {
-      return templateMap.get(match) || match;
-    }
-    return templateMap.get(match) || match;
-  });
-
-  return restoreStringsAndComments(processed, placeholders);
-};
 
 const addAwaitToProxyCalls = (code: string): string => {
   const { result: stripped, placeholders } = stripStringsAndComments(code);
@@ -201,8 +154,7 @@ process.on('message', async (msg: any) => {
       }
     }
 
-    let processedCode = processTemplate(msg.code);
-    processedCode = addAwaitToProxyCalls(processedCode);
+    let processedCode = addAwaitToProxyCalls(msg.code);
 
     const wrappedCode = `"use strict";
 return (async () => {
