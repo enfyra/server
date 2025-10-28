@@ -76,7 +76,7 @@ export class ErrorHandler {
   }
 
   static handleChildError(
-    isDone: boolean,
+    isDoneRef: { value: boolean },
     child: any,
     timeout: NodeJS.Timeout,
     pool: any,
@@ -87,8 +87,9 @@ export class ErrorHandler {
     reject: (error: any) => void,
     additionalData?: any,
   ): boolean {
-    if (isDone) return true;
+    if (isDoneRef.value) return true;
 
+    isDoneRef.value = true;
     child.removeAllListeners();
     clearTimeout(timeout);
     pool.release(child);

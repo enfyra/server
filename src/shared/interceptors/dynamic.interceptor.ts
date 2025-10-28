@@ -108,7 +108,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           statusCode: error.status || 500,
           details: error.details || {},
         };
-        
+
         if (hooks?.length) {
           for (const hook of hooks) {
             if (!hook.afterHook) continue;
@@ -142,7 +142,12 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             }
           }
         }
-        
+
+        // Attach logs to error before throwing
+        if (req.routeData?.context.$share?.$logs?.length) {
+          error.logs = req.routeData.context.$share.$logs;
+        }
+
         throw error;
       }),
     );

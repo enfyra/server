@@ -41,18 +41,6 @@ function stripStringsAndComments(code: string) {
   const placeholders: Array<{ placeholder: string; original: string }> = [];
   let counter = 0;
 
-  // IMPORTANT: Use single-pass regex to match ALL patterns in priority order
-  // This ensures we respect context (e.g., quotes inside comments are ignored)
-  //
-  // Priority order:
-  // 1. Template literals (can contain anything)
-  // 2. Strings (double or single quoted)
-  // 3. Multi-line comments (can span lines)
-  // 4. Single-line comments (to end of line)
-  //
-  // Using alternation (|), the regex engine tries patterns left-to-right
-  // Once a pattern matches, that text is "consumed" and won't match later patterns
-
   const combinedRegex = /(`(?:[^`\\]|\\.)*`)|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')|(\/\*[\s\S]*?\*\/)|(\/\/.*$)/gm;
 
   const result = code.replace(combinedRegex, (match, template, doubleQuote, singleQuote, multiComment, singleComment) => {
@@ -74,7 +62,6 @@ function stripStringsAndComments(code: string) {
       placeholder = `__COMMENT_${counter++}__`;
       placeholders.push({ placeholder, original: singleComment });
     } else {
-      // Should never happen
       placeholder = match;
     }
 
@@ -128,15 +115,42 @@ process.on('unhandledRejection', (reason: any) => {
   console.error('📋 [Runner] Rejection type:', typeof reason, reason?.constructor?.name);
   console.error('📋 [Runner] Rejection details:', JSON.stringify(reason, null, 2));
 
-  process.send({
-    type: 'error',
-    error: {
-      message: reason.errorResponse?.message ?? reason?.message ?? String(reason),
-      stack: reason.errorResponse?.stack ?? reason?.stack,
-      name: reason.errorResponse?.name ?? reason?.name ?? 'UnhandledRejection',
-      statusCode: reason.errorResponse?.statusCode,
-    },
-  });
+  try {
+    process.send?.({
+      type: 'error',
+      error: {
+        message: reason.errorResponse?.message ?? reason?.message ?? String(reason),
+        stack: reason.errorResponse?.stack ?? reason?.stack,
+        name: reason.errorResponse?.name ?? reason?.name ?? 'UnhandledRejection',
+        statusCode: reason.errorResponse?.statusCode,
+      },
+    });
+  } catch (sendError) {
+    console.error('Failed to send error:', sendError);
+  }
+
+  setTimeout(() => process.exit(1), 100);
+});
+
+process.on('uncaughtException', (error: any) => {
+  console.error('❌ [Runner] Uncaught exception:', error);
+  console.error('📋 [Runner] Error stack:', error.stack);
+
+  try {
+    process.send?.({
+      type: 'error',
+      error: {
+        message: error.message ?? String(error),
+        stack: error.stack,
+        name: error.name ?? 'UncaughtException',
+        statusCode: undefined,
+      },
+    });
+  } catch (sendError) {
+    console.error('Failed to send error:', sendError);
+  }
+
+  setTimeout(() => process.exit(1), 100);
 });
 
 process.on('message', async (msg: any) => {
@@ -190,16 +204,13 @@ process.on('message', async (msg: any) => {
     let processedCode = processTemplate(msg.code);
     processedCode = addAwaitToProxyCalls(processedCode);
 
+    const wrappedCode = `"use strict";
+return (async () => {
+${processedCode}
+})();`;
+
     try {
-      const asyncFn = new AsyncFunction(
-        '$ctx',
-        `
-          "use strict";
-          return (async () => {
-            ${processedCode}
-          })();
-        `,
-      );
+      const asyncFn = new AsyncFunction('$ctx', wrappedCode);
       const result = await asyncFn(ctx);
 
       process.send({
@@ -208,9 +219,75 @@ process.on('message', async (msg: any) => {
         ctx,
       });
     } catch (error) {
-      console.error('❌ [Runner] Execution error:', error.message);
-      console.error('📋 [Runner] Error stack:', error.stack);
-      console.error('📝 [Runner] Processed code (first 500 chars):', processedCode.substring(0, 500));
+      let errorLine = null;
+      let errorColumn = null;
+      let codeContext = '';
+
+      let codeContextArray: string[] = [];
+
+      try {
+        const stackMatch = error.stack?.match(/<anonymous>:(\d+):(\d+)/);
+        if (stackMatch) {
+          const transformedLine = parseInt(stackMatch[1]);
+          errorColumn = parseInt(stackMatch[2]);
+
+          const wrapperLines = wrappedCode.split('\n').length - processedCode.split('\n').length;
+
+          errorLine = transformedLine - wrapperLines;
+
+          if (errorLine > 0) {
+            const originalLines = msg.code.split('\n');
+            const startLine = Math.max(0, errorLine - 4);
+            const endLine = Math.min(originalLines.length, errorLine + 3);
+
+            codeContextArray = originalLines
+              .slice(startLine, endLine)
+              .map((line: string, idx: number) => {
+                const lineNum = startLine + idx + 1;
+                const isErrorLine = lineNum === errorLine;
+                const marker = isErrorLine ? '>' : ' ';
+                return `${marker} ${lineNum}. ${line}`;
+              });
+
+            codeContext = originalLines
+              .slice(startLine, endLine)
+              .map((line: string, idx: number) => {
+                const lineNum = startLine + idx + 1;
+                const marker = lineNum === errorLine ? '❯' : ' ';
+                const padding = String(lineNum).padStart(4);
+                return `${marker} ${padding} | ${line}`;
+              })
+              .join('\n');
+          }
+        }
+      } catch (parseError) {
+      }
+
+      // Pretty print error
+      console.error('\n╭─────────────────────────────────────────╮');
+      console.error('│  ❌ Handler Execution Error             │');
+      console.error('╰─────────────────────────────────────────╯');
+      console.error('');
+      console.error(`💥 ${error.name || 'Error'}: ${error.message}`);
+
+      if (errorLine && errorColumn) {
+        console.error('');
+        console.error(`📍 Error at line ${errorLine}:${errorColumn}`);
+        console.error('');
+        console.error(codeContext);
+      } else {
+        // Fallback: show first few lines of code
+        console.error('');
+        console.error('📝 Code snippet:');
+        console.error(msg.code.split('\n').slice(0, 10).map((line: string, idx: number) =>
+          `    ${String(idx + 1).padStart(4)} | ${line}`
+        ).join('\n'));
+      }
+
+      console.error('');
+      console.error('📚 Stack trace:');
+      console.error(error.stack);
+      console.error('');
 
       process.send({
         type: 'error',
@@ -219,14 +296,15 @@ process.on('message', async (msg: any) => {
           stack: error.errorResponse?.stack ?? error.stack,
           name: error.errorResponse?.name ?? error.name,
           statusCode: error.errorResponse?.statusCode,
-          // Add context for debugging template syntax
-          originalCode: msg.code,                    // Original code with @CACHE
-          processedCode: processedCode,              // Code after replacement to $ctx.$cache
+          errorLine: errorLine,
+          errorColumn: errorColumn,
+          codeContextArray: codeContextArray,
+          codeContext: codeContext,
         },
       });
     }
   }
 });
 
-process.on('error', (err) => {
+process.on('error', (_err) => {
 });
