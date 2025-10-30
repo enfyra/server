@@ -209,6 +209,22 @@
             "icon": "lucide:book-open",
             "description": "Swagger API Documentation",
             "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/ai_tool_definition",
+            "mainTable": "ai_tool_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:bot",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/ai_tool_helper_definition",
+            "mainTable": "ai_tool_helper_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:book-text",
+            "publishedMethods": ["GET"]
         }
     ], 
     "hook_definition": [
@@ -541,6 +557,124 @@
             "description": "Backend packages management",
             "order": 3,
             "parent": "Packages"
+        }
+    ],
+    "ai_tool_helper_definition": [
+        {
+            "topic": "query_operators",
+            "category": "syntax",
+            "summary": "Available filter operators: _eq, _neq, _gt, _gte, _lt, _lte, _in, _not_in, _contains, _starts_with, _ends_with, _between, _is_null, _is_not_null",
+            "content": {
+                "operators": [
+                    {"name": "_eq", "description": "Equal to", "example": "?filter[status][_eq]=active"},
+                    {"name": "_neq", "description": "Not equal", "example": "?filter[status][_neq]=deleted"},
+                    {"name": "_gt", "description": "Greater than", "example": "?filter[price][_gt]=1000"},
+                    {"name": "_gte", "description": "Greater than or equal", "example": "?filter[age][_gte]=18"},
+                    {"name": "_lt", "description": "Less than", "example": "?filter[stock][_lt]=10"},
+                    {"name": "_lte", "description": "Less than or equal", "example": "?filter[discount][_lte]=50"},
+                    {"name": "_in", "description": "Value in array", "example": "?filter[status][_in]=active,pending"},
+                    {"name": "_not_in", "description": "Value not in array", "example": "?filter[role][_not_in]=admin,superadmin"},
+                    {"name": "_contains", "description": "String contains (case-insensitive)", "example": "?filter[name][_contains]=john"},
+                    {"name": "_starts_with", "description": "String starts with", "example": "?filter[email][_starts_with]=admin"},
+                    {"name": "_ends_with", "description": "String ends with", "example": "?filter[email][_ends_with]=@company.com"},
+                    {"name": "_between", "description": "Value between range", "example": "?filter[created_at][_between]=2024-01-01,2024-12-31"},
+                    {"name": "_is_null", "description": "Field is null", "example": "?filter[deleted_at][_is_null]=true"},
+                    {"name": "_is_not_null", "description": "Field is not null", "example": "?filter[email][_is_not_null]=true"}
+                ],
+                "logical_operators": [
+                    {"name": "_and", "description": "AND condition", "note": "Multiple filters at same level are automatically ANDed"},
+                    {"name": "_or", "description": "OR condition", "example": "?filter[_or][0][status][_eq]=active&filter[_or][1][status][_eq]=pending"},
+                    {"name": "_not", "description": "NOT condition", "example": "?filter[_not][status][_eq]=deleted"}
+                ]
+            },
+            "examples": [
+                {"query": "GET /users?filter[status][_eq]=active", "description": "Get active users"},
+                {"query": "GET /orders?filter[total][_gt]=1000000", "description": "Get orders > 1M"},
+                {"query": "GET /users?filter[email][_contains]=gmail", "description": "Find Gmail users"}
+            ],
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "topic": "field_selection",
+            "category": "syntax",
+            "summary": "Use fields parameter to select specific columns. Supports dot notation for relations (e.g., user.email, profile.*)",
+            "content": {
+                "patterns": [
+                    {"pattern": "*", "description": "Select all scalar columns from main table", "example": "GET /users?fields=*"},
+                    {"pattern": "column1,column2", "description": "Select specific columns", "example": "GET /users?fields=id,name,email"},
+                    {"pattern": "relation.*", "description": "Select all columns from relation", "example": "GET /orders?fields=id,total,customer.*"},
+                    {"pattern": "relation.column", "description": "Select specific relation column", "example": "GET /orders?fields=id,customer.name,customer.email"},
+                    {"pattern": "relation.nested.*", "description": "Deep nested relations", "example": "GET /orders?fields=id,customer.profile.*,items.product.name"}
+                ],
+                "auto_join": "Enfyra automatically joins tables when you reference relations in fields or filters"
+            },
+            "examples": [
+                {"query": "GET /users?fields=id,name,email", "description": "Get only id, name, email"},
+                {"query": "GET /orders?fields=*,customer.name,customer.email", "description": "Get all order fields + customer name & email"},
+                {"query": "GET /posts?fields=id,title,author.*,comments.*", "description": "Get post with full author and comments"}
+            ],
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "topic": "relation_filters",
+            "category": "syntax",
+            "summary": "Filter main table by related table fields using dot notation",
+            "content": {
+                "syntax": "filter[relation][field][operator]=value",
+                "examples_explained": [
+                    {"pattern": "filter[customer][email][_eq]=john@mail.com", "description": "Filter by related table field"},
+                    {"pattern": "filter[customer][profile][city][_eq]=Hanoi", "description": "Filter by deeply nested relation"},
+                    {"pattern": "filter[items][product][category][_eq]=Electronics", "description": "Filter through multiple relations"}
+                ]
+            },
+            "examples": [
+                {"query": "GET /orders?filter[customer][email][_eq]=john@mail.com", "description": "Get orders of customer with email"},
+                {"query": "GET /orders?filter[customer][location][_eq]=Hanoi&filter[total][_gt]=1000000", "description": "Orders from Hanoi > 1M"},
+                {"query": "GET /posts?filter[author][role][_eq]=admin", "description": "Posts by admin authors"}
+            ],
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "topic": "sorting",
+            "category": "syntax",
+            "summary": "Sort results using sort parameter. Prefix with - for descending order",
+            "content": {
+                "patterns": [
+                    {"pattern": "sort=field", "description": "Sort ascending", "example": "sort=created_at"},
+                    {"pattern": "sort=-field", "description": "Sort descending (with minus)", "example": "sort=-created_at"},
+                    {"pattern": "sort=field1,-field2", "description": "Multiple sort", "example": "sort=status,-created_at"},
+                    {"pattern": "sort=relation.field", "description": "Sort by relation field", "example": "sort=-user.name"}
+                ]
+            },
+            "examples": [
+                {"query": "GET /users?sort=-created_at", "description": "Newest users first"},
+                {"query": "GET /orders?sort=status,-total", "description": "Sort by status ASC, then total DESC"},
+                {"query": "GET /posts?sort=-author.name", "description": "Sort by author name descending"}
+            ],
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "topic": "pagination",
+            "category": "syntax",
+            "summary": "Use limit and offset for pagination",
+            "content": {
+                "parameters": [
+                    {"name": "limit", "description": "Max records to return", "example": "limit=10"},
+                    {"name": "offset", "description": "Records to skip", "example": "offset=20"}
+                ],
+                "calculation": "Page 3 with 10 per page: offset=(3-1)*10=20, limit=10"
+            },
+            "examples": [
+                {"query": "GET /users?limit=10", "description": "First 10 users"},
+                {"query": "GET /users?limit=10&offset=20", "description": "Page 3 (records 21-30)"},
+                {"query": "GET /orders?limit=50&sort=-created_at", "description": "50 newest orders"}
+            ],
+            "isEnabled": true,
+            "isSystem": true
         }
     ]
 }

@@ -61,6 +61,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # AI Memory Files
 AI_MEMORY_BE.md
 AI_MEMORY_BE_old.md
+AGENTS.md
 
 # Uploaded files
 /public
