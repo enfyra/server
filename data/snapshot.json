@@ -343,5 +343,36 @@
             { "propertyName": "createdBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who created the script" },
             { "propertyName": "updatedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who last updated the script" }
         ]
+    },
+    "ai_tool_definition": {
+        "name": "ai_tool_definition",
+        "isSystem": true,
+        "uniques": [["name"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true },
+            { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true },
+            { "name": "category", "type": "enum", "isNullable": false, "isSystem": true, "options": ["discovery", "query", "mutation", "helper"], "defaultValue": "query" },
+            { "name": "description", "type": "text", "isNullable": false, "isSystem": true },
+            { "name": "parameters", "type": "simple-json", "isNullable": false, "isSystem": true },
+            { "name": "examples", "type": "simple-json", "isNullable": true, "isSystem": true },
+            { "name": "priority", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 50 },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false }
+        ]
+    },
+    "ai_tool_helper_definition": {
+        "name": "ai_tool_helper_definition",
+        "isSystem": true,
+        "uniques": [["topic"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true },
+            { "name": "topic", "type": "varchar", "isNullable": false, "isSystem": true },
+            { "name": "category", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "syntax" },
+            { "name": "summary", "type": "text", "isNullable": false, "isSystem": true },
+            { "name": "content", "type": "simple-json", "isNullable": false, "isSystem": true },
+            { "name": "examples", "type": "simple-json", "isNullable": true, "isSystem": true },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false }
+        ]
     }
 }
