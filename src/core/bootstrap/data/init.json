@@ -258,7 +258,7 @@
             }
         },
         {
-            "type": "Menu",
+            "type": "Dropdown Menu",
             "label": "Data",
             "icon": "lucide:list",
             "path": "/data",
