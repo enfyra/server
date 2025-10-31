@@ -38,7 +38,8 @@ import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/s
 import { KnexModule } from './infrastructure/knex/knex.module';
 import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
-import {DatabaseSchemaService} from './infrastructure/knex/services/database-schema.service';
+import { DatabaseSchemaService } from './infrastructure/knex/services/database-schema.service';
+import { ReloadModule } from './modules/reload/reload.module';
 
 @Global()
 @Module({
@@ -86,9 +87,10 @@ import {DatabaseSchemaService} from './infrastructure/knex/services/database-sch
     PackageManagementModule,
     MeModule,
     EnfyraSwaggerModule,
+    ReloadModule,
     DynamicModule,
     HandlerExecutorModule,
-    GraphqlModule, 
+    GraphqlModule,
   ],
   providers: [
     JwtStrategy,
@@ -101,7 +103,7 @@ import {DatabaseSchemaService} from './infrastructure/knex/services/database-sch
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RoleGuard },
+    // { provide: APP_GUARD, useClass: RoleGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: DynamicInterceptor },
     { provide: APP_INTERCEPTOR, useClass: HideFieldInterceptor },

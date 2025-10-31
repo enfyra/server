@@ -16,19 +16,11 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     tableName: string,
     context?: any,
   ): Promise<UpsertResult> {
-    const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
     const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
     const menuItems = records.filter(r => r.type === 'Menu');
 
     let totalCreated = 0;
     let totalSkipped = 0;
-
-    if (miniSidebars.length > 0) {
-      this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
-      const result = await super.processSql(miniSidebars, knex, tableName, { ...context, knex });
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
-    }
 
     if (dropdownMenus.length > 0) {
       this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
@@ -48,7 +40,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   }
 
   /**
-   * Process menu items in order for MongoDB (Mini Sidebar → Dropdown → Menu items with parents)
+   * Process menu items in order for MongoDB (Dropdown → Menu items with parents)
    */
   async processMongo(
     records: any[],
@@ -61,24 +53,14 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
 
     // Group menu items by type
-    const miniSidebars = records.filter(r => r.type === 'Mini Sidebar');
     const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
-    const menuItemsWithSidebar = records.filter(r => r.type === 'Menu' && r.sidebar && !r.parent);
     const menuItemsWithParent = records.filter(r => r.type === 'Menu' && r.parent);
-    const otherMenuItems = records.filter(r => r.type === 'Menu' && !r.sidebar && !r.parent);
+    const otherMenuItems = records.filter(r => r.type === 'Menu' && !r.parent);
 
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    // Process in order: Mini Sidebars first
-    if (miniSidebars.length > 0) {
-      this.logger.log(`Processing ${miniSidebars.length} Mini Sidebars...`);
-      const result = await super.processMongo(miniSidebars, db, collectionName, context);
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
-    }
-
-    // Then Dropdown Menus (can reference sidebars)
+    // Process Dropdown Menus first
     if (dropdownMenus.length > 0) {
       this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
       const result = await super.processMongo(dropdownMenus, db, collectionName, context);
@@ -86,17 +68,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       totalSkipped += result.skipped;
     }
 
-    // Then Menu items with sidebars (no parents yet)
-    if (menuItemsWithSidebar.length > 0) {
-      this.logger.log(`Processing ${menuItemsWithSidebar.length} Menu items with sidebars...`);
-      const result = await super.processMongo(menuItemsWithSidebar, db, collectionName, context);
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
-    }
-
-    // Then other menu items without references
+    // Then other menu items without parent references
     if (otherMenuItems.length > 0) {
-      this.logger.log(`Processing ${otherMenuItems.length} other Menu items...`);
+      this.logger.log(`Processing ${otherMenuItems.length} Menu items...`);
       const result = await super.processMongo(otherMenuItems, db, collectionName, context);
       totalCreated += result.created;
       totalSkipped += result.skipped;
@@ -142,45 +116,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
       // Set default null for MongoDB fields
       if (isMongoDB) {
-        if (!('sidebar' in transformed)) transformed.sidebar = null;
         if (!('parent' in transformed)) transformed.parent = null;
-      }
-
-      // Handle sidebar reference
-      if (transformed.sidebar && typeof transformed.sidebar === 'string') {
-        const sidebarLabel = transformed.sidebar;
-        
-        if (isMongoDB) {
-          // MongoDB: Convert to sidebar ObjectId
-          const sidebar = await this.queryBuilder.findOneWhere('menu_definition', {
-            type: 'Mini Sidebar',
-            label: sidebarLabel,
-          });
-
-          if (sidebar) {
-            this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar._id}`);
-            transformed.sidebar = typeof sidebar._id === 'string' 
-              ? new ObjectId(sidebar._id) 
-              : sidebar._id;
-          } else {
-            this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
-            transformed.sidebar = null;
-          }
-        } else {
-          // SQL: Convert to sidebarId
-          const sidebar = await knex('menu_definition')
-            .where({ type: 'Mini Sidebar', label: sidebarLabel })
-            .first();
-
-          if (sidebar) {
-            this.logger.debug(`Found sidebar: ${sidebarLabel} with id ${sidebar.id}`);
-            transformed.sidebarId = sidebar.id;
-            delete transformed.sidebar;
-          } else {
-            this.logger.warn(`Sidebar not found: ${sidebarLabel} for ${transformed.label}`);
-            delete transformed.sidebar;
-          }
-        }
       }
 
       // Handle parent reference
@@ -227,34 +163,30 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object[] {
-    if (record.type === 'Mini Sidebar' || record.type === 'mini') {
-      // For mini sidebars, check by type + label
-      return [{ type: record.type, label: record.label }];
-    } else if (record.type === 'Menu' || record.type === 'menu' || record.type === 'Dropdown Menu') {
-      // For menu items and dropdown menus, try multiple strategies
-      const conditions = [];
-      
-      // If has sidebar, try with sidebar first
-      if (record.sidebar) {
-        conditions.push({ type: record.type, label: record.label, sidebar: record.sidebar });
-      }
-      
-      // Always add fallback without sidebar
-      conditions.push({ type: record.type, label: record.label });
-      
-      return conditions;
+    const conditions = [];
+
+    // Primary: Try to find by path (unique constraint)
+    if (record.path) {
+      conditions.push({ path: record.path });
     }
-    
-    // Fallback for other types
-    return [{ type: record.type, label: record.label }];
+
+    // Secondary: Try by type + label (for records that changed type)
+    conditions.push({ type: record.type, label: record.label });
+
+    // Tertiary: If has parent, also try with parent
+    if (record.parent) {
+      conditions.push({ type: record.type, label: record.label, parent: record.parent });
+    }
+
+    return conditions;
   }
 
   protected getCompareFields(): string[] {
-    return ['label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission', 'sidebar', 'parent'];
+    return ['type', 'label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission', 'parent'];
   }
 
   protected hasValueChanged(newValue: any, existingValue: any): boolean {
-    // Special handling for sidebar and parent relations
+    // Special handling for parent relations
     if (typeof newValue === 'object' && newValue?.id && typeof existingValue === 'object' && existingValue?.id) {
       // Compare only IDs for relation objects
       return newValue.id !== existingValue.id;
@@ -275,16 +207,14 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   protected getRecordIdentifier(record: any): string {
     const type = record.type;
     const label = record.label;
-    const sidebar = record.sidebar;
-    
-    if (type === 'Mini Sidebar' || type === 'mini') {
-      return `[Mini Sidebar] ${label}`;
-    } else if (type === 'Dropdown Menu') {
-      return `[Dropdown Menu] ${label}${sidebar ? ` (sidebar: ${sidebar})` : ''}`;
+    const parent = record.parent;
+
+    if (type === 'Dropdown Menu') {
+      return `[Dropdown Menu] ${label}`;
     } else if (type === 'Menu' || type === 'menu') {
-      return `[Menu] ${label}${sidebar ? ` (sidebar: ${sidebar})` : ''} -> ${record.path || 'no-path'}`;
+      return `[Menu] ${label}${parent ? ` (parent: ${parent})` : ''} -> ${record.path || 'no-path'}`;
     }
-    
+
     return `[${type}] ${label}`;
   }
 }

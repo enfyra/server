@@ -203,6 +203,14 @@
             "icon": "lucide:play"
         },
         {
+            "path": "/admin/reload",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:refresh-cw",
+            "description": "Reload all caches and schemas",
+            "publishedMethods": ["POST"]
+        },
+        {
             "path": "/api-docs",
             "isEnabled": true,
             "isSystem": true,
@@ -237,7 +245,7 @@
     ],
     "menu_definition": [
         {
-            "type": "Mini Sidebar",
+            "type": "Dropdown Menu",
             "label": "Dashboard",
             "icon": "lucide:layout-dashboard",
             "path": "/dashboard",
@@ -250,7 +258,7 @@
             }
         },
         {
-            "type": "Mini Sidebar",
+            "type": "Menu",
             "label": "Data",
             "icon": "lucide:list",
             "path": "/data",
@@ -263,7 +271,7 @@
             }
         },
         {
-            "type": "Mini Sidebar",
+            "type": "Dropdown Menu",
             "label": "Collections",
             "icon": "lucide:database",
             "path": "/collections",
@@ -289,7 +297,22 @@
             }
         },
         {
-            "type": "Mini Sidebar",
+            "type": "Menu",
+            "label": "Collection Create",
+            "icon": "heroicons:plus-circle",
+            "path": "/collections/create",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Create new collection",
+            "order": 1,
+            "parent": "Collections",
+            "permission": {
+                "route": "/table_definition",
+                "actions": ["create"]
+            }
+        },
+        {
+            "type": "Dropdown Menu",
             "label": "Settings",
             "icon": "lucide:settings",
             "path": "/settings",
@@ -310,7 +333,7 @@
             "isSystem": true,
             "description": "General settings",
             "order": 1,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/setting_definition", "actions": ["read", "update"] }]
             }
@@ -324,7 +347,7 @@
             "isSystem": true,
             "description": "Menu management",
             "order": 2,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "or": [
                     { "route": "/menu_definition", "actions": ["read"] },
@@ -343,7 +366,7 @@
             "isSystem": true,
             "description": "Extension management",
             "order": 3,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "and": [
                     { "route": "/extension_definition", "actions": ["read"] }
@@ -359,7 +382,7 @@
             "isSystem": true,
             "description": "Route management",
             "order": 4,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "and": [
                     { "route": "/route_definition", "actions": ["read"] },
@@ -382,7 +405,7 @@
             "isSystem": true,
             "description": "Route handler management",
             "order": 5,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/route_handler_definition", "actions": ["read"] }]
             }
@@ -396,7 +419,7 @@
             "isSystem": true,
             "description": "Hook management",
             "order": 6,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/hook_definition", "actions": ["read"] }]
             }
@@ -410,7 +433,7 @@
             "isSystem": true,
             "description": "Bootstrap script management",
             "order": 7,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/bootstrap_script_definition", "actions": ["read"] }]
             }
@@ -419,12 +442,11 @@
             "type": "Dropdown Menu",
             "label": "Packages",
             "icon": "lucide:package",
-            "path": "/settings/packages",
+            "path": "/packages",
             "isEnabled": true,
             "isSystem": true,
             "description": "Packages management",
             "order": 8,
-            "sidebar": "Settings",
             "permission": {
                 "or": [
                     { "route": "/package_definition", "actions": ["read"] }
@@ -440,7 +462,7 @@
             "isSystem": true,
             "description": "User management",
             "order": 9,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "and": [
                     { "route": "/user_definition", "actions": ["read"] }
@@ -456,7 +478,7 @@
             "isSystem": true,
             "description": "Role management",
             "order": 10,
-            "sidebar": "Settings",
+            "parent": "Settings",
             "permission": {
                 "and": [
                     { "route": "/role_definition", "actions": ["read"] }
@@ -472,13 +494,13 @@
             "isSystem": true,
             "description": "Create new table",
             "order": 0,
-            "sidebar": "Collections",
+            "parent": "Collections",
             "permission": {
                 "or": [{ "route": "/table_definition", "actions": ["create"] }]
             }
         },
         {
-            "type": "Mini Sidebar",
+            "type": "Dropdown Menu",
             "label": "Files",
             "icon": "lucide:folder",
             "path": "/files",
@@ -502,7 +524,7 @@
             "isSystem": true,
             "description": "Files management",
             "order": 1,
-            "sidebar": "Files",
+            "parent": "Files",
             "permission": {
                 "or": [
                     { "route": "/file_definition", "actions": ["read"] }
@@ -513,7 +535,7 @@
             "type": "Menu",
             "label": "Install Package",
             "icon": "lucide:plus",
-            "path": "/settings/packages/install",
+            "path": "/packages/install",
             "isEnabled": true,
             "isSystem": true,
             "description": "Install Package",
@@ -524,7 +546,7 @@
             "type": "Menu",
             "label": "App Packages",
             "icon": "lucide:package-2",
-            "path": "/settings/packages/app",
+            "path": "/packages/app",
             "isEnabled": true,
             "isSystem": true,
             "description": "App packages management",
@@ -535,7 +557,7 @@
             "type": "Menu",
             "label": "Backend Packages",
             "icon": "lucide:box",
-            "path": "/settings/packages/backend",
+            "path": "/packages/backend",
             "isEnabled": true,
             "isSystem": true,
             "description": "Backend packages management",
