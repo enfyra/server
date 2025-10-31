@@ -1,13 +1,13 @@
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { GraphQLSchema } from 'graphql';
 import { createYoga } from 'graphql-yoga';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import { generateGraphQLTypeDefsFromTables } from '../utils/generate-type-defs';
 
 @Injectable()
-export class GraphqlService {
+export class GraphqlService implements OnApplicationBootstrap {
   private readonly logger = new Logger(GraphqlService.name);
   private yogaApp: ReturnType<typeof createYoga>;
 
@@ -15,6 +15,15 @@ export class GraphqlService {
     private metadataCache: MetadataCacheService,
     private dynamicResolver: DynamicResolver,
   ) {}
+
+  async onApplicationBootstrap() {
+    try {
+      await this.reloadSchema();
+      this.logger.log('GraphQL schema initialized successfully');
+    } catch (error) {
+      this.logger.error('Failed to initialize GraphQL schema:', error.message);
+    }
+  }
 
   async reloadSchema(): Promise<void> {
     try {
