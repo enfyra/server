@@ -207,8 +207,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:refresh-cw",
-            "description": "Reload all caches and schemas",
-            "publishedMethods": ["POST"]
+            "description": "Reload all caches and schemas"
         },
         {
             "path": "/api-docs",
