@@ -414,10 +414,6 @@ export class SystemProtectionService {
           throw new Error('Cannot change menu path');
         }
 
-        if ('sidebar' in data && data.sidebar !== fullExisting.sidebar) {
-          throw new Error('Cannot change menu sidebar reference');
-        }
-
         if ('parent' in data && data.parent !== fullExisting.parent) {
           throw new Error('Cannot change menu parent reference');
         }
