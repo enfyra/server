@@ -10,6 +10,8 @@ import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstr
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY } from '../../../shared/utils/constant';
+import { GraphqlService } from 'src/modules/graphql/services/graphql.service';
+import { SwaggerService } from 'src/infrastructure/swagger/services/swagger.service';
 
 export class DynamicRepository {
   private context: TDynamicContext;
@@ -22,6 +24,8 @@ export class DynamicRepository {
   private bootstrapScriptService?: BootstrapScriptService;
   private redisPubSubService?: RedisPubSubService;
   private metadataCacheService: MetadataCacheService;
+  private graphqlService: GraphqlService;
+  private swaggerService: SwaggerService;
 
   constructor({
     context,
@@ -34,6 +38,8 @@ export class DynamicRepository {
     bootstrapScriptService,
     redisPubSubService,
     metadataCacheService,
+    swaggerService,
+    graphqlService
   }: {
     context: TDynamicContext;
     tableName: string;
@@ -45,6 +51,8 @@ export class DynamicRepository {
     bootstrapScriptService?: BootstrapScriptService;
     redisPubSubService?: RedisPubSubService;
     metadataCacheService: MetadataCacheService;
+    swaggerService?: SwaggerService;
+    graphqlService?: GraphqlService;
   }) {
     this.context = context;
     this.tableName = tableName;
@@ -56,6 +64,8 @@ export class DynamicRepository {
     this.bootstrapScriptService = bootstrapScriptService;
     this.redisPubSubService = redisPubSubService;
     this.metadataCacheService = metadataCacheService;
+    this.swaggerService = swaggerService;
+    this.graphqlService = graphqlService;
   }
 
   async init() {
@@ -204,6 +214,8 @@ export class DynamicRepository {
       ].includes(this.tableName)
     ) {
       await this.routeCacheService.reload();
+      await this.graphqlService?.reloadSchema();
+      await this.swaggerService?.reloadSwagger();
     }
 
     // Reload bootstrap scripts when bootstrap_script_definition changes
