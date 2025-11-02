@@ -256,18 +256,29 @@ export async function executeBatchSQL(
       throw error;
     }
   } else {
-    logger.log(`Executing batch SQL (${detectedDbType})...`);
+    logger.log(`Executing SQL statements individually (${detectedDbType})...`);
     logger.warn(`${detectedDbType.toUpperCase()} does not support transactional DDL - changes cannot be rolled back`);
 
-    // MySQL/SQLite: Execute batch without transaction
+    // MySQL/SQLite: Execute each statement individually
+    // MySQL doesn't support multiple statements in a single query by default
+    const statements = batchSQL
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    logger.log(`Executing ${statements.length} statement(s) individually...`);
+
     try {
-      await knex.raw(batchSQL);
-      logger.log(`Batch SQL executed successfully`);
+      for (let i = 0; i < statements.length; i++) {
+        const statement = statements[i];
+        logger.log(`  [${i + 1}/${statements.length}] Executing: ${statement.substring(0, 80)}${statement.length > 80 ? '...' : ''}`);
+        await knex.raw(statement);
+      }
+      logger.log(`All ${statements.length} statement(s) executed successfully`);
     } catch (error) {
-      logger.error(`Batch SQL execution failed`);
+      logger.error(`Statement execution failed`);
       logger.error(`Some statements may have been executed before failure - manual recovery may be required`);
       logger.error(`Error: ${error.message}`);
-      logger.error(`Failed SQL:\n${batchSQL.substring(0, 500)}${batchSQL.length > 500 ? '...' : ''}`);
       throw error;
     }
   }
