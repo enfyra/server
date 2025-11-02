@@ -214,7 +214,6 @@
         "description": "Defines the navigation menu structure for the application",
         "uniques": [
             ["type", "label"],
-            ["type", "sidebar", "label"],
             ["path"]
         ],
         "indexes": [["order"]],
