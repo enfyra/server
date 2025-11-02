@@ -12,6 +12,8 @@ import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
 import { CacheService } from '../cache/services/cache.service';
+import { SwaggerService } from '../swagger/services/swagger.service';
+import { GraphqlService } from 'src/modules/graphql/services/graphql.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
@@ -25,6 +27,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private systemProtectionService: SystemProtectionService,
     private cacheService: CacheService,
     private bcryptService: BcryptService,
+    private swaggerService: SwaggerService,
+    private graphqlService: GraphqlService
   ) {}
 
   async use(req: any, res: any, next: (error?: any) => void) {
@@ -110,7 +114,9 @@ export class RouteDetectMiddleware implements NestMiddleware {
             routeCacheService: this.routeCacheService,
             metadataCacheService: this.metadataCacheService,
             systemProtectionService: this.systemProtectionService,
-            bootstrapScriptService: undefined, // Not available in middleware context
+            bootstrapScriptService: undefined,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
           });
 
           await dynamicRepo.init();
