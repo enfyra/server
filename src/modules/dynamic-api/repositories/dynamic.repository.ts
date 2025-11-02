@@ -214,8 +214,8 @@ export class DynamicRepository {
       ].includes(this.tableName)
     ) {
       await this.routeCacheService.reload();
-      await this.graphqlService.reloadSchema();
-      await this.swaggerService.reloadSwagger();
+      await this.graphqlService?.reloadSchema();
+      await this.swaggerService?.reloadSwagger();
     }
 
     // Reload bootstrap scripts when bootstrap_script_definition changes
