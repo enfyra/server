@@ -100,10 +100,12 @@ function waitForParentResponse(callId: string, path: string, timeoutMs: number =
     pendingCalls.set(callId, {
       resolve: (value: any) => {
         clearTimeout(timeout);
+        pendingCalls.delete(callId); // Cleanup to prevent memory leak
         resolve(value);
       },
       reject: (error: any) => {
         clearTimeout(timeout);
+        pendingCalls.delete(callId); // Cleanup to prevent memory leak
         reject(error);
       },
     });

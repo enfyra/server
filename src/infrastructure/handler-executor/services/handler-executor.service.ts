@@ -21,33 +21,46 @@ export class HandlerExecutorService {
     timeoutMs = this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
   ): Promise<any> {
     const packages = await this.packageCacheService.getPackages();
-
     const pool = this.executorPoolService.getPool();
+
+    // Acquire child process BEFORE entering Promise to handle errors properly
+    const child = await pool.acquire();
     const isDone = { value: false };
 
-    return new Promise(async (resolve, reject) => {
-      const child = await pool.acquire();
+    return new Promise((resolve, reject) => {
+      try {
+        // Setup timeout handler
+        const timeout = ChildProcessManager.setupTimeout(
+          child,
+          timeoutMs,
+          code,
+          isDone,
+          reject,
+          pool,
+        );
 
-      const timeout = ChildProcessManager.setupTimeout(
-        child,
-        timeoutMs,
-        code,
-        isDone,
-        reject,
-      );
+        // Setup all IPC listeners BEFORE sending execute message
+        // This prevents race condition where child replies before listeners are ready
+        ChildProcessManager.setupChildProcessListeners(
+          child,
+          ctx,
+          timeout,
+          pool,
+          isDone,
+          resolve,
+          reject,
+          code,
+        );
 
-      ChildProcessManager.setupChildProcessListeners(
-        child,
-        ctx,
-        timeout,
-        pool,
-        isDone,
-        resolve,
-        reject,
-        code,
-      );
-
-      ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code, packages);
+        // Send execute message AFTER listeners are ready
+        ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code, packages);
+      } catch (error) {
+        // If setup fails, ensure child is released back to pool
+        pool.release(child).catch(() => {
+          // Ignore release errors, just log them
+        });
+        reject(error);
+      }
     });
   }
 }
