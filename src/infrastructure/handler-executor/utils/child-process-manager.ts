@@ -14,16 +14,24 @@ export class ChildProcessManager {
     code: string,
     isDone: { value: boolean },
     reject: (error: any) => void,
+    pool: any,
   ): NodeJS.Timeout {
     return setTimeout(async () => {
       if (isDone.value) return;
       isDone.value = true;
       child.removeAllListeners();
+
+      // Kill the child process (no need to await - kill() is sync)
+      child.kill('SIGKILL');
+
+      // Destroy child from pool since it's being killed
+      // This ensures pool creates a new process instead of reusing a dead one
       try {
-        await child.kill();
+        await pool.destroy(child);
       } catch (e) {
-        this.logger.warn('Failed to kill child on timeout', e);
+        this.logger.warn('Failed to destroy child on timeout', e);
       }
+
       reject(new ScriptTimeoutException(timeoutMs, code));
     }, timeoutMs);
   }
