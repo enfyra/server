@@ -183,9 +183,9 @@ ${processedCode}
           const transformedLine = parseInt(stackMatch[1]);
           errorColumn = parseInt(stackMatch[2]);
 
-          const wrapperLines = wrappedCode.split('\n').length - processedCode.split('\n').length;
+          const wrapperLinesBefore = 2;
 
-          errorLine = transformedLine - wrapperLines;
+          errorLine = transformedLine - wrapperLinesBefore;
 
           if (errorLine > 0) {
             const originalLines = msg.code.split('\n');
