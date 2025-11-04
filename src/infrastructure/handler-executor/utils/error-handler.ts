@@ -93,8 +93,6 @@ export class ErrorHandler {
     child.removeAllListeners();
     clearTimeout(timeout);
 
-    // Destroy instead of release since child is dead/crashed
-    // This ensures pool creates a new process instead of reusing a dead one
     pool.destroy(child).catch((err: any) => {
       this.logger.warn('Failed to destroy dead child process', err);
     });

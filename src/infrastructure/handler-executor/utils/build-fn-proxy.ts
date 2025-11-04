@@ -90,22 +90,15 @@ export function buildCallableFunctionProxy(path: string) {
   };
 }
 
-function waitForParentResponse(callId: string, path: string, timeoutMs: number = 10000): Promise<any> {
+function waitForParentResponse(callId: string, path: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingCalls.delete(callId);
-      reject(new Error(`IPC call timeout: ${path} did not respond within ${timeoutMs}ms`));
-    }, timeoutMs);
-
     pendingCalls.set(callId, {
       resolve: (value: any) => {
-        clearTimeout(timeout);
-        pendingCalls.delete(callId); // Cleanup to prevent memory leak
+        pendingCalls.delete(callId);
         resolve(value);
       },
       reject: (error: any) => {
-        clearTimeout(timeout);
-        pendingCalls.delete(callId); // Cleanup to prevent memory leak
+        pendingCalls.delete(callId);
         reject(error);
       },
     });

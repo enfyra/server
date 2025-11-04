@@ -21,11 +21,8 @@ export class ChildProcessManager {
       isDone.value = true;
       child.removeAllListeners();
 
-      // Kill the child process (no need to await - kill() is sync)
       child.kill('SIGKILL');
 
-      // Destroy child from pool since it's being killed
-      // This ensures pool creates a new process instead of reusing a dead one
       try {
         await pool.destroy(child);
       } catch (e) {
