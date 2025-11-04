@@ -26,7 +26,6 @@ export class ExecutorPoolService implements OnModuleInit {
       min: 2,
       max: 4,
       idleTimeoutMillis: 30000,
-      acquireTimeoutMillis: 10000,
       evictionRunIntervalMillis: 5000,
       numTestsPerEvictionRun: 2,
       softIdleTimeoutMillis: 10000,
