@@ -172,24 +172,22 @@ ${processedCode}
       });
     } catch (error) {
       let errorLine = null;
-      let errorColumn = null;
       let codeContext = '';
 
       let codeContextArray: string[] = [];
 
       try {
-        const stackMatch = error.stack?.match(/<anonymous>:(\d+):(\d+)/);
+        const stackMatch = error.stack?.match(/<anonymous>:(\d+)/);
         if (stackMatch) {
           const transformedLine = parseInt(stackMatch[1]);
-          errorColumn = parseInt(stackMatch[2]);
 
-          const wrapperLinesBefore = 2;
+          const wrapperLinesBefore = 4;
 
           errorLine = transformedLine - wrapperLinesBefore;
 
           if (errorLine > 0) {
             const originalLines = msg.code.split('\n');
-            const startLine = Math.max(0, errorLine - 4);
+            const startLine = Math.max(0, errorLine - 2);
             const endLine = Math.min(originalLines.length, errorLine + 3);
 
             codeContextArray = originalLines
@@ -222,9 +220,9 @@ ${processedCode}
       console.error('');
       console.error(`💥 ${error.name || 'Error'}: ${error.message}`);
 
-      if (errorLine && errorColumn) {
+      if (errorLine) {
         console.error('');
-        console.error(`📍 Error at line ${errorLine}:${errorColumn}`);
+        console.error(`📍 Error at line ${errorLine}`);
         console.error('');
         console.error(codeContext);
       } else {
@@ -245,11 +243,9 @@ ${processedCode}
         type: 'error',
         error: {
           message: error.errorResponse?.message ?? error.message ?? 'Unknown error',
-          stack: error.errorResponse?.stack ?? error.stack,
           name: error.errorResponse?.name ?? error.name,
           statusCode: error.errorResponse?.statusCode,
           errorLine: errorLine,
-          errorColumn: errorColumn,
           codeContextArray: codeContextArray,
           codeContext: codeContext,
         },

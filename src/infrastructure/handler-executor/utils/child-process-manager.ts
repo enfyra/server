@@ -211,14 +211,12 @@ export class ChildProcessManager {
         const errorDetails: any = {
           type: msg.error.name || 'Error',
           message: msg.error.message,
-          stack: msg.error.stack,
           statusCode: msg.error.statusCode,
         };
 
         if (msg.error.errorLine && msg.error.codeContextArray) {
           errorDetails.location = {
             line: msg.error.errorLine,
-            column: msg.error.errorColumn,
           };
           errorDetails.code = msg.error.codeContextArray;
         }
