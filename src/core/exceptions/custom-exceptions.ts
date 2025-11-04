@@ -150,7 +150,7 @@ export class ScriptExecutionException extends CustomException {
       `Script execution failed: ${message}`,
       HttpStatus.BAD_REQUEST,
       'SCRIPT_EXECUTION_ERROR',
-      { scriptId, details },
+      { scriptId, ...details },
     );
   }
 }
