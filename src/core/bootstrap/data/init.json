@@ -270,7 +270,7 @@
             }
         },
         {
-            "type": "Dropdown Menu",
+            "type": "Menu",
             "label": "Collections",
             "icon": "lucide:database",
             "path": "/collections",
@@ -293,21 +293,6 @@
                         "actions": ["delete"]
                     }
                 ]
-            }
-        },
-        {
-            "type": "Menu",
-            "label": "Collection Create",
-            "icon": "heroicons:plus-circle",
-            "path": "/collections/create",
-            "isEnabled": true,
-            "isSystem": true,
-            "description": "Create new collection",
-            "order": 1,
-            "parent": "Collections",
-            "permission": {
-                "route": "/table_definition",
-                "actions": ["create"]
             }
         },
         {
