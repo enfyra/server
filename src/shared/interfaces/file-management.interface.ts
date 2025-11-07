@@ -13,7 +13,7 @@ export interface ProcessedFileInfo {
   mimetype: string;
   type: string;
   filesize: number;
-  storage: string;
+  storage_config_id: number | string; // number for SQL, string for MongoDB
   location: string;
   description?: string;
   status: 'active' | 'archived' | 'quarantine';
