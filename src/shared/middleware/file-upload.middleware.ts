@@ -71,6 +71,11 @@ export class FileUploadMiddleware implements NestMiddleware {
               : { id: req.body.folder };
         }
 
+        // Capture storageType from request body
+        if (req.body.storageType) {
+          processedBody.storageType = req.body.storageType;
+        }
+
         req.routeData.context.$body = {
           ...req.routeData.context.$body,
           ...processedBody,

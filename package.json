@@ -1,6 +1,6 @@
 {
   "name": "enfyra_be",
-  "version": "1.0.1-stable",
+  "version": "1.1.0-beta",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
@@ -26,6 +26,7 @@
     "postinstall": "node -e \"if (!require('fs').existsSync('./node_modules/sharp')) { require('child_process').execSync('yarn add sharp --ignore-engines', {stdio: 'inherit'}) }\""
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.17.3",
     "@graphql-tools/schema": "^10.0.23",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs/common": "^11.0.0",

@@ -34,15 +34,25 @@ export class FileController {
         typeof body.folder === 'object' ? body.folder : { id: body.folder };
     }
 
-    const processedFile = await this.fileManagementService.processFileUpload({
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      buffer: file.buffer,
-      size: file.size,
-      folder: folderData,
-      title: body.title || file.originalname,
-      description: body.description || null,
-    });
+    let storageConfigId = null;
+    if (body.storageConfig) {
+      storageConfigId = typeof body.storageConfig === 'object'
+        ? body.storageConfig.id
+        : body.storageConfig;
+    }
+
+    const processedFile = await this.fileManagementService.processFileUpload(
+      {
+        filename: file.originalname,
+        mimetype: file.mimetype,
+        buffer: file.buffer,
+        size: file.size,
+        folder: folderData,
+        title: body.title || file.originalname,
+        description: body.description || null,
+      },
+      storageConfigId,
+    );
 
     try {
       const fileRepo =
@@ -56,13 +66,19 @@ export class FileController {
       const savedFile = await fileRepo.create({
         ...processedFile,
         folder: folderData,
-        uploaded_by: req.user?.id ? { id: req.user.id } : null,
+        uploaded_by: req.user?.id
+          ? this.fileManagementService.createIdReference(req.user.id)
+          : null,
+        storageConfig: processedFile.storage_config_id
+          ? this.fileManagementService.createIdReference(processedFile.storage_config_id)
+          : null,
       });
 
       return savedFile;
     } catch (error) {
       await this.fileManagementService.rollbackFileCreation(
         processedFile.location,
+        processedFile.storage_config_id,
       );
       throw error;
     }
@@ -102,58 +118,91 @@ export class FileController {
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 
-    // Nếu có file mới → REPLACE FILE
     if (file) {
       try {
-        // 1. Process file mới (generate metadata mới)
-        const processedFile =
-          await this.fileManagementService.processFileUpload({
-            filename: file.originalname,
-            mimetype: file.mimetype,
-            buffer: file.buffer,
-            size: file.size,
-            folder: currentFile.folder, // Giữ nguyên folder
-            title: body.title || file.originalname,
-            description: body.description || currentFile.description,
-          });
+        let storageConfigId = currentFile.storageConfig?.id || null;
+        if (body.storageConfig) {
+          storageConfigId = typeof body.storageConfig === 'object'
+            ? body.storageConfig.id
+            : body.storageConfig;
+        }
 
-        // 2. Backup file cũ (để rollback nếu cần)
-        const backupPath = await this.fileManagementService.backupFile(
-          currentFile.location,
-        );
+        let storageConfig = null;
+        if (storageConfigId) {
+          storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
+        }
 
-        try {
-          // 3. Replace physical file
-          await this.fileManagementService.replacePhysicalFile(
+        if (storageConfig && storageConfig.type === 'gcs') {
+          await this.fileManagementService.replaceFileOnGCS(
             currentFile.location,
-            processedFile.location,
+            file.buffer,
+            file.mimetype,
+            storageConfigId,
           );
 
-          // 4. Update metadata vào database (id cũ)
           const updateData = {
-            filename: processedFile.filename,
-            mimetype: processedFile.mimetype,
-            type: processedFile.type,
-            filesize: processedFile.filesize,
-            location: currentFile.location, // Giữ nguyên location cũ
-            description: processedFile.description,
-            // Giữ nguyên các field khác
+            filename: file.originalname,
+            mimetype: file.mimetype,
+            filesize: file.size,
+            storageConfig: this.fileManagementService.createIdReference(storageConfigId),
+            description: body.description || currentFile.description,
             folder: currentFile.folder,
             uploaded_by: currentFile.uploaded_by,
             status: currentFile.status,
           };
 
+          return await fileRepo.update(id, updateData);
+        }
+
+        const processedFile =
+          await this.fileManagementService.processFileUpload(
+            {
+              filename: file.originalname,
+              mimetype: file.mimetype,
+              buffer: file.buffer,
+              size: file.size,
+              folder: currentFile.folder,
+              title: body.title || file.originalname,
+              description: body.description || currentFile.description,
+            },
+            storageConfigId,
+          );
+
+        const backupPath = await this.fileManagementService.backupFile(
+          currentFile.location,
+        );
+
+        try {
+          await this.fileManagementService.replacePhysicalFile(
+            currentFile.location,
+            processedFile.location,
+          );
+
+          const updateData = {
+            filename: processedFile.filename,
+            mimetype: processedFile.mimetype,
+            type: processedFile.type,
+            filesize: processedFile.filesize,
+            location: currentFile.location,
+            description: processedFile.description,
+            folder: currentFile.folder,
+            uploaded_by: currentFile.uploaded_by,
+            status: currentFile.status,
+            storageConfig: processedFile.storage_config_id
+              ? this.fileManagementService.createIdReference(processedFile.storage_config_id)
+              : null,
+          };
+
           const result = await fileRepo.update(id, updateData);
 
-          // 5. Cleanup temporary file mới và backup file cũ (vì đã thành công)
           await this.fileManagementService.rollbackFileCreation(
             processedFile.location,
+            processedFile.storage_config_id,
           );
           await this.fileManagementService.deleteBackupFile(backupPath);
 
           return result;
         } catch (error) {
-          // Nếu replace thất bại → restore từ backup
           await this.fileManagementService.restoreFromBackup(
             currentFile.location,
             backupPath,
@@ -161,12 +210,10 @@ export class FileController {
           throw error;
         }
       } catch (error) {
-        // Rollback nếu có lỗi
         throw error;
       }
     }
 
-    // Nếu không có file mới → UPDATE METADATA ONLY (logic cũ)
     if (body.folder && body.folder !== currentFile.folder) {
       const newFolder =
         typeof body.folder === 'object' ? body.folder : { id: body.folder };
@@ -198,16 +245,14 @@ export class FileController {
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 
-    const filePath = file.location;
+    const { location, storageConfig } = file;
+
+    await this.fileManagementService.deletePhysicalFile(
+      location,
+      storageConfig?.id || null,
+    );
 
     const result = await fileRepo.delete(id);
-
-    try {
-      await this.fileManagementService.deletePhysicalFile(filePath);
-    } catch (error) {
-      console.error(`Failed to delete physical file ${filePath}:`, error);
-    }
-
     return result;
   }
 }

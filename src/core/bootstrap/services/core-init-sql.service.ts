@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
 
 @Injectable()
@@ -11,6 +12,8 @@ export class CoreInitSqlService {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => SqlSchemaMigrationService))
+    private readonly schemaMigrationService: SqlSchemaMigrationService,
   ) {
     this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
   }
@@ -223,14 +226,15 @@ export class CoreInitSqlService {
         if (existingRel) {
           const needsUpdate =
             (rel.isNullable !== undefined && rel.isNullable !== existingRel.isNullable) ||
-            (rel.inversePropertyName !== undefined && rel.inversePropertyName !== existingRel.inversePropertyName) ||
+            (rel.inversePropertyName !== existingRel.inversePropertyName) ||
             (rel.type !== undefined && rel.type !== existingRel.type) ||
             (targetId !== undefined && targetId !== existingRel.targetTableId);
 
           if (needsUpdate) {
             const updateData: any = {};
             if (rel.isNullable !== undefined) updateData.isNullable = rel.isNullable;
-            if (rel.inversePropertyName !== undefined) updateData.inversePropertyName = rel.inversePropertyName;
+            // Always update inversePropertyName (even if undefined/null) to handle removal
+            updateData.inversePropertyName = rel.inversePropertyName || null;
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
             if (rel.type !== undefined) updateData.type = rel.type;
             if (targetId !== undefined) updateData.targetTableId = targetId;
@@ -313,8 +317,76 @@ export class CoreInitSqlService {
         }
       }
 
-      this.logger.log('SQL metadata creation completed');
+      this.logger.log('SQL metadata sync completed');
     });
+
+    // Phase 4: Sync physical database schema from metadata changes
+    this.logger.log('Phase 4: Syncing physical schema from metadata...');
+    await this.syncPhysicalSchemaFromMetadata(snapshot);
+    this.logger.log('Physical schema sync completed');
+  }
+
+  private async syncPhysicalSchemaFromMetadata(snapshot: any): Promise<void> {
+    const qb = this.queryBuilder.getConnection();
+
+    // For each table in snapshot, check if columns need physical ALTER TABLE
+    for (const [tableName, defRaw] of Object.entries(snapshot)) {
+      const def = defRaw as any;
+
+      // Check if physical table exists
+      const tableExists = await qb.schema.hasTable(def.name);
+      if (!tableExists) {
+        this.logger.log(`Physical table ${def.name} does not exist, skipping schema sync`);
+        continue;
+      }
+
+      // Get metadata from DB
+      const tableRecord = await qb('table_definition').where('name', def.name).first();
+      if (!tableRecord) continue;
+
+      const columns = await qb('column_definition').where('tableId', tableRecord.id).select('*');
+
+      // For each column, check if type changed and needs ALTER TABLE
+      for (const col of columns) {
+        try {
+          const columnInfo = await qb(def.name).columnInfo();
+          const physicalCol = columnInfo[col.name];
+
+          if (!physicalCol) {
+            this.logger.log(`Column ${col.name} not found in ${def.name}, skipping`);
+            continue;
+          }
+
+          // Check if enum type with options
+          if (col.type === 'enum' && col.options) {
+            const options = typeof col.options === 'string' ? JSON.parse(col.options) : col.options;
+
+            if (Array.isArray(options) && options.length > 0) {
+              const enumValues = options.map(v => `'${v}'`).join(', ');
+
+              // Build ALTER TABLE query based on database type
+              let alterSQL: string;
+              if (this.dbType === 'mysql') {
+                const nullable = col.isNullable ? 'NULL' : 'NOT NULL';
+                const defaultClause = col.defaultValue ? ` DEFAULT '${col.defaultValue}'` : '';
+                alterSQL = `ALTER TABLE \`${def.name}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable}${defaultClause}`;
+              } else if (this.dbType === 'postgres') {
+                // PostgreSQL needs to drop and recreate the type
+                alterSQL = `ALTER TABLE "${def.name}" ALTER COLUMN "${col.name}" TYPE VARCHAR(255)`;
+              } else {
+                continue;
+              }
+
+              this.logger.log(`Running ALTER TABLE for ${def.name}.${col.name}: ${alterSQL}`);
+              await qb.raw(alterSQL);
+              this.logger.log(`✅ Updated ${def.name}.${col.name} to enum with values: ${enumValues}`);
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to ALTER column ${col.name} in ${def.name}: ${error.message}`);
+        }
+      }
+    }
   }
 
   private detectTableChanges(snapshotTable: any, existingTable: any): boolean {

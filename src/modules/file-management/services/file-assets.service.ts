@@ -86,11 +86,15 @@ export class FileAssetsService {
     if (!fileId)
       return void res.status(400).json({ error: 'File ID is required' });
 
-    const file = await this.queryBuilder.findOneWhere('file_definition', { id: fileId });
+    const fileResult = await this.queryBuilder.select({
+      tableName: 'file_definition',
+      filter: { id: { _eq: fileId } },
+      fields: ['*', 'storageConfig.*'],
+    });
 
+    const file = fileResult.data?.[0];
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
-    
-    // Load permissions if file is not published
+
     if (file.isPublished !== true) {
       const permissionsResult = await this.queryBuilder.select({
         tableName: 'file_permission_definition',
@@ -100,8 +104,7 @@ export class FileAssetsService {
         },
       });
       const permissions = permissionsResult.data;
-      
-      // Load related users and roles for permissions
+
       for (const perm of permissions) {
         if (perm.userId) {
           perm.allowedUsers = await this.queryBuilder.findOneWhere('user_definition', { id: perm.userId });
@@ -110,13 +113,38 @@ export class FileAssetsService {
           perm.role = await this.queryBuilder.findOneWhere('role_definition', { id: perm.roleId });
         }
       }
-      
+
       file.permissions = permissions;
     }
-    
+
     await this.checkFilePermissions(file, req);
 
-    const location = (file as any).location;
+    const { location, storageConfig, filename, mimetype, type: fileType } = file as any;
+    const storageType = storageConfig?.type || 'local';
+    const storageConfigId = storageConfig?.id || null;
+
+    if (storageType === 'gcs') {
+      if (this.isImageFile(mimetype, fileType) && this.hasImageQueryParams(req)) {
+        return void (await this.processImageWithQuery(
+          location,
+          req,
+          res,
+          filename,
+          storageConfigId,
+        ));
+      }
+
+      const stream = await this.fileManagementService.getStreamFromGCS(
+        location,
+        storageConfigId,
+      );
+      return void (await this.streamCloudFile(stream, res, filename, mimetype));
+    }
+
+    if (storageType === 's3') {
+      throw new NotFoundException('S3 storage not implemented yet');
+    }
+
     const filePath = this.fileManagementService.getFilePath(
       path.basename(location),
     );
@@ -125,8 +153,6 @@ export class FileAssetsService {
       this.logger.error(`File not found: ${filePath}`);
       throw new NotFoundException('Physical file not found');
     }
-
-    const { filename, mimetype, type: fileType } = file as any;
 
     if (this.isImageFile(mimetype, fileType) && this.hasImageQueryParams(req)) {
       return void (await this.processImageWithQuery(
@@ -154,6 +180,7 @@ export class FileAssetsService {
     req: RequestWithRouteData,
     res: Response,
     filename: string,
+    storageConfigId?: number | string,
   ): Promise<void> {
     try {
       const query = req.routeData?.context?.$query || req.query;
@@ -200,7 +227,24 @@ export class FileAssetsService {
       if (quality && (quality < 1 || quality > 100))
         return void res.status(400).json({ error: 'Quality 1-100' });
 
-      let imageProcessor = sharp(filePath, {
+      let imageInput: Buffer | string;
+      if (storageConfigId) {
+        const config = await this.fileManagementService.getStorageConfigById(
+          storageConfigId,
+        );
+        if (config.type === 'gcs') {
+          imageInput = await this.fileManagementService.getBufferFromGCS(
+            filePath,
+            storageConfigId,
+          );
+        } else {
+          imageInput = filePath;
+        }
+      } else {
+        imageInput = filePath;
+      }
+
+      let imageProcessor = sharp(imageInput, {
         failOnError: false,
         density: 72,
         limitInputPixels: 268402689,
@@ -325,6 +369,23 @@ export class FileAssetsService {
     fileStream.pipe(res);
   }
 
+  private async streamCloudFile(
+    stream: any,
+    res: Response,
+    filename: string,
+    mimetype: string,
+  ): Promise<void> {
+    res.setHeader('Content-Type', mimetype);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+    stream.on('error', (error) => {
+      this.logger.error('Cloud stream error:', error);
+      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
+    });
+
+    stream.pipe(res);
+  }
+
   private getOriginalFormat(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase().slice(1);
     return ext === 'jpg' ? 'jpeg' : ext;
@@ -378,11 +439,18 @@ export class FileAssetsService {
     height?: number,
     quality?: number,
   ): string {
-    const stats = fs.statSync(filePath);
+    let mtime = 0;
+    try {
+      const stats = fs.statSync(filePath);
+      mtime = stats.mtime.getTime();
+    } catch {
+      mtime = 0;
+    }
+
     return crypto
       .createHash('md5')
       .update(
-        `${filePath}-${stats.mtime.getTime()}-${format || 'original'}-${width || 0}x${height || 0}-q${quality || 80}`,
+        `${filePath}-${mtime}-${format || 'original'}-${width || 0}x${height || 0}-q${quality || 80}`,
       )
       .digest('hex');
   }

@@ -203,6 +203,13 @@
             "icon": "lucide:play"
         },
         {
+            "path": "/storage_config_definition",
+            "mainTable": "storage_config_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:hard-drive"
+        },
+        {
             "path": "/admin/reload",
             "isEnabled": true,
             "isSystem": true,
@@ -242,6 +249,15 @@
             "methods": ["POST", "PATCH"]
         }
     ],
+    "storage_config_definition": {
+        "name": "Local Storage",
+        "type": "local",
+        "isDefault": true,
+        "isEnabled": true,
+        "isSystem": true,
+        "path": "./public/uploads",
+        "description": "Default local file storage"
+    },
     "menu_definition": [
         {
             "type": "Dropdown Menu",
@@ -466,6 +482,22 @@
             "permission": {
                 "and": [
                     { "route": "/role_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Storage Configurations",
+            "icon": "heroicons:cloud-arrow-up",
+            "path": "/files/storage-config",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Storage backend configurations",
+            "order": 2,
+            "parent": "Files",
+            "permission": {
+                "or": [
+                    { "route": "/storage_config_definition", "actions": ["read"] }
                 ]
             }
         },

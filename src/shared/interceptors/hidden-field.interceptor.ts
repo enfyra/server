@@ -12,21 +12,25 @@ export class HideFieldInterceptor implements NestInterceptor {
   constructor(private metadataCacheService: MetadataCacheService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    return next.handle().pipe(map((data) => this.sanitizeDeep(data)));
+    const request = context.switchToHttp().getRequest();
+    const user = request?.user;
+
+    return next.handle().pipe(
+      map((data) => this.sanitizeDeep(data, user, request))
+    );
   }
 
-  private sanitizeDeep(value: any): any {
+  private sanitizeDeep(value: any, user?: any, request?: any): any {
     if (Array.isArray(value)) {
-      return value.map((v) => this.sanitizeDeep(v));
+      return value.map((v) => this.sanitizeDeep(v, user, request));
     }
 
     if (value && typeof value === 'object' && !(value instanceof Date)) {
-      const sanitized = this.sanitizeObject(value);
+      const sanitized = this.sanitizeObject(value, user, request);
 
-      // Recurse into nested objects
       for (const key of Object.keys(sanitized)) {
         const val = sanitized[key];
-        sanitized[key] = val instanceof Date ? val : this.sanitizeDeep(val);
+        sanitized[key] = val instanceof Date ? val : this.sanitizeDeep(val, user, request);
       }
 
       return sanitized;
@@ -35,27 +39,33 @@ export class HideFieldInterceptor implements NestInterceptor {
     return value;
   }
 
-  private sanitizeObject(obj: any): any {
+  private sanitizeObject(obj: any, user?: any, request?: any): any {
     if (!obj || typeof obj !== 'object') return obj;
 
+    if (user?.isRootAdmin) {
+      return obj;
+    }
+
     const sanitized = { ...obj };
-    const metadata = this.metadataCacheService.getMetadata();
+    const metadata = this.metadataCacheService.getDirectMetadata();
 
     if (!metadata) {
       return sanitized;
     }
 
-    // Try to find matching table by checking which table has all the fields in the object
-    for (const [tableName, tableMetadata] of Object.entries(metadata)) {
+    for (const [tableName, tableMetadata] of metadata.tables.entries()) {
       const columns = tableMetadata.columns || [];
-      
-      // Check if this object matches this table structure
-      // (has at least some of the table's columns)
+
       const objectKeys = Object.keys(obj);
       const matchingColumns = columns.filter(col => objectKeys.includes(col.name));
-      
+
       if (matchingColumns.length > 0) {
-        // Remove hidden fields
+        const hasUpdatePermission = this.checkUpdatePermission(tableName, user, request);
+
+        if (hasUpdatePermission) {
+          continue;
+        }
+
         for (const column of columns) {
           if (column.isHidden === true && column.name in sanitized) {
             delete sanitized[column.name];
@@ -65,5 +75,29 @@ export class HideFieldInterceptor implements NestInterceptor {
     }
 
     return sanitized;
+  }
+
+  private checkUpdatePermission(tableName: string, user?: any, request?: any): boolean {
+    if (!user || !request?.routeData?.routePermissions) {
+      return false;
+    }
+
+    const routePermissions = request.routeData.routePermissions;
+
+    const hasPermission = routePermissions.find((permission: any) => {
+      const hasUpdateMethod = permission.methods?.some(
+        (item: any) => item.method === 'PATCH' || item.method === 'PUT'
+      );
+
+      if (!hasUpdateMethod) return false;
+
+      if (permission?.allowedUsers?.some((u: any) => u?.id === user.id)) {
+        return true;
+      }
+
+      return permission?.role?.id === user.role?.id;
+    });
+
+    return !!hasPermission;
   }
 }
