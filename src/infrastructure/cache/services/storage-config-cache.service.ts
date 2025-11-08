@@ -58,7 +58,15 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
 
           this.logger.log(`Received storage config cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
 
-          this.storageConfigsCache = new Map(payload.configs);
+          this.storageConfigsCache = new Map();
+          for (const [id, config] of payload.configs) {
+            this.storageConfigsCache.set(id, config);
+            if (typeof id === 'number') {
+              this.storageConfigsCache.set(String(id), config);
+            } else if (typeof id === 'string' && !isNaN(Number(id))) {
+              this.storageConfigsCache.set(Number(id), config);
+            }
+          }
           this.cacheLoaded = true;
           this.logger.log(`Storage config cache synced: ${payload.configs.length} configs`);
         } catch (error) {
@@ -77,7 +85,8 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
     if (!this.cacheLoaded) {
       await this.reload();
     }
-    return this.storageConfigsCache.get(id) || null;
+    const normalizedId = typeof id === 'string' ? parseInt(id, 10) : id;
+    return this.storageConfigsCache.get(normalizedId) || this.storageConfigsCache.get(id) || null;
   }
 
   async getStorageConfigByType(type: string): Promise<any | null> {
@@ -121,6 +130,11 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
           const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
           const id = config[idField];
           this.storageConfigsCache.set(id, config);
+          if (typeof id === 'number') {
+            this.storageConfigsCache.set(String(id), config);
+          } else if (typeof id === 'string' && !isNaN(Number(id))) {
+            this.storageConfigsCache.set(Number(id), config);
+          }
         }
 
         await this.publish(configs);
