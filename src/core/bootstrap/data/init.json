@@ -203,7 +203,7 @@
             "icon": "lucide:play"
         },
         {
-            "path": "/storage_config_definition",
+            "path": "/storage/config",
             "mainTable": "storage_config_definition",
             "isEnabled": true,
             "isSystem": true,
@@ -249,15 +249,17 @@
             "methods": ["POST", "PATCH"]
         }
     ],
-    "storage_config_definition": {
-        "name": "Local Storage",
-        "type": "local",
-        "isDefault": true,
-        "isEnabled": true,
-        "isSystem": true,
-        "path": "./public/uploads",
-        "description": "Default local file storage"
-    },
+    "storage_config_definition": [
+        {
+            "name": "Local Storage",
+            "type": "local",
+            "isDefault": true,
+            "isEnabled": true,
+            "isSystem": true,
+            "path": "./public/uploads",
+            "description": "Default local file storage"
+        }
+    ],
     "menu_definition": [
         {
             "type": "Dropdown Menu",
@@ -497,7 +499,7 @@
             "permission": {
                 "or": [
                     { "route": "/file_definition", "actions": ["read"] },
-                    { "route": "/storage_config_definition", "actions": ["read"] }
+                    { "route": "/storage/config", "actions": ["read"] }
                 ]
             }
         },
@@ -513,7 +515,7 @@
             "parent": "Storage",
             "permission": {
                 "or": [
-                    { "route": "/storage_config_definition", "actions": ["read"] }
+                    { "route": "/storage/config", "actions": ["read"] }
                 ]
             }
         },

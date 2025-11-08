@@ -479,5 +479,19 @@ export class SystemProtectionService {
         }
       }
     }
+
+    if (tableName === 'storage_config_definition') {
+      const isSystem = fullExisting?.isSystem;
+
+      if (operation === 'update' && isSystem) {
+        const allowed = this.getAllowedFields(['description']);
+        const disallowed = changedFields.filter((k) => !allowed.includes(k));
+        if (disallowed.length > 0) {
+          throw new Error(
+            `Cannot modify system storage config (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
+          );
+        }
+      }
+    }
   }
 }
