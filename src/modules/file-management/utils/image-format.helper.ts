@@ -17,5 +17,25 @@ export class ImageFormatHelper {
     };
     return types[format] || 'image/jpeg';
   }
+
+  static updateFilenameWithFormat(filename: string, format: string): string {
+    if (!format) return filename;
+    
+    const ext = path.extname(filename).toLowerCase();
+    const nameWithoutExt = path.basename(filename, ext);
+    
+    // Map format to extension
+    const formatExtMap: { [key: string]: string } = {
+      jpeg: '.jpg',
+      jpg: '.jpg',
+      png: '.png',
+      webp: '.webp',
+      avif: '.avif',
+      gif: '.gif',
+    };
+    
+    const newExt = formatExtMap[format.toLowerCase()] || ext;
+    return `${nameWithoutExt}${newExt}`;
+  }
 }
 

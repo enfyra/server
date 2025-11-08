@@ -89,15 +89,27 @@ export class FileAssetsService {
       throw new NotFoundException('S3 storage not implemented yet');
     }
 
-    // For local storage, use storage service to stream
     if (storageType === 'Local Storage') {
+      if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
+        const basePath = path.join(process.cwd(), 'public');
+        const relativePath = location.startsWith('/') ? location.slice(1) : location;
+        const filePath = path.join(basePath, relativePath);
+        
+        return void (await this.processImageWithQuery(
+          filePath,
+          req,
+          res,
+          filename,
+          storageConfigId,
+        ));
+      }
+      
       const storageService = this.storageFactory.getStorageService('Local Storage');
       let storageConfig;
       
       if (storageConfigId) {
         storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
       } else {
-        // Create default local storage config
         storageConfig = {
           type: 'Local Storage',
           name: 'Local',
@@ -106,18 +118,8 @@ export class FileAssetsService {
       }
       
       const stream = await storageService.getStream(location, storageConfig);
-      
-      if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
-        // For images with query params, need to process
-        // But we have stream, so we need to handle differently
-        // For now, stream directly
-        return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype));
-      }
-      
       return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype));
     }
-
-    // Fallback to old method for backward compatibility
     const filePath = this.fileManagementService.getFilePath(
       path.basename(location),
     );
@@ -167,10 +169,6 @@ export class FileAssetsService {
         return void res.status(400).json({ error: validation.error });
       }
 
-      const outputFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
-      const mimeType = ImageFormatHelper.getMimeType(outputFormat);
-
-      // Check if streaming from cloud storage
       let shouldStream = false;
       if (storageConfigId) {
         const config = await this.fileManagementService.getStorageConfigById(
@@ -180,6 +178,8 @@ export class FileAssetsService {
       }
 
       if (shouldStream) {
+        const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+        const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
         return void (await this.streamImageFromGCS(
           filePath,
           storageConfigId,
@@ -191,7 +191,7 @@ export class FileAssetsService {
           height,
           quality,
           cache,
-          mimeType,
+          finalMimeType,
         ));
       }
 
@@ -211,6 +211,7 @@ export class FileAssetsService {
           format.toLowerCase(),
           quality,
         );
+        filename = ImageFormatHelper.updateFilenameWithFormat(filename, format);
       } else if (quality) {
         const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
         imageProcessor = ImageProcessorHelper.setImageFormat(
@@ -222,18 +223,20 @@ export class FileAssetsService {
 
       const processedBuffer = await imageProcessor.toBuffer();
 
+      const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+      const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
+
       const etag = `"${crypto.createHash('md5').update(processedBuffer).digest('hex')}"`;
 
-      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Type', finalMimeType);
       res.setHeader('Content-Length', processedBuffer.length);
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
       res.setHeader('ETag', etag);
 
-      // Browser cache headers
       if (cache && cache > 0)
         res.setHeader('Cache-Control', `public, max-age=${cache}`);
       else
-        res.setHeader('Cache-Control', 'public, max-age=31536000'); // Default 1 year
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
       
       if (req.headers['if-none-match'] === etag)
         return void res.status(304).end();
@@ -279,6 +282,7 @@ export class FileAssetsService {
           format.toLowerCase(),
           quality,
         );
+        filename = ImageFormatHelper.updateFilenameWithFormat(filename, format);
       } else if (quality) {
         const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
         imageProcessor = ImageProcessorHelper.setImageFormat(
@@ -288,14 +292,18 @@ export class FileAssetsService {
         );
       }
 
-      res.setHeader('Content-Type', mimeType || 'image/jpeg');
+      const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+      const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
+      
+      res.setHeader('Content-Type', finalMimeType);
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
 
-      // Browser cache headers - sufficient for streaming
       if (cache && cache > 0)
         res.setHeader('Cache-Control', `public, max-age=${cache}`);
+      else if (format)
+        res.setHeader('Cache-Control', 'public, max-age=86400');
       else
-        res.setHeader('Cache-Control', 'public, max-age=31536000'); // Default 1 year
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
 
       const sharpStream = gcsStream.pipe(imageProcessor);
 
@@ -305,8 +313,6 @@ export class FileAssetsService {
           res.status(500).json({ error: 'Image processing failed' });
       });
 
-      // Stream directly - no caching needed (streaming is fast enough)
-      // Browser cache headers (Cache-Control) are sufficient
       this.streamHelper.setupImageStream(sharpStream, res, false);
 
       this.streamHelper.handleStreamError(
