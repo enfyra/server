@@ -18,14 +18,4 @@ export const STORAGE_CONFIG_RELOAD_LOCK_KEY = 'storage-config:reload:lock';
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,
   RELOAD_LOCK_TTL: 30000,
-  
-  FILE_CACHE_TTL: {
-    SMALL: 3600 * 1000,
-    MEDIUM: 1800 * 1000,
-    LARGE: 600 * 1000,
-    XLARGE: 300 * 1000,
-  },
-  
-  CACHE_STATS_INTERVAL: 600000,
-  CACHE_CLEANUP_INTERVAL: 300000,
 } as const;
