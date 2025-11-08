@@ -363,7 +363,7 @@
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Storage configuration name (e.g., 'AWS S3', 'Google Cloud Storage', 'Local Storage')" },
-            { "name": "type", "type": "enum", "options": ["local","s3", "gcs"], "isNullable": false, "isSystem": true, "description": "Storage backend type" },
+            { "name": "type", "type": "enum", "options": ["Local Storage","Amazon S3", "Google Cloud Storage"], "isNullable": false, "isSystem": true, "description": "Storage backend type" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this storage configuration is active" },
             { "name": "bucket", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Bucket name (used for S3/GCS)" },
             { "name": "region", "type": "varchar", "isNullable": true, "isSystem": true, "description": "S3 region (e.g., us-east-1, ap-southeast-1)" },

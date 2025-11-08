@@ -251,8 +251,8 @@
     ],
     "storage_config_definition": [
         {
-            "name": "Local Storage",
-            "type": "local",
+            "name": "Local",
+            "type": "Local Storage",
             "isEnabled": true,
             "isSystem": true,
             "description": "Default local file storage"

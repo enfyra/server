@@ -132,7 +132,7 @@ export class FileController {
           storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
         }
 
-        if (storageConfig && storageConfig.type === 'gcs') {
+        if (storageConfig && storageConfig.type === 'Google Cloud Storage') {
           await this.fileManagementService.replaceFileOnGCS(
             currentFile.location,
             file.buffer,
