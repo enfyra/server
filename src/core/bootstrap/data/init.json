@@ -253,10 +253,8 @@
         {
             "name": "Local Storage",
             "type": "local",
-            "isDefault": true,
             "isEnabled": true,
             "isSystem": true,
-            "path": "./public/uploads",
             "description": "Default local file storage"
         }
     ],
