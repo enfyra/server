@@ -81,10 +81,10 @@ export class FileAssetsService {
     await FileValidationHelper.checkFilePermissions(file, req);
 
     const { location, storageConfig, filename, mimetype, type: fileType } = file as any;
-    const storageType = storageConfig?.type || 'local';
+    const storageType = storageConfig?.type || 'Local Storage';
     const storageConfigId = storageConfig?.id || null;
 
-    if (storageType === 'gcs') {
+    if (storageType === 'Google Cloud Storage') {
       if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
         return void (await this.processImageWithQuery(
           location,
@@ -102,7 +102,7 @@ export class FileAssetsService {
       return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype));
     }
 
-    if (storageType === 's3') {
+    if (storageType === 'Amazon S3') {
       throw new NotFoundException('S3 storage not implemented yet');
     }
 
@@ -185,7 +185,7 @@ export class FileAssetsService {
         const config = await this.fileManagementService.getStorageConfigById(
           storageConfigId,
         );
-        shouldStream = config.type === 'gcs';
+        shouldStream = config.type === 'Google Cloud Storage';
       }
 
       if (shouldStream) {

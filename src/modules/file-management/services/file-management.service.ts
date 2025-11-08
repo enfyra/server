@@ -94,10 +94,10 @@ export class FileManagementService {
 
       let location: string;
       switch (storageConfig.type) {
-        case 'local':
+        case 'Local Storage':
           location = await this.uploadToLocal(fileData.buffer, relativePath);
           break;
-        case 'gcs':
+        case 'Google Cloud Storage':
           location = await this.uploadToGCS(
             fileData.buffer,
             relativePath,
@@ -105,7 +105,7 @@ export class FileManagementService {
             storageConfig,
           );
           break;
-        case 's3':
+        case 'Amazon S3':
           throw new BadRequestException('S3 storage not implemented yet');
         default:
           throw new BadRequestException(
@@ -144,22 +144,22 @@ export class FileManagementService {
     storageConfigId?: number | string,
   ): Promise<void> {
     this.logger.log(
-      `Deleting physical file: ${location} (storage config ID: ${storageConfigId || 'local'})`,
+      `Deleting physical file: ${location} (storage config ID: ${storageConfigId || 'Local Storage'})`,
     );
 
     try {
-      let storageType = 'local';
+      let storageType = 'Local Storage';
       if (storageConfigId) {
         const config = await this.getStorageConfigById(storageConfigId);
         storageType = config.type;
       }
 
-      if (storageType === 'gcs') {
+      if (storageType === 'Google Cloud Storage') {
         await this.deleteFromGCS(location, storageConfigId);
         return;
       }
 
-      if (storageType === 's3') {
+      if (storageType === 'Amazon S3') {
         throw new BadRequestException('S3 storage not implemented yet');
       }
 
@@ -201,13 +201,13 @@ export class FileManagementService {
     storageConfigId?: number | string,
   ): Promise<void> {
     try {
-      let storageType = 'local';
+      let storageType = 'Local Storage';
       if (storageConfigId) {
         const config = await this.getStorageConfigById(storageConfigId);
         storageType = config.type;
       }
 
-      if (storageType === 'gcs') {
+      if (storageType === 'Google Cloud Storage') {
         await this.deleteFromGCS(location, storageConfigId);
         this.logger.log(`Rolled back GCS file creation: ${location}`);
         return;
@@ -339,7 +339,7 @@ export class FileManagementService {
     if (storageConfigId) {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
-      config = await this.storageConfigCache.getStorageConfigByType('local');
+      config = await this.storageConfigCache.getStorageConfigByType('Local Storage');
 
       if (!config) {
         throw new BadRequestException('No local storage configured');
