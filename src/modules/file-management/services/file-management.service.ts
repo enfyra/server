@@ -3,26 +3,24 @@ import {
   FileUploadDto,
   ProcessedFileInfo,
 } from '../../../shared/interfaces/file-management.interface';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
-import { Storage } from '@google-cloud/storage';
+import { StorageFactoryService } from '../storage/storage-factory.service';
 import { Readable } from 'stream';
 
 @Injectable()
 export class FileManagementService {
-  private readonly basePath = path.join(process.cwd(), 'public');
   private readonly logger = new Logger(FileManagementService.name);
 
   constructor(
     private queryBuilder: QueryBuilderService,
     private storageConfigCache: StorageConfigCacheService,
-  ) {
-    this.ensurePublicDirExists();
-  }
+    private storageFactory: StorageFactoryService,
+  ) {}
 
   private getIdField(): string {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
@@ -33,13 +31,6 @@ export class FileManagementService {
     return { [idField]: id };
   }
 
-  private async ensurePublicDirExists(): Promise<void> {
-    try {
-      await fs.promises.mkdir(this.basePath, { recursive: true });
-    } catch (error) {
-      this.logger.error('Failed to create public directory', error);
-    }
-  }
 
   private generateUniqueFilename(originalFilename: string): string {
     const ext = path.extname(originalFilename);
@@ -74,7 +65,9 @@ export class FileManagementService {
   }
 
   getFilePath(filename: string): string {
-    return path.join(this.basePath, 'uploads', filename);
+    // For local storage, return relative path
+    // For cloud storage, this is handled by storage service
+    return `uploads/${filename}`;
   }
 
   async processFileUpload(
@@ -91,27 +84,14 @@ export class FileManagementService {
 
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
+      const storageService = this.storageFactory.getStorageServiceByConfig(storageConfig);
 
-      let location: string;
-      switch (storageConfig.type) {
-        case 'Local Storage':
-          location = await this.uploadToLocal(fileData.buffer, relativePath);
-          break;
-        case 'Google Cloud Storage':
-          location = await this.uploadToGCS(
-            fileData.buffer,
-            relativePath,
-            fileData.mimetype,
-            storageConfig,
-          );
-          break;
-        case 'Amazon S3':
-          throw new BadRequestException('S3 storage not implemented yet');
-        default:
-          throw new BadRequestException(
-            `Unknown storage type: ${storageConfig.type}`,
-          );
-      }
+      const uploadResult = await storageService.upload(
+        fileData.buffer,
+        relativePath,
+        fileData.mimetype,
+        storageConfig,
+      );
 
       const processedInfo: ProcessedFileInfo = {
         filename: fileData.filename,
@@ -119,7 +99,7 @@ export class FileManagementService {
         type: fileType,
         filesize: fileData.size,
         storage_config_id: storageConfig.id,
-        location: location,
+        location: uploadResult.location,
         description: fileData.description,
         status: 'active',
       };
@@ -148,47 +128,12 @@ export class FileManagementService {
     );
 
     try {
-      let storageType = 'Local Storage';
-      if (storageConfigId) {
-        const config = await this.getStorageConfigById(storageConfigId);
-        storageType = config.type;
-      }
-
-      if (storageType === 'Google Cloud Storage') {
-        await this.deleteFromGCS(location, storageConfigId);
-        return;
-      }
-
-      if (storageType === 'Amazon S3') {
-        throw new BadRequestException('S3 storage not implemented yet');
-      }
-
-      const absolutePath = this.convertToAbsolutePath(location);
-
-      if (await this.fileExists(absolutePath)) {
-        await fs.promises.unlink(absolutePath);
-        this.logger.log(`Physical file deleted: ${absolutePath}`);
-        return;
-      }
-
-      const altPath = path.join(
-        process.cwd(),
-        'public',
-        'uploads',
-        path.basename(location),
-      );
-      if (await this.fileExists(altPath)) {
-        await fs.promises.unlink(altPath);
-        this.logger.log(
-          `Physical file deleted from alternative path: ${altPath}`,
-        );
-        return;
-      }
-
-      this.logger.warn(
-        `Physical file not found (will sync metadata): ${location}`,
-      );
-    } catch (error) {
+      const config = await this.getStorageConfig(storageConfigId);
+      const storageService = this.storageFactory.getStorageServiceByConfig(config);
+      
+      await storageService.delete(location, config);
+      this.logger.log(`Deleted file: ${location}`);
+    } catch (error: any) {
       this.logger.error(`Failed to delete physical file: ${location}`, error);
       throw new BadRequestException(
         `Failed to delete physical file: ${error.message}`,
@@ -201,24 +146,12 @@ export class FileManagementService {
     storageConfigId?: number | string,
   ): Promise<void> {
     try {
-      let storageType = 'Local Storage';
-      if (storageConfigId) {
-        const config = await this.getStorageConfigById(storageConfigId);
-        storageType = config.type;
-      }
-
-      if (storageType === 'Google Cloud Storage') {
-        await this.deleteFromGCS(location, storageConfigId);
-        this.logger.log(`Rolled back GCS file creation: ${location}`);
-        return;
-      }
-
-      const absolutePath = this.convertToAbsolutePath(location);
-      if (await this.fileExists(absolutePath)) {
-        await fs.promises.unlink(absolutePath);
-        this.logger.log(`Rolled back file creation: ${absolutePath}`);
-      }
-    } catch (error) {
+      const config = await this.getStorageConfig(storageConfigId);
+      const storageService = this.storageFactory.getStorageServiceByConfig(config);
+      
+      await storageService.delete(location, config);
+      this.logger.log(`Rolled back file creation: ${location}`);
+    } catch (error: any) {
       this.logger.error(`Failed to rollback file creation:`, error);
     }
   }
@@ -349,185 +282,32 @@ export class FileManagementService {
     return config;
   }
 
-  private async uploadToLocal(
-    buffer: Buffer,
-    relativePath: string,
-  ): Promise<string> {
-    const filePath = path.join(this.basePath, relativePath);
-
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, buffer);
-
-    return `/${relativePath}`;
-  }
-
-  private async uploadToGCS(
-    buffer: Buffer,
-    relativePath: string,
-    mimetype: string,
-    config: any,
-  ): Promise<string> {
-    try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
-
-      const storage = new Storage({
-        credentials: credentials,
-      });
-
-      const bucket = storage.bucket(config.bucket);
-      const file = bucket.file(relativePath);
-
-      await file.save(buffer, {
-        metadata: {
-          contentType: mimetype,
-        },
-      });
-
-      this.logger.log(
-        `File uploaded to GCS: gs://${config.bucket}/${relativePath}`,
-      );
-
-      return relativePath;
-    } catch (error) {
-      this.logger.error(`Failed to upload to GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to upload to GCS: ${error.message}`,
-      );
-    }
-  }
-
-  async getStreamFromGCS(
+  async getStreamFromStorage(
     location: string,
     storageConfigId?: number | string,
   ): Promise<Readable> {
-    try {
-      const config = await this.getStorageConfig(storageConfigId);
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
-
-      const storage = new Storage({
-        credentials: credentials,
-      });
-
-      const bucket = storage.bucket(config.bucket);
-      const file = bucket.file(location);
-
-      // Check if file exists
-      const [exists] = await file.exists();
-      if (!exists) {
-        throw new BadRequestException(`File not found in GCS: ${location}`);
-      }
-
-      const stream = file.createReadStream();
-
-      this.logger.log(`Streaming file from GCS: gs://${config.bucket}/${location}`);
-
-      return stream;
-    } catch (error) {
-      this.logger.error(`Failed to stream from GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to stream from GCS: ${error.message}`,
-      );
-    }
+    const config = await this.getStorageConfig(storageConfigId);
+    const storageService = this.storageFactory.getStorageServiceByConfig(config);
+    return storageService.getStream(location, config);
   }
 
-  async getBufferFromGCS(
+  async getBufferFromStorage(
     location: string,
     storageConfigId?: number | string,
   ): Promise<Buffer> {
-    try {
-      const config = await this.getStorageConfig(storageConfigId);
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
-
-      const storage = new Storage({
-        credentials: credentials,
-      });
-
-      const bucket = storage.bucket(config.bucket);
-      const file = bucket.file(location);
-
-      const [exists] = await file.exists();
-      if (!exists) {
-        throw new BadRequestException(`File not found in GCS: ${location}`);
-      }
-
-      const [buffer] = await file.download();
-
-      this.logger.log(`Downloaded buffer from GCS: gs://${config.bucket}/${location} (${buffer.length} bytes)`);
-
-      return buffer;
-    } catch (error) {
-      this.logger.error(`Failed to download from GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to download from GCS: ${error.message}`,
-      );
-    }
+    const config = await this.getStorageConfig(storageConfigId);
+    const storageService = this.storageFactory.getStorageServiceByConfig(config);
+    return storageService.getBuffer(location, config);
   }
 
-  async deleteFromGCS(
-    location: string,
-    storageConfigId?: number | string,
-  ): Promise<void> {
-    try {
-      const config = await this.getStorageConfig(storageConfigId);
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
-
-      const storage = new Storage({
-        credentials: credentials,
-      });
-
-      const bucket = storage.bucket(config.bucket);
-      const file = bucket.file(location);
-
-      await file.delete({ ignoreNotFound: true });
-
-      this.logger.log(`Deleted file from GCS: gs://${config.bucket}/${location}`);
-    } catch (error) {
-      this.logger.error(`Failed to delete from GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to delete from GCS: ${error.message}`,
-      );
-    }
-  }
-
-  async replaceFileOnGCS(
+  async replaceFileOnStorage(
     location: string,
     buffer: Buffer,
     mimetype: string,
     storageConfigId?: number | string,
   ): Promise<void> {
-    try {
-      const config = await this.getStorageConfig(storageConfigId);
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
-
-      const storage = new Storage({
-        credentials: credentials,
-      });
-
-      const bucket = storage.bucket(config.bucket);
-      const file = bucket.file(location);
-
-      await file.save(buffer, {
-        metadata: {
-          contentType: mimetype,
-        },
-      });
-
-      this.logger.log(`Replaced file on GCS: gs://${config.bucket}/${location}`);
-    } catch (error) {
-      this.logger.error(`Failed to replace file on GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to replace file on GCS: ${error.message}`,
-      );
-    }
+    const config = await this.getStorageConfig(storageConfigId);
+    const storageService = this.storageFactory.getStorageServiceByConfig(config);
+    await storageService.replaceFile(location, buffer, mimetype, config);
   }
 }

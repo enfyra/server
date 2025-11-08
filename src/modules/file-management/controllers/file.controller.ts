@@ -132,8 +132,8 @@ export class FileController {
           storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
         }
 
-        if (storageConfig && storageConfig.type === 'Google Cloud Storage') {
-          await this.fileManagementService.replaceFileOnGCS(
+        if (storageConfig && (storageConfig.type === 'Google Cloud Storage' || storageConfig.type === 'Cloudflare R2')) {
+          await this.fileManagementService.replaceFileOnStorage(
             currentFile.location,
             file.buffer,
             file.mimetype,

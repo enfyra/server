@@ -26,6 +26,7 @@
     "postinstall": "node -e \"if (!require('fs').existsSync('./node_modules/sharp')) { require('child_process').execSync('yarn add sharp --ignore-engines', {stdio: 'inherit'}) }\""
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.927.0",
     "@google-cloud/storage": "^7.17.3",
     "@graphql-tools/schema": "^10.0.23",
     "@liaoliaots/nestjs-redis": "^10.0.0",

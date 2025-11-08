@@ -13,6 +13,7 @@ import { ImageProcessorHelper } from '../utils/image-processor.helper';
 import { StreamHelper } from '../utils/stream.helper';
 import { FileValidationHelper } from '../utils/file-validation.helper';
 import { ImageFormatHelper } from '../utils/image-format.helper';
+import { StorageFactoryService } from '../storage/storage-factory.service';
 
 @Injectable()
 export class FileAssetsService {
@@ -25,6 +26,7 @@ export class FileAssetsService {
     private queryBuilder: QueryBuilderService,
     private fileManagementService: FileManagementService,
     private redisService: RedisService,
+    private storageFactory: StorageFactoryService,
   ) {
     this.redis = this.redisService.getOrNil();
     this.cacheHelper = new ImageCacheHelper(this.redis);
@@ -84,7 +86,7 @@ export class FileAssetsService {
     const storageType = storageConfig?.type || 'Local Storage';
     const storageConfigId = storageConfig?.id || null;
 
-    if (storageType === 'Google Cloud Storage') {
+    if (storageType === 'Google Cloud Storage' || storageType === 'Cloudflare R2') {
       if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
         return void (await this.processImageWithQuery(
           location,
@@ -95,7 +97,7 @@ export class FileAssetsService {
         ));
       }
 
-      const stream = await this.fileManagementService.getStreamFromGCS(
+      const stream = await this.fileManagementService.getStreamFromStorage(
         location,
         storageConfigId,
       );
@@ -106,6 +108,35 @@ export class FileAssetsService {
       throw new NotFoundException('S3 storage not implemented yet');
     }
 
+    // For local storage, use storage service to stream
+    if (storageType === 'Local Storage') {
+      const storageService = this.storageFactory.getStorageService('Local Storage');
+      let storageConfig;
+      
+      if (storageConfigId) {
+        storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
+      } else {
+        // Create default local storage config
+        storageConfig = {
+          type: 'Local Storage',
+          name: 'Local',
+          isEnabled: true,
+        };
+      }
+      
+      const stream = await storageService.getStream(location, storageConfig);
+      
+      if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
+        // For images with query params, need to process
+        // But we have stream, so we need to handle differently
+        // For now, stream directly
+        return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype));
+      }
+      
+      return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype));
+    }
+
+    // Fallback to old method for backward compatibility
     const filePath = this.fileManagementService.getFilePath(
       path.basename(location),
     );
@@ -185,7 +216,7 @@ export class FileAssetsService {
         const config = await this.fileManagementService.getStorageConfigById(
           storageConfigId,
         );
-        shouldStream = config.type === 'Google Cloud Storage';
+        shouldStream = config.type === 'Google Cloud Storage' || config.type === 'Cloudflare R2';
       }
 
       if (shouldStream) {
@@ -278,7 +309,7 @@ export class FileAssetsService {
     mimeType?: string,
   ): Promise<void> {
     try {
-      const gcsStream = await this.fileManagementService.getStreamFromGCS(
+      const gcsStream = await this.fileManagementService.getStreamFromStorage(
         filePath,
         storageConfigId,
       );

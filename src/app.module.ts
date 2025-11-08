@@ -23,7 +23,6 @@ import { DynamicModule } from './modules/dynamic-api/dynamic.module';
 import { SystemProtectionService } from './modules/dynamic-api/services/system-protection.service';
 import { GraphqlModule } from './modules/graphql/graphql.module';
 import { MeModule } from './modules/me/me.module';
-import { FileManagementService } from './modules/file-management/services/file-management.service';
 import { TableModule } from './modules/table-management/table.module';
 import { CommonModule } from './shared/common/common.module';
 import { NotFoundDetectGuard } from './shared/guards/not-found-detect.guard';
@@ -99,7 +98,6 @@ import { ReloadModule } from './modules/reload/reload.module';
     RouteCacheService,
     PackageCacheService,
     SystemProtectionService,
-    FileManagementService,
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
