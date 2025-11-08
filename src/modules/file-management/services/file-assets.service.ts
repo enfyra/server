@@ -1,43 +1,25 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
-import {
-  AuthenticationException,
-  AuthorizationException,
-} from '../../../core/exceptions/custom-exceptions';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { FileManagementService } from './file-management.service';
 import { Response } from 'express';
 import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
-import * as fs from 'fs';
 import * as path from 'path';
-import * as sharp from 'sharp';
 import * as crypto from 'crypto';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Redis } from 'ioredis';
 import { REDIS_TTL } from '../../../shared/utils/constant';
-
-interface CacheHitTracker {
-  hits: number;
-  lastAccessed: number;
-  size: number;
-}
+import { ImageCacheHelper } from '../utils/image-cache.helper';
+import { ImageProcessorHelper } from '../utils/image-processor.helper';
+import { StreamHelper } from '../utils/stream.helper';
+import { FileValidationHelper } from '../utils/file-validation.helper';
+import { ImageFormatHelper } from '../utils/image-format.helper';
 
 @Injectable()
 export class FileAssetsService {
   private readonly logger = new Logger(FileAssetsService.name);
   private readonly redis: Redis | null;
-  private readonly cachePrefix = 'image:cache:';
-  private readonly statsKey = 'image:cache:stats';
-  private readonly frequencyKey = 'image:freq';
-  private readonly hotKeysKey = 'image:hot';
-  private readonly minHitsToCache = 3;
-  private readonly maxCacheMemory = 2 * 1024 * 1024 * 1024;
-  private readonly evictionThreshold = 0.9;
-  private readonly maxCacheAge = {
-    small: REDIS_TTL.FILE_CACHE_TTL.SMALL / 1000,
-    medium: REDIS_TTL.FILE_CACHE_TTL.MEDIUM / 1000,
-    large: REDIS_TTL.FILE_CACHE_TTL.LARGE / 1000,
-    xlarge: REDIS_TTL.FILE_CACHE_TTL.XLARGE / 1000,
-  };
+  private readonly cacheHelper: ImageCacheHelper;
+  private readonly streamHelper: StreamHelper;
 
   constructor(
     private queryBuilder: QueryBuilderService,
@@ -45,39 +27,18 @@ export class FileAssetsService {
     private redisService: RedisService,
   ) {
     this.redis = this.redisService.getOrNil();
+    this.cacheHelper = new ImageCacheHelper(this.redis);
+    this.streamHelper = new StreamHelper();
+
     if (!this.redis)
       this.logger.warn('Redis not available - image caching disabled');
 
-    sharp.cache({ memory: 50, files: 20 });
-    sharp.concurrency(2);
-    sharp.simd(true);
+    ImageProcessorHelper.configureSharp();
 
     if (this.redis) {
-      this.configureRedis();
-      setInterval(() => this.logCacheStats(), REDIS_TTL.CACHE_STATS_INTERVAL);
-      setInterval(() => this.cleanupLeastUsedCache(), REDIS_TTL.CACHE_CLEANUP_INTERVAL);
-    }
-  }
-
-  private async configureRedis(): Promise<void> {
-    if (!this.redis) return;
-
-    try {
-      const [maxMemory, policy] = await Promise.all([
-        this.redis.config('GET', 'maxmemory'),
-        this.redis.config('GET', 'maxmemory-policy'),
-      ]);
-
-      if (maxMemory[1] === '0') this.logger.warn('Redis maxmemory unlimited');
-      else
-        this.logger.log(
-          `Redis: ${(parseInt(maxMemory[1]) / (1024 * 1024)).toFixed(0)}MB, ${policy[1]}`,
-        );
-
-      if (policy[1] === 'noeviction')
-        this.logger.warn('Consider allkeys-lru policy');
-    } catch (error) {
-      this.logger.error(`Redis config error: ${error.message}`);
+      this.cacheHelper.configureRedis();
+      setInterval(() => this.cacheHelper.logCacheStats(), REDIS_TTL.CACHE_STATS_INTERVAL);
+      setInterval(() => this.cacheHelper.cleanupLeastUsedCache(), REDIS_TTL.CACHE_CLEANUP_INTERVAL);
     }
   }
 
@@ -117,14 +78,14 @@ export class FileAssetsService {
       file.permissions = permissions;
     }
 
-    await this.checkFilePermissions(file, req);
+    await FileValidationHelper.checkFilePermissions(file, req);
 
     const { location, storageConfig, filename, mimetype, type: fileType } = file as any;
     const storageType = storageConfig?.type || 'local';
     const storageConfigId = storageConfig?.id || null;
 
     if (storageType === 'gcs') {
-      if (this.isImageFile(mimetype, fileType) && this.hasImageQueryParams(req)) {
+      if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
         return void (await this.processImageWithQuery(
           location,
           req,
@@ -138,7 +99,7 @@ export class FileAssetsService {
         location,
         storageConfigId,
       );
-      return void (await this.streamCloudFile(stream, res, filename, mimetype));
+      return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype));
     }
 
     if (storageType === 's3') {
@@ -149,12 +110,12 @@ export class FileAssetsService {
       path.basename(location),
     );
 
-    if (!(await this.fileExists(filePath))) {
+    if (!(await FileValidationHelper.fileExists(filePath))) {
       this.logger.error(`File not found: ${filePath}`);
       throw new NotFoundException('Physical file not found');
     }
 
-    if (this.isImageFile(mimetype, fileType) && this.hasImageQueryParams(req)) {
+    if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
       return void (await this.processImageWithQuery(
         filePath,
         req,
@@ -163,16 +124,7 @@ export class FileAssetsService {
       ));
     }
 
-    await this.streamRegularFile(filePath, res, filename, mimetype);
-  }
-
-  private isImageFile(mimetype: string, fileType: string): boolean {
-    return mimetype.startsWith('image/') || fileType === 'image';
-  }
-
-  private hasImageQueryParams(req: RequestWithRouteData): boolean {
-    const query = req.routeData?.context?.$query || req.query;
-    return !!(query.format || query.width || query.height || query.quality);
+    await this.streamHelper.streamRegularFile(filePath, res, filename, mimetype);
   }
 
   private async processImageWithQuery(
@@ -198,17 +150,17 @@ export class FileAssetsService {
         ? parseInt(query.cache as string, 10)
         : undefined;
 
-      const cacheKey = this.generateCacheKey(
+      const cacheKey = this.cacheHelper.generateCacheKey(
         filePath,
         format,
         width,
         height,
         quality,
       );
-      const frequency = await this.incrementFrequency(cacheKey);
-      const cachedImage = await this.getFromCache(cacheKey);
+      const frequency = await this.cacheHelper.incrementFrequency(cacheKey);
+      const cachedImage = await this.cacheHelper.getFromCache(cacheKey);
       if (cachedImage) {
-        await this.incrementStats('hits');
+        await this.cacheHelper.incrementStats('hits');
         res.setHeader('Content-Type', cachedImage.contentType);
         res.setHeader('Content-Length', cachedImage.buffer.length);
         res.setHeader('X-Cache', 'HIT');
@@ -218,81 +170,75 @@ export class FileAssetsService {
         return void res.send(cachedImage.buffer);
       }
 
-      await this.incrementStats('misses');
+      await this.cacheHelper.incrementStats('misses');
 
-      if (width && (width < 1 || width > 4000))
-        return void res.status(400).json({ error: 'Width 1-4000' });
-      if (height && (height < 1 || height > 4000))
-        return void res.status(400).json({ error: 'Height 1-4000' });
-      if (quality && (quality < 1 || quality > 100))
-        return void res.status(400).json({ error: 'Quality 1-100' });
+      const validation = ImageProcessorHelper.validateImageParams(width, height, quality);
+      if (!validation.valid) {
+        return void res.status(400).json({ error: validation.error });
+      }
 
-      let imageInput: Buffer | string;
+      const outputFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+      const mimeType = ImageFormatHelper.getMimeType(outputFormat);
+
+      let shouldStream = false;
       if (storageConfigId) {
         const config = await this.fileManagementService.getStorageConfigById(
           storageConfigId,
         );
-        if (config.type === 'gcs') {
-          imageInput = await this.fileManagementService.getBufferFromGCS(
-            filePath,
-            storageConfigId,
-          );
-        } else {
-          imageInput = filePath;
-        }
-      } else {
-        imageInput = filePath;
+        shouldStream = config.type === 'gcs';
       }
 
-      let imageProcessor = sharp(imageInput, {
-        failOnError: false,
-        density: 72,
-        limitInputPixels: 268402689,
-      })
-        .rotate()
-        .withMetadata();
-
-      if (width || height) {
-        imageProcessor = imageProcessor.resize(width, height, {
-          fit: 'inside',
-          withoutEnlargement: true,
-          fastShrinkOnLoad: true,
-        });
+      if (shouldStream) {
+        return void (await this.streamImageFromGCS(
+          filePath,
+          storageConfigId,
+          req,
+          res,
+          filename,
+          format,
+          width,
+          height,
+          quality,
+          cache,
+          cacheKey,
+          frequency,
+          mimeType,
+        ));
       }
+
+      let imageInput: Buffer | string = filePath;
+
+      let imageProcessor = ImageProcessorHelper.createProcessor(imageInput);
+
+      imageProcessor = ImageProcessorHelper.applyResize(imageProcessor, width, height);
 
       if (format) {
-        const supportedFormats = ['jpeg', 'jpg', 'png', 'webp', 'avif', 'gif'];
-        if (!supportedFormats.includes(format.toLowerCase())) {
-          return void res
-            .status(400)
-            .json({
-              error: `Unsupported format: ${supportedFormats.join(', ')}`,
-            });
+        const formatValidation = ImageProcessorHelper.validateFormat(format);
+        if (!formatValidation.valid) {
+          return void res.status(400).json({ error: formatValidation.error });
         }
-        imageProcessor = this.setImageFormat(
+        imageProcessor = ImageProcessorHelper.setImageFormat(
           imageProcessor,
           format.toLowerCase(),
           quality,
         );
       } else if (quality) {
-        const originalFormat = path.extname(filePath).toLowerCase().slice(1);
-        imageProcessor = this.setImageFormat(
+        const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
+        imageProcessor = ImageProcessorHelper.setImageFormat(
           imageProcessor,
           originalFormat,
           quality,
         );
       }
 
-      const outputFormat = format || this.getOriginalFormat(filePath);
-      const mimeType = this.getMimeType(outputFormat);
       const processedBuffer = await imageProcessor.toBuffer();
 
       if (
         processedBuffer.length < 10 * 1024 * 1024 &&
-        frequency >= this.minHitsToCache
+        this.cacheHelper.shouldCache(frequency)
       ) {
-        await this.addToCache(cacheKey, processedBuffer, mimeType);
-        await this.addToHotKeys(cacheKey, processedBuffer.length);
+        await this.cacheHelper.addToCache(cacheKey, processedBuffer, mimeType);
+        await this.cacheHelper.addToHotKeys(cacheKey, processedBuffer.length);
       }
 
       const etag = `"${crypto.createHash('md5').update(processedBuffer).digest('hex')}"`;
@@ -316,366 +262,94 @@ export class FileAssetsService {
     }
   }
 
-  private setImageFormat(
-    imageProcessor: sharp.Sharp,
-    format: string,
-    quality = 80,
-  ): sharp.Sharp {
-    const formatMap = {
-      jpeg: () =>
-        imageProcessor.jpeg({
-          quality,
-          progressive: true,
-          mozjpeg: true,
-          trellisQuantisation: true,
-          overshootDeringing: true,
-          optimizeScans: true,
-        }),
-      jpg: () =>
-        imageProcessor.jpeg({
-          quality,
-          progressive: true,
-          mozjpeg: true,
-          trellisQuantisation: true,
-          overshootDeringing: true,
-          optimizeScans: true,
-        }),
-      png: () =>
-        imageProcessor.png({ quality, compressionLevel: 9, progressive: true }),
-      webp: () =>
-        imageProcessor.webp({ quality, effort: 4, smartSubsample: true }),
-      avif: () => imageProcessor.avif({ quality, effort: 4 }),
-      gif: () => imageProcessor.gif(),
-    };
-    return formatMap[format]?.() || imageProcessor;
-  }
-
-  private async streamRegularFile(
+  private async streamImageFromGCS(
     filePath: string,
-    res: Response,
-    filename: string,
-    mimetype: string,
-  ): Promise<void> {
-    const stats = await fs.promises.stat(filePath);
-    res.setHeader('Content-Type', mimetype);
-    res.setHeader('Content-Length', stats.size);
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.on('error', (error) => {
-      this.logger.error('File stream error:', error);
-      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
-    });
-    fileStream.pipe(res);
-  }
-
-  private async streamCloudFile(
-    stream: any,
-    res: Response,
-    filename: string,
-    mimetype: string,
-  ): Promise<void> {
-    res.setHeader('Content-Type', mimetype);
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-
-    stream.on('error', (error) => {
-      this.logger.error('Cloud stream error:', error);
-      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
-    });
-
-    stream.pipe(res);
-  }
-
-  private getOriginalFormat(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase().slice(1);
-    return ext === 'jpg' ? 'jpeg' : ext;
-  }
-
-  private getMimeType(format: string): string {
-    const types = {
-      jpeg: 'image/jpeg',
-      jpg: 'image/jpeg',
-      png: 'image/png',
-      webp: 'image/webp',
-      avif: 'image/avif',
-      gif: 'image/gif',
-    };
-    return types[format] || 'image/jpeg';
-  }
-
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      const stats = await fs.promises.stat(filePath);
-      return stats.isFile();
-    } catch {
-      return false;
-    }
-  }
-
-  private async checkFilePermissions(
-    file: any,
+    storageConfigId: number | string,
     req: RequestWithRouteData,
-  ): Promise<void> {
-    if (file.isPublished === true) return;
-
-    const user = req.routeData?.context?.$user || req.user;
-    if (!user?.id) throw new AuthenticationException('Authentication required');
-    if (user.isRootAdmin === true) return;
-
-    const hasAccess = (file.permissions || []).some(
-      (p: any) =>
-        p.isEnabled !== false &&
-        (p.allowedUsers?.id === user.id ||
-          (p.role && user.role?.id === p.role.id)),
-    );
-
-    if (!hasAccess) throw new AuthorizationException('Access denied');
-  }
-
-  private generateCacheKey(
-    filePath: string,
+    res: Response,
+    filename: string,
     format?: string,
     width?: number,
     height?: number,
     quality?: number,
-  ): string {
-    let mtime = 0;
-    try {
-      const stats = fs.statSync(filePath);
-      mtime = stats.mtime.getTime();
-    } catch {
-      mtime = 0;
-    }
-
-    return crypto
-      .createHash('md5')
-      .update(
-        `${filePath}-${mtime}-${format || 'original'}-${width || 0}x${height || 0}-q${quality || 80}`,
-      )
-      .digest('hex');
-  }
-
-  private async getFromCache(
-    key: string,
-  ): Promise<{ buffer: Buffer; contentType: string } | null> {
-    if (!this.redis) return null;
-    try {
-      const isHot = await this.redis.sismember(this.hotKeysKey, key);
-      if (!isHot) return null;
-
-      const [bufferData, metaData] = await Promise.all([
-        this.redis.getBuffer(`${this.cachePrefix}${key}`),
-        this.redis.get(`${this.cachePrefix}${key}:meta`),
-      ]);
-
-      if (!bufferData || !metaData) {
-        await this.redis.srem(this.hotKeysKey, key);
-        return null;
-      }
-
-      return {
-        buffer: bufferData,
-        contentType: JSON.parse(metaData).contentType,
-      };
-    } catch (error) {
-      this.logger.error(`Cache error: ${error.message}`);
-      return null;
-    }
-  }
-
-  private async addToCache(
-    key: string,
-    buffer: Buffer,
-    contentType: string,
+    cache?: number,
+    cacheKey?: string,
+    frequency?: number,
+    mimeType?: string,
   ): Promise<void> {
-    if (!this.redis) return;
     try {
-      const size = buffer.length;
-      const ttl = this.getMaxAge(size);
-      const pipeline = this.redis.pipeline();
-
-      pipeline.setex(`${this.cachePrefix}${key}`, ttl, buffer);
-      pipeline.setex(
-        `${this.cachePrefix}${key}:meta`,
-        ttl,
-        JSON.stringify({ contentType, size, timestamp: Date.now() }),
+      const gcsStream = await this.fileManagementService.getStreamFromGCS(
+        filePath,
+        storageConfigId,
       );
 
-      await pipeline.exec();
-    } catch (error) {
-      this.logger.error(`Cache add error: ${error.message}`);
-    }
-  }
+      let imageProcessor = ImageProcessorHelper.createStreamProcessor();
 
-  private getMaxAge(size: number): number {
-    if (size < 100 * 1024) return this.maxCacheAge.small;
-    if (size < 500 * 1024) return this.maxCacheAge.medium;
-    if (size < 2 * 1024 * 1024) return this.maxCacheAge.large;
-    return this.maxCacheAge.xlarge;
-  }
+      imageProcessor = ImageProcessorHelper.applyResize(imageProcessor, width, height);
 
-  private async incrementStats(type: 'hits' | 'misses'): Promise<void> {
-    if (!this.redis) return;
-    try {
-      await this.redis.hincrby(this.statsKey, type, 1);
-    } catch (error) {
-      this.logger.error(`Stats error: ${error.message}`);
-    }
-  }
-
-  private async logCacheStats(): Promise<void> {
-    if (!this.redis) return;
-
-    try {
-      const [stats, hotKeysCount, currentMemory] = await Promise.all([
-        this.redis.hgetall(this.statsKey),
-        this.redis.scard(this.hotKeysKey),
-        this.getCurrentCacheMemory(),
-      ]);
-
-      const hits = parseInt(stats.hits || '0');
-      const misses = parseInt(stats.misses || '0');
-      if (hits + misses === 0) return;
-
-      const hitRate = ((hits / (hits + misses)) * 100).toFixed(1);
-      this.logger.log(
-        `Cache: ${hitRate}% hit rate, ${hotKeysCount} hot keys, ${(currentMemory / 1024 / 1024).toFixed(0)}MB`,
-      );
-
-      await this.redis.del(this.statsKey);
-    } catch (error) {
-      this.logger.error(`Stats error: ${error.message}`);
-    }
-  }
-
-  private async incrementFrequency(key: string): Promise<number> {
-    if (!this.redis) return 1;
-    try {
-      const frequency = await this.redis.hincrby(this.frequencyKey, key, 1);
-      if (frequency === 1) await this.redis.expire(this.frequencyKey, 86400);
-      return frequency;
-    } catch (error) {
-      this.logger.error(`Frequency error: ${error.message}`);
-      return 1;
-    }
-  }
-
-  private async addToHotKeys(key: string, size: number): Promise<void> {
-    if (!this.redis) return;
-    try {
-      const pipeline = this.redis.pipeline();
-      pipeline.sadd(this.hotKeysKey, key);
-      pipeline.hset(
-        `${this.hotKeysKey}:meta`,
-        key,
-        JSON.stringify({ size, timestamp: Date.now() }),
-      );
-      await pipeline.exec();
-    } catch (error) {
-      this.logger.error(`Hot keys error: ${error.message}`);
-    }
-  }
-
-  private async cleanupLeastUsedCache(): Promise<void> {
-    if (!this.redis) return;
-
-    try {
-      const currentMemory = await this.getCurrentCacheMemory();
-      const memoryThreshold = this.maxCacheMemory * this.evictionThreshold;
-
-      if (currentMemory < memoryThreshold) return;
-
-      const targetMemory = this.maxCacheMemory * 0.7;
-      const memoryToFree = currentMemory - targetMemory;
-
-      const hotKeys = await this.redis.smembers(this.hotKeysKey);
-      if (hotKeys.length === 0) return;
-
-      const [frequencies, hotKeysMeta] = await Promise.all([
-        this.redis.hmget(this.frequencyKey, ...hotKeys),
-        this.redis.hmget(`${this.hotKeysKey}:meta`, ...hotKeys),
-      ]);
-
-      const candidates: Array<{
-        key: string;
-        frequency: number;
-        size: number;
-        timestamp: number;
-      }> = [];
-
-      for (let i = 0; i < hotKeys.length; i++) {
-        const key = hotKeys[i];
-        const freq = parseInt(frequencies[i] || '0');
-        const meta = hotKeysMeta[i] ? JSON.parse(hotKeysMeta[i]) : null;
-
-        if (meta) {
-          candidates.push({
-            key,
-            frequency: freq,
-            size: meta.size,
-            timestamp: meta.timestamp,
-          });
+      if (format) {
+        const formatValidation = ImageProcessorHelper.validateFormat(format);
+        if (!formatValidation.valid) {
+          return void res.status(400).json({ error: formatValidation.error });
         }
-      }
-
-      candidates.sort((a, b) =>
-        a.frequency !== b.frequency
-          ? a.frequency - b.frequency
-          : a.timestamp - b.timestamp,
-      );
-
-      let freedMemory = 0;
-      let evictCount = 0;
-      const pipeline = this.redis.pipeline();
-
-      for (const item of candidates) {
-        if (freedMemory >= memoryToFree) break;
-
-        pipeline.del(`${this.cachePrefix}${item.key}`);
-        pipeline.del(`${this.cachePrefix}${item.key}:meta`);
-        pipeline.srem(this.hotKeysKey, item.key);
-        pipeline.hdel(`${this.hotKeysKey}:meta`, item.key);
-
-        freedMemory += item.size;
-        evictCount++;
-      }
-
-      if (evictCount > 0) {
-        await pipeline.exec();
-        this.logger.log(
-          `Evicted ${evictCount} items, freed ${(freedMemory / 1024 / 1024).toFixed(2)}MB`,
+        imageProcessor = ImageProcessorHelper.setImageFormat(
+          imageProcessor,
+          format.toLowerCase(),
+          quality,
+        );
+      } else if (quality) {
+        const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
+        imageProcessor = ImageProcessorHelper.setImageFormat(
+          imageProcessor,
+          originalFormat,
+          quality,
         );
       }
-    } catch (error) {
-      this.logger.error(`LRU cleanup error: ${error.message}`);
-    }
-  }
 
-  private async getCurrentCacheMemory(): Promise<number> {
-    if (!this.redis) return 0;
+      res.setHeader('Content-Type', mimeType || 'image/jpeg');
+      res.setHeader('X-Cache', 'MISS');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
 
-    try {
-      const hotKeys = await this.redis.smembers(this.hotKeysKey);
-      if (hotKeys.length === 0) return 0;
+      if (cache && cache > 0)
+        res.setHeader('Cache-Control', `public, max-age=${cache}`);
 
-      const metaDataArray = await this.redis.hmget(
-        `${this.hotKeysKey}:meta`,
-        ...hotKeys,
-      );
-      let totalMemory = 0;
+      const shouldCache =
+        cacheKey &&
+        frequency &&
+        this.cacheHelper.shouldCache(frequency) &&
+        this.redis;
 
-      for (const metaData of metaDataArray) {
-        if (metaData) {
-          try {
-            totalMemory += JSON.parse(metaData).size || 0;
-          } catch {}
-        }
+      const sharpStream = gcsStream.pipe(imageProcessor);
+
+      sharpStream.on('error', (error) => {
+        this.logger.error('Sharp processing error:', error);
+        if (!res.headersSent)
+          res.status(500).json({ error: 'Image processing failed' });
+      });
+
+      if (shouldCache && cacheKey) {
+        this.streamHelper.setupImageStream(
+          sharpStream,
+          res,
+          true,
+          async (buffer: Buffer) => {
+            await this.cacheHelper.addToCache(cacheKey, buffer, mimeType || 'image/jpeg');
+            await this.cacheHelper.addToHotKeys(cacheKey, buffer.length);
+          },
+        );
+      } else {
+        this.streamHelper.setupImageStream(sharpStream, res, false);
       }
 
-      return totalMemory;
+      this.streamHelper.handleStreamError(
+        gcsStream,
+        res,
+        'Failed to stream from GCS',
+      );
     } catch (error) {
-      this.logger.error(`Memory calc error: ${error.message}`);
-      return 0;
+      this.logger.error('Stream image from GCS error:', error);
+      if (!res.headersSent)
+        res.status(500).json({ error: 'Image streaming failed' });
     }
   }
 }

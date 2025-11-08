@@ -10,12 +10,12 @@ import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.reposi
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-convertor';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { JwtService } from '@nestjs/jwt';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
+import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 
@@ -25,12 +25,12 @@ export class DynamicResolver {
     @Inject(forwardRef(() => TableHandlerService))
     private tableHandlerService: TableHandlerService,
     private queryEngine: QueryEngine,
-    private cacheService: CacheService,
     private jwtService: JwtService,
     private queryBuilder: QueryBuilderService,
     private metadataCacheService: MetadataCacheService,
     private handlerExecutorService: HandlerExecutorService,
     private routeCacheService: RouteCacheService,
+    private storageConfigCacheService: StorageConfigCacheService,
     private systemProtectionService: SystemProtectionService,
     private configService: ConfigService,
   ) {}
@@ -96,7 +96,6 @@ export class DynamicResolver {
       $share: {},
     };
 
-    // Create dynamic repositories with context
     const dynamicFindEntries = await Promise.all(
       [mainTable, ...targetTables].map(async (table) => {
         const dynamicRepo = new DynamicRepository({
@@ -107,6 +106,7 @@ export class DynamicResolver {
           metadataCacheService: this.metadataCacheService,
           queryEngine: this.queryEngine,
           routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
           systemProtectionService: this.systemProtectionService,
         });
 
@@ -119,7 +119,6 @@ export class DynamicResolver {
       }),
     );
 
-    // Populate repos in context
     handlerCtx.$repos = Object.fromEntries(dynamicFindEntries);
 
     try {
@@ -143,25 +142,20 @@ export class DynamicResolver {
     info: any,
   ) {
     try {
-      // Extract table name and operation from mutation name
-      // e.g., "create_table_definition" -> tableName: "table_definition", operation: "create"
       const match = mutationName.match(/^(create|update|delete)_(.+)$/);
       if (!match) {
         throw new BadRequestException(`Invalid mutation name: ${mutationName}`);
       }
 
-      const operation = match[1]; // create, update, delete
-      const tableName = match[2]; // table_definition
+      const operation = match[1];
+      const tableName = match[2];
 
-      // Get middleware data
       const { matchedRoute: currentRoute, user } = await this.middleware(tableName, context, info);
 
-      // Check GQL_MUTATION permission
       await this.canPassMutation(currentRoute, context.req?.headers?.authorization);
 
-      // Setup context similar to query resolver
       const handlerCtx = {
-        $user: user ?? null, // Always exists (null if no user)
+        $user: user ?? null,
         $repos: {},
         $req: context.request,
         $body: args.input || {},
@@ -170,7 +164,6 @@ export class DynamicResolver {
         $share: {},
       };
 
-      // Create dynamic repository
       const dynamicRepo = new DynamicRepository({
         context: handlerCtx,
         tableName: tableName,
@@ -179,13 +172,12 @@ export class DynamicResolver {
         metadataCacheService: this.metadataCacheService,
         tableHandlerService: this.tableHandlerService,
         routeCacheService: this.routeCacheService,
+        storageConfigCacheService: this.storageConfigCacheService,
         systemProtectionService: this.systemProtectionService,
       });
 
-      // Initialize repository
       await dynamicRepo.init();
 
-      // Setup repos in context like query resolver
       const dynamicFindEntries = [
         ['main', dynamicRepo],
         ...(currentRoute.targetTables || []).map((table: any) => [
@@ -198,20 +190,18 @@ export class DynamicResolver {
             metadataCacheService: this.metadataCacheService,
             tableHandlerService: this.tableHandlerService,
             routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
             systemProtectionService: this.systemProtectionService,
           }),
         ]),
       ];
 
-      // Initialize all repos
       for (const [, repo] of dynamicFindEntries) {
         await (repo as DynamicRepository).init();
       }
 
-      // Populate repos in context
       handlerCtx.$repos = Object.fromEntries(dynamicFindEntries);
 
-      // Execute mutation based on operation using handlerExecutorService like query resolver
       let defaultHandler: string;
       switch (operation) {
         case 'create':

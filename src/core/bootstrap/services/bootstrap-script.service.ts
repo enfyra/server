@@ -7,6 +7,7 @@ import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dyn
 import { TableHandlerService } from '../../../modules/table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
+import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
@@ -30,6 +31,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     private tableHandlerService: TableHandlerService,
     private queryEngine: QueryEngine,
     private routeCacheService: RouteCacheService,
+    private storageConfigCacheService: StorageConfigCacheService,
     private systemProtectionService: SystemProtectionService,
     private redisPubSubService: RedisPubSubService,
     private instanceService: InstanceService,
@@ -160,22 +162,21 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   }
 
   private async executeScript(script: any) {
-    // Get all table definitions to create repositories
     const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
     const tableDefinitions = tablesResult.data;
     
-    // Create dynamic repositories for all tables (similar to route-detect middleware)
     const dynamicFindEntries = await Promise.all(
       tableDefinitions.map(async (tableDef) => {
         const tableName = tableDef.name;
         const dynamicRepo = new DynamicRepository({
-          context: null, // Will be set later to avoid circular reference
+          context: null,
           tableName: tableName,
           tableHandlerService: this.tableHandlerService,
           queryBuilder: this.queryBuilder,
           metadataCacheService: this.metadataCacheService,
           queryEngine: this.queryEngine,
           routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
           systemProtectionService: this.systemProtectionService,
           bootstrapScriptService: this,
           redisPubSubService: this.redisPubSubService,

@@ -36,16 +36,10 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap() {
-    // Check if system tables exist before loading routes
-    // Even if metadata loads successfully, system tables may not exist yet
     await this.metadataCacheService.getMetadata();
-
     await this.reload();
   }
 
-  /**
-   * Subscribe to route sync messages from other instances
-   */
   private subscribe() {
     const sub = this.redisPubSubService.sub;
     if (!sub) {
@@ -53,12 +47,10 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       return;
     }
 
-    // Only subscribe if not already subscribed
     if (this.messageHandler) {
       return;
     }
 
-    // Create and store handler
     this.messageHandler = (channel: string, message: string) => {
       if (channel === ROUTE_CACHE_SYNC_EVENT_KEY) {
         try {
@@ -90,9 +82,6 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     );
   }
 
-  /**
-   * Get routes from in-memory cache
-   */
   async getRoutes(): Promise<any[]> {
     if (!this.cacheLoaded) {
       await this.reload();
@@ -100,9 +89,6 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     return this.routesCache;
   }
 
-  /**
-   * Reload routes from DB (acquire lock → load → publish → save)
-   */
   async reload(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
 
@@ -163,7 +149,6 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   private async loadRoutes(): Promise<any[]> {
-    // Load all methods if not cached
     if (this.allMethods.length === 0) {
       const methodsResult = await this.queryBuilder.select({
         tableName: 'method_definition',
@@ -285,7 +270,6 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
 
     const basePath = route.path;
 
-    // Insert route for all methods from database
     for (const method of this.allMethods) {
       this.routeEngine.insert(method, basePath, route);
 
