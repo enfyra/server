@@ -56,26 +56,20 @@ export class ImageProcessorHelper {
       jpeg: () =>
         processor.jpeg({
           quality,
-          progressive: true,
+          progressive: false,
           mozjpeg: true,
-          trellisQuantisation: true,
-          overshootDeringing: true,
-          optimizeScans: true,
         }),
       jpg: () =>
         processor.jpeg({
           quality,
-          progressive: true,
+          progressive: false,
           mozjpeg: true,
-          trellisQuantisation: true,
-          overshootDeringing: true,
-          optimizeScans: true,
         }),
       png: () =>
-        processor.png({ quality, compressionLevel: 9, progressive: true }),
+        processor.png({ quality, compressionLevel: 6, progressive: false }),
       webp: () =>
-        processor.webp({ quality, effort: 2, smartSubsample: true }),
-      avif: () => processor.avif({ quality, effort: 2 }),
+        processor.webp({ quality, effort: 1 }),
+      avif: () => processor.avif({ quality, effort: 1 }),
       gif: () => processor.gif(),
     };
     return formatMap[format]?.() || processor;
@@ -107,8 +101,8 @@ export class ImageProcessorHelper {
   }
 
   static configureSharp(): void {
-    sharp.cache({ memory: 100, files: 50 });
-    sharp.concurrency(4);
+    sharp.cache({ memory: 200, files: 100 });
+    sharp.concurrency(8);
     sharp.simd(true);
   }
 }
