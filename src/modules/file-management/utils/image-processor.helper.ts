@@ -74,8 +74,8 @@ export class ImageProcessorHelper {
       png: () =>
         processor.png({ quality, compressionLevel: 9, progressive: true }),
       webp: () =>
-        processor.webp({ quality, effort: 4, smartSubsample: true }),
-      avif: () => processor.avif({ quality, effort: 4 }),
+        processor.webp({ quality, effort: 2, smartSubsample: true }),
+      avif: () => processor.avif({ quality, effort: 2 }),
       gif: () => processor.gif(),
     };
     return formatMap[format]?.() || processor;
@@ -107,8 +107,8 @@ export class ImageProcessorHelper {
   }
 
   static configureSharp(): void {
-    sharp.cache({ memory: 50, files: 20 });
-    sharp.concurrency(2);
+    sharp.cache({ memory: 100, files: 50 });
+    sharp.concurrency(4);
     sharp.simd(true);
   }
 }
