@@ -37,14 +37,45 @@ export class ImageProcessorHelper {
     processor: sharp.Sharp,
     width?: number,
     height?: number,
+    fit?: string,
+    gravity?: string,
   ): sharp.Sharp {
     if (!width && !height) return processor;
 
-    return processor.resize(width, height, {
-      fit: 'inside',
+    const fitMap: { [key: string]: 'cover' | 'contain' | 'fill' | 'inside' | 'outside' } = {
+      cover: 'cover',
+      contain: 'contain',
+      fill: 'fill',
+      inside: 'inside',
+      outside: 'outside',
+    };
+
+    const gravityMap: { [key: string]: sharp.Gravity } = {
+      center: 'center',
+      north: 'north',
+      south: 'south',
+      east: 'east',
+      west: 'west',
+      northeast: 'northeast',
+      northwest: 'northwest',
+      southeast: 'southeast',
+      southwest: 'southwest',
+      face: 'attention',
+      faces: 'attention',
+      auto: 'attention',
+    };
+
+    const resizeOptions: sharp.ResizeOptions = {
+      fit: fitMap[fit?.toLowerCase() || ''] || 'inside',
       withoutEnlargement: true,
       fastShrinkOnLoad: true,
-    });
+    };
+
+    if (gravity && gravityMap[gravity.toLowerCase()]) {
+      resizeOptions.position = gravityMap[gravity.toLowerCase()];
+    }
+
+    return processor.resize(width, height, resizeOptions);
   }
 
   static setImageFormat(
@@ -100,8 +131,117 @@ export class ImageProcessorHelper {
     return { valid: true };
   }
 
+  static applyTransformations(
+    processor: sharp.Sharp,
+    rotate?: number,
+    flip?: string,
+    blur?: number,
+    sharpen?: number,
+  ): sharp.Sharp {
+    if (rotate !== undefined && rotate !== 0) {
+      processor = processor.rotate(rotate);
+    }
+
+    if (flip) {
+      const flipLower = flip.toLowerCase();
+      if (flipLower === 'horizontal' || flipLower === 'h') {
+        processor = processor.flip();
+      } else if (flipLower === 'vertical' || flipLower === 'v') {
+        processor = processor.flop();
+      }
+    }
+
+    if (blur !== undefined && blur > 0) {
+      processor = processor.blur(blur);
+    }
+
+    if (sharpen !== undefined && sharpen > 0) {
+      processor = processor.sharpen(sharpen);
+    }
+
+    return processor;
+  }
+
+  static applyEffects(
+    processor: sharp.Sharp,
+    brightness?: number,
+    contrast?: number,
+    saturation?: number,
+    grayscale?: boolean,
+  ): sharp.Sharp {
+    const modulateOptions: { brightness?: number; saturation?: number } = {};
+
+    if (brightness !== undefined) {
+      modulateOptions.brightness = brightness / 100 + 1; // Convert -100 to 100 to 0 to 2
+    }
+
+    if (saturation !== undefined) {
+      modulateOptions.saturation = saturation / 100 + 1; // Convert -100 to 100 to 0 to 2
+    }
+
+    if (Object.keys(modulateOptions).length > 0) {
+      processor = processor.modulate(modulateOptions);
+    }
+
+    // Note: Sharp doesn't have direct contrast support
+    // Contrast can be simulated with brightness adjustment, but it's not accurate
+    // For now, we'll skip contrast implementation
+    // if (contrast !== undefined) {
+    //   // Contrast simulation would require more complex processing
+    // }
+
+    if (grayscale === true) {
+      processor = processor.greyscale();
+    }
+
+    return processor;
+  }
+
+  static validateTransformParams(
+    rotate?: number,
+    flip?: string,
+    blur?: number,
+    sharpen?: number,
+    brightness?: number,
+    contrast?: number,
+    saturation?: number,
+  ): { valid: boolean; error?: string } {
+    if (rotate !== undefined && (rotate < -360 || rotate > 360))
+      return { valid: false, error: 'Rotate -360 to 360' };
+    if (flip && !['horizontal', 'vertical', 'h', 'v'].includes(flip.toLowerCase()))
+      return { valid: false, error: 'Flip: horizontal, vertical, h, v' };
+    if (blur !== undefined && (blur < 0 || blur > 100))
+      return { valid: false, error: 'Blur 0-100' };
+    if (sharpen !== undefined && (sharpen < 0 || sharpen > 100))
+      return { valid: false, error: 'Sharpen 0-100' };
+    if (brightness !== undefined && (brightness < -100 || brightness > 100))
+      return { valid: false, error: 'Brightness -100 to 100' };
+    if (contrast !== undefined && (contrast < -100 || contrast > 100))
+      return { valid: false, error: 'Contrast -100 to 100' };
+    if (saturation !== undefined && (saturation < -100 || saturation > 100))
+      return { valid: false, error: 'Saturation -100 to 100' };
+    return { valid: true };
+  }
+
+  static validateFit(fit?: string): { valid: boolean; error?: string } {
+    if (fit && !['cover', 'contain', 'fill', 'inside', 'outside'].includes(fit.toLowerCase()))
+      return { valid: false, error: 'Fit: cover, contain, fill, inside, outside' };
+    return { valid: true };
+  }
+
+  static validateGravity(gravity?: string): { valid: boolean; error?: string } {
+    const validGravities = [
+      'center', 'north', 'south', 'east', 'west',
+      'northeast', 'northwest', 'southeast', 'southwest',
+      'face', 'faces', 'auto',
+    ];
+    if (gravity && !validGravities.includes(gravity.toLowerCase()))
+      return { valid: false, error: `Gravity: ${validGravities.join(', ')}` };
+    return { valid: true };
+  }
+
   static configureSharp(): void {
-    sharp.cache({ memory: 200, files: 100 });
+    sharp.cache(false);
     sharp.concurrency(8);
     sharp.simd(true);
   }

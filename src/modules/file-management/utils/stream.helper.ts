@@ -12,11 +12,14 @@ export class StreamHelper {
     res: Response,
     filename: string,
     mimetype: string,
+    shouldDownload?: boolean,
   ): Promise<void> {
     const stats = await fs.promises.stat(filePath);
     res.setHeader('Content-Type', mimetype);
     res.setHeader('Content-Length', stats.size);
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Disposition', shouldDownload 
+      ? `attachment; filename="${filename}"` 
+      : `inline; filename="${filename}"`);
 
     const fileStream = fs.createReadStream(filePath);
     fileStream.on('error', (error) => {
@@ -31,9 +34,12 @@ export class StreamHelper {
     res: Response,
     filename: string,
     mimetype: string,
+    shouldDownload?: boolean,
   ): Promise<void> {
     res.setHeader('Content-Type', mimetype);
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Disposition', shouldDownload 
+      ? `attachment; filename="${filename}"` 
+      : `inline; filename="${filename}"`);
 
     // Set Content-Length if available (for better performance)
     if (stream.contentLength) {
