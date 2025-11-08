@@ -486,15 +486,31 @@
             }
         },
         {
+            "type": "Dropdown Menu",
+            "label": "Storage",
+            "icon": "heroicons:server",
+            "path": "/storage",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Storage management",
+            "order": 5,
+            "permission": {
+                "or": [
+                    { "route": "/file_definition", "actions": ["read"] },
+                    { "route": "/storage_config_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
             "type": "Menu",
             "label": "Storage Configurations",
             "icon": "heroicons:cloud-arrow-up",
-            "path": "/files/storage-config",
+            "path": "/storage/config",
             "isEnabled": true,
             "isSystem": true,
             "description": "Storage backend configurations",
             "order": 2,
-            "parent": "Files",
+            "parent": "Storage",
             "permission": {
                 "or": [
                     { "route": "/storage_config_definition", "actions": ["read"] }
@@ -535,12 +551,12 @@
             "type": "Menu",
             "label": "Files management",
             "icon": "lucide:folder-tree",
-            "path": "/files/management",
+            "path": "/storage/management",
             "isEnabled": true,
             "isSystem": true,
             "description": "Files management",
             "order": 1,
-            "parent": "Files",
+            "parent": "Storage",
             "permission": {
                 "or": [
                     { "route": "/file_definition", "actions": ["read"] }
