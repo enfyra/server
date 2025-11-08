@@ -35,11 +35,17 @@ export class StreamHelper {
     res.setHeader('Content-Type', mimetype);
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
 
+    // Set Content-Length if available (for better performance)
+    if (stream.contentLength) {
+      res.setHeader('Content-Length', stream.contentLength);
+    }
+
     stream.on('error', (error) => {
       this.logger.error('Cloud stream error:', error);
       if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
     });
 
+    // Direct pipe - no buffering, streams directly to response
     stream.pipe(res);
   }
 
