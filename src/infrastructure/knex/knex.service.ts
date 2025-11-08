@@ -211,6 +211,21 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.addHook('beforeUpdate', async (tableName, data) => {
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata || !tableMetadata.columns) return data;
+
+      const filteredData = { ...data };
+      
+      for (const column of tableMetadata.columns) {
+        if (column.isHidden === true && column.name in filteredData && filteredData[column.name] === null) {
+          delete filteredData[column.name];
+        }
+      }
+
+      return filteredData;
+    });
+
+    this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
       return { ...data, updatedAt: this.knexInstance.raw('CURRENT_TIMESTAMP') };
     });

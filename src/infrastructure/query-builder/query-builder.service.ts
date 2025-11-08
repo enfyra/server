@@ -137,8 +137,8 @@ export class QueryBuilderService {
   async update(options: UpdateOptions): Promise<any> {
     if (this.dbType === 'mongodb') {
       const dataWithRelations = await this.mongoService.processNestedRelations(options.table, options.data);
-
-      const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(dataWithRelations);
+      const dataWithoutHiddenNulls = await this.mongoService.stripHiddenNullFields(options.table, dataWithRelations);
+      const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(dataWithoutHiddenNulls);
 
       const filter: any = {};
       const { ObjectId } = require('mongodb');
