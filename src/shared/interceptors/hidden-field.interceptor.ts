@@ -42,10 +42,6 @@ export class HideFieldInterceptor implements NestInterceptor {
   private sanitizeObject(obj: any, user?: any, request?: any): any {
     if (!obj || typeof obj !== 'object') return obj;
 
-    if (user?.isRootAdmin) {
-      return obj;
-    }
-
     const sanitized = { ...obj };
     const metadata = this.metadataCacheService.getDirectMetadata();
 
@@ -60,44 +56,14 @@ export class HideFieldInterceptor implements NestInterceptor {
       const matchingColumns = columns.filter(col => objectKeys.includes(col.name));
 
       if (matchingColumns.length > 0) {
-        const hasUpdatePermission = this.checkUpdatePermission(tableName, user, request);
-
-        if (hasUpdatePermission) {
-          continue;
-        }
-
         for (const column of columns) {
           if (column.isHidden === true && column.name in sanitized) {
-            delete sanitized[column.name];
+            sanitized[column.name] = null;
           }
         }
       }
     }
 
     return sanitized;
-  }
-
-  private checkUpdatePermission(tableName: string, user?: any, request?: any): boolean {
-    if (!user || !request?.routeData?.routePermissions) {
-      return false;
-    }
-
-    const routePermissions = request.routeData.routePermissions;
-
-    const hasPermission = routePermissions.find((permission: any) => {
-      const hasUpdateMethod = permission.methods?.some(
-        (item: any) => item.method === 'PATCH' || item.method === 'PUT'
-      );
-
-      if (!hasUpdateMethod) return false;
-
-      if (permission?.allowedUsers?.some((u: any) => u?.id === user.id)) {
-        return true;
-      }
-
-      return permission?.role?.id === user.role?.id;
-    });
-
-    return !!hasPermission;
   }
 }
