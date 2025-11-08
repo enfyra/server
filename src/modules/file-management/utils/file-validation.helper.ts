@@ -12,7 +12,22 @@ export class FileValidationHelper {
 
   static hasImageQueryParams(req: RequestWithRouteData): boolean {
     const query = req.routeData?.context?.$query || req.query;
-    return !!(query.format || query.width || query.height || query.quality);
+    return !!(
+      query.format ||
+      query.width ||
+      query.height ||
+      query.quality ||
+      query.fit ||
+      query.gravity ||
+      query.rotate ||
+      query.flip ||
+      query.blur ||
+      query.sharpen ||
+      query.brightness ||
+      query.contrast ||
+      query.saturation ||
+      query.grayscale
+    );
   }
 
   static async fileExists(filePath: string): Promise<boolean> {
