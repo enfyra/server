@@ -8,6 +8,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 
@@ -16,7 +17,10 @@ export class FileManagementService {
   private readonly basePath = path.join(process.cwd(), 'public');
   private readonly logger = new Logger(FileManagementService.name);
 
-  constructor(private queryBuilder: QueryBuilderService) {
+  constructor(
+    private queryBuilder: QueryBuilderService,
+    private storageConfigCache: StorageConfigCacheService,
+  ) {
     this.ensurePublicDirExists();
   }
 
@@ -318,14 +322,7 @@ export class FileManagementService {
   }
 
   async getStorageConfigById(storageConfigId: number | string): Promise<any> {
-    const idField = this.getIdField();
-    const config = await this.queryBuilder.findOneWhere(
-      'storage_config_definition',
-      {
-        [idField]: storageConfigId,
-        isEnabled: true,
-      },
-    );
+    const config = await this.storageConfigCache.getStorageConfigById(storageConfigId);
 
     if (!config) {
       throw new BadRequestException(
@@ -342,13 +339,7 @@ export class FileManagementService {
     if (storageConfigId) {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
-      config = await this.queryBuilder.findOneWhere(
-        'storage_config_definition',
-        {
-          type: 'local',
-          isEnabled: true,
-        },
-      );
+      config = await this.storageConfigCache.getStorageConfigByType('local');
 
       if (!config) {
         throw new BadRequestException('No local storage configured');

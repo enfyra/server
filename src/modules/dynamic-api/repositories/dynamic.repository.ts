@@ -4,6 +4,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
+import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { SystemProtectionService } from '../services/system-protection.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
@@ -20,6 +21,7 @@ export class DynamicRepository {
   private queryBuilder: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
   private routeCacheService: RouteCacheService;
+  private storageConfigCacheService?: StorageConfigCacheService;
   private systemProtectionService: SystemProtectionService;
   private bootstrapScriptService?: BootstrapScriptService;
   private redisPubSubService?: RedisPubSubService;
@@ -34,6 +36,7 @@ export class DynamicRepository {
     queryBuilder,
     tableHandlerService,
     routeCacheService,
+    storageConfigCacheService,
     systemProtectionService,
     bootstrapScriptService,
     redisPubSubService,
@@ -47,6 +50,7 @@ export class DynamicRepository {
     queryBuilder: QueryBuilderService;
     tableHandlerService: TableHandlerService;
     routeCacheService: RouteCacheService;
+    storageConfigCacheService?: StorageConfigCacheService;
     systemProtectionService: SystemProtectionService;
     bootstrapScriptService?: BootstrapScriptService;
     redisPubSubService?: RedisPubSubService;
@@ -60,6 +64,7 @@ export class DynamicRepository {
     this.queryBuilder = queryBuilder;
     this.tableHandlerService = tableHandlerService;
     this.routeCacheService = routeCacheService;
+    this.storageConfigCacheService = storageConfigCacheService;
     this.systemProtectionService = systemProtectionService;
     this.bootstrapScriptService = bootstrapScriptService;
     this.redisPubSubService = redisPubSubService;
@@ -69,7 +74,6 @@ export class DynamicRepository {
   }
 
   async init() {
-    // No need to initialize repo with Knex - direct queries
   }
 
   private getIdField(): string {
@@ -176,7 +180,7 @@ export class DynamicRepository {
       });
 
       if (this.tableName === 'table_definition') {
-        await this.tableHandlerService.delete(id); // Keep as string for MongoDB
+        await this.tableHandlerService.delete(id);
         await this.reload();
         return { message: 'Success', statusCode: 200 };
       }
@@ -218,9 +222,7 @@ export class DynamicRepository {
       await this.swaggerService?.reloadSwagger();
     }
 
-    // Reload bootstrap scripts when bootstrap_script_definition changes
     if (this.tableName === 'bootstrap_script_definition' && this.bootstrapScriptService) {
-      // Publish event to notify all instances about bootstrap script change
       if (this.redisPubSubService) {
         await this.redisPubSubService.publish(BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY, {
           timestamp: Date.now(),
@@ -230,8 +232,11 @@ export class DynamicRepository {
         });
       }
       
-      // Reload on current instance
       await this.bootstrapScriptService.reloadBootstrapScripts();
+    }
+
+    if (this.tableName === 'storage_config_definition' && this.storageConfigCacheService) {
+      await this.storageConfigCacheService.reload();
     }
   }
 }

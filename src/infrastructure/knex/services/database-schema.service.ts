@@ -1,6 +1,5 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { KnexService } from '../knex.service';
-import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 
 @Injectable()
 export class DatabaseSchemaService {

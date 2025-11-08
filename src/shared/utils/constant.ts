@@ -8,10 +8,12 @@ export const BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY = 'bootstrap-script-execution';
 export const ROUTE_CACHE_SYNC_EVENT_KEY = 'enfyra:route-cache-sync';
 export const PACKAGE_CACHE_SYNC_EVENT_KEY = 'enfyra:package-cache-sync';
 export const METADATA_CACHE_SYNC_EVENT_KEY = 'enfyra:metadata-cache-sync';
+export const STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:storage-config-cache-sync';
 
 export const METADATA_RELOAD_LOCK_KEY = 'metadata:reload:lock';
 export const ROUTE_RELOAD_LOCK_KEY = 'routes:reload:lock';
 export const PACKAGE_RELOAD_LOCK_KEY = 'packages:reload:lock';
+export const STORAGE_CONFIG_RELOAD_LOCK_KEY = 'storage-config:reload:lock';
 
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,

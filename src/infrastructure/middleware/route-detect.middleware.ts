@@ -6,6 +6,7 @@ import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynami
 import { TDynamicContext } from '../../shared/interfaces/dynamic-context.interface';
 import { QueryEngine } from '../query-engine/services/query-engine.service';
 import { RouteCacheService } from '../cache/services/route-cache.service';
+import { StorageConfigCacheService } from '../cache/services/storage-config-cache.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
@@ -23,6 +24,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private queryEngine: QueryEngine,
     private tableHandlerService: TableHandlerService,
     private routeCacheService: RouteCacheService,
+    private storageConfigCacheService: StorageConfigCacheService,
     private metadataCacheService: MetadataCacheService,
     private systemProtectionService: SystemProtectionService,
     private cacheService: CacheService,
@@ -42,14 +44,12 @@ export class RouteDetectMiddleware implements NestMiddleware {
     ];
 
       if (matchedRoute) {
-        // Detect real client IP first
         const realClientIP = this.detectClientIP(req);
         
-        // Create context first
       const context: TDynamicContext = {
         $body: req.body,
-        $data: undefined, // Will be set by interceptor
-        $statusCode: undefined, // Will be set by interceptor
+        $data: undefined,
+        $statusCode: undefined,
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $logs(...args) {},
         $helpers: {
@@ -65,11 +65,11 @@ export class RouteDetectMiddleware implements NestMiddleware {
         $cache: this.cacheService,
         $params: matchedRoute.params ?? {},
         $query: req.query ?? {},
-        $user: req.user ?? null, // Always exists (null if no user)
-        $repos: {}, // Will be populated after repos are created
+        $user: req.user ?? null,
+        $repos: {},
           $req: {
             ...req,
-            ip: realClientIP, // Override IP with detected client IP
+            ip: realClientIP,
           },
         $share: {
           $logs: [],
@@ -81,7 +81,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
             timestamp: new Date().toISOString(),
             correlationId: req.headers['x-correlation-id'] as string || this.generateCorrelationId(),
             userAgent: req.headers['user-agent'],
-            ip: realClientIP, // Use already detected IP
+            ip: realClientIP,
           },
         },
       };
@@ -106,12 +106,13 @@ export class RouteDetectMiddleware implements NestMiddleware {
           ),
         ]?.filter(table => table?.name)?.map(async (table) => {
           const dynamicRepo = new DynamicRepository({
-            context: null, // Will be set later to avoid circular reference
+            context: null,
             tableName: table.name,
             tableHandlerService: this.tableHandlerService,
             queryBuilder: this.queryBuilder,
             queryEngine: this.queryEngine,
             routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
             metadataCacheService: this.metadataCacheService,
             systemProtectionService: this.systemProtectionService,
             bootstrapScriptService: undefined,
