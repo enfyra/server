@@ -519,36 +519,6 @@
         },
         {
             "type": "Menu",
-            "label": "Create New Table",
-            "icon": "lucide:plus",
-            "path": "/collections/create",
-            "isEnabled": true,
-            "isSystem": true,
-            "description": "Create new table",
-            "order": 0,
-            "parent": "Collections",
-            "permission": {
-                "or": [{ "route": "/table_definition", "actions": ["create"] }]
-            }
-        },
-        {
-            "type": "Dropdown Menu",
-            "label": "Files",
-            "icon": "lucide:folder",
-            "path": "/files",
-            "isEnabled": true,
-            "isSystem": true,
-            "description": "File & folder management",
-            "order": 5,
-            "permission": {
-                "or": [
-                    { "route": "/file_definition", "actions": ["read"] }
-                ]
-            }
-        },
-        
-        {
-            "type": "Menu",
             "label": "Files management",
             "icon": "lucide:folder-tree",
             "path": "/storage/management",
