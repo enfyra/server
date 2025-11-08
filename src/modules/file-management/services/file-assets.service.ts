@@ -5,10 +5,6 @@ import { Response } from 'express';
 import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import { Redis } from 'ioredis';
-import { REDIS_TTL } from '../../../shared/utils/constant';
-import { ImageCacheHelper } from '../utils/image-cache.helper';
 import { ImageProcessorHelper } from '../utils/image-processor.helper';
 import { StreamHelper } from '../utils/stream.helper';
 import { FileValidationHelper } from '../utils/file-validation.helper';
@@ -18,30 +14,15 @@ import { StorageFactoryService } from '../storage/storage-factory.service';
 @Injectable()
 export class FileAssetsService {
   private readonly logger = new Logger(FileAssetsService.name);
-  private readonly redis: Redis | null;
-  private readonly cacheHelper: ImageCacheHelper;
   private readonly streamHelper: StreamHelper;
 
   constructor(
     private queryBuilder: QueryBuilderService,
     private fileManagementService: FileManagementService,
-    private redisService: RedisService,
     private storageFactory: StorageFactoryService,
   ) {
-    this.redis = this.redisService.getOrNil();
-    this.cacheHelper = new ImageCacheHelper(this.redis);
     this.streamHelper = new StreamHelper();
-
-    if (!this.redis)
-      this.logger.warn('Redis not available - image caching disabled');
-
     ImageProcessorHelper.configureSharp();
-
-    if (this.redis) {
-      this.cacheHelper.configureRedis();
-      setInterval(() => this.cacheHelper.logCacheStats(), REDIS_TTL.CACHE_STATS_INTERVAL);
-      setInterval(() => this.cacheHelper.cleanupLeastUsedCache(), REDIS_TTL.CACHE_CLEANUP_INTERVAL);
-    }
   }
 
   async streamFile(req: RequestWithRouteData, res: Response): Promise<void> {
@@ -181,28 +162,6 @@ export class FileAssetsService {
         ? parseInt(query.cache as string, 10)
         : undefined;
 
-      const cacheKey = this.cacheHelper.generateCacheKey(
-        filePath,
-        format,
-        width,
-        height,
-        quality,
-      );
-      const frequency = await this.cacheHelper.incrementFrequency(cacheKey);
-      const cachedImage = await this.cacheHelper.getFromCache(cacheKey);
-      if (cachedImage) {
-        await this.cacheHelper.incrementStats('hits');
-        res.setHeader('Content-Type', cachedImage.contentType);
-        res.setHeader('Content-Length', cachedImage.buffer.length);
-        res.setHeader('X-Cache', 'HIT');
-        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-        if (cache && cache > 0)
-          res.setHeader('Cache-Control', `public, max-age=${cache}`);
-        return void res.send(cachedImage.buffer);
-      }
-
-      await this.cacheHelper.incrementStats('misses');
-
       const validation = ImageProcessorHelper.validateImageParams(width, height, quality);
       if (!validation.valid) {
         return void res.status(400).json({ error: validation.error });
@@ -211,6 +170,7 @@ export class FileAssetsService {
       const outputFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
       const mimeType = ImageFormatHelper.getMimeType(outputFormat);
 
+      // Check if streaming from cloud storage
       let shouldStream = false;
       if (storageConfigId) {
         const config = await this.fileManagementService.getStorageConfigById(
@@ -231,8 +191,6 @@ export class FileAssetsService {
           height,
           quality,
           cache,
-          cacheKey,
-          frequency,
           mimeType,
         ));
       }
@@ -264,24 +222,19 @@ export class FileAssetsService {
 
       const processedBuffer = await imageProcessor.toBuffer();
 
-      if (
-        processedBuffer.length < 10 * 1024 * 1024 &&
-        this.cacheHelper.shouldCache(frequency)
-      ) {
-        await this.cacheHelper.addToCache(cacheKey, processedBuffer, mimeType);
-        await this.cacheHelper.addToHotKeys(cacheKey, processedBuffer.length);
-      }
-
       const etag = `"${crypto.createHash('md5').update(processedBuffer).digest('hex')}"`;
 
       res.setHeader('Content-Type', mimeType);
       res.setHeader('Content-Length', processedBuffer.length);
-      res.setHeader('X-Cache', 'MISS');
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
       res.setHeader('ETag', etag);
 
+      // Browser cache headers
       if (cache && cache > 0)
         res.setHeader('Cache-Control', `public, max-age=${cache}`);
+      else
+        res.setHeader('Cache-Control', 'public, max-age=31536000'); // Default 1 year
+      
       if (req.headers['if-none-match'] === etag)
         return void res.status(304).end();
 
@@ -304,8 +257,6 @@ export class FileAssetsService {
     height?: number,
     quality?: number,
     cache?: number,
-    cacheKey?: string,
-    frequency?: number,
     mimeType?: string,
   ): Promise<void> {
     try {
@@ -338,17 +289,13 @@ export class FileAssetsService {
       }
 
       res.setHeader('Content-Type', mimeType || 'image/jpeg');
-      res.setHeader('X-Cache', 'MISS');
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
 
+      // Browser cache headers - sufficient for streaming
       if (cache && cache > 0)
         res.setHeader('Cache-Control', `public, max-age=${cache}`);
-
-      const shouldCache =
-        cacheKey &&
-        frequency &&
-        this.cacheHelper.shouldCache(frequency) &&
-        this.redis;
+      else
+        res.setHeader('Cache-Control', 'public, max-age=31536000'); // Default 1 year
 
       const sharpStream = gcsStream.pipe(imageProcessor);
 
@@ -358,19 +305,9 @@ export class FileAssetsService {
           res.status(500).json({ error: 'Image processing failed' });
       });
 
-      if (shouldCache && cacheKey) {
-        this.streamHelper.setupImageStream(
-          sharpStream,
-          res,
-          true,
-          async (buffer: Buffer) => {
-            await this.cacheHelper.addToCache(cacheKey, buffer, mimeType || 'image/jpeg');
-            await this.cacheHelper.addToHotKeys(cacheKey, buffer.length);
-          },
-        );
-      } else {
-        this.streamHelper.setupImageStream(sharpStream, res, false);
-      }
+      // Stream directly - no caching needed (streaming is fast enough)
+      // Browser cache headers (Cache-Control) are sufficient
+      this.streamHelper.setupImageStream(sharpStream, res, false);
 
       this.streamHelper.handleStreamError(
         gcsStream,
