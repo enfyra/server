@@ -1,4 +1,5 @@
 import { Knex } from 'knex';
+import { Logger } from '@nestjs/common';
 import {
   DatabaseType,
   QueryOptions,
@@ -8,6 +9,7 @@ import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-
 import { separateFilters, applyRelationFilters } from '../utils/sql/relation-filter.util';
 
 export class SqlQueryExecutor {
+  private readonly logger = new Logger(SqlQueryExecutor.name);
   private debugLog: any[] = [];
   private metadata: any;
 
