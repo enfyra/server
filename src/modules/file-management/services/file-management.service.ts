@@ -65,8 +65,6 @@ export class FileManagementService {
   }
 
   getFilePath(filename: string): string {
-    // For local storage, return relative path
-    // For cloud storage, this is handled by storage service
     return `uploads/${filename}`;
   }
 
@@ -87,11 +85,11 @@ export class FileManagementService {
       const storageService = this.storageFactory.getStorageServiceByConfig(storageConfig);
 
       const uploadResult = await storageService.upload(
-        fileData.buffer,
-        relativePath,
-        fileData.mimetype,
-        storageConfig,
-      );
+            fileData.buffer,
+            relativePath,
+            fileData.mimetype,
+            storageConfig,
+          );
 
       const processedInfo: ProcessedFileInfo = {
         filename: fileData.filename,
@@ -116,6 +114,76 @@ export class FileManagementService {
       throw new BadRequestException(
         `Failed to process file upload: ${error.message}`,
       );
+    }
+  }
+
+  async uploadFileAndCreateRecord(
+    fileData: {
+      filename: string;
+      mimetype: string;
+      buffer: Buffer;
+      size: number;
+    },
+    options: {
+      folder?: number | string | { id: number | string };
+      storageConfig?: number | string | { id: number | string };
+      title?: string;
+      description?: string;
+      userId?: number | string;
+    },
+    fileRepo: any,
+  ): Promise<any> {
+    let folderData = null;
+    if (options.folder) {
+      folderData =
+        typeof options.folder === 'object' ? options.folder : { id: options.folder };
+    }
+
+    let storageConfigId: number | string | null = null;
+    if (options.storageConfig) {
+      storageConfigId =
+        typeof options.storageConfig === 'object'
+          ? options.storageConfig.id
+          : options.storageConfig;
+    }
+
+    const processedFile = await this.processFileUpload(
+      {
+        filename: fileData.filename,
+        mimetype: fileData.mimetype,
+        buffer: fileData.buffer,
+        size: fileData.size,
+        folder: folderData,
+        title: options.title || fileData.filename,
+        description: options.description || null,
+      },
+      storageConfigId,
+    );
+
+    try {
+      const savedFile = await fileRepo.create({
+        filename: processedFile.filename,
+        mimetype: processedFile.mimetype,
+        type: processedFile.type,
+        filesize: processedFile.filesize,
+        location: processedFile.location,
+        description: processedFile.description || null,
+        folder: folderData,
+        uploaded_by: options.userId
+          ? this.createIdReference(options.userId)
+          : null,
+        storageConfig: processedFile.storage_config_id
+          ? this.createIdReference(processedFile.storage_config_id)
+          : null,
+      });
+
+      return savedFile;
+    } catch (error) {
+      await this.rollbackFileCreation(
+        processedFile.location,
+        processedFile.storage_config_id,
+      );
+      throw error;
     }
   }
 
@@ -171,7 +239,6 @@ export class FileManagementService {
     }
   }
 
-  // File replacement methods
   async backupFile(location: string): Promise<string> {
     const absolutePath = this.convertToAbsolutePath(location);
     const backupPath = `${absolutePath}.backup.${Date.now()}`;
@@ -286,7 +353,7 @@ export class FileManagementService {
     location: string,
     storageConfigId?: number | string,
   ): Promise<Readable> {
-    const config = await this.getStorageConfig(storageConfigId);
+      const config = await this.getStorageConfig(storageConfigId);
     const storageService = this.storageFactory.getStorageServiceByConfig(config);
     return storageService.getStream(location, config);
   }
@@ -295,7 +362,7 @@ export class FileManagementService {
     location: string,
     storageConfigId?: number | string,
   ): Promise<Buffer> {
-    const config = await this.getStorageConfig(storageConfigId);
+      const config = await this.getStorageConfig(storageConfigId);
     const storageService = this.storageFactory.getStorageServiceByConfig(config);
     return storageService.getBuffer(location, config);
   }
@@ -306,7 +373,7 @@ export class FileManagementService {
     mimetype: string,
     storageConfigId?: number | string,
   ): Promise<void> {
-    const config = await this.getStorageConfig(storageConfigId);
+      const config = await this.getStorageConfig(storageConfigId);
     const storageService = this.storageFactory.getStorageServiceByConfig(config);
     await storageService.replaceFile(location, buffer, mimetype, config);
   }

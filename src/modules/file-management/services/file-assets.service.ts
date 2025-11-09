@@ -259,7 +259,7 @@ export class FileAssetsService {
       }
 
       const fileStream = require('fs').createReadStream(filePath);
-      
+
       let imageProcessor = ImageProcessorHelper.createStreamProcessor();
 
       imageProcessor = ImageProcessorHelper.applyResize(imageProcessor, width, height, fit, gravity);
@@ -402,7 +402,7 @@ export class FileAssetsService {
           res.status(500).json({ error: 'Image processing failed' });
       });
 
-      this.streamHelper.setupImageStream(sharpStream, res, false);
+        this.streamHelper.setupImageStream(sharpStream, res, false);
 
       this.streamHelper.handleStreamError(
         gcsStream,

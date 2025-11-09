@@ -58,22 +58,59 @@ export class FileUploadMiddleware implements NestMiddleware {
       }
 
       if (req.routeData?.context) {
-        const processedBody: any = {};
+        // Merge entire body into context (except file field which is handled separately)
+        const processedBody: any = { ...req.body };
+        
+        // Remove file field from body (it's handled separately)
+        delete processedBody.file;
 
+        // Process folder field if present
         if (
-          req.body.folder &&
-          req.body.folder !== null &&
-          req.body.folder !== 'null'
+          processedBody.folder &&
+          processedBody.folder !== null &&
+          processedBody.folder !== 'null'
         ) {
           processedBody.folder =
-            typeof req.body.folder === 'object'
-              ? req.body.folder
-              : { id: req.body.folder };
+            typeof processedBody.folder === 'object'
+              ? processedBody.folder
+              : { id: processedBody.folder };
         }
 
-        // Capture storageType from request body
-        if (req.body.storageType) {
-          processedBody.storageType = req.body.storageType;
+        // Process storageConfig field if present
+        if (processedBody.storageConfig) {
+          processedBody.storageConfig =
+            typeof processedBody.storageConfig === 'object'
+              ? processedBody.storageConfig
+              : { id: processedBody.storageConfig };
+        }
+
+        // Process role field if present (for user creation)
+        // Note: Multer parses form-data, so role might come as a string
+        if (processedBody.role) {
+          if (typeof processedBody.role === 'string') {
+            // Try to parse as JSON first
+            if (processedBody.role.startsWith('{') || processedBody.role.startsWith('[')) {
+              try {
+                processedBody.role = JSON.parse(processedBody.role);
+              } catch (e) {
+                // If parsing fails, treat as ID string
+                const roleId = parseInt(processedBody.role, 10);
+                if (!isNaN(roleId)) {
+                  processedBody.role = { id: roleId };
+                }
+              }
+            } else {
+              // Plain ID string
+              const roleId = parseInt(processedBody.role, 10);
+              if (!isNaN(roleId)) {
+                processedBody.role = { id: roleId };
+              }
+            }
+          }
+          // If already an object, ensure it has id property
+          if (typeof processedBody.role === 'object' && processedBody.role.id) {
+            processedBody.role = { id: processedBody.role.id };
+          }
         }
 
         req.routeData.context.$body = {
@@ -85,6 +122,7 @@ export class FileUploadMiddleware implements NestMiddleware {
           req.routeData.context.$uploadedFile = {
             originalname: req.file.originalname,
             mimetype: req.file.mimetype,
+            encoding: req.file.encoding || 'utf8',
             buffer: req.file.buffer,
             size: req.file.size,
             fieldname: req.file.fieldname,

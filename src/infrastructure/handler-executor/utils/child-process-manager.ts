@@ -8,6 +8,31 @@ import { smartMergeContext } from './smart-merge';
 export class ChildProcessManager {
   private static readonly logger = new Logger(ChildProcessManager.name);
 
+  private static deserializeBuffers(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    // Handle serialized Buffer: { type: 'Buffer', data: [...] }
+    if (obj && typeof obj === 'object' && obj.type === 'Buffer' && Array.isArray(obj.data)) {
+      return Buffer.from(obj.data);
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.deserializeBuffers(item));
+    }
+
+    if (obj && typeof obj === 'object' && obj.constructor === Object) {
+      const deserialized: any = {};
+      for (const key in obj) {
+        deserialized[key] = this.deserializeBuffers(obj[key]);
+      }
+      return deserialized;
+    }
+
+    return obj;
+  }
+
   static setupTimeout(
     child: any,
     timeoutMs: number,
@@ -155,12 +180,34 @@ export class ChildProcessManager {
           const { parent, method } = resolvePath(ctx, msg.path);
 
           if (typeof parent[method] !== 'function') {
+            if (!child.killed && child.connected) {
+              child.send({
+                type: 'call_result',
+                callId: msg.callId,
+                error: true,
+                errorResponse: {
+                  message: `Helper function not found: ${msg.path}. Parent: ${JSON.stringify(Object.keys(parent || {}))}, Method: ${method}, Type: ${typeof parent?.[method]}`,
+                  name: 'HelperNotFoundError',
+                },
+              });
+            }
             return;
           }
 
           const reconstructedArgs = msg.args.map((arg: any) => {
             if (arg && typeof arg === 'object' && arg.type === 'Buffer' && Array.isArray(arg.data)) {
               return Buffer.from(arg.data);
+            } else if (arg && typeof arg === 'object' && !Buffer.isBuffer(arg)) {
+              const keys = Object.keys(arg);
+              const numericKeys = keys.filter(k => /^\d+$/.test(k));
+              if (numericKeys.length > 0) {
+                const sortedKeys = numericKeys.map(k => parseInt(k, 10)).sort((a, b) => a - b);
+                const arr = new Array(sortedKeys.length);
+                for (let i = 0; i < sortedKeys.length; i++) {
+                  arr[i] = arg[sortedKeys[i].toString()];
+                }
+                return Buffer.from(arr);
+              }
             }
             return arg;
           });
@@ -202,7 +249,9 @@ export class ChildProcessManager {
 
         clearTimeout(timeout);
         await pool.release(child);
-        resolve(msg.data);
+        
+        const deserializedData = this.deserializeBuffers(msg.data);
+        resolve(deserializedData);
       }
 
       if (msg.type === 'error') {
