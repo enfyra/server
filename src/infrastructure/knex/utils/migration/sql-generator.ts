@@ -6,7 +6,7 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
       if (dbType === 'postgres') {
         definition = 'UUID';
       } else {
-        definition = 'VARCHAR(36)';
+      definition = 'VARCHAR(36)';
       }
       break;
     case 'int':

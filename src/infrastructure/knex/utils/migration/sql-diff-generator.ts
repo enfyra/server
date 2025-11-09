@@ -12,11 +12,144 @@ import {
 
 const logger = new Logger('SqlDiffGenerator');
 
+async function getPrimaryKeyTypeForTable(
+  knex: Knex,
+  tableName: string,
+  metadataCacheService?: any,
+): Promise<'uuid' | 'integer'> {
+  try {
+    if (metadataCacheService) {
+      const targetMetadata = await metadataCacheService.lookupTableByName(tableName);
+      if (targetMetadata) {
+        const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
+        if (pkColumn) {
+          const type = pkColumn.type?.toLowerCase() || '';
+          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+        }
+      }
+    }
+    
+    const pkInfo = await knex('column_definition')
+      .join('table_definition', 'column_definition.table', '=', 'table_definition.id')
+      .where('table_definition.name', tableName)
+      .where('column_definition.isPrimary', true)
+      .select('column_definition.type')
+      .first();
+    
+    if (pkInfo) {
+      const type = pkInfo.type?.toLowerCase() || '';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+    }
+    
+    logger.warn(`Could not find primary key for table ${tableName}, defaulting to integer`);
+    return 'integer';
+  } catch (error) {
+    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to integer`);
+    return 'integer';
+  }
+}
+
+/**
+ * Generate rollback SQL for a DDL statement
+ * @param statement - The original SQL statement
+ * @param dbType - Database type
+ * @returns Rollback SQL statement or null if rollback is not possible
+ */
+function generateRollbackSQL(statement: string, dbType: string): string | null {
+  const stmt = statement.trim().toUpperCase();
+  const qt = (id: string) => {
+    if (dbType === 'mysql') return `\`${id}\``;
+    return `"${id}"`;
+  };
+
+  // ALTER TABLE ... ADD COLUMN
+  const addColumnMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+COLUMN\s+([^\s]+)/i);
+  if (addColumnMatch) {
+    const tableName = addColumnMatch[1].replace(/[`"]/g, '');
+    const columnName = addColumnMatch[2].replace(/[`"]/g, '');
+    return `ALTER TABLE ${qt(tableName)} DROP COLUMN ${qt(columnName)}`;
+  }
+
+  // ALTER TABLE ... DROP COLUMN
+  const dropColumnMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+DROP\s+COLUMN\s+([^\s]+)/i);
+  if (dropColumnMatch) {
+    // Cannot rollback DROP COLUMN without original column definition
+    return null;
+  }
+
+  // ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY
+  const addFkMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+CONSTRAINT\s+([^\s]+)\s+FOREIGN\s+KEY/i);
+  if (addFkMatch) {
+    const tableName = addFkMatch[1].replace(/[`"]/g, '');
+    const constraintName = addFkMatch[2].replace(/[`"]/g, '');
+    return `ALTER TABLE ${qt(tableName)} DROP CONSTRAINT ${qt(constraintName)}`;
+  }
+
+  // ALTER TABLE ... DROP CONSTRAINT
+  const dropFkMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+DROP\s+CONSTRAINT\s+([^\s]+)/i);
+  if (dropFkMatch) {
+    // Cannot rollback DROP CONSTRAINT without original constraint definition
+    return null;
+  }
+
+  // ALTER TABLE ... ADD CONSTRAINT ... UNIQUE
+  const addUniqueMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+CONSTRAINT\s+([^\s]+)\s+UNIQUE/i);
+  if (addUniqueMatch) {
+    const tableName = addUniqueMatch[1].replace(/[`"]/g, '');
+    const constraintName = addUniqueMatch[2].replace(/[`"]/g, '');
+    return `ALTER TABLE ${qt(tableName)} DROP CONSTRAINT ${qt(constraintName)}`;
+  }
+
+  // CREATE INDEX
+  const createIndexMatch = stmt.match(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+([^\s]+)\s+ON\s+([^\s]+)/i);
+  if (createIndexMatch) {
+    const indexName = createIndexMatch[1].replace(/[`"]/g, '');
+    const tableName = createIndexMatch[2].replace(/[`"]/g, '');
+    return `DROP INDEX ${qt(indexName)} ON ${qt(tableName)}`;
+  }
+
+  // DROP INDEX
+  const dropIndexMatch = stmt.match(/DROP\s+INDEX\s+([^\s]+)\s+ON\s+([^\s]+)/i);
+  if (dropIndexMatch) {
+    // Cannot rollback DROP INDEX without original index definition
+    return null;
+  }
+
+  // RENAME TABLE
+  const renameTableMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+RENAME\s+TO\s+([^\s]+)/i);
+  if (renameTableMatch) {
+    const oldName = renameTableMatch[1].replace(/[`"]/g, '');
+    const newName = renameTableMatch[2].replace(/[`"]/g, '');
+    return `ALTER TABLE ${qt(newName)} RENAME TO ${qt(oldName)}`;
+  }
+
+  // RENAME COLUMN
+  const renameColumnMatch = stmt.match(/ALTER\s+TABLE\s+([^\s]+)\s+RENAME\s+COLUMN\s+([^\s]+)\s+TO\s+([^\s]+)/i);
+  if (renameColumnMatch) {
+    const tableName = renameColumnMatch[1].replace(/[`"]/g, '');
+    const oldName = renameColumnMatch[2].replace(/[`"]/g, '');
+    const newName = renameColumnMatch[3].replace(/[`"]/g, '');
+    if (dbType === 'postgres') {
+      return `ALTER TABLE ${qt(tableName)} RENAME COLUMN ${qt(newName)} TO ${qt(oldName)}`;
+    } else {
+      return `ALTER TABLE ${qt(tableName)} CHANGE ${qt(newName)} ${qt(oldName)}`;
+    }
+  }
+
+  // MODIFY COLUMN - Cannot rollback without original definition
+  if (stmt.includes('MODIFY COLUMN') || stmt.includes('ALTER COLUMN')) {
+    return null;
+  }
+
+  return null;
+}
+
 export async function generateSQLFromDiff(
   knex: Knex,
   tableName: string,
   diff: any,
   dbType: 'mysql' | 'postgres' | 'sqlite',
+  metadataCacheService?: any,
 ): Promise<string[]> {
   const sqlStatements: string[] = [];
   const qt = (id: string) => quoteIdentifier(id, dbType); // Quote helper
@@ -151,14 +284,56 @@ export async function generateSQLFromDiff(
       continue;
     }
 
+    const sourcePkType = await getPrimaryKeyTypeForTable(knex, sourceTable, metadataCacheService);
+    const targetPkType = await getPrimaryKeyTypeForTable(knex, targetTable, metadataCacheService);
+
+    logger.log(`  Junction table ${junctionName}: Source PK type: ${sourcePkType}, Target PK type: ${targetPkType}`);
+
+    const getSourceColumnType = () => {
+      if (sourcePkType === 'uuid') {
+        if (dbType === 'postgres') {
+          return 'UUID';
+        } else {
+          return 'VARCHAR(36)';
+        }
+      }
+      if (dbType === 'postgres') {
+        return 'INTEGER';
+      } else if (dbType === 'sqlite') {
+        return 'INTEGER';
+      } else {
+        return 'INT UNSIGNED';
+      }
+    };
+
+    const getTargetColumnType = () => {
+      if (targetPkType === 'uuid') {
+        if (dbType === 'postgres') {
+          return 'UUID';
+        } else {
+          return 'VARCHAR(36)';
+        }
+      }
+      if (dbType === 'postgres') {
+        return 'INTEGER';
+      } else if (dbType === 'sqlite') {
+        return 'INTEGER';
+      } else {
+        return 'INT UNSIGNED';
+      }
+    };
+
+    const sourceColType = getSourceColumnType();
+    const targetColType = getTargetColumnType();
+
     // Generate database-specific CREATE TABLE syntax
     let createJunctionSQL: string;
     if (dbType === 'postgres') {
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
           ${qt('id')} SERIAL PRIMARY KEY,
-          ${qt(sourceColumn)} INTEGER NOT NULL,
-          ${qt(targetColumn)} INTEGER NOT NULL,
+          ${qt(sourceColumn)} ${sourceColType} NOT NULL,
+          ${qt(targetColumn)} ${targetColType} NOT NULL,
           FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
           UNIQUE (${qt(sourceColumn)}, ${qt(targetColumn)})
@@ -168,8 +343,8 @@ export async function generateSQLFromDiff(
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
           ${qt('id')} INTEGER PRIMARY KEY AUTOINCREMENT,
-          ${qt(sourceColumn)} INTEGER NOT NULL,
-          ${qt(targetColumn)} INTEGER NOT NULL,
+          ${qt(sourceColumn)} ${sourceColType} NOT NULL,
+          ${qt(targetColumn)} ${targetColType} NOT NULL,
           FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
           UNIQUE (${qt(sourceColumn)}, ${qt(targetColumn)})
@@ -180,8 +355,8 @@ export async function generateSQLFromDiff(
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
           ${qt('id')} INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-          ${qt(sourceColumn)} INT UNSIGNED NOT NULL,
-          ${qt(targetColumn)} INT UNSIGNED NOT NULL,
+          ${qt(sourceColumn)} ${sourceColType} NOT NULL,
+          ${qt(targetColumn)} ${targetColType} NOT NULL,
           FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
           UNIQUE KEY ${qt(`unique_${sourceColumn}_${targetColumn}`)} (${qt(sourceColumn)}, ${qt(targetColumn)})
@@ -257,7 +432,7 @@ export async function executeBatchSQL(
     }
   } else {
     logger.log(`Executing SQL statements individually (${detectedDbType})...`);
-    logger.warn(`${detectedDbType.toUpperCase()} does not support transactional DDL - changes cannot be rolled back`);
+    logger.warn(`${detectedDbType.toUpperCase()} does not support transactional DDL - changes cannot be automatically rolled back`);
 
     // MySQL/SQLite: Execute each statement individually
     // MySQL doesn't support multiple statements in a single query by default
@@ -268,17 +443,56 @@ export async function executeBatchSQL(
 
     logger.log(`Executing ${statements.length} statement(s) individually...`);
 
+    const executedStatements: string[] = [];
+    const rollbackStatements: string[] = [];
+
     try {
       for (let i = 0; i < statements.length; i++) {
         const statement = statements[i];
         logger.log(`  [${i + 1}/${statements.length}] Executing: ${statement.substring(0, 80)}${statement.length > 80 ? '...' : ''}`);
-        await knex.raw(statement);
+        
+        try {
+          await knex.raw(statement);
+          executedStatements.push(statement);
+          
+          // Generate rollback statement for DDL operations
+          const rollbackSQL = generateRollbackSQL(statement, detectedDbType);
+          if (rollbackSQL) {
+            rollbackStatements.push(rollbackSQL);
+          }
+        } catch (statementError: any) {
+          logger.error(`Failed at statement [${i + 1}/${statements.length}]: ${statement.substring(0, 100)}`);
+          logger.error(`Error: ${statementError.message}`);
+          
+          if (executedStatements.length > 0) {
+            logger.error(`\n${'='.repeat(80)}`);
+            logger.error(`⚠️  PARTIAL MIGRATION DETECTED`);
+            logger.error(`${'='.repeat(80)}`);
+            logger.error(`Successfully executed ${executedStatements.length} statement(s) before failure:`);
+            executedStatements.forEach((stmt, idx) => {
+              logger.error(`  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`);
+            });
+            logger.error(`\nTo rollback, execute these statements in reverse order:`);
+            rollbackStatements.reverse().forEach((stmt, idx) => {
+              logger.error(`  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`);
+            });
+            logger.error(`${'='.repeat(80)}\n`);
+          }
+          
+          throw statementError;
+        }
       }
       logger.log(`All ${statements.length} statement(s) executed successfully`);
-    } catch (error) {
-      logger.error(`Statement execution failed`);
-      logger.error(`Some statements may have been executed before failure - manual recovery may be required`);
+    } catch (error: any) {
+      logger.error(`\n${'='.repeat(80)}`);
+      logger.error(`❌ MIGRATION FAILED`);
+      logger.error(`${'='.repeat(80)}`);
       logger.error(`Error: ${error.message}`);
+      if (executedStatements.length > 0) {
+        logger.error(`\n⚠️  ${executedStatements.length} statement(s) were executed before failure.`);
+        logger.error(`Manual rollback may be required. See rollback statements above.`);
+      }
+      logger.error(`${'='.repeat(80)}\n`);
       throw error;
     }
   }

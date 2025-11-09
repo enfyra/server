@@ -274,11 +274,53 @@ export class SqlSchemaMigrationService {
         this.logger.log(`   Source: ${sourceTable}.id → ${junctionSourceColumn}`);
         this.logger.log(`   Target: ${targetTable}.id → ${junctionTargetColumn}`);
 
+        const sourcePkType = await this.getPrimaryKeyType(sourceTable);
+        const targetPkType = await this.getPrimaryKeyType(targetTable);
+
+        this.logger.log(`   Source PK type: ${sourcePkType}, Target PK type: ${targetPkType}`);
+
         const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
         const qt = (id: string) => {
           if (dbType === 'mysql') return `\`${id}\``;
           return `"${id}"`;
         };
+
+        const getSourceColumnType = () => {
+          if (sourcePkType === 'uuid') {
+            if (dbType === 'postgres') {
+              return 'UUID';
+            } else {
+              return 'VARCHAR(36)';
+            }
+          }
+          if (dbType === 'postgres') {
+            return 'INTEGER';
+          } else if (dbType === 'sqlite') {
+            return 'INTEGER';
+          } else {
+            return 'INT UNSIGNED';
+          }
+        };
+
+        const getTargetColumnType = () => {
+          if (targetPkType === 'uuid') {
+            if (dbType === 'postgres') {
+              return 'UUID';
+            } else {
+              return 'VARCHAR(36)';
+            }
+          }
+          if (dbType === 'postgres') {
+            return 'INTEGER';
+          } else if (dbType === 'sqlite') {
+            return 'INTEGER';
+          } else {
+            return 'INT UNSIGNED';
+          }
+        };
+
+        const sourceColType = getSourceColumnType();
+        const targetColType = getTargetColumnType();
 
         // Generate database-specific CREATE TABLE syntax
         let createJunctionSQL: string;
@@ -286,8 +328,8 @@ export class SqlSchemaMigrationService {
           createJunctionSQL = `
             CREATE TABLE ${qt(junctionTableName)} (
               ${qt('id')} SERIAL PRIMARY KEY,
-              ${qt(junctionSourceColumn)} INTEGER NOT NULL,
-              ${qt(junctionTargetColumn)} INTEGER NOT NULL,
+              ${qt(junctionSourceColumn)} ${sourceColType} NOT NULL,
+              ${qt(junctionTargetColumn)} ${targetColType} NOT NULL,
               FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
               UNIQUE (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
@@ -297,8 +339,8 @@ export class SqlSchemaMigrationService {
           createJunctionSQL = `
             CREATE TABLE ${qt(junctionTableName)} (
               ${qt('id')} INTEGER PRIMARY KEY AUTOINCREMENT,
-              ${qt(junctionSourceColumn)} INTEGER NOT NULL,
-              ${qt(junctionTargetColumn)} INTEGER NOT NULL,
+              ${qt(junctionSourceColumn)} ${sourceColType} NOT NULL,
+              ${qt(junctionTargetColumn)} ${targetColType} NOT NULL,
               FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
               UNIQUE (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
@@ -309,8 +351,8 @@ export class SqlSchemaMigrationService {
           createJunctionSQL = `
             CREATE TABLE ${qt(junctionTableName)} (
               ${qt('id')} INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-              ${qt(junctionSourceColumn)} INT UNSIGNED NOT NULL,
-              ${qt(junctionTargetColumn)} INT UNSIGNED NOT NULL,
+              ${qt(junctionSourceColumn)} ${sourceColType} NOT NULL,
+              ${qt(junctionTargetColumn)} ${targetColType} NOT NULL,
               FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
               UNIQUE KEY ${qt(`unique_${junctionSourceColumn}_${junctionTargetColumn}`)} (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
@@ -648,7 +690,7 @@ export class SqlSchemaMigrationService {
     const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
     // Step 1: Generate SQL statements array
-    const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType);
+    const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType, this.metadataCacheService);
     this.logger.debug('Generated SQL Statements:', sqlStatements);
 
     // Step 2: Generate batch SQL (single string)

@@ -131,7 +131,7 @@ function applyFieldCondition(
       if (isUUID && dbType === 'postgres' && inValues.every((v: any) => typeof v === 'string')) {
         query.whereRaw(`${fullField} = ANY(?::uuid[])`, [inValues]);
       } else {
-        query.whereIn(fullField, inValues);
+      query.whereIn(fullField, inValues);
       }
       break;
     case '_not_in':
@@ -144,7 +144,7 @@ function applyFieldCondition(
       if (isUUID && dbType === 'postgres' && notInValues.every((v: any) => typeof v === 'string')) {
         query.whereRaw(`${fullField} != ALL(?::uuid[])`, [notInValues]);
       } else {
-        query.whereNotIn(fullField, notInValues);
+      query.whereNotIn(fullField, notInValues);
       }
       break;
     case '_contains':
@@ -292,15 +292,15 @@ function processFilter(
       if (hasFieldOperator) {
         for (const [operator, operatorValue] of Object.entries(value)) {
           if (FIELD_OPERATORS.includes(operator)) {
-      if (logicalOperator === 'and') {
-        query.where(function() {
+            if (logicalOperator === 'and') {
+              query.where(function() {
           applyFieldCondition(this, key, operator, operatorValue, tablePrefix, dbType, metadata);
-        });
-      } else {
-        query.orWhere(function() {
+              });
+            } else {
+              query.orWhere(function() {
           applyFieldCondition(this, key, operator, operatorValue, tablePrefix, dbType, metadata);
-        });
-      }
+              });
+            }
           }
         }
       } else {
@@ -318,10 +318,10 @@ function processFilter(
               query.orWhereRaw(`${fullField} = ?::uuid`, [value]);
             }
           } else {
-            if (logicalOperator === 'and') {
-              query.where(fullField, '=', value);
-            } else {
-              query.orWhere(fullField, '=', value);
+        if (logicalOperator === 'and') {
+          query.where(fullField, '=', value);
+        } else {
+          query.orWhere(fullField, '=', value);
             }
           }
         } else {
@@ -347,10 +347,10 @@ function processFilter(
             query.orWhereRaw(`${fullField} = ?::uuid`, [value]);
           }
         } else {
-          if (logicalOperator === 'and') {
-            query.where(fullField, '=', value);
-          } else {
-            query.orWhere(fullField, '=', value);
+      if (logicalOperator === 'and') {
+        query.where(fullField, '=', value);
+      } else {
+        query.orWhere(fullField, '=', value);
           }
         }
       } else {

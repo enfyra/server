@@ -12,7 +12,7 @@ async function getPrimaryKeyTypeForTable(
   knex: Knex,
   tableName: string,
   metadataCacheService?: any,
-): Promise<'uuid' | 'int'> {
+): Promise<'uuid' | 'integer'> {
   try {
     if (metadataCacheService) {
       const targetMetadata = await metadataCacheService.lookupTableByName(tableName);
@@ -20,7 +20,7 @@ async function getPrimaryKeyTypeForTable(
         const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
         if (pkColumn) {
           const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
+          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
         }
       }
     }
@@ -34,14 +34,14 @@ async function getPrimaryKeyTypeForTable(
     
     if (pkInfo) {
       const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
     }
     
-    logger.warn(`Could not find primary key for table ${tableName}, defaulting to int`);
-    return 'int';
+    logger.warn(`Could not find primary key for table ${tableName}, defaulting to integer`);
+    return 'integer';
   } catch (error) {
-    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`);
-    return 'int';
+    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to integer`);
+    return 'integer';
   }
 }
 
