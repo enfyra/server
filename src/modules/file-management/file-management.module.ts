@@ -7,6 +7,7 @@ import { FileController } from './controllers/file.controller';
 import { LocalStorageService } from './storage/local-storage.service';
 import { GCSStorageService } from './storage/gcs-storage.service';
 import { R2StorageService } from './storage/r2-storage.service';
+import { S3StorageService } from './storage/s3-storage.service';
 import { StorageFactoryService } from './storage/storage-factory.service';
 
 @Module({
@@ -18,6 +19,7 @@ import { StorageFactoryService } from './storage/storage-factory.service';
     LocalStorageService,
     GCSStorageService,
     R2StorageService,
+    S3StorageService,
     StorageFactoryService,
     UploadFileHelper,
   ],

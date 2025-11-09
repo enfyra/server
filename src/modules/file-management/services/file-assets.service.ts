@@ -67,7 +67,7 @@ export class FileAssetsService {
     const storageType = storageConfig?.type || 'Local Storage';
     const storageConfigId = storageConfig?.id || null;
 
-    if (storageType === 'Google Cloud Storage' || storageType === 'Cloudflare R2') {
+    if (storageType === 'Google Cloud Storage' || storageType === 'Cloudflare R2' || storageType === 'Amazon S3') {
       if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
         return void (await this.processImageWithQuery(
           location,
@@ -226,7 +226,7 @@ export class FileAssetsService {
         const config = await this.fileManagementService.getStorageConfigById(
           storageConfigId,
         );
-        shouldStream = config.type === 'Google Cloud Storage' || config.type === 'Cloudflare R2';
+        shouldStream = config.type === 'Google Cloud Storage' || config.type === 'Cloudflare R2' || config.type === 'Amazon S3';
       }
 
       if (shouldStream) {
