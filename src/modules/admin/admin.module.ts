@@ -1,15 +1,18 @@
 import { Module } from '@nestjs/common';
-import { ReloadController } from './reload.controller';
+import { AdminController } from './admin.controller';
 import { CacheModule } from '../../infrastructure/cache/cache.module';
 import { SwaggerModule } from '../../infrastructure/swagger/swagger.module';
 import { GraphqlModule } from '../graphql/graphql.module';
+import { MongoModule } from '../../infrastructure/mongo/mongo.module';
 
 @Module({
   imports: [
     CacheModule,
     SwaggerModule,
     GraphqlModule,
+    MongoModule,
   ],
-  controllers: [ReloadController],
+  controllers: [AdminController],
 })
-export class ReloadModule {}
+export class AdminModule {}
+

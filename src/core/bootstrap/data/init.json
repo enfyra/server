@@ -203,7 +203,7 @@
             "icon": "lucide:play"
         },
         {
-            "path": "/storage/config",
+            "path": "/storage_config_definition",
             "mainTable": "storage_config_definition",
             "isEnabled": true,
             "isSystem": true,
@@ -215,6 +215,41 @@
             "isSystem": true,
             "icon": "lucide:refresh-cw",
             "description": "Reload all caches and schemas"
+        },
+        {
+            "path": "/admin/reload/metadata",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:database",
+            "description": "Reload metadata cache"
+        },
+        {
+            "path": "/admin/reload/routes",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:route",
+            "description": "Reload routes cache"
+        },
+        {
+            "path": "/admin/reload/swagger",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:file-code",
+            "description": "Reload Swagger spec"
+        },
+        {
+            "path": "/admin/reload/graphql",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:code",
+            "description": "Reload GraphQL schema"
+        },
+        {
+            "path": "/admin/metadata-sync/:id",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:sync",
+            "description": "Sync metadata with physical database"
         },
         {
             "path": "/api-docs",

@@ -347,6 +347,40 @@ export class SqlSchemaMigrationService {
     }
   }
 
+  async dropColumnDirectly(tableName: string, columnName: string): Promise<void> {
+    const knex = this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
+    
+    if (!(await knex.schema.hasTable(tableName))) {
+      throw new Error(`Table ${tableName} does not exist`);
+    }
+
+    const hasColumn = await knex.schema.hasColumn(tableName, columnName);
+    if (!hasColumn) {
+      this.logger.warn(`Column ${tableName}.${columnName} does not exist, skipping drop`);
+      return;
+    }
+
+    this.logger.log(`Dropping column ${tableName}.${columnName} directly from database...`);
+
+    try {
+      if (dbType === 'mysql') {
+        await knex.raw(`ALTER TABLE ?? DROP COLUMN ??`, [tableName, columnName]);
+      } else if (dbType === 'postgres') {
+        await knex.raw(`ALTER TABLE ?? DROP COLUMN ??`, [tableName, columnName]);
+      } else {
+        await knex.schema.table(tableName, (table) => {
+          table.dropColumn(columnName);
+        });
+      }
+      
+      this.logger.log(`Column ${tableName}.${columnName} dropped successfully`);
+    } catch (error) {
+      this.logger.error(`Failed to drop column ${tableName}.${columnName}:`, error.message);
+      throw error;
+    }
+  }
+
   async dropTable(tableName: string, relations?: any[], trx?: any): Promise<void> {
     // Use transaction if provided, otherwise use knex
     const db = trx || this.knexService.getKnex();
@@ -461,6 +495,7 @@ export class SqlSchemaMigrationService {
 
     const oldColMap = new Map(oldColumns.filter(c => c.id != null).map(c => [c.id, c]));
     const newColMap = new Map(newColumns.filter(c => c.id != null).map(c => [c.id, c]));
+    const oldColNameMap = new Map(oldColumns.map(c => [c.name, c]));
 
     this.logger.log('Column Analysis (Explicit Columns Only):');
     this.logger.log('  Old columns:', oldColumns.map(c => `${c.id}:${c.name}`));
@@ -475,15 +510,29 @@ export class SqlSchemaMigrationService {
 
     for (const newCol of newColumns) {
       if (newCol.id == null) {
+        const existsByName = oldColNameMap.has(newCol.name);
+        if (existsByName) {
+          this.logger.log(`  Column ${newCol.name} already exists in physical schema (by name), skipping create`);
+          continue;
+        }
         this.logger.log(`  ➕ Column to CREATE: ${newCol.name} (no id - new column)`);
         diff.columns.create.push(newCol);
         continue;
       }
 
       const hasInOld = oldColMap.has(newCol.id);
-      this.logger.log(`  Checking newCol ${newCol.id}:${newCol.name} - exists in old? ${hasInOld}`);
+      const existsByName = oldColNameMap.has(newCol.name);
+      this.logger.log(`  Checking newCol ${newCol.id}:${newCol.name} - exists in old by id? ${hasInOld}, by name? ${existsByName}`);
 
       if (!hasInOld) {
+        if (existsByName && this.isSystemColumn(newCol.name)) {
+          this.logger.log(`  System column ${newCol.name} already exists in physical schema (by name), skipping create`);
+          continue;
+        }
+        if (existsByName) {
+          this.logger.log(`  Column ${newCol.name} already exists in physical schema (by name), skipping create`);
+          continue;
+        }
         this.logger.log(`  ➕ Column to CREATE: ${newCol.name} (id=${newCol.id})`);
         diff.columns.create.push(newCol);
       }
