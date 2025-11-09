@@ -7,6 +7,40 @@ import { separateFilters } from '../shared/filter-separator.util';
 // Re-export for backwards compatibility
 export { separateFilters };
 
+function isUUIDColumn(columnName: string, metadata: TableMetadata | null | undefined): boolean {
+  if (!metadata) return false;
+  const column = metadata.columns.find(c => c.name === columnName);
+  if (!column) return false;
+  const type = column.type?.toLowerCase() || '';
+  return type === 'uuid' || type === 'uuidv4' || type.includes('uuid');
+}
+
+function buildJoinCondition(
+  leftTable: string,
+  leftColumn: string,
+  rightTable: string,
+  rightColumn: string,
+  leftMetadata: TableMetadata | null | undefined,
+  rightMetadata: TableMetadata | null | undefined,
+  dbType: string,
+): string {
+  const leftIsUUID = isUUIDColumn(leftColumn, leftMetadata);
+  const rightIsUUID = isUUIDColumn(rightColumn, rightMetadata);
+  
+  const leftField = `${quoteIdentifier(leftTable, dbType)}.${quoteIdentifier(leftColumn, dbType)}`;
+  const rightField = `${quoteIdentifier(rightTable, dbType)}.${quoteIdentifier(rightColumn, dbType)}`;
+  
+  if (dbType === 'postgres') {
+    if (leftIsUUID && !rightIsUUID) {
+      return `${leftField} = ${rightField}::uuid`;
+    } else if (!leftIsUUID && rightIsUUID) {
+      return `${leftField}::uuid = ${rightField}`;
+    }
+  }
+  
+  return `${leftField} = ${rightField}`;
+}
+
 export async function buildRelationSubquery(
   knex: Knex,
   tableName: string,
@@ -43,31 +77,65 @@ export async function buildRelationSubquery(
     }
   }
 
+  const targetMetadata = getMetadata ? await getMetadata(targetTable) : null;
+
   let subquery: Knex.QueryBuilder;
 
   switch (relation.type) {
     case 'one-to-many':
       subquery = knex(targetTable)
         .select(knex.raw('1'))
-        .whereRaw(`${quoteIdentifier(targetTable, dbType)}.${quoteIdentifier(relation.foreignKeyColumn!, dbType)} = ${quoteIdentifier(tableName, dbType)}.${quoteIdentifier('id', dbType)}`);
+        .whereRaw(buildJoinCondition(
+          targetTable,
+          relation.foreignKeyColumn!,
+          tableName,
+          'id',
+          targetMetadata,
+          metadata,
+          dbType,
+        ));
       break;
 
     case 'many-to-many':
+      const junctionMetadata = getMetadata ? await getMetadata(relation.junctionTableName!) : null;
       subquery = knex(relation.junctionTableName!)
         .select(knex.raw('1'))
         .join(
           targetTable,
-          `${quoteIdentifier(relation.junctionTableName!, dbType)}.${quoteIdentifier(relation.junctionTargetColumn!, dbType)}`,
-          `${quoteIdentifier(targetTable, dbType)}.${quoteIdentifier('id', dbType)}`
+          knex.raw(buildJoinCondition(
+            relation.junctionTableName!,
+            relation.junctionTargetColumn!,
+            targetTable,
+            'id',
+            junctionMetadata,
+            targetMetadata,
+            dbType,
+          )),
         )
-        .whereRaw(`${quoteIdentifier(relation.junctionTableName!, dbType)}.${quoteIdentifier(relation.junctionSourceColumn!, dbType)} = ${quoteIdentifier(tableName, dbType)}.${quoteIdentifier('id', dbType)}`);
+        .whereRaw(buildJoinCondition(
+          relation.junctionTableName!,
+          relation.junctionSourceColumn!,
+          tableName,
+          'id',
+          junctionMetadata,
+          metadata,
+          dbType,
+        ));
       break;
 
     case 'many-to-one':
     case 'one-to-one':
       subquery = knex(targetTable)
         .select(knex.raw('1'))
-        .whereRaw(`${quoteIdentifier(targetTable, dbType)}.${quoteIdentifier('id', dbType)} = ${quoteIdentifier(tableName, dbType)}.${quoteIdentifier(relation.foreignKeyColumn!, dbType)}`);
+        .whereRaw(buildJoinCondition(
+          targetTable,
+          'id',
+          tableName,
+          relation.foreignKeyColumn!,
+          targetMetadata,
+          metadata,
+          dbType,
+        ));
       break;
 
     default:
@@ -75,8 +143,6 @@ export async function buildRelationSubquery(
   }
 
   if (getMetadata) {
-    const targetMetadata = await getMetadata(targetTable);
-
     if (targetMetadata) {
       await applyFiltersToSubquery(
         knex,
@@ -88,7 +154,7 @@ export async function buildRelationSubquery(
         getMetadata,
       );
     } else {
-      subquery = buildWhereClause(subquery, relationFilter, targetTable, dbType);
+      subquery = buildWhereClause(subquery, relationFilter, targetTable, dbType, targetMetadata || undefined);
     }
   } else {
     subquery = buildWhereClause(subquery, relationFilter, targetTable, dbType);
@@ -116,7 +182,7 @@ async function applyFiltersToSubquery(
 
       query.where(function() {
         if (Object.keys(fieldFilters).length > 0) {
-          buildWhereClause(this, fieldFilters, tableName, dbType);
+          buildWhereClause(this, fieldFilters, tableName, dbType, metadata);
         }
       });
 
@@ -202,7 +268,7 @@ async function applyFiltersToSubquery(
         if (i === 0) {
           this.where(function() {
             if (Object.keys(part.fieldFilters).length > 0) {
-              buildWhereClause(this, part.fieldFilters, tableName, dbType);
+              buildWhereClause(this, part.fieldFilters, tableName, dbType, metadata);
             }
             for (const subquerySql of part.subqueries) {
               this.whereRaw(subquerySql);
@@ -211,7 +277,7 @@ async function applyFiltersToSubquery(
         } else {
           this.orWhere(function() {
             if (Object.keys(part.fieldFilters).length > 0) {
-              buildWhereClause(this, part.fieldFilters, tableName, dbType);
+              buildWhereClause(this, part.fieldFilters, tableName, dbType, metadata);
             }
             for (const subquerySql of part.subqueries) {
               this.whereRaw(subquerySql);
@@ -229,7 +295,7 @@ async function applyFiltersToSubquery(
 
     query.whereNot(function() {
       if (Object.keys(fieldFilters).length > 0) {
-        buildWhereClause(this, fieldFilters, tableName, dbType);
+        buildWhereClause(this, fieldFilters, tableName, dbType, metadata);
       }
     });
 
@@ -269,7 +335,7 @@ async function applyFiltersToSubquery(
   const { fieldFilters, relationFilters } = separateFilters(filter, metadata);
 
   if (Object.keys(fieldFilters).length > 0) {
-    buildWhereClause(query, fieldFilters, tableName, dbType);
+    buildWhereClause(query, fieldFilters, tableName, dbType, metadata);
   }
 
   for (const [nestedRelName, nestedRelFilter] of Object.entries(relationFilters)) {

@@ -8,6 +8,43 @@ import {
 
 const logger = new Logger('RelationChanges');
 
+async function getPrimaryKeyTypeForTable(
+  knex: Knex,
+  tableName: string,
+  metadataCacheService?: any,
+): Promise<'uuid' | 'int'> {
+  try {
+    if (metadataCacheService) {
+      const targetMetadata = await metadataCacheService.lookupTableByName(tableName);
+      if (targetMetadata) {
+        const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
+        if (pkColumn) {
+          const type = pkColumn.type?.toLowerCase() || '';
+          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
+        }
+      }
+    }
+    
+    const pkInfo = await knex('column_definition')
+      .join('table_definition', 'column_definition.table', '=', 'table_definition.id')
+      .where('table_definition.name', tableName)
+      .where('column_definition.isPrimary', true)
+      .select('column_definition.type')
+      .first();
+    
+    if (pkInfo) {
+      const type = pkInfo.type?.toLowerCase() || '';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
+    }
+    
+    logger.warn(`Could not find primary key for table ${tableName}, defaulting to int`);
+    return 'int';
+  } catch (error) {
+    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`);
+    return 'int';
+  }
+}
+
 /**
  * Validate that FK column name doesn't conflict with existing columns or pending creates
  * @throws Error if FK column conflicts with existing column
@@ -45,6 +82,7 @@ export async function analyzeRelationChanges(
   tableName: string,
   oldColumns: any[],
   newColumns: any[],
+  metadataCacheService?: any,
 ): Promise<void> {
   logger.log('Relation Analysis (FK Column Generation):');
   logger.log(`DEBUG: oldRelations count: ${oldRelations.length}, newRelations count: ${newRelations.length}`);
@@ -101,8 +139,8 @@ export async function analyzeRelationChanges(
   logger.log(`📊 Created relation IDs: [${createdRelIds.join(', ')}]`);
 
   await handleDeletedRelations(knex, oldRelations, deletedRelIds, diff, tableName);
-  await handleCreatedRelations(knex, newRelations, createdRelIds, diff, tableName, newColumns);
-  await handleUpdatedRelations(knex, oldRelMap, newRelMap, diff, tableName, oldColumns, newColumns);
+  await handleCreatedRelations(knex, newRelations, createdRelIds, diff, tableName, newColumns, metadataCacheService);
+  await handleUpdatedRelations(knex, oldRelMap, newRelMap, diff, tableName, oldColumns, newColumns, metadataCacheService);
 }
 
 async function handleDeletedRelations(
@@ -168,6 +206,7 @@ async function handleCreatedRelations(
   diff: any,
   tableName: string,
   newColumns: any[],
+  metadataCacheService?: any,
 ): Promise<void> {
   for (const relId of createdRelIds) {
     const rel = newRelations.find(r => r.id === relId);
@@ -189,9 +228,11 @@ async function handleCreatedRelations(
         `relation '${rel.propertyName}' (${rel.type})`
       );
 
+      const targetPkType = await getPrimaryKeyTypeForTable(knex, rel.targetTableName, metadataCacheService);
+
       diff.columns.create.push({
         name: fkColumn,
-        type: 'int',
+        type: targetPkType,
         isNullable: rel.isNullable ?? true,
         isForeignKey: true,
         foreignKeyTarget: rel.targetTableName,
@@ -209,6 +250,8 @@ async function handleCreatedRelations(
       const fkColumn = getForeignKeyColumnName(rel.inversePropertyName);
       logger.log(`  O2M: Will create FK column ${fkColumn} in target table ${targetTableName}`);
 
+      const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+
       if (!diff.crossTableOperations) {
         diff.crossTableOperations = [];
       }
@@ -218,7 +261,7 @@ async function handleCreatedRelations(
         targetTable: targetTableName,
         column: {
           name: fkColumn,
-          type: 'int',
+          type: sourcePkType,
           isNullable: true,
           isForeignKey: true,
           foreignKeyTarget: tableName,
@@ -255,6 +298,7 @@ async function handleUpdatedRelations(
   tableName: string,
   oldColumns: any[],
   newColumns: any[],
+  metadataCacheService?: any,
 ): Promise<void> {
   for (const [relId, newRel] of newRelMap) {
     const oldRel = oldRelMap.get(relId);
@@ -278,11 +322,11 @@ async function handleUpdatedRelations(
 
       // Handle TYPE CHANGE first (most critical)
       if (typeChanged) {
-        await handleRelationTypeChange(knex, oldRel, newRel, diff, tableName, newColumns);
+        await handleRelationTypeChange(knex, oldRel, newRel, diff, tableName, newColumns, metadataCacheService);
       }
       // Handle PROPERTY NAME CHANGE (same type) - RENAME to preserve data
       else if (propertyNameChanged || inversePropertyNameChanged) {
-        await handleRelationPropertyNameChange(knex, oldRel, newRel, diff, tableName, propertyNameChanged, inversePropertyNameChanged);
+        await handleRelationPropertyNameChange(knex, oldRel, newRel, diff, tableName, propertyNameChanged, inversePropertyNameChanged, metadataCacheService);
       }
       // Handle other changes (targetTable, isNullable) - TODO later
     }
@@ -297,6 +341,7 @@ async function handleRelationPropertyNameChange(
   tableName: string,
   propertyNameChanged: boolean,
   inversePropertyNameChanged: boolean,
+  metadataCacheService?: any,
 ): Promise<void> {
   logger.log(`Handling relation property name change for ${oldRel.propertyName} (${oldRel.type})`);
 
@@ -315,12 +360,14 @@ async function handleRelationPropertyNameChange(
         diff.columns.rename = [];
       }
 
+      const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
+
       diff.columns.rename.push({
         oldName: oldFkColumn,
         newName: newFkColumn,
         column: {
           name: newFkColumn,
-          type: 'int',
+          type: targetPkType,
           isNullable: newRel.isNullable ?? true,
           isForeignKey: true,
         },
@@ -348,13 +395,15 @@ async function handleRelationPropertyNameChange(
         diff.crossTableOperations = [];
       }
 
+      const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+
       diff.crossTableOperations.push({
         operation: 'renameColumn',
         targetTable: oldRel.targetTableName,
         oldColumnName: oldFkColumn,
         newColumnName: newFkColumn,
         columnDef: {
-          type: 'int',
+          type: sourcePkType,
           isNullable: true,
           isForeignKey: true,
         },
@@ -405,6 +454,7 @@ async function handleRelationTypeChange(
   diff: any,
   tableName: string,
   newColumns: any[],
+  metadataCacheService?: any,
 ): Promise<void> {
   logger.log(`Handling relation type change: ${oldRel.type} → ${newRel.type} for ${newRel.propertyName}`);
 
@@ -473,9 +523,11 @@ async function handleRelationTypeChange(
     // Force nullable=true when migrating from M2M to M2O/O2O
     // because existing rows will have NULL values in the new FK column
     // User must manually populate data before changing to NOT NULL
+    const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
+
     diff.columns.create.push({
       name: newFkColumn,
-      type: 'int',
+      type: targetPkType,
       isNullable: true, // Force nullable to avoid FK constraint errors
       isForeignKey: true,
       foreignKeyTarget: newRel.targetTableName,
@@ -534,12 +586,15 @@ async function handleRelationTypeChange(
     }
     const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
     logger.log(`    ➕ Create FK column ${newFkColumn} in target table ${newRel.targetTableName}`);
+    
+    const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+
     diff.crossTableOperations.push({
       operation: 'createColumn',
       targetTable: newRel.targetTableName,
       column: {
         name: newFkColumn,
-        type: 'int',
+        type: sourcePkType,
         isNullable: true,
         isForeignKey: true,
         foreignKeyTarget: tableName,
@@ -568,12 +623,15 @@ async function handleRelationTypeChange(
     }
     const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
     logger.log(`    ➕ Create FK column ${newFkColumn} in target table ${newRel.targetTableName}`);
+    
+    const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+
     diff.crossTableOperations.push({
       operation: 'createColumn',
       targetTable: newRel.targetTableName,
       column: {
         name: newFkColumn,
-        type: 'int',
+        type: sourcePkType,
         isNullable: true,
         isForeignKey: true,
         foreignKeyTarget: tableName,
@@ -614,9 +672,11 @@ async function handleRelationTypeChange(
       `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`
     );
 
+    const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
+
     diff.columns.create.push({
       name: newFkColumn,
-      type: 'int',
+      type: targetPkType,
       isNullable: newRel.isNullable ?? true,
       isForeignKey: true,
       foreignKeyTarget: newRel.targetTableName,
