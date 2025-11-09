@@ -212,7 +212,7 @@ process.on('message', async (msg: any) => {
       if (Buffer.isBuffer(bufData)) {
         bufferArray = Array.from(bufData);
       } else if (bufData && typeof bufData === 'object') {
-        if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
+      if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
           bufferArray = bufData.data;
         } else {
           const keys = Object.keys(bufData);

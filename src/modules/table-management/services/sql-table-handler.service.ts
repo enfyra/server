@@ -388,9 +388,8 @@ export class SqlTableHandlerService {
 
     const knex = this.queryBuilder.getKnex();
 
-    // Wrap entire operation in transaction
-    return await knex.transaction(async (trx) => {
-      try {
+    try {
+      const { oldMetadata, newMetadata, result } = await knex.transaction(async (trx) => {
         const exists = await trx('table_definition')
           .where({ id })
           .first();
@@ -399,13 +398,6 @@ export class SqlTableHandlerService {
           throw new ResourceNotFoundException(
             'table_definition',
             String(id)
-          );
-        }
-
-        if (exists.isSystem) {
-          throw new ValidationException(
-            'Cannot modify system table',
-            { tableId: id, tableName: exists.name }
           );
         }
 
@@ -546,13 +538,33 @@ export class SqlTableHandlerService {
               throw new Error(`Target table with ID ${targetTableId} not found`);
             }
 
-            const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
-
-            // Note: Validation already done in validateAllColumnsUnique()
-            relationData.junctionTableName = junctionTableName;
-            relationData.junctionSourceColumn = sourceColumn;
-            relationData.junctionTargetColumn = targetColumn;
+            // Preserve existing junction table name if relation already exists
+            if (rel.id) {
+              const existingRel = await trx('relation_definition')
+                .where({ id: rel.id })
+                .first();
+              
+              if (existingRel && existingRel.junctionTableName) {
+                // Keep existing junction table name and columns
+                relationData.junctionTableName = existingRel.junctionTableName;
+                relationData.junctionSourceColumn = existingRel.junctionSourceColumn;
+                relationData.junctionTargetColumn = existingRel.junctionTargetColumn;
+              } else {
+                // Generate new junction table name for existing relation without one
+                const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
+                const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
+                relationData.junctionTableName = junctionTableName;
+                relationData.junctionSourceColumn = sourceColumn;
+                relationData.junctionTargetColumn = targetColumn;
+              }
+            } else {
+              // Generate new junction table name for new relation
+              const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
+              const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
+              relationData.junctionTableName = junctionTableName;
+              relationData.junctionSourceColumn = sourceColumn;
+              relationData.junctionTargetColumn = targetColumn;
+            }
           } else {
             // Clear junction table metadata if type is NOT M2M
             relationData.junctionTableName = null;
@@ -601,20 +613,18 @@ export class SqlTableHandlerService {
 
         this.logger.log(`📊 Relations after merge: old=${oldMetadata?.relations?.length || 0}, new=${body.relations?.length || 0}, final=${newMetadata.relations.length}`);
 
-        // Migrate physical schema
-        if (oldMetadata && newMetadata) {
-          await this.schemaMigrationService.updateTable(exists.name, oldMetadata, newMetadata);
-        }
+        return { oldMetadata, newMetadata, result: { id: exists.id, name: exists.name, ...newMetadata } };
+      });
 
-        this.logger.log(`Table updated: ${exists.name} (metadata + physical schema)`);
-        
-        // Return the table object with id for consistency with other methods
-        return {
-          id: exists.id,
-          name: exists.name,
-          ...newMetadata
-        };
-      } catch (error) {
+      if (oldMetadata && newMetadata) {
+        this.logger.log(`Executing DDL statements outside transaction...`);
+        await this.schemaMigrationService.updateTable(result.name, oldMetadata, newMetadata);
+      }
+
+      this.logger.log(`Table updated: ${result.name} (metadata + physical schema)`);
+      
+      return result;
+    } catch (error) {
         this.loggingService.error('Table update failed', {
           context: 'updateTable',
           error: error.message,
@@ -630,8 +640,7 @@ export class SqlTableHandlerService {
             operation: 'update',
           },
         );
-      }
-    });
+    }
   }
 
   async delete(id: string | number) {
@@ -1010,3 +1019,4 @@ export class SqlTableHandlerService {
     return table;
   }
 }
+

@@ -38,7 +38,7 @@ import { KnexModule } from './infrastructure/knex/knex.module';
 import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
 import { DatabaseSchemaService } from './infrastructure/knex/services/database-schema.service';
-import { ReloadModule } from './modules/reload/reload.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Global()
 @Module({
@@ -86,7 +86,7 @@ import { ReloadModule } from './modules/reload/reload.module';
     PackageManagementModule,
     MeModule,
     EnfyraSwaggerModule,
-    ReloadModule,
+    AdminModule,
     DynamicModule,
     HandlerExecutorModule,
     GraphqlModule,
