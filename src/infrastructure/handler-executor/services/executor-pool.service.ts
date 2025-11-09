@@ -7,10 +7,11 @@ import * as path from 'path';
 export class ExecutorPoolService implements OnModuleInit {
   private executorPool: Pool<any>;
   async onModuleInit() {
+    const maxOldSpaceSize = process.env.HANDLER_EXECUTOR_MAX_MEMORY || '512';
     const factory = {
       async create() {
         const child = fork(path.resolve(__dirname, '..', 'runner.js'), {
-          execArgv: ['--max-old-space-size=256'],
+          execArgv: [`--max-old-space-size=${maxOldSpaceSize}`],
           silent: true,
         });
         return child;
@@ -22,9 +23,11 @@ export class ExecutorPoolService implements OnModuleInit {
         return child && !child.killed && child.connected;
       },
     };
+    const poolMin = parseInt(process.env.HANDLER_EXECUTOR_POOL_MIN || '2', 10);
+    const poolMax = parseInt(process.env.HANDLER_EXECUTOR_POOL_MAX || '4', 10);
     this.executorPool = createPool(factory, {
-      min: 2,
-      max: 4,
+      min: poolMin,
+      max: poolMax,
       idleTimeoutMillis: 30000,
       evictionRunIntervalMillis: 5000,
       numTestsPerEvictionRun: 2,
