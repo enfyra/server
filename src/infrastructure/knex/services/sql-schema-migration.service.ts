@@ -31,6 +31,28 @@ export class SqlSchemaMigrationService {
     private readonly queryBuilderService: QueryBuilderService,
   ) {}
 
+  private async getPrimaryKeyType(targetTableName: string): Promise<'uuid' | 'integer'> {
+    try {
+      const targetMetadata = await this.metadataCacheService.lookupTableByName(targetTableName);
+      if (!targetMetadata) {
+        this.logger.warn(`Could not find metadata for table ${targetTableName}, defaulting to integer`);
+        return 'integer';
+      }
+
+      const pkColumn = targetMetadata.columns.find(c => c.isPrimary);
+      if (!pkColumn) {
+        this.logger.warn(`No primary key found in table ${targetTableName}, defaulting to integer`);
+        return 'integer';
+      }
+
+      const type = pkColumn.type?.toLowerCase() || '';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+    } catch (error) {
+      this.logger.warn(`Error getting primary key type for ${targetTableName}: ${error.message}, defaulting to integer`);
+      return 'integer';
+    }
+  }
+
   async createTable(tableMetadata: any): Promise<void> {
     const knex = this.knexService.getKnex();
     const tableName = tableMetadata.name;
@@ -41,6 +63,18 @@ export class SqlSchemaMigrationService {
     }
 
     this.logger.log(`Creating table: ${tableName}`);
+
+    const targetPkTypes = new Map<string, 'uuid' | 'integer'>();
+    if (tableMetadata.relations) {
+      for (const rel of tableMetadata.relations) {
+        if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+          const targetTableName = rel.targetTableName || rel.targetTable;
+          if (targetTableName && !targetPkTypes.has(targetTableName)) {
+            targetPkTypes.set(targetTableName, await this.getPrimaryKeyType(targetTableName));
+          }
+        }
+      }
+    }
 
     await knex.schema.createTable(tableName, (table) => {
 
@@ -72,9 +106,19 @@ export class SqlSchemaMigrationService {
           const fkColumn = `${rel.propertyName}Id`;
 
           this.logger.log(`CREATE TABLE: Creating FK column ${fkColumn} for relation ${rel.propertyName} (target: ${targetTableName})`);
-          this.logger.log(`DEBUG: rel.isNullable = ${rel.isNullable}, type: ${typeof rel.isNullable}`);
 
-          const fkCol = table.integer(fkColumn).unsigned();
+          const targetPkType = targetPkTypes.get(targetTableName) || 'integer';
+          let fkCol: any;
+          if (targetPkType === 'uuid') {
+            const dbType = this.queryBuilderService.getDatabaseType();
+            if (dbType === 'postgres') {
+              fkCol = table.uuid(fkColumn);
+            } else {
+              fkCol = table.string(fkColumn, 36);
+            }
+          } else {
+            fkCol = table.integer(fkColumn).unsigned();
+          }
 
           // isNullable can be 0/1 (number) or true/false (boolean)
           if (rel.isNullable === false || rel.isNullable === 0) {
@@ -164,9 +208,19 @@ export class SqlSchemaMigrationService {
         this.logger.log(`CREATE TABLE: Creating O2M FK column ${fkColumn} in target table ${targetTable} for relation ${rel.propertyName}`);
 
         try {
-
+          const sourcePkType = await this.getPrimaryKeyType(sourceTable);
           await knex.schema.alterTable(targetTable, (table) => {
-            const fkCol = table.integer(fkColumn).unsigned();
+            let fkCol: any;
+            if (sourcePkType === 'uuid') {
+              const dbType = this.queryBuilderService.getDatabaseType();
+              if (dbType === 'postgres') {
+                fkCol = table.uuid(fkColumn);
+              } else {
+                fkCol = table.string(fkColumn, 36);
+              }
+            } else {
+              fkCol = table.integer(fkColumn).unsigned();
+            }
             // isNullable can be 0/1 (number) or true/false (boolean)
             if (rel.isNullable === false || rel.isNullable === 0) {
               fkCol.notNullable();
@@ -483,7 +537,8 @@ export class SqlSchemaMigrationService {
       diff,
       newMetadata.name,
       oldMetadata.columns || [],
-      newMetadata.columns || []
+      newMetadata.columns || [],
+      this.metadataCacheService
     );
 
     this.analyzeConstraintChanges(oldMetadata, newMetadata, diff);

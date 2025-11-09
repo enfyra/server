@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
@@ -19,6 +19,8 @@ import { UploadFileHelper } from '../helpers/upload-file.helper';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(RouteDetectMiddleware.name);
+
   constructor(
     private queryBuilder: QueryBuilderService,
     private jwtService: JwtService,
@@ -142,7 +144,13 @@ export class RouteDetectMiddleware implements NestMiddleware {
         context.$repos.main = context.$repos[mainTableName];
       }
 
-      context.$helpers.$uploadFile = this.uploadFileHelper.createUploadFileHelper(context);
+      try {
+        context.$helpers.$uploadFile = this.uploadFileHelper.createUploadFileHelper(context);
+        context.$helpers.$updateFile = this.uploadFileHelper.createUpdateFileHelper(context);
+        context.$helpers.$deleteFile = this.uploadFileHelper.createDeleteFileHelper(context);
+      } catch (error) {
+        this.logger.warn('Failed to initialize file helpers:', error);
+      }
       
       const { route, params } = matchedRoute;
 

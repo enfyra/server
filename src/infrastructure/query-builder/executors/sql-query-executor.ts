@@ -175,13 +175,15 @@ export class SqlQueryExecutor {
               (tableName: string) => this.metadata?.tables?.get(tableName),
             );
           } else {
-            query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+            query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType, metadata);
           }
         } else {
-          query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+          const metadata = this.metadata?.tables?.get(queryOptions.table);
+          query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType, metadata);
         }
       } else {
-        query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+        const metadata = this.metadata?.tables?.get(queryOptions.table);
+        query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType, metadata);
       }
     } else if (queryOptions.where && queryOptions.where.length > 0) {
       query = this.applyWhereToKnex(query, queryOptions.where, queryOptions.table);

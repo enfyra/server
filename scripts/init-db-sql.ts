@@ -270,7 +270,11 @@ async function createTable(
 
         let col;
         if (targetPkType === 'uuid') {
-          col = table.string(foreignKeyColumn, 36);
+          if (dbType === 'postgres') {
+            col = table.uuid(foreignKeyColumn);
+          } else {
+            col = table.string(foreignKeyColumn, 36);
+          }
         } else {
           col = table.integer(foreignKeyColumn).unsigned();
         }
@@ -1009,11 +1013,16 @@ async function applyRelationMigrations(
         console.log(`    + ${fkColumn} → ${rel.targetTable}.id`);
 
         const targetPkType = getPrimaryKeyType(schemas, rel.targetTable);
+        const dbType = knex.client.config.client;
 
         await knex.schema.alterTable(tableName, (table) => {
           let col;
           if (targetPkType === 'uuid') {
-            col = table.string(fkColumn, 36);
+            if (dbType === 'pg') {
+              col = table.uuid(fkColumn);
+            } else {
+              col = table.string(fkColumn, 36);
+            }
           } else {
             col = table.integer(fkColumn).unsigned();
           }

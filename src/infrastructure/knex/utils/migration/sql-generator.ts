@@ -3,7 +3,11 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
 
   switch (col.type) {
     case 'uuid':
-      definition = 'VARCHAR(36)';
+      if (dbType === 'postgres') {
+        definition = 'UUID';
+      } else {
+        definition = 'VARCHAR(36)';
+      }
       break;
     case 'int':
       if (col.isPrimary && col.isGenerated) {

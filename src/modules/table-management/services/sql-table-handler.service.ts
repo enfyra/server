@@ -388,7 +388,7 @@ export class SqlTableHandlerService {
 
     const knex = this.queryBuilder.getKnex();
 
-    try {
+      try {
       const { oldMetadata, newMetadata, result } = await knex.transaction(async (trx) => {
         const exists = await trx('table_definition')
           .where({ id })
@@ -551,11 +551,11 @@ export class SqlTableHandlerService {
                 relationData.junctionTargetColumn = existingRel.junctionTargetColumn;
               } else {
                 // Generate new junction table name for existing relation without one
-                const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
-                const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
-                relationData.junctionTableName = junctionTableName;
-                relationData.junctionSourceColumn = sourceColumn;
-                relationData.junctionTargetColumn = targetColumn;
+            const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
+            const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
+            relationData.junctionTableName = junctionTableName;
+            relationData.junctionSourceColumn = sourceColumn;
+            relationData.junctionTargetColumn = targetColumn;
               }
             } else {
               // Generate new junction table name for new relation
@@ -616,15 +616,15 @@ export class SqlTableHandlerService {
         return { oldMetadata, newMetadata, result: { id: exists.id, name: exists.name, ...newMetadata } };
       });
 
-      if (oldMetadata && newMetadata) {
+        if (oldMetadata && newMetadata) {
         this.logger.log(`Executing DDL statements outside transaction...`);
         await this.schemaMigrationService.updateTable(result.name, oldMetadata, newMetadata);
-      }
+        }
 
       this.logger.log(`Table updated: ${result.name} (metadata + physical schema)`);
-      
+        
       return result;
-    } catch (error) {
+      } catch (error) {
         this.loggingService.error('Table update failed', {
           context: 'updateTable',
           error: error.message,
@@ -640,7 +640,7 @@ export class SqlTableHandlerService {
             operation: 'update',
           },
         );
-    }
+      }
   }
 
   async delete(id: string | number) {
