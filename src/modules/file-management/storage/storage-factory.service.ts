@@ -3,6 +3,7 @@ import { IStorageService, StorageConfig } from './storage.interface';
 import { LocalStorageService } from './local-storage.service';
 import { GCSStorageService } from './gcs-storage.service';
 import { R2StorageService } from './r2-storage.service';
+import { S3StorageService } from './s3-storage.service';
 
 @Injectable()
 export class StorageFactoryService {
@@ -10,6 +11,7 @@ export class StorageFactoryService {
     private localStorageService: LocalStorageService,
     private gcsStorageService: GCSStorageService,
     private r2StorageService: R2StorageService,
+    private s3StorageService: S3StorageService,
   ) {}
 
   getStorageService(storageType: string): IStorageService {
@@ -19,7 +21,7 @@ export class StorageFactoryService {
       case 'Google Cloud Storage':
         return this.gcsStorageService;
       case 'Amazon S3':
-        throw new BadRequestException('S3 storage not implemented yet');
+        return this.s3StorageService;
       case 'Cloudflare R2':
         return this.r2StorageService;
       default:
