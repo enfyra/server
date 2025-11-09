@@ -15,6 +15,7 @@ import { autoSlug } from '../../shared/utils/auto-slug.helper';
 import { CacheService } from '../cache/services/cache.service';
 import { SwaggerService } from '../swagger/services/swagger.service';
 import { GraphqlService } from 'src/modules/graphql/services/graphql.service';
+import { FileManagementService } from '../../modules/file-management/services/file-management.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
@@ -30,7 +31,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private cacheService: CacheService,
     private bcryptService: BcryptService,
     private swaggerService: SwaggerService,
-    private graphqlService: GraphqlService
+    private graphqlService: GraphqlService,
+    private fileManagementService: FileManagementService,
   ) {}
 
   async use(req: any, res: any, next: (error?: any) => void) {
@@ -47,7 +49,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
         const realClientIP = this.detectClientIP(req);
         
       const context: TDynamicContext = {
-        $body: req.body,
+        $body: req.routeData?.context?.$body || req.body || {},
         $data: undefined,
         $statusCode: undefined,
         $throw: ScriptErrorFactory.createThrowHandlers(),
@@ -93,6 +95,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
         context.$uploadedFile = {
           originalname: req.file.originalname,
           mimetype: req.file.mimetype,
+          encoding: req.file.encoding || 'utf8',
           buffer: req.file.buffer,
           size: req.file.size,
           fieldname: req.file.fieldname,
@@ -127,20 +130,86 @@ export class RouteDetectMiddleware implements NestMiddleware {
         }),
       );
 
-      // Create repos object and add main alias for mainTable
       context.$repos = Object.fromEntries(dynamicFindEntries);
 
-      // Set context for each repo after repos object is created
       Object.values(context.$repos).forEach((repo: any) => {
         repo.context = context;
       });
 
-      // Add 'main' alias for mainTable
       const mainTableName =
         matchedRoute.route.mainTable?.alias ?? matchedRoute.route?.mainTable?.name;
       if (context.$repos[mainTableName]) {
         context.$repos.main = context.$repos[mainTableName];
       }
+
+      context.$helpers.$uploadFile = async (options: any) => {
+        try {
+          let buffer = options.buffer;
+          if (buffer && typeof buffer === 'object' && !Buffer.isBuffer(buffer)) {
+            if (typeof buffer.toBuffer === 'function') {
+              buffer = buffer.toBuffer();
+            } else if (buffer.type === 'Buffer' && Array.isArray(buffer.data)) {
+              buffer = Buffer.from(buffer.data);
+            } else {
+              const keys = Object.keys(buffer);
+              const numericKeys = keys.filter(k => /^\d+$/.test(k));
+              if (numericKeys.length > 0) {
+                const sortedKeys = numericKeys.map(k => parseInt(k, 10)).sort((a, b) => a - b);
+                const arr = new Array(sortedKeys.length);
+                for (let i = 0; i < sortedKeys.length; i++) {
+                  arr[i] = buffer[sortedKeys[i].toString()];
+                }
+                buffer = Buffer.from(arr);
+              } else {
+                throw new Error('Invalid buffer format: buffer object has no numeric keys');
+              }
+            }
+          }
+
+          const fileRepo = context.$repos.file_definition || context.$repos.main;
+
+          if (!fileRepo) {
+            throw new Error('File repository not found in context');
+          }
+
+          return await this.fileManagementService.uploadFileAndCreateRecord(
+            {
+              filename: options.originalname || options.filename,
+              mimetype: options.mimetype,
+              buffer: buffer,
+              size: options.size,
+            },
+            {
+              folder: options.folder,
+              storageConfig: options.storageConfig,
+              title: options.title,
+              description: options.description,
+              userId: context.$user?.id,
+            },
+            fileRepo,
+          );
+        } catch (error) {
+          let errorMessage = 'Unknown error in $uploadFile';
+          
+          if (error?.response?.message) {
+            errorMessage = error.response.message;
+          } else if (error?.message) {
+            errorMessage = error.message;
+          } else if (error?.toString && error.toString() !== '[object Object]') {
+            errorMessage = error.toString();
+          }
+          
+          const uploadError = new Error(errorMessage);
+          if (error?.stack) uploadError.stack = error.stack;
+          if (error?.response) {
+            (uploadError as any).response = error.response;
+          }
+          if (error?.statusCode) {
+            (uploadError as any).statusCode = error.statusCode;
+          }
+          throw uploadError;
+        }
+      };
       
       const { route, params } = matchedRoute;
 
@@ -180,7 +249,6 @@ export class RouteDetectMiddleware implements NestMiddleware {
   }
 
   private detectClientIP(req: any): string {
-    // Priority order for IP detection
     const forwardedFor = req.headers['x-forwarded-for'];
     const realIP = req.headers['x-real-ip'];
     const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare

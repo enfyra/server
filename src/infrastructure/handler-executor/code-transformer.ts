@@ -13,7 +13,7 @@ const MAPPINGS: Record<string, string> = {
   '@RES': '$ctx.$res',
   '@SHARE': '$ctx.$share',
   '@API': '$ctx.$api',
-  '@UPLOADED': '$ctx.$uploadedFile',
+  '@UPLOADED_FILE': '$ctx.$uploadedFile',
   '@PKGS': '$ctx.$pkgs',
   '@THROW400': "$ctx.$throw['400']",
   '@THROW401': "$ctx.$throw['401']",

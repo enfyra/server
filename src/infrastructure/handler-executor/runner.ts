@@ -64,18 +64,53 @@ const addAwaitToProxyCalls = (code: string): string => {
 export const pendingCalls = new Map();
 
 process.on('unhandledRejection', (reason: any) => {
-  console.error('❌ [Runner] Unhandled rejection:', reason);
-  console.error('📋 [Runner] Rejection type:', typeof reason, reason?.constructor?.name);
-  console.error('📋 [Runner] Rejection details:', JSON.stringify(reason, null, 2));
-
   try {
+    let errorMessage = String(reason);
+    let errorName = 'UnhandledRejection';
+    let statusCode = undefined;
+    let stack = undefined;
+
+    if (reason?.message) {
+      errorMessage = reason.message;
+    } else if (reason?.errorResponse?.message) {
+      errorMessage = reason.errorResponse.message;
+    } else if (reason?.response?.message) {
+      errorMessage = reason.response.message;
+    } else if (typeof reason?.response === 'string') {
+      errorMessage = reason.response;
+    }
+
+    if (reason?.errorResponse?.name) {
+      errorName = reason.errorResponse.name;
+    } else if (reason?.response?.name) {
+      errorName = reason.response.name;
+    } else if (reason?.name) {
+      errorName = reason.name;
+    }
+
+    if (reason?.errorResponse?.statusCode) {
+      statusCode = reason.errorResponse.statusCode;
+    } else if (reason?.response?.statusCode) {
+      statusCode = reason.response.statusCode;
+    } else if (reason?.statusCode) {
+      statusCode = reason.statusCode;
+    }
+
+    if (reason?.errorResponse?.stack) {
+      stack = reason.errorResponse.stack;
+    } else if (reason?.response?.stack) {
+      stack = reason.response.stack;
+    } else if (reason?.stack) {
+      stack = reason.stack;
+    }
+
     process.send?.({
       type: 'error',
       error: {
-        message: reason.errorResponse?.message ?? reason?.message ?? String(reason),
-        stack: reason.errorResponse?.stack ?? reason?.stack,
-        name: reason.errorResponse?.name ?? reason?.name ?? 'UnhandledRejection',
-        statusCode: reason.errorResponse?.statusCode,
+        message: errorMessage,
+        stack: stack,
+        name: errorName,
+        statusCode: statusCode,
       },
     });
   } catch (sendError) {
@@ -86,17 +121,40 @@ process.on('unhandledRejection', (reason: any) => {
 });
 
 process.on('uncaughtException', (error: any) => {
-  console.error('❌ [Runner] Uncaught exception:', error);
-  console.error('📋 [Runner] Error stack:', error.stack);
-
   try {
+    let errorMessage = error.message ?? String(error);
+    let errorName = error.name ?? 'UncaughtException';
+    let statusCode = undefined;
+
+    if (error.errorResponse?.message) {
+      errorMessage = error.errorResponse.message;
+    } else if (error.response?.message) {
+      errorMessage = error.response.message;
+    } else if (typeof error.response === 'string') {
+      errorMessage = error.response;
+    }
+
+    if (error.errorResponse?.name) {
+      errorName = error.errorResponse.name;
+    } else if (error.response?.name) {
+      errorName = error.response.name;
+    }
+
+    if (error.errorResponse?.statusCode) {
+      statusCode = error.errorResponse.statusCode;
+    } else if (error.response?.statusCode) {
+      statusCode = error.response.statusCode;
+    } else if (error.statusCode) {
+      statusCode = error.statusCode;
+    }
+
     process.send?.({
       type: 'error',
       error: {
-        message: error.message ?? String(error),
+        message: errorMessage,
         stack: error.stack,
-        name: error.name ?? 'UncaughtException',
-        statusCode: undefined,
+        name: errorName,
+        statusCode: statusCode,
       },
     });
   } catch (sendError) {
@@ -149,8 +207,33 @@ process.on('message', async (msg: any) => {
 
     if (ctx.$uploadedFile?.buffer) {
       const bufData = ctx.$uploadedFile.buffer;
-      if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
-        ctx.$uploadedFile.buffer = Buffer.from(bufData.data);
+      let bufferArray: number[] = null;
+      
+      if (Buffer.isBuffer(bufData)) {
+        bufferArray = Array.from(bufData);
+      } else if (bufData && typeof bufData === 'object') {
+        if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
+          bufferArray = bufData.data;
+        } else {
+          const keys = Object.keys(bufData);
+          const numericKeys = keys.filter(k => /^\d+$/.test(k));
+          if (numericKeys.length > 0) {
+            const sortedKeys = numericKeys.map(k => parseInt(k, 10)).sort((a, b) => a - b);
+            bufferArray = new Array(sortedKeys.length);
+            for (let i = 0; i < sortedKeys.length; i++) {
+              bufferArray[i] = bufData[sortedKeys[i].toString()];
+            }
+          }
+        }
+      }
+      
+      if (bufferArray) {
+        ctx.$uploadedFile.buffer = {
+          type: 'Buffer',
+          data: bufferArray,
+          toBuffer: () => Buffer.from(bufferArray),
+          valueOf: () => Buffer.from(bufferArray),
+        };
       }
     }
 
@@ -213,7 +296,6 @@ ${processedCode}
       } catch (parseError) {
       }
 
-      // Pretty print error
       console.error('\n╭─────────────────────────────────────────╮');
       console.error('│  ❌ Handler Execution Error             │');
       console.error('╰─────────────────────────────────────────╯');
@@ -226,7 +308,6 @@ ${processedCode}
         console.error('');
         console.error(codeContext);
       } else {
-        // Fallback: show first few lines of code
         console.error('');
         console.error('📝 Code snippet:');
         console.error(msg.code.split('\n').slice(0, 10).map((line: string, idx: number) =>
@@ -239,15 +320,20 @@ ${processedCode}
       console.error(error.stack);
       console.error('');
 
+      let errorMessage = error.errorResponse?.message ?? error.message ?? 'Unknown error';
+      let errorName = error.errorResponse?.name ?? error.name;
+      let statusCode = error.errorResponse?.statusCode ?? error.statusCode;
+
       process.send({
         type: 'error',
         error: {
-          message: error.errorResponse?.message ?? error.message ?? 'Unknown error',
-          name: error.errorResponse?.name ?? error.name,
-          statusCode: error.errorResponse?.statusCode,
+          message: errorMessage,
+          name: errorName,
+          statusCode: statusCode,
           errorLine: errorLine,
           codeContextArray: codeContextArray,
           codeContext: codeContext,
+          stack: error.stack,
         },
       });
     }

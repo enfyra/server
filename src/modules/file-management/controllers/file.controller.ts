@@ -28,60 +28,30 @@ export class FileController {
 
     const body = req.routeData?.context?.$body || {};
 
-    let folderData = null;
-    if (body.folder) {
-      folderData =
-        typeof body.folder === 'object' ? body.folder : { id: body.folder };
+    const fileRepo =
+      req.routeData?.context?.$repos?.main ||
+      req.routeData?.context?.$repos?.file_definition;
+
+    if (!fileRepo) {
+      throw new ValidationException('Repository not found in context');
     }
 
-    let storageConfigId = null;
-    if (body.storageConfig) {
-      storageConfigId = typeof body.storageConfig === 'object'
-        ? body.storageConfig.id
-        : body.storageConfig;
-    }
-
-    const processedFile = await this.fileManagementService.processFileUpload(
+    return await this.fileManagementService.uploadFileAndCreateRecord(
       {
         filename: file.originalname,
         mimetype: file.mimetype,
         buffer: file.buffer,
         size: file.size,
-        folder: folderData,
+      },
+      {
+        folder: body.folder,
+        storageConfig: body.storageConfig,
         title: body.title || file.originalname,
         description: body.description || null,
+        userId: req.user?.id,
       },
-      storageConfigId,
+      fileRepo,
     );
-
-    try {
-      const fileRepo =
-        req.routeData?.context?.$repos?.main ||
-        req.routeData?.context?.$repos?.file_definition;
-
-      if (!fileRepo) {
-        throw new ValidationException('Repository not found in context');
-      }
-
-      const savedFile = await fileRepo.create({
-        ...processedFile,
-        folder: folderData,
-        uploaded_by: req.user?.id
-          ? this.fileManagementService.createIdReference(req.user.id)
-          : null,
-        storageConfig: processedFile.storage_config_id
-          ? this.fileManagementService.createIdReference(processedFile.storage_config_id)
-          : null,
-      });
-
-      return savedFile;
-    } catch (error) {
-      await this.fileManagementService.rollbackFileCreation(
-        processedFile.location,
-        processedFile.storage_config_id,
-      );
-      throw error;
-    }
   }
 
   @Get()
@@ -101,7 +71,7 @@ export class FileController {
   @Patch(':id')
   async updateFile(@Param('id') id: string, @Req() req: RequestWithRouteData) {
     const body = req.routeData?.context?.$body || {};
-    const file = req.file; // File mới nếu có
+    const file = req.file;
 
     const fileRepo =
       req.routeData?.context?.$repos?.main ||

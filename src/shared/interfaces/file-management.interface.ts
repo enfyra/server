@@ -22,6 +22,7 @@ export interface ProcessedFileInfo {
 export interface UploadedFileInfo {
   originalname: string;
   mimetype: string;
+  encoding: string;
   buffer: Buffer;
   size: number;
   fieldname: string;

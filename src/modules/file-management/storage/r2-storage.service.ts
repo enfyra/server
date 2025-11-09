@@ -20,8 +20,6 @@ export class R2StorageService implements IStorageService {
       throw new BadRequestException('R2 requires accountId to generate endpoint');
     }
 
-    // Auto-generate endpoint from account ID
-    // Format: https://<account-id>.r2.cloudflarestorage.com
     const endpoint = `https://${config.accountId}.r2.cloudflarestorage.com`;
 
     return new S3Client({
@@ -31,7 +29,7 @@ export class R2StorageService implements IStorageService {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,
       },
-      forcePathStyle: false, // R2 uses virtual-hosted-style URLs
+      forcePathStyle: false,
     });
   }
 
@@ -61,10 +59,10 @@ export class R2StorageService implements IStorageService {
         location: relativePath,
       };
     } catch (error: any) {
-      this.logger.error(`Failed to upload to R2: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to upload to R2: ${error.message}`,
-      );
+      const cloudError = error.message || error.name || 'Unknown error';
+      const errorMessage = `Failed to upload to R2: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -81,10 +79,10 @@ export class R2StorageService implements IStorageService {
 
       this.logger.log(`Deleted file from R2: ${config.bucket}/${location}`);
     } catch (error: any) {
-      this.logger.error(`Failed to delete from R2: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to delete from R2: ${error.message}`,
-      );
+      const cloudError = error.message || error.name || 'Unknown error';
+      const errorMessage = `Failed to delete from R2: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -103,17 +101,16 @@ export class R2StorageService implements IStorageService {
         throw new BadRequestException(`File not found in R2: ${location}`);
       }
 
-      // Convert stream to Readable
       const stream = response.Body as Readable;
 
       this.logger.log(`Streaming file from R2: ${config.bucket}/${location}`);
 
       return stream;
     } catch (error: any) {
-      this.logger.error(`Failed to stream from R2: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to stream from R2: ${error.message}`,
-      );
+      const cloudError = error.message || error.name || 'Unknown error';
+      const errorMessage = `Failed to stream from R2: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -132,7 +129,6 @@ export class R2StorageService implements IStorageService {
         throw new BadRequestException(`File not found in R2: ${location}`);
       }
 
-      // Convert stream to buffer
       const chunks: Uint8Array[] = [];
       const stream = response.Body as Readable;
 
@@ -146,10 +142,10 @@ export class R2StorageService implements IStorageService {
 
       return buffer;
     } catch (error: any) {
-      this.logger.error(`Failed to download from R2: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to download from R2: ${error.message}`,
-      );
+      const cloudError = error.message || error.name || 'Unknown error';
+      const errorMessage = `Failed to download from R2: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -160,14 +156,13 @@ export class R2StorageService implements IStorageService {
     config: StorageConfig,
   ): Promise<void> {
     try {
-      // R2/S3 replace is same as upload (overwrites existing)
       await this.upload(buffer, location, mimetype, config);
       this.logger.log(`Replaced file on R2: ${config.bucket}/${location}`);
     } catch (error: any) {
-      this.logger.error(`Failed to replace file on R2: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to replace file on R2: ${error.message}`,
-      );
+      const cloudError = error.message || error.name || 'Unknown error';
+      const errorMessage = `Failed to replace file on R2: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -186,7 +181,6 @@ export class R2StorageService implements IStorageService {
       if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
         return false;
       }
-      // For other errors, log and return false
       this.logger.warn(`Error checking file existence in R2: ${error.message}`);
       return false;
     }

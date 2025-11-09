@@ -15,6 +15,18 @@ export interface TDynamicContext {
       compare?: (p: string, h: string) => Promise<boolean>;
     };
     autoSlug?: (text: string) => string;
+    $uploadFile?: (options: {
+      originalname?: string;
+      filename?: string;
+      mimetype: string;
+      buffer: Buffer;
+      size: number;
+      encoding?: string;
+      folder?: number | { id: number };
+      storageConfig?: number;
+      title?: string;
+      description?: string;
+    }) => Promise<any>;
   };
   $cache?: {
     acquire?: (key: string, value: any, ttlMs: number) => Promise<boolean>;

@@ -39,10 +39,10 @@ export class GCSStorageService implements IStorageService {
         location: relativePath,
       };
     } catch (error: any) {
-      this.logger.error(`Failed to upload to GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to upload to GCS: ${error.message}`,
-      );
+      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const errorMessage = `Failed to upload to GCS: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -63,10 +63,10 @@ export class GCSStorageService implements IStorageService {
 
       this.logger.log(`Deleted file from GCS: gs://${config.bucket}/${location}`);
     } catch (error: any) {
-      this.logger.error(`Failed to delete from GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to delete from GCS: ${error.message}`,
-      );
+      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const errorMessage = `Failed to delete from GCS: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -83,7 +83,6 @@ export class GCSStorageService implements IStorageService {
       const bucket = storage.bucket(config.bucket!);
       const file = bucket.file(location);
 
-      // Check if file exists
       const [exists] = await file.exists();
       if (!exists) {
         throw new BadRequestException(`File not found in GCS: ${location}`);
@@ -95,10 +94,10 @@ export class GCSStorageService implements IStorageService {
 
       return stream;
     } catch (error: any) {
-      this.logger.error(`Failed to stream from GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to stream from GCS: ${error.message}`,
-      );
+      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const errorMessage = `Failed to stream from GCS: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -126,10 +125,10 @@ export class GCSStorageService implements IStorageService {
 
       return buffer;
     } catch (error: any) {
-      this.logger.error(`Failed to download from GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to download from GCS: ${error.message}`,
-      );
+      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const errorMessage = `Failed to download from GCS: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
@@ -159,10 +158,10 @@ export class GCSStorageService implements IStorageService {
 
       this.logger.log(`Replaced file on GCS: gs://${config.bucket}/${location}`);
     } catch (error: any) {
-      this.logger.error(`Failed to replace file on GCS: ${error.message}`, error);
-      throw new BadRequestException(
-        `Failed to replace file on GCS: ${error.message}`,
-      );
+      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const errorMessage = `Failed to replace file on GCS: ${cloudError}`;
+      this.logger.error(errorMessage, error);
+      throw new BadRequestException(errorMessage);
     }
   }
 
