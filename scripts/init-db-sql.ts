@@ -251,7 +251,7 @@ async function createTable(
             }
             column.defaultTo(!!defVal);
           } else {
-            column.defaultTo(col.defaultValue);
+          column.defaultTo(col.defaultValue);
           }
         }
       }
@@ -803,7 +803,7 @@ async function applyColumnMigrations(
             }
             column.defaultTo(!!defVal);
           } else {
-            column.defaultTo(col.defaultValue);
+          column.defaultTo(col.defaultValue);
           }
         }
 
