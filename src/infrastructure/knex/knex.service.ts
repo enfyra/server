@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Knex, knex } from 'knex';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { ExtendedKnex } from './types/knex-extended.types';
-import { parseBooleanFields } from '../query-builder/utils/sql/parse-boolean-fields';
 import { stringifyRecordJsonFields } from './utils/json-parser';
 import { KnexEntityManager } from './entity-manager';
 import { CascadeHandler } from './utils/cascade-handler';
@@ -76,6 +75,12 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         typeCast: function (field: any, next: any) {
           if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
             return field.string();
+          }
+          // MySQL BOOLEAN is alias of TINYINT(1)
+          if (DB_TYPE === 'mysql' && field.type === 'TINY' && field.length === 1) {
+            const s = field.string();
+            if (s === null) return null;
+            return s === '1';
           }
           return next();
         },
@@ -246,9 +251,70 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return this.autoParseJsonFields(result, { table: tableName });
     });
 
-    this.addHook('afterSelect', async (tableName, result) => {
-      const booleanFields = await this.getBooleanFieldsForTable(tableName);
-      return parseBooleanFields(result, booleanFields);
+    // Recursive boolean normalization for nested relations (MySQL only).
+    // Uses preloaded metadata to avoid async lookups during traversal.
+    this.addHook('afterSelect', (tableName, result) => {
+      if (this.dbType !== 'mysql' || result == null) return result;
+
+      const meta = this.metadataCacheService.getDirectMetadata?.();
+      if (!meta) return result;
+
+      // Build table -> booleanSet and relation map once
+      const booleanMap = new Map<string, Set<string>>();
+      const relationMap = new Map<string, Map<string, string>>();
+
+      const tables: any[] =
+        Array.from(meta.tables?.values?.() || []) ||
+        (meta.tablesList || []);
+
+      for (const t of tables) {
+        const tName = t.name || t.tableName || t;
+        if (!tName) continue;
+
+        if (!booleanMap.has(tName)) {
+          const set = new Set<string>();
+          for (const c of t.columns || []) {
+            if (c?.type === 'boolean') set.add(c.name);
+          }
+          booleanMap.set(tName, set);
+        }
+
+        if (!relationMap.has(tName)) {
+          const rels = new Map<string, string>();
+          for (const r of t.relations || []) {
+            const prop = r?.propertyName;
+            const target = r?.targetTableName || r?.targetTable;
+            if (prop && target) rels.set(prop, target);
+          }
+          relationMap.set(tName, rels);
+        }
+      }
+
+      const coerce = (val: any) => (val === 0 || val === 1) ? val === 1 : val;
+
+      const walk = (node: any, currentTable: string): any => {
+        if (node == null) return node;
+        if (Array.isArray(node)) return node.map(item => walk(item, currentTable));
+        if (typeof node !== 'object' || Buffer.isBuffer(node) || node instanceof Date) return node;
+
+        const bSet = booleanMap.get(currentTable) || new Set<string>();
+        const rels = relationMap.get(currentTable) || new Map<string, string>();
+
+        const out: any = { ...node };
+        for (const key in out) {
+          if (key === 'createdAt' || key === 'updatedAt') continue;
+          const value = out[key];
+          if (bSet.has(key)) {
+            out[key] = coerce(value);
+          } else if (value && typeof value === 'object') {
+            const targetTable = rels.get(key);
+            out[key] = walk(value, targetTable || currentTable);
+          }
+        }
+        return out;
+      };
+
+      return walk(result, tableName);
     });
 
     this.logger.log('🪝 Default hooks registered');
