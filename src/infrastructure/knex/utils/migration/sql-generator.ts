@@ -127,16 +127,30 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
   }
 
   if (col.defaultValue !== null && col.defaultValue !== undefined) {
-    if (typeof col.defaultValue === 'string') {
-      definition += ` DEFAULT '${col.defaultValue}'`;
-    } else if (typeof col.defaultValue === 'boolean') {
-      if (dbType === 'sqlite') {
-        definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+    const isBooleanColumn = String(col.type).toLowerCase() === 'boolean';
+    let defaultVal = col.defaultValue;
+
+    // Normalize numeric/string 0/1 to boolean when column is boolean
+    if (isBooleanColumn) {
+      if (typeof defaultVal === 'number') {
+        defaultVal = defaultVal === 1;
+      } else if (typeof defaultVal === 'string') {
+        const trimmed = defaultVal.trim().toLowerCase();
+        if (trimmed === '1' || trimmed === 'true') defaultVal = true;
+        else if (trimmed === '0' || trimmed === 'false') defaultVal = false;
+      }
+    }
+
+    if (typeof defaultVal === 'string' && !isBooleanColumn) {
+      definition += ` DEFAULT '${defaultVal}'`;
+    } else if (typeof defaultVal === 'boolean') {
+      if (dbType === 'postgres') {
+        definition += ` DEFAULT ${defaultVal ? 'true' : 'false'}`;
       } else {
-        definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+        definition += ` DEFAULT ${defaultVal ? 1 : 0}`;
       }
     } else {
-      definition += ` DEFAULT ${col.defaultValue}`;
+      definition += ` DEFAULT ${defaultVal}`;
     }
   }
 

@@ -241,7 +241,18 @@ async function createTable(
         if (typeof col.defaultValue === 'string' && col.defaultValue.toLowerCase() === 'now') {
           column.defaultTo(knex.fn.now());
         } else {
-          column.defaultTo(col.defaultValue);
+          if (col.type === 'boolean') {
+            let defVal: any = col.defaultValue;
+            if (typeof defVal === 'number') defVal = defVal === 1;
+            else if (typeof defVal === 'string') {
+              const t = defVal.trim().toLowerCase();
+              if (t === '1' || t === 'true') defVal = true;
+              else if (t === '0' || t === 'false') defVal = false;
+            }
+            column.defaultTo(!!defVal);
+          } else {
+            column.defaultTo(col.defaultValue);
+          }
         }
       }
 
@@ -782,7 +793,18 @@ async function applyColumnMigrations(
         }
 
         if (col.defaultValue !== undefined && col.defaultValue !== null) {
-          column.defaultTo(col.defaultValue);
+          if (col.type === 'boolean') {
+            let defVal: any = col.defaultValue;
+            if (typeof defVal === 'number') defVal = defVal === 1;
+            else if (typeof defVal === 'string') {
+              const t = defVal.trim().toLowerCase();
+              if (t === '1' || t === 'true') defVal = true;
+              else if (t === '0' || t === 'false') defVal = false;
+            }
+            column.defaultTo(!!defVal);
+          } else {
+            column.defaultTo(col.defaultValue);
+          }
         }
 
         if (col.isUnique) {

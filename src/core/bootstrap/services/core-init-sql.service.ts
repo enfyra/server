@@ -112,7 +112,7 @@ export class CoreInitSqlService {
               isSystem: snapshotCol.isSystem || false,
               isUpdatable: snapshotCol.isUpdatable ?? true,
               isHidden: snapshotCol.isHidden || false,
-              defaultValue: JSON.stringify(snapshotCol.defaultValue || null),
+              defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
               options: JSON.stringify(snapshotCol.options || null),
               description: snapshotCol.description,
               placeholder: snapshotCol.placeholder,
@@ -129,7 +129,7 @@ export class CoreInitSqlService {
                   isNullable: snapshotCol.isNullable ?? true,
                   isPrimary: snapshotCol.isPrimary || false,
                   isGenerated: snapshotCol.isGenerated || false,
-                  defaultValue: JSON.stringify(snapshotCol.defaultValue || null),
+                  defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
                   options: JSON.stringify(snapshotCol.options || null),
                   isUpdatable: snapshotCol.isUpdatable ?? true,
                   isHidden: snapshotCol.isHidden || false,
@@ -368,7 +368,21 @@ export class CoreInitSqlService {
               let alterSQL: string;
               if (this.dbType === 'mysql') {
                 const nullable = col.isNullable ? 'NULL' : 'NOT NULL';
-                const defaultClause = col.defaultValue ? ` DEFAULT '${col.defaultValue}'` : '';
+                let defaultClause = '';
+                if (col.defaultValue !== undefined && col.defaultValue !== null) {
+                  if (col.type === 'boolean') {
+                    let defVal: any = col.defaultValue;
+                    if (typeof defVal === 'number') defVal = defVal === 1;
+                    else if (typeof defVal === 'string') {
+                      const t = defVal.trim().toLowerCase();
+                      if (t === '1' || t === 'true') defVal = true;
+                      else if (t === '0' || t === 'false') defVal = false;
+                    }
+                    defaultClause = ` DEFAULT ${defVal ? 1 : 0}`;
+                  } else {
+                    defaultClause = ` DEFAULT '${col.defaultValue}'`;
+                  }
+                }
                 alterSQL = `ALTER TABLE \`${def.name}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable}${defaultClause}`;
               } else if (this.dbType === 'postgres') {
                 // PostgreSQL needs to drop and recreate the type
