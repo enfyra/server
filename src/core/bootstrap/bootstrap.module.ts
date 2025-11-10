@@ -1,13 +1,11 @@
-import { Global, Module, forwardRef } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { BootstrapService } from './services/bootstrap.service';
 import { CoreInitService } from './services/core-init.service';
 import { CoreInitSqlService } from './services/core-init-sql.service';
 import { CoreInitMongoService } from './services/core-init-mongo.service';
 import { DefaultDataService } from './services/default-data.service';
 import { BootstrapScriptService } from './services/bootstrap-script.service';
-import { CacheModule } from '../../infrastructure/cache/cache.module';
 
-// Import processors
 import { UserDefinitionProcessor } from './processors/user-definition.processor';
 import { MenuDefinitionProcessor } from './processors/menu-definition.processor';
 import { RouteDefinitionProcessor } from './processors/route-definition.processor';

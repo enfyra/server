@@ -17,6 +17,7 @@ import { HandlerExecutorService } from '../../../infrastructure/handler-executor
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 
 @Injectable()
@@ -32,6 +33,7 @@ export class DynamicResolver {
     private routeCacheService: RouteCacheService,
     private storageConfigCacheService: StorageConfigCacheService,
     private systemProtectionService: SystemProtectionService,
+    private tableValidationService: TableValidationService,
     private configService: ConfigService,
   ) {}
 
@@ -108,6 +110,7 @@ export class DynamicResolver {
           routeCacheService: this.routeCacheService,
           storageConfigCacheService: this.storageConfigCacheService,
           systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
         });
 
         await dynamicRepo.init();
@@ -174,6 +177,7 @@ export class DynamicResolver {
         routeCacheService: this.routeCacheService,
         storageConfigCacheService: this.storageConfigCacheService,
         systemProtectionService: this.systemProtectionService,
+        tableValidationService: this.tableValidationService,
       });
 
       await dynamicRepo.init();
@@ -192,6 +196,7 @@ export class DynamicResolver {
             routeCacheService: this.routeCacheService,
             storageConfigCacheService: this.storageConfigCacheService,
             systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
           }),
         ]),
       ];

@@ -19,11 +19,9 @@ export class BootstrapService implements OnModuleInit {
 
   constructor(
     private readonly commonService: CommonService,
-    // private readonly schemaStateService: SchemaStateService,
     private readonly defaultDataService: DefaultDataService,
     private readonly coreInitService: CoreInitService,
     private readonly queryBuilder: QueryBuilderService,
-    // private readonly cacheService: CacheService,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -53,7 +51,6 @@ export class BootstrapService implements OnModuleInit {
       return;
     }
 
-    // Find first setting record
     const isMongoDB = this.queryBuilder.isMongoDb();
     const sortField = isMongoDB ? '_id' : 'id';
     const settingsResult = await this.queryBuilder.select({
@@ -66,12 +63,10 @@ export class BootstrapService implements OnModuleInit {
     if (!setting || !setting.isInit) {
       this.logger.log('First time initialization...');
 
-      // Create metadata (needed for both SQL and MongoDB to track schema)
       await this.coreInitService.createInitMetadata();
 
       await this.defaultDataService.insertAllDefaultRecords();
 
-      // Re-fetch setting after default data insertion
       const settings2Result = await this.queryBuilder.select({
         tableName: 'setting_definition',
         sort: [sortField],
@@ -84,7 +79,6 @@ export class BootstrapService implements OnModuleInit {
         throw new Error('Setting record not found. DefaultDataService may have failed.');
       }
 
-      // Update isInit flag
       const settingId = setting._id || setting.id;
       const idField = isMongoDB ? '_id' : 'id';
       await this.queryBuilder.update({
@@ -97,7 +91,6 @@ export class BootstrapService implements OnModuleInit {
     } else {
       this.logger.log('System already initialized, skipping data sync');
       
-      // Ensure critical default records exist (e.g., ai_config_definition)
       await this.ensureCriticalRecords();
     }
   }
@@ -106,7 +99,6 @@ export class BootstrapService implements OnModuleInit {
     this.logger.log('Checking critical default records...');
     
     try {
-      // Check if ai_config_definition has any records at all
       const aiConfigResult = await this.queryBuilder.select({
         tableName: 'ai_config_definition',
         limit: 1,

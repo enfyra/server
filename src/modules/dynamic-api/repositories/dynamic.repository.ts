@@ -6,6 +6,7 @@ import { QueryEngine } from '../../../infrastructure/query-engine/services/query
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { SystemProtectionService } from '../services/system-protection.service';
+import { TableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
@@ -23,11 +24,13 @@ export class DynamicRepository {
   private routeCacheService: RouteCacheService;
   private storageConfigCacheService?: StorageConfigCacheService;
   private systemProtectionService: SystemProtectionService;
+  private tableValidationService: TableValidationService;
   private bootstrapScriptService?: BootstrapScriptService;
   private redisPubSubService?: RedisPubSubService;
   private metadataCacheService: MetadataCacheService;
   private graphqlService: GraphqlService;
   private swaggerService: SwaggerService;
+  private tableMetadata: any;
 
   constructor({
     context,
@@ -38,6 +41,7 @@ export class DynamicRepository {
     routeCacheService,
     storageConfigCacheService,
     systemProtectionService,
+    tableValidationService,
     bootstrapScriptService,
     redisPubSubService,
     metadataCacheService,
@@ -52,6 +56,7 @@ export class DynamicRepository {
     routeCacheService: RouteCacheService;
     storageConfigCacheService?: StorageConfigCacheService;
     systemProtectionService: SystemProtectionService;
+    tableValidationService: TableValidationService;
     bootstrapScriptService?: BootstrapScriptService;
     redisPubSubService?: RedisPubSubService;
     metadataCacheService: MetadataCacheService;
@@ -66,6 +71,7 @@ export class DynamicRepository {
     this.routeCacheService = routeCacheService;
     this.storageConfigCacheService = storageConfigCacheService;
     this.systemProtectionService = systemProtectionService;
+    this.tableValidationService = tableValidationService;
     this.bootstrapScriptService = bootstrapScriptService;
     this.redisPubSubService = redisPubSubService;
     this.metadataCacheService = metadataCacheService;
@@ -74,6 +80,7 @@ export class DynamicRepository {
   }
 
   async init() {
+    this.tableMetadata = await this.metadataCacheService.lookupTableByName(this.tableName);
   }
 
   private getIdField(): string {
@@ -99,6 +106,12 @@ export class DynamicRepository {
 
   async create(body: any) {
     try {
+      await this.tableValidationService.assertTableValid({
+        operation: 'create',
+        tableName: this.tableName,
+        tableMetadata: this.tableMetadata,
+      });
+
       await this.systemProtectionService.assertSystemSafe({
         operation: 'create',
         tableName: this.tableName,
@@ -139,6 +152,12 @@ export class DynamicRepository {
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
 
+      await this.tableValidationService.assertTableValid({
+        operation: 'update',
+        tableName: this.tableName,
+        tableMetadata: this.tableMetadata,
+      });
+
       await this.systemProtectionService.assertSystemSafe({
         operation: 'update',
         tableName: this.tableName,
@@ -170,6 +189,12 @@ export class DynamicRepository {
       const existsResult = await this.find({ where: { id: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+
+      await this.tableValidationService.assertTableValid({
+        operation: 'delete',
+        tableName: this.tableName,
+        tableMetadata: this.tableMetadata,
+      });
 
       await this.systemProtectionService.assertSystemSafe({
         operation: 'delete',

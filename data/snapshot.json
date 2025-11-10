@@ -54,6 +54,7 @@
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Table name in the database" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system table" },
+            { "name": "isSingleRecord", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this table should only have a single record (e.g., setting_definition)" },
             { "name": "uniques", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of unique constraints (e.g., [['email'], ['name', 'parent']])" },
             { "name": "indexes", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of database indexes for performance optimization" },
             { "name": "alias", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Human-readable alias for the table" },

@@ -9,6 +9,7 @@ import { QueryEngine } from '../../../infrastructure/query-engine/services/query
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
 import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
+import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
@@ -33,6 +34,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     private routeCacheService: RouteCacheService,
     private storageConfigCacheService: StorageConfigCacheService,
     private systemProtectionService: SystemProtectionService,
+    private tableValidationService: TableValidationService,
     private redisPubSubService: RedisPubSubService,
     private instanceService: InstanceService,
   ) {}
@@ -178,6 +180,7 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           routeCacheService: this.routeCacheService,
           storageConfigCacheService: this.storageConfigCacheService,
           systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
           bootstrapScriptService: this,
           redisPubSubService: this.redisPubSubService,
         });

@@ -41,7 +41,6 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
 
     return {
       columns: columnsResult[0].map((col: any) => {
-        // Extract enum values from COLUMN_TYPE (e.g., "enum('openai')" -> ['openai'])
         let enumValues = null;
         if (col.type === 'enum' && col.fullType) {
           const enumMatch = col.fullType.match(/^enum\((.+)\)$/i);
@@ -178,7 +177,6 @@ export function compareSchemas(
         changes.push('type');
       }
 
-      // Check enum options change
       if (snapshotCol.type === 'enum' && Array.isArray(snapshotCol.options)) {
         const currentEnumValues = currentCol.enumValues || [];
         const snapshotEnumValues = snapshotCol.options || [];

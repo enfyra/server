@@ -5,7 +5,6 @@ import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Import processors
 import { BaseTableProcessor, UpsertResult } from '../processors/base-table-processor';
 import { UserDefinitionProcessor } from '../processors/user-definition.processor';
 import { MenuDefinitionProcessor } from '../processors/menu-definition.processor';
@@ -81,12 +80,10 @@ export class DefaultDataService {
   async insertAllDefaultRecords(): Promise<void> {
     this.logger.log('Starting default data upsert...');
     
-    // MongoDB: Direct JSON insert (simpler, no processors needed)
     if (this.dbType === 'mongodb') {
       return this.insertAllDefaultRecordsMongo();
     }
     
-    // SQL: Use processors for complex relations
     const qb = this.queryBuilder.getConnection();
     let totalCreated = 0;
     let totalSkipped = 0;

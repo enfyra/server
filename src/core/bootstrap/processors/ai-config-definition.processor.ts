@@ -4,7 +4,6 @@ import { BaseTableProcessor } from './base-table-processor';
 @Injectable()
 export class AiConfigDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any): object | object[] {
-    // Use provider as unique identifier
     return { provider: record.provider };
   }
 

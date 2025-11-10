@@ -9,6 +9,7 @@ import { RouteCacheService } from '../cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../cache/services/storage-config-cache.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
+import { TableValidationService } from '../../modules/dynamic-api/services/table-validation.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
@@ -30,6 +31,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private storageConfigCacheService: StorageConfigCacheService,
     private metadataCacheService: MetadataCacheService,
     private systemProtectionService: SystemProtectionService,
+    private tableValidationService: TableValidationService,
     private cacheService: CacheService,
     private bcryptService: BcryptService,
     private swaggerService: SwaggerService,
@@ -120,6 +122,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
             storageConfigCacheService: this.storageConfigCacheService,
             metadataCacheService: this.metadataCacheService,
             systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
             bootstrapScriptService: undefined,
             swaggerService: this.swaggerService,
             graphqlService: this.graphqlService,

@@ -193,10 +193,8 @@ export async function applyColumnMigrations(
     }
 
     if (dbType === 'mysql2') {
-      // MySQL: Handle enum-options change separately
       for (const { column: col, changes } of diff.columnsToModify) {
         if (changes.includes('enum-options') && col.type === 'enum' && Array.isArray(col.options)) {
-          // Get current enum values from database
           const currentEnumResult = await knex.raw(`
             SELECT COLUMN_TYPE
             FROM INFORMATION_SCHEMA.COLUMNS
@@ -213,7 +211,6 @@ export async function applyColumnMigrations(
               : [];
             const newEnumValues = col.options || [];
             
-            // Update data: map old values to new values (case-insensitive match)
             const valueMap: Record<string, string> = {};
             for (const oldVal of currentEnumValues) {
               const match = newEnumValues.find((newVal: string) => 
@@ -224,17 +221,14 @@ export async function applyColumnMigrations(
               }
             }
             
-            // Update data if needed
             for (const [oldVal, newVal] of Object.entries(valueMap)) {
               await knex(tableName).where(col.name, oldVal).update({ [col.name]: newVal });
             }
             
-            // Build new enum definition
             const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(',');
             const nullable = col.isNullable === false ? 'NOT NULL' : 'NULL';
             const defaultValue = col.defaultValue ? `DEFAULT '${col.defaultValue.replace(/'/g, "''")}'` : '';
             
-            // Modify column with new enum values
             await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim());
             
             continue;
@@ -242,9 +236,7 @@ export async function applyColumnMigrations(
         }
       }
       
-      // Handle other column modifications
       for (const { column: col, changes } of diff.columnsToModify) {
-        // Skip enum-options as it's handled above
         if (changes.includes('enum-options')) {
           continue;
         }
@@ -270,10 +262,8 @@ export async function applyColumnMigrations(
         await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ${sqlType} ${nullable}`);
       }
     } else {
-      // PostgreSQL: Handle enum-options change separately
       for (const { column: col, changes } of diff.columnsToModify) {
         if (changes.includes('enum-options') && col.type === 'enum' && Array.isArray(col.options)) {
-          // Get current enum type name
           const enumTypeResult = await knex.raw(`
             SELECT udt_name
             FROM information_schema.columns
@@ -286,7 +276,6 @@ export async function applyColumnMigrations(
             const oldEnumType = enumTypeResult.rows[0].udt_name;
             const newEnumType = `${tableName}_${col.name}_enum`;
             
-            // Get current enum values from database
             const currentEnumResult = await knex.raw(`
               SELECT e.enumlabel
               FROM pg_enum e
@@ -298,7 +287,6 @@ export async function applyColumnMigrations(
             const currentEnumValues = currentEnumResult.rows.map((r: any) => r.enumlabel);
             const newEnumValues = col.options || [];
             
-            // Update data: map old values to new values (case-insensitive match)
             const valueMap: Record<string, string> = {};
             for (const oldVal of currentEnumValues) {
               const match = newEnumValues.find((newVal: string) => 
@@ -309,7 +297,6 @@ export async function applyColumnMigrations(
               }
             }
             
-            // Get current default value
             const defaultResult = await knex.raw(`
               SELECT column_default
               FROM information_schema.columns
@@ -321,43 +308,33 @@ export async function applyColumnMigrations(
             const currentDefault = defaultResult.rows[0]?.column_default;
             const hasDefault = !!currentDefault;
             
-            // Drop default if exists
             if (hasDefault) {
               await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`);
             }
             
-            // Temporarily convert to text to allow data updates
             await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
             
-            // Update data if needed
             for (const [oldVal, newVal] of Object.entries(valueMap)) {
               await knex(tableName).where(col.name, oldVal).update({ [col.name]: newVal });
             }
             
-            // Drop check constraint if exists
             try {
               await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`);
             } catch (e) {}
             
-            // Create new enum type
             const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(', ');
             await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
             await knex.raw(`CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`);
             
-            // Alter column to use new enum type
             await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`);
             
-            // Restore default value if exists
             if (hasDefault) {
-              // Extract default value (remove ::type cast if present)
               let defaultVal = currentDefault;
               if (defaultVal && defaultVal.includes('::')) {
                 defaultVal = defaultVal.split('::')[0];
               }
-              // Remove quotes
               defaultVal = defaultVal?.replace(/^'|'$/g, '');
               
-              // Map old default to new default if needed
               if (defaultVal && valueMap[defaultVal]) {
                 defaultVal = valueMap[defaultVal];
               } else if (col.defaultValue) {
@@ -368,11 +345,9 @@ export async function applyColumnMigrations(
                 await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`);
               }
             } else if (col.defaultValue) {
-              // Set new default if specified in snapshot
               await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`);
             }
             
-            // Drop old enum type if different
             if (oldEnumType !== newEnumType) {
               try {
                 await knex.raw(`DROP TYPE IF EXISTS "${oldEnumType}" CASCADE`);
@@ -386,7 +361,6 @@ export async function applyColumnMigrations(
       
       await knex.schema.alterTable(tableName, (table) => {
         for (const { column: col, changes } of diff.columnsToModify) {
-          // Skip enum-options as it's handled above
           if (changes.includes('enum-options')) {
             continue;
           }
