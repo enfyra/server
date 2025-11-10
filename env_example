@@ -1,36 +1,91 @@
-#DB SETTING
-DB_TYPE=mysql #mysql | mariadb | postgres | mongodb
+############################################
+# Database (RDBMS) - required
+############################################
+# One of: mysql | mariadb | postgres | mongodb
+DB_TYPE=mysql
+# Hostname/IP of the SQL server
 DB_HOST=localhost
+# Port: mysql/mariadb=3306, postgres=5432
 DB_PORT=3306
+# SQL user/password
 DB_USERNAME=root
 DB_PASSWORD=1234
+# Database name
 DB_NAME=enfyra
 
-# MongoDB URI (only if DB_TYPE=mongodb)
+############################################
+# MongoDB (only if DB_TYPE=mongodb) - optional
+############################################
+# Full connection string
 # MONGO_URI=mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra?authSource=admin
 
-#DATABASE CONNECTION POOL SETTINGS
-DB_POOL_SIZE=100                    # Max connections in pool (all databases)
-DB_CONNECTION_LIMIT=100             # MySQL/MariaDB connection limit, PostgreSQL max connections
-DB_ACQUIRE_TIMEOUT=60000            # Connection acquisition timeout (ms)
-DB_IDLE_TIMEOUT=30000               # PostgreSQL idle connection timeout (ms)
+############################################
+# SQL Connection Pool - optional (tune per env)
+############################################
+# Max connections in pool
+DB_POOL_SIZE=100
+# MySQL/MariaDB connection limit or Postgres max connections
+DB_CONNECTION_LIMIT=100
+# Connection acquisition timeout (ms)
+DB_ACQUIRE_TIMEOUT=60000
+# PostgreSQL idle connection timeout (ms)
+DB_IDLE_TIMEOUT=30000
 
-#REDIS SETTING
+############################################
+# Redis Cache - required
+############################################
+# redis://user:pass@host:port/db
 REDIS_URI=redis://localhost:6379
+# Default TTL (seconds) for cache entries
 DEFAULT_TTL=5
 
-#APP SETTING
+############################################
+# App Runtime - required
+############################################
+# Node instance name (for logs/cluster)
 NODE_NAME=my_enfyra
+# HTTP port
 PORT=1105
+# Script execution timeouts (ms)
 DEFAULT_HANDLER_TIMEOUT=20000
 DEFAULT_PREHOOK_TIMEOUT=20000
 DEFAULT_AFTERHOOK_TIMEOUT=20000
 
-#AUTH_SETTING
+############################################
+# Auth - required
+############################################
+# JWT secret
 SECRET_KEY=my_secret
+# bcrypt salt rounds
 SALT_ROUNDS=10
+# Access/Refresh token expirations
 ACCESS_TOKEN_EXP=15m
 REFRESH_TOKEN_NO_REMEMBER_EXP=1d
 REFRESH_TOKEN_REMEMBER_EXP=7d
 
+############################################
+# Package Manager - optional
+############################################
+# One of: yarn | npm | pnpm
 PACKAGE_MANAGER=yarn
+
+############################################
+# Handler Executor (child pool) - optional
+############################################
+# Max old space (MB) per child process
+HANDLER_EXECUTOR_MAX_MEMORY=512
+# Min/Max pool size
+HANDLER_EXECUTOR_POOL_MIN=2
+HANDLER_EXECUTOR_POOL_MAX=4
+
+############################################
+# Swagger / Public Base URL - required
+############################################
+# Full backend URL exposed to clients (e.g. behind proxy)
+BACKEND_URL=http://localhost:1105
+
+############################################
+# Environment - required
+############################################
+# development | production | test
+NODE_ENV=development
