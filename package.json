@@ -59,6 +59,7 @@
     "mongodb": "^6.20.0",
     "multer": "latest",
     "mysql2": "^3.14.1",
+    "openai": "^6.8.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "path-to-regexp": "^8.2.0",

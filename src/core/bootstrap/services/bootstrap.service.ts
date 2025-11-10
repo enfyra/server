@@ -3,6 +3,15 @@ import { CommonService } from '../../../shared/common/services/common.service';
 import { DefaultDataService } from './default-data.service';
 import { CoreInitService } from './core-init.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const initJson = JSON.parse(
+  fs.readFileSync(
+    path.join(process.cwd(), 'src/core/bootstrap/data/init.json'),
+    'utf8',
+  ),
+);
 
 @Injectable()
 export class BootstrapService implements OnModuleInit {
@@ -87,6 +96,29 @@ export class BootstrapService implements OnModuleInit {
       this.logger.log('Initialization successful');
     } else {
       this.logger.log('System already initialized, skipping data sync');
+      
+      // Ensure critical default records exist (e.g., ai_config_definition)
+      await this.ensureCriticalRecords();
+    }
+  }
+
+  private async ensureCriticalRecords(): Promise<void> {
+    this.logger.log('Checking critical default records...');
+    
+    try {
+      // Check if ai_config_definition has any records at all
+      const aiConfigResult = await this.queryBuilder.select({
+        tableName: 'ai_config_definition',
+        limit: 1,
+      });
+      
+      if (!aiConfigResult.data || aiConfigResult.data.length === 0) {
+        this.logger.log('No ai_config_definition records found, creating default...');
+        const result = await this.defaultDataService.insertTableRecords('ai_config_definition');
+        this.logger.log(`ai_config_definition: ${result.created} created, ${result.skipped} skipped`);
+      }
+    } catch (error) {
+      this.logger.warn(`Error checking critical records: ${error.message}`);
     }
   }
 }

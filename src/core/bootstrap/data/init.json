@@ -74,6 +74,13 @@
             "publishedMethods": ["GET"]
         },
         {
+            "path": "/ai_config_definition",
+            "mainTable": "ai_config_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:sparkles"
+        },
+        {
             "path": "/role_definition",
             "mainTable": "role_definition",
             "isEnabled": true,
@@ -293,6 +300,18 @@
             "description": "Default local file storage"
         }
     ],
+    "ai_config_definition": {
+        "provider": "OpenAI",
+        "model": "gpt-4o-mini",
+        "isEnabled": true,
+        "isSystem": true,
+        "maxConversationMessages": 10,
+        "summaryThreshold": 20,
+        "discoveredMetadataTtl": 3600000,
+        "discoverLockTtl": 30000,
+        "llmTimeout": 30000,
+        "description": "Default OpenAI configuration for AI agent"
+    },
     "menu_definition": [
         {
             "type": "Dropdown Menu",
@@ -375,13 +394,27 @@
         },
         {
             "type": "Menu",
+            "label": "AI Settings",
+            "icon": "heroicons:sparkles",
+            "path": "/settings/ai",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "AI agent configuration",
+            "order": 2,
+            "parent": "Settings",
+            "permission": {
+                "and": [{ "route": "/ai_config_definition", "actions": ["read", "update"] }]
+            }
+        },
+        {
+            "type": "Menu",
             "label": "Menu",
             "icon": "heroicons:bars-3",
             "path": "/settings/menus",
             "isEnabled": true,
             "isSystem": true,
             "description": "Menu management",
-            "order": 2,
+            "order": 3,
             "parent": "Settings",
             "permission": {
                 "or": [
@@ -400,7 +433,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Extension management",
-            "order": 3,
+            "order": 4,
             "parent": "Settings",
             "permission": {
                 "and": [
@@ -416,7 +449,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Route management",
-            "order": 4,
+            "order": 5,
             "parent": "Settings",
             "permission": {
                 "and": [
@@ -439,7 +472,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Route handler management",
-            "order": 5,
+            "order": 6,
             "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/route_handler_definition", "actions": ["read"] }]
@@ -453,7 +486,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Hook management",
-            "order": 6,
+            "order": 7,
             "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/hook_definition", "actions": ["read"] }]
@@ -467,7 +500,7 @@
             "isEnabled": true,
             "isSystem": true,
             "description": "Bootstrap script management",
-            "order": 7,
+            "order": 8,
             "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/bootstrap_script_definition", "actions": ["read"] }]

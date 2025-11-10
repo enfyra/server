@@ -1,7 +1,7 @@
 ############################################
 # Database (RDBMS) - required
 ############################################
-# One of: mysql | mariadb | postgres | mongodb
+# One of: mysql | postgres | mongodb
 DB_TYPE=mysql
 # Hostname/IP of the SQL server
 DB_HOST=localhost
