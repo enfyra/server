@@ -291,22 +291,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (tableMetadata.relations) {
-      for (const relation of tableMetadata.relations) {
-        const relatedTableName = relation.targetTableName || relation.targetTable;
-        if (relatedTableName) {
-          const relatedMetadata = await this.metadataCacheService.lookupTableByName(relatedTableName);
-          if (relatedMetadata?.columns) {
-            for (const column of relatedMetadata.columns) {
-              if (column.type === 'boolean') {
-                booleanFields.add(column.name);
-              }
-            }
-          }
-        }
-      }
-    }
-
     return booleanFields;
   }
 
