@@ -104,7 +104,7 @@ export class SqlTableHandlerService {
     }
   }
 
-  async createTable(body: any) {
+  async createTable(body: CreateTableDto) {
     this.logger.log(`CREATE TABLE: ${body?.name} (${body.columns?.length || 0} columns, ${body.relations?.length || 0} relations)`);
 
     if (/[A-Z]/.test(body?.name)) {
@@ -372,7 +372,7 @@ export class SqlTableHandlerService {
     }
   }
 
-  async updateTable(id: string | number, body: any) {
+  async updateTable(id: string | number, body: CreateTableDto) {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,

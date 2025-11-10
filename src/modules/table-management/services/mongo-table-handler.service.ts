@@ -12,6 +12,7 @@ import {
 } from '../../../core/exceptions/custom-exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
+import { CreateTableDto } from '../dto/create-table.dto';
 
 /**
  * MongoTableHandlerService - Manages MongoDB collection metadata and validation
@@ -140,7 +141,7 @@ export class MongoTableHandlerService {
     this.logger.log('✨ All relation fields dropped. Will be recreated by runtime logic.');
   }
 
-  async createTable(body: any) {
+  async createTable(body: CreateTableDto) {
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
         tableName: body?.name,
@@ -376,7 +377,7 @@ export class MongoTableHandlerService {
     }
   }
 
-  async updateTable(id: any, body: any) {
+  async updateTable(id: any, body: CreateTableDto) {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,

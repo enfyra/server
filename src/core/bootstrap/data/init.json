@@ -587,12 +587,12 @@
         },
         {
             "type": "Menu",
-            "label": "Files management",
+            "label": "Files Management",
             "icon": "lucide:folder-tree",
             "path": "/storage/management",
             "isEnabled": true,
             "isSystem": true,
-            "description": "Files management",
+            "description": "Files Management",
             "order": 1,
             "parent": "Storage",
             "permission": {
