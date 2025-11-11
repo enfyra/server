@@ -5,6 +5,7 @@ export interface IConversation {
   messageCount: number;
   summary?: string;
   lastSummaryAt?: Date;
+  lastActivityAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,5 +23,6 @@ export interface IConversationUpdate {
   messageCount?: number;
   summary?: string;
   lastSummaryAt?: Date;
+  lastActivityAt?: Date;
 }
 

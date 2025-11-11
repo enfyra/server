@@ -486,7 +486,8 @@ export async function applyRelationMigrations(
             .references('id')
             .inTable(rel.targetTable);
 
-          fk.onDelete('SET NULL').onUpdate('CASCADE');
+          const onDeleteAction = (rel as any).onDelete || 'SET NULL';
+          fk.onDelete(onDeleteAction).onUpdate('CASCADE');
 
           table.index([fkColumn]);
         });
@@ -522,7 +523,106 @@ export async function syncTable(
 
   await applyColumnMigrations(knex, tableName, diff, schemas);
   await applyRelationMigrations(knex, tableName, diff, schemas);
+  await syncRelationOnDeleteChanges(knex, tableName, schema);
 
   console.log(`✅ Synced table: ${tableName}`);
+}
+
+async function syncRelationOnDeleteChanges(
+  knex: Knex,
+  tableName: string,
+  schema: KnexTableSchema,
+): Promise<void> {
+  const dbType = knex.client.config.client;
+
+  // Load current relations from database
+  const tableDefRow = await knex('table_definition')
+    .where('name', tableName)
+    .first();
+
+  if (!tableDefRow) {
+    return;
+  }
+
+  const dbRelations = await knex('relation_definition')
+    .where('sourceTableId', tableDefRow.id)
+    .select('id', 'propertyName', 'type', 'onDelete');
+
+  const snapshotRelations = schema.definition.relations || [];
+
+  for (const snapshotRel of snapshotRelations) {
+    const dbRel = dbRelations.find(r => r.propertyName === snapshotRel.propertyName);
+
+    if (!dbRel) {
+      continue; // New relation, will be handled by applyRelationMigrations
+    }
+
+    const snapshotOnDelete = (snapshotRel as any).onDelete || 'SET NULL';
+    const dbOnDelete = dbRel.onDelete || 'SET NULL';
+
+    if (snapshotOnDelete !== dbOnDelete) {
+      console.log(`  🔄 Updating onDelete for ${snapshotRel.propertyName}: ${dbOnDelete} → ${snapshotOnDelete}`);
+
+      // Only handle M2O and O2O relations (FK in current table)
+      if (snapshotRel.type === 'many-to-one' || snapshotRel.type === 'one-to-one') {
+        const fkColumn = getForeignKeyColumnName(snapshotRel.propertyName);
+        const targetTable = snapshotRel.targetTable;
+
+        // Drop existing FK constraint
+        if (dbType === 'pg') {
+          const fkConstraints = await knex.raw(`
+            SELECT tc.constraint_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+            WHERE tc.table_schema = 'public'
+              AND tc.table_name = ?
+              AND kcu.column_name = ?
+              AND tc.constraint_type = 'FOREIGN KEY'
+          `, [tableName, fkColumn]);
+
+          if (fkConstraints.rows?.length > 0) {
+            const constraintName = fkConstraints.rows[0].constraint_name;
+            await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+            console.log(`    Dropped FK constraint: ${constraintName}`);
+          }
+        } else if (dbType === 'mysql2') {
+          const fkConstraints = await knex.raw(`
+            SELECT CONSTRAINT_NAME
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = ?
+              AND COLUMN_NAME = ?
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+          `, [tableName, fkColumn]);
+
+          if (fkConstraints[0]?.length > 0) {
+            const constraintName = fkConstraints[0][0].CONSTRAINT_NAME;
+            await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
+            console.log(`    Dropped FK constraint: ${constraintName}`);
+          }
+        }
+
+        // Recreate FK constraint with new onDelete action
+        await knex.schema.alterTable(tableName, (table) => {
+          const fk = table
+            .foreign(fkColumn)
+            .references('id')
+            .inTable(targetTable);
+
+          fk.onDelete(snapshotOnDelete).onUpdate('CASCADE');
+        });
+
+        console.log(`    Recreated FK constraint with onDelete: ${snapshotOnDelete}`);
+
+        // Update relation_definition table
+        await knex('relation_definition')
+          .where('id', dbRel.id)
+          .update({ onDelete: snapshotOnDelete });
+
+        console.log(`    Updated relation_definition.onDelete to: ${snapshotOnDelete}`);
+      }
+    }
+  }
 }
 

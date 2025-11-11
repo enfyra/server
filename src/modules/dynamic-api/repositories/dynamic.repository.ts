@@ -5,6 +5,7 @@ import { TableHandlerService } from '../../table-management/services/table-handl
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
+import { AiConfigCacheService } from '../../../infrastructure/cache/services/ai-config-cache.service';
 import { SystemProtectionService } from '../services/system-protection.service';
 import { TableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
@@ -23,6 +24,7 @@ export class DynamicRepository {
   private tableHandlerService: TableHandlerService;
   private routeCacheService: RouteCacheService;
   private storageConfigCacheService?: StorageConfigCacheService;
+  private aiConfigCacheService?: AiConfigCacheService;
   private systemProtectionService: SystemProtectionService;
   private tableValidationService: TableValidationService;
   private bootstrapScriptService?: BootstrapScriptService;
@@ -40,6 +42,7 @@ export class DynamicRepository {
     tableHandlerService,
     routeCacheService,
     storageConfigCacheService,
+    aiConfigCacheService,
     systemProtectionService,
     tableValidationService,
     bootstrapScriptService,
@@ -55,6 +58,7 @@ export class DynamicRepository {
     tableHandlerService: TableHandlerService;
     routeCacheService: RouteCacheService;
     storageConfigCacheService?: StorageConfigCacheService;
+    aiConfigCacheService?: AiConfigCacheService;
     systemProtectionService: SystemProtectionService;
     tableValidationService: TableValidationService;
     bootstrapScriptService?: BootstrapScriptService;
@@ -70,6 +74,7 @@ export class DynamicRepository {
     this.tableHandlerService = tableHandlerService;
     this.routeCacheService = routeCacheService;
     this.storageConfigCacheService = storageConfigCacheService;
+    this.aiConfigCacheService = aiConfigCacheService;
     this.systemProtectionService = systemProtectionService;
     this.tableValidationService = tableValidationService;
     this.bootstrapScriptService = bootstrapScriptService;
@@ -121,6 +126,10 @@ export class DynamicRepository {
       });
 
       if (this.tableName === 'table_definition') {
+        console.log('[DynamicRepository] Creating table_definition with body:', JSON.stringify(body, null, 2));
+        console.log('[DynamicRepository] body.columns:', body.columns);
+        console.log('[DynamicRepository] body.columns type:', typeof body.columns);
+        console.log('[DynamicRepository] body.columns isArray:', Array.isArray(body.columns));
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(body);
         await this.reload();
@@ -262,6 +271,10 @@ export class DynamicRepository {
 
     if (this.tableName === 'storage_config_definition' && this.storageConfigCacheService) {
       await this.storageConfigCacheService.reload();
+    }
+
+    if (this.tableName === 'ai_config_definition' && this.aiConfigCacheService) {
+      await this.aiConfigCacheService.reload();
     }
   }
 }

@@ -13,6 +13,7 @@ export async function addForeignKeys(
     tableName: string;
     foreignKeyColumn: string;
     targetTable: string;
+    onDelete: string;
   }> = [];
 
   for (const schema of schemas) {
@@ -33,11 +34,13 @@ export async function addForeignKeys(
 
       const foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
       const targetTable = relation.targetTable;
+      const onDelete = (relation as any).onDelete || 'SET NULL';
 
       fkOperations.push({
         tableName,
         foreignKeyColumn,
         targetTable,
+        onDelete,
       });
     }
   }
@@ -49,7 +52,7 @@ export async function addForeignKeys(
 
   for (const fkOp of fkOperations) {
     console.log(
-      `  Adding FK: ${fkOp.tableName}.${fkOp.foreignKeyColumn} → ${fkOp.targetTable}.id`,
+      `  Adding FK: ${fkOp.tableName}.${fkOp.foreignKeyColumn} → ${fkOp.targetTable}.id (onDelete: ${fkOp.onDelete})`,
     );
     try {
       await knex.schema.alterTable(fkOp.tableName, (table) => {
@@ -58,7 +61,7 @@ export async function addForeignKeys(
           .references('id')
           .inTable(fkOp.targetTable);
 
-        fk.onDelete('SET NULL').onUpdate('CASCADE');
+        fk.onDelete(fkOp.onDelete).onUpdate('CASCADE');
 
         table.index([fkOp.foreignKeyColumn]);
       });

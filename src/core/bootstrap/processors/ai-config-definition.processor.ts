@@ -8,7 +8,7 @@ export class AiConfigDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['model', 'isEnabled', 'maxConversationMessages', 'summaryThreshold', 'discoveredMetadataTtl', 'discoverLockTtl', 'llmTimeout', 'description'];
+    return ['model', 'isEnabled', 'maxConversationMessages', 'summaryThreshold', 'llmTimeout', 'description'];
   }
 }
 

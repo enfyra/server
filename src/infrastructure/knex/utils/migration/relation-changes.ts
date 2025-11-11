@@ -238,6 +238,7 @@ async function handleCreatedRelations(
         foreignKeyTarget: rel.targetTableName,
         foreignKeyColumn: 'id',
         isUnique: rel.type === 'one-to-one', // O2O needs UNIQUE constraint
+        onDelete: rel.onDelete || 'SET NULL',
       });
     } else if (rel.type === 'one-to-many') {
       const targetTableName = rel.targetTableName;
@@ -266,6 +267,7 @@ async function handleCreatedRelations(
           isForeignKey: true,
           foreignKeyTarget: tableName,
           foreignKeyColumn: 'id',
+          onDelete: rel.onDelete || 'SET NULL',
         },
       });
     } else if (rel.type === 'many-to-many') {
@@ -310,12 +312,14 @@ async function handleUpdatedRelations(
     const typeChanged = oldRel.type !== newRel.type;
     const targetTableChanged = oldRel.targetTableName !== newRel.targetTableName;
     const isNullableChanged = oldRel.isNullable !== newRel.isNullable;
+    const onDeleteChanged = oldRel.onDelete !== newRel.onDelete;
 
     if (propertyNameChanged) changes.push(`propertyName: ${oldRel.propertyName} → ${newRel.propertyName}`);
     if (typeChanged) changes.push(`type: ${oldRel.type} → ${newRel.type}`);
     if (targetTableChanged) changes.push(`target: ${oldRel.targetTableName} → ${newRel.targetTableName}`);
     if (inversePropertyNameChanged) changes.push(`inversePropertyName: ${oldRel.inversePropertyName} → ${newRel.inversePropertyName}`);
     if (isNullableChanged) changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
+    if (onDeleteChanged) changes.push(`onDelete: ${oldRel.onDelete} → ${newRel.onDelete}`);
 
     if (changes.length > 0) {
       logger.log(`Updated relation ${relId}: ${changes.join(', ')}`);
@@ -327,6 +331,10 @@ async function handleUpdatedRelations(
       // Handle PROPERTY NAME CHANGE (same type) - RENAME to preserve data
       else if (propertyNameChanged || inversePropertyNameChanged) {
         await handleRelationPropertyNameChange(knex, oldRel, newRel, diff, tableName, propertyNameChanged, inversePropertyNameChanged, metadataCacheService);
+      }
+      // Handle onDelete change - Need to recreate FK constraint
+      else if (onDeleteChanged) {
+        await handleOnDeleteChange(knex, oldRel, newRel, diff, tableName);
       }
       // Handle other changes (targetTable, isNullable) - TODO later
     }
@@ -704,5 +712,60 @@ async function handleRelationTypeChange(
 
   else {
     logger.warn(`  Unhandled relation type change: ${oldType} → ${newType}`);
+  }
+}
+
+async function handleOnDeleteChange(
+  knex: Knex,
+  oldRel: any,
+  newRel: any,
+  diff: any,
+  tableName: string,
+): Promise<void> {
+  logger.log(`Handling onDelete change for ${newRel.propertyName}: ${oldRel.onDelete} → ${newRel.onDelete}`);
+
+  const relationType = newRel.type;
+
+  if (relationType === 'many-to-one' || relationType === 'one-to-one') {
+    // M2O/O2O: FK in current table
+    const fkColumn = getForeignKeyColumnName(newRel.propertyName);
+    logger.log(`  Will recreate FK constraint on ${tableName}.${fkColumn} with onDelete: ${newRel.onDelete}`);
+
+    if (!diff.foreignKeys) {
+      diff.foreignKeys = { recreate: [] };
+    }
+
+    diff.foreignKeys.recreate.push({
+      tableName: tableName,
+      columnName: fkColumn,
+      targetTable: newRel.targetTableName,
+      targetColumn: 'id',
+      onDelete: newRel.onDelete || 'SET NULL',
+    });
+  } else if (relationType === 'one-to-many') {
+    // O2M: FK in target table
+    if (!newRel.inversePropertyName) {
+      logger.warn(`  O2M relation '${newRel.propertyName}' missing inversePropertyName, cannot update FK constraint`);
+      return;
+    }
+
+    const fkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
+    logger.log(`  Will recreate FK constraint on ${newRel.targetTableName}.${fkColumn} with onDelete: ${newRel.onDelete}`);
+
+    if (!diff.foreignKeys) {
+      diff.foreignKeys = { recreate: [] };
+    }
+
+    diff.foreignKeys.recreate.push({
+      tableName: newRel.targetTableName,
+      columnName: fkColumn,
+      targetTable: tableName,
+      targetColumn: 'id',
+      onDelete: newRel.onDelete || 'SET NULL',
+    });
+  } else if (relationType === 'many-to-many') {
+    logger.log(`  M2M relations do not have direct FK onDelete config (handled by junction table)`);
+    // M2M uses junction table, FK constraints are on junction table
+    // This is more complex and may require junction table recreation
   }
 }

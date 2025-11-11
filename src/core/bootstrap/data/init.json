@@ -265,6 +265,34 @@
             "icon": "lucide:book-open",
             "description": "Swagger API Documentation",
             "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/ai-agent/chat",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:message-square",
+            "description": "AI Agent Chat (non-streaming)"
+        },
+        {
+            "path": "/ai-agent/chat/stream",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:zap",
+            "description": "AI Agent Chat (streaming)"
+        },
+        {
+            "path": "/ai_conversation_definition",
+            "mainTable": "ai_conversation_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:messages-square"
+        },
+        {
+            "path": "/ai_message_definition",
+            "mainTable": "ai_message_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:message-circle"
         }
     ], 
     "hook_definition": [
@@ -300,18 +328,6 @@
             "description": "Default local file storage"
         }
     ],
-    "ai_config_definition": {
-        "provider": "OpenAI",
-        "model": "gpt-4o-mini",
-        "isEnabled": true,
-        "isSystem": true,
-        "maxConversationMessages": 10,
-        "summaryThreshold": 20,
-        "discoveredMetadataTtl": 3600000,
-        "discoverLockTtl": 30000,
-        "llmTimeout": 30000,
-        "description": "Default OpenAI configuration for AI agent"
-    },
     "menu_definition": [
         {
             "type": "Dropdown Menu",
@@ -508,6 +524,19 @@
         },
         {
             "type": "Dropdown Menu",
+            "label": "AI",
+            "icon": "lucide:sparkles",
+            "path": "/ai",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "AI Agent and Configuration",
+            "order": 5,
+            "permission": {
+                "allowAll": true
+            }
+        },
+        {
+            "type": "Dropdown Menu",
             "label": "Packages",
             "icon": "lucide:package",
             "path": "/packages",
@@ -598,6 +627,40 @@
             "permission": {
                 "or": [
                     { "route": "/file_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "AI Chat",
+            "icon": "lucide:message-square",
+            "path": "/ai-agent/chat",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Chat with AI Agent",
+            "order": 1,
+            "parent": "AI",
+            "permission": {
+                "or": [
+                    { "route": "/ai-agent/chat", "actions": ["create"] },
+                    { "route": "/ai_conversation_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "AI Configuration",
+            "icon": "lucide:settings",
+            "path": "/ai-agent/config",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Configure AI Agent settings",
+            "order": 2,
+            "parent": "AI",
+            "permission": {
+                "or": [
+                    { "route": "/ai_config_definition", "actions": ["read"] },
+                    { "route": "/ai_config_definition", "actions": ["update"] }
                 ]
             }
         },

@@ -182,7 +182,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['type', 'label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission', 'parent'];
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const parentField = isMongoDB ? 'parent' : 'parentId';
+    return ['type', 'label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission', parentField];
   }
 
   protected hasValueChanged(newValue: any, existingValue: any): boolean {

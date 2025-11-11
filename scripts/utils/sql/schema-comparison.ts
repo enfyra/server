@@ -52,10 +52,10 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         }
         
         return {
-          name: col.name,
+        name: col.name,
           type: col.type === 'enum' ? 'enum' : col.type,
-          isNullable: col.isNullable === 'YES',
-          defaultValue: col.defaultValue,
+        isNullable: col.isNullable === 'YES',
+        defaultValue: col.defaultValue,
           enumValues: enumValues,
         };
       }),

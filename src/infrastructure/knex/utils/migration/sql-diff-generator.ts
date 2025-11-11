@@ -179,7 +179,7 @@ export async function generateSQLFromDiff(
     sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`);
 
     if (col.isForeignKey && col.foreignKeyTarget) {
-      const onDelete = col.isNullable === false ? 'RESTRICT' : 'SET NULL';
+      const onDelete = col.onDelete || (col.isNullable === false ? 'RESTRICT' : 'SET NULL');
       sqlStatements.push(
         `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(`fk_${tableName}_${col.name}`)} FOREIGN KEY (${qt(col.name)}) REFERENCES ${qt(col.foreignKeyTarget)} (${qt(col.foreignKeyColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`
       );
@@ -246,7 +246,7 @@ export async function generateSQLFromDiff(
       sqlStatements.push(`ALTER TABLE ${qt(crossOp.targetTable)} ADD COLUMN ${qt(crossOp.column.name)} ${columnDef}`);
 
       if (crossOp.column.isForeignKey) {
-        const onDelete = crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT';
+        const onDelete = crossOp.column.onDelete || (crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT');
         sqlStatements.push(
           `ALTER TABLE ${qt(crossOp.targetTable)} ADD CONSTRAINT ${qt(`fk_${crossOp.targetTable}_${crossOp.column.name}`)} FOREIGN KEY (${qt(crossOp.column.name)}) REFERENCES ${qt(crossOp.column.foreignKeyTarget)} (${qt(crossOp.column.foreignKeyColumn)}) ON DELETE ${onDelete} ON UPDATE CASCADE`
         );
@@ -361,6 +361,22 @@ export async function generateSQLFromDiff(
   for (const junctionDrop of diff.junctionTables?.drop || []) {
     const { tableName: junctionName } = junctionDrop;
     sqlStatements.push(`DROP TABLE IF EXISTS ${qt(junctionName)}`);
+  }
+
+  // Handle FK constraint recreation (for onDelete changes)
+  for (const fkRecreate of diff.foreignKeys?.recreate || []) {
+    const { tableName: fkTableName, columnName, targetTable, targetColumn, onDelete } = fkRecreate;
+    const fkName = `fk_${fkTableName}_${columnName}`;
+
+    logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
+
+    // Drop existing FK constraint
+    await dropForeignKeyIfExists(knex, fkTableName, columnName, dbType);
+
+    // Recreate FK constraint with new onDelete action
+    sqlStatements.push(
+      `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`
+    );
   }
 
   return sqlStatements;

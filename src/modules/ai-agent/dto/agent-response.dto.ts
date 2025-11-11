@@ -1,5 +1,5 @@
 export class AgentResponseDto {
-  conversationId: number;
+  conversation: number;
   response: string;
   toolCalls?: Array<{
     id: string;

@@ -34,6 +34,7 @@
             { "name": "propertyName", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Property name for accessing the relation in queries" },
             { "name": "inversePropertyName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Property name on the target table for bidirectional relations" },
             { "name": "isNullable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the relation can be null" },
+            { "name": "onDelete", "type": "enum", "isNullable": false, "isSystem": true, "options": ["CASCADE", "RESTRICT", "SET NULL"], "defaultValue": "SET NULL", "description": "Action to perform when referenced record is deleted" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined relation" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of the relationship purpose" },
             { "name": "junctionTableName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Name of the junction table for many-to-many relations" },
@@ -390,7 +391,8 @@
             { "name": "title", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Conversation title (auto-generated from first message)" },
             { "name": "messageCount", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 0, "description": "Cached count of messages in this conversation (user + assistant messages)" },
             { "name": "summary", "type": "text", "isNullable": true, "isSystem": true, "description": "Summary of old messages (created when conversation exceeds threshold)" },
-            { "name": "lastSummaryAt", "type": "date", "isNullable": true, "isSystem": true, "description": "Timestamp when summary was last created or updated" }
+            { "name": "lastSummaryAt", "type": "date", "isNullable": true, "isSystem": true, "description": "Timestamp when summary was last created or updated" },
+            { "name": "lastActivityAt", "type": "date", "isNullable": true, "isSystem": true, "description": "Timestamp of the last activity in this conversation (updated when new messages are added)" }
         ],
         "relations": [
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "inversePropertyName": "aiConversations", "description": "User who owns this conversation" },
@@ -411,24 +413,22 @@
             { "name": "sequence", "type": "int", "isNullable": false, "isSystem": true, "description": "Message sequence number within conversation (incremental)" }
         ],
         "relations": [
-            { "propertyName": "conversation", "type": "many-to-one", "targetTable": "ai_conversation_definition", "isSystem": true, "isNullable": false, "description": "Conversation this message belongs to" }
+            { "propertyName": "conversation", "type": "many-to-one", "targetTable": "ai_conversation_definition", "isSystem": true, "isNullable": false, "description": "Conversation this message belongs to", "onDelete": "CASCADE" }
         ]
     },
     "ai_config_definition": {
         "name": "ai_config_definition",
-        "description": "Stores AI agent configuration settings. Currently supports OpenAI only.",
+        "description": "Stores AI agent configuration settings. Supports OpenAI and Anthropic (Claude).",
         "isSystem": true,
         "uniques": [["provider"]],
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI"], "defaultValue": "OpenAI", "description": "AI provider (currently only OpenAI supported)" },
+            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI or Anthropic)" },
             { "name": "apiKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "API key for the AI provider (sensitive, hidden from API responses)" },
             { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use (default: gpt-4o-mini)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether AI agent is enabled" },
             { "name": "maxConversationMessages", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of messages to include in LLM context (default: 10)" },
             { "name": "summaryThreshold", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 20, "description": "Message count threshold to trigger summary creation (default: 20)" },
-            { "name": "discoveredMetadataTtl", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 3600000, "description": "TTL for discovered metadata cache in milliseconds (default: 3600000 - 1 hour)" },
-            { "name": "discoverLockTtl", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 30000, "description": "TTL for discover lock in milliseconds (default: 30000 - 30 seconds)" },
             { "name": "llmTimeout", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 30000, "description": "LLM API timeout in milliseconds (default: 30000 - 30 seconds)" },
             { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of the AI configuration" }
         ],

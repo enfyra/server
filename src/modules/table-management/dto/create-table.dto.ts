@@ -163,6 +163,11 @@ export class CreateRelationDto {
   @IsOptional()
   isNullable?: boolean;
 
+  @IsOptional()
+  @IsString()
+  @IsIn(['CASCADE', 'RESTRICT', 'SET NULL'])
+  onDelete?: 'CASCADE' | 'RESTRICT' | 'SET NULL';
+
   @IsBoolean()
   @IsOptional()
   isIndex?: boolean;

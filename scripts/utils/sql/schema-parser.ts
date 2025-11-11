@@ -148,3 +148,5 @@ export function getPrimaryKeyType(schemas: KnexTableSchema[], tableName: string)
   return pkColumn.type === 'uuid' ? 'uuid' : 'integer';
 }
 
+
+

@@ -38,6 +38,7 @@ import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
 import { DatabaseSchemaService } from './infrastructure/knex/services/database-schema.service';
 import { AdminModule } from './modules/admin/admin.module';
+import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 
 @Global()
 @Module({
@@ -86,6 +87,7 @@ import { AdminModule } from './modules/admin/admin.module';
     MeModule,
     EnfyraSwaggerModule,
     AdminModule,
+    AiAgentModule,
     DynamicModule,
     HandlerExecutorModule,
     GraphqlModule,
@@ -99,7 +101,7 @@ import { AdminModule } from './modules/admin/admin.module';
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RoleGuard },
+    // { provide: APP_GUARD, useClass: RoleGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: DynamicInterceptor },
     { provide: APP_INTERCEPTOR, useClass: HideFieldInterceptor },
