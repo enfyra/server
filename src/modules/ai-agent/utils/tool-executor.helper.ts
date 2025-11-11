@@ -108,6 +108,12 @@ export class ToolExecutor {
 - Relations and foreign keys still use property names, but the underlying ID field is "_id"
 - When passing relation objects, use "{_id: value}" instead of "{id: value}"
 
+**IMPORTANT: Auto-generated timestamp fields:**
+- createdAt and updatedAt are AUTOMATICALLY added to ALL tables
+- DO NOT mention these fields when describing table structure to users
+- DO NOT include these fields in CREATE TABLE operations
+- These fields are managed by the system
+
 **IMPORTANT: Table names do NOT always have "_definition" suffix!**
 - Some tables have "_definition" suffix (e.g., "user_definition", "order_definition")
 - Some tables do NOT have this suffix (e.g., "order", "product", "customer")
@@ -120,6 +126,12 @@ export class ToolExecutor {
 - When querying by ID, use "id" field
 - Standard integer or UUID format for "id" values
 - When passing relation objects, use "{id: value}"
+
+**IMPORTANT: Auto-generated timestamp fields:**
+- createdAt and updatedAt are AUTOMATICALLY added to ALL tables
+- DO NOT mention these fields when describing table structure to users
+- DO NOT include these fields in CREATE TABLE operations
+- These fields are managed by the system
 
 **IMPORTANT: Table names do NOT always have "_definition" suffix!**
 - Some tables have "_definition" suffix (e.g., "user_definition", "order_definition")
@@ -135,6 +147,12 @@ export class ToolExecutor {
     };
 
     const relationContent = `Enfyra handles relations by accepting objects with ${idFieldName} fields.
+
+**CRITICAL: When CREATING/UPDATING table definitions (table_definition), targetTable MUST be an object with ${idFieldName}!**
+- CORRECT: "targetTable": { "${idFieldName}": 5 }
+- WRONG: "targetTable": "user_definition"
+- You MUST use get_metadata or dynamic_repository to find the target table's ${idFieldName} first
+- Example: To create relation to user_definition, first find user_definition's ${idFieldName}, then use { "${idFieldName}": found_id }
 
 **CRITICAL: Always use relation propertyName, NEVER use FK column names!**
 - Use "mainTable" (propertyName), NOT "mainTableId" (FK column)

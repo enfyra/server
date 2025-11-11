@@ -18,10 +18,13 @@ import { createLLMClient } from '../utils/llm-client.helper';
 import { getTools } from '../utils/llm-tools.helper';
 import { convertMessagesToAnthropic } from '../utils/message-converter.helper';
 import { mapStatusCodeToHttpStatus, getErrorCodeFromStatus } from '../utils/error-handler.helper';
+import { streamOpenAIToClient } from '../utils/openai-stream-client.helper';
 import { handleAnthropicStream } from '../utils/anthropic-stream.helper';
 import { streamAnthropicToClient, StreamEvent } from '../utils/anthropic-stream-client.helper';
 import { createLLMContext } from '../utils/context.helper';
 import { ToolExecutor } from '../utils/tool-executor.helper';
+import { applyPromptCaching } from '../utils/anthropic-cache.helper';
+import { optimizeOpenAIMessages } from '../utils/openai-cache.helper';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -94,6 +97,7 @@ export class LLMService {
     const tools = getTools(provider);
     const model = config.model;
     const timeout = config.llmTimeout;
+    this.logger.log(`[LLM][Stream] Resolved config ${configId} provider=${provider} model=${model}`);
     const allToolCalls: IToolCall[] = [];
     const allToolResults: IToolResult[] = [];
     const context = createLLMContext();
@@ -118,10 +122,11 @@ export class LLMService {
 
       try {
         if (provider === 'OpenAI') {
-        const response = await Promise.race([
+          const optimizedMessages = optimizeOpenAIMessages(conversationMessages);
+          const response = await Promise.race([
             (client as OpenAI).chat.completions.create({
             model,
-            messages: conversationMessages as any,
+            messages: optimizedMessages as any,
             tools: tools as any,
             tool_choice: 'auto',
           }),
@@ -199,9 +204,16 @@ export class LLMService {
           const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
           const systemMessage = anthropicMessages.find(m => m.role === 'system');
           const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
-          
-          const systemPromptLength = (systemMessage?.content as string)?.length || 0;
-          const messagesLength = nonSystemMessages.reduce((sum, msg) => {
+
+          // Apply prompt caching for cost optimization
+          const cached = applyPromptCaching(
+            systemMessage?.content as string,
+            tools,
+            nonSystemMessages,
+          );
+
+          const systemPromptLength = typeof cached.system === 'string' ? cached.system.length : JSON.stringify(cached.system).length;
+          const messagesLength = cached.messages.reduce((sum, msg) => {
             if (typeof msg.content === 'string') {
               return sum + msg.content.length;
             } else if (Array.isArray(msg.content)) {
@@ -209,10 +221,10 @@ export class LLMService {
             }
             return sum;
           }, 0);
-          const toolsLength = JSON.stringify(tools).length;
-          
+          const toolsLength = JSON.stringify(cached.tools).length;
+
           this.logger.log(`Request size - System: ${systemPromptLength} chars, Messages: ${messagesLength} chars, Tools: ${toolsLength} chars, Total: ${systemPromptLength + messagesLength + toolsLength} chars`);
-          
+
           const elapsed = Date.now() - startTime;
           if (elapsed > totalTimeout) {
             throw new Error(`LLM request timeout after ${totalTimeout}ms (${iteration} iterations)`);
@@ -224,9 +236,9 @@ export class LLMService {
           const stream = (client as Anthropic).messages.stream({
             model: model,
             max_tokens: 4096,
-            system: systemMessage?.content as string,
-            messages: nonSystemMessages as any,
-            tools: tools as any,
+            system: cached.system as any,
+            messages: cached.messages as any,
+            tools: cached.tools as any,
           });
 
           const streamData = await handleAnthropicStream(stream, currentRequestTimeout);
@@ -332,6 +344,57 @@ export class LLMService {
     throw new Error('Max iterations reached in tool calling loop');
   }
 
+  // Lightweight chat without tools (for summaries and low-token calls)
+  async chatSimple(
+    messages: LLMMessage[],
+    configId: string | number,
+  ): Promise<LLMResponse> {
+    const config = await this.aiConfigCacheService.getConfigById(configId);
+    if (!config) {
+      throw new BadRequestException(`AI config with ID ${configId} not found`);
+    }
+    if (!config.isEnabled) {
+      throw new BadRequestException(`AI config with ID ${configId} is disabled`);
+    }
+
+    const client = await createLLMClient(config);
+    const provider = config.provider;
+    const model = config.model;
+    const timeout = Math.min(config.llmTimeout || 30000, 30000);
+    const conversationMessages: LLMMessage[] = [...messages];
+
+    if (provider === 'OpenAI') {
+      const response: any = await Promise.race([
+        (client as OpenAI).chat.completions.create({
+          model,
+          messages: conversationMessages as any,
+          // No tools, no function calling
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`LLM request timeout after ${timeout}ms`)), timeout)),
+      ]);
+      const choice = response.choices?.[0];
+      const content = choice?.message?.content || '';
+      return { content, toolCalls: [], toolResults: [] };
+    } else if (provider === 'Anthropic') {
+      const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
+      const systemMessage = anthropicMessages.find(m => m.role === 'system');
+      const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
+      const msg = await (client as Anthropic).messages.create({
+        model,
+        max_tokens: 1024,
+        system: systemMessage?.content as any,
+        messages: nonSystemMessages as any,
+      });
+      const content = (msg.content || [])
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('');
+      return { content, toolCalls: [], toolResults: [] };
+    }
+
+    throw new BadRequestException(`Unsupported provider: ${provider}`);
+  }
+
   async chatStream(
     messages: LLMMessage[],
     configId: string | number,
@@ -364,6 +427,8 @@ export class LLMService {
 
     while (iteration < maxIterations) {
       iteration++;
+      const iterationStartTime = Date.now();
+      this.logger.log(`[Tool Loop - Stream] Starting iteration ${iteration}`);
 
       const elapsed = Date.now() - startTime;
       if (elapsed > totalTimeout) {
@@ -375,18 +440,144 @@ export class LLMService {
 
       try {
         if (provider === 'OpenAI') {
-          throw new BadRequestException('OpenAI streaming is not yet implemented');
+          const optimizedMessages = optimizeOpenAIMessages(conversationMessages);
+          const stream = await (client as OpenAI).chat.completions.create({
+            model: model,
+            messages: optimizedMessages as any,
+            tools: tools as any,
+            tool_choice: 'auto',
+            stream: true,
+          });
+
+          const streamData = await streamOpenAIToClient(stream, currentRequestTimeout, onEvent);
+
+          this.logger.log(`Input tokens: ${streamData.inputTokens}, Output tokens: ${streamData.outputTokens}`);
+
+          const textContent = streamData.textContent;
+
+          if (streamData.stop_reason === 'tool_calls' && streamData.toolCalls.length > 0) {
+            const toolCalls = streamData.toolCalls;
+
+            conversationMessages.push({
+              role: 'assistant',
+              content: textContent || null,
+              tool_calls: toolCalls,
+            });
+
+            const toolResults: LLMMessage[] = [];
+
+            for (const toolCall of toolCalls) {
+              allToolCalls.push({
+                id: toolCall.id,
+                type: 'function',
+                function: {
+                  name: toolCall.function.name,
+                  arguments: toolCall.function.arguments,
+                },
+              });
+
+              try {
+                const toolStartTime = Date.now();
+                this.logger.log(`[Tool Execution - OpenAI Stream] Starting tool: ${toolCall.function.name}`);
+
+                const toolCallObj = {
+                  id: toolCall.id,
+                  function: {
+                    name: toolCall.function.name,
+                    arguments: toolCall.function.arguments,
+                  },
+                };
+                const result = await this.toolExecutor.executeTool(toolCallObj, context);
+                const resultStr = JSON.stringify(result);
+
+                const toolDuration = Date.now() - toolStartTime;
+                this.logger.log(`[Tool Execution - OpenAI Stream] Completed tool: ${toolCall.function.name} in ${toolDuration}ms`);
+
+                allToolResults.push({
+                  toolCallId: toolCall.id,
+                  result,
+                });
+
+                onEvent({
+                  type: 'tool_result',
+                  data: {
+                    toolCallId: toolCall.id,
+                    name: toolCall.function.name,
+                    result,
+                  },
+                });
+
+                toolResults.push({
+                  role: 'tool',
+                  content: resultStr,
+                  tool_call_id: toolCall.id,
+                });
+              } catch (error: any) {
+                const errorStr = JSON.stringify({ error: error.message || String(error) });
+                this.logger.error(`[Tool Execution - OpenAI Stream] Failed tool: ${toolCall.function.name}`, error);
+
+                allToolResults.push({
+                  toolCallId: toolCall.id,
+                  result: { error: error.message || String(error) },
+                });
+
+                onEvent({
+                  type: 'tool_result',
+                  data: {
+                    toolCallId: toolCall.id,
+                    name: toolCall.function.name,
+                    result: { error: error.message || String(error) },
+                  },
+                });
+
+                toolResults.push({
+                  role: 'tool',
+                  content: errorStr,
+                  tool_call_id: toolCall.id,
+                });
+              }
+            }
+
+            // Add newline after tool calls to prevent text concatenation
+            onEvent({
+              type: 'text',
+              data: { delta: '\n', text: '\n' },
+            });
+
+            conversationMessages.push(...toolResults);
+
+            const iterationDuration = Date.now() - iterationStartTime;
+            this.logger.log(`[Tool Loop - Stream] Iteration ${iteration} completed in ${iterationDuration}ms, continuing to next iteration`);
+            continue;
+          } else {
+            const iterationDuration = Date.now() - iterationStartTime;
+            const totalDuration = Date.now() - startTime;
+            this.logger.log(`[Tool Loop - Stream] Iteration ${iteration} completed in ${iterationDuration}ms. Final response generated. Total time: ${totalDuration}ms across ${iteration} iterations`);
+
+            return {
+              content: textContent,
+              toolCalls: allToolCalls,
+              toolResults: allToolResults,
+            };
+          }
         } else if (provider === 'Anthropic') {
           const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
           const systemMessage = anthropicMessages.find(m => m.role === 'system');
           const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
 
+          // Apply prompt caching for cost optimization
+          const cached = applyPromptCaching(
+            systemMessage?.content as string,
+            tools,
+            nonSystemMessages,
+          );
+
           const stream = (client as Anthropic).messages.stream({
             model: model,
             max_tokens: 4096,
-            system: systemMessage?.content as string,
-            messages: nonSystemMessages as any,
-            tools: tools as any,
+            system: cached.system as any,
+            messages: cached.messages as any,
+            tools: cached.tools as any,
           });
 
           const streamData = await streamAnthropicToClient(stream, currentRequestTimeout, onEvent);

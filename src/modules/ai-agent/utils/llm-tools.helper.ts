@@ -51,6 +51,12 @@ export function getTools(provider: string = 'OpenAI') {
         name: 'dynamic_repository',
         description: `Perform CRUD operations on any table using DynamicRepository. ONLY use this when the user explicitly asks to create, read, update, or delete data from tables. Supports complex queries with _and/_or/_not operators and field expansion with wildcards. DO NOT use for simple greetings or general conversations.
 
+**CRITICAL: ALWAYS call get_hint tool FIRST before any database operations!**
+The get_hint response includes:
+- dbType: Current database type (mysql, postgresql, mongodb, etc.)
+- isMongoDB: Boolean indicating if MongoDB is used
+- idField: The correct ID field name to use ("id" for SQL, "_id" for MongoDB)
+
 **IMPORTANT: Before creating a table, always check if it already exists using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}. If the table exists, inform the user instead of trying to create it again.**
 
 For CREATE TABLE: Use operation='create' with table='table_definition' and data containing:
@@ -68,7 +74,25 @@ For CREATE TABLE: Use operation='create' with table='table_definition' and data 
   "uniques": [["columnName"]],
   "indexes": [["columnName"]]
 }
-Note: createdAt and updatedAt are auto-added. FK columns are auto-indexed.`,
+CRITICAL: For relations, targetTable MUST be an object with id field: { "id": table_id }
+- CORRECT: "targetTable": { "id": 5 }
+- WRONG: "targetTable": "user_definition"
+- You MUST use get_metadata or dynamic_repository to find the target table's ID first
+Note:
+- createdAt and updatedAt are AUTOMATICALLY added to ALL tables - DO NOT include them in columns array
+- DO NOT mention createdAt/updatedAt when describing table structure to users
+- FK columns are auto-indexed
+
+For DELETE TABLE:
+1. Call get_hint to get the correct idField ("id" or "_id")
+2. Find the table using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}
+3. Extract the ID from the found record using the idField from step 1
+4. Delete using operation='delete' with table='table_definition' and id=[table_id]
+
+For UPDATE TABLE:
+1. Call get_hint to get the correct idField ("id" or "_id")
+2. Find the table to get its ID using the correct idField
+3. Update using operation='update' with table='table_definition', id=[table_id], and data containing the changes.`,
         input_schema: {
           type: 'object',
           properties: {
@@ -166,6 +190,12 @@ Note: createdAt and updatedAt are auto-added. FK columns are auto-indexed.`,
           name: 'dynamic_repository',
           description: `Perform CRUD operations on any table using DynamicRepository. ONLY use this when the user explicitly asks to create, read, update, or delete data from tables. Supports complex queries with _and/_or/_not operators and field expansion with wildcards. DO NOT use for simple greetings or general conversations.
 
+**CRITICAL: ALWAYS call get_hint tool FIRST before any database operations!**
+The get_hint response includes:
+- dbType: Current database type (mysql, postgresql, mongodb, etc.)
+- isMongoDB: Boolean indicating if MongoDB is used
+- idField: The correct ID field name to use ("id" for SQL, "_id" for MongoDB)
+
 **IMPORTANT: Before creating a table, always check if it already exists using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}. If the table exists, inform the user instead of trying to create it again.**
 
 For CREATE TABLE: Use operation='create' with table='table_definition' and data containing:
@@ -183,7 +213,25 @@ For CREATE TABLE: Use operation='create' with table='table_definition' and data 
   "uniques": [["columnName"]],
   "indexes": [["columnName"]]
 }
-Note: createdAt and updatedAt are auto-added. FK columns are auto-indexed.`,
+CRITICAL: For relations, targetTable MUST be an object with id field: { "id": table_id }
+- CORRECT: "targetTable": { "id": 5 }
+- WRONG: "targetTable": "user_definition"
+- You MUST use get_metadata or dynamic_repository to find the target table's ID first
+Note:
+- createdAt and updatedAt are AUTOMATICALLY added to ALL tables - DO NOT include them in columns array
+- DO NOT mention createdAt/updatedAt when describing table structure to users
+- FK columns are auto-indexed
+
+For DELETE TABLE:
+1. Call get_hint to get the correct idField ("id" or "_id")
+2. Find the table using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}
+3. Extract the ID from the found record using the idField from step 1
+4. Delete using operation='delete' with table='table_definition' and id=[table_id]
+
+For UPDATE TABLE:
+1. Call get_hint to get the correct idField ("id" or "_id")
+2. Find the table to get its ID using the correct idField
+3. Update using operation='update' with table='table_definition', id=[table_id], and data containing the changes.`,
         parameters: {
           type: 'object',
           properties: {

@@ -105,13 +105,18 @@ export class ConversationService {
     if (!data.title || !data.title.trim()) {
       throw new Error('Title is required for conversation');
     }
-    
+
+    if (!data.configId) {
+      throw new Error('Config ID is required for conversation');
+    }
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_conversation_definition', context);
-    
+
     const createData: any = {
       title: data.title.trim(),
       messageCount: data.messageCount || 0,
+      config: { id: data.configId },
     };
 
     if (data.userId || userId) {
@@ -125,15 +130,15 @@ export class ConversationService {
     if (data.lastSummaryAt) {
       createData.lastSummaryAt = data.lastSummaryAt;
     }
-    
-    this.logger.debug(`Creating conversation with data:`, { title: createData.title, messageCount: createData.messageCount });
-    
+
+    this.logger.debug(`Creating conversation with data:`, { title: createData.title, configId: data.configId, messageCount: createData.messageCount });
+
     const result = await repo.create(createData);
-    
+
     if (!result.data || result.data.length === 0) {
       throw new Error('Failed to create conversation');
     }
-    
+
     return this.mapConversation(result.data[0]);
   }
 
@@ -170,33 +175,47 @@ export class ConversationService {
     return this.mapConversation(result.data[0]);
   }
 
-  async getMessages(conversationId: string | number, limit?: number, userId?: string | number): Promise<IMessage[]> {
+  async getMessages(
+    conversationId: string | number,
+    limit?: number,
+    userId?: string | number,
+    sort?: string,
+    since?: Date,
+  ): Promise<IMessage[]> {
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
     
+    const where: any = {
+      conversation: { id: { _eq: conversationId } },
+    };
+    if (since) {
+      // Dùng Date object và so sánh _gt để loại trừ chính bản ghi summary
+      where.createdAt = { _gt: since };
+    }
+
     const result = await repo.find({
-      where: {
-        conversation: { id: { _eq: conversationId } },
-      },
+      where,
       fields: 'columns.*',
+      limit: limit ?? 0,
+      sort: sort || 'sequence',
     });
 
     const messages = result.data || [];
-    const sortedMessages = messages.sort((a: any, b: any) => a.sequence - b.sequence);
-    
-    if (limit) {
-      const limitedMessages = sortedMessages.slice(-limit);
-      return limitedMessages.map((msg: any) => this.mapMessage(msg));
-    }
-    
-    return sortedMessages.map((msg: any) => this.mapMessage(msg));
+    return messages.map((msg: any) => this.mapMessage(msg));
+  }
+
+  async deleteMessage(messageId: string | number, userId?: string | number): Promise<void> {
+    const context = this.createContext(userId);
+    const repo = await this.createRepository('ai_message_definition', context);
+    await repo.delete(messageId);
+    this.logger.log(`Deleted message ${messageId}`);
   }
 
   async deleteMessagesBeforeSequence(conversationId: string | number, beforeSequence: number, userId?: string | number): Promise<void> {
     await this.queryBuilder.transaction(async (trx) => {
       const context = this.createContext(userId);
       const repo = await this.createRepository('ai_message_definition', context);
-      
+
       const result = await repo.find({
         where: {
           conversation: { id: { _eq: conversationId } },
@@ -209,7 +228,7 @@ export class ConversationService {
       for (const msg of messagesToDelete) {
         await repo.delete(msg.id);
       }
-      
+
       this.logger.log(`Deleted ${messagesToDelete.length} old messages from conversation ${conversationId} (before sequence ${beforeSequence})`);
     });
   }
@@ -308,6 +327,7 @@ export class ConversationService {
         conversation: { id: { _eq: conversationId } },
       },
       fields: 'role',
+      limit: 0,
     });
 
     const messages = result.data || [];
@@ -323,6 +343,7 @@ export class ConversationService {
     return {
       id: data.id || data._id,
       userId: data.user?.id || data.user?._id || data.userId,
+      configId: data.config?.id || data.config?._id || data.configId,
       title: data.title,
       messageCount: data.messageCount,
       summary: data.summary,

@@ -92,7 +92,7 @@ export class DynamicRepository {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
   }
 
-  async find(opt: { where?: any; fields?: string | string[] }) {
+  async find(opt: { where?: any; fields?: string | string[]; limit?: number; sort?: string }) {
     const debugMode = this.context.$query?.debugMode === 'true' || this.context.$query?.debugMode === true;
 
     return await this.queryEngine.find({
@@ -100,9 +100,10 @@ export class DynamicRepository {
       fields: opt?.fields || this.context.$query?.fields || '',
       filter: opt?.where || this.context.$query?.filter || {},
       page: this.context.$query?.page || 1,
-      limit: this.context.$query?.limit || 10,
+      // If opt.limit is provided (including 0), prefer it. Otherwise fall back to context or default.
+      limit: (opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10)),
       meta: this.context.$query?.meta,
-      sort: this.context.$query?.sort || 'id',
+      sort: (opt?.sort || this.context.$query?.sort || 'id'),
       aggregate: this.context.$query?.aggregate || {},
       deep: this.context.$query?.deep || {},
       debugMode: debugMode,

@@ -49,6 +49,7 @@ export class AiAgentService {
         {
           title,
           messageCount: 0,
+          configId: request.config,
         },
         userId,
       );
@@ -67,25 +68,52 @@ export class AiAgentService {
       userId,
     );
 
-    const allMessages = await this.conversationService.getMessages(
+    const fetchLimit = config.maxConversationMessages || 5;
+    const allMessagesDesc = await this.conversationService.getMessages(
       conversation.id,
-      undefined,
+      fetchLimit,
       userId,
+      '-createdAt',
     );
+    const allMessages = [...allMessagesDesc].reverse();
     
-    if (allMessages.length === 0 || allMessages[allMessages.length - 1]?.sequence !== userSequence) {
-      this.logger.warn(`User message not found in loaded messages, adding it manually. Expected sequence: ${userSequence}`);
+    const hasUserMessage =
+      allMessages.some((m) => m.sequence === userSequence && m.role === 'user') ||
+      allMessages.some((m) => m.id === userMessage.id);
+    if (!hasUserMessage) {
+      this.logger.debug(`User message not found in loaded messages, adding it manually. Expected sequence: ${userSequence}`);
       allMessages.push(userMessage);
     }
     
     const limit = config.maxConversationMessages || 5;
-    const messages = allMessages.slice(-limit);
+    let messages = allMessages;
 
     this.logger.debug(`[Token Debug] Loading ${messages.length} messages from ${allMessages.length} total messages (limit: ${limit})`);
 
     if (messages.length === 0 || messages[messages.length - 1]?.role !== 'user') {
-      this.logger.error(`Invalid conversation state: last message is not a user message. Last message role: ${messages[messages.length - 1]?.role}`);
-      throw new BadRequestException('Invalid conversation state: last message must be a user message');
+      this.logger.debug(`Fixing conversation state: appending just-created user message (sequence ${userSequence}). Last role: ${messages[messages.length - 1]?.role}`);
+      messages = [...messages, userMessage];
+    }
+
+    // Nếu đã chạm trần tối đa messages gửi lên → tạo summary, xóa message trigger, tạo lại message trigger
+    if (messages.length >= limit) {
+      this.logger.debug(`[Summary Trigger] Reached maxConversationMessages=${limit}. Creating summary and recreating trigger message.`);
+      // createSummary sẽ: tạo summary message, xóa userMessage, tạo lại userMessage
+      await this.createSummary(conversation.id, request.config, userId, userMessage);
+
+      // Query lại messages từ lastSummaryAt (sẽ có summary message + userMessage mới tạo)
+      const refreshed = await this.conversationService.getConversation(conversation.id, userId);
+      if (refreshed?.lastSummaryAt) {
+        const recentDesc = await this.conversationService.getMessages(
+          conversation.id,
+          limit,
+          userId,
+          '-createdAt',
+          refreshed.lastSummaryAt,
+        );
+        messages = [...recentDesc].reverse();
+        this.logger.debug(`[Summary Applied] Reloaded ${messages.length} messages since lastSummaryAt (summary + trigger message)`);
+      }
     }
 
     const llmMessages = await this.buildLLMMessages(conversation, messages, config);
@@ -127,6 +155,7 @@ export class AiAgentService {
       throw new BadRequestException('Failed to update conversation');
     }
 
+    this.logger.debug(`[Summary Check] messageCount=${updatedConversation.messageCount}, threshold=${config.summaryThreshold}, lastSummaryAt=${updatedConversation.lastSummaryAt || 'none'}`);
     if (this.shouldCreateSummary(updatedConversation, config)) {
       await this.createSummary(conversation.id, request.config, userId);
     }
@@ -199,6 +228,8 @@ export class AiAgentService {
         return;
       }
 
+      this.logger.log(`[AI-Agent][Stream] Using config ${request.config} provider=${config.provider} model=${config.model}`);
+
       if (request.conversation) {
         conversation = await this.conversationService.getConversation(request.conversation, userId);
         if (!conversation) {
@@ -219,6 +250,7 @@ export class AiAgentService {
           {
             title,
             messageCount: 0,
+            configId: request.config,
           },
           userId,
         );
@@ -241,27 +273,51 @@ export class AiAgentService {
         },
         userId,
       );
-
-      const allMessages = await this.conversationService.getMessages(
+      const limit = config.maxConversationMessages || 5;
+      const allMessagesDesc = await this.conversationService.getMessages(
         conversation.id,
-        undefined,
+        limit,
         userId,
+        '-createdAt',
       );
+      const allMessages = [...allMessagesDesc].reverse();
 
-      if (allMessages.length === 0 || allMessages[allMessages.length - 1]?.sequence !== userSequence) {
-        this.logger.warn(`User message not found in loaded messages, adding it manually. Expected sequence: ${userSequence}`);
+      const hasUserMessage =
+        allMessages.some((m) => m.sequence === userSequence && m.role === 'user') ||
+        allMessages.some((m) => m.id === userMessage.id);
+      if (!hasUserMessage) {
+        this.logger.debug(`User message not found in loaded messages, adding it manually. Expected sequence: ${userSequence}`);
         allMessages.push(userMessage);
       }
 
-      const limit = config.maxConversationMessages || 5;
-      const messages = allMessages.slice(-limit);
+      let messages = allMessages;
 
       this.logger.debug(`[Token Debug - Stream] Loading ${messages.length} messages from ${allMessages.length} total messages (limit: ${limit})`);
-
       if (messages.length === 0 || messages[messages.length - 1]?.role !== 'user') {
         this.logger.error(`Invalid conversation state: last message is not a user message. Last message role: ${messages[messages.length - 1]?.role}`);
         await sendErrorAndClose('Invalid conversation state: last message must be a user message', conversation.id, userSequence);
         return;
+      }
+
+      // Nếu đã chạm trần tối đa messages gửi lên → tạo summary, xóa message trigger, tạo lại message trigger
+      if (messages.length >= limit) {
+        this.logger.debug(`[Summary Trigger - Stream] Reached maxConversationMessages=${limit}. Creating summary and recreating trigger message.`);
+        // createSummary sẽ: tạo summary message, xóa userMessage, tạo lại userMessage
+        await this.createSummary(conversation.id, request.config, userId, userMessage);
+
+        // Query lại messages từ lastSummaryAt (sẽ có summary message + userMessage mới tạo)
+        const refreshed = await this.conversationService.getConversation(conversation.id, userId);
+        if (refreshed?.lastSummaryAt) {
+          const recentDesc = await this.conversationService.getMessages(
+            conversation.id,
+            limit,
+            userId,
+            '-createdAt',
+            refreshed.lastSummaryAt,
+          );
+          messages = [...recentDesc].reverse();
+          this.logger.debug(`[Summary Applied - Stream] Reloaded ${messages.length} messages since lastSummaryAt (summary + trigger message)`);
+        }
       }
 
       const llmMessages = await this.buildLLMMessages(conversation, messages, config);
@@ -289,41 +345,13 @@ export class AiAgentService {
           sendEvent(event);
         } else if (event.type === 'tokens') {
           sendEvent(event);
-        } else if (event.type === 'done') {
-          sendEvent(event);
         } else if (event.type === 'error') {
           sendEvent(event);
         }
+        // NOTE: 'done' event from LLM is NOT forwarded here - we send our own 'done' after DB save
       });
 
-      const assistantSequence = lastSequence + 2;
-      await this.conversationService.createMessage(
-        {
-          conversationId: conversation.id,
-          role: 'assistant',
-          content: llmResponse.content,
-          toolCalls: llmResponse.toolCalls.length > 0 ? llmResponse.toolCalls : null,
-          toolResults: llmResponse.toolResults.length > 0 ? llmResponse.toolResults : null,
-          sequence: assistantSequence,
-        },
-        userId,
-      );
-
-      await this.conversationService.updateMessageCount(conversation.id, userId);
-      
-      await this.conversationService.updateConversation(
-        conversation.id,
-        {
-          lastActivityAt: new Date(),
-        },
-        userId,
-      );
-
-      const updatedConversation = await this.conversationService.getConversation(conversation.id, userId);
-      if (updatedConversation && this.shouldCreateSummary(updatedConversation, config)) {
-        await this.createSummary(conversation.id, request.config, userId);
-      }
-
+      // GỬI 'done' event NGAY sau khi stream xong, TRƯỚC KHI lưu DB
       sendEvent({
         type: 'done',
         data: {
@@ -342,6 +370,49 @@ export class AiAgentService {
       });
 
       res.end();
+
+      // LƯU DB ASYNC sau khi đã gửi response cho client
+      // Không await để không block việc kết thúc response
+      (async () => {
+        try {
+          const assistantSequence = lastSequence + 2;
+          await this.conversationService.createMessage(
+            {
+              conversationId: conversation.id,
+              role: 'assistant',
+              content: llmResponse.content,
+              toolCalls: llmResponse.toolCalls.length > 0 ? llmResponse.toolCalls : null,
+              toolResults: llmResponse.toolResults.length > 0 ? llmResponse.toolResults : null,
+              sequence: assistantSequence,
+            },
+            userId,
+          );
+
+          await this.conversationService.updateMessageCount(conversation.id, userId);
+
+          await this.conversationService.updateConversation(
+            conversation.id,
+            {
+              lastActivityAt: new Date(),
+            },
+            userId,
+          );
+
+          const updatedConversation = await this.conversationService.getConversation(conversation.id, userId);
+          if (updatedConversation) {
+            this.logger.debug(`[Summary Check - Stream] messageCount=${updatedConversation.messageCount}, threshold=${config.summaryThreshold}, lastSummaryAt=${updatedConversation.lastSummaryAt || 'none'}`);
+          }
+          if (updatedConversation && this.shouldCreateSummary(updatedConversation, config)) {
+            await this.createSummary(conversation.id, request.config, userId);
+          }
+
+          this.logger.log(`[Stream] DB save completed for conversation ${conversation.id}`);
+        } catch (error) {
+          this.logger.error(`[Stream] Failed to save to DB after streaming response:`, error);
+          // Response đã được gửi cho client, không thể gửi error nữa
+          // Chỉ log error để admin biết
+        }
+      })();
     } catch (error: any) {
       this.logger.error('Stream error:', error);
 
@@ -515,6 +586,7 @@ export class AiAgentService {
 **Tool Usage:**
 - Only use tools for database operations or system info requests.
 - For greetings/questions: respond with text only.
+- **CRITICAL: If you are unsure about ANYTHING (database type, field names, relation behavior, best practices, etc.), ALWAYS call get_hint FIRST to get guidance.**
 - Before ANY create/update/delete: call get_hint first.
 - Use get_metadata to discover tables.
 - Use get_table_details for table structure.
@@ -531,10 +603,15 @@ export class AiAgentService {
 **Key Rules:**
 - createdAt/updatedAt are auto-added to all tables.
 - FK columns are auto-indexed.
-- Check get_hint for database type (MongoDB uses "_id", SQL uses "id").`;
+- Check get_hint for database type (MongoDB uses "_id", SQL uses "id").
+- Table discovery policy:
+  - NEVER assume table names from user phrasing. If unsure, CALL get_metadata to fetch the list of tables.
+  - Infer the closest table name from the returned list (e.g., "route" → "route_definition" if present).
+  - For detailed structure before operating, CALL get_table_details with the chosen table name.`;
 
     if (conversation.summary) {
-      prompt += `\n\n[Context]: ${conversation.summary}`;
+      const contextSummary = conversation.summary.length > 1200 ? `${conversation.summary.slice(0, 1200)}...` : conversation.summary;
+      prompt += `\n\n[Context]: ${contextSummary}`;
     }
 
     return prompt;
@@ -553,12 +630,41 @@ export class AiAgentService {
     return new Date(conversation.lastSummaryAt) < oneHourAgo;
   }
 
-  private async createSummary(conversationId: string | number, configId: string | number, userId?: string | number): Promise<void> {
-    const messages = await this.conversationService.getMessages(conversationId, undefined, userId);
+  private async createSummary(conversationId: string | number, configId: string | number, userId?: string | number, triggerMessage?: IMessage): Promise<void> {
     const conversation = await this.conversationService.getConversation(conversationId, userId);
     if (!conversation) {
       return;
     }
+
+    // Lấy tất cả messages cũ (KHÔNG BAO GỒM triggerMessage) để tóm tắt
+    const allMessagesDesc = await this.conversationService.getMessages(
+      conversationId,
+      undefined, // Lấy tất cả
+      userId,
+      '-createdAt',
+    );
+    const allMessages = [...allMessagesDesc].reverse();
+
+    // Lọc ra các messages cũ (sequence < triggerMessage.sequence)
+    const oldMessages = triggerMessage
+      ? allMessages.filter(m => m.sequence < triggerMessage.sequence)
+      : allMessages;
+
+    if (oldMessages.length === 0) {
+      this.logger.debug(`No old messages to summarize for conversation ${conversationId}`);
+      return;
+    }
+
+    const recentText = oldMessages
+      .map((m) => `${m.role}: ${m.content || '[tool calls]'}`)
+      .join('\n');
+    // Giới hạn độ dài prompt tóm tắt để tránh quá nhiều token
+    const recentTextTrimmed = recentText.length > 2000 ? `${recentText.slice(0, 2000)}\n...[truncated]` : recentText;
+
+    // Bao gồm summary cũ (nếu có) để giữ context từ các lần summary trước
+    const previousContext = conversation.summary
+      ? `Previous summary:\n${conversation.summary}\n\n`
+      : '';
 
     const summaryPrompt = `Create a summary focusing on TASKS and PROGRESS:
 
@@ -569,20 +675,8 @@ export class AiAgentService {
 
 Format: "Goal: [X]. Completed: ✅ A, ✅ B. Pending: ⏳ C, ⏳ D. Context: [important info]"
 
-Conversation history:
-${messages.map((msg) => `${msg.role}: ${msg.content || '[tool calls]'}`).join('\n')}`;
-
-    const lastSequence = await this.conversationService.getLastSequence(conversationId, userId);
-
-    await this.conversationService.createMessage(
-      {
-        conversationId: conversationId,
-        role: 'user',
-        content: summaryPrompt,
-        sequence: lastSequence + 1,
-      },
-      userId,
-    );
+${previousContext}Recent conversation history:
+${recentTextTrimmed}`;
 
     const summaryMessages: LLMMessage[] = [
       {
@@ -596,30 +690,34 @@ ${messages.map((msg) => `${msg.role}: ${msg.content || '[tool calls]'}`).join('\
     ];
 
     try {
-      const summaryResponse = await this.llmService.chat(summaryMessages, configId);
-      const summary = summaryResponse.content || '';
+      // Dùng chatSimple để không gửi tools và giảm tokens
+      const summaryResponse = await this.llmService.chatSimple(summaryMessages, configId);
+      let summary = summaryResponse.content || '';
 
-      await this.conversationService.createMessage(
-        {
-          conversationId: conversationId,
-          role: 'assistant',
-          content: summary,
-          sequence: lastSequence + 2,
-        },
-        userId,
-      );
+      // CHỈ GIỮ summary mới, vì nó đã tóm tắt TẤT CẢ messages (bao gồm cả context từ summary cũ nếu có)
+      // KHÔNG append summary cũ vì sẽ dài ra và phần mới nhất (quan trọng nhất) sẽ bị cắt
 
-      // Update conversation with summary only, keep all messages
+      // Cắt ngắn summary nếu quá dài (giữ phần ĐẦU vì đó là phần quan trọng nhất)
+      const maxSummaryLen = 1200;
+      if (summary.length > maxSummaryLen) {
+        summary = summary.slice(0, maxSummaryLen) + '...';
+      }
+
+      const summaryTimestamp = new Date();
+
+      // Update conversation với summary + lastSummaryAt
+      // KHÔNG xóa messages cũ - giữ toàn bộ messages trong DB để audit/history
+      // Query sẽ dùng `createdAt >= lastSummaryAt` để chỉ load messages gần đây cho LLM
       await this.conversationService.updateConversation(
         conversationId,
         {
           summary,
-          lastSummaryAt: new Date(),
+          lastSummaryAt: summaryTimestamp,
         },
         userId,
       );
 
-      this.logger.log(`Summary created for conversation ${conversationId}`);
+      this.logger.log(`Summary created for conversation ${conversationId}. Summary stored in conversation.summary. Old messages preserved in DB. Total messages summarized: ${oldMessages.length}`);
     } catch (error) {
       this.logger.error('Failed to create conversation summary:', error);
       throw error;
