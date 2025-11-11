@@ -7,7 +7,14 @@ export function convertMessagesToAnthropic(messages: LLMMessage[]): any[] {
         return { role: 'system', content: msg.content || '' };
       }
       if (msg.role === 'user') {
-        return { role: 'user', content: msg.content || '' };
+        // Anthropic API accepts both string and array format for user messages
+        // Using string format for simplicity when there's just text content
+        const content = msg.content || '';
+        if (!content) {
+          // Skip empty user messages
+          return null;
+        }
+        return { role: 'user', content };
       }
       if (msg.role === 'assistant') {
         if (msg.tool_calls && msg.tool_calls.length > 0) {

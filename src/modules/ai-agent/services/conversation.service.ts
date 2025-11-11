@@ -189,7 +189,6 @@ export class ConversationService {
       conversation: { id: { _eq: conversationId } },
     };
     if (since) {
-      // Dùng Date object và so sánh _gt để loại trừ chính bản ghi summary
       where.createdAt = { _gt: since };
     }
 

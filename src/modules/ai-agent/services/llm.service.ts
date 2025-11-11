@@ -376,9 +376,25 @@ export class LLMService {
       const content = choice?.message?.content || '';
       return { content, toolCalls: [], toolResults: [] };
     } else if (provider === 'Anthropic') {
+      this.logger.debug(`[chatSimple - Anthropic] Input messages count: ${conversationMessages.length}`);
+      conversationMessages.forEach((msg, idx) => {
+        this.logger.debug(`[chatSimple - Anthropic] Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.slice(0, 100) : JSON.stringify(msg.content).slice(0, 100)}`);
+      });
+
       const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
+      this.logger.debug(`[chatSimple - Anthropic] Converted messages count: ${anthropicMessages.length}`);
+
       const systemMessage = anthropicMessages.find(m => m.role === 'system');
       const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
+
+      this.logger.debug(`[chatSimple - Anthropic] System messages: ${systemMessage ? 1 : 0}, Non-system messages: ${nonSystemMessages.length}`);
+
+      // Ensure we have at least one message for Anthropic API
+      if (nonSystemMessages.length === 0) {
+        this.logger.error(`[chatSimple - Anthropic] No non-system messages after conversion. Original messages: ${JSON.stringify(conversationMessages.map(m => ({role: m.role, hasContent: !!m.content})))}`);
+        throw new BadRequestException('At least one user or assistant message is required for Anthropic API');
+      }
+
       const msg = await (client as Anthropic).messages.create({
         model,
         max_tokens: 1024,

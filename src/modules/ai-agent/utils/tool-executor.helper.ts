@@ -100,44 +100,17 @@ export class ToolExecutor {
 
     let dbTypeContent = `Current database type: ${dbType}\n\n`;
     if (isMongoDB) {
-      dbTypeContent += `**MongoDB Specific Behavior:**
-- Primary key field is "_id" (not "id")
-- When creating/updating records, use "_id" field for MongoDB
-- When querying by ID, use "_id" field
-- ObjectId format is used for "_id" values
-- Relations and foreign keys still use property names, but the underlying ID field is "_id"
-- When passing relation objects, use "{_id: value}" instead of "{id: value}"
-
-**IMPORTANT: Auto-generated timestamp fields:**
-- createdAt and updatedAt are AUTOMATICALLY added to ALL tables
-- DO NOT mention these fields when describing table structure to users
-- DO NOT include these fields in CREATE TABLE operations
-- These fields are managed by the system
-
-**IMPORTANT: Table names do NOT always have "_definition" suffix!**
-- Some tables have "_definition" suffix (e.g., "user_definition", "order_definition")
-- Some tables do NOT have this suffix (e.g., "order", "product", "customer")
-- ALWAYS use get_metadata first to see the actual table names in the system
-- NEVER assume a table has "_definition" suffix - check the metadata!`;
+      dbTypeContent += `**MongoDB:**
+- Primary key: "_id" (not "id")
+- Relations: use "{_id: value}"
+- createdAt/updatedAt auto-added
+- Table names: check get_metadata first (not all have "_definition" suffix)`;
     } else {
-      dbTypeContent += `**SQL Database (${dbType}):**
-- Primary key field is "id"
-- When creating/updating records, use "id" field
-- When querying by ID, use "id" field
-- Standard integer or UUID format for "id" values
-- When passing relation objects, use "{id: value}"
-
-**IMPORTANT: Auto-generated timestamp fields:**
-- createdAt and updatedAt are AUTOMATICALLY added to ALL tables
-- DO NOT mention these fields when describing table structure to users
-- DO NOT include these fields in CREATE TABLE operations
-- These fields are managed by the system
-
-**IMPORTANT: Table names do NOT always have "_definition" suffix!**
-- Some tables have "_definition" suffix (e.g., "user_definition", "order_definition")
-- Some tables do NOT have this suffix (e.g., "order", "product", "customer")
-- ALWAYS use get_metadata first to see the actual table names in the system
-- NEVER assume a table has "_definition" suffix - check the metadata!`;
+      dbTypeContent += `**SQL (${dbType}):**
+- Primary key: "id"
+- Relations: use "{id: value}"
+- createdAt/updatedAt auto-added
+- Table names: check get_metadata first (not all have "_definition" suffix)`;
     }
 
     const dbTypeHint = {
@@ -146,66 +119,17 @@ export class ToolExecutor {
       content: dbTypeContent,
     };
 
-    const relationContent = `Enfyra handles relations by accepting objects with ${idFieldName} fields.
+    const relationContent = `**Relations:**
+- Use propertyName (NOT FK column names like mainTableId, categoryId, userId)
+- targetTable must be object: {"${idFieldName}": value}, NOT string
+- M2O: {"category": {"${idFieldName}": 1}} or {"category": 1}
+- O2O: {"profile": {"${idFieldName}": 5}} or {"profile": {new_data}}
+- M2M: {"tags": [{"${idFieldName}": 1}, {"${idFieldName}": 2}, 3]}
+- O2M: {"items": [{"${idFieldName}": 10, qty: 5}, {new_item}]}
 
-**CRITICAL: When CREATING/UPDATING table definitions (table_definition), targetTable MUST be an object with ${idFieldName}!**
-- CORRECT: "targetTable": { "${idFieldName}": 5 }
-- WRONG: "targetTable": "user_definition"
-- You MUST use get_metadata or dynamic_repository to find the target table's ${idFieldName} first
-- Example: To create relation to user_definition, first find user_definition's ${idFieldName}, then use { "${idFieldName}": found_id }
-
-**CRITICAL: Always use relation propertyName, NEVER use FK column names!**
-- Use "mainTable" (propertyName), NOT "mainTableId" (FK column)
-- Use "category" (propertyName), NOT "categoryId" (FK column)
-- Use "user" (propertyName), NOT "userId" (FK column)
-- Check table metadata to find the correct propertyName for each relation
-
-**CRITICAL: Error Handling - YOU MUST FOLLOW THIS!**
-- If ANY operation returns an error (error: true), YOU MUST STOP IMMEDIATELY
-- DO NOT call any more tools after receiving an error
-- DO NOT try to fix the error automatically by calling find/create/update/delete
-- DO NOT retry the same operation with different parameters
-- IMMEDIATELY report the error message to the user and ask what they want to do
-- The only exception: if the error suggests calling get_hint or get_metadata
-
-**CRITICAL: Delete Operation Requirements**
-- Delete operation REQUIRES an "id" parameter - you CANNOT use "where" clause
-- If you need to delete by name/other field, you MUST first find the record to get its id
-- Example: To delete table named "products", first call find with where: {name: {_eq: "products"}}, then use the returned id for delete
-
-**Many-to-One (M2O):**
-- Pass object with ${idFieldName}: System extracts ${idFieldName} as foreign key
-- Pass number/string: Used directly as foreign key
-- Pass null: Sets foreign key to null
-- ALWAYS use propertyName, not FK column name
-Example: {"mainTable": {"${idFieldName}": 1}} or {"mainTable": 1} (NOT {"mainTableId": 1})
-Example: {"category": {"${idFieldName}": 1}} or {"category": 1} (NOT {"categoryId": 1})
-
-**One-to-One (O2O):**
-- Object with ${idFieldName}: Links to existing record (sets FK)
-- Object without ${idFieldName}: Creates new related entity and links to it (cascade create)
-- ALWAYS use propertyName, not FK column name
-Example: {"profile": {"${idFieldName}": 5}} or {"profile": {"bio": "Hello"}} (NOT {"profileId": 5})
-
-**Many-to-Many (M2M):**
-- Array of objects/ids: Extracts IDs and synchronizes junction table
-- Can mix objects with ${idFieldName} and plain IDs
-- ALWAYS use propertyName, not FK column name
-Example: {"tags": [{"${idFieldName}": 1}, {"${idFieldName}": 2}, 3]} (use propertyName "tags", not junction table columns)
-
-**One-to-Many (O2M):**
-- Item with ${idFieldName}: Updates that item's FK to point to parent (UPDATE)
-- Item without ${idFieldName}: Creates new item with FK pointing to parent (CREATE)
-- Items not in array: Their FK is set to null (removed from relation)
-- ALWAYS use propertyName, not FK column name
-Example: {"items": [{"${idFieldName}": 10, "quantity": 5}, {"productId": 1, "quantity": 2}]} (use propertyName "items")
-
-**Important:**
-- ALWAYS use relation propertyName from table metadata, NEVER use FK column names (like mainTableId, categoryId, userId, etc.)
-- Relation property names are automatically transformed to foreign keys by the system
-- Cascade operations happen after main record is created/updated
-- Always check get_table_details to see the correct propertyName for each relation
-- For MongoDB, use "_id" instead of "id" in relation objects`;
+**Error Handling:**
+- If error returned: STOP, report to user immediately
+- Delete requires id (not where), find record first if needed`;
 
     const relationHint = {
       category: 'relations',

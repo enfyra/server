@@ -74,6 +74,7 @@ export class AiAgentService {
       fetchLimit,
       userId,
       '-createdAt',
+      conversation.lastSummaryAt,
     );
     const allMessages = [...allMessagesDesc].reverse();
     
@@ -95,13 +96,9 @@ export class AiAgentService {
       messages = [...messages, userMessage];
     }
 
-    // Nếu đã chạm trần tối đa messages gửi lên → tạo summary, xóa message trigger, tạo lại message trigger
     if (messages.length >= limit) {
       this.logger.debug(`[Summary Trigger] Reached maxConversationMessages=${limit}. Creating summary and recreating trigger message.`);
-      // createSummary sẽ: tạo summary message, xóa userMessage, tạo lại userMessage
       await this.createSummary(conversation.id, request.config, userId, userMessage);
-
-      // Query lại messages từ lastSummaryAt (sẽ có summary message + userMessage mới tạo)
       const refreshed = await this.conversationService.getConversation(conversation.id, userId);
       if (refreshed?.lastSummaryAt) {
         const recentDesc = await this.conversationService.getMessages(
@@ -279,6 +276,7 @@ export class AiAgentService {
         limit,
         userId,
         '-createdAt',
+        conversation.lastSummaryAt,
       );
       const allMessages = [...allMessagesDesc].reverse();
 
@@ -299,13 +297,9 @@ export class AiAgentService {
         return;
       }
 
-      // Nếu đã chạm trần tối đa messages gửi lên → tạo summary, xóa message trigger, tạo lại message trigger
       if (messages.length >= limit) {
         this.logger.debug(`[Summary Trigger - Stream] Reached maxConversationMessages=${limit}. Creating summary and recreating trigger message.`);
-        // createSummary sẽ: tạo summary message, xóa userMessage, tạo lại userMessage
         await this.createSummary(conversation.id, request.config, userId, userMessage);
-
-        // Query lại messages từ lastSummaryAt (sẽ có summary message + userMessage mới tạo)
         const refreshed = await this.conversationService.getConversation(conversation.id, userId);
         if (refreshed?.lastSummaryAt) {
           const recentDesc = await this.conversationService.getMessages(
@@ -351,7 +345,6 @@ export class AiAgentService {
         // NOTE: 'done' event from LLM is NOT forwarded here - we send our own 'done' after DB save
       });
 
-      // GỬI 'done' event NGAY sau khi stream xong, TRƯỚC KHI lưu DB
       sendEvent({
         type: 'done',
         data: {
@@ -371,8 +364,6 @@ export class AiAgentService {
 
       res.end();
 
-      // LƯU DB ASYNC sau khi đã gửi response cho client
-      // Không await để không block việc kết thúc response
       (async () => {
         try {
           const assistantSequence = lastSequence + 2;
@@ -409,8 +400,6 @@ export class AiAgentService {
           this.logger.log(`[Stream] DB save completed for conversation ${conversation.id}`);
         } catch (error) {
           this.logger.error(`[Stream] Failed to save to DB after streaming response:`, error);
-          // Response đã được gửi cho client, không thể gửi error nữa
-          // Chỉ log error để admin biết
         }
       })();
     } catch (error: any) {
@@ -585,9 +574,8 @@ export class AiAgentService {
 
 **Tool Usage:**
 - Only use tools for database operations or system info requests.
-- For greetings/questions: respond with text only.
-- **CRITICAL: If you are unsure about ANYTHING (database type, field names, relation behavior, best practices, etc.), ALWAYS call get_hint FIRST to get guidance.**
-- Before ANY create/update/delete: call get_hint first.
+- For greetings/questions: respond with text only, NO tools needed.
+- **CRITICAL: Call get_hint ONLY when you need guidance about database operations (relations, field names, database type specifics).**
 - Use get_metadata to discover tables.
 - Use get_table_details for table structure.
 - Use dynamic_repository for CRUD operations.
@@ -636,16 +624,14 @@ export class AiAgentService {
       return;
     }
 
-    // Lấy tất cả messages cũ (KHÔNG BAO GỒM triggerMessage) để tóm tắt
     const allMessagesDesc = await this.conversationService.getMessages(
       conversationId,
-      undefined, // Lấy tất cả
+      undefined,
       userId,
       '-createdAt',
     );
     const allMessages = [...allMessagesDesc].reverse();
 
-    // Lọc ra các messages cũ (sequence < triggerMessage.sequence)
     const oldMessages = triggerMessage
       ? allMessages.filter(m => m.sequence < triggerMessage.sequence)
       : allMessages;
@@ -658,10 +644,8 @@ export class AiAgentService {
     const recentText = oldMessages
       .map((m) => `${m.role}: ${m.content || '[tool calls]'}`)
       .join('\n');
-    // Giới hạn độ dài prompt tóm tắt để tránh quá nhiều token
     const recentTextTrimmed = recentText.length > 2000 ? `${recentText.slice(0, 2000)}\n...[truncated]` : recentText;
 
-    // Bao gồm summary cũ (nếu có) để giữ context từ các lần summary trước
     const previousContext = conversation.summary
       ? `Previous summary:\n${conversation.summary}\n\n`
       : '';
@@ -689,15 +673,15 @@ ${recentTextTrimmed}`;
       },
     ];
 
+    this.logger.debug(`[createSummary] Preparing to call chatSimple with ${summaryMessages.length} messages`);
+    this.logger.debug(`[createSummary] System message length: ${summaryMessages[0].content?.length || 0}`);
+    this.logger.debug(`[createSummary] User message length: ${summaryMessages[1].content?.length || 0}`);
+    this.logger.debug(`[createSummary] User message preview: ${summaryMessages[1].content?.slice(0, 200)}`);
+
     try {
-      // Dùng chatSimple để không gửi tools và giảm tokens
       const summaryResponse = await this.llmService.chatSimple(summaryMessages, configId);
       let summary = summaryResponse.content || '';
 
-      // CHỈ GIỮ summary mới, vì nó đã tóm tắt TẤT CẢ messages (bao gồm cả context từ summary cũ nếu có)
-      // KHÔNG append summary cũ vì sẽ dài ra và phần mới nhất (quan trọng nhất) sẽ bị cắt
-
-      // Cắt ngắn summary nếu quá dài (giữ phần ĐẦU vì đó là phần quan trọng nhất)
       const maxSummaryLen = 1200;
       if (summary.length > maxSummaryLen) {
         summary = summary.slice(0, maxSummaryLen) + '...';
@@ -705,9 +689,6 @@ ${recentTextTrimmed}`;
 
       const summaryTimestamp = new Date();
 
-      // Update conversation với summary + lastSummaryAt
-      // KHÔNG xóa messages cũ - giữ toàn bộ messages trong DB để audit/history
-      // Query sẽ dùng `createdAt >= lastSummaryAt` để chỉ load messages gần đây cho LLM
       await this.conversationService.updateConversation(
         conversationId,
         {
@@ -716,6 +697,24 @@ ${recentTextTrimmed}`;
         },
         userId,
       );
+
+      if (triggerMessage) {
+        this.logger.debug(`[createSummary] Recreating trigger message (sequence ${triggerMessage.sequence}) with new createdAt`);
+
+        await this.conversationService.deleteMessage(triggerMessage.id, userId);
+
+        await this.conversationService.createMessage(
+          {
+            conversationId,
+            role: triggerMessage.role,
+            content: triggerMessage.content,
+            sequence: triggerMessage.sequence,
+          },
+          userId,
+        );
+
+        this.logger.debug(`[createSummary] Trigger message recreated successfully`);
+      }
 
       this.logger.log(`Summary created for conversation ${conversationId}. Summary stored in conversation.summary. Old messages preserved in DB. Total messages summarized: ${oldMessages.length}`);
     } catch (error) {

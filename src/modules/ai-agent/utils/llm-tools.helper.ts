@@ -49,50 +49,45 @@ export function getTools(provider: string = 'OpenAI') {
       },
       {
         name: 'dynamic_repository',
-        description: `Perform CRUD operations on any table using DynamicRepository. ONLY use this when the user explicitly asks to create, read, update, or delete data from tables. Supports complex queries with _and/_or/_not operators and field expansion with wildcards. DO NOT use for simple greetings or general conversations.
+        description: `Perform CRUD operations on any table. ONLY use when user explicitly requests database operations.
 
-**CRITICAL: ALWAYS call get_hint tool FIRST before any database operations!**
-The get_hint response includes:
-- dbType: Current database type (mysql, postgresql, mongodb, etc.)
-- isMongoDB: Boolean indicating if MongoDB is used
-- idField: The correct ID field name to use ("id" for SQL, "_id" for MongoDB)
+**Query Operators:**
+- _eq: equals, _neq: not equals, _gt: greater than, _gte: >=, _lt: less than, _lte: <=
+- _in: in array, _nin: not in array, _contains: string contains, _is_null: is null
+- _and: [conditions], _or: [conditions], _not: {condition}
 
-**IMPORTANT: Before creating a table, always check if it already exists using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}. If the table exists, inform the user instead of trying to create it again.**
+**Examples:**
 
-For CREATE TABLE: Use operation='create' with table='table_definition' and data containing:
-{
-  "name": "table_name",
-  "description": "Table description",
-  "columns": [
-    { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false },
-    { "name": "columnName", "type": "varchar", "length": 255, "isNullable": false, "description": "..." },
-    { "name": "foreignKeyId", "type": "int", "isNullable": true, "description": "FK to other table" }
-  ],
-  "relations": [
-    { "type": "many-to-one", "propertyName": "relationName", "targetTable": { "id": 1 }, "description": "..." }
-  ],
-  "uniques": [["columnName"]],
-  "indexes": [["columnName"]]
-}
-CRITICAL: For relations, targetTable MUST be an object with id field: { "id": table_id }
-- CORRECT: "targetTable": { "id": 5 }
-- WRONG: "targetTable": "user_definition"
-- You MUST use get_metadata or dynamic_repository to find the target table's ID first
-Note:
-- createdAt and updatedAt are AUTOMATICALLY added to ALL tables - DO NOT include them in columns array
-- DO NOT mention createdAt/updatedAt when describing table structure to users
-- FK columns are auto-indexed
+FIND records:
+{"table": "user", "operation": "find", "where": {"name": {"_eq": "John"}}, "fields": "id,name,email"}
+{"table": "product", "operation": "find", "where": {"_and": [{"price": {"_gte": 100}}, {"stock": {"_gt": 0}}]}}
+{"table": "table_definition", "operation": "find", "where": {"name": {"_eq": "users"}}, "fields": "id,name,columns.*,relations.*"}
 
-For DELETE TABLE:
-1. Call get_hint to get the correct idField ("id" or "_id")
-2. Find the table using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}
-3. Extract the ID from the found record using the idField from step 1
-4. Delete using operation='delete' with table='table_definition' and id=[table_id]
+CREATE record (with relation):
+{"table": "order", "operation": "create", "data": {"userId": 5, "total": 100}}
+{"table": "post", "operation": "create", "data": {"title": "Hello", "author": {"id": 3}}}
 
-For UPDATE TABLE:
-1. Call get_hint to get the correct idField ("id" or "_id")
-2. Find the table to get its ID using the correct idField
-3. Update using operation='update' with table='table_definition', id=[table_id], and data containing the changes.`,
+UPDATE record:
+{"table": "user", "operation": "update", "id": 5, "data": {"name": "Jane"}}
+
+DELETE record:
+{"table": "user", "operation": "delete", "id": 5}
+
+**Relations:**
+- Use propertyName (NOT FK column): {"author": {"id": 3}} not {"authorId": 3}
+- M2O: {"category": {"id": 1}} or {"category": 1}
+- M2M: {"tags": [{"id": 1}, {"id": 2}, 3]}
+- O2M: {"items": [{"id": 10, "qty": 5}, {"productId": 1, "qty": 2}]}
+
+**CREATE TABLE:**
+1. Check exists first: find table_definition where name = table_name
+2. Use get_table_details on similar table for reference
+3. targetTable in relations MUST be object: {"id": table_id}
+4. createdAt/updatedAt auto-added, DO NOT include in columns
+
+**DELETE/UPDATE TABLE:**
+1. Find table_definition by name to get its id
+2. Use that id for delete/update operation`,
         input_schema: {
           type: 'object',
           properties: {
@@ -188,50 +183,45 @@ For UPDATE TABLE:
         type: 'function' as const,
         function: {
           name: 'dynamic_repository',
-          description: `Perform CRUD operations on any table using DynamicRepository. ONLY use this when the user explicitly asks to create, read, update, or delete data from tables. Supports complex queries with _and/_or/_not operators and field expansion with wildcards. DO NOT use for simple greetings or general conversations.
+          description: `Perform CRUD operations on any table. ONLY use when user explicitly requests database operations.
 
-**CRITICAL: ALWAYS call get_hint tool FIRST before any database operations!**
-The get_hint response includes:
-- dbType: Current database type (mysql, postgresql, mongodb, etc.)
-- isMongoDB: Boolean indicating if MongoDB is used
-- idField: The correct ID field name to use ("id" for SQL, "_id" for MongoDB)
+**Query Operators:**
+- _eq: equals, _neq: not equals, _gt: greater than, _gte: >=, _lt: less than, _lte: <=
+- _in: in array, _nin: not in array, _contains: string contains, _is_null: is null
+- _and: [conditions], _or: [conditions], _not: {condition}
 
-**IMPORTANT: Before creating a table, always check if it already exists using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}. If the table exists, inform the user instead of trying to create it again.**
+**Examples:**
 
-For CREATE TABLE: Use operation='create' with table='table_definition' and data containing:
-{
-  "name": "table_name",
-  "description": "Table description",
-  "columns": [
-    { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false },
-    { "name": "columnName", "type": "varchar", "length": 255, "isNullable": false, "description": "..." },
-    { "name": "foreignKeyId", "type": "int", "isNullable": true, "description": "FK to other table" }
-  ],
-  "relations": [
-    { "type": "many-to-one", "propertyName": "relationName", "targetTable": { "id": 1 }, "description": "..." }
-  ],
-  "uniques": [["columnName"]],
-  "indexes": [["columnName"]]
-}
-CRITICAL: For relations, targetTable MUST be an object with id field: { "id": table_id }
-- CORRECT: "targetTable": { "id": 5 }
-- WRONG: "targetTable": "user_definition"
-- You MUST use get_metadata or dynamic_repository to find the target table's ID first
-Note:
-- createdAt and updatedAt are AUTOMATICALLY added to ALL tables - DO NOT include them in columns array
-- DO NOT mention createdAt/updatedAt when describing table structure to users
-- FK columns are auto-indexed
+FIND records:
+{"table": "user", "operation": "find", "where": {"name": {"_eq": "John"}}, "fields": "id,name,email"}
+{"table": "product", "operation": "find", "where": {"_and": [{"price": {"_gte": 100}}, {"stock": {"_gt": 0}}]}}
+{"table": "table_definition", "operation": "find", "where": {"name": {"_eq": "users"}}, "fields": "id,name,columns.*,relations.*"}
 
-For DELETE TABLE:
-1. Call get_hint to get the correct idField ("id" or "_id")
-2. Find the table using operation='find' with table='table_definition' and where={"name": {"_eq": "table_name"}}
-3. Extract the ID from the found record using the idField from step 1
-4. Delete using operation='delete' with table='table_definition' and id=[table_id]
+CREATE record (with relation):
+{"table": "order", "operation": "create", "data": {"userId": 5, "total": 100}}
+{"table": "post", "operation": "create", "data": {"title": "Hello", "author": {"id": 3}}}
 
-For UPDATE TABLE:
-1. Call get_hint to get the correct idField ("id" or "_id")
-2. Find the table to get its ID using the correct idField
-3. Update using operation='update' with table='table_definition', id=[table_id], and data containing the changes.`,
+UPDATE record:
+{"table": "user", "operation": "update", "id": 5, "data": {"name": "Jane"}}
+
+DELETE record:
+{"table": "user", "operation": "delete", "id": 5}
+
+**Relations:**
+- Use propertyName (NOT FK column): {"author": {"id": 3}} not {"authorId": 3}
+- M2O: {"category": {"id": 1}} or {"category": 1}
+- M2M: {"tags": [{"id": 1}, {"id": 2}, 3]}
+- O2M: {"items": [{"id": 10, "qty": 5}, {"productId": 1, "qty": 2}]}
+
+**CREATE TABLE:**
+1. Check exists first: find table_definition where name = table_name
+2. Use get_table_details on similar table for reference
+3. targetTable in relations MUST be object: {"id": table_id}
+4. createdAt/updatedAt auto-added, DO NOT include in columns
+
+**DELETE/UPDATE TABLE:**
+1. Find table_definition by name to get its id
+2. Use that id for delete/update operation`,
         parameters: {
           type: 'object',
           properties: {
