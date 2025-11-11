@@ -15,8 +15,8 @@ export interface IToolResult {
 }
 
 export interface IMessage {
-  id: number;
-  conversationId: number;
+  id: string | number;
+  conversationId: string | number;
   role: MessageRole;
   content?: string | null;
   toolCalls?: IToolCall[] | null;
@@ -26,7 +26,7 @@ export interface IMessage {
 }
 
 export interface IMessageCreate {
-  conversationId: number;
+  conversationId: string | number;
   role: MessageRole;
   content?: string | null;
   toolCalls?: IToolCall[] | null;

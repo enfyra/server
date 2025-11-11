@@ -1,6 +1,6 @@
 export interface IConversation {
-  id: number;
-  userId?: number;
+  id: string | number;
+  userId?: string | number;
   title: string;
   messageCount: number;
   summary?: string;
@@ -11,7 +11,7 @@ export interface IConversation {
 }
 
 export interface IConversationCreate {
-  userId?: number;
+  userId?: string | number;
   title: string;
   messageCount?: number;
   summary?: string;

@@ -21,7 +21,7 @@ export class AiAgentService {
     private readonly aiConfigCacheService: AiConfigCacheService,
   ) {}
 
-  async processRequest(request: AgentRequestDto, userId?: number): Promise<AgentResponseDto> {
+  async processRequest(request: AgentRequestDto, userId?: string | number): Promise<AgentResponseDto> {
     const config = await this.aiConfigCacheService.getConfigById(request.config);
     if (!config) {
       throw new BadRequestException(`AI config with ID ${request.config} not found`);
@@ -146,7 +146,7 @@ export class AiAgentService {
     };
   }
 
-  async processRequestStream(request: AgentRequestDto, res: Response, userId?: number): Promise<void> {
+  async processRequestStream(request: AgentRequestDto, res: Response, userId?: string | number): Promise<void> {
     // Setup SSE headers first
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -156,14 +156,36 @@ export class AiAgentService {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
-    const sendErrorAndClose = async (errorMessage: string) => {
+    const sendErrorAndClose = async (errorMessage: string, conversationId?: string | number, lastSequence?: number) => {
       sendEvent({
         type: 'error',
         data: { error: errorMessage },
       });
+
+      // Save error message to database if conversation exists
+      if (conversationId && lastSequence !== undefined) {
+        try {
+          await this.conversationService.createMessage(
+            {
+              conversationId,
+              role: 'assistant',
+              content: `Error: ${errorMessage}`,
+              sequence: lastSequence + 1,
+            },
+            userId,
+          );
+          await this.conversationService.updateMessageCount(conversationId, userId);
+        } catch (dbError) {
+          this.logger.error('Failed to save error message to database:', dbError);
+        }
+      }
+
       await new Promise(resolve => setTimeout(resolve, 100));
       res.end();
     };
+
+    let conversation: IConversation | undefined;
+    let lastSequence: number | undefined;
 
     try {
       const config = await this.aiConfigCacheService.getConfigById(request.config);
@@ -177,7 +199,6 @@ export class AiAgentService {
         return;
       }
 
-      let conversation: IConversation;
       if (request.conversation) {
         conversation = await this.conversationService.getConversation(request.conversation, userId);
         if (!conversation) {
@@ -208,7 +229,7 @@ export class AiAgentService {
         data: { delta: '', text: '', metadata: { conversation: conversation.id } },
       });
 
-      const lastSequence = await this.conversationService.getLastSequence(conversation.id, userId);
+      lastSequence = await this.conversationService.getLastSequence(conversation.id, userId);
       const userSequence = lastSequence + 1;
 
       const userMessage = await this.conversationService.createMessage(
@@ -226,12 +247,12 @@ export class AiAgentService {
         undefined,
         userId,
       );
-      
+
       if (allMessages.length === 0 || allMessages[allMessages.length - 1]?.sequence !== userSequence) {
         this.logger.warn(`User message not found in loaded messages, adding it manually. Expected sequence: ${userSequence}`);
         allMessages.push(userMessage);
       }
-      
+
       const limit = config.maxConversationMessages || 5;
       const messages = allMessages.slice(-limit);
 
@@ -239,7 +260,7 @@ export class AiAgentService {
 
       if (messages.length === 0 || messages[messages.length - 1]?.role !== 'user') {
         this.logger.error(`Invalid conversation state: last message is not a user message. Last message role: ${messages[messages.length - 1]?.role}`);
-        await sendErrorAndClose('Invalid conversation state: last message must be a user message');
+        await sendErrorAndClose('Invalid conversation state: last message must be a user message', conversation.id, userSequence);
         return;
       }
 
@@ -336,6 +357,25 @@ export class AiAgentService {
           details: error?.response?.data || error?.data,
         },
       });
+
+      // Save error message to database if conversation exists
+      if (conversation && lastSequence !== undefined) {
+        try {
+          const assistantSequence = lastSequence + 2;
+          await this.conversationService.createMessage(
+            {
+              conversationId: conversation.id,
+              role: 'assistant',
+              content: `Error: ${errorMessage}`,
+              sequence: assistantSequence,
+            },
+            userId,
+          );
+          await this.conversationService.updateMessageCount(conversation.id, userId);
+        } catch (dbError) {
+          this.logger.error('Failed to save error message to database:', dbError);
+        }
+      }
 
       // Add small delay to ensure error event is flushed before closing stream
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -513,7 +553,7 @@ export class AiAgentService {
     return new Date(conversation.lastSummaryAt) < oneHourAgo;
   }
 
-  private async createSummary(conversationId: number, configId: number, userId?: number): Promise<void> {
+  private async createSummary(conversationId: string | number, configId: string | number, userId?: string | number): Promise<void> {
     const messages = await this.conversationService.getMessages(conversationId, undefined, userId);
     const conversation = await this.conversationService.getConversation(conversationId, userId);
     if (!conversation) {

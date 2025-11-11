@@ -173,15 +173,25 @@ export class AiConfigCacheService implements OnModuleInit, OnApplicationBootstra
     }
   }
 
-  async getConfigById(id: number): Promise<AiConfig | null> {
+  async getConfigById(id: string | number): Promise<AiConfig | null> {
     if (!this.cacheLoaded) {
       await this.reload();
     }
-    return this.configsCache.get(id) || null;
+    // Convert string to number if needed for Map lookup
+    const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
+    if (isNaN(numericId)) {
+      return null;
+    }
+    return this.configsCache.get(numericId) || null;
   }
 
-  getDirectConfigById(id: number): AiConfig | null {
-    return this.configsCache.get(id) || null;
+  getDirectConfigById(id: string | number): AiConfig | null {
+    // Convert string to number if needed for Map lookup
+    const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
+    if (isNaN(numericId)) {
+      return null;
+    }
+    return this.configsCache.get(numericId) || null;
   }
 }
 

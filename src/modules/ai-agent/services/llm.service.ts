@@ -78,7 +78,7 @@ export class LLMService {
 
   async chat(
     messages: LLMMessage[],
-    configId: number,
+    configId: string | number,
   ): Promise<LLMResponse> {
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
@@ -334,7 +334,7 @@ export class LLMService {
 
   async chatStream(
     messages: LLMMessage[],
-    configId: number,
+    configId: string | number,
     onEvent: (event: StreamEvent) => void,
   ): Promise<LLMResponse> {
     const config = await this.aiConfigCacheService.getConfigById(configId);

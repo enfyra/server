@@ -1,20 +1,15 @@
-import { IsString, IsOptional, IsNumber, IsNotEmpty } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, IsOptional, IsNotEmpty } from 'class-validator';
 
 export class AgentRequestDto {
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  conversation?: number;
+  conversation?: string | number;
 
   @IsString()
   @IsNotEmpty()
   message: string;
 
-  @Type(() => Number)
-  @IsNumber()
   @IsNotEmpty()
-  config: number;
+  config: string | number;
 }
 
 
