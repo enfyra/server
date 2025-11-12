@@ -28,6 +28,8 @@ import { ToolExecutor } from '../utils/tool-executor.helper';
 import { applyPromptCaching } from '../utils/anthropic-cache.helper';
 import { optimizeOpenAIMessages } from '../utils/openai-cache.helper';
 import { compressToolResult, shouldCompressResult } from '../utils/tool-result-compression.helper';
+import { retryToolExecution } from '../utils/retry-helper';
+import { areToolsIndependent } from '../utils/parallel-tools.helper';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -85,8 +87,9 @@ export class LLMService {
   async chat(params: {
     messages: LLMMessage[];
     configId: string | number;
+    user?: any;
   }): Promise<LLMResponse> {
-    const { messages, configId } = params;
+    const { messages, configId, user } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
@@ -105,7 +108,7 @@ export class LLMService {
     this.logger.log(`[LLM][Stream] Resolved config ${configId} provider=${provider} model=${model}`);
     const allToolCalls: IToolCall[] = [];
     const allToolResults: IToolResult[] = [];
-    const context = createLLMContext();
+    const context = createLLMContext(user);
 
     const conversationMessages: LLMMessage[] = [...messages];
     let maxIterations = 10;
@@ -168,7 +171,17 @@ export class LLMService {
 
             try {
               this.logger.debug(`Executing tool: ${toolCall.function.name} with args:`, JSON.parse(toolCall.function.arguments));
-              const result = await this.toolExecutor.executeTool(toolCall, context);
+
+              // Execute tool with retry mechanism (max 3 retries)
+              const result = await retryToolExecution(
+                toolCall.function.name,
+                () => this.toolExecutor.executeTool(toolCall, context),
+                {
+                  maxRetries: 3,
+                  baseDelayMs: 1000,
+                  maxDelayMs: 10000,
+                },
+              );
 
               // Compress large tool results to save tokens
               const resultStr = shouldCompressResult(toolCall.function.name, result)
@@ -186,6 +199,7 @@ export class LLMService {
                 tool_call_id: toolCall.id,
               });
             } catch (error: any) {
+              this.logger.error(`Tool execution failed after retries: ${toolCall.function.name}`, error);
               const errorStr = JSON.stringify({ error: error.message || String(error) });
 
               allToolResults.push({
@@ -301,7 +315,17 @@ export class LLMService {
                     arguments: toolCall.function.arguments,
                   },
                 };
-                const result = await this.toolExecutor.executeTool(toolCallObj, context);
+
+                // Execute tool with retry mechanism (max 3 retries)
+                const result = await retryToolExecution(
+                  toolCallObj.function.name,
+                  () => this.toolExecutor.executeTool(toolCallObj, context),
+                  {
+                    maxRetries: 3,
+                    baseDelayMs: 1000,
+                    maxDelayMs: 10000,
+                  },
+                );
 
                 // Compress large tool results to save tokens
                 const resultStr = shouldCompressResult(toolCallObj.function.name, result)
@@ -319,6 +343,7 @@ export class LLMService {
                   tool_call_id: toolCall.id,
                 });
               } catch (error: any) {
+                this.logger.error(`Tool execution failed after retries: ${toolCall.function.name}`, error);
                 const errorStr = JSON.stringify({ error: error.message || String(error) });
 
                 allToolResults.push({
@@ -447,8 +472,9 @@ export class LLMService {
     configId: string | number;
     abortSignal?: AbortSignal;
     onEvent: (event: StreamEvent) => void;
+    user?: any;
   }): Promise<LLMResponse> {
-    const { messages, configId, abortSignal, onEvent } = params;
+    const { messages, configId, abortSignal, onEvent, user } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
@@ -466,7 +492,7 @@ export class LLMService {
     const timeout = config.llmTimeout;
     const allToolCalls: IToolCall[] = [];
     const allToolResults: IToolResult[] = [];
-    const context = createLLMContext();
+    const context = createLLMContext(user);
 
     const conversationMessages: LLMMessage[] = [...messages];
     let maxIterations = 10;
@@ -510,24 +536,32 @@ export class LLMService {
             this.logger.warn(`[OpenAI] ⚠️  Still waiting for stream after ${(elapsed / 1000).toFixed(1)}s (likely generating tool calls)...`);
           }, 5000);
 
-          const stream = await (client as OpenAI).chat.completions.create({
-            model: model,
-            messages: optimizedMessages as any,
-            tools: tools as any,
-            tool_choice: 'auto',
-            parallel_tool_calls: false, // Disable to improve streaming performance
-            stream: true,
-            stream_options: { include_usage: true },
-          });
+          let stream: any;
+          let streamData: any;
+          let streamConsumeTime: number = 0;
 
-          clearInterval(timeoutWarning);
-          const apiCallTime = Date.now() - apiCallStart;
-          this.logger.log(`[OpenAI] ✓ Stream object created in ${apiCallTime}ms`);
-          this.logger.log(`[OpenAI] ⏱️  Starting to consume stream...`);
+          try {
+            stream = await (client as OpenAI).chat.completions.create({
+              model: model,
+              messages: optimizedMessages as any,
+              tools: tools as any,
+              tool_choice: 'auto',
+              parallel_tool_calls: true, // ✅ Enable for performance (we handle dependencies)
+              stream: true,
+              stream_options: { include_usage: true },
+            });
 
-          const streamConsumeStart = Date.now();
-          const streamData = await streamOpenAIToClient(stream, currentRequestTimeout, onEvent);
-          const streamConsumeTime = Date.now() - streamConsumeStart;
+            const apiCallTime = Date.now() - apiCallStart;
+            this.logger.log(`[OpenAI] ✓ Stream object created in ${apiCallTime}ms`);
+            this.logger.log(`[OpenAI] ⏱️  Starting to consume stream...`);
+
+            const streamConsumeStart = Date.now();
+            streamData = await streamOpenAIToClient(stream, currentRequestTimeout, onEvent);
+            streamConsumeTime = Date.now() - streamConsumeStart;
+          } finally {
+            // Always clear timeout warning, even if error occurs
+            clearInterval(timeoutWarning);
+          }
 
           this.logger.log(`[OpenAI] ✓ Stream consumed in ${streamConsumeTime}ms`);
           this.logger.log(`[OpenAI] Token usage - Input: ${streamData.inputTokens}, Output: ${streamData.outputTokens}`);
@@ -545,7 +579,140 @@ export class LLMService {
 
             const toolResults: LLMMessage[] = [];
 
-            for (const toolCall of toolCalls) {
+            // Check if tools can be executed in parallel
+            const canParallelize = toolCalls.length > 1 && areToolsIndependent(toolCalls);
+
+            if (canParallelize) {
+              this.logger.log(`[OpenAI Stream] Executing ${toolCalls.length} tools in PARALLEL`);
+
+              // Execute all tools in parallel
+              const parallelStartTime = Date.now();
+
+              // Prepare all tool calls
+              const toolPromises = toolCalls.map(async (toolCall) => {
+                // Check if client disconnected before executing tool
+                if (abortSignal?.aborted) {
+                  this.logger.warn('[Tool Execution - OpenAI Stream] Request aborted by client, stopping tool execution...');
+                  throw new Error('Request aborted by client');
+                }
+
+                const toolStartTime = Date.now();
+                this.logger.log(`[Tool Execution - OpenAI Stream] Starting tool: ${toolCall.function.name}`);
+
+                // Stream tool execution as text message
+                onEvent({
+                  type: 'text',
+                  data: {
+                    delta: `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
+                    text: textContent + `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
+                  },
+                });
+
+                const toolCallObj = {
+                  id: toolCall.id,
+                  function: {
+                    name: toolCall.function.name,
+                    arguments: toolCall.function.arguments,
+                  },
+                };
+
+                allToolCalls.push({
+                  id: toolCall.id,
+                  type: 'function',
+                  function: {
+                    name: toolCall.function.name,
+                    arguments: toolCall.function.arguments,
+                  },
+                });
+
+                try {
+                  // Execute tool with retry mechanism (max 3 retries)
+                  const result = await retryToolExecution(
+                    toolCallObj.function.name,
+                    () => this.toolExecutor.executeTool(toolCallObj, context),
+                    {
+                      maxRetries: 3,
+                      baseDelayMs: 1000,
+                      maxDelayMs: 10000,
+                      onRetry: (attempt, error) => {
+                        // Notify user about retry during streaming
+                        onEvent({
+                          type: 'text',
+                          data: {
+                            delta: `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
+                            text: textContent + `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
+                          },
+                        });
+                      },
+                    },
+                  );
+
+                  // Compress large tool results to save tokens
+                  const resultStr = shouldCompressResult(toolCallObj.function.name, result)
+                    ? compressToolResult(toolCallObj.function.name, result)
+                    : JSON.stringify(result);
+
+                  const toolDuration = Date.now() - toolStartTime;
+                  this.logger.log(`[Tool Execution - OpenAI Stream] Completed tool: ${toolCall.function.name} in ${toolDuration}ms`);
+
+                  allToolResults.push({
+                    toolCallId: toolCall.id,
+                    result,
+                  });
+
+                  onEvent({
+                    type: 'tool_result',
+                    data: {
+                      toolCallId: toolCall.id,
+                      name: toolCall.function.name,
+                      result,
+                    },
+                  });
+
+                  return {
+                    role: 'tool' as const,
+                    content: resultStr,
+                    tool_call_id: toolCall.id,
+                  };
+                } catch (error: any) {
+                  this.logger.error(`[Tool Execution - OpenAI Stream] Failed tool after retries: ${toolCall.function.name}`, error);
+                  const errorStr = JSON.stringify({ error: error.message || String(error) });
+
+                  allToolResults.push({
+                    toolCallId: toolCall.id,
+                    result: { error: error.message || String(error) },
+                  });
+
+                  onEvent({
+                    type: 'tool_result',
+                    data: {
+                      toolCallId: toolCall.id,
+                      name: toolCall.function.name,
+                      result: { error: error.message || String(error) },
+                    },
+                  });
+
+                  return {
+                    role: 'tool' as const,
+                    content: errorStr,
+                    tool_call_id: toolCall.id,
+                  };
+                }
+              });
+
+              // Wait for all tools to complete
+              const parallelResults = await Promise.all(toolPromises);
+              toolResults.push(...parallelResults);
+
+              const parallelDuration = Date.now() - parallelStartTime;
+              this.logger.log(`[OpenAI Stream] Parallel tool execution completed in ${parallelDuration}ms`);
+            } else {
+              // Execute tools sequentially (has dependencies or single tool)
+              if (toolCalls.length > 1) {
+                this.logger.log(`[OpenAI Stream] Executing ${toolCalls.length} tools SEQUENTIALLY (dependencies detected)`);
+              }
+
+              for (const toolCall of toolCalls) {
               // Check if client disconnected before executing tool
               if (abortSignal?.aborted) {
                 this.logger.warn('[Tool Execution - OpenAI Stream] Request aborted by client, stopping tool execution...');
@@ -581,7 +748,27 @@ export class LLMService {
                     arguments: toolCall.function.arguments,
                   },
                 };
-                const result = await this.toolExecutor.executeTool(toolCallObj, context);
+
+                // Execute tool with retry mechanism (max 3 retries)
+                const result = await retryToolExecution(
+                  toolCallObj.function.name,
+                  () => this.toolExecutor.executeTool(toolCallObj, context),
+                  {
+                    maxRetries: 3,
+                    baseDelayMs: 1000,
+                    maxDelayMs: 10000,
+                    onRetry: (attempt, error) => {
+                      // Notify user about retry during streaming
+                      onEvent({
+                        type: 'text',
+                        data: {
+                          delta: `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
+                          text: textContent + `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
+                        },
+                      });
+                    },
+                  },
+                );
 
                 // Compress large tool results to save tokens
                 const resultStr = shouldCompressResult(toolCallObj.function.name, result)
@@ -611,8 +798,8 @@ export class LLMService {
                   tool_call_id: toolCall.id,
                 });
               } catch (error: any) {
+                this.logger.error(`[Tool Execution - OpenAI Stream] Failed tool after retries: ${toolCall.function.name}`, error);
                 const errorStr = JSON.stringify({ error: error.message || String(error) });
-                this.logger.error(`[Tool Execution - OpenAI Stream] Failed tool: ${toolCall.function.name}`, error);
 
                 allToolResults.push({
                   toolCallId: toolCall.id,
@@ -634,7 +821,8 @@ export class LLMService {
                   tool_call_id: toolCall.id,
                 });
               }
-            }
+            } // End for loop
+            } // End sequential execution else block
 
             // Add newline after tool calls to prevent text concatenation
             onEvent({
@@ -749,7 +937,27 @@ export class LLMService {
                     arguments: toolCall.function.arguments,
                   },
                 };
-                const result = await this.toolExecutor.executeTool(toolCallObj, context);
+
+                // Execute tool with retry mechanism (max 3 retries)
+                const result = await retryToolExecution(
+                  toolCallObj.function.name,
+                  () => this.toolExecutor.executeTool(toolCallObj, context),
+                  {
+                    maxRetries: 3,
+                    baseDelayMs: 1000,
+                    maxDelayMs: 10000,
+                    onRetry: (attempt, error) => {
+                      // Notify user about retry during streaming
+                      onEvent({
+                        type: 'text',
+                        data: {
+                          delta: `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
+                          text: textContent + `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
+                        },
+                      });
+                    },
+                  },
+                );
 
                 // Compress large tool results to save tokens
                 const resultStr = shouldCompressResult(toolCallObj.function.name, result)
@@ -776,6 +984,7 @@ export class LLMService {
                   tool_call_id: toolCall.id,
                 });
               } catch (error: any) {
+                this.logger.error(`[Tool Execution - Anthropic Stream] Failed tool after retries: ${toolCall.function.name}`, error);
                 const errorStr = JSON.stringify({ error: error.message || String(error) });
 
                 allToolResults.push({
@@ -798,7 +1007,7 @@ export class LLMService {
                   tool_call_id: toolCall.id,
                 });
               }
-            }
+            } // End for loop (Anthropic)
 
             // Add newline after tool calls to prevent text concatenation
             onEvent({

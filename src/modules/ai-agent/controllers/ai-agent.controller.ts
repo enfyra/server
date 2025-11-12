@@ -11,8 +11,9 @@ export class AiAgentController {
 
   @Post('chat')
   async chat(@Req() req: RequestWithRouteData, @Body() body: AgentRequestDto): Promise<AgentResponseDto> {
-    const userId = req.routeData?.context?.$user?.id;
-    return await this.aiAgentService.processRequest({ request: body, userId });
+    const user = req.routeData?.context?.$user;
+    const userId = user?.id || user?._id;
+    return await this.aiAgentService.processRequest({ request: body, userId, user });
   }
 
   @Post('chat/stream')
@@ -21,8 +22,9 @@ export class AiAgentController {
     @Body() body: AgentRequestDto,
     @Res() res: Response,
   ): Promise<void> {
-    const userId = req.routeData?.context?.$user?.id;
-    await this.aiAgentService.processRequestStream({ request: body, req, res, userId });
+    const user = req.routeData?.context?.$user;
+    const userId = user?.id || user?._id;
+    await this.aiAgentService.processRequestStream({ request: body, req, res, userId, user });
   }
 
   @Post('cancel')
@@ -30,7 +32,8 @@ export class AiAgentController {
     @Req() req: RequestWithRouteData,
     @Body() body: { conversation: string | number },
   ): Promise<{ success: boolean }> {
-    const userId = req.routeData?.context?.$user?.id;
+    const user = req.routeData?.context?.$user;
+    const userId = user?.id || user?._id;
     return await this.aiAgentService.cancelStream(body.conversation, userId);
   }
 }

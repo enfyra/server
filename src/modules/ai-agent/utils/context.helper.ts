@@ -1,6 +1,6 @@
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 
-export function createLLMContext(): TDynamicContext {
+export function createLLMContext(user?: any): TDynamicContext {
   return {
     $body: {},
     $data: undefined,
@@ -27,7 +27,7 @@ export function createLLMContext(): TDynamicContext {
     $cache: undefined,
     $params: {},
     $query: {},
-    $user: null,
+    $user: user || null,
     $repos: {},
     $req: {} as any,
     $share: {

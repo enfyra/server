@@ -13,6 +13,30 @@ export interface CompressionConfig {
 }
 
 /**
+ * Tools that should NEVER be compressed
+ * These tools return critical data that AI needs in full
+ *
+ * Can be modified at runtime if needed:
+ * ```
+ * import { COMPRESSION_EXCLUDE_LIST } from './tool-result-compression.helper';
+ * COMPRESSION_EXCLUDE_LIST.push('my_custom_tool');
+ * ```
+ */
+export const COMPRESSION_EXCLUDE_LIST = [
+  'get_hint',          // System hints - need full content for AI guidance
+  'get_fields',        // Already lightweight, just field names
+  'get_metadata',      // Table list - usually small
+  'check_permission',  // Permission check - need full result (small & critical)
+];
+
+/**
+ * Check if a tool should be excluded from compression
+ */
+function isExcludedFromCompression(toolName: string): boolean {
+  return COMPRESSION_EXCLUDE_LIST.includes(toolName);
+}
+
+/**
  * Compress tool result based on operation type
  */
 export function compressToolResult(
@@ -166,6 +190,11 @@ function compressGenericResult(
  * Check if result should be compressed
  */
 export function shouldCompressResult(toolName: string, result: any): boolean {
+  // NEVER compress excluded tools (critical data needed in full)
+  if (isExcludedFromCompression(toolName)) {
+    return false;
+  }
+
   // Don't compress errors
   if (result?.error || result?.errorCode) {
     return false;
