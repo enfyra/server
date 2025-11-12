@@ -19,6 +19,7 @@ import { getTools } from '../utils/llm-tools.helper';
 import { convertMessagesToAnthropic } from '../utils/message-converter.helper';
 import { mapStatusCodeToHttpStatus, getErrorCodeFromStatus } from '../utils/error-handler.helper';
 import { streamOpenAIToClient } from '../utils/openai-stream-client.helper';
+import { chatOpenAINonStreamButStreamToClient } from '../utils/openai-nonstream-client.helper';
 import { handleAnthropicStream } from '../utils/anthropic-stream.helper';
 import { streamAnthropicToClient } from '../utils/anthropic-stream-client.helper';
 import { StreamEvent } from '../interfaces/stream-event.interface';
@@ -26,6 +27,7 @@ import { createLLMContext } from '../utils/context.helper';
 import { ToolExecutor } from '../utils/tool-executor.helper';
 import { applyPromptCaching } from '../utils/anthropic-cache.helper';
 import { optimizeOpenAIMessages } from '../utils/openai-cache.helper';
+import { compressToolResult, shouldCompressResult } from '../utils/tool-result-compression.helper';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -167,7 +169,11 @@ export class LLMService {
             try {
               this.logger.debug(`Executing tool: ${toolCall.function.name} with args:`, JSON.parse(toolCall.function.arguments));
               const result = await this.toolExecutor.executeTool(toolCall, context);
-              const resultStr = JSON.stringify(result);
+
+              // Compress large tool results to save tokens
+              const resultStr = shouldCompressResult(toolCall.function.name, result)
+                ? compressToolResult(toolCall.function.name, result)
+                : JSON.stringify(result);
 
               allToolResults.push({
                 toolCallId: toolCall.id,
@@ -226,6 +232,22 @@ export class LLMService {
           }, 0);
           const toolsLength = JSON.stringify(cached.tools).length;
 
+          // Debug: Check if cache_control is applied
+          const systemHasCache = Array.isArray(cached.system) && cached.system.some((block: any) => block.cache_control);
+          const toolsHasCache = cached.tools.some((tool: any) => tool.cache_control);
+          const messagesHasCache = cached.messages.some((msg: any) =>
+            Array.isArray(msg.content) && msg.content.some((block: any) => block.cache_control)
+          );
+
+          // Estimate tokens (rough: 1 token ≈ 4 chars)
+          const systemTokens = Math.floor(systemPromptLength / 4);
+          const toolsTokens = Math.floor(toolsLength / 4);
+          const messagesTokens = Math.floor(messagesLength / 4);
+          const totalTokens = systemTokens + toolsTokens + messagesTokens;
+
+          this.logger.log(`[Prompt Caching] System: ${systemHasCache ? '✓' : '✗'} (~${systemTokens} tokens), Tools: ${toolsHasCache ? '✓' : '✗'} (~${toolsTokens} tokens), Messages: ${messagesHasCache ? '✓' : '✗'} (~${messagesTokens} tokens)`);
+          this.logger.log(`[Prompt Caching] Total: ~${totalTokens} tokens (minimum 1024 tokens required for cache)`);
+
           this.logger.log(`Request size - System: ${systemPromptLength} chars, Messages: ${messagesLength} chars, Tools: ${toolsLength} chars, Total: ${systemPromptLength + messagesLength + toolsLength} chars`);
 
           const elapsed = Date.now() - startTime;
@@ -280,7 +302,11 @@ export class LLMService {
                   },
                 };
                 const result = await this.toolExecutor.executeTool(toolCallObj, context);
-                const resultStr = JSON.stringify(result);
+
+                // Compress large tool results to save tokens
+                const resultStr = shouldCompressResult(toolCallObj.function.name, result)
+                  ? compressToolResult(toolCallObj.function.name, result)
+                  : JSON.stringify(result);
 
                 allToolResults.push({
                   toolCallId: toolCall.id,
@@ -419,9 +445,10 @@ export class LLMService {
   async chatStream(params: {
     messages: LLMMessage[];
     configId: string | number;
+    abortSignal?: AbortSignal;
     onEvent: (event: StreamEvent) => void;
   }): Promise<LLMResponse> {
-    const { messages, configId, onEvent } = params;
+    const { messages, configId, abortSignal, onEvent } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
@@ -453,6 +480,12 @@ export class LLMService {
       const iterationStartTime = Date.now();
       this.logger.log(`[Tool Loop - Stream] Starting iteration ${iteration}`);
 
+      // Check if client disconnected
+      if (abortSignal?.aborted) {
+        this.logger.warn('[Tool Loop - Stream] Request aborted by client, stopping...');
+        throw new Error('Request aborted by client');
+      }
+
       const elapsed = Date.now() - startTime;
       if (elapsed > totalTimeout) {
         throw new Error(`LLM request timeout after ${totalTimeout}ms (${iteration} iterations)`);
@@ -464,17 +497,40 @@ export class LLMService {
       try {
         if (provider === 'OpenAI') {
           const optimizedMessages = optimizeOpenAIMessages(conversationMessages);
+
+          this.logger.log(`[OpenAI] Using model: ${model}`);
+          this.logger.log(`[OpenAI] Message count: ${optimizedMessages.length}, Total tools: ${tools.length}`);
+
+          const apiCallStart = Date.now();
+          this.logger.log(`[OpenAI] ⏱️  Creating stream connection...`);
+
+          // Add timeout warning to detect blocking
+          const timeoutWarning = setInterval(() => {
+            const elapsed = Date.now() - apiCallStart;
+            this.logger.warn(`[OpenAI] ⚠️  Still waiting for stream after ${(elapsed / 1000).toFixed(1)}s (likely generating tool calls)...`);
+          }, 5000);
+
           const stream = await (client as OpenAI).chat.completions.create({
             model: model,
             messages: optimizedMessages as any,
             tools: tools as any,
             tool_choice: 'auto',
+            parallel_tool_calls: false, // Disable to improve streaming performance
             stream: true,
+            stream_options: { include_usage: true },
           });
 
-          const streamData = await streamOpenAIToClient(stream, currentRequestTimeout, onEvent);
+          clearInterval(timeoutWarning);
+          const apiCallTime = Date.now() - apiCallStart;
+          this.logger.log(`[OpenAI] ✓ Stream object created in ${apiCallTime}ms`);
+          this.logger.log(`[OpenAI] ⏱️  Starting to consume stream...`);
 
-          this.logger.log(`Input tokens: ${streamData.inputTokens}, Output tokens: ${streamData.outputTokens}`);
+          const streamConsumeStart = Date.now();
+          const streamData = await streamOpenAIToClient(stream, currentRequestTimeout, onEvent);
+          const streamConsumeTime = Date.now() - streamConsumeStart;
+
+          this.logger.log(`[OpenAI] ✓ Stream consumed in ${streamConsumeTime}ms`);
+          this.logger.log(`[OpenAI] Token usage - Input: ${streamData.inputTokens}, Output: ${streamData.outputTokens}`);
 
           const textContent = streamData.textContent;
 
@@ -490,6 +546,12 @@ export class LLMService {
             const toolResults: LLMMessage[] = [];
 
             for (const toolCall of toolCalls) {
+              // Check if client disconnected before executing tool
+              if (abortSignal?.aborted) {
+                this.logger.warn('[Tool Execution - OpenAI Stream] Request aborted by client, stopping tool execution...');
+                throw new Error('Request aborted by client');
+              }
+
               allToolCalls.push({
                 id: toolCall.id,
                 type: 'function',
@@ -520,7 +582,11 @@ export class LLMService {
                   },
                 };
                 const result = await this.toolExecutor.executeTool(toolCallObj, context);
-                const resultStr = JSON.stringify(result);
+
+                // Compress large tool results to save tokens
+                const resultStr = shouldCompressResult(toolCallObj.function.name, result)
+                  ? compressToolResult(toolCallObj.function.name, result)
+                  : JSON.stringify(result);
 
                 const toolDuration = Date.now() - toolStartTime;
                 this.logger.log(`[Tool Execution - OpenAI Stream] Completed tool: ${toolCall.function.name} in ${toolDuration}ms`);
@@ -604,6 +670,25 @@ export class LLMService {
             nonSystemMessages,
           );
 
+          // Debug: Check if cache_control is applied
+          const systemHasCache = Array.isArray(cached.system) && cached.system.some((block: any) => block.cache_control);
+          const toolsHasCache = cached.tools.some((tool: any) => tool.cache_control);
+          const messagesHasCache = cached.messages.some((msg: any) =>
+            Array.isArray(msg.content) && msg.content.some((block: any) => block.cache_control)
+          );
+
+          // Estimate tokens (rough: 1 token ≈ 4 chars)
+          const systemLength = typeof cached.system === 'string' ? cached.system.length : JSON.stringify(cached.system).length;
+          const toolsLength = JSON.stringify(cached.tools).length;
+          const messagesLength = JSON.stringify(cached.messages).length;
+          const systemTokens = Math.floor(systemLength / 4);
+          const toolsTokens = Math.floor(toolsLength / 4);
+          const messagesTokens = Math.floor(messagesLength / 4);
+          const totalTokens = systemTokens + toolsTokens + messagesTokens;
+
+          this.logger.log(`[Prompt Caching] System: ${systemHasCache ? '✓' : '✗'} (~${systemTokens} tokens), Tools: ${toolsHasCache ? '✓' : '✗'} (~${toolsTokens} tokens), Messages: ${messagesHasCache ? '✓' : '✗'} (~${messagesTokens} tokens)`);
+          this.logger.log(`[Prompt Caching] Total: ~${totalTokens} tokens (minimum 1024 tokens required for cache)`);
+
           const stream = (client as Anthropic).messages.stream({
             model: model,
             max_tokens: 4096,
@@ -630,6 +715,12 @@ export class LLMService {
             const toolResults: LLMMessage[] = [];
 
             for (const toolCall of toolCalls) {
+              // Check if client disconnected before executing tool
+              if (abortSignal?.aborted) {
+                this.logger.warn('[Tool Execution - Anthropic Stream] Request aborted by client, stopping tool execution...');
+                throw new Error('Request aborted by client');
+              }
+
               allToolCalls.push({
                 id: toolCall.id,
                 type: 'function',
@@ -659,7 +750,11 @@ export class LLMService {
                   },
                 };
                 const result = await this.toolExecutor.executeTool(toolCallObj, context);
-                const resultStr = JSON.stringify(result);
+
+                // Compress large tool results to save tokens
+                const resultStr = shouldCompressResult(toolCallObj.function.name, result)
+                  ? compressToolResult(toolCallObj.function.name, result)
+                  : JSON.stringify(result);
 
                 allToolResults.push({
                   toolCallId: toolCall.id,

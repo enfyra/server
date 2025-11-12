@@ -48,13 +48,28 @@ export async function streamAnthropicToClient(
 
     stream.on('finalMessage', (message: any) => {
       finalMessage = message;
-      
+
       if (message.usage) {
         inputTokens = message.usage.input_tokens || 0;
         outputTokens = message.usage.output_tokens || 0;
+        const cacheCreation = message.usage.cache_creation_input_tokens || 0;
+        const cacheRead = message.usage.cache_read_input_tokens || 0;
+
+        logger.log(`[Anthropic Stream] Usage - Input: ${inputTokens}, Output: ${outputTokens}`);
+        if (cacheCreation > 0 || cacheRead > 0) {
+          logger.log(`[Anthropic Stream] Cache - Created: ${cacheCreation} tokens, Read: ${cacheRead} tokens`);
+        } else {
+          logger.warn(`[Anthropic Stream] ⚠️ NO CACHE USAGE - cache_creation: ${cacheCreation}, cache_read: ${cacheRead}`);
+        }
+
         onEvent({
           type: 'tokens',
-          data: { inputTokens, outputTokens },
+          data: {
+            inputTokens,
+            outputTokens,
+            cacheCreationTokens: cacheCreation,
+            cacheReadTokens: cacheRead,
+          },
         });
       }
       
@@ -112,6 +127,11 @@ export async function streamAnthropicToClient(
             });
           }
         }
+      }
+
+      // Warn if no usage data received
+      if (inputTokens === 0 && outputTokens === 0) {
+        logger.warn(`[Anthropic Stream] No usage data received from Anthropic API. This may indicate the stream ended prematurely or API didn't return usage info.`);
       }
 
       const toolCallsArray: any[] = [];
@@ -236,4 +256,7 @@ export async function streamAnthropicToClient(
     })();
   });
 }
+
+
+
 

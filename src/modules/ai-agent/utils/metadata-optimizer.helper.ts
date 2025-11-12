@@ -52,3 +52,6 @@ export function optimizeMetadataForLLM(tableMetadata: any): any {
   return optimized;
 }
 
+
+
+

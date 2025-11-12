@@ -30,3 +30,6 @@ export function getErrorCodeFromStatus(httpStatus: HttpStatus): string {
   return errorCodeMap[httpStatus] || 'UNKNOWN_ERROR';
 }
 
+
+
+

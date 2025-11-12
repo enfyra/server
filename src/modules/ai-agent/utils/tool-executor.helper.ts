@@ -105,10 +105,12 @@ export class ToolExecutor {
     if (isMongoDB) {
       dbTypeContent += `**MongoDB:**
 - Primary key: "_id" (not "id")
+- ID type when creating tables: MUST use "uuid" (NOT int)
 - Relations: use "{_id: value}"`;
     } else {
       dbTypeContent += `**SQL (${dbType}):**
 - Primary key: "id"
+- ID type when creating tables: use "int" with auto-increment OR "uuid"
 - Relations: use "{id: value}"`;
     }
 
@@ -175,13 +177,86 @@ BEFORE fetching data:
     const tableOpsContent = `**Creating Tables:**
 1. Check existence: find table_definition where name = table_name
 2. Use get_table_details on similar table for reference
-3. targetTable in relations MUST be object: {"${idFieldName}": table_id}
-4. DO NOT include createdAt/updatedAt in columns (auto-added)
-5. ALWAYS ask user confirmation before creating tables
+3. **CRITICAL:** Every table MUST include a column named "${idFieldName}" with isPrimary = true
+   - SQL databases: use "int" (auto-increment by default) OR "uuid"
+   - MongoDB: MUST use "uuid" (NOT int)
+4. targetTable in relations MUST be object: {"${idFieldName}": table_id}
+5. DO NOT include createdAt/updatedAt in columns (auto-added)
+6. ALWAYS ask user confirmation before creating tables
+
+**Example CREATE TABLE (SQL - int):**
+{
+  "table": "table_definition",
+  "operation": "create",
+  "data": {
+    "name": "products",
+    "columns": [
+      {"name": "${idFieldName}", "type": "int", "isPrimary": true},
+      {"name": "name", "type": "varchar", "isNullable": false},
+      {"name": "price", "type": "decimal", "isNullable": true}
+    ]
+  }
+}
+
+**Example CREATE TABLE (MongoDB - uuid):**
+{
+  "table": "table_definition",
+  "operation": "create",
+  "data": {
+    "name": "products",
+    "columns": [
+      {"name": "${idFieldName}", "type": "uuid", "isPrimary": true},
+      {"name": "name", "type": "varchar", "isNullable": false},
+      {"name": "price", "type": "decimal", "isNullable": true}
+    ]
+  }
+}
 
 **Updating/Deleting Tables:**
 1. Find table_definition by name to get its ${idFieldName}
-2. Use that ${idFieldName} for update/delete operation`;
+2. Use that ${idFieldName} for update/delete operation
+
+**CRITICAL - Respect User's Exact Request:**
+- Use EXACTLY the names/values user provides
+- Do NOT add suffixes like "_definition" or modify values unless user explicitly requests it
+- Example: User asks for name "post" → use "post", NOT "post_definition"
+
+**BATCH OPERATIONS (CRITICAL for multiple records):**
+When user requests creating/updating/deleting MULTIPLE records (5+), ALWAYS use batch operations:
+
+**Batch Create (create multiple records at once):**
+{
+  "table": "product",
+  "operation": "batch_create",
+  "dataArray": [
+    {"name": "Product 1", "price": 10},
+    {"name": "Product 2", "price": 20},
+    {"name": "Product 3", "price": 30}
+  ]
+}
+
+**Batch Update (update multiple records):**
+{
+  "table": "product",
+  "operation": "batch_update",
+  "updates": [
+    {"${idFieldName}": 1, "data": {"price": 15}},
+    {"${idFieldName}": 2, "data": {"price": 25}}
+  ]
+}
+
+**Batch Delete (delete multiple records):**
+{
+  "table": "product",
+  "operation": "batch_delete",
+  "ids": [1, 2, 3, 4, 5]
+}
+
+**When to use batch:**
+- User asks for "100 sample records" → use batch_create
+- User asks to "update all prices" → find records, then batch_update
+- User asks to "delete these 10 items" → use batch_delete
+- NEVER loop with single create/update/delete when batch is available`;
 
     const tableOpsHint = {
       category: 'table_operations',
@@ -316,13 +391,16 @@ _and, _or, _not
   private async executeDynamicRepository(
     args: {
       table: string;
-      operation: 'find' | 'create' | 'update' | 'delete';
+      operation: 'find' | 'create' | 'update' | 'delete' | 'batch_create' | 'batch_update' | 'batch_delete';
       where?: any;
       fields?: string;
       limit?: number;
       sort?: string;
       data?: any;
       id?: string | number;
+      dataArray?: any[];
+      updates?: Array<{ id: string | number; data: any }>;
+      ids?: Array<string | number>;
     },
     context: TDynamicContext,
   ): Promise<any> {
@@ -382,6 +460,47 @@ _and, _or, _not
             throw new Error('id is required for delete operation');
           }
           return await repo.delete(args.id);
+        case 'batch_create':
+          if (!args.dataArray || !Array.isArray(args.dataArray)) {
+            throw new Error('dataArray (array) is required for batch_create operation');
+          }
+          // Execute all creates in parallel with Promise.all for performance
+          const createResults = await Promise.all(
+            args.dataArray.map(data => repo.create(data))
+          );
+          return {
+            message: `Successfully created ${createResults.length} records`,
+            count: createResults.length,
+            data: createResults.map(r => r.data?.[0]).filter(Boolean),
+            statusCode: 200,
+          };
+        case 'batch_update':
+          if (!args.updates || !Array.isArray(args.updates)) {
+            throw new Error('updates (array of {id, data}) is required for batch_update operation');
+          }
+          // Execute all updates in parallel with Promise.all for performance
+          const updateResults = await Promise.all(
+            args.updates.map(update => repo.update(update.id, update.data))
+          );
+          return {
+            message: `Successfully updated ${updateResults.length} records`,
+            count: updateResults.length,
+            data: updateResults.map(r => r.data?.[0]).filter(Boolean),
+            statusCode: 200,
+          };
+        case 'batch_delete':
+          if (!args.ids || !Array.isArray(args.ids)) {
+            throw new Error('ids (array) is required for batch_delete operation');
+          }
+          // Execute all deletes in parallel with Promise.all for performance
+          const deleteResults = await Promise.all(
+            args.ids.map(id => repo.delete(id))
+          );
+          return {
+            message: `Successfully deleted ${deleteResults.length} records`,
+            count: deleteResults.length,
+            statusCode: 200,
+          };
         default:
           throw new Error(`Unknown operation: ${args.operation}`);
       }

@@ -1,9 +1,10 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { Response } from 'express';
 import { ConversationService } from './conversation.service';
 import { LLMService, LLMMessage } from './llm.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { AiConfigCacheService } from '../../../infrastructure/cache/services/ai-config-cache.service';
+import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
 import { AgentRequestDto } from '../dto/agent-request.dto';
 import { AgentResponseDto } from '../dto/agent-response.dto';
 import { IConversation, IConversationCreate } from '../interfaces/conversation.interface';
@@ -11,15 +12,69 @@ import { IMessage } from '../interfaces/message.interface';
 import { StreamEvent } from '../interfaces/stream-event.interface';
 
 @Injectable()
-export class AiAgentService {
+export class AiAgentService implements OnModuleInit {
   private readonly logger = new Logger(AiAgentService.name);
+  private readonly CANCEL_CHANNEL = 'ai-agent:cancel';
+
+  // Map: conversationId → AbortController
+  private activeStreams = new Map<string | number, AbortController>();
 
   constructor(
     private readonly conversationService: ConversationService,
     private readonly llmService: LLMService,
     private readonly metadataCacheService: MetadataCacheService,
     private readonly aiConfigCacheService: AiConfigCacheService,
+    private readonly redisPubSubService: RedisPubSubService,
   ) {}
+
+  async onModuleInit() {
+    // Subscribe to cancel channel once on service init
+    this.redisPubSubService.subscribeWithHandler(
+      this.CANCEL_CHANNEL,
+      this.handleCancelMessage.bind(this),
+    );
+    this.logger.log(`[AI-Agent] Subscribed to Redis channel: ${this.CANCEL_CHANNEL}`);
+  }
+
+  private async handleCancelMessage(channel: string, message: string): Promise<void> {
+    try {
+      const { conversationId } = JSON.parse(message);
+      this.logger.log(`[AI-Agent][Cancel] Received cancel for conversation: ${conversationId} (type: ${typeof conversationId})`);
+      this.logger.log(`[AI-Agent][Cancel] activeStreams.size: ${this.activeStreams.size}`);
+      this.logger.log(`[AI-Agent][Cancel] activeStreams keys: [${Array.from(this.activeStreams.keys()).map(k => `${k} (${typeof k})`).join(', ')}]`);
+
+      // Try both string and number types to handle type mismatch
+      let abortController = this.activeStreams.get(conversationId);
+      if (!abortController && typeof conversationId === 'string') {
+        const numId = parseInt(conversationId, 10);
+        if (!isNaN(numId)) {
+          abortController = this.activeStreams.get(numId);
+          this.logger.log(`[AI-Agent][Cancel] Tried numeric lookup: ${numId}`);
+        }
+      } else if (!abortController && typeof conversationId === 'number') {
+        abortController = this.activeStreams.get(String(conversationId));
+        this.logger.log(`[AI-Agent][Cancel] Tried string lookup: ${String(conversationId)}`);
+      }
+
+      if (abortController) {
+        this.logger.log(`[AI-Agent][Cancel] Aborting stream for conversation: ${conversationId}`);
+        abortController.abort();
+        // Remove both possible keys
+        this.activeStreams.delete(conversationId);
+        this.activeStreams.delete(typeof conversationId === 'string' ? parseInt(conversationId, 10) : String(conversationId));
+      } else {
+        this.logger.debug(`[AI-Agent][Cancel] No active stream found for conversation: ${conversationId}`);
+      }
+    } catch (error) {
+      this.logger.error(`[AI-Agent][Cancel] Error handling cancel message:`, error);
+    }
+  }
+
+  async cancelStream(conversationId: string | number, userId?: string | number): Promise<{ success: boolean }> {
+    this.logger.log(`[AI-Agent][Cancel] Publishing cancel for conversation: ${conversationId}`);
+    await this.redisPubSubService.publish(this.CANCEL_CHANNEL, { conversationId });
+    return { success: true };
+  }
 
   async processRequest(params: {
     request: AgentRequestDto;
@@ -183,18 +238,53 @@ export class AiAgentService {
 
   async processRequestStream(params: {
     request: AgentRequestDto;
+    req: any;
     res: Response;
     userId?: string | number;
   }): Promise<void> {
-    const { request, res, userId } = params;
+    const { request, req, res, userId } = params;
 
     // Setup SSE headers first
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
+    // Create AbortController to cancel operations
+    const abortController = new AbortController();
+    let isAborted = false;
+    let conversationIdForCleanup: string | number | undefined;
+
+    // Cleanup function to remove from activeStreams Map
+    const cleanup = () => {
+      if (conversationIdForCleanup) {
+        this.activeStreams.delete(conversationIdForCleanup);
+        this.logger.debug(`[AI-Agent][Stream] Removed conversation ${conversationIdForCleanup} from activeStreams`);
+      }
+    };
+
     const sendEvent = (event: StreamEvent) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      if (!isAborted) {
+        try {
+          const success = res.write(`data: ${JSON.stringify(event)}\n\n`);
+          if (!success) {
+            // Write buffer is full or stream is closed
+            this.logger.debug(`[AI-Agent][Stream] res.write() returned false - checking if client disconnected`);
+            // Check if connection is actually closed
+            if (res.writableEnded || res.destroyed) {
+              this.logger.warn(`[AI-Agent][Stream] Client connection closed (writableEnded=${res.writableEnded}, destroyed=${res.destroyed}), aborting...`);
+              isAborted = true;
+              abortController.abort();
+            }
+          }
+        } catch (error: any) {
+          // Write failed - client likely disconnected
+          this.logger.warn(`[AI-Agent][Stream] res.write() failed: ${error.message}, aborting...`);
+          isAborted = true;
+          abortController.abort();
+        }
+      } else {
+        this.logger.debug(`[AI-Agent][Stream] Skipping sendEvent (${event.type}) - already aborted`);
+      }
     };
 
     const sendErrorAndClose = async (errorMessage: string, conversationId?: string | number, lastSequence?: number) => {
@@ -221,6 +311,7 @@ export class AiAgentService {
         }
       }
 
+      cleanup();
       await new Promise(resolve => setTimeout(resolve, 100));
       res.end();
     };
@@ -232,15 +323,18 @@ export class AiAgentService {
 
     try {
       if (request.conversation) {
-        // Get conversation and config from it
         conversation = await this.conversationService.getConversation({ id: request.conversation, userId });
         if (!conversation) {
           await sendErrorAndClose(`Conversation with ID ${request.conversation} not found`);
           return;
         }
+
+        conversationIdForCleanup = conversation.id;
+        this.activeStreams.set(conversation.id, abortController);
+        this.logger.debug(`[AI-Agent][Stream] Registered existing conversation ${conversation.id} in activeStreams`);
+
         configId = conversation.configId;
       } else {
-        // Create new conversation - require config from request
         if (!request.config) {
           await sendErrorAndClose('Config is required when creating a new conversation');
           return;
@@ -254,6 +348,7 @@ export class AiAgentService {
           await sendErrorAndClose('Failed to generate conversation title');
           return;
         }
+
         conversation = await this.conversationService.createConversation({
           data: {
             title,
@@ -262,6 +357,11 @@ export class AiAgentService {
           },
           userId,
         });
+
+        conversationIdForCleanup = conversation.id;
+        this.activeStreams.set(conversation.id, abortController);
+        this.logger.debug(`[AI-Agent][Stream] Registered new conversation ${conversation.id} in activeStreams`);
+
         configId = request.config;
       }
 
@@ -351,9 +451,12 @@ export class AiAgentService {
       let fullContent = '';
       const allToolResults: any[] = [];
 
+      this.logger.debug(`[AI-Agent][Stream] Starting LLM chatStream, abortSignal.aborted=${abortController.signal.aborted}`);
+
       const llmResponse = await this.llmService.chatStream({
         messages: llmMessages,
         configId,
+        abortSignal: abortController.signal,
         onEvent: (event) => {
           if (event.type === 'text' && event.data?.delta) {
             fullContent = event.data.text || fullContent;
@@ -368,6 +471,8 @@ export class AiAgentService {
           }
         },
       });
+
+      this.logger.debug(`[AI-Agent][Stream] LLM processing completed, isAborted=${isAborted}, abortSignal.aborted=${abortController.signal.aborted}`);
 
       sendEvent({
         type: 'done',
@@ -385,6 +490,9 @@ export class AiAgentService {
           }),
         },
       });
+
+      this.logger.debug(`[AI-Agent][Stream] Ending response stream normally`);
+      cleanup();
 
       res.end();
 
@@ -419,12 +527,21 @@ export class AiAgentService {
         }
       })();
     } catch (error: any) {
-      this.logger.error('Stream error:', error);
+      cleanup();
 
-      // Ensure detailed error message
+      // Check if error is due to client disconnect
       const errorMessage = error?.response?.data?.error?.message ||
                           error?.message ||
                           String(error);
+
+      if (errorMessage === 'Request aborted by client') {
+        this.logger.warn('[AI-Agent][Stream] Request aborted by client, closing connection gracefully');
+        res.end();
+        return;
+      }
+
+      // Handle other errors
+      this.logger.error('Stream error:', error);
 
       sendEvent({
         type: 'error',
@@ -626,7 +743,14 @@ export class AiAgentService {
   }): Promise<string> {
     const { conversation, config } = params;
 
-    let prompt = `You are a helpful AI assistant for database operations.
+    let prompt = `You are a helpful AI assistant for Enfyra CMS - a headless CMS and backend-as-a-service platform.
+
+**About Enfyra:**
+- Enfyra is a self-hosted, open-source headless CMS built with NestJS
+- Supports both SQL (MySQL, PostgreSQL, SQLite) and MongoDB
+- Provides dynamic API generation, custom handlers, hooks, and role-based permissions
+- NOT Supabase, NOT Strapi, NOT Directus - this is Enfyra CMS
+- Tables are typically named with "_definition" suffix (e.g., route_definition, user_definition)
 
 **Task Management:**
 - Multi-step requests: LIST all tasks explicitly
@@ -639,6 +763,13 @@ export class AiAgentService {
 - Use get_table_details to understand table structure
 - Use dynamic_repository for CRUD operations
 - Use get_hint for detailed guidance (call on-demand when needed)
+
+**CRITICAL: File Management (file_definition table):**
+- NEVER perform CUD operations (Create/Update/Delete) on file_definition table
+- file_definition has dedicated upload/download controllers that handle file storage AND metadata
+- Direct CUD on file_definition will cause mismatch between metadata and actual files
+- For file operations: guide users to use the file upload/download endpoints, NOT dynamic_repository
+- You can READ (find/findOne) file_definition safely to get file information
 
 **CRITICAL: Nested Relations (Avoid Multiple Queries):**
 - ALWAYS use nested fields instead of separate queries for related data

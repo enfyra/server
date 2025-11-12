@@ -22,7 +22,16 @@ export class AiAgentController {
     @Res() res: Response,
   ): Promise<void> {
     const userId = req.routeData?.context?.$user?.id;
-    await this.aiAgentService.processRequestStream({ request: body, res, userId });
+    await this.aiAgentService.processRequestStream({ request: body, req, res, userId });
+  }
+
+  @Post('cancel')
+  async cancel(
+    @Req() req: RequestWithRouteData,
+    @Body() body: { conversation: string | number },
+  ): Promise<{ success: boolean }> {
+    const userId = req.routeData?.context?.$user?.id;
+    return await this.aiAgentService.cancelStream(body.conversation, userId);
   }
 }
 

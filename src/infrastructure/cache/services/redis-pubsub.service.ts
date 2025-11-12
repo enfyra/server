@@ -31,6 +31,15 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       this.sub = new Redis(this.configService.get<string>('REDIS_URI'));
       await Promise.all([this.pub.ping(), this.sub.ping()]);
 
+      this.sub.on('message', (channel: string, message: string) => {
+        const handler = this.subscribedChannels.get(channel);
+        if (handler) {
+          handler(channel, message);
+        }
+      });
+
+      console.log('[RedisPubSub] Master message handler initialized');
+
     } catch (error) {
       console.error(
         '[RedisPubSub] Failed to initialize Redis connections:',
@@ -40,27 +49,20 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Subscribe to channel with handler (idempotent - won't add duplicate handlers)
-   */
   subscribeWithHandler(
     channel: string,
     handler: (channel: string, message: string) => void
   ): boolean {
     if (this.subscribedChannels.has(channel)) {
-      return false; // Already subscribed to this channel
+      return false;
     }
 
-    // Store handler for this channel
     this.subscribedChannels.set(channel, handler);
-
-    // Subscribe to Redis channel
     this.sub.subscribe(channel);
 
-    // Add message handler
-    this.sub.on('message', handler);
+    console.log(`[RedisPubSub] Subscribed to channel: ${channel}`);
 
-    return true; // Newly subscribed
+    return true;
   }
 
   async publish(channel: string, payload: any) {

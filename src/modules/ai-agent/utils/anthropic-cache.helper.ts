@@ -69,22 +69,18 @@ export function addToolsCache(tools: any[]): any[] {
 
 /**
  * Add cache_control to messages array
- * Cache older messages (first ~80% of conversation)
- * Leave recent messages uncached as they change frequently
+ * Following Anthropic best practice: cache at LAST message for progressive/incremental caching
+ * This allows the system to reuse the longest cached prefix and build upon it
+ * Ref: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
  */
 export function addMessagesCache(messages: any[]): any[] {
-  if (!messages || messages.length <= 2) {
-    // Don't cache very short conversations
+  if (!messages || messages.length === 0) {
     return messages;
   }
 
-  // Cache breakpoint at ~80% of messages (older messages)
-  const cacheIndex = Math.floor(messages.length * 0.8);
-
-  // Ensure we have at least some messages before cache breakpoint
-  if (cacheIndex < 1) {
-    return messages;
-  }
+  // Progressive caching: Mark the LAST message
+  // Anthropic will automatically check up to 20 blocks before this and use longest matching prefix
+  const cacheIndex = messages.length - 1;
 
   const cachedMessages = [...messages];
   const targetMessage = cachedMessages[cacheIndex];

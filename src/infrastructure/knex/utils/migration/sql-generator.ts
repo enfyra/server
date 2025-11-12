@@ -10,8 +10,8 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
       }
       break;
     case 'int':
-      if (col.isPrimary && col.isGenerated) {
-        // Auto-increment primary key
+      if (col.isPrimary) {
+        // Auto-increment is default for int primary keys
         if (dbType === 'postgres') {
           definition = 'SERIAL';
         } else if (dbType === 'sqlite') {
@@ -115,14 +115,20 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
       definition = 'VARCHAR(255)';
   }
 
-  if (col.isPrimary && !col.isGenerated) {
-    definition += ' PRIMARY KEY';
-  } else if (col.isPrimary && col.isGenerated && dbType === 'sqlite') {
-    // SQLite needs explicit PRIMARY KEY for INTEGER autoincrement
-    definition += ' PRIMARY KEY AUTOINCREMENT';
+  if (col.isPrimary) {
+    // For int type, auto increment is already handled above (SERIAL, AUTO_INCREMENT)
+    // For uuid type, add PRIMARY KEY constraint
+    if (col.type === 'uuid') {
+      definition += ' PRIMARY KEY';
+    } else if (col.type === 'int' && dbType === 'sqlite') {
+      // SQLite needs explicit PRIMARY KEY AUTOINCREMENT for integer primary keys
+      definition += ' PRIMARY KEY AUTOINCREMENT';
+    }
+    // For MySQL/PostgreSQL int primary key, AUTO_INCREMENT/SERIAL already implies PRIMARY KEY
   }
 
-  if (col.isNullable === false && !(col.isPrimary && col.isGenerated)) {
+  if (col.isNullable === false && !col.isPrimary) {
+    // Primary keys are implicitly NOT NULL
     definition += ' NOT NULL';
   }
 

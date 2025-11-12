@@ -480,13 +480,47 @@ export class SqlSchemaMigrationService {
   async dropTable(tableName: string, relations?: any[], trx?: any): Promise<void> {
     // Use transaction if provided, otherwise use knex
     const db = trx || this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
-    if (!(await db.schema.hasTable(tableName))) {
+    // Use raw SQL to check table existence (schema builder may not work correctly in transaction)
+    const qt = (id: string) => {
+      if (dbType === 'mysql') return `\`${id}\``;
+      return `"${id}"`;
+    };
+
+    let tableExists = false;
+    try {
+      if (dbType === 'postgres') {
+        const result = await db.raw(
+          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?)`,
+          [tableName]
+        );
+        tableExists = result.rows[0]?.exists || false;
+      } else if (dbType === 'mysql') {
+        const result = await db.raw(
+          `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+          [tableName]
+        );
+        tableExists = result[0][0]?.count > 0;
+      } else {
+        // SQLite
+        const result = await db.raw(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+          [tableName]
+        );
+        tableExists = result.length > 0;
+      }
+    } catch (error) {
+      this.logger.error(`Error checking table existence: ${error.message}`);
+      tableExists = false;
+    }
+
+    if (!tableExists) {
       this.logger.warn(`Table ${tableName} does not exist, skipping drop`);
       return;
     }
 
-    this.logger.log(` Dropping table: ${tableName}`);
+    this.logger.log(`Dropping table: ${tableName}`);
 
     // If relations not provided, get from metadata
     let relationsToCheck = relations;
@@ -498,16 +532,18 @@ export class SqlSchemaMigrationService {
       }
     }
 
-    // Drop M2M junction tables first
+    // Drop M2M junction tables first (using raw SQL)
     if (relationsToCheck && relationsToCheck.length > 0) {
       const m2mRelations = relationsToCheck.filter((rel: any) => rel.type === 'many-to-many');
 
       for (const rel of m2mRelations) {
         if (rel.junctionTableName) {
-          const hasJunctionTable = await db.schema.hasTable(rel.junctionTableName);
-          if (hasJunctionTable) {
-            await db.schema.dropTable(rel.junctionTableName);
+          try {
+            // Use raw SQL instead of schema builder
+            await db.raw(`DROP TABLE IF EXISTS ${qt(rel.junctionTableName)}`);
             this.logger.log(`Dropped junction table: ${rel.junctionTableName}`);
+          } catch (error) {
+            this.logger.error(`Failed to drop junction table ${rel.junctionTableName}: ${error.message}`);
           }
         }
       }
@@ -517,15 +553,19 @@ export class SqlSchemaMigrationService {
     // NOTE: When called within a transaction (trx is provided), FK constraints are already
     // handled by SqlTableHandlerService.delete() to avoid transaction isolation issues
     if (!trx) {
-      const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
       await dropAllForeignKeysReferencingTable(db, tableName, dbType);
     } else {
       this.logger.log(`Skipping FK constraint check (already handled in transaction)`);
     }
 
-    // Drop the table itself
-    await db.schema.dropTableIfExists(tableName);
-    this.logger.log(`Dropped table: ${tableName}`);
+    // Drop the table itself using raw SQL (schema builder may not work correctly in transaction)
+    try {
+      await db.raw(`DROP TABLE IF EXISTS ${qt(tableName)}`);
+      this.logger.log(`Dropped table: ${tableName}`);
+    } catch (error) {
+      this.logger.error(`Failed to drop table ${tableName}: ${error.message}`);
+      throw error;
+    }
   }
 
 

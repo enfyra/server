@@ -1,15 +1,21 @@
 /**
  * Helper functions for OpenAI Prompt Caching Optimization
  *
- * OpenAI Prompt Caching benefits:
- * - System prompts: automatically cached when stable (50% cost reduction on cached tokens)
- * - OpenAI automatically caches identical prompt prefixes
- * - Cache is model-specific and persists for the request session
+ * OpenAI Automatic Prompt Caching (GPT-4o, GPT-4o-mini, o1):
+ * - Automatic caching for prompts ≥ 1024 tokens
+ * - 50% discount on cached input tokens
+ * - 80% latency reduction for cache hits
+ * - Cache duration: 5-10 minutes (up to 1 hour)
+ * - Caching increments: First 1024 tokens, then 128-token chunks
+ * - NO cache write fees (unlike Anthropic)
  *
- * Strategy:
- * - Ensure system prompt is stable and at the beginning of messages
- * - Keep system prompt consistent across requests for same config
- * - OpenAI will automatically apply caching for identical prefixes
+ * Best Practices for Cache Hits:
+ * 1. Static content FIRST: System message → Tools → Early messages
+ * 2. Dynamic content LAST: User messages, fresh context
+ * 3. Tool ordering MUST be identical across requests
+ * 4. First 1024 tokens MUST match exactly for cache hit
+ *
+ * Reference: https://platform.openai.com/docs/guides/prompt-caching
  */
 
 export interface LLMMessage {

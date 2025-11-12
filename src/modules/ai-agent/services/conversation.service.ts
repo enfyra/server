@@ -191,6 +191,18 @@ export class ConversationService {
     return this.mapConversation(result.data[0]);
   }
 
+  async deleteConversation(params: {
+    id: string | number;
+    userId?: string | number;
+  }): Promise<void> {
+    const { id, userId } = params;
+
+    const context = this.createContext(userId);
+    const repo = await this.createRepository('ai_conversation_definition', context);
+    await repo.delete(id);
+    this.logger.log(`Deleted conversation ${id}`);
+  }
+
   async getMessages(params: {
     conversationId: string | number;
     limit?: number;
