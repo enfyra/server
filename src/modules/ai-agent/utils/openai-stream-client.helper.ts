@@ -1,10 +1,6 @@
 import { Logger } from '@nestjs/common';
 import OpenAI from 'openai';
-
-export interface StreamEvent {
-  type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tokens';
-  data?: any;
-}
+import { StreamEvent } from '../interfaces/stream-event.interface';
 
 const logger = new Logger('OpenAIStreamClient');
 
@@ -60,18 +56,6 @@ export async function streamOpenAIToClient(
                     arguments: toolCallDelta.function?.arguments || '',
                   },
                 });
-
-                // Emit tool call when we get the name
-                if (toolCallDelta.function?.name) {
-                  onEvent({
-                    type: 'tool_call',
-                    data: {
-                      id: toolCallDelta.id || '',
-                      name: toolCallDelta.function.name,
-                      arguments: '',
-                    },
-                  });
-                }
               } else {
                 const existing = collectedToolCalls.get(index);
                 if (toolCallDelta.id) {

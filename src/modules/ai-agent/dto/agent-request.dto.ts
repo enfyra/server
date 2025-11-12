@@ -8,8 +8,8 @@ export class AgentRequestDto {
   @IsNotEmpty()
   message: string;
 
-  @IsNotEmpty()
-  config: string | number;
+  @IsOptional()
+  config?: string | number;
 }
 
 

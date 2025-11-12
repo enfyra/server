@@ -385,7 +385,7 @@
         "name": "ai_conversation_definition",
         "description": "Stores AI agent conversation sessions. Each conversation contains multiple messages and can have a summary for long conversations.",
         "isSystem": true,
-        "indexes": [["user"]],
+        "indexes": [["user"], ["config"]],
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "title", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Conversation title (auto-generated from first message)" },
@@ -429,7 +429,6 @@
             { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use (default: gpt-4o-mini)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether AI agent is enabled" },
             { "name": "maxConversationMessages", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of messages to include in LLM context (default: 10)" },
-            { "name": "summaryThreshold", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 20, "description": "Message count threshold to trigger summary creation (default: 20)" },
             { "name": "llmTimeout", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 30000, "description": "LLM API timeout in milliseconds (default: 30000 - 30 seconds)" },
             { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of the AI configuration" }
         ],

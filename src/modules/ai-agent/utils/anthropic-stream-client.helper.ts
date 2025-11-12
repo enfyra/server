@@ -1,10 +1,6 @@
 import { Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-
-export interface StreamEvent {
-  type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tokens';
-  data?: any;
-}
+import { StreamEvent } from '../interfaces/stream-event.interface';
 
 const logger = new Logger('AnthropicStreamClient');
 
@@ -46,14 +42,6 @@ export async function streamAnthropicToClient(
             name: block.name,
             input: block.input || {},
           });
-          onEvent({
-            type: 'tool_call',
-            data: {
-              id: block.id,
-              name: block.name,
-              input: block.input || {},
-            },
-          });
         }
       }
     });
@@ -91,14 +79,6 @@ export async function streamAnthropicToClient(
                 id: block.id,
                 name: block.name,
                 input: block.input || {},
-              });
-              onEvent({
-                type: 'tool_call',
-                data: {
-                  id: block.id,
-                  name: block.name,
-                  input: block.input || {},
-                },
               });
             }
           }
@@ -182,14 +162,6 @@ export async function streamAnthropicToClient(
                       name: block.name,
                       input: block.input || {},
                     });
-                    onEvent({
-                      type: 'tool_call',
-                      data: {
-                        id: block.id,
-                        name: block.name,
-                        input: block.input || {},
-                      },
-                    });
                   }
                 }
               }
@@ -211,14 +183,6 @@ export async function streamAnthropicToClient(
                 });
                 indexToToolId.set(event.index, block.id);
                 toolInputJsonStrings.set(block.id, '');
-                onEvent({
-                  type: 'tool_call',
-                  data: {
-                    id: block.id,
-                    name: block.name,
-                    input: block.input || {},
-                  },
-                });
               }
             }
           } else if (event.type === 'content_block_delta') {

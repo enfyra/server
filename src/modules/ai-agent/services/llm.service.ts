@@ -20,7 +20,8 @@ import { convertMessagesToAnthropic } from '../utils/message-converter.helper';
 import { mapStatusCodeToHttpStatus, getErrorCodeFromStatus } from '../utils/error-handler.helper';
 import { streamOpenAIToClient } from '../utils/openai-stream-client.helper';
 import { handleAnthropicStream } from '../utils/anthropic-stream.helper';
-import { streamAnthropicToClient, StreamEvent } from '../utils/anthropic-stream-client.helper';
+import { streamAnthropicToClient } from '../utils/anthropic-stream-client.helper';
+import { StreamEvent } from '../interfaces/stream-event.interface';
 import { createLLMContext } from '../utils/context.helper';
 import { ToolExecutor } from '../utils/tool-executor.helper';
 import { applyPromptCaching } from '../utils/anthropic-cache.helper';
@@ -79,10 +80,12 @@ export class LLMService {
     );
   }
 
-  async chat(
-    messages: LLMMessage[],
-    configId: string | number,
-  ): Promise<LLMResponse> {
+  async chat(params: {
+    messages: LLMMessage[];
+    configId: string | number;
+  }): Promise<LLMResponse> {
+    const { messages, configId } = params;
+
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
       throw new BadRequestException(`AI config with ID ${configId} not found`);
@@ -345,10 +348,12 @@ export class LLMService {
   }
 
   // Lightweight chat without tools (for summaries and low-token calls)
-  async chatSimple(
-    messages: LLMMessage[],
-    configId: string | number,
-  ): Promise<LLMResponse> {
+  async chatSimple(params: {
+    messages: LLMMessage[];
+    configId: string | number;
+  }): Promise<LLMResponse> {
+    const { messages, configId } = params;
+
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
       throw new BadRequestException(`AI config with ID ${configId} not found`);
@@ -411,11 +416,13 @@ export class LLMService {
     throw new BadRequestException(`Unsupported provider: ${provider}`);
   }
 
-  async chatStream(
-    messages: LLMMessage[],
-    configId: string | number,
-    onEvent: (event: StreamEvent) => void,
-  ): Promise<LLMResponse> {
+  async chatStream(params: {
+    messages: LLMMessage[];
+    configId: string | number;
+    onEvent: (event: StreamEvent) => void;
+  }): Promise<LLMResponse> {
+    const { messages, configId, onEvent } = params;
+
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config) {
       throw new BadRequestException(`AI config with ID ${configId} not found`);
@@ -495,6 +502,15 @@ export class LLMService {
               try {
                 const toolStartTime = Date.now();
                 this.logger.log(`[Tool Execution - OpenAI Stream] Starting tool: ${toolCall.function.name}`);
+
+                // Stream tool execution as text message
+                onEvent({
+                  type: 'text',
+                  data: {
+                    delta: `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
+                    text: textContent + `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
+                  },
+                });
 
                 const toolCallObj = {
                   id: toolCall.id,
@@ -624,6 +640,17 @@ export class LLMService {
               });
 
               try {
+                this.logger.log(`[Tool Execution - Anthropic Stream] Starting tool: ${toolCall.function.name}`);
+
+                // Stream tool execution as text message
+                onEvent({
+                  type: 'text',
+                  data: {
+                    delta: `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
+                    text: textContent + `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
+                  },
+                });
+
                 const toolCallObj = {
                   id: toolCall.id,
                   function: {

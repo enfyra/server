@@ -101,7 +101,12 @@ export class ConversationService {
     return repo;
   }
 
-  async createConversation(data: IConversationCreate, userId?: string | number): Promise<IConversation> {
+  async createConversation(params: {
+    data: IConversationCreate;
+    userId?: string | number;
+  }): Promise<IConversation> {
+    const { data, userId } = params;
+
     if (!data.title || !data.title.trim()) {
       throw new Error('Title is required for conversation');
     }
@@ -142,10 +147,15 @@ export class ConversationService {
     return this.mapConversation(result.data[0]);
   }
 
-  async getConversation(id: string | number, userId?: string | number): Promise<IConversation | null> {
+  async getConversation(params: {
+    id: string | number;
+    userId?: string | number;
+  }): Promise<IConversation | null> {
+    const { id, userId } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_conversation_definition', context);
-    
+
     const result = await repo.find({
       where: {
         id: { _eq: id },
@@ -160,10 +170,16 @@ export class ConversationService {
     return this.mapConversation(result.data[0]);
   }
 
-  async updateConversation(id: string | number, data: IConversationUpdate, userId?: string | number): Promise<IConversation> {
+  async updateConversation(params: {
+    id: string | number;
+    data: IConversationUpdate;
+    userId?: string | number;
+  }): Promise<IConversation> {
+    const { id, data, userId } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_conversation_definition', context);
-    
+
     const updateData: any = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.messageCount !== undefined) updateData.messageCount = data.messageCount;
@@ -175,16 +191,18 @@ export class ConversationService {
     return this.mapConversation(result.data[0]);
   }
 
-  async getMessages(
-    conversationId: string | number,
-    limit?: number,
-    userId?: string | number,
-    sort?: string,
-    since?: Date,
-  ): Promise<IMessage[]> {
+  async getMessages(params: {
+    conversationId: string | number;
+    limit?: number;
+    userId?: string | number;
+    sort?: string;
+    since?: Date;
+  }): Promise<IMessage[]> {
+    const { conversationId, limit, userId, sort, since } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
-    
+
     const where: any = {
       conversation: { id: { _eq: conversationId } },
     };
@@ -203,14 +221,25 @@ export class ConversationService {
     return messages.map((msg: any) => this.mapMessage(msg));
   }
 
-  async deleteMessage(messageId: string | number, userId?: string | number): Promise<void> {
+  async deleteMessage(params: {
+    messageId: string | number;
+    userId?: string | number;
+  }): Promise<void> {
+    const { messageId, userId } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
     await repo.delete(messageId);
     this.logger.log(`Deleted message ${messageId}`);
   }
 
-  async deleteMessagesBeforeSequence(conversationId: string | number, beforeSequence: number, userId?: string | number): Promise<void> {
+  async deleteMessagesBeforeSequence(params: {
+    conversationId: string | number;
+    beforeSequence: number;
+    userId?: string | number;
+  }): Promise<void> {
+    const { conversationId, beforeSequence, userId } = params;
+
     await this.queryBuilder.transaction(async (trx) => {
       const context = this.createContext(userId);
       const repo = await this.createRepository('ai_message_definition', context);
@@ -232,17 +261,19 @@ export class ConversationService {
     });
   }
 
-  async updateConversationAndDeleteMessages(
-    conversationId: string | number,
-    updateData: IConversationUpdate,
-    beforeSequence: number,
-    userId?: string | number,
-  ): Promise<IConversation> {
+  async updateConversationAndDeleteMessages(params: {
+    conversationId: string | number;
+    updateData: IConversationUpdate;
+    beforeSequence: number;
+    userId?: string | number;
+  }): Promise<IConversation> {
+    const { conversationId, updateData, beforeSequence, userId } = params;
+
     return await this.queryBuilder.transaction(async (trx) => {
       const context = this.createContext(userId);
       const conversationRepo = await this.createRepository('ai_conversation_definition', context);
       const messageRepo = await this.createRepository('ai_message_definition', context);
-      
+
       const updateDataAny: any = {};
       if (updateData.title !== undefined) updateDataAny.title = updateData.title;
       if (updateData.messageCount !== undefined) updateDataAny.messageCount = updateData.messageCount;
@@ -251,7 +282,7 @@ export class ConversationService {
       if (updateData.lastActivityAt !== undefined) updateDataAny.lastActivityAt = updateData.lastActivityAt;
 
       const updateResult = await conversationRepo.update(conversationId, updateDataAny);
-      
+
       const result = await messageRepo.find({
         where: {
           conversation: { id: { _eq: conversationId } },
@@ -264,17 +295,22 @@ export class ConversationService {
       for (const msg of messagesToDelete) {
         await messageRepo.delete(msg.id);
       }
-      
+
       this.logger.log(`Updated conversation ${conversationId} and deleted ${messagesToDelete.length} old messages (before sequence ${beforeSequence})`);
-      
+
       return this.mapConversation(updateResult.data[0]);
     });
   }
 
-  async createMessage(data: IMessageCreate, userId?: string | number): Promise<IMessage> {
+  async createMessage(params: {
+    data: IMessageCreate;
+    userId?: string | number;
+  }): Promise<IMessage> {
+    const { data, userId } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
-    
+
     const createData: any = {
       conversation: { id: data.conversationId },
       role: data.role,
@@ -292,15 +328,20 @@ export class ConversationService {
     if (data.toolResults) {
       createData.toolResults = data.toolResults;
     }
-    
+
     const result = await repo.create(createData);
     return this.mapMessage(result.data[0]);
   }
 
-  async getLastSequence(conversationId: string | number, userId?: string | number): Promise<number> {
+  async getLastSequence(params: {
+    conversationId: string | number;
+    userId?: string | number;
+  }): Promise<number> {
+    const { conversationId, userId } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
-    
+
     const result = await repo.find({
       where: {
         conversation: { id: { _eq: conversationId } },
@@ -317,10 +358,15 @@ export class ConversationService {
     return Math.max(...sequences);
   }
 
-  async updateMessageCount(conversationId: string | number, userId?: string | number): Promise<void> {
+  async updateMessageCount(params: {
+    conversationId: string | number;
+    userId?: string | number;
+  }): Promise<void> {
+    const { conversationId, userId } = params;
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
-    
+
     const result = await repo.find({
       where: {
         conversation: { id: { _eq: conversationId } },

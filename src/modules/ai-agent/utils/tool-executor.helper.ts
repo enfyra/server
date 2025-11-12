@@ -98,19 +98,18 @@ export class ToolExecutor {
     const isMongoDB = dbType === 'mongodb';
     const idFieldName = isMongoDB ? '_id' : 'id';
 
+    const allHints = [];
+
+    // 1. Database Type Hint
     let dbTypeContent = `Current database type: ${dbType}\n\n`;
     if (isMongoDB) {
       dbTypeContent += `**MongoDB:**
 - Primary key: "_id" (not "id")
-- Relations: use "{_id: value}"
-- createdAt/updatedAt auto-added
-- Table names: check get_metadata first (not all have "_definition" suffix)`;
+- Relations: use "{_id: value}"`;
     } else {
       dbTypeContent += `**SQL (${dbType}):**
 - Primary key: "id"
-- Relations: use "{id: value}"
-- createdAt/updatedAt auto-added
-- Table names: check get_metadata first (not all have "_definition" suffix)`;
+- Relations: use "{id: value}"`;
     }
 
     const dbTypeHint = {
@@ -119,30 +118,166 @@ export class ToolExecutor {
       content: dbTypeContent,
     };
 
+    // 2. Relations Hint
     const relationContent = `**Relations:**
 - Use propertyName (NOT FK column names like mainTableId, categoryId, userId)
 - targetTable must be object: {"${idFieldName}": value}, NOT string
 - M2O: {"category": {"${idFieldName}": 1}} or {"category": 1}
 - O2O: {"profile": {"${idFieldName}": 5}} or {"profile": {new_data}}
 - M2M: {"tags": [{"${idFieldName}": 1}, {"${idFieldName}": 2}, 3]}
-- O2M: {"items": [{"${idFieldName}": 10, qty: 5}, {new_item}]}
-
-**Error Handling:**
-- If error returned: STOP, report to user immediately
-- Delete requires id (not where), find record first if needed`;
+- O2M: {"items": [{"${idFieldName}": 10, qty: 5}, {new_item}]}`;
 
     const relationHint = {
       category: 'relations',
-      title: 'Relation Behavior in Enfyra',
+      title: 'Relation Behavior',
       content: relationContent,
     };
+
+    // 3. Metadata Hint
+    const metadataContent = `**Auto-generated Fields:**
+- createdAt/updatedAt are automatically added to all tables (DO NOT include in columns when creating tables)
+- Foreign key columns are automatically indexed
+
+**Table Naming:**
+- Most tables follow "_definition" suffix pattern (e.g., route_definition, user_definition)
+- Always use get_metadata to discover actual table names - NEVER assume from user phrasing
+- Infer closest match from returned list (e.g., "route" → "route_definition")`;
+
+    const metadataHint = {
+      category: 'metadata',
+      title: 'Table Metadata & Auto-fields',
+      content: metadataContent,
+    };
+
+    // 4. Field Optimization Hint
+    const fieldOptContent = `**Field Selection (CRITICAL for token saving):**
+BEFORE fetching data:
+1. Call get_table_details first to see available fields
+2. Fetch ONLY needed fields:
+   - Count query: fetch only "${idFieldName}" field
+   - List names: fetch only "${idFieldName},name"
+   - Specific fields: only those mentioned by user
+3. Use limit = 0 for "all" or "how many" queries
+4. Example: "How many routes?" → get_table_details("route_definition") → dynamic_repository(table="route_definition", operation="find", fields="${idFieldName}", limit=0)
+
+**Limit Usage:**
+- limit = 0: fetch ALL records (no limit)
+- limit > 0: fetch specified number
+- Default: 10 if not specified`;
+
+    const fieldOptHint = {
+      category: 'field_optimization',
+      title: 'Field & Query Optimization',
+      content: fieldOptContent,
+    };
+
+    // 5. Table Operations Hint
+    const tableOpsContent = `**Creating Tables:**
+1. Check existence: find table_definition where name = table_name
+2. Use get_table_details on similar table for reference
+3. targetTable in relations MUST be object: {"${idFieldName}": table_id}
+4. DO NOT include createdAt/updatedAt in columns (auto-added)
+5. ALWAYS ask user confirmation before creating tables
+
+**Updating/Deleting Tables:**
+1. Find table_definition by name to get its ${idFieldName}
+2. Use that ${idFieldName} for update/delete operation`;
+
+    const tableOpsHint = {
+      category: 'table_operations',
+      title: 'Table Creation & Management',
+      content: tableOpsContent,
+    };
+
+    // 6. Error Handling Hint
+    const errorContent = `**CRITICAL Error Rules:**
+- If ANY tool returns error: true, STOP ALL OPERATIONS IMMEDIATELY
+- DO NOT call additional tools after error
+- DO NOT attempt auto-recovery
+- IMMEDIATELY report to user: "Error: [message]. [details]. What would you like to do?"
+- Delete operations require ${idFieldName} (not where) - find record first if needed
+
+**Violating these rules is STRICTLY FORBIDDEN**`;
+
+    const errorHint = {
+      category: 'error_handling',
+      title: 'Error Handling Protocol',
+      content: errorContent,
+    };
+
+    // 7. Table Discovery Hint
+    const discoveryContent = `**Table Discovery Policy:**
+- NEVER assume table names from user phrasing
+- If unsure, CALL get_metadata to fetch list of tables
+- Infer closest table name from returned list
+- For detailed structure, CALL get_table_details with chosen table name
+
+**Examples:**
+- User says "route" → call get_metadata → find "route_definition"
+- User says "users" → call get_metadata → find "user_definition" or "user"`;
+
+    const discoveryHint = {
+      category: 'table_discovery',
+      title: 'Table Discovery Rules',
+      content: discoveryContent,
+    };
+
+    // 8. Nested Relations Hint
+    const nestedContent = `**CRITICAL: Nested Relations (Avoid Multiple Queries)**
+
+**Nested Field Selection (Dot Notation):**
+- Get related data: relation.field or relation.*
+- Example: "roles.name" gets name from roles relation
+- Multiple levels: "routePermissions.role.name"
+- Wildcard: "roles.*" gets all fields from relation
+
+**Common Examples:**
+1. Get route with roles:
+   fields="id,path,roles.name,roles.${idFieldName}"
+
+2. Get route with permissions and roles:
+   fields="id,path,routePermissions.role.name"
+
+**Nested Filtering (Object Notation):**
+- Filter by relation: { relation: { field: { operator: value } } }
+- Example: Find routes with Admin role:
+   where={ "roles": { "name": { "_eq": "Admin" } } }
+
+**When to Use:**
+✅ ALWAYS use nested queries instead of multiple separate queries
+✅ "route id 20 roles" → ONE query with fields="id,path,roles.*"
+❌ DON'T query route → then query role_definition separately
+
+**Available Operators:**
+_eq, _neq, _gt, _gte, _lt, _lte, _in, _not_in, _contains,
+_starts_with, _ends_with, _between, _is_null, _is_not_null,
+_and, _or, _not
+
+**Performance:**
+- Always prefer ONE nested query over multiple queries
+- Use specific fields: "roles.name" better than "roles.*" when you only need name
+- For reference, call get_hint(category="nested_relations") for detailed examples`;
+
+    const nestedHint = {
+      category: 'nested_relations',
+      title: 'Nested Relations & Query Optimization',
+      content: nestedContent,
+    };
+
+    allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint);
+
+    // Filter by category if specified
+    const filteredHints = args.category
+      ? allHints.filter(h => h.category === args.category)
+      : allHints;
 
     return {
       dbType,
       isMongoDB,
       idField: idFieldName,
-      hints: [dbTypeHint, relationHint],
-      count: 2,
+      hints: filteredHints,
+      count: filteredHints.length,
+      availableCategories: ['database_type', 'relations', 'metadata', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery'],
     };
   }
 
@@ -152,6 +287,8 @@ export class ToolExecutor {
       operation: 'find' | 'create' | 'update' | 'delete';
       where?: any;
       fields?: string;
+      limit?: number;
+      sort?: string;
       data?: any;
       id?: string | number;
     },
@@ -180,9 +317,20 @@ export class ToolExecutor {
     try {
       switch (args.operation) {
         case 'find':
+          // Log the actual parameters for debugging
+          console.log('[Tool Executor - dynamic_repository] Find operation:', {
+            table: args.table,
+            where: args.where,
+            fields: args.fields,
+            limit: args.limit,
+            sort: args.sort,
+          });
+
           return await repo.find({
             where: args.where,
             fields: args.fields,
+            limit: args.limit,
+            sort: args.sort,
           });
         case 'create':
           if (!args.data) {

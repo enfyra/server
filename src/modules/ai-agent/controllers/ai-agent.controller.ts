@@ -12,7 +12,7 @@ export class AiAgentController {
   @Post('chat')
   async chat(@Req() req: RequestWithRouteData, @Body() body: AgentRequestDto): Promise<AgentResponseDto> {
     const userId = req.routeData?.context?.$user?.id;
-    return await this.aiAgentService.processRequest(body, userId);
+    return await this.aiAgentService.processRequest({ request: body, userId });
   }
 
   @Post('chat/stream')
@@ -22,7 +22,7 @@ export class AiAgentController {
     @Res() res: Response,
   ): Promise<void> {
     const userId = req.routeData?.context?.$user?.id;
-    await this.aiAgentService.processRequestStream(body, res, userId);
+    await this.aiAgentService.processRequestStream({ request: body, res, userId });
   }
 }
 

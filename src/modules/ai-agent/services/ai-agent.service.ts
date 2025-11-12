@@ -8,7 +8,7 @@ import { AgentRequestDto } from '../dto/agent-request.dto';
 import { AgentResponseDto } from '../dto/agent-response.dto';
 import { IConversation, IConversationCreate } from '../interfaces/conversation.interface';
 import { IMessage } from '../interfaces/message.interface';
-import { StreamEvent } from '../utils/anthropic-stream-client.helper';
+import { StreamEvent } from '../interfaces/stream-event.interface';
 
 @Injectable()
 export class AiAgentService {
@@ -21,23 +21,27 @@ export class AiAgentService {
     private readonly aiConfigCacheService: AiConfigCacheService,
   ) {}
 
-  async processRequest(request: AgentRequestDto, userId?: string | number): Promise<AgentResponseDto> {
-    const config = await this.aiConfigCacheService.getConfigById(request.config);
-    if (!config) {
-      throw new BadRequestException(`AI config with ID ${request.config} not found`);
-    }
-
-    if (!config.isEnabled) {
-      throw new BadRequestException(`AI config with ID ${request.config} is disabled`);
-    }
+  async processRequest(params: {
+    request: AgentRequestDto;
+    userId?: string | number;
+  }): Promise<AgentResponseDto> {
+    const { request, userId } = params;
 
     let conversation: IConversation;
+    let configId: string | number;
+
     if (request.conversation) {
-      conversation = await this.conversationService.getConversation(request.conversation, userId);
+      // Get conversation and config from it
+      conversation = await this.conversationService.getConversation({ id: request.conversation, userId });
       if (!conversation) {
         throw new BadRequestException(`Conversation with ID ${request.conversation} not found`);
       }
+      configId = conversation.configId;
     } else {
+      // Create new conversation - require config from request
+      if (!request.config) {
+        throw new BadRequestException('Config is required when creating a new conversation');
+      }
       if (!request.message || !request.message.trim()) {
         throw new BadRequestException('Message cannot be empty');
       }
@@ -45,39 +49,49 @@ export class AiAgentService {
       if (!title || !title.trim()) {
         throw new BadRequestException('Failed to generate conversation title');
       }
-      conversation = await this.conversationService.createConversation(
-        {
+      conversation = await this.conversationService.createConversation({
+        data: {
           title,
           messageCount: 0,
           configId: request.config,
         },
         userId,
-      );
+      });
+      configId = request.config;
     }
 
-    const lastSequence = await this.conversationService.getLastSequence(conversation.id, userId);
+    const config = await this.aiConfigCacheService.getConfigById(configId);
+    if (!config) {
+      throw new BadRequestException(`AI config with ID ${configId} not found`);
+    }
+
+    if (!config.isEnabled) {
+      throw new BadRequestException(`AI config with ID ${configId} is disabled`);
+    }
+
+    const lastSequence = await this.conversationService.getLastSequence({ conversationId: conversation.id, userId });
     const userSequence = lastSequence + 1;
 
-    const userMessage = await this.conversationService.createMessage(
-      {
+    const userMessage = await this.conversationService.createMessage({
+      data: {
         conversationId: conversation.id,
         role: 'user',
         content: request.message,
         sequence: userSequence,
       },
       userId,
-    );
+    });
 
     const fetchLimit = config.maxConversationMessages || 5;
-    const allMessagesDesc = await this.conversationService.getMessages(
-      conversation.id,
-      fetchLimit,
+    const allMessagesDesc = await this.conversationService.getMessages({
+      conversationId: conversation.id,
+      limit: fetchLimit,
       userId,
-      '-createdAt',
-      conversation.lastSummaryAt,
-    );
+      sort: '-createdAt',
+      since: conversation.lastSummaryAt,
+    });
     const allMessages = [...allMessagesDesc].reverse();
-    
+
     const hasUserMessage =
       allMessages.some((m) => m.sequence === userSequence && m.role === 'user') ||
       allMessages.some((m) => m.id === userMessage.id);
@@ -85,7 +99,7 @@ export class AiAgentService {
       this.logger.debug(`User message not found in loaded messages, adding it manually. Expected sequence: ${userSequence}`);
       allMessages.push(userMessage);
     }
-    
+
     const limit = config.maxConversationMessages || 5;
     let messages = allMessages;
 
@@ -98,22 +112,22 @@ export class AiAgentService {
 
     if (messages.length >= limit) {
       this.logger.debug(`[Summary Trigger] Reached maxConversationMessages=${limit}. Creating summary and recreating trigger message.`);
-      await this.createSummary(conversation.id, request.config, userId, userMessage);
-      const refreshed = await this.conversationService.getConversation(conversation.id, userId);
+      await this.createSummary({ conversationId: conversation.id, configId, userId, triggerMessage: userMessage });
+      const refreshed = await this.conversationService.getConversation({ id: conversation.id, userId });
       if (refreshed?.lastSummaryAt) {
-        const recentDesc = await this.conversationService.getMessages(
-          conversation.id,
+        const recentDesc = await this.conversationService.getMessages({
+          conversationId: conversation.id,
           limit,
           userId,
-          '-createdAt',
-          refreshed.lastSummaryAt,
-        );
+          sort: '-createdAt',
+          since: refreshed.lastSummaryAt,
+        });
         messages = [...recentDesc].reverse();
         this.logger.debug(`[Summary Applied] Reloaded ${messages.length} messages since lastSummaryAt (summary + trigger message)`);
       }
     }
 
-    const llmMessages = await this.buildLLMMessages(conversation, messages, config);
+    const llmMessages = await this.buildLLMMessages({ conversation, messages, config });
 
     // Debug: Estimate tokens
     const estimatedTokens = llmMessages.reduce((total, msg) => {
@@ -122,11 +136,11 @@ export class AiAgentService {
     }, 0);
     this.logger.debug(`[Token Debug] Built ${llmMessages.length} LLM messages, estimated ~${estimatedTokens} tokens`);
 
-    const llmResponse = await this.llmService.chat(llmMessages, request.config);
+    const llmResponse = await this.llmService.chat({ messages: llmMessages, configId });
 
     const assistantSequence = lastSequence + 2;
-    await this.conversationService.createMessage(
-      {
+    await this.conversationService.createMessage({
+      data: {
         conversationId: conversation.id,
         role: 'assistant',
         content: llmResponse.content,
@@ -135,26 +149,21 @@ export class AiAgentService {
         sequence: assistantSequence,
       },
       userId,
-    );
+    });
 
-    await this.conversationService.updateMessageCount(conversation.id, userId);
-    
-    await this.conversationService.updateConversation(
-      conversation.id,
-      {
+    await this.conversationService.updateMessageCount({ conversationId: conversation.id, userId });
+
+    await this.conversationService.updateConversation({
+      id: conversation.id,
+      data: {
         lastActivityAt: new Date(),
       },
       userId,
-    );
+    });
 
-    const updatedConversation = await this.conversationService.getConversation(conversation.id, userId);
+    const updatedConversation = await this.conversationService.getConversation({ id: conversation.id, userId });
     if (!updatedConversation) {
       throw new BadRequestException('Failed to update conversation');
-    }
-
-    this.logger.debug(`[Summary Check] messageCount=${updatedConversation.messageCount}, threshold=${config.summaryThreshold}, lastSummaryAt=${updatedConversation.lastSummaryAt || 'none'}`);
-    if (this.shouldCreateSummary(updatedConversation, config)) {
-      await this.createSummary(conversation.id, request.config, userId);
     }
 
     return {
@@ -172,7 +181,13 @@ export class AiAgentService {
     };
   }
 
-  async processRequestStream(request: AgentRequestDto, res: Response, userId?: string | number): Promise<void> {
+  async processRequestStream(params: {
+    request: AgentRequestDto;
+    res: Response;
+    userId?: string | number;
+  }): Promise<void> {
+    const { request, res, userId } = params;
+
     // Setup SSE headers first
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -191,16 +206,16 @@ export class AiAgentService {
       // Save error message to database if conversation exists
       if (conversationId && lastSequence !== undefined) {
         try {
-          await this.conversationService.createMessage(
-            {
+          await this.conversationService.createMessage({
+            data: {
               conversationId,
               role: 'assistant',
               content: `Error: ${errorMessage}`,
               sequence: lastSequence + 1,
             },
             userId,
-          );
-          await this.conversationService.updateMessageCount(conversationId, userId);
+          });
+          await this.conversationService.updateMessageCount({ conversationId, userId });
         } catch (dbError) {
           this.logger.error('Failed to save error message to database:', dbError);
         }
@@ -213,27 +228,23 @@ export class AiAgentService {
     let conversation: IConversation | undefined;
     let lastSequence: number | undefined;
 
+    let configId: string | number;
+
     try {
-      const config = await this.aiConfigCacheService.getConfigById(request.config);
-      if (!config) {
-        await sendErrorAndClose(`AI config with ID ${request.config} not found`);
-        return;
-      }
-
-      if (!config.isEnabled) {
-        await sendErrorAndClose(`AI config with ID ${request.config} is disabled`);
-        return;
-      }
-
-      this.logger.log(`[AI-Agent][Stream] Using config ${request.config} provider=${config.provider} model=${config.model}`);
-
       if (request.conversation) {
-        conversation = await this.conversationService.getConversation(request.conversation, userId);
+        // Get conversation and config from it
+        conversation = await this.conversationService.getConversation({ id: request.conversation, userId });
         if (!conversation) {
           await sendErrorAndClose(`Conversation with ID ${request.conversation} not found`);
           return;
         }
+        configId = conversation.configId;
       } else {
+        // Create new conversation - require config from request
+        if (!request.config) {
+          await sendErrorAndClose('Config is required when creating a new conversation');
+          return;
+        }
         if (!request.message || !request.message.trim()) {
           await sendErrorAndClose('Message cannot be empty');
           return;
@@ -243,41 +254,55 @@ export class AiAgentService {
           await sendErrorAndClose('Failed to generate conversation title');
           return;
         }
-        conversation = await this.conversationService.createConversation(
-          {
+        conversation = await this.conversationService.createConversation({
+          data: {
             title,
             messageCount: 0,
             configId: request.config,
           },
           userId,
-        );
+        });
+        configId = request.config;
       }
+
+      const config = await this.aiConfigCacheService.getConfigById(configId);
+      if (!config) {
+        await sendErrorAndClose(`AI config with ID ${configId} not found`);
+        return;
+      }
+
+      if (!config.isEnabled) {
+        await sendErrorAndClose(`AI config with ID ${configId} is disabled`);
+        return;
+      }
+
+      this.logger.log(`[AI-Agent][Stream] Using config ${configId} provider=${config.provider} model=${config.model}`);
 
       sendEvent({
         type: 'text',
         data: { delta: '', text: '', metadata: { conversation: conversation.id } },
       });
 
-      lastSequence = await this.conversationService.getLastSequence(conversation.id, userId);
+      lastSequence = await this.conversationService.getLastSequence({ conversationId: conversation.id, userId });
       const userSequence = lastSequence + 1;
 
-      const userMessage = await this.conversationService.createMessage(
-        {
+      const userMessage = await this.conversationService.createMessage({
+        data: {
           conversationId: conversation.id,
           role: 'user',
           content: request.message,
           sequence: userSequence,
         },
         userId,
-      );
+      });
       const limit = config.maxConversationMessages || 5;
-      const allMessagesDesc = await this.conversationService.getMessages(
-        conversation.id,
+      const allMessagesDesc = await this.conversationService.getMessages({
+        conversationId: conversation.id,
         limit,
         userId,
-        '-createdAt',
-        conversation.lastSummaryAt,
-      );
+        sort: '-createdAt',
+        since: conversation.lastSummaryAt,
+      });
       const allMessages = [...allMessagesDesc].reverse();
 
       const hasUserMessage =
@@ -299,22 +324,22 @@ export class AiAgentService {
 
       if (messages.length >= limit) {
         this.logger.debug(`[Summary Trigger - Stream] Reached maxConversationMessages=${limit}. Creating summary and recreating trigger message.`);
-        await this.createSummary(conversation.id, request.config, userId, userMessage);
-        const refreshed = await this.conversationService.getConversation(conversation.id, userId);
+        await this.createSummary({ conversationId: conversation.id, configId, userId, triggerMessage: userMessage });
+        const refreshed = await this.conversationService.getConversation({ id: conversation.id, userId });
         if (refreshed?.lastSummaryAt) {
-          const recentDesc = await this.conversationService.getMessages(
-            conversation.id,
+          const recentDesc = await this.conversationService.getMessages({
+            conversationId: conversation.id,
             limit,
             userId,
-            '-createdAt',
-            refreshed.lastSummaryAt,
-          );
+            sort: '-createdAt',
+            since: refreshed.lastSummaryAt,
+          });
           messages = [...recentDesc].reverse();
           this.logger.debug(`[Summary Applied - Stream] Reloaded ${messages.length} messages since lastSummaryAt (summary + trigger message)`);
         }
       }
 
-      const llmMessages = await this.buildLLMMessages(conversation, messages, config);
+      const llmMessages = await this.buildLLMMessages({ conversation, messages, config });
 
       // Debug: Estimate tokens
       const estimatedTokens = llmMessages.reduce((total, msg) => {
@@ -324,25 +349,24 @@ export class AiAgentService {
       this.logger.debug(`[Token Debug - Stream] Built ${llmMessages.length} LLM messages, estimated ~${estimatedTokens} tokens`);
 
       let fullContent = '';
-      const allToolCalls: any[] = [];
       const allToolResults: any[] = [];
 
-      const llmResponse = await this.llmService.chatStream(llmMessages, request.config, (event) => {
-        if (event.type === 'text' && event.data?.delta) {
-          fullContent = event.data.text || fullContent;
-          sendEvent(event);
-        } else if (event.type === 'tool_call') {
-          allToolCalls.push(event.data);
-          sendEvent(event);
-        } else if (event.type === 'tool_result') {
-          allToolResults.push(event.data);
-          sendEvent(event);
-        } else if (event.type === 'tokens') {
-          sendEvent(event);
-        } else if (event.type === 'error') {
-          sendEvent(event);
-        }
-        // NOTE: 'done' event from LLM is NOT forwarded here - we send our own 'done' after DB save
+      const llmResponse = await this.llmService.chatStream({
+        messages: llmMessages,
+        configId,
+        onEvent: (event) => {
+          if (event.type === 'text' && event.data?.delta) {
+            fullContent = event.data.text || fullContent;
+            sendEvent(event);
+          } else if (event.type === 'tool_result') {
+            allToolResults.push(event.data);
+            sendEvent(event);
+          } else if (event.type === 'tokens') {
+            sendEvent(event);
+          } else if (event.type === 'error') {
+            sendEvent(event);
+          }
+        },
       });
 
       sendEvent({
@@ -367,8 +391,8 @@ export class AiAgentService {
       (async () => {
         try {
           const assistantSequence = lastSequence + 2;
-          await this.conversationService.createMessage(
-            {
+          await this.conversationService.createMessage({
+            data: {
               conversationId: conversation.id,
               role: 'assistant',
               content: llmResponse.content,
@@ -377,25 +401,17 @@ export class AiAgentService {
               sequence: assistantSequence,
             },
             userId,
-          );
+          });
 
-          await this.conversationService.updateMessageCount(conversation.id, userId);
+          await this.conversationService.updateMessageCount({ conversationId: conversation.id, userId });
 
-          await this.conversationService.updateConversation(
-            conversation.id,
-            {
+          await this.conversationService.updateConversation({
+            id: conversation.id,
+            data: {
               lastActivityAt: new Date(),
             },
             userId,
-          );
-
-          const updatedConversation = await this.conversationService.getConversation(conversation.id, userId);
-          if (updatedConversation) {
-            this.logger.debug(`[Summary Check - Stream] messageCount=${updatedConversation.messageCount}, threshold=${config.summaryThreshold}, lastSummaryAt=${updatedConversation.lastSummaryAt || 'none'}`);
-          }
-          if (updatedConversation && this.shouldCreateSummary(updatedConversation, config)) {
-            await this.createSummary(conversation.id, request.config, userId);
-          }
+          });
 
           this.logger.log(`[Stream] DB save completed for conversation ${conversation.id}`);
         } catch (error) {
@@ -422,16 +438,16 @@ export class AiAgentService {
       if (conversation && lastSequence !== undefined) {
         try {
           const assistantSequence = lastSequence + 2;
-          await this.conversationService.createMessage(
-            {
+          await this.conversationService.createMessage({
+            data: {
               conversationId: conversation.id,
               role: 'assistant',
               content: `Error: ${errorMessage}`,
               sequence: assistantSequence,
             },
             userId,
-          );
-          await this.conversationService.updateMessageCount(conversation.id, userId);
+          });
+          await this.conversationService.updateMessageCount({ conversationId: conversation.id, userId });
         } catch (dbError) {
           this.logger.error('Failed to save error message to database:', dbError);
         }
@@ -453,12 +469,14 @@ export class AiAgentService {
     return trimmed.substring(0, maxLength - 3) + '...';
   }
 
-  private async buildLLMMessages(
-    conversation: IConversation,
-    messages: IMessage[],
-    config: any,
-  ): Promise<LLMMessage[]> {
-    const systemPrompt = await this.buildSystemPrompt(conversation, config);
+  private async buildLLMMessages(params: {
+    conversation: IConversation;
+    messages: IMessage[];
+    config: any;
+  }): Promise<LLMMessage[]> {
+    const { conversation, messages, config } = params;
+
+    const systemPrompt = await this.buildSystemPrompt({ conversation, config });
     const llmMessages: LLMMessage[] = [
       {
         role: 'system',
@@ -513,6 +531,7 @@ export class AiAgentService {
             let resultContent: string;
 
             if (toolName === 'get_metadata' || toolName === 'get_table_details') {
+              // Fully truncate metadata tools - can be re-fetched easily
               const originalSize = JSON.stringify(toolResult.result).length;
               resultContent = JSON.stringify({
                 _truncated: true,
@@ -520,33 +539,71 @@ export class AiAgentService {
               });
               this.logger.debug(`[Token Debug] Tool result ${toolName} fully truncated: ${originalSize} -> ${resultContent.length} chars`);
             } else if (toolName === 'dynamic_repository') {
-              const resultStr = JSON.stringify(toolResult.result);
-              const hasError = toolResult.result?.error || toolResult.result?.message?.includes('Error') || toolResult.result?.message?.includes('Failed');
+              // Smart truncation for dynamic_repository
+              const result = toolResult.result;
+              const resultStr = JSON.stringify(result);
+              const hasError = result?.error || result?.message?.includes('Error') || result?.message?.includes('Failed');
 
               if (hasError) {
+                // Keep errors intact
                 resultContent = resultStr;
                 this.logger.debug(`[Token Debug] Tool result ${toolName} kept (error): ${resultStr.length} chars`);
-              } else if (resultStr.length > 300) {
-                resultContent = JSON.stringify({
-                  _truncated: true,
-                  _message: 'Operation completed successfully.',
-                });
-                this.logger.debug(`[Token Debug] Tool result ${toolName} truncated: ${resultStr.length} -> ${resultContent.length} chars`);
-              } else {
+              } else if (resultStr.length <= 2000) {
+                // Keep small results intact
                 resultContent = resultStr;
                 this.logger.debug(`[Token Debug] Tool result ${toolName} kept (small): ${resultStr.length} chars`);
+              } else {
+                // Smart truncation for large results
+                const smartResult: any = {
+                  _truncated: true,
+                  success: result.success !== undefined ? result.success : true,
+                };
+
+                // Preserve count/total
+                if (result.count !== undefined) {
+                  smartResult.count = result.count;
+                }
+                if (result.total !== undefined) {
+                  smartResult.total = result.total;
+                }
+
+                // Preserve data summary
+                if (result.data && Array.isArray(result.data)) {
+                  smartResult.dataCount = result.data.length;
+                  // Keep first 3 and last 2 items as samples
+                  if (result.data.length > 5) {
+                    smartResult.dataSample = {
+                      first: result.data.slice(0, 3),
+                      last: result.data.slice(-2),
+                      _note: `Showing ${3 + 2} of ${result.data.length} records. Full data omitted to save tokens.`,
+                    };
+                  } else {
+                    smartResult.data = result.data;
+                  }
+                } else if (result.data) {
+                  smartResult.data = result.data;
+                }
+
+                resultContent = JSON.stringify(smartResult);
+                this.logger.debug(`[Token Debug] Tool result ${toolName} smart truncated: ${resultStr.length} -> ${resultContent.length} chars`);
               }
+            } else if (toolName === 'get_hint') {
+              // Keep hints intact - they're already optimized
+              resultContent = JSON.stringify(toolResult.result);
+              this.logger.debug(`[Token Debug] Tool result ${toolName} kept (hint): ${resultContent.length} chars`);
             } else {
+              // Generic truncation for unknown tools
               const resultStr = JSON.stringify(toolResult.result);
-              if (resultStr.length > 300) {
+              if (resultStr.length > 1000) {
                 resultContent = JSON.stringify({
                   _truncated: true,
-                  _message: 'Result retrieved.',
+                  _message: 'Result retrieved successfully.',
+                  _size: resultStr.length,
                 });
                 this.logger.debug(`[Token Debug] Tool result ${toolName} truncated: ${resultStr.length} -> ${resultContent.length} chars`);
               } else {
                 resultContent = resultStr;
-                this.logger.debug(`[Token Debug] Tool result ${toolName} kept (small): ${resultStr.length} chars`);
+                this.logger.debug(`[Token Debug] Tool result ${toolName} kept: ${resultStr.length} chars`);
               }
             }
 
@@ -563,109 +620,127 @@ export class AiAgentService {
     return llmMessages;
   }
 
-  private async buildSystemPrompt(conversation: IConversation, config: any): Promise<string> {
+  private async buildSystemPrompt(params: {
+    conversation: IConversation;
+    config: any;
+  }): Promise<string> {
+    const { conversation, config } = params;
+
     let prompt = `You are a helpful AI assistant for database operations.
 
-**Task Management - CRITICAL:**
-- When user gives multi-step requests (e.g., "create ecom with tables A, B, C"), LIST all tasks explicitly
-- Track completed vs pending tasks in your responses
-- When user says "continue" or "next", refer to pending tasks from context
-- Example format: "Tasks: ✅ A, ✅ B, ⏳ C, ⏳ D, ⏳ E"
+**Task Management:**
+- Multi-step requests: LIST all tasks explicitly
+- Track progress: "✅ Done, ⏳ Pending"
+- On "continue"/"next": refer to pending tasks from context
 
 **Tool Usage:**
-- Only use tools for database operations or system info requests.
-- For greetings/questions: respond with text only, NO tools needed.
-- **CRITICAL: Call get_hint ONLY when you need guidance about database operations (relations, field names, database type specifics).**
-- Use get_metadata to discover tables.
-- Use get_table_details for table structure.
-- Use dynamic_repository for CRUD operations.
-- NEVER create tables without user confirmation.
+- For greetings/simple questions: respond with text ONLY, NO tools
+- Use get_metadata to discover tables
+- Use get_table_details to understand table structure
+- Use dynamic_repository for CRUD operations
+- Use get_hint for detailed guidance (call on-demand when needed)
 
-**CRITICAL: Error Handling - YOU MUST FOLLOW THIS!**
-- If ANY tool returns error: true, YOU MUST STOP ALL OPERATIONS IMMEDIATELY
-- DO NOT call any additional tools after receiving an error
-- DO NOT attempt to recover or fix errors automatically
-- IMMEDIATELY tell the user about the error and ask what to do next
-- Violating this rule is STRICTLY FORBIDDEN
+**CRITICAL: Nested Relations (Avoid Multiple Queries):**
+- ALWAYS use nested fields instead of separate queries for related data
+- Nested fields: Use "relation.field" (e.g., "roles.name", "roles.*")
+- Nested filters: Use { relation: { field: { _eq: value } } }
+- Example: "route id 20 roles" → ONE query: dynamic_repository(table="route_definition", where={id:{_eq:20}}, fields="id,path,roles.name,roles.id")
+- DON'T query route first, then query role_definition separately
+- For complex cases: call get_hint(category="nested_relations")
 
-**Key Rules:**
-- createdAt/updatedAt are auto-added to all tables.
-- FK columns are auto-indexed.
-- Check get_hint for database type (MongoDB uses "_id", SQL uses "id").
-- Table discovery policy:
-  - NEVER assume table names from user phrasing. If unsure, CALL get_metadata to fetch the list of tables.
-  - Infer the closest table name from the returned list (e.g., "route" → "route_definition" if present).
-  - For detailed structure before operating, CALL get_table_details with the chosen table name.`;
+**CRITICAL: Query Optimization (MUST FOLLOW):**
+1. Before ANY data fetch: call get_table_details first to see available fields
+2. Fetch ONLY needed fields:
+   - Count/total queries: fields="id", limit=0
+   - List names: fields="id,name", limit=0
+   - Specific data: fields="[only what user asked]"
+3. limit=0 means fetch ALL (no limit). Use this for "all", "how many", "total" questions
+4. Example: "How many routes?" → get_table_details("route_definition") → dynamic_repository(table="route_definition", operation="find", fields="id", limit=0)
+
+**Error Handling:**
+- If tool returns error:true, STOP immediately and report to user
+- DO NOT call more tools after errors
+
+**Get More Details via get_hint:**
+- Nested relations/queries → get_hint(category="nested_relations")
+- Table operations → get_hint(category="table_operations")
+- Relations → get_hint(category="relations")
+- Table discovery → get_hint(category="table_discovery")
+- Metadata/auto-fields → get_hint(category="metadata")
+- DB type/primary key → get_hint(category="database_type")`;
 
     if (conversation.summary) {
-      const contextSummary = conversation.summary.length > 1200 ? `${conversation.summary.slice(0, 1200)}...` : conversation.summary;
-      prompt += `\n\n[Context]: ${contextSummary}`;
+      prompt += `\n\n[Previous conversation summary]: ${conversation.summary}`;
     }
 
     return prompt;
   }
 
-  private shouldCreateSummary(conversation: IConversation, config: any): boolean {
-    if (conversation.messageCount <= config.summaryThreshold) {
-      return false;
-    }
 
-    if (!conversation.lastSummaryAt) {
-      return true;
-    }
+  private async createSummary(params: {
+    conversationId: string | number;
+    configId: string | number;
+    userId?: string | number;
+    triggerMessage?: IMessage;
+  }): Promise<void> {
+    const { conversationId, configId, userId, triggerMessage } = params;
 
-    const oneHourAgo = new Date(Date.now() - 3600000);
-    return new Date(conversation.lastSummaryAt) < oneHourAgo;
-  }
-
-  private async createSummary(conversationId: string | number, configId: string | number, userId?: string | number, triggerMessage?: IMessage): Promise<void> {
-    const conversation = await this.conversationService.getConversation(conversationId, userId);
+    const conversation = await this.conversationService.getConversation({ id: conversationId, userId });
     if (!conversation) {
       return;
     }
 
-    const allMessagesDesc = await this.conversationService.getMessages(
+    const limit = await this.aiConfigCacheService.getConfigById(configId).then(c => c?.maxConversationMessages || 5);
+    const allMessagesDesc = await this.conversationService.getMessages({
       conversationId,
-      undefined,
+      limit,
       userId,
-      '-createdAt',
-    );
+      sort: '-createdAt',
+    });
     const allMessages = [...allMessagesDesc].reverse();
 
-    const oldMessages = triggerMessage
-      ? allMessages.filter(m => m.sequence < triggerMessage.sequence)
+    const messagesToSummarize = triggerMessage
+      ? [...allMessages, triggerMessage]
       : allMessages;
 
-    if (oldMessages.length === 0) {
-      this.logger.debug(`No old messages to summarize for conversation ${conversationId}`);
+    if (messagesToSummarize.length === 0) {
+      this.logger.debug(`No messages to summarize for conversation ${conversationId}`);
       return;
     }
 
-    const recentText = oldMessages
-      .map((m) => `${m.role}: ${m.content || '[tool calls]'}`)
+    const messagesText = messagesToSummarize
+      .map((m) => {
+        let content = m.content || '';
+        if (m.toolCalls && m.toolCalls.length > 0) {
+          const toolCallsInfo = m.toolCalls.map(tc => `${tc.function.name}(${tc.function.arguments})`).join(', ');
+          content += ` [tool calls: ${toolCallsInfo}]`;
+        }
+        if (m.toolResults && m.toolResults.length > 0) {
+          content += ` [tool results: ${m.toolResults.length} results]`;
+        }
+        return `${m.role}: ${content}`;
+      })
       .join('\n');
-    const recentTextTrimmed = recentText.length > 2000 ? `${recentText.slice(0, 2000)}\n...[truncated]` : recentText;
 
     const previousContext = conversation.summary
       ? `Previous summary:\n${conversation.summary}\n\n`
       : '';
 
-    const summaryPrompt = `Create a summary focusing on TASKS and PROGRESS:
+    const summaryPrompt = `Summarize the following conversation concisely (5-8 sentences max). Focus on:
+1. Main topics/goals discussed
+2. Key actions completed (tables created, data modified, etc.)
+3. Important discoveries (table structures, relations, errors encountered)
+4. Current context needed for continuation
 
-1. User's main goal/project
-2. Completed tasks (with ✅)
-3. Pending tasks (with ⏳)
-4. Important context (tables, data discovered)
+Capture ALL important information, but be concise. Use bullet points if helpful.
 
-Format: "Goal: [X]. Completed: ✅ A, ✅ B. Pending: ⏳ C, ⏳ D. Context: [important info]"
-
-${previousContext}Recent conversation history:
-${recentTextTrimmed}`;
+${previousContext}Full conversation history to summarize:
+${messagesText}`;
 
     const summaryMessages: LLMMessage[] = [
       {
         role: 'system',
-        content: 'You are a task-focused summarizer. Create concise summaries that prioritize tracking completed and pending tasks. Use format: "Goal: [X]. Completed: ✅ [tasks]. Pending: ⏳ [tasks]. Context: [key info]"',
+        content: 'You are a conversation summarizer. Create concise summaries (5-8 sentences max) capturing: main topics, completed actions, key discoveries, and context for continuation. Be thorough but concise.',
       },
       {
         role: 'user',
@@ -674,12 +749,11 @@ ${recentTextTrimmed}`;
     ];
 
     this.logger.debug(`[createSummary] Preparing to call chatSimple with ${summaryMessages.length} messages`);
-    this.logger.debug(`[createSummary] System message length: ${summaryMessages[0].content?.length || 0}`);
-    this.logger.debug(`[createSummary] User message length: ${summaryMessages[1].content?.length || 0}`);
-    this.logger.debug(`[createSummary] User message preview: ${summaryMessages[1].content?.slice(0, 200)}`);
+    this.logger.debug(`[createSummary] Messages to summarize: ${messagesToSummarize.length}`);
+    this.logger.debug(`[createSummary] Total text length: ${messagesText.length} chars`);
 
     try {
-      const summaryResponse = await this.llmService.chatSimple(summaryMessages, configId);
+      const summaryResponse = await this.llmService.chatSimple({ messages: summaryMessages, configId });
       let summary = summaryResponse.content || '';
 
       const maxSummaryLen = 1200;
@@ -689,38 +763,37 @@ ${recentTextTrimmed}`;
 
       const summaryTimestamp = new Date();
 
-      await this.conversationService.updateConversation(
-        conversationId,
-        {
+      await this.conversationService.updateConversation({
+        id: conversationId,
+        data: {
           summary,
           lastSummaryAt: summaryTimestamp,
         },
         userId,
-      );
+      });
 
       if (triggerMessage) {
         this.logger.debug(`[createSummary] Recreating trigger message (sequence ${triggerMessage.sequence}) with new createdAt`);
 
-        await this.conversationService.deleteMessage(triggerMessage.id, userId);
+        await this.conversationService.deleteMessage({ messageId: triggerMessage.id, userId });
 
-        await this.conversationService.createMessage(
-          {
+        await this.conversationService.createMessage({
+          data: {
             conversationId,
             role: triggerMessage.role,
             content: triggerMessage.content,
             sequence: triggerMessage.sequence,
           },
           userId,
-        );
+        });
 
         this.logger.debug(`[createSummary] Trigger message recreated successfully`);
       }
 
-      this.logger.log(`Summary created for conversation ${conversationId}. Summary stored in conversation.summary. Old messages preserved in DB. Total messages summarized: ${oldMessages.length}`);
+      this.logger.log(`Summary created for conversation ${conversationId}. Summary stored in conversation.summary. Total messages summarized: ${messagesToSummarize.length}`);
     } catch (error) {
       this.logger.error('Failed to create conversation summary:', error);
       throw error;
     }
   }
 }
-
