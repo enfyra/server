@@ -663,6 +663,7 @@ export class AiAgentService {
 
 **Get More Details via get_hint:**
 - Nested relations/queries → get_hint(category="nested_relations")
+- Route access control flow → get_hint(category="route_access")
 - Table operations → get_hint(category="table_operations")
 - Relations → get_hint(category="relations")
 - Table discovery → get_hint(category="table_discovery")

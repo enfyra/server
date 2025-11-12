@@ -264,7 +264,39 @@ _and, _or, _not
       content: nestedContent,
     };
 
-    allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint);
+    // 9. Route Access Control Hint
+    const routeAccessContent = `**How Does a Request Get Through a Route?**
+
+**Access Check Flow (Priority Order):**
+1. @Public() or publishedMethods → ✅ ALLOW (no auth)
+2. No JWT token → ❌ DENY (401)
+3. user.isRootAdmin = true → ✅ ALLOW (bypasses all)
+4. No routePermissions → ❌ DENY (403)
+5. Check routePermissions:
+   - Find where methods includes request method (GET/POST/etc.)
+   - AND (user in allowedUsers OR user.role matches role)
+   - Found? → ✅ ALLOW : ❌ DENY (403)
+
+**Access Levels (Highest → Lowest Priority):**
+1. Public: @Public() or publishedMethods (no auth needed)
+2. Root admin: isRootAdmin = true (bypasses all checks)
+3. User-specific: allowedUsers in route_permission (bypasses role)
+4. Role-based: user.role matches route_permission.role
+
+**Important:**
+- RoleGuard DISABLED (app.module.ts:104) - only auth, NO authorization
+- Method-level: GET/POST/PATCH/DELETE checked separately
+- Query with nested: fields="routePermissions.role.name,routePermissions.methods.method"
+- Cache reload: POST /admin/reload/routes after changes
+- For detailed flow: call get_hint(category="route_access")`;
+
+    const routeAccessHint = {
+      category: 'route_access',
+      title: 'Route Access Control Flow',
+      content: routeAccessContent,
+    };
+
+    allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint, routeAccessHint);
 
     // Filter by category if specified
     const filteredHints = args.category

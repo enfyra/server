@@ -38,10 +38,11 @@ export function getTools(provider: string = 'OpenAI') {
         name: 'get_hint',
         description: `Get system hints on-demand. Call ONLY when you need specific guidance - DO NOT call for greetings.
 
-**Categories:** nested_relations, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
+**Categories:** nested_relations, route_access, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
 
 **When to Call:**
 - Nested queries/relations → "nested_relations"
+- Route access control flow → "route_access"
 - Before table operations → "table_operations"
 - Before working with relations → "relations"
 - Field name issues → "database_type"
@@ -129,6 +130,11 @@ DELETE record:
 - M2O: {"category": {"id": 1}} or {"category": 1}
 - M2M: {"tags": [{"id": 1}, {"id": 2}, 3]}
 - O2M: {"items": [{"id": 10, "qty": 5}, {"productId": 1, "qty": 2}]}
+
+**Route Access Control:**
+Request access flow: @Public() > isRootAdmin > allowedUsers > role match
+RoleGuard DISABLED - only auth runs, no authorization
+For access flow details: call get_hint(category="route_access")
 
 **CREATE TABLE:**
 1. Check exists first: find table_definition where name = table_name
@@ -228,10 +234,11 @@ DELETE record:
           name: 'get_hint',
           description: `Get system hints on-demand. Call ONLY when you need specific guidance - DO NOT call for greetings.
 
-**Categories:** nested_relations, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
+**Categories:** nested_relations, route_access, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
 
 **When to Call:**
 - Nested queries/relations → "nested_relations"
+- Route access control flow → "route_access"
 - Before table operations → "table_operations"
 - Before working with relations → "relations"
 - Field name issues → "database_type"
@@ -244,7 +251,7 @@ DELETE record:
             properties: {
               category: {
                 type: 'string',
-                description: 'Hint category: nested_relations, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery. Omit for all.',
+                description: 'Hint category: nested_relations, route_access, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery. Omit for all.',
               },
             },
           },
@@ -322,6 +329,11 @@ DELETE record:
 - M2O: {"category": {"id": 1}} or {"category": 1}
 - M2M: {"tags": [{"id": 1}, {"id": 2}, 3]}
 - O2M: {"items": [{"id": 10, "qty": 5}, {"productId": 1, "qty": 2}]}
+
+**Route Access Control:**
+Request access flow: @Public() > isRootAdmin > allowedUsers > role match
+RoleGuard DISABLED - only auth runs, no authorization
+For access flow details: call get_hint(category="route_access")
 
 **CREATE TABLE:**
 1. Check exists first: find table_definition where name = table_name
