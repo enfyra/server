@@ -233,6 +233,12 @@ export class AiAgentService implements OnModuleInit {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    if (res.socket && typeof res.socket.setMaxListeners === 'function') {
+      res.socket.setMaxListeners(20);
+    }
 
     const abortController = new AbortController();
     let isAborted = false;
@@ -242,11 +248,35 @@ export class AiAgentService implements OnModuleInit {
     const cleanup = () => {
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
+        heartbeatInterval = undefined as any;
       }
       if (conversationIdForCleanup) {
         this.activeStreams.delete(conversationIdForCleanup);
       }
+      if (typeof res.removeAllListeners === 'function') {
+        res.removeAllListeners('close');
+        res.removeAllListeners('error');
+        res.removeAllListeners('finish');
+      }
+      if (res.socket && typeof res.socket.removeAllListeners === 'function') {
+        res.socket.removeAllListeners('close');
+        res.socket.removeAllListeners('error');
+        res.socket.removeAllListeners('finish');
+      }
     };
+
+    const onClose = () => {
+      if (!isAborted) {
+        isAborted = true;
+        abortController.abort();
+        cleanup();
+      }
+    };
+
+    res.removeAllListeners('close');
+    res.removeAllListeners('error');
+    res.on('close', onClose);
+    res.on('error', onClose);
 
     let lastActivityTime = Date.now();
     const STREAM_TIMEOUT_MS = 120000; // 2 minutes
@@ -255,7 +285,13 @@ export class AiAgentService implements OnModuleInit {
       if (!isAborted) {
         try {
           lastActivityTime = Date.now();
-          const success = res.write(`data: ${JSON.stringify(event)}\n\n`);
+          const data = `data: ${JSON.stringify(event)}\n\n`;
+          const success = res.write(data);
+          
+          if (typeof (res as any).flush === 'function') {
+            (res as any).flush();
+          }
+          
           if (!success) {
             if (res.writableEnded || res.destroyed) {
               this.logger.warn(`[AI-Agent][Stream] Client connection closed (writableEnded=${res.writableEnded}, destroyed=${res.destroyed}), aborting...`);
@@ -437,37 +473,88 @@ export class AiAgentService implements OnModuleInit {
       let fullContent = '';
       const allToolResults: any[] = [];
 
-      const llmResponse = await this.llmService.chatStream({
-        messages: llmMessages,
-        configId,
-        abortSignal: abortController.signal,
-        user,
-        onEvent: (event) => {
-          if (event.type === 'text' && event.data?.delta) {
-            fullContent = event.data.text || fullContent;
-            sendEvent(event);
-          } else if (event.type === 'tool_result') {
-            allToolResults.push(event.data);
-            sendEvent(event);
-          } else if (event.type === 'tokens') {
-            sendEvent(event);
-          } else if (event.type === 'error') {
-            sendEvent(event);
+      let llmResponse: any = null;
+      try {
+        llmResponse = await this.llmService.chatStream({
+          messages: llmMessages,
+          configId,
+          abortSignal: abortController.signal,
+          user,
+          onEvent: (event) => {
+            if (event.type === 'text' && event.data?.delta) {
+              fullContent = event.data.text || fullContent;
+              sendEvent(event);
+            } else if (event.type === 'tool_result') {
+              allToolResults.push(event.data);
+              sendEvent(event);
+            } else if (event.type === 'tokens') {
+              sendEvent(event);
+            } else if (event.type === 'error') {
+              sendEvent(event);
+            }
+          },
+        });
+      } catch (llmError: any) {
+        cleanup();
+        this.logger.error('[AI-Agent][Stream] LLM service error:', llmError);
+        
+        const errorMsg = llmError?.message || String(llmError);
+        sendEvent({
+          type: 'error',
+          data: {
+            error: errorMsg,
+            details: llmError?.response?.data || llmError?.data,
+          },
+        });
+
+        if (conversation && lastSequence !== undefined) {
+          try {
+            const assistantSequence = lastSequence + 2;
+            await this.conversationService.createMessage({
+              data: {
+                conversationId: conversation.id,
+                role: 'assistant',
+                content: `Error: ${errorMsg}`,
+                sequence: assistantSequence,
+              },
+              userId,
+            });
+            await this.conversationService.updateMessageCount({ conversationId: conversation.id, userId });
+          } catch (dbError) {
+            this.logger.error('Failed to save error message to database:', dbError);
           }
-        },
-      });
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+        res.end();
+        return;
+      }
+
+      if (!llmResponse) {
+        cleanup();
+        res.end();
+        return;
+      }
 
       sendEvent({
         type: 'done',
         data: {
           conversation: conversation.id,
           finalResponse: llmResponse.content || '',
-          toolCalls: llmResponse.toolCalls.map((tc) => {
-            const result = llmResponse.toolResults.find((tr) => tr.toolCallId === tc.id);
+          toolCalls: (llmResponse.toolCalls || []).map((tc) => {
+            const result = (llmResponse.toolResults || []).find((tr) => tr.toolCallId === tc.id);
+            let parsedArgs = {};
+            try {
+              parsedArgs = typeof tc.function.arguments === 'string' 
+                ? JSON.parse(tc.function.arguments) 
+                : tc.function.arguments || {};
+            } catch (e) {
+              this.logger.warn(`[AI-Agent][Stream] Failed to parse tool arguments for ${tc.function.name}: ${e.message}`);
+            }
             return {
               id: tc.id,
               name: tc.function.name,
-              arguments: JSON.parse(tc.function.arguments),
+              arguments: parsedArgs,
               result: result?.result,
             };
           }),
@@ -492,8 +579,8 @@ export class AiAgentService implements OnModuleInit {
               conversationId: conversation.id,
               role: 'assistant',
               content: contentToSave,
-              toolCalls: llmResponse.toolCalls.length > 0 ? llmResponse.toolCalls : null,
-              toolResults: llmResponse.toolResults.length > 0 ? llmResponse.toolResults : null,
+              toolCalls: (llmResponse.toolCalls || []).length > 0 ? llmResponse.toolCalls : null,
+              toolResults: (llmResponse.toolResults || []).length > 0 ? llmResponse.toolResults : null,
               sequence: assistantSequence,
             },
             userId,
@@ -698,71 +785,23 @@ export class AiAgentService implements OnModuleInit {
             for (const toolResult of message.toolResults) {
               const toolCall = message.toolCalls?.find((tc) => tc.id === toolResult.toolCallId);
               const toolName = toolCall?.function?.name || '';
-
-              let resultContent: string;
-
-              if (toolName === 'get_metadata' || toolName === 'get_table_details') {
-                resultContent = JSON.stringify({
-                  _truncated: true,
-                  _message: `Tool ${toolName} executed successfully. Details are not included in history to save tokens. Call the tool again if you need the information.`,
-                });
-              } else if (toolName === 'dynamic_repository') {
-                const result = toolResult.result;
-                const resultStr = JSON.stringify(result);
-                const hasError = result?.error || result?.message?.includes('Error') || result?.message?.includes('Failed');
-
-                if (hasError) {
-                  resultContent = resultStr;
-                } else if (resultStr.length <= 2000) {
-                  resultContent = resultStr;
-                } else {
-                  const smartResult: any = {
-                    _truncated: true,
-                    success: result.success !== undefined ? result.success : true,
-                  };
-
-                  if (result.count !== undefined) {
-                    smartResult.count = result.count;
-                  }
-                  if (result.total !== undefined) {
-                    smartResult.total = result.total;
-                  }
-
-                  if (result.data && Array.isArray(result.data)) {
-                    smartResult.dataCount = result.data.length;
-                    if (result.data.length > 5) {
-                      smartResult.dataSample = {
-                        first: result.data.slice(0, 3),
-                        last: result.data.slice(-2),
-                        _note: `Showing ${3 + 2} of ${result.data.length} records. Full data omitted to save tokens.`,
-                      };
-                    } else {
-                      smartResult.data = result.data;
-                    }
-                  } else if (result.data) {
-                    smartResult.data = result.data;
-                  }
-
-                  resultContent = JSON.stringify(smartResult);
-                }
-              } else if (toolName === 'get_hint') {
-                resultContent = JSON.stringify(toolResult.result);
-              } else {
-                const resultStr = JSON.stringify(toolResult.result);
-                if (resultStr.length > 1000) {
-                  resultContent = JSON.stringify({
-                    _truncated: true,
-                    _message: 'Result retrieved successfully.',
-                    _size: resultStr.length,
-                  });
-                } else {
-                  resultContent = resultStr;
+              let parsedArgs: any = {};
+              if (toolCall?.function?.arguments) {
+                try {
+                  parsedArgs =
+                    typeof toolCall.function.arguments === 'string'
+                      ? JSON.parse(toolCall.function.arguments)
+                      : toolCall.function.arguments;
+                } catch {
+                  parsedArgs = {};
                 }
               }
 
+              const summary = this.formatToolResultSummary(toolName, parsedArgs, toolResult.result);
+
               llmMessages.push({
                 role: 'tool',
-                content: resultContent,
+                content: summary,
                 tool_call_id: toolResult.toolCallId,
               });
             }
@@ -775,6 +814,120 @@ export class AiAgentService implements OnModuleInit {
     }
 
     return llmMessages;
+  }
+
+  private formatToolResultSummary(toolName: string, toolArgs: any, result: any): string {
+    const name = toolName || 'unknown_tool';
+
+    if (name === 'get_metadata' || name === 'get_table_details') {
+      return `[${name}] Executed. Schema details omitted to save tokens. Re-run the tool if you need the raw metadata.`;
+    }
+
+    if (name === 'check_permission') {
+      const table = toolArgs?.table || 'n/a';
+      const routePath = toolArgs?.routePath || 'n/a';
+      const operation = toolArgs?.operation || 'n/a';
+      const allowed = result?.allowed === true ? 'ALLOWED' : 'DENIED';
+      const reason = result?.reason || 'unknown_reason';
+      const cacheKey = result?.cacheKey ? ` cacheKey=${result.cacheKey}` : '';
+      return `[check_permission] table=${table} route=${routePath} operation=${operation} -> ${allowed} (${reason})${cacheKey}`;
+    }
+
+    if (name === 'dynamic_repository') {
+      const table = toolArgs?.table || 'unknown';
+      const operation = toolArgs?.operation || 'unknown';
+
+      if (result?.error) {
+        const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+        return `[dynamic_repository] ${operation} ${table} -> ERROR: ${this.truncateString(message, 220)}`;
+      }
+
+      if (operation === 'batch_delete') {
+        const ids = Array.isArray(toolArgs?.ids) ? toolArgs.ids : [];
+        const deletedCount = result?.count ?? ids.length;
+        return `[dynamic_repository] ${operation} ${table} -> DELETED ${deletedCount} record(s) (ids: ${ids.length})`;
+      }
+
+      if (operation === 'find' && Array.isArray(result?.data)) {
+        const length = result.data.length;
+        if (table === 'table_definition' && length > 0) {
+          const tableNames = result.data.map((r: any) => r.name).filter(Boolean).slice(0, 5);
+          const tableIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined).slice(0, 5);
+          const namesStr = tableNames.length > 0 ? ` names=[${tableNames.join(', ')}]` : '';
+          const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
+          const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
+          return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. IMPORTANT: Process ALL ${length} records, not just one.`;
+        }
+        if (length > 1) {
+          const ids = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined).slice(0, 5);
+          const idsStr = ids.length > 0 ? ` ids=[${ids.join(', ')}]` : '';
+          const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
+          return `[dynamic_repository] ${operation} ${table} -> Found ${length} record(s)${idsStr}${moreInfo}. IMPORTANT: Process ALL ${length} records if needed.`;
+        }
+      }
+
+      const metaParts: string[] = [];
+      if (result?.success !== undefined) {
+        metaParts.push(`success=${result.success}`);
+      }
+      if (result?.count !== undefined) {
+        metaParts.push(`count=${result.count}`);
+      }
+      if (result?.total !== undefined) {
+        metaParts.push(`total=${result.total}`);
+      }
+
+      let dataInfo = '';
+      if (Array.isArray(result?.data)) {
+        const length = result.data.length;
+        if (length > 0) {
+          const sample = result.data.slice(0, 2);
+          dataInfo = ` dataCount=${length} sample=${this.truncateString(JSON.stringify(sample), 160)}`;
+        } else {
+          dataInfo = ' dataCount=0';
+        }
+      } else if (result?.data) {
+        dataInfo = ` data=${this.truncateString(JSON.stringify(result.data), 160)}`;
+      }
+
+      const metaInfo = metaParts.length > 0 ? ` ${metaParts.join(' ')}` : '';
+      return `[dynamic_repository] ${operation} ${table}${metaInfo}${dataInfo}`;
+    }
+
+    if (name === 'get_hint') {
+      const category = toolArgs?.category || 'all';
+      const hintsCount = Array.isArray(result?.hints) ? result.hints.length : 0;
+      const titles =
+        Array.isArray(result?.hints) && result.hints.length > 0
+          ? result.hints
+              .slice(0, 2)
+              .map((h: any) => h?.title)
+              .filter(Boolean)
+              .join(', ')
+          : '';
+      const titleInfo = titles ? ` sampleTitles=[${this.truncateString(titles, 120)}]` : '';
+      return `[get_hint] category=${category} -> ${hintsCount} hint(s)${titleInfo}`;
+    }
+
+    if (name === 'get_fields') {
+      const table = toolArgs?.tableName || 'unknown';
+      const fields = Array.isArray(result?.fields) ? result.fields : [];
+      const sample = fields.slice(0, 5).join(', ');
+      return `[get_fields] table=${table} -> ${fields.length} field(s) sample=[${sample}]`;
+    }
+
+    const serialized = this.truncateString(JSON.stringify(result), 200);
+    return `[${name}] result=${serialized}`;
+  }
+
+  private truncateString(value: string, maxLength: number): string {
+    if (!value) {
+      return '';
+    }
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return `${value.slice(0, maxLength)}...`;
   }
 
   private async buildSystemPrompt(params: {
@@ -791,7 +944,7 @@ export class AiAgentService implements OnModuleInit {
 
     const metadata = await this.metadataCacheService.getMetadata();
     const tablesList = Array.from(metadata.tables.entries())
-      .map(([name, table]) => `- ${name}${table.description ? ': ' + table.description : ''}`)
+      .map(([name]) => `- ${name}`)
       .join('\n');
 
     let userContext = '';
@@ -841,7 +994,8 @@ ${userContext}
 - New tables: call get_hint(category="table_operations"), then use dynamic_repository on table_definition with data.columns array (include primary id column {name:"id", type:"int", isPrimary:true, isGenerated:true}).
 - Metadata tasks (creating/dropping tables, columns, relations) operate exclusively on *_definition tables; do not query the data tables (e.g., \`post\`) when the request is about table metadata.
 - Relations (any type): fetch the current table_definition (relations.*) first, merge new relation objects, and update exactly one table_definition with data.relations array (e.g., {propertyName, type, targetTable:{id}, inversePropertyName?}); never update the inverse table separately.
-- Dropping tables: call get_table_details to confirm, then delete from table_definition via dynamic_repository (operation:"delete", id=tableId). Warn the user that this removes metadata and requires admin UI reload.
+- Dropping tables: find table_definition records by name(s), collect their IDs, then use batch_delete with ids array if multiple tables, or single delete if one table. Always remind the user to reload the admin UI.
+- When find returns multiple records (e.g., 2+ tables), you MUST process ALL of them, not just one. Use batch_delete with all collected IDs, not individual delete calls.
 - When a high-risk update/delete is confirmed by the user (e.g., updating or deleting *_definition rows), include meta:"human_confirmed" in that dynamic_repository call to bypass repeated prompts.
 - Metadata changes (table_definition / column_definition / relation_definition / storage_config / route wiring) must end with a reminder for the user to reload the admin UI to refresh caches.
 - System tables (user_definition, role_definition, route_definition, file_definition, etc.) cannot have built-in columns/relations removed or edited; only add new columns/relations when extending them, and prefer reusing these tables instead of creating duplicates.
@@ -865,10 +1019,17 @@ ${userContext}
     }
 
     if (latestUserMessage) {
-      const { getRelevantExamples, formatExamplesForPrompt } = await import('../utils/examples-library.helper');
-      const examples = getRelevantExamples(latestUserMessage);
-      if (examples.length > 0) {
-        prompt += '\n\n' + formatExamplesForPrompt(examples);
+      const messageText = (typeof latestUserMessage === 'string' ? latestUserMessage : String(latestUserMessage || '')).toLowerCase().trim();
+      
+      const isSimpleGreeting = /^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening))[!.]?$/i.test(messageText);
+      const isSimpleQuestion = messageText.length < 20 && !messageText.includes('create') && !messageText.includes('delete') && !messageText.includes('update') && !messageText.includes('find') && !messageText.includes('table') && !messageText.includes('column') && !messageText.includes('relation');
+      
+      if (!isSimpleGreeting && !isSimpleQuestion) {
+        const { getRelevantExamples, formatExamplesForPrompt } = await import('../utils/examples-library.helper');
+        const examples = getRelevantExamples(messageText);
+        if (examples.length > 0) {
+          prompt += '\n\n' + formatExamplesForPrompt(examples);
+        }
       }
     }
 

@@ -72,6 +72,7 @@ export class LLMService {
         apiKey: config.apiKey,
         model: config.model?.trim(),
         timeout: config.llmTimeout || 30000,
+        streaming: true,
       });
     }
 
@@ -385,6 +386,7 @@ export class LLMService {
       const allToolResults: IToolResult[] = [];
       let iterations = 0;
       const maxIterations = config.maxToolIterations || 15;
+      let accumulatedTokenUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
 
       while (iterations < maxIterations) {
         iterations++;
@@ -401,16 +403,50 @@ export class LLMService {
         try {
           if (canStream) {
             const stream = await llmWithTools.stream(conversationMessages);
+            const allChunks: any[] = [];
+            const aggregatedToolCalls: Map<number, any> = new Map();
 
             for await (const chunk of stream) {
               if (abortSignal?.aborted) {
                 throw new Error('Request aborted by client');
               }
 
-              if (aggregateResponse === null) {
-                aggregateResponse = chunk;
-              } else {
-                aggregateResponse = aggregateResponse.concat(chunk);
+              allChunks.push(chunk);
+              aggregateResponse = chunk;
+
+              const chunkUsage = this.extractTokenUsage(chunk);
+              if (chunkUsage) {
+                accumulatedTokenUsage.inputTokens += chunkUsage.inputTokens ?? 0;
+                accumulatedTokenUsage.outputTokens += chunkUsage.outputTokens ?? 0;
+                
+                onEvent({
+                  type: 'tokens',
+                  data: {
+                    inputTokens: accumulatedTokenUsage.inputTokens,
+                    outputTokens: accumulatedTokenUsage.outputTokens,
+                  },
+                });
+              }
+
+              const chunkToolCalls = this.getToolCallsFromResponse(chunk);
+              if (chunkToolCalls.length > 0) {
+                for (const tc of chunkToolCalls) {
+                  const index = tc.index !== undefined ? tc.index : (aggregatedToolCalls.size);
+                  const existing = aggregatedToolCalls.get(index) || {};
+                  
+                  aggregatedToolCalls.set(index, {
+                    ...existing,
+                    ...tc,
+                    id: tc.id || existing.id,
+                    function: {
+                      ...(existing.function || {}),
+                      ...(tc.function || {}),
+                      name: tc.function?.name || existing.function?.name,
+                      arguments: (existing.function?.arguments || '') + (tc.function?.arguments || ''),
+                    },
+                  });
+                }
+                this.logger.log(`[LLM Stream] Aggregated ${aggregatedToolCalls.size} tool calls from chunks`);
               }
 
               if (chunk.content) {
@@ -438,21 +474,90 @@ export class LLMService {
                 });
               }
             }
+
+            if (aggregatedToolCalls.size > 0) {
+              currentToolCalls = Array.from(aggregatedToolCalls.values()).map((tc) => {
+                if (tc.function?.arguments && typeof tc.function.arguments === 'string') {
+                  try {
+                    const parsed = JSON.parse(tc.function.arguments);
+                    this.logger.log(`[LLM Stream] Parsed arguments for ${tc.function?.name || 'unknown'}: ${JSON.stringify(parsed)}`);
+                    return {
+                      ...tc,
+                      function: {
+                        ...tc.function,
+                        arguments: parsed,
+                      },
+                    };
+                  } catch (e) {
+                    this.logger.warn(`[LLM Stream] Failed to parse aggregated arguments: ${tc.function.arguments.substring(0, 100)}`);
+                    this.logger.warn(`[LLM Stream] Full tool call before parse: ${JSON.stringify(tc)}`);
+                    return tc;
+                  }
+                }
+                this.logger.log(`[LLM Stream] Tool call ${tc.function?.name || 'unknown'} arguments type: ${typeof tc.function?.arguments}, value: ${JSON.stringify(tc.function?.arguments)}`);
+                return tc;
+              });
+              this.logger.log(`[LLM Stream] Final aggregated ${currentToolCalls.length} tool calls`);
+              if (currentToolCalls.length > 0) {
+                this.logger.log(`[LLM Stream] First tool call structure: ${JSON.stringify({
+                  name: currentToolCalls[0].function?.name,
+                  hasFunction: !!currentToolCalls[0].function,
+                  hasArguments: !!currentToolCalls[0].function?.arguments,
+                  argumentsType: typeof currentToolCalls[0].function?.arguments,
+                  argumentsValue: JSON.stringify(currentToolCalls[0].function?.arguments),
+                })}`);
+              }
+            } else if (allChunks.length > 0) {
+              for (let i = allChunks.length - 1; i >= 0; i--) {
+                const chunk = allChunks[i];
+                const toolCalls = this.getToolCallsFromResponse(chunk);
+                if (toolCalls.length > 0) {
+                  currentToolCalls = toolCalls;
+                  this.logger.log(`[LLM Stream] Found ${toolCalls.length} tool calls in chunk ${i + 1}/${allChunks.length}`);
+                  break;
+                }
+              }
+              
+              if (currentToolCalls.length === 0) {
+                this.logger.warn(`[LLM Stream] No tool calls found in any of ${allChunks.length} chunks. Checking aggregateResponse...`);
+                this.logger.debug(`[LLM Stream] Last chunk structure: ${JSON.stringify(Object.keys(aggregateResponse || {})).substring(0, 200)}`);
+              }
+            }
           } else {
             aggregateResponse = await llmWithTools.invoke(conversationMessages);
-            const delta = this.reduceContentToString(aggregateResponse?.content);
-            if (delta) {
-              currentContent += delta;
-              fullContent += delta;
+            const usage = this.extractTokenUsage(aggregateResponse);
+            if (usage) {
+              accumulatedTokenUsage.inputTokens += usage.inputTokens ?? 0;
+              accumulatedTokenUsage.outputTokens += usage.outputTokens ?? 0;
+              
               onEvent({
-                type: 'text',
-                data: { delta, text: fullContent },
+                type: 'tokens',
+                data: {
+                  inputTokens: accumulatedTokenUsage.inputTokens,
+                  outputTokens: accumulatedTokenUsage.outputTokens,
+                },
+              });
+            }
+            
+            const fullDelta = this.reduceContentToString(aggregateResponse?.content);
+            if (fullDelta) {
+              await this.streamChunkedContent(fullDelta, abortSignal, (chunk) => {
+                currentContent += chunk;
+                fullContent += chunk;
+                onEvent({
+                  type: 'text',
+                  data: { delta: chunk, text: fullContent },
+                });
               });
             }
           }
         } catch (streamErr: any) {
           streamError = streamErr;
-          this.logger.error(`[LLM Stream] Stream interrupted: ${streamErr.message}`);
+          this.logger.error(`[LLM Stream] Stream interrupted: ${streamErr.message}`, streamErr);
+
+          if (abortSignal?.aborted) {
+            throw new Error('Request aborted by client');
+          }
 
           if (canStream && currentToolCalls.length > 0) {
             this.logger.warn(`[LLM Stream] Stream interrupted but recovered ${currentToolCalls.length} tool calls`);
@@ -464,19 +569,42 @@ export class LLMService {
               },
             });
           } else {
+            onEvent({
+              type: 'error',
+              data: { error: streamErr.message || String(streamErr) },
+            });
             throw streamErr;
           }
         }
 
-        if (aggregateResponse) {
+        if (aggregateResponse && currentToolCalls.length === 0) {
           const toolCalls = this.getToolCallsFromResponse(aggregateResponse);
           if (toolCalls.length > 0) {
             currentToolCalls = toolCalls;
+            this.logger.log(`[LLM Stream] Found ${toolCalls.length} tool calls in aggregateResponse`);
+          } else {
+            this.logger.debug(`[LLM Stream] No tool calls found in aggregateResponse. Response keys: ${Object.keys(aggregateResponse || {}).join(', ')}`);
           }
         }
 
         if (currentToolCalls.length === 0) {
-          this.reportTokenUsage('stream', aggregateResponse, onEvent);
+          const finalUsage = this.extractTokenUsage(aggregateResponse);
+          if (finalUsage) {
+            accumulatedTokenUsage.inputTokens += finalUsage.inputTokens ?? 0;
+            accumulatedTokenUsage.outputTokens += finalUsage.outputTokens ?? 0;
+          }
+          
+          if (accumulatedTokenUsage.inputTokens > 0 || accumulatedTokenUsage.outputTokens > 0) {
+            onEvent({
+              type: 'tokens',
+              data: {
+                inputTokens: accumulatedTokenUsage.inputTokens,
+                outputTokens: accumulatedTokenUsage.outputTokens,
+              },
+            });
+          }
+          
+          this.reportTokenUsage('stream', aggregateResponse);
           this.logger.log(`[LLM] Tool calls executed: ${allToolCalls.length}`);
           return {
             content: fullContent,
@@ -485,25 +613,48 @@ export class LLMService {
           };
         }
 
-        const langchainToolCalls = currentToolCalls.map((tc) => {
-          const toolName = tc.function?.name || tc.name;
-          let toolArgs = tc.args || tc.function?.arguments || tc.arguments;
-          if (typeof toolArgs === 'string') {
-            try {
-              toolArgs = JSON.parse(toolArgs);
-            } catch (e) {
-              this.logger.warn(`[LLM Stream] Failed to parse tool arguments: ${toolArgs}`);
-              toolArgs = {};
+        const langchainToolCalls = currentToolCalls
+          .map((tc, index) => {
+            const toolName = tc.function?.name || tc.name;
+            if (!toolName) {
+              this.logger.warn(`[LLM Stream] Skipping tool call without name. Full tool call: ${JSON.stringify(tc)}`);
+              return null;
             }
-          }
 
+            let toolArgs = tc.args || tc.function?.arguments || tc.arguments;
+            if (typeof toolArgs === 'string') {
+              try {
+                toolArgs = JSON.parse(toolArgs);
+              } catch (e) {
+                this.logger.warn(`[LLM Stream] Failed to parse tool arguments: ${toolArgs}`);
+                toolArgs = {};
+              }
+            }
+
+            const toolCallId = tc.id || tc.tool_call_id || `call_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            if (!tc.id && !tc.tool_call_id) {
+              this.logger.warn(`[LLM Stream] Tool call missing id, generated: ${toolCallId} for ${toolName}`);
+            }
+
+            return {
+              name: toolName,
+              args: toolArgs || {},
+              id: toolCallId,
+              type: 'tool_call' as const,
+            };
+          })
+          .filter((tc) => tc !== null) as any[];
+
+        if (langchainToolCalls.length === 0) {
+          this.logger.warn(`[LLM Stream] No valid tool calls found after filtering. Original tool calls: ${JSON.stringify(currentToolCalls)}`);
+          this.reportTokenUsage('stream', aggregateResponse, onEvent);
           return {
-            name: toolName,
-            args: toolArgs || {},
-            id: tc.id,
-            type: 'tool_call' as const,
+            content: fullContent,
+            toolCalls: allToolCalls,
+            toolResults: allToolResults,
           };
-        });
+        }
 
         const aiMessageWithTools = new AIMessage({
           content: currentContent,
@@ -513,7 +664,7 @@ export class LLMService {
 
         for (const tc of currentToolCalls) {
           const toolName = tc.function?.name || tc.name;
-          const toolArgs = tc.args || tc.function?.arguments || tc.arguments;
+          let toolArgs = tc.function?.arguments || tc.args || tc.arguments;
           const toolId = tc.id;
 
           if (!toolName) {
@@ -526,6 +677,9 @@ export class LLMService {
             continue;
           }
 
+          this.logger.log(`[LLM Stream] Tool call ${toolName} - args source: function.arguments=${!!tc.function?.arguments}, args=${!!tc.args}, arguments=${!!tc.arguments}`);
+          this.logger.log(`[LLM Stream] Tool call ${toolName} - raw toolArgs type: ${typeof toolArgs}, value: ${JSON.stringify(toolArgs)}`);
+
           onEvent({
             type: 'text',
             data: {
@@ -533,6 +687,25 @@ export class LLMService {
               text: fullContent + `\n\n🔧 ${toolName}...\n`,
             },
           });
+
+          let parsedArgs: any;
+          if (typeof toolArgs === 'string') {
+            try {
+              parsedArgs = JSON.parse(toolArgs);
+            } catch (parseError) {
+              this.logger.error(`[LLM Stream] Failed to parse tool args string: ${toolArgs}`);
+              this.logger.error(`[LLM Stream] Full tool call: ${JSON.stringify(tc)}`);
+              throw new Error(`Invalid JSON in tool arguments: ${parseError.message}`);
+            }
+          } else if (typeof toolArgs === 'object' && toolArgs !== null) {
+            parsedArgs = toolArgs;
+          } else {
+            this.logger.warn(`[LLM Stream] Tool args is ${typeof toolArgs}, using empty object`);
+            this.logger.warn(`[LLM Stream] Full tool call: ${JSON.stringify(tc)}`);
+            parsedArgs = {};
+          }
+
+          this.logger.log(`[LLM Stream] Executing ${toolName} with args: ${JSON.stringify(parsedArgs)}`);
 
           allToolCalls.push({
             id: toolId,
@@ -547,21 +720,6 @@ export class LLMService {
             const tool = tools.find((t) => t.name === toolName);
             if (!tool) {
               throw new Error(`Tool ${toolName} not found`);
-            }
-
-            let parsedArgs;
-            if (typeof toolArgs === 'string') {
-              try {
-                parsedArgs = JSON.parse(toolArgs);
-              } catch (parseError) {
-                this.logger.error(`[LLM Stream] Failed to parse tool args string: ${toolArgs}`);
-                throw new Error(`Invalid JSON in tool arguments: ${parseError.message}`);
-              }
-            } else if (typeof toolArgs === 'object' && toolArgs !== null) {
-              parsedArgs = toolArgs;
-            } else {
-              this.logger.warn(`[LLM Stream] Tool args is ${typeof toolArgs}, using empty object`);
-              parsedArgs = {};
             }
 
             const toolResult = await tool.func(parsedArgs);
@@ -733,26 +891,66 @@ export class LLMService {
     return '';
   }
 
+  private async streamChunkedContent(
+    content: string,
+    abortSignal?: AbortSignal,
+    onChunk?: (chunk: string) => void,
+  ): Promise<void> {
+    if (!content || !onChunk) {
+      return;
+    }
+
+    const CHUNK_SIZE = 10;
+    const DELAY_MS = 20;
+
+    for (let i = 0; i < content.length; i += CHUNK_SIZE) {
+      if (abortSignal?.aborted) {
+        throw new Error('Request aborted by client');
+      }
+
+      const chunk = content.slice(i, i + CHUNK_SIZE);
+      onChunk(chunk);
+      if (i + CHUNK_SIZE < content.length) {
+        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+      }
+    }
+  }
+
   private getToolCallsFromResponse(response: any): any[] {
     if (!response) {
       return [];
     }
-    const direct = Array.isArray(response.tool_calls) ? response.tool_calls : null;
-    if (direct && direct.length > 0) {
-      return direct;
+
+    if (response.tool_calls && Array.isArray(response.tool_calls) && response.tool_calls.length > 0) {
+      return response.tool_calls;
     }
-    const additional = Array.isArray(response.additional_kwargs?.tool_calls)
-      ? response.additional_kwargs.tool_calls
-      : null;
-    if (additional && additional.length > 0) {
-      return additional;
+
+    if (response.additional_kwargs?.tool_calls && Array.isArray(response.additional_kwargs.tool_calls) && response.additional_kwargs.tool_calls.length > 0) {
+      return response.additional_kwargs.tool_calls;
     }
-    const responseMeta = Array.isArray(response.response_metadata?.tool_calls)
-      ? response.response_metadata.tool_calls
-      : null;
-    if (responseMeta && responseMeta.length > 0) {
-      return responseMeta;
+
+    if (response.response_metadata?.tool_calls && Array.isArray(response.response_metadata.tool_calls) && response.response_metadata.tool_calls.length > 0) {
+      return response.response_metadata.tool_calls;
     }
+
+    if (response.lc_kwargs?.tool_calls && Array.isArray(response.lc_kwargs.tool_calls) && response.lc_kwargs.tool_calls.length > 0) {
+      return response.lc_kwargs.tool_calls;
+    }
+
+    if (response.kwargs?.tool_calls && Array.isArray(response.kwargs.tool_calls) && response.kwargs.tool_calls.length > 0) {
+      return response.kwargs.tool_calls;
+    }
+
+    if (response.content && typeof response.content === 'string') {
+      try {
+        const parsed = JSON.parse(response.content);
+        if (parsed.tool_calls && Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
+          return parsed.tool_calls;
+        }
+      } catch {
+      }
+    }
+
     return [];
   }
 

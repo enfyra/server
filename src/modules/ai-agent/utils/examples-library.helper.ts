@@ -381,19 +381,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
             tool: 'dynamic_repository',
             args: {
               table: 'table_definition',
-              operation: 'delete',
-              id: 'post_table_id'
+              operation: 'batch_delete',
+              ids: ['post_table_id', 'category_table_id']
             },
-            reasoning: 'Delete post table metadata'
-          },
-          {
-            tool: 'dynamic_repository',
-            args: {
-              table: 'table_definition',
-              operation: 'delete',
-              id: 'category_table_id'
-            },
-            reasoning: 'Delete category table metadata'
+            reasoning: 'Delete both tables in one batch_delete call (efficient)'
           },
           {
             tool: 'dynamic_repository',

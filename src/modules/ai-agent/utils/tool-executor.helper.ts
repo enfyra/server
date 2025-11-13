@@ -464,13 +464,12 @@ Step-by-step (8-10 tool calls total):
 2. Find existing table metadata (ONE query):
    {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
 
-3. Permission checks (2 calls):
+3. Permission checks (check once per unique table):
    {"table":"post","operation":"delete"} → check_permission
    {"table":"category","operation":"delete"} → check_permission
 
-4. Delete table metadata (2 calls):
-   {"table":"table_definition","operation":"delete","id":"<post_table_${idFieldName}>"}
-   {"table":"table_definition","operation":"delete","id":"<category_table_${idFieldName}>"}
+4. Delete table metadata (ONE batch_delete call):
+   {"table":"table_definition","operation":"batch_delete","ids":["<post_table_${idFieldName}>","<category_table_${idFieldName}>"]}
 
 5. Create new tables (2 calls, include ALL columns + id):
    Post table:
@@ -495,6 +494,8 @@ Common mistakes to AVOID:
 ❌ Using findOne operation (use find with limit=1)
 ❌ Multiple find calls instead of using _in filter
 ❌ Not including all columns in table create
+❌ Deleting multiple tables one by one instead of using batch_delete with ids array
+❌ Not collecting all IDs before batch_delete (must find first, then batch_delete)
 
 Efficiency rules:
 ✅ Use _in filter to find multiple tables in ONE call
