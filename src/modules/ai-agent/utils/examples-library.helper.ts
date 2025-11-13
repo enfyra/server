@@ -1,14 +1,5 @@
-/**
- * Few-Shot Examples Library
- *
- * Provides concrete examples for LLM to improve tool selection accuracy
- * and parameter formatting. Examples are injected into system prompt based
- * on detected user intent.
- *
- * Best Practice: Anthropic & OpenAI recommend 2-5 examples per pattern
- */
-
 export interface ToolExample {
+  id: string;
   scenario: string;
   userMessage: string;
   correctApproach: string;
@@ -25,22 +16,16 @@ export interface ExampleCategory {
   examples: ToolExample[];
 }
 
-/**
- * Example Categories - Each contains 2-3 representative examples
- */
 export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
-
-  // ============================================
-  // 1. FIND QUERIES (Most Common)
-  // ============================================
   find_queries: {
     name: 'Find/List Queries',
     keywords: ['show', 'list', 'get', 'find', 'display', 'view', 'see'],
     examples: [
       {
+        id: 'FIND-01',
         scenario: 'Simple list with field selection',
         userMessage: 'Show me all posts',
-        correctApproach: 'Step 1: Get field names. Step 2: Query with selected fields only',
+        correctApproach: 'Call get_fields first, then find with minimal fields and limit=0 only when needed.',
         toolCalls: [
           {
             tool: 'get_fields',
@@ -60,9 +45,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
         ]
       },
       {
+        id: 'FIND-02',
         scenario: 'Filtered query with sort',
         userMessage: 'Show me the last 5 posts by createdAt',
-        correctApproach: 'Get fields, then query with sort=-createdAt and limit=5',
+        correctApproach: 'Fetch fields, then use sort=-createdAt and limit=5.',
         toolCalls: [
           {
             tool: 'get_fields',
@@ -82,9 +68,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
         ]
       },
       {
-        scenario: 'Count query (OPTIMIZED with meta)',
+        id: 'FIND-03',
+        scenario: 'Count query (optimized with meta)',
         userMessage: 'How many users do we have?',
-        correctApproach: 'Use meta=totalCount with limit=1 (100x faster than limit=0)',
+        correctApproach: 'Use limit=1 with meta=totalCount instead of limit=0.',
         toolCalls: [
           {
             tool: 'dynamic_repository',
@@ -102,17 +89,15 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
     ]
   },
 
-  // ============================================
-  // 2. BATCH OPERATIONS (5+ records)
-  // ============================================
   batch_operations: {
     name: 'Batch Create/Update/Delete',
     keywords: ['create 10', 'add 20', 'delete multiple', 'update many', '5', '10', '20', '100'],
     examples: [
       {
+        id: 'BATCH-01',
         scenario: 'Create multiple records',
         userMessage: 'Create 10 sample posts with titles',
-        correctApproach: 'Step 1: Get exact column names. Step 2: Use batch_create with dataArray',
+        correctApproach: 'Confirm schema, then call batch_create with dataArray.',
         toolCalls: [
           {
             tool: 'get_table_details',
@@ -120,24 +105,24 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
             reasoning: 'Need exact column names and types for create operation'
           },
           {
-            tool: 'batch_create',
+            tool: 'dynamic_repository',
             args: {
               table: 'post',
               operation: 'batch_create',
               dataArray: [
                 { title: 'Post 1', content: 'Content 1' },
                 { title: 'Post 2', content: 'Content 2' }
-                // ... 10 items total
               ]
             },
-            reasoning: 'ONE batch_create call handles all 10 records efficiently'
+            reasoning: 'One batch_create call handles all records efficiently'
           }
         ]
       },
       {
+        id: 'BATCH-02',
         scenario: 'Update multiple records',
         userMessage: 'Update price for products 1, 2, and 3',
-        correctApproach: 'Use batch_update with updates array',
+        correctApproach: 'Use batch_update with updates array, not multiple single updates.',
         toolCalls: [
           {
             tool: 'dynamic_repository',
@@ -150,24 +135,22 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                 { id: 3, data: { price: 300 } }
               ]
             },
-            reasoning: 'batch_update for multiple ID updates (not a loop!)'
+            reasoning: 'Use batch_update instead of looping single updates'
           }
         ]
       }
     ]
   },
 
-  // ============================================
-  // 3. NESTED RELATIONS (Common mistake)
-  // ============================================
   nested_relations: {
     name: 'Nested Relations',
     keywords: ['with', 'and their', 'including', 'along with', 'related'],
     examples: [
       {
+        id: 'REL-01',
         scenario: 'Get related data in one query',
         userMessage: 'Show me routes with their roles',
-        correctApproach: 'Use nested fields: relation.field syntax',
+        correctApproach: 'Use relation.field fields and a single find call.',
         toolCalls: [
           {
             tool: 'get_fields',
@@ -186,9 +169,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
         ]
       },
       {
+        id: 'REL-02',
         scenario: 'Filter by related data',
         userMessage: 'Find routes that have Admin role',
-        correctApproach: 'Use nested filter: {relation: {field: {operator: value}}}',
+        correctApproach: 'Nest the filter under the relation in the where clause.',
         toolCalls: [
           {
             tool: 'dynamic_repository',
@@ -206,17 +190,15 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
     ]
   },
 
-  // ============================================
-  // 4. SELF-AWARENESS & GET_HINT (New!)
-  // ============================================
   uncertainty_handling: {
     name: 'Uncertainty & Self-Awareness',
     keywords: ['not sure', 'unsure', 'confused', 'how to', 'what is'],
     examples: [
       {
+        id: 'UNC-01',
         scenario: 'Uncertain about nested relations',
         userMessage: 'Show me routes with their roles',
-        correctApproach: 'NOT 100% sure about nested syntax → Call get_hint first',
+        correctApproach: 'When confidence <80%, call get_hint before acting.',
         toolCalls: [
           {
             tool: 'get_hint',
@@ -241,9 +223,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
         ]
       },
       {
+        id: 'UNC-02',
         scenario: 'Error occurred - not sure why',
         userMessage: 'Get post with author name (returns error: unknown field)',
-        correctApproach: 'Got error → Call get_hint to understand',
+        correctApproach: 'Call get_hint to diagnose the error, then re-check fields.',
         toolCalls: [
           {
             tool: 'get_hint',
@@ -260,17 +243,15 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
     ]
   },
 
-  // ============================================
-  // 5. PERMISSION CHECKS (Critical!)
-  // ============================================
   permission_checks: {
     name: 'Permission Checks',
     keywords: ['create', 'add', 'insert', 'update', 'modify', 'delete', 'remove'],
     examples: [
       {
+        id: 'PERM-01',
         scenario: 'Check permission before create',
         userMessage: 'Create a new post with title "Hello"',
-        correctApproach: 'Step 1: Check permission. Step 2: If allowed, get schema. Step 3: Create',
+        correctApproach: 'Always run check_permission first, then fetch schema, then perform the write.',
         toolCalls: [
           {
             tool: 'check_permission',
@@ -297,9 +278,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
         ]
       },
       {
+        id: 'PERM-02',
         scenario: 'Check permission before delete',
         userMessage: 'Delete route with ID 5',
-        correctApproach: 'Check permission first, then delete if allowed',
+        correctApproach: 'Permission check precedes any delete call.',
         toolCalls: [
           {
             tool: 'check_permission',
@@ -323,17 +305,15 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
     ]
   },
 
-  // ============================================
-  // 6. TABLE OPERATIONS
-  // ============================================
   table_operations: {
     name: 'Create/Modify Tables',
     keywords: ['create table', 'add table', 'modify table', 'add column', 'new table'],
     examples: [
       {
+        id: 'TABLE-01',
         scenario: 'Create new table',
         userMessage: 'Create a products table with name and price',
-        correctApproach: 'Check existing tables, get reference schema, create with exact structure',
+        correctApproach: 'Verify existing tables, inspect schema reference, then create with correct id column.',
         toolCalls: [
           {
             tool: 'dynamic_repository',
@@ -374,14 +354,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
   }
 };
 
-/**
- * Detect user intent based on keywords in message
- */
 export function detectIntent(userMessage: string): string[] {
   const message = userMessage.toLowerCase();
   const detectedCategories: string[] = [];
 
-  // Check each category's keywords
   for (const [categoryKey, category] of Object.entries(EXAMPLE_CATEGORIES)) {
     const hasKeyword = category.keywords.some(keyword =>
       message.includes(keyword.toLowerCase())
@@ -392,7 +368,6 @@ export function detectIntent(userMessage: string): string[] {
     }
   }
 
-  // Default to find_queries if no specific intent detected
   if (detectedCategories.length === 0) {
     detectedCategories.push('find_queries');
   }
@@ -400,23 +375,16 @@ export function detectIntent(userMessage: string): string[] {
   return detectedCategories;
 }
 
-/**
- * Get relevant examples for detected intent
- * Returns max 5 examples (2-3 from each category)
- */
 export function getRelevantExamples(userMessage: string): ToolExample[] {
   const intents = detectIntent(userMessage);
   const examples: ToolExample[] = [];
 
-  // Get 2 examples from each detected category (max 5 total)
   for (const intent of intents) {
     const category = EXAMPLE_CATEGORIES[intent];
     if (category) {
-      // Take first 2 examples from category
       examples.push(...category.examples.slice(0, 2));
     }
 
-    // Stop at 5 examples total
     if (examples.length >= 5) {
       break;
     }
@@ -425,39 +393,36 @@ export function getRelevantExamples(userMessage: string): ToolExample[] {
   return examples.slice(0, 5);
 }
 
-/**
- * Format examples as markdown for system prompt injection
- */
 export function formatExamplesForPrompt(examples: ToolExample[]): string {
   if (examples.length === 0) {
     return '';
   }
 
   const formatted = examples.map((example, index) => {
-    const toolCallsStr = example.toolCalls.map(tc =>
-      `   ${tc.tool}(${JSON.stringify(tc.args, null, 6).replace(/\n/g, '\n   ')})`
-    ).join('\n\n');
+    const toolCallsStr = example.toolCalls
+      .map(tc => `  - ${tc.tool}(${JSON.stringify(tc.args)})${tc.reasoning ? ` — ${tc.reasoning}` : ''}`)
+      .join('\n');
 
-    return `**Example ${index + 1}: ${example.scenario}**
-User: "${example.userMessage}"
-Approach: ${example.correctApproach}
-Tools:
+    return `**[${example.id}] ${example.scenario}**
+• User: "${example.userMessage}"
+• Approach: ${example.correctApproach}
+• Tools:
 ${toolCallsStr}`;
   }).join('\n\n---\n\n');
 
   return `
-## 📚 Few-Shot Examples (Similar to Your Task)
+## Few-Shot Examples (closest patterns)
 
 ${formatted}
 
-**Key Lessons from Examples:**
-1. **If confidence <80%: Call get_hint FIRST!** (Better safe than wrong)
-2. Always get_fields before find queries (fast, lightweight)
-3. For count queries: Use meta='totalCount' with limit=1 (NOT limit=0!)
-4. Use batch_* operations for 5+ records (never loop!)
-5. Check permission before any create/update/delete
-6. Use nested fields for related data (one query, not multiple)
-7. Use exact column names from get_table_details for create/update
+Key reminders:
+- Confidence <80% → call get_hint before acting
+- get_fields precedes find queries to avoid invalid selections
+- Count queries: limit=1 + meta="totalCount"
+- Use batch_* for 5+ records; never loop single calls
+- Always check_permission before create/update/delete
+- Prefer nested fields for related data
+- Match exact column names from get_table_details for writes
 
 ---
 `;

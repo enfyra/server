@@ -1,4 +1,3 @@
-// Common tool definitions - define once, convert to provider format
 interface ToolDefinition {
   name: string;
   description: string;
@@ -9,24 +8,33 @@ interface ToolDefinition {
   };
 }
 
-const COMMON_TOOLS: ToolDefinition[] = [
+export const COMMON_TOOLS: ToolDefinition[] = [
   {
     name: 'check_permission',
-    description: `Check if current user has permission to perform an operation on a specific route/resource.
+    description: `Purpose → verify access before any data operation.
 
-**When to use:**
-- BEFORE any create/update/delete operation
-- BEFORE reading sensitive data (users, routes, permissions, configs)
-- When user requests access to restricted resources
+Use when:
+- Handling read/create/update/delete on protected data
+- User targets restricted tables or admin routes
 
-**Returns:**
-- allowed: true/false
-- reason: why access was granted/denied (root admin, role-based, user-specific, denied)
-- userInfo: current user details (id, email, isRootAdmin, roles)
+Skip when:
+- Only calling get_metadata, get_table_details, get_fields, get_hint
+- Answering casual questions without touching data
 
-**DO NOT call this for:**
-- Metadata queries (get_metadata, get_table_details, get_fields, get_hint)
-- Public/non-sensitive read operations`,
+Inputs:
+- operation (required): read | create | update | delete
+- table (preferred) → exact table name (e.g., "route_definition")
+- routePath (fallback) → exact API route (e.g., "/admin/routes")
+- Provide only one; table takes precedence if both sent
+
+Output fields:
+- allowed (boolean)
+- reason (string: root_admin | user_match | role_match | denied | no_route)
+- userInfo (object: id/email/isRootAdmin/roles[])
+- routeInfo (object: matched route + permissions array when applicable)
+
+Example:
+{"table":"route_definition","operation":"delete"}`,
     parameters: {
       type: 'object',
       properties: {
@@ -48,41 +56,59 @@ const COMMON_TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: 'get_metadata',
-    description:
-      'Get a brief list of all available tables in the system. Returns only table names and descriptions. ONLY use this when the user explicitly asks about available tables or needs to discover what tables exist. DO NOT use for simple greetings or general conversations.',
+    name: 'list_tables',
+    description: `Purpose → refresh the current list of tables with short descriptions.
+
+Use when:
+- Unsure about the exact table the user means
+- The request is literally "which tables do we have?"
+
+Skip when:
+- The system prompt already gives the table you need
+
+Inputs: {}
+
+Returns:
+- tables (array) -> [{name, description?, isSingleRecord?}]
+- tablesList (array of names for quick lookup)`,
     parameters: {
       type: 'object',
-      properties: {
-        forceRefresh: {
-          type: 'boolean',
-          description: 'If true, reloads metadata from database before returning. Default: false.',
-          default: false,
-        },
-      },
+      properties: {},
     },
   },
   {
     name: 'get_table_details',
-    description: `Get detailed metadata of a specific table including columns, relations, constraints. Returns: table name, description, columns (name, type, isNullable, isPrimary, isGenerated, defaultValue, options), relations, uniques, indexes.
+    description: `Purpose → load the full schema (columns, relations, indexes, constraints).
 
-**CRITICAL - Avoid Redundant Calls:**
-- If you ALREADY called get_table_details for a table in THIS conversation, DO NOT call it again
-- REUSE the result from the previous call - table schema doesn't change during conversation
-- ONLY call again if user explicitly modifies the table structure
-- Example: Already got "post" schema? Don't call get_table_details("post") again - use the previous result
+Use when:
+- Preparing create/update payloads that must match schema exactly
+- Investigating relation structure or constraints
 
-ONLY use this when the user explicitly asks for details about a specific table or needs information to create/modify tables.`,
+Skip when:
+- You only need field names → prefer get_fields
+
+Inputs:
+- tableName (required) → exact table identifier as stored (case-sensitive)
+- forceRefresh (optional) true to reload metadata
+
+Response highlights:
+- name, description, isSingleRecord, database type info
+- columns[] → {name,type,isNullable,isPrimary,defaultValue,isUnique}
+- relations[] → {propertyName,type,targetTable:{id,name},inversePropertyName?,cascade}
+- indexes[] / uniques[] definitions
+
+Example:
+{"tableName":"user_definition"}`,
     parameters: {
       type: 'object',
       properties: {
         tableName: {
           type: 'string',
-          description: 'Name of the table to get detailed metadata for.',
+          description: 'REQUIRED. The exact name of the table (e.g., "user_definition", "post", "route_definition"). Extract this from the user message.',
         },
         forceRefresh: {
           type: 'boolean',
-          description: 'If true, reloads metadata from database before returning. Default: false.',
+          description: 'Optional. Set to true to reload metadata from database. Default: false.',
           default: false,
         },
       },
@@ -91,24 +117,24 @@ ONLY use this when the user explicitly asks for details about a specific table o
   },
   {
     name: 'get_fields',
-    description: `Get a lightweight list of field names for a specific table. **ALWAYS use this before queries** when you only need field names.
+    description: `Purpose → list valid field names for a table (lightweight).
 
-**✅ When to Use (Common):**
-- Before ANY find query → to see available fields for SELECT
-- User asks "show me posts" → call get_fields("post") first to know what fields to query
-- User asks "list all users" → call get_fields("user_definition") to get field names
-- To quickly check available fields without fetching full schema (saves tokens)
-- When you already know table structure but forgot field names
+Use when:
+- Before dynamic_repository.find to avoid invalid field selections
+- You know the table but forgot exact column names
 
-**❌ When NOT to Use:**
-- Need column types, constraints, relations → use get_table_details instead
-- Need to create/update table structure → use get_table_details
-- Already called get_fields for this table in current conversation → reuse previous result
+Skip when:
+- You need types, relations, or constraints → use get_table_details
 
-**Returns:** Simple array of field names
-Example result: {"table": "user_definition", "fields": ["id", "email", "name", "isRootAdmin", "createdAt", "updatedAt"]}
+Inputs:
+- tableName (required)
 
-**Pro tip:** For create/update operations, use get_table_details to get exact column types. For read operations, use get_fields (much faster).`,
+Response:
+- table (string echo)
+- fields (string[]) sorted alphabetically
+
+Example request:
+{"tableName":"post"}`,
     parameters: {
       type: 'object',
       properties: {
@@ -122,28 +148,25 @@ Example result: {"table": "user_definition", "fields": ["id", "email", "name", "
   },
   {
     name: 'get_hint',
-    description: `Get system hints on-demand. **Call this when you're NOT 100% confident** about how to proceed.
+    description: `Purpose → pull focused guidance when confidence drops.
 
-**🔴 CRITICAL: Call get_hint when:**
-- You're uncertain about query syntax (nested relations, filters, operators)
-- You don't know the permission flow or access control
-- You're confused about table operations or relation handling
-- You got an error and don't understand why
-- You're about to guess or make assumptions
-- Your confidence level is <80% on the approach
+Call when:
+- Confidence <80% on syntax, permissions, relations, or M2M steps
+- A tool returned an error you cannot explain
+- You need a checklist before attempting an operation
 
-**Categories:** permission_check, nested_relations, route_access, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
+Categories:
+- permission_check, nested_relations, route_access, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
 
-**When to Call:**
-- **NOT confident on query structure?** → "nested_relations" or "field_optimization"
-- **NOT confident on permissions?** → "permission_check" or "route_access"
-- **NOT confident on table ops?** → "table_operations" or "relations"
-- **Got an error?** → "error_handling"
-- **Don't know table names?** → "table_discovery"
-- **Foreign key issues?** → "database_type" or "relations"
-- **Auto-generated fields confusing?** → "metadata"
+Rule: if any checklist fails, stop and call get_hint before retrying.
 
-**Better to call get_hint than to guess wrong!** (Accuracy > Speed)`,
+Returns:
+- dbType, idField (context-aware)
+- hints[] → each {category,title,content,examples?}
+- availableCategories (string[])
+
+Example request:
+{"category":"nested_relations"}`,
     parameters: {
       type: 'object',
       properties: {
@@ -157,172 +180,51 @@ Example result: {"table": "user_definition", "fields": ["id", "email", "name", "
   },
   {
     name: 'dynamic_repository',
-    description: `Perform CRUD operations on any table. ONLY use when user explicitly requests database operations.
+    description: `Purpose → single gateway for CRUD and batch operations.
 
-**IMPORTANT:** There is NO "findOne" operation. Use "find" with limit=1 and where clause to get a single record.
+Before calling:
+- check_permission is mandatory for every read/create/update/delete
+- There is no findOne; use find + where + limit=1
+- If unsure about syntax, grab a relevant get_hint first
 
-**🔴 CRITICAL: Permission Check REQUIRED (BEFORE ANY OPERATION):**
-- BEFORE calling this tool with ANY operation (find/create/update/delete), you MUST call check_permission tool first
-- This applies to ALL operations including READ (find) - user may not have permission to view certain data
-- NEVER skip permission checks - fail securely by default
-- If check_permission returns allowed=false → STOP and inform user they don't have permission
+Usage patterns:
+- Read: request the minimal fields, use meta=totalCount for count queries
+- Write: match schema from get_table_details before sending data
+- Batch: more than four records → prefer batch_* once instead of looping
 
-**⚠️ BATCH OPERATIONS (5+ records):**
-- Creating/updating/deleting 5+ records? Use batch_create/batch_update/batch_delete
-- ❌ NEVER loop with single create/update/delete (will hit limits!)
-- ✅ ONE batch call handles all records efficiently
+Relations & optimization:
+- Use nested fields/filters (e.g., "roles.name") instead of multiple queries
+- Many-to-many: update exactly one side, targetTable {"id": value} or {"_id": value}, inversePropertyName handles the reverse link
+- Removing M2M: update the surviving table and rewrite its relations array
 
-**CRITICAL: Nested Relations (Query Optimization):**
-- ALWAYS use nested fields for related data: "relation.field" or "relation.*"
-- ALWAYS use nested filters: {"relation": {"field": {"_eq": value}}}
-- Example: "route with roles" → fields="id,path,roles.name,roles.id"
-- Example: "routes with Admin role" → where={"roles": {"name": {"_eq": "Admin"}}}
-- DON'T make separate queries when you can use nested fields/filters
-- Deep nesting: "routePermissions.role.name" (multiple levels)
-- For complex cases: call get_hint(category="nested_relations")
+Additional notes:
+- Do not create/update/delete on file_definition (read-only through this tool)
+- Surface permission denials clearly to the user
+- See examples library: categories nested_relations, batch_operations
 
-**Query Operators:**
-- _eq: equals, _neq: not equals, _gt: greater than, _gte: >=, _lt: less than, _lte: <=
-- _in: in array, _nin: not in array, _contains: string contains, _is_null: is null
-- _and: [conditions], _or: [conditions], _not: {condition}
+Request parameters:
+- table (required string) → exact table to target
+- operation (required) → "find" | "create" | "update" | "delete" | "batch_create" | "batch_update" | "batch_delete"
+- where (object) → filters support operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null and nested logic (_and,_or,_not). Nest objects for relations: {"roles":{"name":{"_eq":"Admin"}}}
+- fields (string) → comma-separated field list, supports dot paths (relation.field) and wildcards ("relations.*")
+- limit (number) → 0 (all) or positive integer (default 10). For counts combine limit=1 + meta="totalCount".
+- sort (string) → comma-separated terms, prefix "-" for desc (e.g., "-createdAt,name")
+- meta (string) → "totalCount" | "filterCount" | "*" to include metadata blocks
+- data (object) → payload for create/update (respect schema, include relations arrays when needed)
+- id (string|number) → required for update/delete when not using batch
+- dataArray (object[]) → records for batch_create
+- updates (object[]) → [{id,data}] for batch_update
+- ids (array) → list of ids for batch_delete
 
-**Field Selection & Data Structure (CRITICAL):**
-**🔍 BEFORE ANY QUERY - Get Field Names:**
-- For READ (find): Call get_fields(table) first → lightweight, fast, returns field names only
-- For CREATE/UPDATE: Call get_table_details(table) → full schema with types needed
-- Example: User asks "show me posts" → Step 1: get_fields("post"), Step 2: Use those fields in find query
-- Example: User asks "list users" → Step 1: get_fields("user_definition"), Step 2: dynamic_repository with fields
-- Example: User asks "create post" → Step 1: get_table_details("post") for column types, Step 2: create with exact columns
-- DON'T guess field names - always check first with get_fields or get_table_details
-
-**Field Selection Rules:**
-- For FIND: Fetch ONLY needed fields (e.g., count → "id"; list names → "id,name")
-- For CREATE/UPDATE: Use EXACT column names from get_table_details
-- Example: "how many routes?" → get_fields("route_definition") then {"table": "route_definition", "operation": "find", "fields": "id", "limit": 0}
-
-**Limit (IMPORTANT):**
-- limit = 0: fetch ALL records without limit (use for "all" or when you need full data)
-- limit > 0: fetch only specified number of records
-- Default: 10 records if limit not specified
-
-**Meta (Count Queries - CRITICAL OPTIMIZATION):**
-- When user ONLY asks for count/total ("how many?", "count", "total"):
-  → Use meta='totalCount' with limit=1 (NOT limit=0!)
-  → Returns: {data: [1 record], meta: {totalCount: 1234}}
-  → ✅ FAST: Only fetches 1 record + count
-  → ❌ SLOW: limit=0 fetches ALL records
-- Available meta values:
-  → 'totalCount': Total records in table (unfiltered)
-  → 'filterCount': Records matching current filter
-  → '*': All metadata
-- Example: "How many users?" → {table: "user_definition", operation: "find", fields: "id", limit: 1, meta: "totalCount"}
-
-**Sort (Field Ordering):**
-- Format: "fieldName" (ascending) or "-fieldName" (descending)
-- Multi-field: Use comma-separated fields, e.g., "name,-createdAt" (sort by name ASC, then createdAt DESC)
-- Default: "id" if not specified
-- Examples: "createdAt", "-createdAt", "name,-price", "-updatedAt,name"
-
-**⚠️ CRITICAL - BATCH vs SINGLE Operations:**
-**WHEN TO USE BATCH (for 5+ records):**
-- User asks to create/update/delete MULTIPLE records (e.g., "create 10 products", "delete these 5 users")
-- Use batch_create, batch_update, batch_delete - ONE call handles ALL records
-- ✅ CORRECT: {"operation": "batch_create", "dataArray": [{...}, {...}, {...}]}
-- ❌ WRONG: Loop calling {"operation": "create"} multiple times (will hit limits!)
-
-**WHEN TO USE SINGLE (for 1-4 records):**
-- Creating/updating/deleting individual records
-- Use create, update, delete operations
-
-**🔴 CRITICAL - Before batch_create/create/update:**
-1. ALWAYS call get_table_details FIRST to see exact column names
-2. USE those EXACT column names in your data/dataArray objects - DO NOT guess or infer!
-3. Example: User says "create posts with title and content"
-   → Step 1: get_table_details(tableName="post") → columns: ["id", "title", "content", "authorId"]
-   → Step 2: batch_create with dataArray=[{"title": "...", "content": "...", "authorId": 1}, ...]
-   → ❌ WRONG: Using "name" or "body" instead of actual column names from schema
-
-**🔴 CRITICAL - After create/update operations:**
-- The tool returns created/updated records directly - DO NOT query again
-- When presenting results to user, FILTER and show only relevant fields (don't dump all data)
-- Example: After creating posts, show summary like "Created 5 posts: Post 1, Post 2, Post 3, Post 4, Post 5"
-- Example: After update, show "Updated product #123: price changed to $15"
-
-**Examples:**
-
-BATCH OPERATIONS (for 5+ records - ALWAYS use these instead of looping):
-{"table": "product", "operation": "batch_create", "dataArray": [{"name": "Product 1", "price": 10}, {"name": "Product 2", "price": 20}, {"name": "Product 3", "price": 30}]}
-{"table": "product", "operation": "batch_update", "updates": [{"id": 1, "data": {"price": 15}}, {"id": 2, "data": {"price": 25}}]}
-{"table": "product", "operation": "batch_delete", "ids": [1, 2, 3, 4, 5]}
-
-FIND records (use "find" for single or multiple):
-{"table": "user", "operation": "find", "where": {"name": {"_eq": "John"}}, "fields": "id,name,email", "limit": 1}
-{"table": "user", "operation": "find", "where": {"id": {"_eq": 5}}, "fields": "id,name,email", "limit": 1}
-{"table": "product", "operation": "find", "where": {"_and": [{"price": {"_gte": 100}}, {"stock": {"_gt": 0}}]}, "limit": 0}
-{"table": "route_definition", "operation": "find", "fields": "id,path", "limit": 0}
-{"table": "user", "operation": "find", "fields": "id,name,createdAt", "sort": "-createdAt", "limit": 5}
-{"table": "product", "operation": "find", "fields": "id,name,price", "sort": "price", "limit": 0}
-
-NESTED FIELDS (get related data in ONE query):
-{"table": "route_definition", "operation": "find", "where": {"id": {"_eq": 20}}, "fields": "id,path,roles.id,roles.name", "limit": 1}
-{"table": "user", "operation": "find", "fields": "id,name,posts.title,posts.createdAt", "limit": 5}
-{"table": "route_definition", "operation": "find", "fields": "id,path,handlers.*,routePermissions.role.name", "limit": 0}
-
-NESTED FILTERS (filter by related data):
-{"table": "route_definition", "operation": "find", "where": {"roles": {"name": {"_eq": "Admin"}}}, "fields": "id,path,roles.name"}
-{"table": "route_definition", "operation": "find", "where": {"roles": {"id": {"_eq": 5}}}, "fields": "id,path", "limit": 0}
-{"table": "user", "operation": "find", "where": {"_or": [{"roles": {"name": {"_eq": "Admin"}}}, {"roles": {"name": {"_eq": "Moderator"}}}]}, "fields": "id,name,roles.name"}
-
-CREATE record (MUST call get_table_details first to see exact columns):
-{"table": "order", "operation": "create", "data": {"userId": 5, "total": 100}}
-{"table": "post", "operation": "create", "data": {"title": "Hello", "author": {"id": 3}}}
-
-UPDATE record (MUST use exact column names from schema):
-{"table": "user", "operation": "update", "id": 5, "data": {"name": "Jane"}}
-
-DELETE record:
-{"table": "user", "operation": "delete", "id": 5}
-
-**Relations:**
-- Use propertyName (NOT FK column): {"author": {"id": 3}} not {"authorId": 3}
-- M2O: {"category": {"id": 1}} or {"category": 1}
-- M2M: {"tags": [{"id": 1}, {"id": 2}, 3]}
-- O2M: {"items": [{"id": 10, "qty": 5}, {"productId": 1, "qty": 2}]}
-
-**Route Access Control:**
-Request access flow: @Public() > isRootAdmin > allowedUsers > role match
-RoleGuard DISABLED - only auth runs, no authorization
-For access flow details: call get_hint(category="route_access")
-
-**CREATE TABLE:**
-1. Check exists first: find table_definition where name = table_name
-2. Use get_table_details on similar table for reference
-3. **CRITICAL:** MUST include "id" column with isPrimary=true
-   - SQL (MySQL/PostgreSQL/SQLite): use int (auto-increment by default) OR uuid
-     {"name": "id", "type": "int", "isPrimary": true}
-   - MongoDB: MUST use uuid (NOT int)
-     {"name": "id", "type": "uuid", "isPrimary": true}
-4. targetTable in relations MUST be object: {"id": table_id}
-5. createdAt/updatedAt auto-added, DO NOT include in columns
-6. **RESPECT USER'S EXACT REQUEST:** Use EXACTLY the names/values user provides. Do NOT add suffixes like "_definition" or modify values unless user explicitly requests it.
-Example SQL: {"table": "table_definition", "operation": "create", "data": {"name": "products", "columns": [{"name": "id", "type": "int", "isPrimary": true}, {"name": "name", "type": "varchar"}]}}
-Example MongoDB: {"table": "table_definition", "operation": "create", "data": {"name": "products", "columns": [{"name": "id", "type": "uuid", "isPrimary": true}, {"name": "name", "type": "varchar"}]}}
-
-**DELETE/UPDATE TABLE:**
-1. Find table_definition by name to get its id
-2. Use that id for delete/update operation
-
-**BATCH OPERATIONS (CRITICAL - use for creating/updating/deleting MANY records):**
-BATCH CREATE (create multiple records at once):
-{"table": "product", "operation": "batch_create", "dataArray": [{"name": "Product 1", "price": 10}, {"name": "Product 2", "price": 20}]}
-
-BATCH UPDATE (update multiple records):
-{"table": "product", "operation": "batch_update", "updates": [{"id": 1, "data": {"price": 15}}, {"id": 2, "data": {"price": 25}}]}
-
-BATCH DELETE (delete multiple records):
-{"table": "product", "operation": "batch_delete", "ids": [1, 2, 3, 4, 5]}
-
-**IMPORTANT:** When user asks to create multiple records (5+), ALWAYS use batch_create instead of creating one by one.`,
+Examples:
+Find:
+{"table":"route_definition","operation":"find","fields":"id,path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}},"limit":5}
+Create:
+{"table":"post","operation":"create","data":{"title":"Hello","status":"draft"}}
+Update:
+{"table":"post","operation":"update","id":12,"data":{"status":"published"}}
+Batch delete:
+{"table":"product","operation":"batch_delete","ids":[1,2,3,4]}`,
     parameters: {
       type: 'object',
       properties: {
@@ -338,7 +240,8 @@ BATCH DELETE (delete multiple records):
         },
         where: {
           type: 'object',
-          description: 'Filter conditions for find/update/delete operations. Supports _and, _or, _not operators.',
+          description:
+            'Filter conditions for find/update/delete operations. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
         },
         fields: {
           type: 'string',
@@ -406,7 +309,6 @@ BATCH DELETE (delete multiple records):
   },
 ];
 
-// Convert to Anthropic format
 function toAnthropicFormat(tools: ToolDefinition[]) {
   return tools.map((tool) => ({
     name: tool.name,
@@ -415,7 +317,6 @@ function toAnthropicFormat(tools: ToolDefinition[]) {
   }));
 }
 
-// Convert to OpenAI format
 function toOpenAIFormat(tools: ToolDefinition[]) {
   return tools.map((tool) => ({
     type: 'function' as const,
@@ -433,3 +334,4 @@ export function getTools(provider: string = 'OpenAI') {
   }
   return toOpenAIFormat(COMMON_TOOLS);
 }
+

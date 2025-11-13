@@ -38,10 +38,6 @@ export interface RecoveryResult {
   errorType: ErrorType;
 }
 
-/**
- * Error recovery strategy matrix
- * Maps error types to recovery strategies following best practices from Anthropic & OpenAI
- */
 const RECOVERY_STRATEGIES: Record<ErrorType, RecoveryStrategy> = {
   TIMEOUT: {
     maxRetries: 3,
@@ -105,15 +101,11 @@ const RECOVERY_STRATEGIES: Record<ErrorType, RecoveryStrategy> = {
   },
 };
 
-/**
- * Classifies an error into a specific error type
- */
 export function classifyError(error: any): ErrorType {
   const message = error?.message?.toLowerCase() || '';
   const status = error?.status || error?.statusCode || error?.response?.status;
   const errorCode = error?.code || error?.errorCode;
 
-  // Permission errors
   if (
     message.includes('permission denied') ||
     message.includes('unauthorized') ||
@@ -125,7 +117,6 @@ export function classifyError(error: any): ErrorType {
     return 'PERMISSION_DENIED';
   }
 
-  // Resource not found
   if (
     message.includes('not found') ||
     message.includes('does not exist') ||
@@ -135,7 +126,6 @@ export function classifyError(error: any): ErrorType {
     return 'RESOURCE_NOT_FOUND';
   }
 
-  // Resource already exists
   if (
     message.includes('already exists') ||
     message.includes('duplicate') ||
@@ -145,7 +135,6 @@ export function classifyError(error: any): ErrorType {
     return 'RESOURCE_EXISTS';
   }
 
-  // Invalid input
   if (
     message.includes('invalid') ||
     message.includes('malformed') ||
@@ -156,7 +145,6 @@ export function classifyError(error: any): ErrorType {
     return 'INVALID_INPUT';
   }
 
-  // Rate limit
   if (
     status === 429 ||
     message.includes('rate limit') ||
@@ -166,7 +154,6 @@ export function classifyError(error: any): ErrorType {
     return 'RATE_LIMIT';
   }
 
-  // Timeout
   if (
     message.includes('timeout') ||
     message.includes('timed out') ||
@@ -176,7 +163,6 @@ export function classifyError(error: any): ErrorType {
     return 'TIMEOUT';
   }
 
-  // Network errors
   if (
     message.includes('network') ||
     message.includes('econnrefused') ||
@@ -189,7 +175,6 @@ export function classifyError(error: any): ErrorType {
     return 'NETWORK_ERROR';
   }
 
-  // Server errors
   if (
     status >= 500 ||
     message.includes('server error') ||
@@ -202,9 +187,6 @@ export function classifyError(error: any): ErrorType {
   return 'UNKNOWN_ERROR';
 }
 
-/**
- * Gets the recovery strategy for a given error
- */
 export function getRecoveryStrategy(error: any): RecoveryResult {
   const errorType = classifyError(error);
   const strategy = RECOVERY_STRATEGIES[errorType];
@@ -221,9 +203,6 @@ export function getRecoveryStrategy(error: any): RecoveryResult {
   };
 }
 
-/**
- * Formats an error message for the user with recovery suggestions
- */
 export function formatErrorForUser(error: any): string {
   const recovery = getRecoveryStrategy(error);
   const errorMessage = error?.message || String(error);
@@ -238,9 +217,6 @@ export function formatErrorForUser(error: any): string {
   return message;
 }
 
-/**
- * Determines if an operation should be escalated to human
- */
 export interface EscalationTrigger {
   shouldEscalate: boolean;
   reason?: string;
@@ -257,7 +233,6 @@ export function shouldEscalateToHuman(params: {
 }): EscalationTrigger {
   const { operation, table, error, retryCount = 0, confidenceLevel = 1.0 } = params;
 
-  // High-stakes operations requiring confirmation
   if (operation === 'delete' && table?.includes('_definition')) {
     return {
       shouldEscalate: true,
@@ -271,7 +246,6 @@ export function shouldEscalateToHuman(params: {
     };
   }
 
-  // Repeated failures
   if (retryCount >= 2 && error) {
     const errorType = classifyError(error);
     return {
@@ -286,7 +260,6 @@ export function shouldEscalateToHuman(params: {
     };
   }
 
-  // Low confidence operations
   if (confidenceLevel < 0.5) {
     return {
       shouldEscalate: true,
@@ -300,7 +273,6 @@ export function shouldEscalateToHuman(params: {
     };
   }
 
-  // Security-sensitive operations
   if (
     operation === 'update' &&
     (table === 'user_definition' ||
@@ -324,9 +296,6 @@ export function shouldEscalateToHuman(params: {
   };
 }
 
-/**
- * Formats escalation message for user
- */
 export function formatEscalationMessage(trigger: EscalationTrigger): string {
   if (!trigger.shouldEscalate) return '';
 

@@ -26,10 +26,12 @@
     "postinstall": "node -e \"if (!require('fs').existsSync('./node_modules/sharp')) { require('child_process').execSync('yarn add sharp --ignore-engines', {stdio: 'inherit'}) }\""
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.68.0",
     "@aws-sdk/client-s3": "^3.927.0",
     "@google-cloud/storage": "^7.17.3",
     "@graphql-tools/schema": "^10.0.23",
+    "@langchain/anthropic": "^1.0.0",
+    "@langchain/core": "^1.0.4",
+    "@langchain/openai": "^1.1.0",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.2",
@@ -72,7 +74,8 @@
     "sqlite3": "^5.1.7",
     "ts-morph": "^26.0.0",
     "uuid": "latest",
-    "yargs": "^18.0.0"
+    "yargs": "^18.0.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",

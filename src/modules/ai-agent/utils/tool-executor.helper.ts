@@ -13,10 +13,10 @@ import { GraphqlService } from '../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { optimizeMetadataForLLM } from './metadata-optimizer.helper';
 import {
-  classifyError,
   formatErrorForUser,
   shouldEscalateToHuman,
   formatEscalationMessage,
+  getRecoveryStrategy,
 } from './error-recovery.helper';
 
 export class ToolExecutor {
@@ -56,8 +56,8 @@ export class ToolExecutor {
     switch (name) {
       case 'check_permission':
         return await this.executeCheckPermission(args, context);
-      case 'get_metadata':
-        return await this.executeGetMetadata(args);
+      case 'list_tables':
+        return await this.executeListTables();
       case 'get_table_details':
         return await this.executeGetTableDetails(args);
       case 'get_fields':
@@ -89,7 +89,6 @@ export class ToolExecutor {
       };
     }
 
-    // Map CRUD operations to HTTP methods
     const operationToMethod: Record<string, string> = {
       read: 'GET',
       create: 'POST',
@@ -98,7 +97,6 @@ export class ToolExecutor {
     };
     const requiredMethod = operationToMethod[operation];
 
-    // 1. Get user info with role (singular, matching RoleGuard)
     const userRepo = new DynamicRepository({
       context,
       tableName: 'user_definition',
@@ -138,7 +136,6 @@ export class ToolExecutor {
     console.log(`[check_permission] User query result:`, JSON.stringify(user, null, 2));
     console.log(`[check_permission] isRootAdmin value: ${user.isRootAdmin} (type: ${typeof user.isRootAdmin})`);
 
-    // 2. Check if root admin - full access (matching RoleGuard line 30)
     if (user.isRootAdmin === true) {
       console.log(`[check_permission] ✅ ALLOWED: User is root admin`);
       return {
@@ -154,11 +151,8 @@ export class ToolExecutor {
       };
     }
 
-    // 3. Determine route path
     let finalRoutePath = routePath;
     if (!finalRoutePath && table) {
-      // Infer route path from table name
-      // Remove _definition suffix if exists
       const tableName = table.replace(/_definition$/, '');
       finalRoutePath = `/${tableName}`;
     }
@@ -171,7 +165,6 @@ export class ToolExecutor {
       };
     }
 
-    // 4. Get route with permissions (matching RoleGuard structure)
     const routeRepo = new DynamicRepository({
       context,
       tableName: 'route_definition',
@@ -199,7 +192,6 @@ export class ToolExecutor {
     });
 
     if (!routeResult || !routeResult.data || routeResult.data.length === 0) {
-      // Route not found - assume public access for read, deny for write
       if (operation === 'read') {
         return {
           allowed: true,
@@ -230,7 +222,6 @@ export class ToolExecutor {
     const route = routeResult.data[0];
     const routePermissions = route.routePermissions || [];
 
-    // No permissions configured - deny access
     if (routePermissions.length === 0) {
       return {
         allowed: false,
@@ -245,17 +236,14 @@ export class ToolExecutor {
       };
     }
 
-    // 5. Check permissions (matching RoleGuard logic lines 34-48)
     for (const permission of routePermissions) {
-      // First check if this permission covers the required HTTP method
-      const methods = permission.methods || [];
-      const hasMethodAccess = methods.some((m: any) => m.method === requiredMethod);
+      const allowedMethods = permission.methods || [];
+      const hasMethodAccess = allowedMethods.some((m: any) => m.method === requiredMethod);
 
       if (!hasMethodAccess) {
-        continue; // Skip this permission if method not allowed
+        continue;
       }
 
-      // Check user-specific access first (matching RoleGuard line 41)
       const allowedUsers = permission.allowedUsers || [];
       if (allowedUsers.some((u: any) => u?.id === userId)) {
         return {
@@ -271,10 +259,8 @@ export class ToolExecutor {
         };
       }
 
-      // Then check role-based access (matching RoleGuard line 46)
-      // Note: user has single 'role', permission has single 'role'
-      const permissionRole = permission.role;
-      if (permissionRole && user.role && permissionRole.id === user.role.id) {
+      const allowedRole = permission.role || null;
+      if (allowedRole && user.role && allowedRole.id === user.role.id) {
         return {
           allowed: true,
           reason: 'role_based_access',
@@ -289,8 +275,7 @@ export class ToolExecutor {
       }
     }
 
-    // 6. No permission found - deny
-    console.warn(`[check_permission] ❌ DENIED: No permission found for ${operation} on ${finalRoutePath}`);
+    console.log(`[check_permission] ❌ DENIED: No matching permissions found`);
     return {
       allowed: false,
       reason: 'permission_denied',
@@ -304,22 +289,16 @@ export class ToolExecutor {
     };
   }
 
-  private async executeGetMetadata(args: { forceRefresh?: boolean }): Promise<any> {
-    if (args.forceRefresh) {
-      await this.metadataCacheService.reload();
-    }
-
+  private async executeListTables(): Promise<any> {
     const metadata = await this.metadataCacheService.getMetadata();
-    
-    const tablesSummary = Array.from(metadata.tables.entries()).map(([name, table]) => ({
+    const tablesList = Array.from(metadata.tables.entries()).map(([name, table]) => ({
       name,
       description: table.description || '',
-      isSingleRecord: table.isSingleRecord || false,
     }));
-    
+
     return {
-      tables: tablesSummary,
-      tablesList: metadata.tablesList,
+      totalCount: tablesList.length,
+      tables: tablesList,
     };
   }
 
@@ -342,7 +321,6 @@ export class ToolExecutor {
       throw new Error(`Table ${args.tableName} not found`);
     }
 
-    // Extract only field names from metadata
     const fieldNames = metadata.columns.map((col: any) => col.name);
 
     return {
@@ -358,19 +336,11 @@ export class ToolExecutor {
 
     const allHints = [];
 
-    // 1. Database Type Hint
-    let dbTypeContent = `Current database type: ${dbType}\n\n`;
-    if (isMongoDB) {
-      dbTypeContent += `**MongoDB:**
-- Primary key: "_id" (not "id")
-- ID type when creating tables: MUST use "uuid" (NOT int)
-- Relations: use "{_id: value}"`;
-    } else {
-      dbTypeContent += `**SQL (${dbType}):**
-- Primary key: "id"
-- ID type when creating tables: use "int" with auto-increment OR "uuid"
-- Relations: use "{id: value}"`;
-    }
+    const dbTypeContent = `Database context:
+- Engine: ${dbType}
+- ID field: ${isMongoDB ? '"_id"' : '"id"'}
+- New table ID type → ${isMongoDB ? '"uuid"' : '"int" (auto increment) hoặc "uuid"'}
+- Relation payload → {${isMongoDB ? '"_id"' : '"id"'}: value}`;
 
     const dbTypeHint = {
       category: 'database_type',
@@ -378,14 +348,12 @@ export class ToolExecutor {
       content: dbTypeContent,
     };
 
-    // 2. Relations Hint
-    const relationContent = `**Relations:**
-- Use propertyName (NOT FK column names like mainTableId, categoryId, userId)
-- targetTable must be object: {"${idFieldName}": value}, NOT string
-- M2O: {"category": {"${idFieldName}": 1}} or {"category": 1}
-- O2O: {"profile": {"${idFieldName}": 5}} or {"profile": {new_data}}
-- M2M: {"tags": [{"${idFieldName}": 1}, {"${idFieldName}": 2}, 3]}
-- O2M: {"items": [{"${idFieldName}": 10, qty: 5}, {new_item}]}`;
+    const relationContent = `Relation checklist:
+- Always use propertyName (never raw FK columns like "userId")
+- targetTable must be {"${idFieldName}": value}
+- M2O / O2O: {"category":{"${idFieldName}":1}}, {"profile":{...}}
+- M2M: {"tags":[{"${idFieldName}":1},{"${idFieldName}":2}]}
+- O2M: {"items":[{"${idFieldName}":10,"qty":5}, {...newItem}]}`;
 
     const relationHint = {
       category: 'relations',
@@ -393,15 +361,11 @@ export class ToolExecutor {
       content: relationContent,
     };
 
-    // 3. Metadata Hint
-    const metadataContent = `**Auto-generated Fields:**
-- createdAt/updatedAt are automatically added to all tables (DO NOT include in columns when creating tables)
-- Foreign key columns are automatically indexed
-
-**Table Naming:**
-- Most tables follow "_definition" suffix pattern (e.g., route_definition, user_definition)
-- Always use get_metadata to discover actual table names - NEVER assume from user phrasing
-- Infer closest match from returned list (e.g., "route" → "route_definition")`;
+    const metadataContent = `Metadata rules:
+- createdAt/updatedAt are auto-generated → do not declare them when creating tables
+- Foreign keys are indexed automatically
+- Table names usually end with "_definition"
+- Discover actual names via get_metadata, then choose the closest match`;
 
     const metadataHint = {
       category: 'metadata',
@@ -409,21 +373,11 @@ export class ToolExecutor {
       content: metadataContent,
     };
 
-    // 4. Field Optimization Hint
-    const fieldOptContent = `**Field Selection (CRITICAL for token saving):**
-BEFORE fetching data:
-1. Call get_table_details first to see available fields
-2. Fetch ONLY needed fields:
-   - Count query: fetch only "${idFieldName}" field
-   - List names: fetch only "${idFieldName},name"
-   - Specific fields: only those mentioned by user
-3. Use limit = 0 for "all" or "how many" queries
-4. Example: "How many routes?" → get_table_details("route_definition") → dynamic_repository(table="route_definition", operation="find", fields="${idFieldName}", limit=0)
-
-**Limit Usage:**
-- limit = 0: fetch ALL records (no limit)
-- limit > 0: fetch specified number
-- Default: 10 if not specified`;
+    const fieldOptContent = `Field & limit checklist:
+- Call get_fields or get_table_details before querying
+- Count queries: fields="${idFieldName}", limit=1, meta="totalCount"
+- Name lists: fields="${idFieldName},name", pick limit as needed
+- Use limit=0 only when you truly need every row (default limit is 10)`;
 
     const fieldOptHint = {
       category: 'field_optimization',
@@ -431,90 +385,27 @@ BEFORE fetching data:
       content: fieldOptContent,
     };
 
-    // 5. Table Operations Hint
-    const tableOpsContent = `**Creating Tables:**
-1. Check existence: find table_definition where name = table_name
-2. Use get_table_details on similar table for reference
-3. **CRITICAL:** Every table MUST include a column named "${idFieldName}" with isPrimary = true
-   - SQL databases: use "int" (auto-increment by default) OR "uuid"
-   - MongoDB: MUST use "uuid" (NOT int)
-4. targetTable in relations MUST be object: {"${idFieldName}": table_id}
-5. DO NOT include createdAt/updatedAt in columns (auto-added)
-6. ALWAYS ask user confirmation before creating tables
+    const tableOpsContent = `Table operations checklist:
+- Every new table must include "${idFieldName}" with isPrimary=true
+- SQL IDs: int (auto increment) or uuid; MongoDB IDs: uuid only
+- Relations always use targetTable {"${idFieldName}": targetId}
+- createdAt/updatedAt are auto-generated → omit them
+- Confirm structural changes with the user before executing
 
-**Example CREATE TABLE (SQL - int):**
-{
-  "table": "table_definition",
-  "operation": "create",
-  "data": {
-    "name": "products",
-    "columns": [
-      {"name": "${idFieldName}", "type": "int", "isPrimary": true},
-      {"name": "name", "type": "varchar", "isNullable": false},
-      {"name": "price", "type": "decimal", "isNullable": true}
-    ]
-  }
-}
+M2M flow (post ↔ category):
+1. Create the base tables without relations
+2. Fetch their ${idFieldName} with dynamic_repository.find
+3. Update exactly one table:
+{"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":11},"inversePropertyName":"posts"}
 
-**Example CREATE TABLE (MongoDB - uuid):**
-{
-  "table": "table_definition",
-  "operation": "create",
-  "data": {
-    "name": "products",
-    "columns": [
-      {"name": "${idFieldName}", "type": "uuid", "isPrimary": true},
-      {"name": "name", "type": "varchar", "isNullable": false},
-      {"name": "price", "type": "decimal", "isNullable": true}
-    ]
-  }
-}
+Removing M2M:
+- If one table is deleted, update the remaining table and set relations=[] (or include only the relations to keep)
+- The system handles inverse + junction cleanup automatically
 
-**Updating/Deleting Tables:**
-1. Find table_definition by name to get its ${idFieldName}
-2. Use that ${idFieldName} for update/delete operation
-
-**CRITICAL - Respect User's Exact Request:**
-- Use EXACTLY the names/values user provides
-- Do NOT add suffixes like "_definition" or modify values unless user explicitly requests it
-- Example: User asks for name "post" → use "post", NOT "post_definition"
-
-**BATCH OPERATIONS (CRITICAL for multiple records):**
-When user requests creating/updating/deleting MULTIPLE records (5+), ALWAYS use batch operations:
-
-**Batch Create (create multiple records at once):**
-{
-  "table": "product",
-  "operation": "batch_create",
-  "dataArray": [
-    {"name": "Product 1", "price": 10},
-    {"name": "Product 2", "price": 20},
-    {"name": "Product 3", "price": 30}
-  ]
-}
-
-**Batch Update (update multiple records):**
-{
-  "table": "product",
-  "operation": "batch_update",
-  "updates": [
-    {"${idFieldName}": 1, "data": {"price": 15}},
-    {"${idFieldName}": 2, "data": {"price": 25}}
-  ]
-}
-
-**Batch Delete (delete multiple records):**
-{
-  "table": "product",
-  "operation": "batch_delete",
-  "ids": [1, 2, 3, 4, 5]
-}
-
-**When to use batch:**
-- User asks for "100 sample records" → use batch_create
-- User asks to "update all prices" → find records, then batch_update
-- User asks to "delete these 10 items" → use batch_delete
-- NEVER loop with single create/update/delete when batch is available`;
+Batch operations (>4 records):
+- batch_create {"table":"product","operation":"batch_create","dataArray":[{...}]}
+- batch_update {"table":"product","operation":"batch_update","updates":[{"id":1,"data":{...}}]}
+- batch_delete {"table":"product","operation":"batch_delete","ids":[1,2,3]}`
 
     const tableOpsHint = {
       category: 'table_operations',
@@ -522,15 +413,11 @@ When user requests creating/updating/deleting MULTIPLE records (5+), ALWAYS use 
       content: tableOpsContent,
     };
 
-    // 6. Error Handling Hint
-    const errorContent = `**CRITICAL Error Rules:**
-- If ANY tool returns error: true, STOP ALL OPERATIONS IMMEDIATELY
-- DO NOT call additional tools after error
-- DO NOT attempt auto-recovery
-- IMMEDIATELY report to user: "Error: [message]. [details]. What would you like to do?"
-- Delete operations require ${idFieldName} (not where) - find record first if needed
-
-**Violating these rules is STRICTLY FORBIDDEN**`;
+    const errorContent = `Error protocol:
+- If a tool returns error=true → stop the entire workflow
+- Do not call additional tools after the failure
+- Report the error message/details back to the user
+- Delete operations require ${idFieldName}; fetch the record first if needed`;
 
     const errorHint = {
       category: 'error_handling',
@@ -538,16 +425,14 @@ When user requests creating/updating/deleting MULTIPLE records (5+), ALWAYS use 
       content: errorContent,
     };
 
-    // 7. Table Discovery Hint
-    const discoveryContent = `**Table Discovery Policy:**
-- NEVER assume table names from user phrasing
-- If unsure, CALL get_metadata to fetch list of tables
-- Infer closest table name from returned list
-- For detailed structure, CALL get_table_details with chosen table name
+    const discoveryContent = `Table discovery:
+- Never guess table names from user phrasing
+- Use get_metadata to list tables and pick the closest match
+- Need structure? call get_table_details
 
-**Examples:**
-- User says "route" → call get_metadata → find "route_definition"
-- User says "users" → call get_metadata → find "user_definition" or "user"`;
+Examples:
+- "route" → get_metadata → choose "route_definition"
+- "users" → get_metadata → choose "user_definition"`;
 
     const discoveryHint = {
       category: 'table_discovery',
@@ -555,41 +440,14 @@ When user requests creating/updating/deleting MULTIPLE records (5+), ALWAYS use 
       content: discoveryContent,
     };
 
-    // 8. Nested Relations Hint
-    const nestedContent = `**CRITICAL: Nested Relations (Avoid Multiple Queries)**
+    const nestedContent = `Nested relations:
+- fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
+- where → nest objects {"roles":{"name":{"_eq":"Admin"}}}
+- Prefer one nested query instead of multiple separate calls
+- Select only the fields you need (avoid broad "*")
 
-**Nested Field Selection (Dot Notation):**
-- Get related data: relation.field or relation.*
-- Example: "roles.name" gets name from roles relation
-- Multiple levels: "routePermissions.role.name"
-- Wildcard: "roles.*" gets all fields from relation
-
-**Common Examples:**
-1. Get route with roles:
-   fields="id,path,roles.name,roles.${idFieldName}"
-
-2. Get route with permissions and roles:
-   fields="id,path,routePermissions.role.name"
-
-**Nested Filtering (Object Notation):**
-- Filter by relation: { relation: { field: { operator: value } } }
-- Example: Find routes with Admin role:
-   where={ "roles": { "name": { "_eq": "Admin" } } }
-
-**When to Use:**
-✅ ALWAYS use nested queries instead of multiple separate queries
-✅ "route id 20 roles" → ONE query with fields="id,path,roles.*"
-❌ DON'T query route → then query role_definition separately
-
-**Available Operators:**
-_eq, _neq, _gt, _gte, _lt, _lte, _in, _not_in, _contains,
-_starts_with, _ends_with, _between, _is_null, _is_not_null,
-_and, _or, _not
-
-**Performance:**
-- Always prefer ONE nested query over multiple queries
-- Use specific fields: "roles.name" better than "roles.*" when you only need name
-- For reference, call get_hint(category="nested_relations") for detailed examples`;
+Sample request:
+{"table":"route_definition","operation":"find","fields":"id,path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
 
     const nestedHint = {
       category: 'nested_relations',
@@ -597,31 +455,19 @@ _and, _or, _not
       content: nestedContent,
     };
 
-    // 9. Route Access Control Hint
-    const routeAccessContent = `**How Does a Request Get Through a Route?**
+    const routeAccessContent = `Route access flow:
+1. @Public()/publishedMethods → allow
+2. Missing JWT → 401
+3. user.isRootAdmin → allow (skip remaining checks)
+4. No matching routePermissions → 403
+5. For each permission:
+   - Request method matches
+   - allowedUsers contains the user OR allowedRoles matches a user role
 
-**Access Check Flow (Priority Order):**
-1. @Public() or publishedMethods → ✅ ALLOW (no auth)
-2. No JWT token → ❌ DENY (401)
-3. user.isRootAdmin = true → ✅ ALLOW (bypasses all)
-4. No routePermissions → ❌ DENY (403)
-5. Check routePermissions:
-   - Find where methods includes request method (GET/POST/etc.)
-   - AND (user in allowedUsers OR user.role matches role)
-   - Found? → ✅ ALLOW : ❌ DENY (403)
-
-**Access Levels (Highest → Lowest Priority):**
-1. Public: @Public() or publishedMethods (no auth needed)
-2. Root admin: isRootAdmin = true (bypasses all checks)
-3. User-specific: allowedUsers in route_permission (bypasses role)
-4. Role-based: user.role matches route_permission.role
-
-**Important:**
-- RoleGuard DISABLED (app.module.ts:104) - only auth, NO authorization
-- Method-level: GET/POST/PATCH/DELETE checked separately
-- Query with nested: fields="routePermissions.role.name,routePermissions.methods.method"
-- Cache reload: POST /admin/reload/routes after changes
-- For detailed flow: call get_hint(category="route_access")`;
+Notes:
+- RoleGuard is disabled → authorization happens via routePermissions only
+- Use nested fields like "routePermissions.role.name" and "routePermissions.methods.method"
+- After changes, POST /admin/reload/routes to refresh the cache`;
 
     const routeAccessHint = {
       category: 'route_access',
@@ -629,158 +475,22 @@ _and, _or, _not
       content: routeAccessContent,
     };
 
-    // 10. Permission Check Hint
-    const permissionContent = `**CRITICAL: Permission & Authorization Checking**
+    const permissionContent = `Permission flow:
+1. Fetch current user:
+   {"table":"user_definition","operation":"find","where":{"${idFieldName}":{"_eq":"$user.${idFieldName}"}},"fields":"${idFieldName},email,isRootAdmin,roles.${idFieldName}"}
+2. If isRootAdmin=true → allow immediately
+3. Otherwise fetch route_definition:
+   {"table":"route_definition","operation":"find","where":{"path":{"_eq":"/resource-path"}},"fields":"allowedUsers.${idFieldName},allowedRoles.${idFieldName}"}
+4. Allow when any condition passes:
+   - allowedUsers includes the user
+   - allowedRoles overlaps a user role
+   - User owns the resource (createdBy.${idFieldName} === user.${idFieldName})
+5. If none match → deny and state the reason
 
-**BEFORE any Create/Update/Delete operation, you MUST check permissions!**
-
-**Permission Model:**
-
-1. **Root Admin (isRootAdmin: true):**
-   - Full access to everything
-   - No further checks needed
-   - Proceed with operation
-
-2. **Regular Users:**
-   Must check via route_definition permissions:
-   - allowedUsers: direct user access
-   - allowedRoles: role-based access
-   - OR resource ownership (createdBy/userId)
-
-**Permission Check Flow:**
-
-\`\`\`
-Step 1: Get current user info + roles
-→ dynamic_repository({
-    table: "user_definition",
-    operation: "findOne",
-    where: { ${idFieldName}: { _eq: $user.${idFieldName} } },
-    fields: "${idFieldName},email,isRootAdmin,roles.*"
-  })
-
-Step 2: Check if root admin
-→ IF user.isRootAdmin === true → ✅ FULL ACCESS, proceed
-
-Step 3: Check route permissions
-→ dynamic_repository({
-    table: "route_definition",
-    operation: "findOne",
-    where: { path: { _eq: "/resource-path" } },
-    fields: "allowedUsers.${idFieldName},allowedRoles.${idFieldName}"
-  })
-
-Step 4: Verify access
-→ Check: user in allowedUsers?
-→ Check: user.roles matches allowedRoles?
-→ Check: user owns resource? (createdBy.${idFieldName} === user.${idFieldName})
-
-Step 5: Decision
-→ IF any of Step 4 is true → ✅ ALLOW
-→ ELSE → ❌ DENY with clear message
-\`\`\`
-
-**When to Check:**
-✅ ALWAYS check before: ALL operations (Read, Create, Update, Delete)
-✅ Including Read/Find operations - user may not have permission to view certain tables/data
-✅ This includes queries on user_definition, route_definition, any _definition tables, sensitive configs, etc.
-⚠️ Exception: Metadata queries (get_metadata, get_table_details) don't need permission check
-
-**Error Messages:**
-- Clear: "Permission denied: You don't have access to manage routes"
-- Don't expose: "Permission denied: Resource not found" (if user shouldn't know it exists)
-
-**Examples:**
-
-**Example 1: Delete Route**
-\`\`\`
-// 1. Get user
-const user = await dynamic_repository({
-  table: "user_definition",
-  operation: "findOne",
-  where: { ${idFieldName}: { _eq: $user.${idFieldName} } },
-  fields: "${idFieldName},isRootAdmin,roles.${idFieldName}"
-});
-
-// 2. Check root admin
-if (user.isRootAdmin) {
-  await dynamic_repository({
-    table: "route_definition",
-    operation: "delete",
-    id: routeId
-  });
-  return { success: true };
-}
-
-// 3. Check route access
-const access = await dynamic_repository({
-  table: "route_definition",
-  operation: "findOne",
-  where: { path: { _eq: "/admin/routes" } },
-  fields: "allowedUsers.${idFieldName},allowedRoles.${idFieldName}"
-});
-
-const hasAccess = access.allowedUsers.some(u => u.${idFieldName} === user.${idFieldName}) ||
-                  access.allowedRoles.some(r => user.roles.some(ur => ur.${idFieldName} === r.${idFieldName}));
-
-if (!hasAccess) {
-  return {
-    error: true,
-    message: "Permission denied: You don't have access to manage routes"
-  };
-}
-
-// 4. Proceed
-await dynamic_repository({
-  table: "route_definition",
-  operation: "delete",
-  id: routeId
-});
-\`\`\`
-
-**Example 2: Update User Profile**
-\`\`\`
-// 1. Check if updating own profile
-if (targetUserId === $user.${idFieldName}) {
-  // Users can update their own profile (limited fields)
-  await dynamic_repository({
-    table: "user_definition",
-    operation: "update",
-    id: $user.${idFieldName},
-    data: { /* safe fields only */ }
-  });
-  return { success: true };
-}
-
-// 2. Check admin permission
-const currentUser = await dynamic_repository({
-  table: "user_definition",
-  operation: "findOne",
-  where: { ${idFieldName}: { _eq: $user.${idFieldName} } },
-  fields: "isRootAdmin"
-});
-
-if (!currentUser.isRootAdmin) {
-  return {
-    error: true,
-    message: "Permission denied: You can only update your own profile"
-  };
-}
-
-// 3. Proceed
-await dynamic_repository({
-  table: "user_definition",
-  operation: "update",
-  id: targetUserId,
-  data: { /* all fields */ }
-});
-\`\`\`
-
-**CRITICAL RULES:**
-- NEVER skip permission checks
-- Fail securely by default (deny if unclear)
-- Always check BEFORE operations, not after
-- Root admin bypasses all checks
-- Clear error messages to users`;
+Reminders:
+- Check permissions for read/create/update/delete (metadata tools are exempt)
+- Always return explicit denial messages
+- When uncertain, deny (fail-safe)`;
 
     const permissionHint = {
       category: 'permission_check',
@@ -790,7 +500,6 @@ await dynamic_repository({
 
     allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint, routeAccessHint, permissionHint);
 
-    // Filter by category if specified
     const filteredHints = args.category
       ? allHints.filter(h => h.category === args.category)
       : allHints;
@@ -822,7 +531,6 @@ await dynamic_repository({
     },
     context: TDynamicContext,
   ): Promise<any> {
-    // Defensive: Convert findOne to find with limit=1
     if (args.operation === 'findOne') {
       args.operation = 'find' as any;
       if (!args.limit || args.limit > 1) {
@@ -853,7 +561,6 @@ await dynamic_repository({
     try {
       switch (args.operation) {
         case 'find':
-          // Log the actual parameters for debugging
           console.log('[Tool Executor - dynamic_repository] Find operation:', {
             table: args.table,
             where: args.where,
@@ -892,90 +599,76 @@ await dynamic_repository({
           if (!args.dataArray || !Array.isArray(args.dataArray)) {
             throw new Error('dataArray (array) is required for batch_create operation');
           }
-          // Execute all creates in parallel with Promise.all for performance
-          const createResults = await Promise.all(
+          return Promise.all(
             args.dataArray.map(data => repo.create(data))
           );
-          return {
-            message: `Successfully created ${createResults.length} records`,
-            count: createResults.length,
-            data: createResults.map(r => r.data?.[0]).filter(Boolean),
-            statusCode: 200,
-          };
         case 'batch_update':
           if (!args.updates || !Array.isArray(args.updates)) {
             throw new Error('updates (array of {id, data}) is required for batch_update operation');
           }
-          // Execute all updates in parallel with Promise.all for performance
-          const updateResults = await Promise.all(
+          return Promise.all(
             args.updates.map(update => repo.update(update.id, update.data))
           );
-          return {
-            message: `Successfully updated ${updateResults.length} records`,
-            count: updateResults.length,
-            data: updateResults.map(r => r.data?.[0]).filter(Boolean),
-            statusCode: 200,
-          };
         case 'batch_delete':
           if (!args.ids || !Array.isArray(args.ids)) {
             throw new Error('ids (array) is required for batch_delete operation');
           }
-          // Execute all deletes in parallel with Promise.all for performance
-          const deleteResults = await Promise.all(
+          return Promise.all(
             args.ids.map(id => repo.delete(id))
           );
-          return {
-            message: `Successfully deleted ${deleteResults.length} records`,
-            count: deleteResults.length,
-            statusCode: 200,
-          };
         default:
           throw new Error(`Unknown operation: ${args.operation}`);
       }
     } catch (error: any) {
       const errorMessage = error?.message || error?.response?.message || String(error);
-      const errorType = classifyError(error);
+      const recovery = getRecoveryStrategy(error);
       const details = error?.details || error?.response?.details || {};
 
-      // Check if operation needs human escalation
       const escalation = shouldEscalateToHuman({
         operation: args.operation,
         table: args.table,
         error,
       });
 
-      // Format user-friendly error message
-      const userMessage = formatErrorForUser(error);
+      if (escalation.shouldEscalate) {
+        const escalationMessage = formatEscalationMessage(escalation);
+        const userFacing = escalationMessage || formatErrorForUser(error);
+        return {
+          error: true,
+          errorType: recovery.errorType,
+          errorCode: error?.errorCode || error?.response?.errorCode || recovery.errorType,
+          message: recovery.message,
+          userMessage: userFacing,
+          details,
+          requiresHumanConfirmation: true,
+          escalationReason: escalation.reason,
+          escalationMessage,
+        };
+      }
 
-      // Build enhanced error response
-      const errorResponse: any = {
+      const businessLogicError =
+        error?.errorCode === 'BUSINESS_LOGIC_ERROR' ||
+        error?.response?.errorCode === 'BUSINESS_LOGIC_ERROR';
+
+      if (businessLogicError) {
+        return {
+          error: true,
+          errorType: recovery.errorType,
+          errorCode: error?.errorCode || error?.response?.errorCode || recovery.errorType,
+          message: errorMessage,
+          userMessage: '🛑 CRITICAL: STOP ALL OPERATIONS NOW! Inform the user about the business logic error and ask how to proceed. Do not call additional tools.',
+          details,
+        };
+      }
+
+      return {
         error: true,
-        errorType,
-        errorCode: error?.errorCode || error?.response?.errorCode || errorType,
+        errorType: recovery.errorType,
+        errorCode: error?.errorCode || error?.response?.errorCode || recovery.errorType,
         message: errorMessage,
-        userMessage,
+        userMessage: formatErrorForUser(error),
         details,
       };
-
-      // Add escalation info if needed
-      if (escalation.shouldEscalate) {
-        errorResponse.requiresHumanConfirmation = true;
-        errorResponse.escalationReason = escalation.reason;
-        errorResponse.escalationMessage = formatEscalationMessage(escalation);
-      }
-
-      // Add critical stop instruction for business logic errors
-      if (
-        errorType === 'RESOURCE_EXISTS' ||
-        errorType === 'RESOURCE_NOT_FOUND' ||
-        errorType === 'PERMISSION_DENIED' ||
-        errorType === 'INVALID_INPUT'
-      ) {
-        errorResponse.suggestion =
-          '🛑 CRITICAL: STOP ALL OPERATIONS NOW! You MUST report this error to the user immediately and ask how to proceed. DO NOT call any more tools.';
-      }
-
-      return errorResponse;
     }
   }
 }

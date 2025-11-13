@@ -717,12 +717,43 @@ export class SqlTableHandlerService {
               // Check if column exists before dropping
               const columnExists = await trx.schema.hasColumn(sourceTable.name, fkColumn);
               if (columnExists) {
-                // Drop FK constraint and column using schema builder (database-agnostic)
+                // Query actual constraint name from DB (don't rely on Knex auto-generated name)
                 try {
-                  await trx.schema.alterTable(sourceTable.name, (table) => {
-                    table.dropForeign([fkColumn]);
-                  });
-                  this.logger.log(`Dropped FK constraint for column: ${fkColumn}`);
+                  const dbType = this.queryBuilder.getDatabaseType();
+                  let constraintName: string | null = null;
+
+                  if (dbType === 'postgres') {
+                    const result = await trx.raw(`
+                      SELECT tc.constraint_name
+                      FROM information_schema.table_constraints AS tc
+                      JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                      WHERE tc.constraint_type = 'FOREIGN KEY'
+                        AND tc.table_schema = 'public'
+                        AND tc.table_name = ?
+                        AND kcu.column_name = ?
+                    `, [sourceTable.name, fkColumn]);
+                    constraintName = result.rows[0]?.constraint_name || null;
+                  } else if (dbType === 'mysql') {
+                    const result = await trx.raw(`
+                      SELECT CONSTRAINT_NAME as constraint_name
+                      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                      WHERE TABLE_SCHEMA = DATABASE()
+                        AND TABLE_NAME = ?
+                        AND COLUMN_NAME = ?
+                        AND REFERENCED_TABLE_NAME IS NOT NULL
+                    `, [sourceTable.name, fkColumn]);
+                    constraintName = result[0][0]?.constraint_name || null;
+                  }
+
+                  if (constraintName) {
+                    const qt = dbType === 'mysql' ? (id: string) => `\`${id}\`` : (id: string) => `"${id}"`;
+                    await trx.raw(`ALTER TABLE ${qt(sourceTable.name)} DROP CONSTRAINT ${qt(constraintName)}`);
+                    this.logger.log(`Dropped FK constraint: ${constraintName} for column ${fkColumn}`);
+                  } else {
+                    this.logger.log(`No FK constraint found for column ${fkColumn}, skipping constraint drop`);
+                  }
                 } catch (error) {
                   this.logger.log(`Error dropping FK constraint: ${error.message}`);
                 }
@@ -795,10 +826,10 @@ export class SqlTableHandlerService {
               this.logger.log(`Dropping FK constraint: ${fk.constraint_name} from ${fk.table_name}.${fk.column_name}`);
 
               try {
-                // Drop FK constraint using schema builder (database-agnostic)
-                await trx.schema.alterTable(fk.table_name, (table: any) => {
-                  table.dropForeign([fk.column_name]);
-                });
+                // Drop FK constraint using raw SQL with actual constraint name from DB
+                // Using schema builder doesn't work because it generates a different constraint name
+                const qt = dbType === 'mysql' ? (id: string) => `\`${id}\`` : (id: string) => `"${id}"`;
+                await trx.raw(`ALTER TABLE ${qt(fk.table_name)} DROP CONSTRAINT ${qt(fk.constraint_name)}`);
                 this.logger.log(`Dropped FK constraint: ${fk.constraint_name}`);
               } catch (error) {
                 this.logger.log(`Error dropping FK constraint: ${error.message}`);

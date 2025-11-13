@@ -1,6 +1,9 @@
 import { Injectable, Logger, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
+import { ChatOpenAI } from '@langchain/openai';
+import { ChatAnthropic } from '@langchain/anthropic';
+const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages');
+import { z } from 'zod';
+
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { AiConfigCacheService } from '../../../infrastructure/cache/services/ai-config-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
@@ -12,36 +15,15 @@ import { SystemProtectionService } from '../../dynamic-api/services/system-prote
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { SwaggerService } from '../../../infrastructure/swagger/services/swagger.service';
 import { GraphqlService } from '../../graphql/services/graphql.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { IToolCall, IToolResult } from '../interfaces/message.interface';
-import { createLLMClient } from '../utils/llm-client.helper';
-import { getTools } from '../utils/llm-tools.helper';
-import { convertMessagesToAnthropic } from '../utils/message-converter.helper';
-import { mapStatusCodeToHttpStatus, getErrorCodeFromStatus } from '../utils/error-handler.helper';
-import { streamOpenAIToClient } from '../utils/openai-stream-client.helper';
-import { chatOpenAINonStreamButStreamToClient } from '../utils/openai-nonstream-client.helper';
-import { handleAnthropicStream } from '../utils/anthropic-stream.helper';
-import { streamAnthropicToClient } from '../utils/anthropic-stream-client.helper';
-import { StreamEvent } from '../interfaces/stream-event.interface';
 import { createLLMContext } from '../utils/context.helper';
 import { ToolExecutor } from '../utils/tool-executor.helper';
-import { applyPromptCaching } from '../utils/anthropic-cache.helper';
-import { optimizeOpenAIMessages } from '../utils/openai-cache.helper';
-import { compressToolResult, shouldCompressResult } from '../utils/tool-result-compression.helper';
-import { retryToolExecution } from '../utils/retry-helper';
-import { areToolsIndependent } from '../utils/parallel-tools.helper';
+import { StreamEvent } from '../interfaces/stream-event.interface';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
-  tool_calls?: Array<{
-    id: string;
-    type: 'function';
-    function: {
-      name: string;
-      arguments: string;
-    };
-  }>;
+  tool_calls?: IToolCall[];
   tool_call_id?: string;
 }
 
@@ -84,6 +66,159 @@ export class LLMService {
     );
   }
 
+  private async createLLM(config: any): Promise<any> {
+    if (config.provider === 'OpenAI') {
+      const baseOptions: Record<string, any> = {
+        apiKey: config.apiKey,
+        model: config.model?.trim(),
+        timeout: config.llmTimeout || 30000,
+      };
+
+      return new ChatOpenAI(baseOptions);
+    }
+
+    if (config.provider === 'Anthropic') {
+      return new ChatAnthropic({
+        apiKey: config.apiKey,
+        model: config.model,
+        temperature: config.temperature || 0.7,
+        maxTokens: config.maxTokens || 4096,
+      });
+    }
+
+    throw new BadRequestException(`Unsupported LLM provider: ${config.provider}`);
+  }
+
+  private createTools(context: any): any[] {
+    const toolDefFile = require('../utils/llm-tools.helper');
+    const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
+
+    return COMMON_TOOLS.map((toolDef: any) => {
+      const zodSchema = this.convertParametersToZod(toolDef.parameters);
+
+      if (toolDef.name === 'get_table_details') {
+        this.logger.debug(`[createTools] ${toolDef.name} schema: ${JSON.stringify(toolDef.parameters)}`);
+        this.logger.debug(`[createTools] ${toolDef.name} required: ${JSON.stringify(toolDef.parameters.required)}`);
+      }
+
+      return {
+        name: toolDef.name,
+        description: toolDef.description,
+        schema: zodSchema,
+        func: async (input: any) => {
+          this.logger.debug(`[Tool Execution] ${toolDef.name} called with input: ${JSON.stringify(input)}`);
+
+          const toolCall = {
+            id: `tool_${Date.now()}_${Math.random()}`,
+            function: {
+              name: toolDef.name,
+              arguments: JSON.stringify(input),
+            },
+          };
+
+          const result = await this.toolExecutor.executeTool(toolCall, context);
+          return JSON.stringify(result);
+        },
+      };
+    });
+  }
+
+  private convertParametersToZod(parameters: any): any {
+    const props = parameters.properties || {};
+    const required = parameters.required || [];
+
+    const zodObj: any = {};
+
+    for (const [key, value] of Object.entries(props)) {
+      const propDef: any = value;
+      let zodField: any;
+
+      if (propDef.type === 'string') {
+        zodField = z.string();
+      } else if (propDef.type === 'number') {
+        zodField = z.number();
+      } else if (propDef.type === 'boolean') {
+        zodField = z.boolean();
+      } else if (propDef.type === 'array') {
+        zodField = z.array(z.any());
+      } else if (propDef.type === 'object' || propDef.type === undefined) {
+        zodField = z.any();
+      } else if (propDef.oneOf) {
+        zodField = z.union([z.string(), z.number()]);
+      } else {
+        zodField = z.any();
+      }
+
+      if (propDef.enum) {
+        zodField = z.enum(propDef.enum as [string, ...string[]]);
+      }
+
+      if (!required.includes(key)) {
+        zodField = zodField.optional();
+      }
+
+      if (propDef.description) {
+        zodField = zodField.describe(propDef.description);
+      }
+
+      zodObj[key] = zodField;
+    }
+
+    return z.object(zodObj);
+  }
+
+  private convertToLangChainMessages(messages: LLMMessage[]): any[] {
+    const result: any[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        result.push(new SystemMessage(msg.content || ''));
+      } else if (msg.role === 'user') {
+        result.push(new HumanMessage(msg.content || ''));
+      } else if (msg.role === 'assistant') {
+        let toolCallsFormatted = undefined;
+
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          toolCallsFormatted = msg.tool_calls.map((tc: any) => {
+            const toolName = tc.function?.name || tc.name;
+            let toolArgs = tc.function?.arguments || tc.arguments || tc.input || tc.args;
+            if (typeof toolArgs === 'string') {
+              try {
+                toolArgs = JSON.parse(toolArgs);
+              } catch (e) {
+                this.logger.warn(`[convertToLangChainMessages] Failed to parse tool arguments: ${toolArgs}`);
+                toolArgs = {};
+              }
+            }
+
+            return {
+              name: toolName,
+              args: toolArgs || {},
+              id: tc.id,
+              type: 'tool_call' as const,
+            };
+          });
+        }
+
+        const aiMsg = new AIMessage({
+          content: msg.content || '',
+          tool_calls: toolCallsFormatted || [],
+        });
+        result.push(aiMsg);
+      } else if (msg.role === 'tool') {
+        const ToolMessage = require('@langchain/core/messages').ToolMessage;
+        result.push(
+          new ToolMessage({
+            content: msg.content || '',
+            tool_call_id: msg.tool_call_id,
+          }),
+        );
+      }
+    }
+
+    return result;
+  }
+
   async chat(params: {
     messages: LLMMessage[];
     configId: string | number;
@@ -92,379 +227,145 @@ export class LLMService {
     const { messages, configId, user } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
-    if (!config) {
-      throw new BadRequestException(`AI config with ID ${configId} not found`);
+    if (!config || !config.isEnabled) {
+      throw new BadRequestException(`AI config ${configId} not found or disabled`);
     }
 
-    if (!config.isEnabled) {
-      throw new BadRequestException(`AI config with ID ${configId} is disabled`);
-    }
+    try {
+      const llm = await this.createLLM(config);
+      const context = createLLMContext(user);
+      const tools = this.createTools(context);
 
-    const client = await createLLMClient(config);
-    const provider = config.provider;
-    const tools = getTools(provider);
-    const model = config.model;
-    const timeout = config.llmTimeout;
-    this.logger.log(`[LLM][Stream] Resolved config ${configId} provider=${provider} model=${model}`);
-    const allToolCalls: IToolCall[] = [];
-    const allToolResults: IToolResult[] = [];
-    const context = createLLMContext(user);
+      this.logger.debug(`[LLM Stream] Created ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`);
 
-    const conversationMessages: LLMMessage[] = [...messages];
-    let maxIterations = 10;
-    let iteration = 0;
-    const baseTimeout = timeout || 30000;
-    const startTime = Date.now();
-    const totalTimeout = baseTimeout * 3;
+      const llmWithTools = (llm as any).bindTools(tools);
 
-    while (iteration < maxIterations) {
-      iteration++;
+      const lcMessages = this.convertToLangChainMessages(messages);
 
-      const elapsed = Date.now() - startTime;
-      if (elapsed > totalTimeout) {
-        throw new Error(`LLM request timeout after ${totalTimeout}ms (${iteration} iterations)`);
+      if (lcMessages.length > 0) {
+        const firstMsg = lcMessages[0];
+        const content = typeof firstMsg.content === 'string' ? firstMsg.content : JSON.stringify(firstMsg.content);
+        this.logger.debug(`[LLM Stream] First message role: ${firstMsg.constructor.name}, length: ${content.length} chars`);
       }
 
-      const remainingTimeout = totalTimeout - elapsed;
-      const currentRequestTimeout = Math.max(remainingTimeout, baseTimeout);
+      let conversationMessages = [...lcMessages];
+      const allToolCalls: IToolCall[] = [];
+      const allToolResults: IToolResult[] = [];
+      let iterations = 0;
+      const maxIterations = 10;
 
-      try {
-        if (provider === 'OpenAI') {
-          const optimizedMessages = optimizeOpenAIMessages(conversationMessages);
-          const response = await Promise.race([
-            (client as OpenAI).chat.completions.create({
-            model,
-            messages: optimizedMessages as any,
-            tools: tools as any,
-            tool_choice: 'auto',
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error(`LLM request timeout after ${currentRequestTimeout}ms`)), currentRequestTimeout),
-          ),
-        ]) as any;
+      while (iterations < maxIterations) {
+        iterations++;
 
-        const choice = response.choices[0];
-        if (!choice) {
-          throw new Error('No response from LLM');
-        }
+        const result: any = await llmWithTools.invoke(conversationMessages);
 
-        const message = choice.message;
+        const toolCalls = result.tool_calls || result.additional_kwargs?.tool_calls || [];
 
-        if (message.tool_calls && message.tool_calls.length > 0) {
-          conversationMessages.push({
-            role: 'assistant',
-            content: message.content,
-            tool_calls: message.tool_calls,
-          });
-
-          const toolResults: LLMMessage[] = [];
-
-          for (const toolCall of message.tool_calls) {
-            allToolCalls.push({
-              id: toolCall.id,
-              type: 'function',
-              function: {
-                name: toolCall.function.name,
-                arguments: toolCall.function.arguments,
-              },
-            });
-
-            try {
-              this.logger.debug(`Executing tool: ${toolCall.function.name} with args:`, JSON.parse(toolCall.function.arguments));
-
-              // Execute tool with retry mechanism (max 3 retries)
-              const result = await retryToolExecution(
-                toolCall.function.name,
-                () => this.toolExecutor.executeTool(toolCall, context),
-                {
-                  maxRetries: 3,
-                  baseDelayMs: 1000,
-                  maxDelayMs: 10000,
-                },
-              );
-
-              // Compress large tool results to save tokens
-              const resultStr = shouldCompressResult(toolCall.function.name, result)
-                ? compressToolResult(toolCall.function.name, result)
-                : JSON.stringify(result);
-
-              allToolResults.push({
-                toolCallId: toolCall.id,
-                result,
-              });
-
-              toolResults.push({
-                role: 'tool',
-                content: resultStr,
-                tool_call_id: toolCall.id,
-              });
-            } catch (error: any) {
-              this.logger.error(`Tool execution failed after retries: ${toolCall.function.name}`, error);
-              const errorStr = JSON.stringify({ error: error.message || String(error) });
-
-              allToolResults.push({
-                toolCallId: toolCall.id,
-                result: { error: error.message || String(error) },
-              });
-
-              toolResults.push({
-                role: 'tool',
-                content: errorStr,
-                tool_call_id: toolCall.id,
-              });
-            }
-          }
-
-          conversationMessages.push(...toolResults);
-        } else {
+        if (toolCalls.length === 0) {
           return {
-            content: message.content,
+            content: result.content || '',
             toolCalls: allToolCalls,
             toolResults: allToolResults,
           };
-          }
-        } else if (provider === 'Anthropic') {
-          const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
-          const systemMessage = anthropicMessages.find(m => m.role === 'system');
-          const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
+        }
 
-          // Apply prompt caching for cost optimization
-          const cached = applyPromptCaching(
-            systemMessage?.content as string,
-            tools,
-            nonSystemMessages,
-          );
+        conversationMessages.push(result);
 
-          const systemPromptLength = typeof cached.system === 'string' ? cached.system.length : JSON.stringify(cached.system).length;
-          const messagesLength = cached.messages.reduce((sum, msg) => {
-            if (typeof msg.content === 'string') {
-              return sum + msg.content.length;
-            } else if (Array.isArray(msg.content)) {
-              return sum + JSON.stringify(msg.content).length;
-            }
-            return sum;
-          }, 0);
-          const toolsLength = JSON.stringify(cached.tools).length;
+        for (const tc of toolCalls) {
+          this.logger.debug(`[LLM Chat] Processing tool call: ${JSON.stringify(tc)}`);
 
-          // Debug: Check if cache_control is applied
-          const systemHasCache = Array.isArray(cached.system) && cached.system.some((block: any) => block.cache_control);
-          const toolsHasCache = cached.tools.some((tool: any) => tool.cache_control);
-          const messagesHasCache = cached.messages.some((msg: any) =>
-            Array.isArray(msg.content) && msg.content.some((block: any) => block.cache_control)
-          );
+          const toolName = tc.function?.name || tc.name;
+          const toolArgs = tc.function?.arguments || tc.arguments;
+          const toolId = tc.id;
 
-          // Estimate tokens (rough: 1 token ≈ 4 chars)
-          const systemTokens = Math.floor(systemPromptLength / 4);
-          const toolsTokens = Math.floor(toolsLength / 4);
-          const messagesTokens = Math.floor(messagesLength / 4);
-          const totalTokens = systemTokens + toolsTokens + messagesTokens;
+          this.logger.debug(`[LLM Chat] Extracted - Name: ${toolName}, Args: ${typeof toolArgs}, ID: ${toolId}`);
 
-          this.logger.log(`[Prompt Caching] System: ${systemHasCache ? '✓' : '✗'} (~${systemTokens} tokens), Tools: ${toolsHasCache ? '✓' : '✗'} (~${toolsTokens} tokens), Messages: ${messagesHasCache ? '✓' : '✗'} (~${messagesTokens} tokens)`);
-          this.logger.log(`[Prompt Caching] Total: ~${totalTokens} tokens (minimum 1024 tokens required for cache)`);
-
-          this.logger.log(`Request size - System: ${systemPromptLength} chars, Messages: ${messagesLength} chars, Tools: ${toolsLength} chars, Total: ${systemPromptLength + messagesLength + toolsLength} chars`);
-
-          const elapsed = Date.now() - startTime;
-          if (elapsed > totalTimeout) {
-            throw new Error(`LLM request timeout after ${totalTimeout}ms (${iteration} iterations)`);
+          if (!toolName) {
+            this.logger.error(`[LLM Chat] Tool name is undefined. Full tool call: ${JSON.stringify(tc)}`);
+            continue;
           }
 
-          const remainingTimeout = totalTimeout - elapsed;
-          const currentRequestTimeout = Math.max(remainingTimeout, baseTimeout);
+          if (!toolId) {
+            this.logger.error(`[LLM Chat] Tool ID is missing for ${toolName}. Full tool call: ${JSON.stringify(tc)}`);
+            continue;
+          }
 
-          const stream = (client as Anthropic).messages.stream({
-            model: model,
-            max_tokens: 4096,
-            system: cached.system as any,
-            messages: cached.messages as any,
-            tools: cached.tools as any,
+          allToolCalls.push({
+            id: toolId,
+            type: 'function',
+            function: {
+              name: toolName,
+              arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs || {}),
+            },
           });
 
-          const streamData = await handleAnthropicStream(stream, currentRequestTimeout);
-
-          this.logger.log(`Input tokens: ${streamData.inputTokens}, Output tokens: ${streamData.outputTokens}`);
-
-          const textContent = streamData.textContent;
-
-          if (streamData.stop_reason === 'tool_use' && streamData.toolCalls.length > 0) {
-            const toolCalls = streamData.toolCalls;
-
-            conversationMessages.push({
-              role: 'assistant',
-              content: textContent || null,
-              tool_calls: toolCalls,
-            });
-
-            const toolResults: LLMMessage[] = [];
-
-            for (const toolCall of toolCalls) {
-              allToolCalls.push({
-                id: toolCall.id,
-                type: 'function',
-                function: {
-                  name: toolCall.function.name,
-                  arguments: toolCall.function.arguments,
-                },
-              });
-
-              try {
-                const toolCallObj = {
-                  id: toolCall.id,
-                  function: {
-                    name: toolCall.function.name,
-                    arguments: toolCall.function.arguments,
-                  },
-                };
-
-                // Execute tool with retry mechanism (max 3 retries)
-                const result = await retryToolExecution(
-                  toolCallObj.function.name,
-                  () => this.toolExecutor.executeTool(toolCallObj, context),
-                  {
-                    maxRetries: 3,
-                    baseDelayMs: 1000,
-                    maxDelayMs: 10000,
-                  },
-                );
-
-                // Compress large tool results to save tokens
-                const resultStr = shouldCompressResult(toolCallObj.function.name, result)
-                  ? compressToolResult(toolCallObj.function.name, result)
-                  : JSON.stringify(result);
-
-                allToolResults.push({
-                  toolCallId: toolCall.id,
-                  result,
-                });
-
-                toolResults.push({
-                  role: 'tool',
-                  content: resultStr,
-                  tool_call_id: toolCall.id,
-                });
-              } catch (error: any) {
-                this.logger.error(`Tool execution failed after retries: ${toolCall.function.name}`, error);
-                const errorStr = JSON.stringify({ error: error.message || String(error) });
-
-                allToolResults.push({
-                  toolCallId: toolCall.id,
-                  result: { error: error.message || String(error) },
-                });
-
-                toolResults.push({
-                  role: 'tool',
-                  content: errorStr,
-                  tool_call_id: toolCall.id,
-                });
-              }
+          try {
+            const tool = tools.find((t) => t.name === toolName);
+            if (!tool) {
+              throw new Error(`Tool ${toolName} not found`);
             }
 
-            conversationMessages.push(...toolResults);
-          } else {
-            return {
-              content: textContent || null,
-              toolCalls: allToolCalls,
-              toolResults: allToolResults,
-            };
+            let parsedArgs: any;
+            if (typeof toolArgs === 'string') {
+              try {
+                parsedArgs = JSON.parse(toolArgs);
+              } catch (parseError: any) {
+                this.logger.error(`[LLM Chat] Failed to parse tool args string: ${toolArgs}`);
+                throw new Error(`Invalid JSON in tool arguments: ${parseError.message}`);
+              }
+            } else if (typeof toolArgs === 'object' && toolArgs !== null) {
+              parsedArgs = toolArgs;
+            } else {
+              this.logger.warn(`[LLM Chat] Tool args is ${typeof toolArgs}, using empty object`);
+              parsedArgs = {};
+            }
+
+            this.logger.debug(`[LLM Chat] Calling tool ${toolName} with args: ${JSON.stringify(parsedArgs)}`);
+            const toolResult = await tool.func(parsedArgs);
+
+            allToolResults.push({
+              toolCallId: toolId,
+              result: typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult,
+            });
+
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            conversationMessages.push(
+              new ToolMessage({
+                content: toolResult,
+                tool_call_id: toolId,
+              }),
+            );
+          } catch (error: any) {
+            this.logger.error(`Tool execution failed: ${toolName}`, error);
+
+            const errorResult = { error: error.message || String(error) };
+            allToolResults.push({
+              toolCallId: toolId,
+              result: errorResult,
+            });
+
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            conversationMessages.push(
+              new ToolMessage({
+                content: JSON.stringify(errorResult),
+                tool_call_id: toolId,
+              }),
+            );
           }
         }
-      } catch (error: any) {
-        this.logger.error('LLM chat error:', error);
-        const errorMessage = error?.message || String(error);
-        
-        const statusCode = error?.status || error?.statusCode || error?.response?.status;
-        
-        if (statusCode) {
-          const httpStatus = mapStatusCodeToHttpStatus(statusCode);
-          throw new HttpException(
-            {
-              message: errorMessage,
-              code: getErrorCodeFromStatus(httpStatus),
-            },
-            httpStatus,
-          );
-        }
-        
-        throw new HttpException(
-          {
-            message: errorMessage,
-            code: 'LLM_ERROR',
-          },
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-    }
-
-    throw new Error('Max iterations reached in tool calling loop');
-  }
-
-  // Lightweight chat without tools (for summaries and low-token calls)
-  async chatSimple(params: {
-    messages: LLMMessage[];
-    configId: string | number;
-  }): Promise<LLMResponse> {
-    const { messages, configId } = params;
-
-    const config = await this.aiConfigCacheService.getConfigById(configId);
-    if (!config) {
-      throw new BadRequestException(`AI config with ID ${configId} not found`);
-    }
-    if (!config.isEnabled) {
-      throw new BadRequestException(`AI config with ID ${configId} is disabled`);
-    }
-
-    const client = await createLLMClient(config);
-    const provider = config.provider;
-    const model = config.model;
-    const timeout = Math.min(config.llmTimeout || 30000, 30000);
-    const conversationMessages: LLMMessage[] = [...messages];
-
-    if (provider === 'OpenAI') {
-      const response: any = await Promise.race([
-        (client as OpenAI).chat.completions.create({
-          model,
-          messages: conversationMessages as any,
-          // No tools, no function calling
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`LLM request timeout after ${timeout}ms`)), timeout)),
-      ]);
-      const choice = response.choices?.[0];
-      const content = choice?.message?.content || '';
-      return { content, toolCalls: [], toolResults: [] };
-    } else if (provider === 'Anthropic') {
-      this.logger.debug(`[chatSimple - Anthropic] Input messages count: ${conversationMessages.length}`);
-      conversationMessages.forEach((msg, idx) => {
-        this.logger.debug(`[chatSimple - Anthropic] Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.slice(0, 100) : JSON.stringify(msg.content).slice(0, 100)}`);
-      });
-
-      const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
-      this.logger.debug(`[chatSimple - Anthropic] Converted messages count: ${anthropicMessages.length}`);
-
-      const systemMessage = anthropicMessages.find(m => m.role === 'system');
-      const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
-
-      this.logger.debug(`[chatSimple - Anthropic] System messages: ${systemMessage ? 1 : 0}, Non-system messages: ${nonSystemMessages.length}`);
-
-      // Ensure we have at least one message for Anthropic API
-      if (nonSystemMessages.length === 0) {
-        this.logger.error(`[chatSimple - Anthropic] No non-system messages after conversion. Original messages: ${JSON.stringify(conversationMessages.map(m => ({role: m.role, hasContent: !!m.content})))}`);
-        throw new BadRequestException('At least one user or assistant message is required for Anthropic API');
       }
 
-      const msg = await (client as Anthropic).messages.create({
-        model,
-        max_tokens: 1024,
-        system: systemMessage?.content as any,
-        messages: nonSystemMessages as any,
-      });
-      const content = (msg.content || [])
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('');
-      return { content, toolCalls: [], toolResults: [] };
+      throw new Error('Max iterations reached');
+    } catch (error: any) {
+      this.logger.error('[LLM] Error:', error);
+      throw new HttpException(
+        {
+          message: error?.message || String(error),
+          code: 'LLM_ERROR',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
-
-    throw new BadRequestException(`Unsupported provider: ${provider}`);
   }
 
   async chatStream(params: {
@@ -477,586 +378,329 @@ export class LLMService {
     const { messages, configId, abortSignal, onEvent, user } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
-    if (!config) {
-      throw new BadRequestException(`AI config with ID ${configId} not found`);
+    if (!config || !config.isEnabled) {
+      throw new BadRequestException(`AI config ${configId} not found or disabled`);
     }
 
-    if (!config.isEnabled) {
-      throw new BadRequestException(`AI config with ID ${configId} is disabled`);
-    }
+    try {
+      const llm = await this.createLLM(config);
+      const context = createLLMContext(user);
+      const tools = this.createTools(context);
 
-    const client = await createLLMClient(config);
-    const provider = config.provider;
-    const tools = getTools(provider);
-    const model = config.model;
-    const timeout = config.llmTimeout;
-    const allToolCalls: IToolCall[] = [];
-    const allToolResults: IToolResult[] = [];
-    const context = createLLMContext(user);
+      this.logger.debug(`[LLM Stream] Created ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`);
 
-    const conversationMessages: LLMMessage[] = [...messages];
-    let maxIterations = 10;
-    let iteration = 0;
-    const baseTimeout = timeout || 30000;
-    const startTime = Date.now();
-    const totalTimeout = baseTimeout * 3;
+      const llmWithTools = (llm as any).bindTools(tools);
 
-    while (iteration < maxIterations) {
-      iteration++;
-      const iterationStartTime = Date.now();
-      this.logger.log(`[Tool Loop - Stream] Starting iteration ${iteration}`);
+      let conversationMessages = this.convertToLangChainMessages(messages);
 
-      // Check if client disconnected
-      if (abortSignal?.aborted) {
-        this.logger.warn('[Tool Loop - Stream] Request aborted by client, stopping...');
-        throw new Error('Request aborted by client');
+      if (conversationMessages.length > 0) {
+        const firstMsg = conversationMessages[0];
+        const content = typeof firstMsg.content === 'string' ? firstMsg.content : JSON.stringify(firstMsg.content);
+        this.logger.debug(`[LLM Stream] First message role: ${firstMsg.constructor.name}, length: ${content.length} chars`);
       }
 
-      const elapsed = Date.now() - startTime;
-      if (elapsed > totalTimeout) {
-        throw new Error(`LLM request timeout after ${totalTimeout}ms (${iteration} iterations)`);
-      }
+      let fullContent = '';
+      const allToolCalls: IToolCall[] = [];
+      const allToolResults: IToolResult[] = [];
+      let iterations = 0;
+      const maxIterations = 10;
 
-      const remainingTimeout = totalTimeout - elapsed;
-      const currentRequestTimeout = Math.max(remainingTimeout, baseTimeout);
+      while (iterations < maxIterations) {
+        iterations++;
 
-      try {
-        if (provider === 'OpenAI') {
-          const optimizedMessages = optimizeOpenAIMessages(conversationMessages);
+        if (abortSignal?.aborted) {
+          throw new Error('Request aborted by client');
+        }
 
-          this.logger.log(`[OpenAI] Using model: ${model}`);
-          this.logger.log(`[OpenAI] Message count: ${optimizedMessages.length}, Total tools: ${tools.length}`);
+        this.logger.debug(`[LLM Stream] Iteration ${iterations}: conversationMessages.length = ${conversationMessages.length}`);
+        conversationMessages.forEach((msg, idx) => {
+          const roleInfo = msg.constructor.name;
+          const hasToolCalls = msg.tool_calls?.length || msg.additional_kwargs?.tool_calls?.length || 0;
+          const toolCallId = msg.tool_call_id || 'N/A';
+          this.logger.debug(`  [${idx}] ${roleInfo}, tool_calls: ${hasToolCalls}, tool_call_id: ${toolCallId}`);
+        });
 
-          const apiCallStart = Date.now();
-          this.logger.log(`[OpenAI] ⏱️  Creating stream connection...`);
+        let currentContent = '';
+        let currentToolCalls: any[] = [];
+        let streamError: Error | null = null;
+        let aggregateResponse: any = null;
 
-          // Add timeout warning to detect blocking
-          const timeoutWarning = setInterval(() => {
-            const elapsed = Date.now() - apiCallStart;
-            this.logger.warn(`[OpenAI] ⚠️  Still waiting for stream after ${(elapsed / 1000).toFixed(1)}s (likely generating tool calls)...`);
-          }, 5000);
+        try {
+          const stream = await llmWithTools.stream(conversationMessages);
 
-          let stream: any;
-          let streamData: any;
-          let streamConsumeTime: number = 0;
+          for await (const chunk of stream) {
+            if (abortSignal?.aborted) {
+              throw new Error('Request aborted by client');
+            }
 
-          try {
-            stream = await (client as OpenAI).chat.completions.create({
-              model: model,
-              messages: optimizedMessages as any,
-              tools: tools as any,
-              tool_choice: 'auto',
-              parallel_tool_calls: true, // ✅ Enable for performance (we handle dependencies)
-              stream: true,
-              stream_options: { include_usage: true },
-            });
-
-            const apiCallTime = Date.now() - apiCallStart;
-            this.logger.log(`[OpenAI] ✓ Stream object created in ${apiCallTime}ms`);
-            this.logger.log(`[OpenAI] ⏱️  Starting to consume stream...`);
-
-            const streamConsumeStart = Date.now();
-            streamData = await streamOpenAIToClient(stream, currentRequestTimeout, onEvent);
-            streamConsumeTime = Date.now() - streamConsumeStart;
-          } finally {
-            // Always clear timeout warning, even if error occurs
-            clearInterval(timeoutWarning);
-          }
-
-          this.logger.log(`[OpenAI] ✓ Stream consumed in ${streamConsumeTime}ms`);
-          this.logger.log(`[OpenAI] Token usage - Input: ${streamData.inputTokens}, Output: ${streamData.outputTokens}`);
-
-          const textContent = streamData.textContent;
-
-          if (streamData.stop_reason === 'tool_calls' && streamData.toolCalls.length > 0) {
-            const toolCalls = streamData.toolCalls;
-
-            conversationMessages.push({
-              role: 'assistant',
-              content: textContent || null,
-              tool_calls: toolCalls,
-            });
-
-            const toolResults: LLMMessage[] = [];
-
-            // Check if tools can be executed in parallel
-            const canParallelize = toolCalls.length > 1 && areToolsIndependent(toolCalls);
-
-            if (canParallelize) {
-              this.logger.log(`[OpenAI Stream] Executing ${toolCalls.length} tools in PARALLEL`);
-
-              // Execute all tools in parallel
-              const parallelStartTime = Date.now();
-
-              // Prepare all tool calls
-              const toolPromises = toolCalls.map(async (toolCall) => {
-                // Check if client disconnected before executing tool
-                if (abortSignal?.aborted) {
-                  this.logger.warn('[Tool Execution - OpenAI Stream] Request aborted by client, stopping tool execution...');
-                  throw new Error('Request aborted by client');
-                }
-
-                const toolStartTime = Date.now();
-                this.logger.log(`[Tool Execution - OpenAI Stream] Starting tool: ${toolCall.function.name}`);
-
-                // Stream tool execution as text message
-                onEvent({
-                  type: 'text',
-                  data: {
-                    delta: `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
-                    text: textContent + `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
-                  },
-                });
-
-                const toolCallObj = {
-                  id: toolCall.id,
-                  function: {
-                    name: toolCall.function.name,
-                    arguments: toolCall.function.arguments,
-                  },
-                };
-
-                allToolCalls.push({
-                  id: toolCall.id,
-                  type: 'function',
-                  function: {
-                    name: toolCall.function.name,
-                    arguments: toolCall.function.arguments,
-                  },
-                });
-
-                try {
-                  // Execute tool with retry mechanism (max 3 retries)
-                  const result = await retryToolExecution(
-                    toolCallObj.function.name,
-                    () => this.toolExecutor.executeTool(toolCallObj, context),
-                    {
-                      maxRetries: 3,
-                      baseDelayMs: 1000,
-                      maxDelayMs: 10000,
-                      onRetry: (attempt, error) => {
-                        // Notify user about retry during streaming
-                        onEvent({
-                          type: 'text',
-                          data: {
-                            delta: `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
-                            text: textContent + `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
-                          },
-                        });
-                      },
-                    },
-                  );
-
-                  // Compress large tool results to save tokens
-                  const resultStr = shouldCompressResult(toolCallObj.function.name, result)
-                    ? compressToolResult(toolCallObj.function.name, result)
-                    : JSON.stringify(result);
-
-                  const toolDuration = Date.now() - toolStartTime;
-                  this.logger.log(`[Tool Execution - OpenAI Stream] Completed tool: ${toolCall.function.name} in ${toolDuration}ms`);
-
-                  allToolResults.push({
-                    toolCallId: toolCall.id,
-                    result,
-                  });
-
-                  onEvent({
-                    type: 'tool_result',
-                    data: {
-                      toolCallId: toolCall.id,
-                      name: toolCall.function.name,
-                      result,
-                    },
-                  });
-
-                  return {
-                    role: 'tool' as const,
-                    content: resultStr,
-                    tool_call_id: toolCall.id,
-                  };
-                } catch (error: any) {
-                  this.logger.error(`[Tool Execution - OpenAI Stream] Failed tool after retries: ${toolCall.function.name}`, error);
-                  const errorStr = JSON.stringify({ error: error.message || String(error) });
-
-                  allToolResults.push({
-                    toolCallId: toolCall.id,
-                    result: { error: error.message || String(error) },
-                  });
-
-                  onEvent({
-                    type: 'tool_result',
-                    data: {
-                      toolCallId: toolCall.id,
-                      name: toolCall.function.name,
-                      result: { error: error.message || String(error) },
-                    },
-                  });
-
-                  return {
-                    role: 'tool' as const,
-                    content: errorStr,
-                    tool_call_id: toolCall.id,
-                  };
-                }
-              });
-
-              // Wait for all tools to complete
-              const parallelResults = await Promise.all(toolPromises);
-              toolResults.push(...parallelResults);
-
-              const parallelDuration = Date.now() - parallelStartTime;
-              this.logger.log(`[OpenAI Stream] Parallel tool execution completed in ${parallelDuration}ms`);
+            if (aggregateResponse === null) {
+              aggregateResponse = chunk;
             } else {
-              // Execute tools sequentially (has dependencies or single tool)
-              if (toolCalls.length > 1) {
-                this.logger.log(`[OpenAI Stream] Executing ${toolCalls.length} tools SEQUENTIALLY (dependencies detected)`);
+              aggregateResponse = aggregateResponse.concat(chunk);
+            }
+
+            if (chunk.content) {
+              let delta = chunk.content;
+              if (typeof delta !== 'string') {
+                if (Array.isArray(delta)) {
+                  delta = delta
+                    .filter(block => block.type === 'text' && block.text)
+                    .map(block => block.text)
+                    .join('');
+                } else if (typeof delta === 'object' && delta.text) {
+                  delta = delta.text;
+                } else {
+                  this.logger.warn(`[LLM Stream] chunk.content is unexpected type ${typeof delta}, stringifying`);
+                  delta = JSON.stringify(delta);
+                }
               }
 
-              for (const toolCall of toolCalls) {
-              // Check if client disconnected before executing tool
-              if (abortSignal?.aborted) {
-                this.logger.warn('[Tool Execution - OpenAI Stream] Request aborted by client, stopping tool execution...');
-                throw new Error('Request aborted by client');
-              }
+              currentContent += delta;
+              fullContent += delta;
 
-              allToolCalls.push({
-                id: toolCall.id,
-                type: 'function',
-                function: {
-                  name: toolCall.function.name,
-                  arguments: toolCall.function.arguments,
-                },
+              onEvent({
+                type: 'text',
+                data: { delta, text: fullContent },
               });
+            }
 
-              try {
-                const toolStartTime = Date.now();
-                this.logger.log(`[Tool Execution - OpenAI Stream] Starting tool: ${toolCall.function.name}`);
+          }
+        } catch (streamErr: any) {
+          streamError = streamErr;
+          this.logger.error(`[LLM Stream] Stream interrupted: ${streamErr.message}`);
 
-                // Stream tool execution as text message
-                onEvent({
-                  type: 'text',
-                  data: {
-                    delta: `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
-                    text: textContent + `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
-                  },
-                });
-
-                const toolCallObj = {
-                  id: toolCall.id,
-                  function: {
-                    name: toolCall.function.name,
-                    arguments: toolCall.function.arguments,
-                  },
-                };
-
-                // Execute tool with retry mechanism (max 3 retries)
-                const result = await retryToolExecution(
-                  toolCallObj.function.name,
-                  () => this.toolExecutor.executeTool(toolCallObj, context),
-                  {
-                    maxRetries: 3,
-                    baseDelayMs: 1000,
-                    maxDelayMs: 10000,
-                    onRetry: (attempt, error) => {
-                      // Notify user about retry during streaming
-                      onEvent({
-                        type: 'text',
-                        data: {
-                          delta: `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
-                          text: textContent + `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
-                        },
-                      });
-                    },
-                  },
-                );
-
-                // Compress large tool results to save tokens
-                const resultStr = shouldCompressResult(toolCallObj.function.name, result)
-                  ? compressToolResult(toolCallObj.function.name, result)
-                  : JSON.stringify(result);
-
-                const toolDuration = Date.now() - toolStartTime;
-                this.logger.log(`[Tool Execution - OpenAI Stream] Completed tool: ${toolCall.function.name} in ${toolDuration}ms`);
-
-                allToolResults.push({
-                  toolCallId: toolCall.id,
-                  result,
-                });
-
-                onEvent({
-                  type: 'tool_result',
-                  data: {
-                    toolCallId: toolCall.id,
-                    name: toolCall.function.name,
-                    result,
-                  },
-                });
-
-                toolResults.push({
-                  role: 'tool',
-                  content: resultStr,
-                  tool_call_id: toolCall.id,
-                });
-              } catch (error: any) {
-                this.logger.error(`[Tool Execution - OpenAI Stream] Failed tool after retries: ${toolCall.function.name}`, error);
-                const errorStr = JSON.stringify({ error: error.message || String(error) });
-
-                allToolResults.push({
-                  toolCallId: toolCall.id,
-                  result: { error: error.message || String(error) },
-                });
-
-                onEvent({
-                  type: 'tool_result',
-                  data: {
-                    toolCallId: toolCall.id,
-                    name: toolCall.function.name,
-                    result: { error: error.message || String(error) },
-                  },
-                });
-
-                toolResults.push({
-                  role: 'tool',
-                  content: errorStr,
-                  tool_call_id: toolCall.id,
-                });
-              }
-            } // End for loop
-            } // End sequential execution else block
-
-            // Add newline after tool calls to prevent text concatenation
+          if (currentToolCalls.length > 0) {
+            this.logger.warn(`[LLM Stream] Stream interrupted but recovered ${currentToolCalls.length} tool calls`);
             onEvent({
               type: 'text',
-              data: { delta: '\n', text: '\n' },
+              data: {
+                delta: '\n\n⚠️ Connection interrupted, attempting to continue with partial data...\n',
+                text: fullContent + '\n\n⚠️ Connection interrupted, attempting to continue with partial data...\n',
+              },
             });
-
-            conversationMessages.push(...toolResults);
-
-            const iterationDuration = Date.now() - iterationStartTime;
-            this.logger.log(`[Tool Loop - Stream] Iteration ${iteration} completed in ${iterationDuration}ms, continuing to next iteration`);
-            continue;
           } else {
-            const iterationDuration = Date.now() - iterationStartTime;
-            const totalDuration = Date.now() - startTime;
-            this.logger.log(`[Tool Loop - Stream] Iteration ${iteration} completed in ${iterationDuration}ms. Final response generated. Total time: ${totalDuration}ms across ${iteration} iterations`);
-
-            return {
-              content: textContent,
-              toolCalls: allToolCalls,
-              toolResults: allToolResults,
-            };
+            throw streamErr;
           }
-        } else if (provider === 'Anthropic') {
-          const anthropicMessages = convertMessagesToAnthropic(conversationMessages);
-          const systemMessage = anthropicMessages.find(m => m.role === 'system');
-          const nonSystemMessages = anthropicMessages.filter(m => m.role !== 'system');
+        }
 
-          // Apply prompt caching for cost optimization
-          const cached = applyPromptCaching(
-            systemMessage?.content as string,
-            tools,
-            nonSystemMessages,
-          );
+        if (aggregateResponse && aggregateResponse.tool_calls) {
+          currentToolCalls = aggregateResponse.tool_calls;
+          this.logger.debug(`[LLM Stream] Extracted ${currentToolCalls.length} tool calls from aggregated response`);
+        }
 
-          // Debug: Check if cache_control is applied
-          const systemHasCache = Array.isArray(cached.system) && cached.system.some((block: any) => block.cache_control);
-          const toolsHasCache = cached.tools.some((tool: any) => tool.cache_control);
-          const messagesHasCache = cached.messages.some((msg: any) =>
-            Array.isArray(msg.content) && msg.content.some((block: any) => block.cache_control)
-          );
+        this.logger.debug(`[LLM Stream] Stream finished. Tool calls: ${currentToolCalls.length}, Content length: ${currentContent.length}`);
 
-          // Estimate tokens (rough: 1 token ≈ 4 chars)
-          const systemLength = typeof cached.system === 'string' ? cached.system.length : JSON.stringify(cached.system).length;
-          const toolsLength = JSON.stringify(cached.tools).length;
-          const messagesLength = JSON.stringify(cached.messages).length;
-          const systemTokens = Math.floor(systemLength / 4);
-          const toolsTokens = Math.floor(toolsLength / 4);
-          const messagesTokens = Math.floor(messagesLength / 4);
-          const totalTokens = systemTokens + toolsTokens + messagesTokens;
+        if (currentToolCalls.length > 0) {
+          this.logger.debug(`[LLM Stream] Final tool calls: ${JSON.stringify(currentToolCalls, null, 2)}`);
+        }
 
-          this.logger.log(`[Prompt Caching] System: ${systemHasCache ? '✓' : '✗'} (~${systemTokens} tokens), Tools: ${toolsHasCache ? '✓' : '✗'} (~${toolsTokens} tokens), Messages: ${messagesHasCache ? '✓' : '✗'} (~${messagesTokens} tokens)`);
-          this.logger.log(`[Prompt Caching] Total: ~${totalTokens} tokens (minimum 1024 tokens required for cache)`);
+        if (currentToolCalls.length === 0) {
+          return {
+            content: fullContent,
+            toolCalls: allToolCalls,
+            toolResults: allToolResults,
+          };
+        }
 
-          const stream = (client as Anthropic).messages.stream({
-            model: model,
-            max_tokens: 4096,
-            system: cached.system as any,
-            messages: cached.messages as any,
-            tools: cached.tools as any,
+        const langchainToolCalls = currentToolCalls.map((tc) => {
+          const toolName = tc.function?.name || tc.name;
+          let toolArgs = tc.args || tc.function?.arguments || tc.arguments;
+          if (typeof toolArgs === 'string') {
+            try {
+              toolArgs = JSON.parse(toolArgs);
+            } catch (e) {
+              this.logger.warn(`[LLM Stream] Failed to parse tool arguments: ${toolArgs}`);
+              toolArgs = {};
+            }
+          }
+
+          return {
+            name: toolName,
+            args: toolArgs || {},
+            id: tc.id,
+            type: 'tool_call' as const,
+          };
+        });
+
+        const aiMessageWithTools = new AIMessage({
+          content: currentContent,
+          tool_calls: langchainToolCalls,
+        });
+        conversationMessages.push(aiMessageWithTools);
+
+        this.logger.debug(`[LLM Stream] Added AI message to conversation. tool_calls count: ${langchainToolCalls.length}`);
+        this.logger.debug(`[LLM Stream] AI message tool_calls: ${JSON.stringify(aiMessageWithTools.tool_calls, null, 2)}`);
+
+        for (const tc of currentToolCalls) {
+          this.logger.debug(`[LLM Stream] Processing tool call: ${JSON.stringify(tc)}`);
+
+          const toolName = tc.function?.name || tc.name;
+          const toolArgs = tc.args || tc.function?.arguments || tc.arguments;
+          const toolId = tc.id;
+
+          this.logger.debug(`[LLM Stream] Extracted - Name: ${toolName}, Args: ${typeof toolArgs}, ID: ${toolId}`);
+
+          if (!toolName) {
+            this.logger.error(`[LLM Stream] Tool name is undefined. Full tool call: ${JSON.stringify(tc)}`);
+            continue;
+          }
+
+          if (!toolId) {
+            this.logger.error(`[LLM Stream] Tool ID is missing for ${toolName}. Full tool call: ${JSON.stringify(tc)}`);
+            continue;
+          }
+
+          onEvent({
+            type: 'text',
+            data: {
+              delta: `\n\n🔧 ${toolName}...\n`,
+              text: fullContent + `\n\n🔧 ${toolName}...\n`,
+            },
           });
 
-          const streamData = await streamAnthropicToClient(stream, currentRequestTimeout, onEvent);
+          allToolCalls.push({
+            id: toolId,
+            type: 'function',
+            function: {
+              name: toolName,
+              arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs || {}),
+            },
+          });
 
-          this.logger.log(`Input tokens: ${streamData.inputTokens}, Output tokens: ${streamData.outputTokens}`);
+          try {
+            const tool = tools.find((t) => t.name === toolName);
+            if (!tool) {
+              throw new Error(`Tool ${toolName} not found`);
+            }
 
-          const textContent = streamData.textContent;
-
-          if (streamData.stop_reason === 'tool_use' && streamData.toolCalls.length > 0) {
-            const toolCalls = streamData.toolCalls;
-
-            conversationMessages.push({
-              role: 'assistant',
-              content: textContent || null,
-              tool_calls: toolCalls,
-            });
-
-            const toolResults: LLMMessage[] = [];
-
-            for (const toolCall of toolCalls) {
-              // Check if client disconnected before executing tool
-              if (abortSignal?.aborted) {
-                this.logger.warn('[Tool Execution - Anthropic Stream] Request aborted by client, stopping tool execution...');
-                throw new Error('Request aborted by client');
-              }
-
-              allToolCalls.push({
-                id: toolCall.id,
-                type: 'function',
-                function: {
-                  name: toolCall.function.name,
-                  arguments: toolCall.function.arguments,
-                },
-              });
-
+            let parsedArgs;
+            if (typeof toolArgs === 'string') {
               try {
-                this.logger.log(`[Tool Execution - Anthropic Stream] Starting tool: ${toolCall.function.name}`);
-
-                // Stream tool execution as text message
-                onEvent({
-                  type: 'text',
-                  data: {
-                    delta: `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
-                    text: textContent + `\n\n🔧 Calling tool: ${toolCall.function.name}...\n`,
-                  },
-                });
-
-                const toolCallObj = {
-                  id: toolCall.id,
-                  function: {
-                    name: toolCall.function.name,
-                    arguments: toolCall.function.arguments,
-                  },
-                };
-
-                // Execute tool with retry mechanism (max 3 retries)
-                const result = await retryToolExecution(
-                  toolCallObj.function.name,
-                  () => this.toolExecutor.executeTool(toolCallObj, context),
-                  {
-                    maxRetries: 3,
-                    baseDelayMs: 1000,
-                    maxDelayMs: 10000,
-                    onRetry: (attempt, error) => {
-                      // Notify user about retry during streaming
-                      onEvent({
-                        type: 'text',
-                        data: {
-                          delta: `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
-                          text: textContent + `\n⚠️ Retrying (${attempt}/3): ${error.message}\n`,
-                        },
-                      });
-                    },
-                  },
-                );
-
-                // Compress large tool results to save tokens
-                const resultStr = shouldCompressResult(toolCallObj.function.name, result)
-                  ? compressToolResult(toolCallObj.function.name, result)
-                  : JSON.stringify(result);
-
-                allToolResults.push({
-                  toolCallId: toolCall.id,
-                  result,
-                });
-
-                onEvent({
-                  type: 'tool_result',
-                  data: {
-                    toolCallId: toolCall.id,
-                    name: toolCall.function.name,
-                    result,
-                  },
-                });
-
-                toolResults.push({
-                  role: 'tool',
-                  content: resultStr,
-                  tool_call_id: toolCall.id,
-                });
-              } catch (error: any) {
-                this.logger.error(`[Tool Execution - Anthropic Stream] Failed tool after retries: ${toolCall.function.name}`, error);
-                const errorStr = JSON.stringify({ error: error.message || String(error) });
-
-                allToolResults.push({
-                  toolCallId: toolCall.id,
-                  result: { error: error.message || String(error) },
-                });
-
-                onEvent({
-                  type: 'tool_result',
-                  data: {
-                    toolCallId: toolCall.id,
-                    name: toolCall.function.name,
-                    result: { error: error.message || String(error) },
-                  },
-                });
-
-                toolResults.push({
-                  role: 'tool',
-                  content: errorStr,
-                  tool_call_id: toolCall.id,
-                });
+                parsedArgs = JSON.parse(toolArgs);
+              } catch (parseError) {
+                this.logger.error(`[LLM Stream] Failed to parse tool args string: ${toolArgs}`);
+                throw new Error(`Invalid JSON in tool arguments: ${parseError.message}`);
               }
-            } // End for loop (Anthropic)
+            } else if (typeof toolArgs === 'object' && toolArgs !== null) {
+              parsedArgs = toolArgs;
+            } else {
+              this.logger.warn(`[LLM Stream] Tool args is ${typeof toolArgs}, using empty object`);
+              parsedArgs = {};
+            }
 
-            // Add newline after tool calls to prevent text concatenation
-            onEvent({
-              type: 'text',
-              data: { delta: '\n', text: '\n' },
+            this.logger.debug(`[LLM Stream] Calling tool ${toolName} with args: ${JSON.stringify(parsedArgs)}`);
+            const toolResult = await tool.func(parsedArgs);
+
+            const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
+
+            allToolResults.push({
+              toolCallId: toolId,
+              result: resultObj,
             });
 
-            conversationMessages.push(...toolResults);
-          } else {
-            return {
-              content: textContent || null,
-              toolCalls: allToolCalls,
-              toolResults: allToolResults,
-            };
+            const serializableResult = JSON.parse(JSON.stringify(resultObj));
+
+            onEvent({
+              type: 'tool_result',
+              data: {
+                toolCallId: toolId,
+                name: toolName,
+                result: serializableResult,
+              },
+            });
+
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            conversationMessages.push(
+              new ToolMessage({
+                content: toolResult,
+                tool_call_id: toolId,
+              }),
+            );
+          } catch (error: any) {
+            this.logger.error(`Tool failed: ${toolName}`, error);
+
+            const errorResult = { error: error.message || String(error) };
+            allToolResults.push({
+              toolCallId: toolId,
+              result: errorResult,
+            });
+
+            const serializableError = JSON.parse(JSON.stringify(errorResult));
+
+            onEvent({
+              type: 'tool_result',
+              data: {
+                toolCallId: toolId,
+                name: toolName,
+                result: serializableError,
+              },
+            });
+
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            conversationMessages.push(
+              new ToolMessage({
+                content: JSON.stringify(errorResult),
+                tool_call_id: toolId,
+              }),
+            );
           }
         }
-      } catch (error: any) {
-        this.logger.error('LLM chat stream error:', error);
-        const errorMessage = error?.message || String(error);
-        
-        onEvent({
-          type: 'error',
-          data: { error: errorMessage },
-        });
-        
-        const statusCode = error?.status || error?.statusCode || error?.response?.status;
-        
-        if (statusCode) {
-          const httpStatus = mapStatusCodeToHttpStatus(statusCode);
-          throw new HttpException(
-            {
-              message: errorMessage,
-              code: getErrorCodeFromStatus(httpStatus),
-            },
-            httpStatus,
-          );
-        }
-        
-        throw new HttpException(
-          {
-            message: errorMessage,
-            code: 'LLM_ERROR',
-          },
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
       }
+
+      throw new Error('Max iterations reached');
+    } catch (error: any) {
+      this.logger.error('[LLM Stream] Error:', error);
+
+      if (error.message === 'Request aborted by client') {
+        throw error;
+      }
+
+      onEvent({
+        type: 'error',
+        data: { error: error.message || String(error) },
+      });
+
+      throw new HttpException(
+        {
+          message: error?.message || String(error),
+          code: 'LLM_STREAM_ERROR',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async chatSimple(params: {
+    messages: LLMMessage[];
+    configId: string | number;
+  }): Promise<LLMResponse> {
+    const { messages, configId } = params;
+
+    const config = await this.aiConfigCacheService.getConfigById(configId);
+    if (!config || !config.isEnabled) {
+      throw new BadRequestException(`AI config ${configId} not found or disabled`);
     }
 
-    throw new Error('Max iterations reached in tool calling loop');
+    try {
+      const llm = await this.createLLM(config);
+      const lcMessages = this.convertToLangChainMessages(messages);
+
+      const result: any = await (llm as any).invoke(lcMessages);
+
+      return {
+        content: result.content as string,
+        toolCalls: [],
+        toolResults: [],
+      };
+    } catch (error: any) {
+      this.logger.error('[LLM Simple] Error:', error);
+      throw new HttpException(
+        {
+          message: error?.message || String(error),
+          code: 'LLM_SIMPLE_ERROR',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }
-
