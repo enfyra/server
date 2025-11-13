@@ -112,9 +112,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
               dataArray: [
                 { title: 'Post 1', content: 'Content 1' },
                 { title: 'Post 2', content: 'Content 2' }
-              ]
+              ],
+              fields: 'id'
             },
-            reasoning: 'One batch_create call handles all records efficiently'
+            reasoning: 'One batch_create call handles all records efficiently. Always specify fields parameter (e.g., "id") to save tokens'
           }
         ]
       },
@@ -133,9 +134,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                 { id: 1, data: { price: 100 } },
                 { id: 2, data: { price: 200 } },
                 { id: 3, data: { price: 300 } }
-              ]
+              ],
+              fields: 'id'
             },
-            reasoning: 'Use batch_update instead of looping single updates'
+            reasoning: 'Use batch_update instead of looping single updates. Always specify fields parameter (e.g., "id") to save tokens'
           }
         ]
       }
@@ -271,9 +273,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
             args: {
               table: 'post',
               operation: 'create',
-              data: { title: 'Hello', content: 'World' }
+              data: { title: 'Hello', content: 'World' },
+              fields: 'id'
             },
-            reasoning: 'Only proceed if permission check returned allowed=true'
+            reasoning: 'Only proceed if permission check returned allowed=true. Always specify fields parameter to save tokens (e.g., "id" or "id,name")'
           }
         ]
       },
@@ -344,7 +347,8 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                   { name: 'name', type: 'varchar', isNullable: false },
                   { name: 'price', type: 'decimal', isNullable: false }
                 ]
-              }
+              },
+              fields: 'id,name'
             },
             reasoning: 'MUST include id column with isPrimary=true'
           }
@@ -399,7 +403,8 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                   { name: 'title', type: 'varchar', isNullable: false },
                   { name: 'content', type: 'text', isNullable: true }
                 ]
-              }
+              },
+              fields: 'id,name'
             },
             reasoning: 'Create post table with all columns in ONE call'
           },
@@ -416,9 +421,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                   { name: 'name', type: 'varchar', isNullable: false },
                   { name: 'description', type: 'text', isNullable: true }
                 ]
-              }
+              },
+              fields: 'id,name'
             },
-            reasoning: 'Create category table'
+            reasoning: 'Create category table. Always specify fields parameter to save tokens'
           },
           {
             tool: 'dynamic_repository',
@@ -446,9 +452,10 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                     inversePropertyName: 'posts'
                   }
                 ]
-              }
+              },
+              fields: 'id'
             },
-            reasoning: 'Create M2M relation on POST side only (system handles inverse)'
+            reasoning: 'Create M2M relation on POST side only (system handles inverse). Always specify fields parameter to save tokens'
           }
         ]
       }

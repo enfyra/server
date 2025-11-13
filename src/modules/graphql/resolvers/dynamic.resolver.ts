@@ -210,13 +210,13 @@ export class DynamicResolver {
       let defaultHandler: string;
       switch (operation) {
         case 'create':
-          defaultHandler = `return await $ctx.$repos.main.create($ctx.$body);`;
+          defaultHandler = `return await $ctx.$repos.main.create({ data: $ctx.$body });`;
           break;
         case 'update':
-          defaultHandler = `return await $ctx.$repos.main.update($ctx.$params.id, $ctx.$body);`;
+          defaultHandler = `return await $ctx.$repos.main.update({ id: $ctx.$params.id, data: $ctx.$body });`;
           break;
         case 'delete':
-          defaultHandler = `await $ctx.$repos.main.delete($ctx.$params.id); return \`Delete id \${$ctx.$params.id} successfully\`;`;
+          defaultHandler = `await $ctx.$repos.main.delete({ id: $ctx.$params.id }); return \`Delete id \${$ctx.$params.id} successfully\`;`;
           break;
         default:
           throw new BadRequestException(`Unsupported operation: ${operation}`);

@@ -7,6 +7,15 @@ export interface StreamTextEvent {
   };
 }
 
+export interface StreamToolCallEvent {
+  type: 'tool_call';
+  data: {
+    id: string;
+    name: string;
+    arguments: any;
+  };
+}
+
 export interface StreamToolResultEvent {
   type: 'tool_result';
   data: {
@@ -48,6 +57,7 @@ export interface StreamDoneEvent {
 
 export type StreamEvent =
   | StreamTextEvent
+  | StreamToolCallEvent
   | StreamToolResultEvent
   | StreamTokenEvent
   | StreamErrorEvent

@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatDeepSeek } from '@langchain/deepseek';
 const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages');
 import { z } from 'zod';
 
@@ -92,6 +93,15 @@ export class LLMService {
         model: config.model?.trim() || 'gemini-2.0-flash-exp',
         temperature: 0.7,
         maxOutputTokens: 8192,
+      });
+    }
+
+    if (config.provider === 'DeepSeek') {
+      return new ChatDeepSeek({
+        apiKey: config.apiKey,
+        model: config.model?.trim() || 'deepseek-chat',
+        timeout: config.llmTimeout || 30000,
+        streaming: true,
       });
     }
 
@@ -188,7 +198,8 @@ export class LLMService {
               try {
                 toolArgs = JSON.parse(toolArgs);
               } catch (e) {
-                this.logger.warn(`[convertToLangChainMessages] Failed to parse tool arguments: ${toolArgs}`);
+                const truncated = toolArgs.length > 200 ? toolArgs.substring(0, 200) + '... [truncated]' : toolArgs;
+                this.logger.warn(`[convertToLangChainMessages] Failed to parse tool arguments (${toolArgs.length} chars): ${truncated}`);
                 toolArgs = {};
               }
             }
@@ -225,8 +236,9 @@ export class LLMService {
     messages: LLMMessage[];
     configId: string | number;
     user?: any;
+    conversationId?: string | number;
   }): Promise<LLMResponse> {
-    const { messages, configId, user } = params;
+    const { messages, configId, user, conversationId } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -246,9 +258,17 @@ export class LLMService {
       const allToolResults: IToolResult[] = [];
 
       const maxIterations = 10;
+      const cacheKey = conversationId ? `conv_${conversationId}` : undefined;
 
       for (let iterations = 0; iterations < maxIterations; iterations++) {
-        const result: any = await llmWithTools.invoke(conversationMessages);
+        const invokeOptions: any = {};
+        if (config.provider === 'OpenAI' && cacheKey) {
+          invokeOptions.promptCacheKey = cacheKey;
+        }
+        if (config.provider === 'Anthropic' && cacheKey) {
+          invokeOptions.cache_control = { type: 'ephemeral' };
+        }
+        const result: any = await llmWithTools.invoke(conversationMessages, invokeOptions);
 
         const toolCalls = result.tool_calls || result.additional_kwargs?.tool_calls || [];
 
@@ -288,13 +308,13 @@ export class LLMService {
             },
           });
 
+          let parsedArgs: any = {};
           try {
             const tool = tools.find((t) => t.name === toolName);
             if (!tool) {
               throw new Error(`Tool ${toolName} not found`);
             }
 
-            let parsedArgs: any;
             if (typeof toolArgs === 'string') {
               try {
                 parsedArgs = JSON.parse(toolArgs);
@@ -311,15 +331,17 @@ export class LLMService {
 
             const toolResult = await tool.func(parsedArgs);
 
+            const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
             allToolResults.push({
               toolCallId: toolId,
-              result: typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult,
+              result: resultObj,
             });
 
             const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const summarizedResult = this.summarizeToolResult(toolName, parsedArgs, resultObj);
             conversationMessages.push(
               new ToolMessage({
-                content: toolResult,
+                content: summarizedResult,
                 tool_call_id: toolId,
               }),
             );
@@ -333,9 +355,10 @@ export class LLMService {
             });
 
             const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const summarizedError = this.summarizeToolResult(toolName, parsedArgs, errorResult);
             conversationMessages.push(
               new ToolMessage({
-                content: JSON.stringify(errorResult),
+                content: summarizedError,
                 tool_call_id: toolId,
               }),
             );
@@ -362,8 +385,9 @@ export class LLMService {
     abortSignal?: AbortSignal;
     onEvent: (event: StreamEvent) => void;
     user?: any;
+    conversationId?: string | number;
   }): Promise<LLMResponse> {
-    const { messages, configId, abortSignal, onEvent, user } = params;
+    const { messages, configId, abortSignal, onEvent, user, conversationId } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -387,6 +411,7 @@ export class LLMService {
       let iterations = 0;
       const maxIterations = config.maxToolIterations || 15;
       let accumulatedTokenUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
+      const cacheKey = conversationId ? `conv_${conversationId}` : undefined;
 
       while (iterations < maxIterations) {
         iterations++;
@@ -402,9 +427,17 @@ export class LLMService {
 
         try {
           if (canStream) {
-            const stream = await llmWithTools.stream(conversationMessages);
+            const streamOptions: any = {};
+            if (config.provider === 'OpenAI' && cacheKey) {
+              streamOptions.promptCacheKey = cacheKey;
+            }
+            if (config.provider === 'Anthropic' && cacheKey) {
+              streamOptions.cache_control = { type: 'ephemeral' };
+            }
+            const stream = await llmWithTools.stream(conversationMessages, streamOptions);
             const allChunks: any[] = [];
             const aggregatedToolCalls: Map<number, any> = new Map();
+            const streamedToolCallIds = new Set<string>();
 
             for await (const chunk of stream) {
               if (abortSignal?.aborted) {
@@ -415,17 +448,21 @@ export class LLMService {
               aggregateResponse = chunk;
 
               const chunkUsage = this.extractTokenUsage(chunk);
-              if (chunkUsage) {
-                accumulatedTokenUsage.inputTokens += chunkUsage.inputTokens ?? 0;
+              if (chunkUsage && (chunkUsage.inputTokens || chunkUsage.outputTokens)) {
+                const prevInput = accumulatedTokenUsage.inputTokens;
+                const prevOutput = accumulatedTokenUsage.outputTokens;
+                accumulatedTokenUsage.inputTokens = Math.max(prevInput, chunkUsage.inputTokens ?? 0);
                 accumulatedTokenUsage.outputTokens += chunkUsage.outputTokens ?? 0;
                 
-                onEvent({
-                  type: 'tokens',
-                  data: {
-                    inputTokens: accumulatedTokenUsage.inputTokens,
-                    outputTokens: accumulatedTokenUsage.outputTokens,
-                  },
-                });
+                if (accumulatedTokenUsage.inputTokens > prevInput || accumulatedTokenUsage.outputTokens > prevOutput) {
+                  onEvent({
+                    type: 'tokens',
+                    data: {
+                      inputTokens: accumulatedTokenUsage.inputTokens,
+                      outputTokens: accumulatedTokenUsage.outputTokens,
+                    },
+                  });
+                }
               }
 
               const chunkToolCalls = this.getToolCallsFromResponse(chunk);
@@ -434,19 +471,75 @@ export class LLMService {
                   const index = tc.index !== undefined ? tc.index : (aggregatedToolCalls.size);
                   const existing = aggregatedToolCalls.get(index) || {};
                   
+                  let chunkArgs = tc.args || tc.function?.arguments || '';
+                  if (typeof chunkArgs !== 'string') {
+                    chunkArgs = typeof chunkArgs === 'object' ? JSON.stringify(chunkArgs) : String(chunkArgs);
+                  }
+                  
+                  let existingArgs = existing.args || existing.function?.arguments || '';
+                  if (typeof existingArgs !== 'string') {
+                    existingArgs = typeof existingArgs === 'object' ? JSON.stringify(existingArgs) : String(existingArgs);
+                  }
+                  
+                  let mergedArgs: string;
+                  if (!existingArgs || existingArgs === '{}' || existingArgs.trim() === '') {
+                    mergedArgs = chunkArgs && chunkArgs.trim() && chunkArgs !== '{}' ? chunkArgs : '{}';
+                  } else if (!chunkArgs || chunkArgs === '{}' || chunkArgs.trim() === '') {
+                    mergedArgs = existingArgs;
+                  } else {
+                    try {
+                      const existingParsed = existingArgs !== '{}' ? JSON.parse(existingArgs) : {};
+                      const chunkParsed = chunkArgs !== '{}' ? JSON.parse(chunkArgs) : {};
+                      mergedArgs = JSON.stringify({ ...existingParsed, ...chunkParsed });
+                    } catch {
+                      mergedArgs = existingArgs + chunkArgs;
+                    }
+                  }
+                  
+                  let toolId = tc.id || existing.id;
+                  const toolName = tc.function?.name || tc.name || existing.function?.name;
+                  
+                  if (!toolId && toolName) {
+                    toolId = `call_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`;
+                  }
+                  
                   aggregatedToolCalls.set(index, {
                     ...existing,
                     ...tc,
-                    id: tc.id || existing.id,
+                    id: toolId,
+                    args: mergedArgs,
                     function: {
                       ...(existing.function || {}),
                       ...(tc.function || {}),
-                      name: tc.function?.name || existing.function?.name,
-                      arguments: (existing.function?.arguments || '') + (tc.function?.arguments || ''),
+                      name: toolName,
+                      arguments: mergedArgs,
                     },
                   });
+
+                  const streamKey = toolId || `index_${index}`;
+                  if (toolName && toolId && !streamedToolCallIds.has(streamKey)) {
+                    streamedToolCallIds.add(streamKey);
+                    let toolCallArgs = {};
+                    if (mergedArgs && typeof mergedArgs === 'string' && mergedArgs.trim()) {
+                      try {
+                        toolCallArgs = JSON.parse(mergedArgs);
+                      } catch (e) {
+                        toolCallArgs = {};
+                      }
+                    } else if (mergedArgs && typeof mergedArgs === 'object') {
+                      toolCallArgs = mergedArgs;
+                    }
+                    
+                    onEvent({
+                      type: 'tool_call',
+                      data: {
+                        id: toolId,
+                        name: toolName,
+                        arguments: toolCallArgs,
+                      },
+                    });
+                  }
                 }
-                this.logger.log(`[LLM Stream] Aggregated ${aggregatedToolCalls.size} tool calls from chunks`);
               }
 
               if (chunk.content) {
@@ -477,36 +570,41 @@ export class LLMService {
 
             if (aggregatedToolCalls.size > 0) {
               currentToolCalls = Array.from(aggregatedToolCalls.values()).map((tc) => {
-                if (tc.function?.arguments && typeof tc.function.arguments === 'string') {
+                const argsString = tc.args || tc.function?.arguments || '';
+                const toolName = tc.function?.name || tc.name || 'unknown';
+                
+                if (argsString && typeof argsString === 'string' && argsString.trim()) {
                   try {
-                    const parsed = JSON.parse(tc.function.arguments);
-                    this.logger.log(`[LLM Stream] Parsed arguments for ${tc.function?.name || 'unknown'}: ${JSON.stringify(parsed)}`);
+                    const parsed = JSON.parse(argsString);
                     return {
                       ...tc,
+                      args: parsed,
                       function: {
                         ...tc.function,
+                        name: toolName,
                         arguments: parsed,
                       },
                     };
                   } catch (e) {
-                    this.logger.warn(`[LLM Stream] Failed to parse aggregated arguments: ${tc.function.arguments.substring(0, 100)}`);
+                    this.logger.warn(`[LLM Stream] Failed to parse aggregated arguments: ${argsString.substring(0, 100)}`);
                     this.logger.warn(`[LLM Stream] Full tool call before parse: ${JSON.stringify(tc)}`);
-                    return tc;
+                    return {
+                      ...tc,
+                      function: {
+                        ...tc.function,
+                        name: toolName,
+                      },
+                    };
                   }
                 }
-                this.logger.log(`[LLM Stream] Tool call ${tc.function?.name || 'unknown'} arguments type: ${typeof tc.function?.arguments}, value: ${JSON.stringify(tc.function?.arguments)}`);
-                return tc;
+                return {
+                  ...tc,
+                  function: {
+                    ...tc.function,
+                    name: toolName,
+                  },
+                };
               });
-              this.logger.log(`[LLM Stream] Final aggregated ${currentToolCalls.length} tool calls`);
-              if (currentToolCalls.length > 0) {
-                this.logger.log(`[LLM Stream] First tool call structure: ${JSON.stringify({
-                  name: currentToolCalls[0].function?.name,
-                  hasFunction: !!currentToolCalls[0].function,
-                  hasArguments: !!currentToolCalls[0].function?.arguments,
-                  argumentsType: typeof currentToolCalls[0].function?.arguments,
-                  argumentsValue: JSON.stringify(currentToolCalls[0].function?.arguments),
-                })}`);
-              }
             } else if (allChunks.length > 0) {
               for (let i = allChunks.length - 1; i >= 0; i--) {
                 const chunk = allChunks[i];
@@ -553,13 +651,54 @@ export class LLMService {
           }
         } catch (streamErr: any) {
           streamError = streamErr;
-          this.logger.error(`[LLM Stream] Stream interrupted: ${streamErr.message}`, streamErr);
+          const errorMessage = streamErr?.message || streamErr?.cause?.message || String(streamErr);
+          const isSocketError = errorMessage.includes('UND_ERR_SOCKET') || 
+                                errorMessage.includes('other side closed') ||
+                                errorMessage === 'terminated' ||
+                                streamErr?.code === 'UND_ERR_SOCKET';
+          
+          this.logger.error(`[LLM Stream] Stream interrupted: ${errorMessage}`, streamErr);
 
           if (abortSignal?.aborted) {
             throw new Error('Request aborted by client');
           }
 
-          if (canStream && currentToolCalls.length > 0) {
+          if (isSocketError && (canStream || currentToolCalls.length > 0 || allToolCalls.length > 0)) {
+            this.logger.warn(`[LLM Stream] Socket closed but recovered ${currentToolCalls.length} current + ${allToolCalls.length} total tool calls`);
+            onEvent({
+              type: 'text',
+              data: {
+                delta: '\n\n⚠️ Connection interrupted by provider, continuing with available data...\n',
+                text: fullContent + '\n\n⚠️ Connection interrupted by provider, continuing with available data...\n',
+              },
+            });
+            
+            if (currentToolCalls.length === 0 && allToolCalls.length > 0) {
+              this.logger.log(`[LLM Stream] No current tool calls, but have ${allToolCalls.length} total. Returning partial result.`);
+              const finalUsage = this.extractTokenUsage(aggregateResponse);
+              if (finalUsage) {
+                accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
+                accumulatedTokenUsage.outputTokens += finalUsage.outputTokens ?? 0;
+              }
+              
+              if (accumulatedTokenUsage.inputTokens > 0 || accumulatedTokenUsage.outputTokens > 0) {
+                onEvent({
+                  type: 'tokens',
+                  data: {
+                    inputTokens: accumulatedTokenUsage.inputTokens,
+                    outputTokens: accumulatedTokenUsage.outputTokens,
+                  },
+                });
+              }
+              
+              this.reportTokenUsage('stream', aggregateResponse);
+              return {
+                content: fullContent,
+                toolCalls: allToolCalls,
+                toolResults: allToolResults,
+              };
+            }
+          } else if (canStream && currentToolCalls.length > 0) {
             this.logger.warn(`[LLM Stream] Stream interrupted but recovered ${currentToolCalls.length} tool calls`);
             onEvent({
               type: 'text',
@@ -571,9 +710,15 @@ export class LLMService {
           } else {
             onEvent({
               type: 'error',
-              data: { error: streamErr.message || String(streamErr) },
+              data: { error: isSocketError ? 'Connection closed by provider. Please try again.' : (errorMessage || 'Stream error') },
             });
-            throw streamErr;
+            throw new HttpException(
+              {
+                message: isSocketError ? 'Connection closed by LLM provider. Please try again.' : errorMessage,
+                code: 'LLM_STREAM_ERROR',
+              },
+              HttpStatus.INTERNAL_SERVER_ERROR,
+            );
           }
         }
 
@@ -590,7 +735,7 @@ export class LLMService {
         if (currentToolCalls.length === 0) {
           const finalUsage = this.extractTokenUsage(aggregateResponse);
           if (finalUsage) {
-            accumulatedTokenUsage.inputTokens += finalUsage.inputTokens ?? 0;
+            accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
             accumulatedTokenUsage.outputTokens += finalUsage.outputTokens ?? 0;
           }
           
@@ -606,11 +751,26 @@ export class LLMService {
           
           this.reportTokenUsage('stream', aggregateResponse);
           this.logger.log(`[LLM] Tool calls executed: ${allToolCalls.length}`);
+          this.logger.log(`[LLM] Final accumulated tokens → input=${accumulatedTokenUsage.inputTokens}, output=${accumulatedTokenUsage.outputTokens}`);
           return {
             content: fullContent,
             toolCalls: allToolCalls,
             toolResults: allToolResults,
           };
+        }
+
+        const iterationUsage = this.extractTokenUsage(aggregateResponse);
+        if (iterationUsage) {
+          accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, iterationUsage.inputTokens ?? 0);
+          accumulatedTokenUsage.outputTokens += iterationUsage.outputTokens ?? 0;
+          
+          onEvent({
+            type: 'tokens',
+            data: {
+              inputTokens: accumulatedTokenUsage.inputTokens,
+              outputTokens: accumulatedTokenUsage.outputTokens,
+            },
+          });
         }
 
         const langchainToolCalls = currentToolCalls
@@ -677,25 +837,44 @@ export class LLMService {
             continue;
           }
 
-          this.logger.log(`[LLM Stream] Tool call ${toolName} - args source: function.arguments=${!!tc.function?.arguments}, args=${!!tc.args}, arguments=${!!tc.arguments}`);
-          this.logger.log(`[LLM Stream] Tool call ${toolName} - raw toolArgs type: ${typeof toolArgs}, value: ${JSON.stringify(toolArgs)}`);
+          let toolCallArgs = {};
+          if (typeof toolArgs === 'string' && toolArgs.trim()) {
+            try {
+              toolCallArgs = JSON.parse(toolArgs);
+            } catch (e) {
+              this.logger.warn(`[LLM Stream] Failed to parse tool args for ${toolName}: ${toolArgs.substring(0, 100)}`);
+              toolCallArgs = {};
+            }
+          } else if (toolArgs && typeof toolArgs === 'object') {
+            toolCallArgs = toolArgs;
+          }
 
           onEvent({
-            type: 'text',
+            type: 'tool_call',
             data: {
-              delta: `\n\n🔧 ${toolName}...\n`,
-              text: fullContent + `\n\n🔧 ${toolName}...\n`,
+              id: toolId,
+              name: toolName,
+              arguments: toolCallArgs,
             },
           });
 
+          this.logger.log(`[LLM Stream] Tool call ${toolName} - args source: function.arguments=${!!tc.function?.arguments}, args=${!!tc.args}, arguments=${!!tc.arguments}`);
+          this.logger.log(`[LLM Stream] Tool call ${toolName} - raw toolArgs type: ${typeof toolArgs}, value: ${JSON.stringify(toolArgs)}`);
+
           let parsedArgs: any;
           if (typeof toolArgs === 'string') {
-            try {
-              parsedArgs = JSON.parse(toolArgs);
-            } catch (parseError) {
-              this.logger.error(`[LLM Stream] Failed to parse tool args string: ${toolArgs}`);
-              this.logger.error(`[LLM Stream] Full tool call: ${JSON.stringify(tc)}`);
-              throw new Error(`Invalid JSON in tool arguments: ${parseError.message}`);
+            const trimmedArgs = toolArgs.trim();
+            if (!trimmedArgs || trimmedArgs === '{}' || trimmedArgs === '{}{}') {
+              parsedArgs = {};
+            } else {
+              try {
+                parsedArgs = JSON.parse(trimmedArgs);
+              } catch (parseError) {
+                this.logger.error(`[LLM Stream] Failed to parse tool args string: ${toolArgs}`);
+                this.logger.error(`[LLM Stream] Full tool call: ${JSON.stringify(tc)}`);
+                parsedArgs = {};
+                this.logger.warn(`[LLM Stream] Using empty object as fallback for invalid JSON`);
+              }
             }
           } else if (typeof toolArgs === 'object' && toolArgs !== null) {
             parsedArgs = toolArgs;
@@ -731,24 +910,25 @@ export class LLMService {
               result: resultObj,
             });
 
-            const serializableResult = JSON.parse(JSON.stringify(resultObj));
-
-            onEvent({
-              type: 'tool_result',
-              data: {
-                toolCallId: toolId,
-                name: toolName,
-                result: serializableResult,
-              },
-            });
-
             const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const summarizedResult = this.summarizeToolResult(toolName, parsedArgs, resultObj);
             conversationMessages.push(
               new ToolMessage({
-                content: toolResult,
+                content: summarizedResult,
                 tool_call_id: toolId,
               }),
             );
+
+            const successIcon = resultObj?.error ? '❌' : '✅';
+            const successText = `\n\n${successIcon} ${toolName}\n`;
+            fullContent += successText;
+            onEvent({
+              type: 'text',
+              data: {
+                delta: successText,
+                text: fullContent,
+              },
+            });
           } catch (error: any) {
             this.logger.error(`Tool failed: ${toolName}`, error);
 
@@ -758,26 +938,28 @@ export class LLMService {
               result: errorResult,
             });
 
-            const serializableError = JSON.parse(JSON.stringify(errorResult));
-
+            const errorIconText = `\n\n❌ ${toolName}\n`;
+            fullContent += errorIconText;
             onEvent({
-              type: 'tool_result',
+              type: 'text',
               data: {
-                toolCallId: toolId,
-                name: toolName,
-                result: serializableError,
+                delta: errorIconText,
+                text: fullContent,
               },
             });
 
             const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const summarizedError = this.summarizeToolResult(toolName, parsedArgs, errorResult);
             conversationMessages.push(
               new ToolMessage({
-                content: JSON.stringify(errorResult),
+                content: summarizedError,
                 tool_call_id: toolId,
               }),
             );
           }
         }
+
+        continue;
       }
 
       const lastToolError = allToolResults.reverse().find((item) => item?.result?.error);
@@ -951,6 +1133,10 @@ export class LLMService {
       }
     }
 
+    if (response.tool_call_chunks && Array.isArray(response.tool_call_chunks) && response.tool_call_chunks.length > 0) {
+      return response.tool_call_chunks;
+    }
+
     return [];
   }
 
@@ -1020,5 +1206,153 @@ export class LLMService {
     }
 
     return null;
+  }
+
+  private summarizeToolResult(toolName: string, toolArgs: any, result: any): string {
+    const name = toolName || 'unknown_tool';
+    const resultStr = JSON.stringify(result || {});
+    const resultSize = resultStr.length;
+
+    if (resultSize < 100 && !result?.error) {
+      return resultStr;
+    }
+
+    if (name === 'get_metadata' || name === 'get_table_details') {
+      return `[${name}] Executed. Schema details omitted to save tokens. Re-run the tool if you need the raw metadata.`;
+    }
+
+    if (name === 'check_permission') {
+      const table = toolArgs?.table || 'n/a';
+      const routePath = toolArgs?.routePath || 'n/a';
+      const operation = toolArgs?.operation || 'n/a';
+      const allowed = result?.allowed === true ? 'ALLOWED' : 'DENIED';
+      const reason = result?.reason || 'unknown_reason';
+      const cacheKey = result?.cacheKey ? ` cacheKey=${result.cacheKey}` : '';
+      return `[check_permission] table=${table} route=${routePath} operation=${operation} -> ${allowed} (${reason})${cacheKey}`;
+    }
+
+    if (name === 'dynamic_repository') {
+      const table = toolArgs?.table || 'unknown';
+      const operation = toolArgs?.operation || 'unknown';
+
+      if (result?.error) {
+        const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+        return `[dynamic_repository] ${operation} ${table} -> ERROR: ${message.substring(0, 220)}`;
+      }
+
+      if (operation === 'batch_delete') {
+        const ids = Array.isArray(toolArgs?.ids) ? toolArgs.ids : [];
+        const deletedCount = result?.count ?? ids.length;
+        return `[dynamic_repository] ${operation} ${table} -> DELETED ${deletedCount} record(s) (ids: ${ids.length})`;
+      }
+
+      if (operation === 'find' && Array.isArray(result?.data)) {
+        const length = result.data.length;
+        if (table === 'table_definition' && length > 0) {
+          const allIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined);
+          const tableNames = result.data.map((r: any) => r.name).filter(Boolean).slice(0, 5);
+          const tableIds = allIds.slice(0, 5);
+          const namesStr = tableNames.length > 0 ? ` names=[${tableNames.join(', ')}]` : '';
+          const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
+          const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
+          if (length > 1) {
+            return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: You MUST delete ALL ${length} tables using batch_delete with ALL ${allIds.length} IDs: [${allIds.join(', ')}]. Do NOT delete only one table.`;
+          }
+          return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;
+        }
+        if (length > 1) {
+          const allIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined);
+          const ids = allIds.slice(0, 5);
+          const idsStr = ids.length > 0 ? ` ids=[${ids.join(', ')}]` : '';
+          const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
+          const allIdsStr = allIds.length > 0 ? ` ALL IDs: [${allIds.join(', ')}]` : '';
+          return `[dynamic_repository] ${operation} ${table} -> Found ${length} record(s)${idsStr}${moreInfo}.${allIdsStr} CRITICAL: For delete operations on 2+ records, use batch_delete with ALL ${allIds.length} IDs. For create/update on 5+ records, use batch_create/batch_update. Process ALL ${length} records, not just one.`;
+        }
+      }
+
+      const metaParts: string[] = [];
+      if (result?.success !== undefined) {
+        metaParts.push(`success=${result.success}`);
+      }
+      if (result?.count !== undefined) {
+        metaParts.push(`count=${result.count}`);
+      }
+      if (result?.total !== undefined) {
+        metaParts.push(`total=${result.total}`);
+      }
+
+      let dataInfo = '';
+      if (operation === 'create' || operation === 'update') {
+        if (Array.isArray(result?.data)) {
+          const length = result.data.length;
+          if (length > 0) {
+            const essentialFields = result.data.map((r: any) => {
+              const essential: any = {};
+              if (r.id !== undefined) essential.id = r.id;
+              if (r.name !== undefined) essential.name = r.name;
+              if (r.email !== undefined) essential.email = r.email;
+              if (r.title !== undefined) essential.title = r.title;
+              return essential;
+            }).slice(0, 2);
+            dataInfo = ` dataCount=${length} essentialFields=${JSON.stringify(essentialFields).substring(0, 120)}`;
+          } else {
+            dataInfo = ' dataCount=0';
+          }
+        } else if (result?.data) {
+          const essential: any = {};
+          if (result.data.id !== undefined) essential.id = result.data.id;
+          if (result.data.name !== undefined) essential.name = result.data.name;
+          if (result.data.email !== undefined) essential.email = result.data.email;
+          if (result.data.title !== undefined) essential.title = result.data.title;
+          dataInfo = ` essentialFields=${JSON.stringify(essential).substring(0, 120)}`;
+        }
+      } else {
+        if (Array.isArray(result?.data)) {
+          const length = result.data.length;
+          if (length > 0) {
+            const sample = result.data.slice(0, 2);
+            dataInfo = ` dataCount=${length} sample=${JSON.stringify(sample).substring(0, 160)}`;
+          } else {
+            dataInfo = ' dataCount=0';
+          }
+        } else if (result?.data) {
+          dataInfo = ` data=${JSON.stringify(result.data).substring(0, 160)}`;
+        }
+      }
+
+      const metaInfo = metaParts.length > 0 ? ` ${metaParts.join(' ')}` : '';
+      return `[dynamic_repository] ${operation} ${table}${metaInfo}${dataInfo}`;
+    }
+
+    if (name === 'get_hint') {
+      const category = toolArgs?.category || 'all';
+      const hintsCount = Array.isArray(result?.hints) ? result.hints.length : 0;
+      const titles =
+        Array.isArray(result?.hints) && result.hints.length > 0
+          ? result.hints
+              .slice(0, 2)
+              .map((h: any) => h?.title)
+              .filter(Boolean)
+              .join(', ')
+          : '';
+      const titleInfo = titles ? ` sampleTitles=[${titles.substring(0, 120)}]` : '';
+      return `[get_hint] category=${category} -> ${hintsCount} hint(s)${titleInfo}`;
+    }
+
+    if (name === 'get_fields') {
+      const table = toolArgs?.tableName || 'unknown';
+      const fields = Array.isArray(result?.fields) ? result.fields : [];
+      const sample = fields.slice(0, 5).join(', ');
+      return `[get_fields] table=${table} -> ${fields.length} field(s) sample=[${sample}]`;
+    }
+
+    if (name === 'list_tables') {
+      const tables = Array.isArray(result?.tables) ? result.tables : [];
+      const sample = tables.slice(0, 5).map((t: any) => t?.name || t).join(', ');
+      return `[list_tables] -> ${tables.length} table(s) sample=[${sample}]`;
+    }
+
+    const summary = JSON.stringify(result).substring(0, 200);
+    return `[${name}] ${summary}${resultStr.length > 200 ? '...' : ''}`;
   }
 }

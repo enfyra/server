@@ -136,7 +136,7 @@ export class ConversationService {
       createData.lastSummaryAt = data.lastSummaryAt;
     }
 
-    const result = await repo.create(createData);
+    const result = await repo.create({ data: createData });
 
     if (!result.data || result.data.length === 0) {
       throw new Error('Failed to create conversation');
@@ -185,7 +185,7 @@ export class ConversationService {
     if (data.lastSummaryAt !== undefined) updateData.lastSummaryAt = data.lastSummaryAt;
     if (data.lastActivityAt !== undefined) updateData.lastActivityAt = data.lastActivityAt;
 
-    const result = await repo.update(id, updateData);
+    const result = await repo.update({ id, data: updateData });
     return this.mapConversation(result.data[0]);
   }
 
@@ -197,7 +197,7 @@ export class ConversationService {
 
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_conversation_definition', context);
-    await repo.delete(id);
+    await repo.delete({ id });
     this.logger.log(`Deleted conversation ${id}`);
   }
 
@@ -239,7 +239,7 @@ export class ConversationService {
 
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
-    await repo.delete(messageId);
+    await repo.delete({ id: messageId });
     this.logger.log(`Deleted message ${messageId}`);
   }
 
@@ -264,7 +264,7 @@ export class ConversationService {
 
       const messagesToDelete = result.data || [];
       for (const msg of messagesToDelete) {
-        await repo.delete(msg.id);
+        await repo.delete({ id: msg.id });
       }
 
       this.logger.log(`Deleted ${messagesToDelete.length} old messages from conversation ${conversationId} (before sequence ${beforeSequence})`);
@@ -291,7 +291,7 @@ export class ConversationService {
       if (updateData.lastSummaryAt !== undefined) updateDataAny.lastSummaryAt = updateData.lastSummaryAt;
       if (updateData.lastActivityAt !== undefined) updateDataAny.lastActivityAt = updateData.lastActivityAt;
 
-      const updateResult = await conversationRepo.update(conversationId, updateDataAny);
+      const updateResult = await conversationRepo.update({ id: conversationId, data: updateDataAny });
 
       const result = await messageRepo.find({
         where: {
@@ -343,7 +343,7 @@ export class ConversationService {
       createData.toolResults = data.toolResults;
     }
 
-    const result = await repo.create(createData);
+    const result = await repo.create({ data: createData });
 
     return this.mapMessage(result.data[0]);
   }
@@ -396,7 +396,7 @@ export class ConversationService {
     const messageCount = userMessages.length + assistantMessages.length;
 
     const conversationRepo = await this.createRepository('ai_conversation_definition', context);
-    await conversationRepo.update(conversationId, { messageCount });
+    await conversationRepo.update({ id: conversationId, data: { messageCount } });
   }
 
   private mapConversation(data: any): IConversation {

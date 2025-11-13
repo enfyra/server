@@ -419,12 +419,12 @@
     },
     "ai_config_definition": {
         "name": "ai_config_definition",
-        "description": "Stores AI agent configuration settings. Supports OpenAI, Anthropic (Claude), and Google (Gemini).",
+        "description": "Stores AI agent configuration settings. Supports OpenAI, Anthropic (Claude), Google (Gemini), and DeepSeek.",
         "isSystem": true,
         "uniques": [["provider"]],
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI, Anthropic, or Google)" },
+            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google", "DeepSeek"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI, Anthropic, Google, or DeepSeek)" },
             { "name": "apiKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "API key for the AI provider (sensitive, hidden from API responses)" },
             { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether AI agent is enabled" },

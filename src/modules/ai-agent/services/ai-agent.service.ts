@@ -176,7 +176,7 @@ export class AiAgentService implements OnModuleInit {
 
     const llmMessages = await this.buildLLMMessages({ conversation, messages, config, user });
 
-    const llmResponse = await this.llmService.chat({ messages: llmMessages, configId, user });
+    const llmResponse = await this.llmService.chat({ messages: llmMessages, configId, user, conversationId: conversation.id });
 
     const assistantSequence = lastSequence + 2;
     await this.conversationService.createMessage({
@@ -437,6 +437,8 @@ export class AiAgentService implements OnModuleInit {
         since: conversation.lastSummaryAt,
       });
       const allMessages = [...allMessagesDesc].reverse();
+      
+      this.logger.log(`[History] Fetched ${allMessages.length} messages from DB (limit: ${limit}, since: ${conversation.lastSummaryAt || 'beginning'})`);
 
       const hasUserMessage =
         allMessages.some((m) => m.sequence === userSequence && m.role === 'user') ||
@@ -470,6 +472,70 @@ export class AiAgentService implements OnModuleInit {
 
       const llmMessages = await this.buildLLMMessages({ conversation, messages, config, user });
 
+      const toolsDefFile = require('../utils/llm-tools.helper');
+      const formatTools = toolsDefFile.formatToolsForProvider || ((provider: string, tools: any[]) => {
+        if (provider === 'Anthropic') {
+          return tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.parameters,
+          }));
+        }
+        return tools.map((tool) => ({
+          type: 'function' as const,
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+          },
+        }));
+      });
+      const formattedTools = formatTools(config.provider, toolsDefFile.COMMON_TOOLS || []);
+      const toolsDefSize = JSON.stringify(formattedTools).length;
+      const toolsDefTokens = this.estimateTokens(JSON.stringify(formattedTools));
+      
+    let totalEstimate = 0;
+    let historyCount = 0;
+    for (const msg of llmMessages) {
+      if (msg.role === 'system') {
+        const tokens = this.estimateTokens(msg.content || '');
+        totalEstimate += tokens;
+        this.logger.log(`[Token Breakdown] System prompt: ~${tokens} tokens (${msg.content?.length || 0} chars)`);
+      } else if (msg.role === 'user') {
+        const tokens = this.estimateTokens(msg.content || '');
+        totalEstimate += tokens;
+        historyCount++;
+        this.logger.log(`[Token Breakdown] User message #${historyCount}: ~${tokens} tokens (${msg.content?.length || 0} chars)`);
+      } else if (msg.role === 'assistant') {
+        const contentTokens = this.estimateTokens(msg.content || '');
+        let toolCallsTokens = 0;
+        if (msg.tool_calls) {
+          for (const tc of msg.tool_calls) {
+            const argsStr = typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {});
+            toolCallsTokens += this.estimateTokens(argsStr) + 50;
+          }
+        }
+        totalEstimate += contentTokens + toolCallsTokens;
+        historyCount++;
+        this.logger.log(`[Token Breakdown] Assistant message #${historyCount}: ~${contentTokens} tokens (content, ${msg.content?.length || 0} chars) + ~${toolCallsTokens} tokens (${msg.tool_calls?.length || 0} tool calls)`);
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          for (const tc of msg.tool_calls) {
+            const argsStr = typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {});
+            const argsTokens = this.estimateTokens(argsStr);
+            this.logger.log(`[Token Breakdown]   - Tool call: ${tc.function?.name} ~${argsTokens} tokens (args: ${argsStr.length} chars)`);
+          }
+        }
+      } else if (msg.role === 'tool') {
+        const tokens = this.estimateTokens(msg.content || '');
+        totalEstimate += tokens;
+        this.logger.log(`[Token Breakdown] Tool result (${msg.tool_call_id}): ~${tokens} tokens (${msg.content?.length || 0} chars)`);
+      }
+    }
+      
+      this.logger.log(`[Token Breakdown] Tools definitions: ~${toolsDefTokens} tokens (${toolsDefSize} chars)`);
+      this.logger.log(`[Token Breakdown] History messages: ${historyCount} turns (user+assistant pairs)`);
+      this.logger.log(`[Token Breakdown] Total estimated input: ~${totalEstimate + toolsDefTokens} tokens (messages: ${totalEstimate}, tools: ${toolsDefTokens})`);
+
       let fullContent = '';
       const allToolResults: any[] = [];
 
@@ -480,14 +546,17 @@ export class AiAgentService implements OnModuleInit {
           configId,
           abortSignal: abortController.signal,
           user,
+          conversationId: conversation.id,
           onEvent: (event) => {
             if (event.type === 'text' && event.data?.delta) {
               fullContent = event.data.text || fullContent;
               sendEvent(event);
+            } else if (event.type === 'tool_call') {
+              sendEvent(event);
             } else if (event.type === 'tool_result') {
               allToolResults.push(event.data);
-              sendEvent(event);
             } else if (event.type === 'tokens') {
+              this.logger.log(`[Token Actual] Input: ${event.data?.inputTokens || 0}, Output: ${event.data?.outputTokens || 0} (from LangChain)`);
               sendEvent(event);
             } else if (event.type === 'error') {
               sendEvent(event);
@@ -657,6 +726,11 @@ export class AiAgentService implements OnModuleInit {
     return trimmed.substring(0, maxLength - 3) + '...';
   }
 
+  private estimateTokens(text: string): number {
+    if (!text) return 0;
+    return Math.ceil(text.length / 4);
+  }
+
   private async buildLLMMessages(params: {
     conversation: IConversation;
     messages: IMessage[];
@@ -670,6 +744,7 @@ export class AiAgentService implements OnModuleInit {
       : undefined;
 
     const systemPrompt = await this.buildSystemPrompt({ conversation, config, user, latestUserMessage });
+    
     const llmMessages: LLMMessage[] = [
       {
         role: 'system',
@@ -677,18 +752,24 @@ export class AiAgentService implements OnModuleInit {
       },
     ];
 
+    this.logger.log(`[History] Building LLM messages from ${messages.length} DB messages`);
     let lastPushedRole: 'user' | 'assistant' | null = null;
+    let skippedCount = 0;
+    let pushedCount = 0;
+    let toolResultsPushed = 0;
 
     for (const message of messages) {
       try {
         if (message.role === 'user') {
           if (lastPushedRole === 'user') {
+            skippedCount++;
             continue;
           }
 
           let userContent = message.content || '';
 
           if (typeof userContent === 'string' && userContent.includes('[object Object]')) {
+            skippedCount++;
             continue;
           }
 
@@ -704,16 +785,19 @@ export class AiAgentService implements OnModuleInit {
             role: 'user',
             content: userContent,
           });
+          pushedCount++;
           lastPushedRole = 'user';
         } else if (message.role === 'assistant') {
           let assistantContent = message.content || null;
 
           if (assistantContent && typeof assistantContent === 'string' && assistantContent.includes('[object Object]')) {
+            skippedCount++;
             continue;
           }
 
           if (assistantContent && typeof assistantContent === 'string' &&
               (assistantContent.startsWith('Error:') || assistantContent.includes('BadRequestError') || assistantContent.includes('tool_use_id'))) {
+            skippedCount++;
             continue;
           }
 
@@ -740,7 +824,7 @@ export class AiAgentService implements OnModuleInit {
             const isRecentMessage = messageIndex >= messages.length - 4; // Keep last 2 user-assistant turns
 
             if (!isRecentMessage) {
-              // Skip older pure-text assistant responses (captured in summary)
+              skippedCount++;
               continue;
             }
 
@@ -759,21 +843,42 @@ export class AiAgentService implements OnModuleInit {
           };
 
           if (hasToolCalls) {
-            assistantMessage.tool_calls = message.toolCalls.map((tc) => ({
-              id: tc.id,
-              type: 'function' as const,
-              function: {
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              },
-            }));
+            assistantMessage.tool_calls = message.toolCalls.map((tc) => {
+              let args = tc.function.arguments;
+              if (typeof args === 'string' && args.length > 500) {
+                try {
+                  const parsed = JSON.parse(args);
+                  const truncated = JSON.stringify(parsed).substring(0, 500) + '... [truncated]';
+                  args = truncated;
+                } catch {
+                  args = args.substring(0, 500) + '... [truncated]';
+                }
+              } else if (typeof args === 'object' && args !== null) {
+                const str = JSON.stringify(args);
+                if (str.length > 500) {
+                  args = str.substring(0, 500) + '... [truncated]';
+                } else {
+                  args = str;
+                }
+              }
+              return {
+                id: tc.id,
+                type: 'function' as const,
+                function: {
+                  name: tc.function.name,
+                  arguments: args,
+                },
+              };
+            });
           }
 
           const assistantPushed = !!(assistantMessage.content || assistantMessage.tool_calls);
           if (assistantPushed) {
             llmMessages.push(assistantMessage);
+            pushedCount++;
             lastPushedRole = 'assistant';
           } else {
+            skippedCount++;
             this.logger.warn(`[buildLLMMessages] ✗ Skipped assistant message (id: ${message.id}) - no content and no tool_calls`);
           }
 
@@ -797,21 +902,47 @@ export class AiAgentService implements OnModuleInit {
                 }
               }
 
-              const summary = this.formatToolResultSummary(toolName, parsedArgs, toolResult.result);
+              const originalResultStr = JSON.stringify(toolResult.result || {});
+              const originalResultSize = originalResultStr.length;
+              const originalTokens = this.estimateTokens(originalResultStr);
+              
+              let finalContent: string;
+              if (originalResultSize < 100 && !toolResult.result?.error) {
+                finalContent = originalResultStr;
+                this.logger.log(`[History] Tool result: ${toolName} -> using original (${originalResultSize} chars, ~${originalTokens} tokens) - too small to summarize`);
+              } else {
+                const summary = this.formatToolResultSummary(toolName, parsedArgs, toolResult.result);
+                const summarySize = summary.length;
+                const summaryTokens = this.estimateTokens(summary);
+                const savedTokens = originalTokens - summaryTokens;
+                
+                if (savedTokens > 0) {
+                  finalContent = summary;
+                  this.logger.log(`[History] Tool result: ${toolName} -> original: ${originalResultSize} chars (~${originalTokens} tokens), summary: ${summarySize} chars (~${summaryTokens} tokens), saved: ~${savedTokens} tokens`);
+                } else {
+                  finalContent = originalResultStr;
+                  this.logger.log(`[History] Tool result: ${toolName} -> using original (${originalResultSize} chars, ~${originalTokens} tokens) - summary larger, saved: ~${savedTokens} tokens`);
+                }
+              }
 
               llmMessages.push({
                 role: 'tool',
-                content: summary,
+                content: finalContent,
                 tool_call_id: toolResult.toolCallId,
               });
+              toolResultsPushed++;
             }
           }
         }
       } catch (error) {
+        skippedCount++;
         this.logger.warn(`[buildLLMMessages] Skipping message (id: ${message.id}, role: ${message.role}) due to error: ${error.message}`);
         continue;
       }
     }
+
+    const toolResultsCount = llmMessages.filter(m => m.role === 'tool').length;
+    this.logger.log(`[History] Built ${llmMessages.length} LLM messages (${pushedCount} messages pushed, ${skippedCount} skipped, ${toolResultsPushed} tool results pushed)`);
 
     return llmMessages;
   }
@@ -851,18 +982,24 @@ export class AiAgentService implements OnModuleInit {
       if (operation === 'find' && Array.isArray(result?.data)) {
         const length = result.data.length;
         if (table === 'table_definition' && length > 0) {
+          const allIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined);
           const tableNames = result.data.map((r: any) => r.name).filter(Boolean).slice(0, 5);
-          const tableIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined).slice(0, 5);
+          const tableIds = allIds.slice(0, 5);
           const namesStr = tableNames.length > 0 ? ` names=[${tableNames.join(', ')}]` : '';
           const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
-          return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. IMPORTANT: Process ALL ${length} records, not just one.`;
+          if (length > 1) {
+            return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: You MUST delete ALL ${length} tables using batch_delete with ALL ${allIds.length} IDs: [${allIds.join(', ')}]. Do NOT delete only one table.`;
+          }
+          return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;
         }
         if (length > 1) {
-          const ids = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined).slice(0, 5);
+          const allIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined);
+          const ids = allIds.slice(0, 5);
           const idsStr = ids.length > 0 ? ` ids=[${ids.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
-          return `[dynamic_repository] ${operation} ${table} -> Found ${length} record(s)${idsStr}${moreInfo}. IMPORTANT: Process ALL ${length} records if needed.`;
+          const allIdsStr = allIds.length > 0 ? ` ALL IDs: [${allIds.join(', ')}]` : '';
+          return `[dynamic_repository] ${operation} ${table} -> Found ${length} record(s)${idsStr}${moreInfo}.${allIdsStr} CRITICAL: For delete operations on 2+ records, use batch_delete with ALL ${allIds.length} IDs. For create/update on 5+ records, use batch_create/batch_update. Process ALL ${length} records, not just one.`;
         }
       }
 
@@ -878,16 +1015,42 @@ export class AiAgentService implements OnModuleInit {
       }
 
       let dataInfo = '';
-      if (Array.isArray(result?.data)) {
-        const length = result.data.length;
-        if (length > 0) {
-          const sample = result.data.slice(0, 2);
-          dataInfo = ` dataCount=${length} sample=${this.truncateString(JSON.stringify(sample), 160)}`;
-        } else {
-          dataInfo = ' dataCount=0';
+      if (operation === 'create' || operation === 'update') {
+        if (Array.isArray(result?.data)) {
+          const length = result.data.length;
+          if (length > 0) {
+            const essentialFields = result.data.map((r: any) => {
+              const essential: any = {};
+              if (r.id !== undefined) essential.id = r.id;
+              if (r.name !== undefined) essential.name = r.name;
+              if (r.email !== undefined) essential.email = r.email;
+              if (r.title !== undefined) essential.title = r.title;
+              return essential;
+            }).slice(0, 2);
+            dataInfo = ` dataCount=${length} essentialFields=${this.truncateString(JSON.stringify(essentialFields), 120)}`;
+          } else {
+            dataInfo = ' dataCount=0';
+          }
+        } else if (result?.data) {
+          const essential: any = {};
+          if (result.data.id !== undefined) essential.id = result.data.id;
+          if (result.data.name !== undefined) essential.name = result.data.name;
+          if (result.data.email !== undefined) essential.email = result.data.email;
+          if (result.data.title !== undefined) essential.title = result.data.title;
+          dataInfo = ` essentialFields=${this.truncateString(JSON.stringify(essential), 120)}`;
         }
-      } else if (result?.data) {
-        dataInfo = ` data=${this.truncateString(JSON.stringify(result.data), 160)}`;
+      } else {
+        if (Array.isArray(result?.data)) {
+          const length = result.data.length;
+          if (length > 0) {
+            const sample = result.data.slice(0, 2);
+            dataInfo = ` dataCount=${length} sample=${this.truncateString(JSON.stringify(sample), 160)}`;
+          } else {
+            dataInfo = ' dataCount=0';
+          }
+        } else if (result?.data) {
+          dataInfo = ` data=${this.truncateString(JSON.stringify(result.data), 160)}`;
+        }
       }
 
       const metaInfo = metaParts.length > 0 ? ` ${metaParts.join(' ')}` : '';
@@ -991,11 +1154,14 @@ ${userContext}
 - Use the table list above instead of guessing names; call get_metadata only if the user requests updates.
 - If confidence drops below 100% or an error occurs, call get_hint(category="...") before acting.
 - Prefer single nested queries with precise fields and filters; return only what the user asked for (counts → meta="totalCount" + limit=1).
-- New tables: call get_hint(category="table_operations"), then use dynamic_repository on table_definition with data.columns array (include primary id column {name:"id", type:"int", isPrimary:true, isGenerated:true}).
+- CRITICAL: When using create/update operations, ALWAYS specify minimal fields parameter (e.g., fields: "id" or fields: "id,name"). Do NOT omit the fields parameter or use "*" - this returns all fields and wastes tokens unnecessarily. This is MANDATORY for all create/update calls.
+- New tables: CRITICAL - Before creating, ALWAYS check if table exists by finding table_definition by name first. If table exists, skip creation or inform user. If not exists, call get_hint(category="table_operations"), then use dynamic_repository on table_definition with data.columns array (include primary id column {name:"id", type:"int", isPrimary:true, isGenerated:true}).
 - Metadata tasks (creating/dropping tables, columns, relations) operate exclusively on *_definition tables; do not query the data tables (e.g., \`post\`) when the request is about table metadata.
-- Relations (any type): fetch the current table_definition (relations.*) first, merge new relation objects, and update exactly one table_definition with data.relations array (e.g., {propertyName, type, targetTable:{id}, inversePropertyName?}); never update the inverse table separately.
-- Dropping tables: find table_definition records by name(s), collect their IDs, then use batch_delete with ids array if multiple tables, or single delete if one table. Always remind the user to reload the admin UI.
-- When find returns multiple records (e.g., 2+ tables), you MUST process ALL of them, not just one. Use batch_delete with all collected IDs, not individual delete calls.
+- Relations (any type): CRITICAL WORKFLOW - 1) Find SOURCE table ID by name, 2) Find TARGET table ID by name, 3) Verify both IDs exist, 4) Fetch current columns.* and relations.* from source table to check for FK column conflicts, 5) Check FK column conflict: system generates FK column from propertyName using camelCase (e.g., "user" → "userId", "customer" → "customerId", "order" → "orderId"). CRITICAL: If table already has column "user_id"/"userId", "order_id"/"orderId", "customer_id"/"customerId", "product_id"/"productId" (check both snake_case and camelCase), you MUST use different propertyName (e.g., "buyer" instead of "customer", "owner" instead of "user"). If conflict exists, STOP and report error - do NOT proceed, 6) Merge new relation with ALL existing relations (preserve system relations), 7) Update ONLY the source table_definition with merged relations. CRITICAL: NEVER update both source and target tables - this causes duplicate FK column errors. System automatically handles inverse relation, FK column creation, and junction table (M2M). You only need to update ONE table (the source table). NEVER use IDs from history. targetTable.id MUST be REAL ID from find result. CRITICAL: One-to-many relations MUST include inversePropertyName. Many-to-many also requires inversePropertyName. Cascade option is recommended for O2M and O2O. For system tables, preserve ALL existing system relations - only add new ones.
+- Table operations: When creating/updating tables (table_definition), do NOT use batch operations. Process each table sequentially (one create/update at a time). Batch operations are ONLY for data tables, NOT for metadata tables.
+- Batch operations: When find returns multiple records (2+), you MUST use batch operations: batch_delete for 2+ deletes, batch_create/batch_update for 5+ creates/updates. Collect ALL IDs from find result and use them ALL in batch operations. NEVER process only one record when multiple are found.
+- Dropping tables: find table_definition records by name(s), collect ALL their IDs, then use batch_delete with ALL collected IDs array if multiple tables (2+), or single delete if one table. Always remind the user to reload the admin UI.
+- When find returns multiple records, the tool result will show you ALL IDs - use every single one of them in batch operations, not individual calls.
 - When a high-risk update/delete is confirmed by the user (e.g., updating or deleting *_definition rows), include meta:"human_confirmed" in that dynamic_repository call to bypass repeated prompts.
 - Metadata changes (table_definition / column_definition / relation_definition / storage_config / route wiring) must end with a reminder for the user to reload the admin UI to refresh caches.
 - System tables (user_definition, role_definition, route_definition, file_definition, etc.) cannot have built-in columns/relations removed or edited; only add new columns/relations when extending them, and prefer reusing these tables instead of creating duplicates.
@@ -1011,7 +1177,7 @@ ${userContext}
 - get_hint → deep guidance; categories include permission_check, nested_relations, route_access, table_operations, relations, metadata, table_discovery, field_optimization, database_type, error_handling.
 
 **Reminders**
-- createdAt/updatedAt columns exist automatically; never define them manually.
+- CRITICAL: createdAt/updatedAt columns are AUTO-GENERATED by system for every table. NEVER include them in data.columns array when creating tables. If you include them, you will get "column specified more than once" error. System automatically adds these columns, so you must exclude them from your columns array.
 - Keep answers focused on the user's request and avoid unnecessary repetition.`;
 
     if (conversation.summary) {
@@ -1024,12 +1190,19 @@ ${userContext}
       const isSimpleGreeting = /^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening))[!.]?$/i.test(messageText);
       const isSimpleQuestion = messageText.length < 20 && !messageText.includes('create') && !messageText.includes('delete') && !messageText.includes('update') && !messageText.includes('find') && !messageText.includes('table') && !messageText.includes('column') && !messageText.includes('relation');
       
+      let examplesText = '';
       if (!isSimpleGreeting && !isSimpleQuestion) {
         const { getRelevantExamples, formatExamplesForPrompt } = await import('../utils/examples-library.helper');
         const examples = getRelevantExamples(messageText);
         if (examples.length > 0) {
-          prompt += '\n\n' + formatExamplesForPrompt(examples);
+          examplesText = formatExamplesForPrompt(examples);
+          prompt += '\n\n' + examplesText;
         }
+      }
+      
+      if (examplesText) {
+        const examplesTokens = this.estimateTokens(examplesText);
+        this.logger.log(`[Token Breakdown] Examples: ~${examplesTokens} tokens (${examplesText.length} chars)`);
       }
     }
 

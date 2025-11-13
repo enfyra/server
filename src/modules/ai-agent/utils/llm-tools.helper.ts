@@ -97,7 +97,8 @@ Inputs:
 Response highlights:
 - name, description, isSingleRecord, database type info
 - columns[] → {name,type,isNullable,isPrimary,defaultValue,isUnique}
-- relations[] → {propertyName,type,targetTable:{id,name},inversePropertyName?,cascade}
+- relations[] → {propertyName,type,targetTable:{id:<REAL_ID_FROM_FIND>},inversePropertyName?,cascade?}
+- CRITICAL: targetTable.id MUST be REAL ID from database. ALWAYS find table_definition by name first to get current ID. NEVER use IDs from history.
 - indexes[] / uniques[] definitions
 
 Example:
@@ -200,16 +201,20 @@ Read (find):
 
 Write (create/update):
 - Match schema returned by get_table_details.
-- Relations (one-to-one, one-to-many, many-to-many): update exactly one table_definition with data.relations (merge existing entries and add {propertyName,type,targetTable:{id},inversePropertyName?}); never issue a mirrored update on the inverse table.
+- CRITICAL: After create/update, only fetch essential fields (e.g., "id,name" or just "id") using the fields parameter. Do NOT fetch all fields - this wastes tokens. Example: create({data: {...}, fields: "id,name"}) or update({id: X, data: {...}, fields: "id"}).
+- Relations (one-to-one, one-to-many, many-to-many): CRITICAL WORKFLOW - 1) Find source table ID by name, 2) Find target table ID by name, 3) Verify both exist, 4) Fetch current relations from source table, 5) Merge new relation with existing, 6) Update source table with REAL IDs. NEVER use IDs from history. targetTable.id MUST be REAL ID from find result (e.g., {"propertyName":"orderItems","type":"one-to-many","targetTable":{"id":<REAL_ID_FROM_FIND>},"inversePropertyName":"order","cascade":true}). One-to-many MUST include inversePropertyName. Many-to-many also requires inversePropertyName. Never issue a mirrored update on the inverse table.
 - Removing M2M: rewrite relations array on the surviving table.
 
 Batch:
-- Use batch_* for operations on ≥5 records to avoid multiple calls.
+- Use batch_delete for 2+ delete operations (collect ALL IDs from find, then batch_delete with ids array).
+- Use batch_create/batch_update for 5+ create/update operations.
+- CRITICAL: When find returns multiple records, you MUST use batch operations with ALL collected IDs, not individual calls.
+- EXCEPTION: For table_definition operations (creating/updating tables), do NOT use batch operations. Process each table sequentially (one create/update at a time). Batch operations are ONLY for data tables, NOT for metadata tables.
 
 Metadata workflow examples:
-- Create table: dynamic_repository.create on table_definition with {name, description, columns: [...], relations: [...]}.
-- Drop table: find table_definition by name, then delete via dynamic_repository.delete using that id (include meta="human_confirmed" after user confirmation). Always remind the user to reload the admin UI.
-- Add relation: find table_definition id, fetch current relations.*, merge new relation object, update that table_definition once.
+- Create table: CRITICAL - First check if table exists by finding table_definition by name. If exists, skip creation. If not exists, create with {data: {name, description, columns: [...], relations: [...]}, fields: "id,name"}. CRITICAL: Do NOT include createdAt or updatedAt in columns array - system automatically adds them. Always include fields parameter (e.g., "id" or "id,name") to save tokens.
+- Drop table: find table_definition by name, then delete via dynamic_repository.delete using {id: tableId} (include meta="human_confirmed" after user confirmation). Always remind the user to reload the admin UI.
+- Add relation: CRITICAL WORKFLOW - 1) Find SOURCE table ID by name, 2) Find TARGET table ID by name, 3) Verify both IDs exist, 4) Fetch current columns.* and relations.* from source table to check for FK column conflicts, 5) Check FK column conflict: system generates FK column from propertyName using camelCase (e.g., "user" → "userId", "customer" → "customerId", "order" → "orderId"). CRITICAL: If table already has column "user_id"/"userId", "order_id"/"orderId", "customer_id"/"customerId", "product_id"/"productId" (check both snake_case and camelCase), you MUST use different propertyName (e.g., "buyer" instead of "customer"). If conflict exists, STOP and report error - do NOT proceed, 6) Merge new relation with ALL existing relations (preserve system relations), 7) Update ONLY the source table_definition with merged relations. CRITICAL: NEVER update both source and target tables - this causes duplicate FK column errors. System automatically handles inverse relation, FK column creation, and junction table. You only need to update ONE table. NEVER use IDs from history. NEVER use placeholder IDs. MUST use REAL IDs from find results. For system tables, preserve ALL existing system relations.
 
 Safety notes:
 - Do not mutate file_definition; it is read-only.
@@ -227,7 +232,7 @@ Safety notes:
           type: 'string',
           enum: ['find', 'create', 'update', 'delete', 'batch_create', 'batch_update', 'batch_delete'],
           description:
-            'Operation to perform: "find" (read records), "create" (insert one), "update" (modify one by id), "delete" (remove one by id), "batch_create" (insert many), "batch_update" (modify many), "batch_delete" (remove many). Use batch_* for 5+ records. NO "findOne" operation - use "find" with limit=1 instead.',
+            'Operation to perform: "find" (read records), "create" (insert one), "update" (modify one by id), "delete" (remove one by id), "batch_create" (insert many), "batch_update" (modify many), "batch_delete" (remove many). CRITICAL: Use batch_delete for 2+ deletes, batch_create/batch_update for 5+ creates/updates. When find returns multiple records, collect ALL IDs and use batch operations. NO "findOne" operation - use "find" with limit=1 instead.',
         },
         where: {
           type: 'object',
@@ -237,7 +242,7 @@ Safety notes:
         fields: {
           type: 'string',
           description:
-            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*"',
+            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: For create/update operations, always specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
         },
         limit: {
           type: 'number',

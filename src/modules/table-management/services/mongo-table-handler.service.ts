@@ -47,6 +47,127 @@ export class MongoTableHandlerService {
     }
   }
 
+  private async validateNoDuplicateInverseRelation(
+    sourceTableId: any,
+    sourceTableName: string,
+    newRelations: any[],
+  ): Promise<void> {
+    const { ObjectId } = require('mongodb');
+    const querySourceId = typeof sourceTableId === 'string' ? new ObjectId(sourceTableId) : sourceTableId;
+
+    for (const rel of newRelations || []) {
+      let targetTableId: any;
+      if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
+        targetTableId = typeof rel.targetTable._id === 'string' ? new ObjectId(rel.targetTable._id) : rel.targetTable._id;
+      } else if (typeof rel.targetTable === 'object' && rel.targetTable.id) {
+        targetTableId = typeof rel.targetTable.id === 'string' ? new ObjectId(rel.targetTable.id) : rel.targetTable.id;
+      } else if (typeof rel.targetTable === 'string') {
+        const targetTableRecord = await this.queryBuilder.findOneWhere('table_definition', { name: rel.targetTable });
+        if (targetTableRecord) {
+          targetTableId = typeof targetTableRecord._id === 'string' ? new ObjectId(targetTableRecord._id) : targetTableRecord._id;
+        } else {
+          continue;
+        }
+      } else {
+        continue;
+      }
+
+      if (!targetTableId) continue;
+
+      let targetTableName: string;
+      const targetTableRecord = await this.queryBuilder.findOneWhere('table_definition', { _id: targetTableId });
+      if (targetTableRecord) {
+        targetTableName = targetTableRecord.name;
+      } else {
+        continue;
+      }
+
+      let inverseExists = false;
+      let inverseRelationInfo = null;
+
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        const targetRelations = await this.queryBuilder.findWhere('relation_definition', {
+          sourceTable: targetTableId,
+          targetTable: querySourceId,
+        });
+
+        const matchingRelation = targetRelations.find((tr: any) => {
+          if (rel.inversePropertyName) {
+            return tr.propertyName === rel.inversePropertyName || tr.inversePropertyName === rel.propertyName;
+          } else {
+            return tr.inversePropertyName === rel.propertyName;
+          }
+        });
+
+        if (matchingRelation) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: matchingRelation.propertyName,
+            type: matchingRelation.type,
+          };
+        }
+      } else if (rel.type === 'one-to-many') {
+        if (!rel.inversePropertyName) continue;
+
+        const targetRelations = await this.queryBuilder.findWhere('relation_definition', {
+          sourceTable: targetTableId,
+          targetTable: querySourceId,
+          propertyName: rel.inversePropertyName,
+        });
+
+        const matchingRelation = targetRelations.find((tr: any) => 
+          ['many-to-one', 'one-to-one'].includes(tr.type)
+        );
+
+        if (matchingRelation) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: matchingRelation.propertyName,
+            type: matchingRelation.type,
+          };
+        }
+      } else if (rel.type === 'many-to-many') {
+        if (!rel.inversePropertyName) continue;
+
+        const targetRelations = await this.queryBuilder.findWhere('relation_definition', {
+          sourceTable: targetTableId,
+          targetTable: querySourceId,
+          propertyName: rel.inversePropertyName,
+          type: 'many-to-many',
+        });
+
+        if (targetRelations.length > 0) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: targetRelations[0].propertyName,
+            type: targetRelations[0].type,
+          };
+        }
+      }
+
+      if (inverseExists && inverseRelationInfo) {
+        throw new ValidationException(
+          `Cannot create relation '${rel.propertyName}' (${rel.type}) from '${sourceTableName}' to '${targetTableName}': ` +
+          `The inverse relation already exists on target table '${targetTableName}' as '${inverseRelationInfo.propertyName}' (${inverseRelationInfo.type}). ` +
+          `Relations should be created on ONLY ONE side. System automatically handles the inverse relation. ` +
+          `Please remove the relation from '${targetTableName}' or update it instead of creating a duplicate.`,
+          {
+            sourceTable: sourceTableName,
+            targetTable: targetTableName,
+            relationName: rel.propertyName,
+            relationType: rel.type,
+            existingInverseTable: targetTableName,
+            existingInverseRelation: inverseRelationInfo.propertyName,
+            existingInverseType: inverseRelationInfo.type,
+          },
+        );
+      }
+    }
+  }
+
   /**
    * Migrate renamed fields in background (fire & forget)
    * Uses $rename to move data from old field to new field
@@ -413,6 +534,10 @@ export class MongoTableHandlerService {
       }
 
       validateUniquePropertyNames(body.columns || [], body.relations || []);
+
+      if (body.relations && body.relations.length > 0) {
+        await this.validateNoDuplicateInverseRelation(queryId, exists.name, body.relations);
+      }
 
       // Update table metadata (only update fields that are present in body)
       const updateData: any = {};

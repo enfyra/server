@@ -110,8 +110,14 @@ export class DynamicRepository {
     });
   }
 
-  async create(body: any) {
+  async create(opt: { data: any; fields?: string | string[] }) {
     try {
+      const { data: body, fields } = opt;
+      
+      if (!body || typeof body !== 'object') {
+        throw new BadRequestException('data is required and must be an object');
+      }
+      
       await this.tableValidationService.assertTableValid({
         operation: 'create',
         tableName: this.tableName,
@@ -135,7 +141,7 @@ export class DynamicRepository {
         const table: any = await this.tableHandlerService.createTable(body);
         await this.reload();
         const idValue = table._id || table.id;
-        return await this.find({ where: { [this.getIdField()]: { _eq: idValue } } });
+        return await this.find({ where: { [this.getIdField()]: { _eq: idValue } }, fields });
       }
 
       const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
@@ -147,7 +153,7 @@ export class DynamicRepository {
       const inserted = await this.queryBuilder.insertAndGet(this.tableName, body);
       const createdId = inserted.id || inserted._id || body.id;
 
-      const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } } });
+      const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } }, fields });
       await this.reload();
       return result;
     } catch (error) {
@@ -156,8 +162,10 @@ export class DynamicRepository {
     }
   }
 
-  async update(id: string | number, body: any) {
+  async update(opt: { id: string | number; data: any; fields?: string | string[] }) {
     try {
+      const { id, data: body, fields } = opt;
+      
       const existsResult = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
@@ -180,12 +188,12 @@ export class DynamicRepository {
         const table: any = await this.tableHandlerService.updateTable(id, body);
         const tableId = table._id || table.id;
         await this.reload();
-        return this.find({ where: { [this.getIdField()]: { _eq: tableId } } });
+        return this.find({ where: { [this.getIdField()]: { _eq: tableId } }, fields });
       }
 
       await this.queryBuilder.updateById(this.tableName, id, body);
 
-      const result = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
+      const result = await this.find({ where: { [this.getIdField()]: { _eq: id } }, fields });
       await this.reload();
       return result;
     } catch (error) {
@@ -194,8 +202,10 @@ export class DynamicRepository {
     }
   }
 
-  async delete(id: string | number) {
+  async delete(opt: { id: string | number }) {
     try {
+      const { id } = opt;
+      
       const existsResult = await this.find({ where: { id: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);

@@ -12,7 +12,7 @@ async function getPrimaryKeyTypeForTable(
   knex: Knex,
   tableName: string,
   metadataCacheService?: any,
-): Promise<'uuid' | 'integer'> {
+): Promise<'uuid' | 'int'> {
   try {
     if (metadataCacheService) {
       const targetMetadata = await metadataCacheService.lookupTableByName(tableName);
@@ -20,7 +20,7 @@ async function getPrimaryKeyTypeForTable(
         const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
         if (pkColumn) {
           const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
         }
       }
     }
@@ -34,14 +34,14 @@ async function getPrimaryKeyTypeForTable(
     
     if (pkInfo) {
       const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
     }
     
-    logger.warn(`Could not find primary key for table ${tableName}, defaulting to integer`);
-    return 'integer';
+    logger.warn(`Could not find primary key for table ${tableName}, defaulting to int`);
+    return 'int';
   } catch (error) {
-    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to integer`);
-    return 'integer';
+    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`);
+    return 'int';
   }
 }
 
@@ -49,13 +49,15 @@ async function getPrimaryKeyTypeForTable(
  * Validate that FK column name doesn't conflict with existing columns or pending creates
  * @throws Error if FK column conflicts with existing column
  */
-function validateFkColumnNotConflict(
+async function validateFkColumnNotConflict(
   fkColumnName: string,
   existingColumns: any[],
   pendingCreateColumns: any[],
   pendingDeleteColumns: any[],
   context: string,
-): void {
+  tableName: string,
+  knex?: Knex,
+): Promise<void> {
   // Get column names that will exist after migration
   const deletedColNames = new Set(pendingDeleteColumns.map(c => c.name));
   const existingColNames = existingColumns
@@ -71,6 +73,48 @@ function validateFkColumnNotConflict(
       `A column with this name already exists or will be created. ` +
       `Please rename the relation property to avoid column name conflict.`
     );
+  }
+
+  // Also check physical DB if column not found in metadata (for manually created columns)
+  if (knex && tableName) {
+    try {
+      const dbType = (knex as any).client.config.client;
+      let columnExists = false;
+
+      if (dbType === 'postgres') {
+        const result = await knex.raw(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ?
+            AND column_name = ?
+        `, [tableName, fkColumnName]);
+        columnExists = result.rows && result.rows.length > 0;
+      } else if (dbType === 'mysql') {
+        const result = await knex.raw(`
+          SELECT COLUMN_NAME
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?
+        `, [tableName, fkColumnName]);
+        columnExists = result[0] && result[0].length > 0;
+      }
+
+      if (columnExists) {
+        throw new Error(
+          `Cannot create FK column '${fkColumnName}' (${context}): ` +
+          `A column with this name already exists in physical database. ` +
+          `Please rename the relation property to avoid column name conflict.`
+        );
+      }
+    } catch (error: any) {
+      if (error.message.includes('Cannot create FK column')) {
+        throw error;
+      }
+      // Ignore DB query errors, just log warning
+      logger.warn(`Failed to check physical DB for column ${fkColumnName} in ${tableName}: ${error.message}`);
+    }
   }
 }
 
@@ -220,12 +264,14 @@ async function handleCreatedRelations(
       logger.log(`  Will create FK column: ${fkColumn} → ${rel.targetTableName}.id`);
 
       // Validate FK column doesn't conflict with existing columns
-      validateFkColumnNotConflict(
+      await validateFkColumnNotConflict(
         fkColumn,
         newColumns,
         diff.columns.create,
         diff.columns.delete,
-        `relation '${rel.propertyName}' (${rel.type})`
+        `relation '${rel.propertyName}' (${rel.type})`,
+        tableName,
+        knex,
       );
 
       const targetPkType = await getPrimaryKeyTypeForTable(knex, rel.targetTableName, metadataCacheService);
@@ -255,6 +301,20 @@ async function handleCreatedRelations(
 
       if (!diff.crossTableOperations) {
         diff.crossTableOperations = [];
+      }
+
+      const existingCrossOp = diff.crossTableOperations.find(
+        (op: any) =>
+          op.operation === 'createColumn' &&
+          op.targetTable === targetTableName &&
+          op.column.name === fkColumn,
+      );
+
+      if (existingCrossOp) {
+        logger.warn(
+          `  Skipping duplicate FK column creation: ${fkColumn} in ${targetTableName} (already in crossTableOperations)`,
+        );
+        continue;
       }
 
       diff.crossTableOperations.push({
@@ -520,12 +580,14 @@ async function handleRelationTypeChange(
     logger.log(`    Note: FK column will be created as NULLABLE to avoid data constraint errors`);
 
     // Validate FK column doesn't conflict
-    validateFkColumnNotConflict(
+    await validateFkColumnNotConflict(
       newFkColumn,
       newColumns,
       diff.columns.create,
       diff.columns.delete,
-      `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`
+      `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`,
+      tableName,
+      knex,
     );
 
     // Force nullable=true when migrating from M2M to M2O/O2O
@@ -672,12 +734,14 @@ async function handleRelationTypeChange(
     logger.log(`    ➕ Create FK column: ${newFkColumn} → ${newRel.targetTableName}.id`);
 
     // Validate FK column doesn't conflict
-    validateFkColumnNotConflict(
+    await validateFkColumnNotConflict(
       newFkColumn,
       newColumns,
       diff.columns.create,
       diff.columns.delete,
-      `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`
+      `relation type change ${oldRel.type} → ${newRel.type} for '${newRel.propertyName}'`,
+      tableName,
+      knex,
     );
 
     const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
