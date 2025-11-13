@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
@@ -20,6 +21,8 @@ import {
 } from './error-recovery.helper';
 
 export class ToolExecutor {
+  private readonly logger = new Logger(ToolExecutor.name);
+
   constructor(
     private readonly metadataCacheService: MetadataCacheService,
     private readonly queryBuilder: QueryBuilderService,
@@ -78,15 +81,30 @@ export class ToolExecutor {
     const { routePath, table, operation } = args;
     const userId = context.$user?.id;
 
+    const permissionCache: Map<string, any> =
+      ((context as any).__permissionCache as Map<string, any>) ||
+      (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
+    const cacheKey = `${userId || 'anon'}|${operation}|${table || ''}|${routePath || ''}`;
+
+    if (permissionCache.has(cacheKey)) {
+      return permissionCache.get(cacheKey);
+    }
+
+    const setCache = (result: any) => {
+      const finalResult = { ...result, cacheKey };
+      permissionCache.set(cacheKey, finalResult);
+      return finalResult;
+    };
+
     console.log(`[check_permission] Called with table=${table}, operation=${operation}, userId=${userId}`);
 
     if (!userId) {
       console.warn(`[check_permission] ❌ No userId in context`);
-      return {
+      return setCache({
         allowed: false,
         reason: 'not_authenticated',
         message: 'User is not authenticated. Please login first.',
-      };
+      });
     }
 
     const operationToMethod: Record<string, string> = {
@@ -124,11 +142,11 @@ export class ToolExecutor {
     });
 
     if (!userResult || !userResult.data || userResult.data.length === 0) {
-      return {
+      return setCache({
         allowed: false,
         reason: 'user_not_found',
         message: 'User not found in the system.',
-      };
+      });
     }
 
     const user = userResult.data[0];
@@ -138,7 +156,7 @@ export class ToolExecutor {
 
     if (user.isRootAdmin === true) {
       console.log(`[check_permission] ✅ ALLOWED: User is root admin`);
-      return {
+      return setCache({
         allowed: true,
         reason: 'root_admin',
         message: 'User is root admin with full access.',
@@ -148,7 +166,7 @@ export class ToolExecutor {
           isRootAdmin: true,
           role: user.role || null,
         },
-      };
+      });
     }
 
     let finalRoutePath = routePath;
@@ -158,11 +176,11 @@ export class ToolExecutor {
     }
 
     if (!finalRoutePath) {
-      return {
+      return setCache({
         allowed: false,
         reason: 'no_route_specified',
         message: 'Cannot determine route path. Please provide routePath or table parameter.',
-      };
+      });
     }
 
     const routeRepo = new DynamicRepository({
@@ -193,7 +211,7 @@ export class ToolExecutor {
 
     if (!routeResult || !routeResult.data || routeResult.data.length === 0) {
       if (operation === 'read') {
-        return {
+        return setCache({
           allowed: true,
           reason: 'route_not_found_public_read',
           message: `Route ${finalRoutePath} not found. Assuming public read access.`,
@@ -203,9 +221,9 @@ export class ToolExecutor {
             isRootAdmin: false,
             role: user.role || null,
           },
-        };
+        });
       } else {
-        return {
+        return setCache({
           allowed: false,
           reason: 'route_not_found_write_denied',
           message: `Route ${finalRoutePath} not found. Write operations require explicit permissions.`,
@@ -215,7 +233,7 @@ export class ToolExecutor {
             isRootAdmin: false,
             role: user.role || null,
           },
-        };
+        });
       }
     }
 
@@ -223,7 +241,7 @@ export class ToolExecutor {
     const routePermissions = route.routePermissions || [];
 
     if (routePermissions.length === 0) {
-      return {
+      return setCache({
         allowed: false,
         reason: 'no_permissions_configured',
         message: `No permissions configured for ${finalRoutePath}.`,
@@ -233,7 +251,7 @@ export class ToolExecutor {
           isRootAdmin: false,
           role: user.role || null,
         },
-      };
+      });
     }
 
     for (const permission of routePermissions) {
@@ -246,7 +264,7 @@ export class ToolExecutor {
 
       const allowedUsers = permission.allowedUsers || [];
       if (allowedUsers.some((u: any) => u?.id === userId)) {
-        return {
+        return setCache({
           allowed: true,
           reason: 'user_specific_access',
           message: `User has direct access to ${operation} on ${finalRoutePath}.`,
@@ -256,12 +274,12 @@ export class ToolExecutor {
             isRootAdmin: false,
             role: user.role || null,
           },
-        };
+        });
       }
 
       const allowedRole = permission.role || null;
       if (allowedRole && user.role && allowedRole.id === user.role.id) {
-        return {
+        return setCache({
           allowed: true,
           reason: 'role_based_access',
           message: `User has role-based access to ${operation} on ${finalRoutePath} via role: ${user.role.name || user.role.id}.`,
@@ -271,12 +289,12 @@ export class ToolExecutor {
             isRootAdmin: false,
             role: user.role,
           },
-        };
+        });
       }
     }
 
     console.log(`[check_permission] ❌ DENIED: No matching permissions found`);
-    return {
+    return setCache({
       allowed: false,
       reason: 'permission_denied',
       message: `User does not have permission to ${operation} on ${finalRoutePath}.`,
@@ -286,7 +304,7 @@ export class ToolExecutor {
         isRootAdmin: false,
         role: user.role || null,
       },
-    };
+    });
   }
 
   private async executeListTables(): Promise<any> {
@@ -365,6 +383,8 @@ export class ToolExecutor {
 - createdAt/updatedAt are auto-generated → do not declare them when creating tables
 - Foreign keys are indexed automatically
 - Table names usually end with "_definition"
+- Schema changes (columns, relations, indexes) belong to table_definition / column_definition / relation_definition only
+- Update business data rows via the actual tables (post, order, etc.); do NOT touch them when editing structure
 - Discover actual names via get_metadata, then choose the closest match`;
 
     const metadataHint = {
@@ -385,32 +405,107 @@ export class ToolExecutor {
       content: fieldOptContent,
     };
 
-    const tableOpsContent = `Table operations checklist:
-- Every new table must include "${idFieldName}" with isPrimary=true
-- SQL IDs: int (auto increment) or uuid; MongoDB IDs: uuid only
-- Relations always use targetTable {"${idFieldName}": targetId}
-- createdAt/updatedAt are auto-generated → omit them
-- Confirm structural changes with the user before executing
+    const tableOpsContent = `Table creation rules:
+- Every table MUST have "${idFieldName}" column with isPrimary=true, isGenerated=true
+- SQL: use type="int" for auto-increment ID, or "uuid" for UUID
+- MongoDB: ONLY use type="uuid" for ID
+- createdAt/updatedAt are auto-generated → NEVER define them manually
+- Include ALL columns in ONE create call (including id column)
 
-M2M flow (post ↔ category):
-1. Create the base tables without relations
-2. Fetch their ${idFieldName} with dynamic_repository.find
-3. Update exactly one table:
-{"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":11},"inversePropertyName":"posts"}
+Example - Creating a table:
+{
+  "table": "table_definition",
+  "operation": "create",
+  "data": {
+    "name": "product",
+    "description": "Products",
+    "columns": [
+      {"name": "${idFieldName}", "type": "int", "isPrimary": true, "isGenerated": true},
+      {"name": "name", "type": "varchar", "isNullable": false},
+      {"name": "price", "type": "decimal", "isNullable": true}
+    ]
+  }
+}
 
-Removing M2M:
-- If one table is deleted, update the remaining table and set relations=[] (or include only the relations to keep)
-- The system handles inverse + junction cleanup automatically
+M2M Relation rules:
+- Create tables WITHOUT relations first
+- After tables exist, fetch their ${idFieldName} values
+- Update EXACTLY ONE table_definition with data.relations array
+- System automatically creates inverse + junction table
 
-Batch operations (>4 records):
-- batch_create {"table":"product","operation":"batch_create","dataArray":[{...}]}
-- batch_update {"table":"product","operation":"batch_update","updates":[{"id":1,"data":{...}}]}
-- batch_delete {"table":"product","operation":"batch_delete","ids":[1,2,3]}`
+Example - Adding M2M (post ↔ category):
+Step 1: Find table IDs after creation
+{"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name"}
+
+Step 2: Update ONE side (post table) with relation
+{"table":"table_definition","operation":"update","id":"<post_table_${idFieldName}>","data":{"relations":[{"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":"<category_table_${idFieldName}>"},"inversePropertyName":"posts"}]}}
+
+IMPORTANT: Only update post table. System handles category side automatically.
+
+Batch operations (≥5 records):
+- batch_create with dataArray: [...]
+- batch_update with updates: [{id, data}, ...]
+- batch_delete with ids: [...]`;
 
     const tableOpsHint = {
       category: 'table_operations',
       title: 'Table Creation & Management',
       content: tableOpsContent,
+    };
+
+    const complexWorkflowsContent = `Workflow: Recreate tables with M2M relation
+
+Goal: Delete existing post & category tables, recreate with M2M relation
+
+Step-by-step (8-10 tool calls total):
+
+1. Ask user confirmation & outline plan FIRST
+
+2. Find existing table metadata (ONE query):
+   {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
+
+3. Permission checks (2 calls):
+   {"table":"post","operation":"delete"} → check_permission
+   {"table":"category","operation":"delete"} → check_permission
+
+4. Delete table metadata (2 calls):
+   {"table":"table_definition","operation":"delete","id":"<post_table_${idFieldName}>"}
+   {"table":"table_definition","operation":"delete","id":"<category_table_${idFieldName}>"}
+
+5. Create new tables (2 calls, include ALL columns + id):
+   Post table:
+   {"table":"table_definition","operation":"create","data":{"name":"post","description":"Blog posts","columns":[{"name":"${idFieldName}","type":"int","isPrimary":true,"isGenerated":true},{"name":"title","type":"varchar","isNullable":false},{"name":"content","type":"text","isNullable":true}]}}
+
+   Category table:
+   {"table":"table_definition","operation":"create","data":{"name":"category","description":"Categories","columns":[{"name":"${idFieldName}","type":"int","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar","isNullable":false},{"name":"description","type":"text","isNullable":true}]}}
+
+6. Fetch newly created table IDs (ONE query):
+   {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
+
+7. Create M2M relation (ONE call, update post side only):
+   {"table":"table_definition","operation":"update","id":"<new_post_${idFieldName}>","data":{"relations":[{"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":"<new_category_${idFieldName}>"},"inversePropertyName":"posts"}]}}
+
+8. Remind user to reload Admin UI
+
+Common mistakes to AVOID:
+❌ Calling get_table_details on data tables (post, category) for metadata work
+❌ Creating tables without id column
+❌ Defining createdAt/updatedAt manually
+❌ Updating both sides of M2M relation
+❌ Using findOne operation (use find with limit=1)
+❌ Multiple find calls instead of using _in filter
+❌ Not including all columns in table create
+
+Efficiency rules:
+✅ Use _in filter to find multiple tables in ONE call
+✅ Include complete data in create/update (avoid multiple calls)
+✅ Only operate on *_definition tables for metadata work
+✅ Never scan data tables when working with metadata`;
+
+    const complexWorkflowsHint = {
+      category: 'complex_workflows',
+      title: 'Complex Task Workflows',
+      content: complexWorkflowsContent,
     };
 
     const errorContent = `Error protocol:
@@ -498,7 +593,7 @@ Reminders:
       content: permissionContent,
     };
 
-    allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint, routeAccessHint, permissionHint);
+    allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint, routeAccessHint, permissionHint, complexWorkflowsHint);
 
     const filteredHints = args.category
       ? allHints.filter(h => h.category === args.category)
@@ -510,7 +605,7 @@ Reminders:
       idField: idFieldName,
       hints: filteredHints,
       count: filteredHints.length,
-      availableCategories: ['database_type', 'relations', 'metadata', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'nested_relations', 'route_access', 'permission_check'],
+      availableCategories: ['database_type', 'relations', 'metadata', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'nested_relations', 'route_access', 'permission_check', 'complex_workflows'],
     };
   }
 
@@ -538,6 +633,33 @@ Reminders:
       }
     }
 
+    const metaRaw = args.meta;
+    const humanConfirmed = typeof metaRaw === 'string' && metaRaw.toLowerCase().includes('confirm');
+
+    if (typeof args.meta === 'string') {
+      try {
+        const parsed = JSON.parse(args.meta);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.columns && !Array.isArray(parsed.columns)) {
+            parsed.columns = [parsed.columns];
+          }
+          if (parsed.relations && !Array.isArray(parsed.relations)) {
+            parsed.relations = [parsed.relations];
+          }
+          args.meta = JSON.stringify(parsed);
+        }
+      } catch (_) {}
+    }
+
+    if (args.table === 'table_definition' && args.data) {
+      if (args.data.columns && !Array.isArray(args.data.columns)) {
+        args.data.columns = [args.data.columns];
+      }
+      if (args.data.relations && !Array.isArray(args.data.relations)) {
+        args.data.relations = [args.data.relations];
+      }
+    }
+
     const repo = new DynamicRepository({
       context,
       tableName: args.table,
@@ -558,7 +680,62 @@ Reminders:
 
     await repo.init();
 
+    const preview: Record<string, any> = {
+      operation: args.operation,
+      table: args.table,
+      id: args.id,
+      meta: args.meta,
+    };
+    if (args.where) {
+      preview.where = args.where;
+    }
+    if (args.data) {
+      preview.dataKeys = Object.keys(args.data);
+    }
+    if (args.dataArray) {
+      preview.dataArrayLength = Array.isArray(args.dataArray) ? args.dataArray.length : 0;
+    }
+    if (args.updates) {
+      preview.updatesLength = Array.isArray(args.updates) ? args.updates.length : 0;
+    }
+    if (args.ids) {
+      preview.idsLength = Array.isArray(args.ids) ? args.ids.length : 0;
+    }
+    this.logger.log(`[ToolExecutor] dynamic_repository call → ${JSON.stringify(preview)}`);
+
     try {
+      if (args.operation === 'delete' && !args.id) {
+        if (!args.where) {
+          throw new Error('id or where is required for delete operation');
+        }
+
+        const lookup = await repo.find({
+          where: args.where,
+          fields: 'id',
+          limit: 0,
+        });
+
+        const records = (lookup.data || []).map((item: any) => item.id || item._id).filter(Boolean);
+
+        if (records.length === 0) {
+          throw new Error('No records found for delete operation');
+        }
+
+        if (records.length === 1) {
+          args.id = records[0];
+        } else {
+          const deleteResults = [];
+          for (const recordId of records) {
+            deleteResults.push(await repo.delete(recordId));
+          }
+          return {
+            deleted: records.length,
+            ids: records,
+            results: deleteResults,
+          };
+        }
+      }
+
       switch (args.operation) {
         case 'find':
           console.log('[Tool Executor - dynamic_repository] Find operation:', {
@@ -628,6 +805,7 @@ Reminders:
         operation: args.operation,
         table: args.table,
         error,
+        humanConfirmed,
       });
 
       if (escalation.shouldEscalate) {

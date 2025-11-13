@@ -31,6 +31,7 @@
     "@graphql-tools/schema": "^10.0.23",
     "@langchain/anthropic": "^1.0.0",
     "@langchain/core": "^1.0.4",
+    "@langchain/google-genai": "^1.0.0",
     "@langchain/openai": "^1.1.0",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs/common": "^11.0.0",

@@ -18,6 +18,7 @@ export interface AiConfig {
   maxConversationMessages: number;
   summaryThreshold: number;
   llmTimeout: number;
+  maxToolIterations?: number;
   description?: string;
 }
 

@@ -136,8 +136,6 @@ export class ConversationService {
       createData.lastSummaryAt = data.lastSummaryAt;
     }
 
-    this.logger.debug(`Creating conversation with data:`, { title: createData.title, configId: data.configId, messageCount: createData.messageCount });
-
     const result = await repo.create(createData);
 
     if (!result.data || result.data.length === 0) {
@@ -320,9 +318,6 @@ export class ConversationService {
   }): Promise<IMessage> {
     const { data, userId } = params;
 
-    this.logger.debug(`[createMessage] Received data.toolCalls: ${data.toolCalls ? JSON.stringify(data.toolCalls).substring(0, 200) : 'NULL/UNDEFINED'}`);
-    this.logger.debug(`[createMessage] Received data.toolResults: ${data.toolResults ? JSON.stringify(data.toolResults).substring(0, 200) : 'NULL/UNDEFINED'}`);
-
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
 
@@ -334,32 +329,21 @@ export class ConversationService {
 
     if (data.content !== undefined && data.content !== null) {
       if (typeof data.content === 'object') {
-        this.logger.debug(`[createMessage] Content is object, stringifying: ${JSON.stringify(data.content).substring(0, 200)}`);
         createData.content = JSON.stringify(data.content);
       } else {
-        this.logger.debug(`[createMessage] Content is ${typeof data.content}, length: ${String(data.content).length}`);
         createData.content = data.content;
       }
     }
 
     if (data.toolCalls) {
       createData.toolCalls = data.toolCalls;
-      this.logger.debug(`[createMessage] Setting toolCalls: ${JSON.stringify(data.toolCalls).substring(0, 300)}`);
     }
 
     if (data.toolResults) {
       createData.toolResults = data.toolResults;
-      this.logger.debug(`[createMessage] Setting toolResults: ${JSON.stringify(data.toolResults).substring(0, 300)}`);
     }
 
-    this.logger.debug(`[createMessage] About to save with createData keys: ${Object.keys(createData).join(', ')}`);
     const result = await repo.create(createData);
-    this.logger.debug(`[createMessage] Saved message id: ${result.data[0]?.id}, checking saved data...`);
-
-    if (result.data[0]?.id) {
-      const savedMsg = result.data[0];
-      this.logger.debug(`[createMessage] Saved toolCalls: ${savedMsg.toolCalls ? 'EXISTS' : 'NULL'}, toolResults: ${savedMsg.toolResults ? 'EXISTS' : 'NULL'}`);
-    }
 
     return this.mapMessage(result.data[0]);
   }
@@ -459,15 +443,13 @@ export class ConversationService {
     }
 
     let content = data.content;
-    this.logger.debug(`[mapMessage] Raw content type: ${typeof content}, value preview: ${String(content).substring(0, 200)}`);
 
     if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
       try {
         const parsed = JSON.parse(content);
-        this.logger.debug(`[mapMessage] Parsed content from JSON, result type: ${typeof parsed}`);
         content = parsed;
       } catch (e) {
-        this.logger.debug(`[mapMessage] Failed to parse content as JSON: ${e.message}`);
+        this.logger.warn(`[mapMessage] Failed to parse content as JSON: ${e.message}`);
       }
     }
 

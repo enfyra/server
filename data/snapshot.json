@@ -419,17 +419,18 @@
     },
     "ai_config_definition": {
         "name": "ai_config_definition",
-        "description": "Stores AI agent configuration settings. Supports OpenAI and Anthropic (Claude).",
+        "description": "Stores AI agent configuration settings. Supports OpenAI, Anthropic (Claude), and Google (Gemini).",
         "isSystem": true,
         "uniques": [["provider"]],
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI or Anthropic)" },
+            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI, Anthropic, or Google)" },
             { "name": "apiKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "API key for the AI provider (sensitive, hidden from API responses)" },
-            { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use (default: gpt-4o-mini)" },
+            { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether AI agent is enabled" },
             { "name": "maxConversationMessages", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of messages to include in LLM context (default: 10)" },
             { "name": "llmTimeout", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 30000, "description": "LLM API timeout in milliseconds (default: 30000 - 30 seconds)" },
+            { "name": "maxToolIterations", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of tool execution loops per LLM response (default: 10)" },
             { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of the AI configuration" }
         ],
         "relations": []

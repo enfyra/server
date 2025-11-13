@@ -307,7 +307,7 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
 
   table_operations: {
     name: 'Create/Modify Tables',
-    keywords: ['create table', 'add table', 'modify table', 'add column', 'new table'],
+    keywords: ['create table', 'add table', 'modify table', 'add column', 'new table', 'delete table', 'recreate', 'drop table'],
     examples: [
       {
         id: 'TABLE-01',
@@ -340,13 +340,124 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
                 name: 'products',
                 description: 'Products table',
                 columns: [
-                  { name: 'id', type: 'int', isPrimary: true },
+                  { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
                   { name: 'name', type: 'varchar', isNullable: false },
                   { name: 'price', type: 'decimal', isNullable: false }
                 ]
               }
             },
             reasoning: 'MUST include id column with isPrimary=true'
+          }
+        ]
+      },
+      {
+        id: 'TABLE-02',
+        scenario: 'Recreate tables with M2M relation',
+        userMessage: 'Delete and recreate post and category tables with M2M relation',
+        correctApproach: 'Find existing tables → Delete → Create new tables → Fetch IDs → Create M2M relation on ONE side',
+        toolCalls: [
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'find',
+              where: { name: { _in: ['post', 'category'] } },
+              fields: 'id,name',
+              limit: 0
+            },
+            reasoning: 'Find both tables in ONE query (efficient)'
+          },
+          {
+            tool: 'check_permission',
+            args: { table: 'post', operation: 'delete' },
+            reasoning: 'Permission check before delete'
+          },
+          {
+            tool: 'check_permission',
+            args: { table: 'category', operation: 'delete' },
+            reasoning: 'Permission check before delete'
+          },
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'delete',
+              id: 'post_table_id'
+            },
+            reasoning: 'Delete post table metadata'
+          },
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'delete',
+              id: 'category_table_id'
+            },
+            reasoning: 'Delete category table metadata'
+          },
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'create',
+              data: {
+                name: 'post',
+                description: 'Blog posts',
+                columns: [
+                  { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+                  { name: 'title', type: 'varchar', isNullable: false },
+                  { name: 'content', type: 'text', isNullable: true }
+                ]
+              }
+            },
+            reasoning: 'Create post table with all columns in ONE call'
+          },
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'create',
+              data: {
+                name: 'category',
+                description: 'Categories',
+                columns: [
+                  { name: 'id', type: 'int', isPrimary: true, isGenerated: true },
+                  { name: 'name', type: 'varchar', isNullable: false },
+                  { name: 'description', type: 'text', isNullable: true }
+                ]
+              }
+            },
+            reasoning: 'Create category table'
+          },
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'find',
+              where: { name: { _in: ['post', 'category'] } },
+              fields: 'id,name',
+              limit: 0
+            },
+            reasoning: 'Fetch newly created table IDs for relation'
+          },
+          {
+            tool: 'dynamic_repository',
+            args: {
+              table: 'table_definition',
+              operation: 'update',
+              id: 'new_post_table_id',
+              data: {
+                relations: [
+                  {
+                    propertyName: 'categories',
+                    type: 'many-to-many',
+                    targetTable: { id: 'new_category_table_id' },
+                    inversePropertyName: 'posts'
+                  }
+                ]
+              }
+            },
+            reasoning: 'Create M2M relation on POST side only (system handles inverse)'
           }
         ]
       }

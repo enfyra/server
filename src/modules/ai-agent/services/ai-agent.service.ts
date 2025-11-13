@@ -237,16 +237,24 @@ export class AiAgentService implements OnModuleInit {
     const abortController = new AbortController();
     let isAborted = false;
     let conversationIdForCleanup: string | number | undefined;
+    let heartbeatInterval: NodeJS.Timeout;
 
     const cleanup = () => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
       if (conversationIdForCleanup) {
         this.activeStreams.delete(conversationIdForCleanup);
       }
     };
 
+    let lastActivityTime = Date.now();
+    const STREAM_TIMEOUT_MS = 120000; // 2 minutes
+
     const sendEvent = (event: StreamEvent) => {
       if (!isAborted) {
         try {
+          lastActivityTime = Date.now();
           const success = res.write(`data: ${JSON.stringify(event)}\n\n`);
           if (!success) {
             if (res.writableEnded || res.destroyed) {
@@ -262,6 +270,22 @@ export class AiAgentService implements OnModuleInit {
         }
       }
     };
+
+    // Heartbeat to keep connection alive
+    heartbeatInterval = setInterval(() => {
+      if (!isAborted && !res.writableEnded && !res.destroyed) {
+        const elapsed = Date.now() - lastActivityTime;
+        if (elapsed < STREAM_TIMEOUT_MS) {
+          try {
+            res.write(': heartbeat\n\n');
+          } catch (e) {
+            clearInterval(heartbeatInterval);
+          }
+        }
+      } else {
+        clearInterval(heartbeatInterval);
+      }
+    }, 15000); // Send heartbeat every 15 seconds
 
     const sendErrorAndClose = async (errorMessage: string, conversationId?: string | number, lastSequence?: number) => {
       sendEvent({
@@ -572,15 +596,12 @@ export class AiAgentService implements OnModuleInit {
       try {
         if (message.role === 'user') {
           if (lastPushedRole === 'user') {
-            this.logger.debug(`[buildLLMMessages] Skipping user message (id: ${message.id}) - would create consecutive user messages (violates alternating pattern)`);
             continue;
           }
 
           let userContent = message.content || '';
-          this.logger.debug(`[buildLLMMessages] User message content type: ${typeof userContent}`);
 
           if (typeof userContent === 'string' && userContent.includes('[object Object]')) {
-            this.logger.debug(`[buildLLMMessages] Skipping corrupted user message (id: ${message.id}) with [object Object] content`);
             continue;
           }
 
@@ -589,10 +610,8 @@ export class AiAgentService implements OnModuleInit {
             userContent = JSON.stringify(userContent);
           }
 
-          const originalLength = userContent.length;
           if (userContent.length > 1000) {
             userContent = userContent.substring(0, 1000) + '... [truncated for token limit]';
-            this.logger.debug(`[Token Debug] User message truncated: ${originalLength} -> 1000 chars`);
           }
           llmMessages.push({
             role: 'user',
@@ -601,16 +620,13 @@ export class AiAgentService implements OnModuleInit {
           lastPushedRole = 'user';
         } else if (message.role === 'assistant') {
           let assistantContent = message.content || null;
-          this.logger.debug(`[buildLLMMessages] Assistant message (id: ${message.id}) content type: ${typeof assistantContent}, toolCalls: ${JSON.stringify(message.toolCalls)}, toolResults: ${JSON.stringify(message.toolResults)}`);
 
           if (assistantContent && typeof assistantContent === 'string' && assistantContent.includes('[object Object]')) {
-            this.logger.debug(`[buildLLMMessages] Skipping corrupted assistant message (id: ${message.id}) with [object Object] content`);
             continue;
           }
 
           if (assistantContent && typeof assistantContent === 'string' &&
               (assistantContent.startsWith('Error:') || assistantContent.includes('BadRequestError') || assistantContent.includes('tool_use_id'))) {
-            this.logger.debug(`[buildLLMMessages] Skipping error message incorrectly saved as assistant response (id: ${message.id})`);
             continue;
           }
 
@@ -619,7 +635,6 @@ export class AiAgentService implements OnModuleInit {
               (tr) => !message.toolCalls?.find((tc) => tc.id === tr.toolCallId)
             );
             if (hasOrphanedResults) {
-              this.logger.debug(`[buildLLMMessages] Skipping assistant message (id: ${message.id}) with orphaned tool results (missing tool_use blocks)`);
               continue;
             }
           }
@@ -629,17 +644,34 @@ export class AiAgentService implements OnModuleInit {
             assistantContent = JSON.stringify(assistantContent);
           }
 
-          const originalLength = assistantContent?.length || 0;
-          if (assistantContent && assistantContent.length > 800) {
+          const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+
+          // OPTIMIZATION: For pure text responses (no tool calls), only keep recent turns
+          // Tool-calling messages are ALWAYS kept for execution context
+          if (!hasToolCalls && assistantContent) {
+            const messageIndex = messages.indexOf(message);
+            const isRecentMessage = messageIndex >= messages.length - 4; // Keep last 2 user-assistant turns
+
+            if (!isRecentMessage) {
+              // Skip older pure-text assistant responses (captured in summary)
+              continue;
+            }
+
+            // For recent pure-text responses, truncate aggressively
+            if (assistantContent.length > 400) {
+              assistantContent = assistantContent.substring(0, 400) + '... [truncated]';
+            }
+          } else if (hasToolCalls && assistantContent && assistantContent.length > 800) {
+            // Tool-calling messages: moderate truncation
             assistantContent = assistantContent.substring(0, 800) + '... [truncated for token limit]';
-            this.logger.debug(`[Token Debug] Assistant message truncated: ${originalLength} -> 800 chars`);
           }
+
           const assistantMessage: LLMMessage = {
             role: 'assistant',
             content: assistantContent,
           };
 
-          if (message.toolCalls && message.toolCalls.length > 0) {
+          if (hasToolCalls) {
             assistantMessage.tool_calls = message.toolCalls.map((tc) => ({
               id: tc.id,
               type: 'function' as const,
@@ -654,111 +686,93 @@ export class AiAgentService implements OnModuleInit {
           if (assistantPushed) {
             llmMessages.push(assistantMessage);
             lastPushedRole = 'assistant';
-            this.logger.debug(`[buildLLMMessages] ✓ Pushed assistant message (id: ${message.id}), has tool_calls: ${!!assistantMessage.tool_calls}, has tool_results: ${!!(message.toolResults && message.toolResults.length > 0)}`);
           } else {
             this.logger.warn(`[buildLLMMessages] ✗ Skipped assistant message (id: ${message.id}) - no content and no tool_calls`);
           }
 
-          if (assistantPushed && message.toolResults && message.toolResults.length > 0) {
-            this.logger.debug(`[buildLLMMessages] Processing ${message.toolResults.length} tool results for assistant message (id: ${message.id})`);
-          } else if (!assistantPushed && message.toolResults && message.toolResults.length > 0) {
+          if (!assistantPushed && message.toolResults && message.toolResults.length > 0) {
             this.logger.warn(`[buildLLMMessages] ⚠️ Skipping ${message.toolResults.length} orphaned tool results (assistant message was not pushed)`);
           }
 
           if (assistantPushed && message.toolResults && message.toolResults.length > 0) {
-          for (const toolResult of message.toolResults) {
-            const toolCall = message.toolCalls?.find((tc) => tc.id === toolResult.toolCallId);
-            const toolName = toolCall?.function?.name || '';
+            for (const toolResult of message.toolResults) {
+              const toolCall = message.toolCalls?.find((tc) => tc.id === toolResult.toolCallId);
+              const toolName = toolCall?.function?.name || '';
 
-            let resultContent: string;
+              let resultContent: string;
 
-            if (toolName === 'get_metadata' || toolName === 'get_table_details') {
-              const originalSize = JSON.stringify(toolResult.result).length;
-              resultContent = JSON.stringify({
-                _truncated: true,
-                _message: `Tool ${toolName} executed successfully. Details are not included in history to save tokens. Call the tool again if you need the information.`,
-              });
-              this.logger.debug(`[Token Debug] Tool result ${toolName} fully truncated: ${originalSize} -> ${resultContent.length} chars`);
-            } else if (toolName === 'dynamic_repository') {
-              const result = toolResult.result;
-              const resultStr = JSON.stringify(result);
-              const hasError = result?.error || result?.message?.includes('Error') || result?.message?.includes('Failed');
-
-              if (hasError) {
-                resultContent = resultStr;
-                this.logger.debug(`[Token Debug] Tool result ${toolName} kept (error): ${resultStr.length} chars`);
-              } else if (resultStr.length <= 2000) {
-                resultContent = resultStr;
-                this.logger.debug(`[Token Debug] Tool result ${toolName} kept (small): ${resultStr.length} chars`);
-              } else {
-                const smartResult: any = {
-                  _truncated: true,
-                  success: result.success !== undefined ? result.success : true,
-                };
-
-                if (result.count !== undefined) {
-                  smartResult.count = result.count;
-                }
-                if (result.total !== undefined) {
-                  smartResult.total = result.total;
-                }
-
-                if (result.data && Array.isArray(result.data)) {
-                  smartResult.dataCount = result.data.length;
-                  if (result.data.length > 5) {
-                    smartResult.dataSample = {
-                      first: result.data.slice(0, 3),
-                      last: result.data.slice(-2),
-                      _note: `Showing ${3 + 2} of ${result.data.length} records. Full data omitted to save tokens.`,
-                    };
-                  } else {
-                    smartResult.data = result.data;
-                  }
-                } else if (result.data) {
-                  smartResult.data = result.data;
-                }
-
-                resultContent = JSON.stringify(smartResult);
-                this.logger.debug(`[Token Debug] Tool result ${toolName} smart truncated: ${resultStr.length} -> ${resultContent.length} chars`);
-              }
-            } else if (toolName === 'get_hint') {
-              resultContent = JSON.stringify(toolResult.result);
-              this.logger.debug(`[Token Debug] Tool result ${toolName} kept (hint): ${resultContent.length} chars`);
-            } else {
-              const resultStr = JSON.stringify(toolResult.result);
-              if (resultStr.length > 1000) {
+              if (toolName === 'get_metadata' || toolName === 'get_table_details') {
                 resultContent = JSON.stringify({
                   _truncated: true,
-                  _message: 'Result retrieved successfully.',
-                  _size: resultStr.length,
+                  _message: `Tool ${toolName} executed successfully. Details are not included in history to save tokens. Call the tool again if you need the information.`,
                 });
-                this.logger.debug(`[Token Debug] Tool result ${toolName} truncated: ${resultStr.length} -> ${resultContent.length} chars`);
-              } else {
-                resultContent = resultStr;
-                this.logger.debug(`[Token Debug] Tool result ${toolName} kept: ${resultStr.length} chars`);
-              }
-            }
+              } else if (toolName === 'dynamic_repository') {
+                const result = toolResult.result;
+                const resultStr = JSON.stringify(result);
+                const hasError = result?.error || result?.message?.includes('Error') || result?.message?.includes('Failed');
 
-            llmMessages.push({
-              role: 'tool',
-              content: resultContent,
-              tool_call_id: toolResult.toolCallId,
-            });
+                if (hasError) {
+                  resultContent = resultStr;
+                } else if (resultStr.length <= 2000) {
+                  resultContent = resultStr;
+                } else {
+                  const smartResult: any = {
+                    _truncated: true,
+                    success: result.success !== undefined ? result.success : true,
+                  };
+
+                  if (result.count !== undefined) {
+                    smartResult.count = result.count;
+                  }
+                  if (result.total !== undefined) {
+                    smartResult.total = result.total;
+                  }
+
+                  if (result.data && Array.isArray(result.data)) {
+                    smartResult.dataCount = result.data.length;
+                    if (result.data.length > 5) {
+                      smartResult.dataSample = {
+                        first: result.data.slice(0, 3),
+                        last: result.data.slice(-2),
+                        _note: `Showing ${3 + 2} of ${result.data.length} records. Full data omitted to save tokens.`,
+                      };
+                    } else {
+                      smartResult.data = result.data;
+                    }
+                  } else if (result.data) {
+                    smartResult.data = result.data;
+                  }
+
+                  resultContent = JSON.stringify(smartResult);
+                }
+              } else if (toolName === 'get_hint') {
+                resultContent = JSON.stringify(toolResult.result);
+              } else {
+                const resultStr = JSON.stringify(toolResult.result);
+                if (resultStr.length > 1000) {
+                  resultContent = JSON.stringify({
+                    _truncated: true,
+                    _message: 'Result retrieved successfully.',
+                    _size: resultStr.length,
+                  });
+                } else {
+                  resultContent = resultStr;
+                }
+              }
+
+              llmMessages.push({
+                role: 'tool',
+                content: resultContent,
+                tool_call_id: toolResult.toolCallId,
+              });
+            }
           }
-        }
         }
       } catch (error) {
         this.logger.warn(`[buildLLMMessages] Skipping message (id: ${message.id}, role: ${message.role}) due to error: ${error.message}`);
         continue;
       }
     }
-
-    this.logger.debug(`[buildLLMMessages] Built ${llmMessages.length} messages total:`);
-    llmMessages.forEach((msg, idx) => {
-      const hasToolCalls = msg.role === 'assistant' && msg.tool_calls?.length > 0;
-      const isToolResult = msg.role === 'tool';
-      this.logger.debug(`  [${idx}] role=${msg.role}${hasToolCalls ? `, tool_calls=${msg.tool_calls.length}` : ''}${isToolResult ? `, tool_call_id=${msg.tool_call_id}` : ''}`);
-    });
 
     return llmMessages;
   }
@@ -818,16 +832,25 @@ ${userContext}
 - When the user says "continue" or similar, resume remaining tasks only.
 
 **Core Rules**
+- Plan the full approach before calling tools; avoid exploratory calls that do not serve the user request.
+- Reuse tool results gathered in this response; do not repeat check_permission or duplicate finds when the table, filters, and operation are unchanged.
 - Run check_permission before any CRUD (read/write/delete/create); metadata tools and get_hint are exempt.
 - Use the table list above instead of guessing names; call get_metadata only if the user requests updates.
 - If confidence drops below 100% or an error occurs, call get_hint(category="...") before acting.
 - Prefer single nested queries with precise fields and filters; return only what the user asked for (counts → meta="totalCount" + limit=1).
+- New tables: call get_hint(category="table_operations"), then use dynamic_repository on table_definition with data.columns array (include primary id column {name:"id", type:"int", isPrimary:true, isGenerated:true}).
+- Metadata tasks (creating/dropping tables, columns, relations) operate exclusively on *_definition tables; do not query the data tables (e.g., \`post\`) when the request is about table metadata.
+- Relations (any type): fetch the current table_definition (relations.*) first, merge new relation objects, and update exactly one table_definition with data.relations array (e.g., {propertyName, type, targetTable:{id}, inversePropertyName?}); never update the inverse table separately.
+- Dropping tables: call get_table_details to confirm, then delete from table_definition via dynamic_repository (operation:"delete", id=tableId). Warn the user that this removes metadata and requires admin UI reload.
+- When a high-risk update/delete is confirmed by the user (e.g., updating or deleting *_definition rows), include meta:"human_confirmed" in that dynamic_repository call to bypass repeated prompts.
+- Metadata changes (table_definition / column_definition / relation_definition / storage_config / route wiring) must end with a reminder for the user to reload the admin UI to refresh caches.
+- System tables (user_definition, role_definition, route_definition, file_definition, etc.) cannot have built-in columns/relations removed or edited; only add new columns/relations when extending them, and prefer reusing these tables instead of creating duplicates.
 - Do not perform CUD on file_definition; only read from it.
 - For many-to-many changes, update exactly one side with targetTable {id} objects and inversePropertyName; the system handles the rest.
 - Stop immediately if any tool returns error:true and explain the failure to the user.
 
 **Tool Playbook**
-- check_permission → gatekeeper for dynamic_repository and any CRUD.
+- check_permission → gatekeeper for dynamic_repository and any CRUD; cache the result per table/route + operation for this turn and reuse it.
 - get_table_details → authoritative schema (types, relations, constraints).
 - get_fields → quick field list for reads.
 - dynamic_repository → CRUD/batch calls using nested filters and dot notation; keep fields minimal.
@@ -849,73 +872,7 @@ ${userContext}
       }
     }
 
-    prompt += this.getModelSpecificInstructions(config);
-
     return prompt;
-  }
-
-  private getModelSpecificInstructions(config: any): string {
-    const provider = config.provider;
-    const model = config.model?.toLowerCase() || '';
-
-    let instructions = '';
-
-    if (provider === 'Anthropic') {
-      instructions += `\n\n**🔍 CRITICAL: Parameter Validation & Self-Awareness:**
-
-Before calling ANY tool, quickly validate:
-1. Right tool for the request?
-2. ALL required params present with correct values?
-3. Need permission check? (yes for create/update/delete/find operations)
-4. **Am I 100% confident about the approach?** ← NEW: Self-check!
-
-**If anything missing/unclear → ASK USER immediately, don't guess!**
-**If NOT 100% confident on HOW to do it → Call get_hint(category="...") FIRST!**
-
-**DO NOT list out steps or tool calls in your thinking - just validate silently and act.**
-
-Example - Missing parameter:
-User: "Update route ID 5"
-You: "What should I update? Please specify the new path or other fields."
-
-Example - Uncertain about approach:
-User: "Show me routes that have Admin role"
-You in <thinking>: "Should I use nested filter or separate queries? Not 100% sure..."
-You: *Call get_hint(category="nested_relations") first to learn the correct approach*
-
-Example - Has all info + confident:
-User: "Update route ID 5 to path /api/v2/users"
-You: *validate silently* → *check permissions* → *call tool directly*
-
-**IMPORTANT:**
-- Tend to infer missing parameters - STOP and ASK instead of guessing!
-- Not confident on syntax/approach? - STOP and CALL get_hint first!`;
-
-      instructions += `\n\n**🚀 Additional Tips:**
-
-- Respond to EXPLICIT, SPECIFIC instructions (comprehensive vs conservative)
-- For complex tasks: Plan briefly in <thinking>, then execute (keep thinking concise)
-- **Use <thinking> to evaluate confidence level** - if <80% sure, call get_hint!
-- Reflect on tool results quality, adjust approach if needed
-- Auto-compaction enabled - focus on steady progress`;
-    }
-
-    if (provider === 'OpenAI') {
-      instructions += `\n\n**🤖 OpenAI Instructions:**
-
-- Follow instructions LITERALLY and PRECISELY
-- Use tools field exclusively (not manual injection)
-- Excel at complex tool calling patterns
-- Leverage parallel calls for independent operations`;
-
-      instructions += `\n\n**⚡ Parallel Tool Execution:**
-
-Multiple INDEPENDENT tools (no data dependencies) → Execute in PARALLEL for faster results
-Tools with dependencies → Sequential execution
-System auto-detects and optimizes execution strategy.`;
-    }
-
-    return instructions;
   }
 
 
@@ -946,7 +903,6 @@ System auto-detects and optimizes execution strategy.`;
       : allMessages;
 
     if (messagesToSummarize.length === 0) {
-      this.logger.debug(`No messages to summarize for conversation ${conversationId}`);
       return;
     }
 
@@ -990,10 +946,6 @@ ${messagesText}`;
       },
     ];
 
-    this.logger.debug(`[createSummary] Preparing to call chatSimple with ${summaryMessages.length} messages`);
-    this.logger.debug(`[createSummary] Messages to summarize: ${messagesToSummarize.length}`);
-    this.logger.debug(`[createSummary] Total text length: ${messagesText.length} chars`);
-
     try {
       const summaryResponse = await this.llmService.chatSimple({ messages: summaryMessages, configId });
       let summary = summaryResponse.content || '';
@@ -1015,8 +967,6 @@ ${messagesText}`;
       });
 
       if (triggerMessage) {
-        this.logger.debug(`[createSummary] Recreating trigger message (sequence ${triggerMessage.sequence}) with new createdAt`);
-
         await this.conversationService.deleteMessage({ messageId: triggerMessage.id, userId });
 
         await this.conversationService.createMessage({
@@ -1028,8 +978,6 @@ ${messagesText}`;
           },
           userId,
         });
-
-        this.logger.debug(`[createSummary] Trigger message recreated successfully`);
       }
 
       this.logger.log(`Summary created for conversation ${conversationId}. Summary stored in conversation.summary. Total messages summarized: ${messagesToSummarize.length}`);

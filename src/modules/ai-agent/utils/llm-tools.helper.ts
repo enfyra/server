@@ -16,10 +16,12 @@ export const COMMON_TOOLS: ToolDefinition[] = [
 Use when:
 - Handling read/create/update/delete on protected data
 - User targets restricted tables or admin routes
+- No cached check_permission result exists for the same table/route and operation in this response
 
 Skip when:
 - Only calling get_metadata, get_table_details, get_fields, get_hint
 - Answering casual questions without touching data
+- A matching check_permission result already exists in this response (reuse it instead of calling again)
 
 Inputs:
 - operation (required): read | create | update | delete
@@ -32,6 +34,7 @@ Output fields:
 - reason (string: root_admin | user_match | role_match | denied | no_route)
 - userInfo (object: id/email/isRootAdmin/roles[])
 - routeInfo (object: matched route + permissions array when applicable)
+- cacheKey (string) to help identify duplicate checks within the same turn
 
 Example:
 {"table":"route_definition","operation":"delete"}`,
@@ -182,49 +185,37 @@ Example request:
     name: 'dynamic_repository',
     description: `Purpose → single gateway for CRUD and batch operations.
 
-Before calling:
-- check_permission is mandatory for every read/create/update/delete
-- There is no findOne; use find + where + limit=1
-- If unsure about syntax, grab a relevant get_hint first
+Planning checklist:
+1. Run check_permission for any read/create/update/delete on business tables.
+2. Use get_table_details / get_fields to understand columns or relations before writing.
+3. Metadata requests (tables/columns/relations/routes) must operate on *_definition tables only; never scan the data tables.
+4. If a step is unclear, call get_hint(category="...") before using this tool.
+5. Reuse tool outputs from this turn; only repeat a call if the scope or filters change.
+6. Table structure changes (columns/relations/indexes) must target table_definition / column_definition / relation_definition only; modifying actual data rows belongs to the non-definition tables.
 
-Usage patterns:
-- Read: request the minimal fields, use meta=totalCount for count queries
-- Write: match schema from get_table_details before sending data
-- Batch: more than four records → prefer batch_* once instead of looping
+Read (find):
+- Query only the fields the user requested.
+- For counts → limit=1 + meta="totalCount" (faster than limit=0).
+- Use nested filters/fields (e.g., "roles.name") instead of multiple queries.
 
-Relations & optimization:
-- Use nested fields/filters (e.g., "roles.name") instead of multiple queries
-- Many-to-many: update exactly one side, targetTable {"id": value} or {"_id": value}, inversePropertyName handles the reverse link
-- Removing M2M: update the surviving table and rewrite its relations array
+Write (create/update):
+- Match schema returned by get_table_details.
+- Relations (one-to-one, one-to-many, many-to-many): update exactly one table_definition with data.relations (merge existing entries and add {propertyName,type,targetTable:{id},inversePropertyName?}); never issue a mirrored update on the inverse table.
+- Removing M2M: rewrite relations array on the surviving table.
 
-Additional notes:
-- Do not create/update/delete on file_definition (read-only through this tool)
-- Surface permission denials clearly to the user
-- See examples library: categories nested_relations, batch_operations
+Batch:
+- Use batch_* for operations on ≥5 records to avoid multiple calls.
 
-Request parameters:
-- table (required string) → exact table to target
-- operation (required) → "find" | "create" | "update" | "delete" | "batch_create" | "batch_update" | "batch_delete"
-- where (object) → filters support operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null and nested logic (_and,_or,_not). Nest objects for relations: {"roles":{"name":{"_eq":"Admin"}}}
-- fields (string) → comma-separated field list, supports dot paths (relation.field) and wildcards ("relations.*")
-- limit (number) → 0 (all) or positive integer (default 10). For counts combine limit=1 + meta="totalCount".
-- sort (string) → comma-separated terms, prefix "-" for desc (e.g., "-createdAt,name")
-- meta (string) → "totalCount" | "filterCount" | "*" to include metadata blocks
-- data (object) → payload for create/update (respect schema, include relations arrays when needed)
-- id (string|number) → required for update/delete when not using batch
-- dataArray (object[]) → records for batch_create
-- updates (object[]) → [{id,data}] for batch_update
-- ids (array) → list of ids for batch_delete
+Metadata workflow examples:
+- Create table: dynamic_repository.create on table_definition with {name, description, columns: [...], relations: [...]}.
+- Drop table: find table_definition by name, then delete via dynamic_repository.delete using that id (include meta="human_confirmed" after user confirmation). Always remind the user to reload the admin UI.
+- Add relation: find table_definition id, fetch current relations.*, merge new relation object, update that table_definition once.
 
-Examples:
-Find:
-{"table":"route_definition","operation":"find","fields":"id,path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}},"limit":5}
-Create:
-{"table":"post","operation":"create","data":{"title":"Hello","status":"draft"}}
-Update:
-{"table":"post","operation":"update","id":12,"data":{"status":"published"}}
-Batch delete:
-{"table":"product","operation":"batch_delete","ids":[1,2,3,4]}`,
+Safety notes:
+- Do not mutate file_definition; it is read-only.
+- System tables (user_definition, role_definition, route_definition, etc.) should be extended, not rewritten—only add new columns/relations.
+    - Avoid redundant find calls (e.g., scanning \`post\`) when working on metadata; target *_definition tables directly.
+- Surface permission errors clearly to the user.`,
     parameters: {
       type: 'object',
       properties: {

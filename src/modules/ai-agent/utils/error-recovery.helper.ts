@@ -191,8 +191,6 @@ export function getRecoveryStrategy(error: any): RecoveryResult {
   const errorType = classifyError(error);
   const strategy = RECOVERY_STRATEGIES[errorType];
 
-  logger.debug(`Classified error as ${errorType}: ${error.message}`);
-
   return {
     action: strategy.fallback,
     maxRetries: strategy.maxRetries,
@@ -230,8 +228,15 @@ export function shouldEscalateToHuman(params: {
   error?: any;
   retryCount?: number;
   confidenceLevel?: number;
+  humanConfirmed?: boolean;
 }): EscalationTrigger {
-  const { operation, table, error, retryCount = 0, confidenceLevel = 1.0 } = params;
+  const { operation, table, error, retryCount = 0, confidenceLevel = 1.0, humanConfirmed = false } = params;
+
+  if (humanConfirmed) {
+    return {
+      shouldEscalate: false,
+    };
+  }
 
   if (operation === 'delete' && table?.includes('_definition')) {
     return {
