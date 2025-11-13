@@ -1152,10 +1152,10 @@ ${userContext}
 - Reuse tool results gathered in this response; do not repeat check_permission or duplicate finds when the table, filters, and operation are unchanged.
 - Run check_permission before any CRUD (read/write/delete/create); metadata tools and get_hint are exempt.
 - Use the table list above instead of guessing names; call get_metadata only if the user requests updates.
-- If confidence drops below 100% or an error occurs, call get_hint(category="...") before acting.
+- CRITICAL: If confidence drops below 100%, you encounter confusion, or an error occurs → STOP IMMEDIATELY and call get_hint(category="...") before acting. get_hint is your SAFETY NET - it provides comprehensive guidance, examples, checklists, and workflows. When in doubt, call get_hint FIRST. Don't guess - get guidance.
 - Prefer single nested queries with precise fields and filters; return only what the user asked for (counts → meta="totalCount" + limit=1).
 - CRITICAL: When using create/update operations, ALWAYS specify minimal fields parameter (e.g., fields: "id" or fields: "id,name"). Do NOT omit the fields parameter or use "*" - this returns all fields and wastes tokens unnecessarily. This is MANDATORY for all create/update calls.
-- New tables: CRITICAL - Before creating, ALWAYS check if table exists by finding table_definition by name first. If table exists, skip creation or inform user. If not exists, call get_hint(category="table_operations"), then use dynamic_repository on table_definition with data.columns array (include primary id column {name:"id", type:"int", isPrimary:true, isGenerated:true}).
+- New tables: CRITICAL - Before creating, ALWAYS check if table exists by finding table_definition by name first. If table exists, skip creation or inform user. If not exists OR you're uncertain about the correct workflow → call get_hint(category="table_operations") FIRST to get comprehensive guidance, examples, and checklists, then use dynamic_repository on table_definition with data.columns array (include primary id column {name:"id", type:"int", isPrimary:true, isGenerated:true}).
 - Metadata tasks (creating/dropping tables, columns, relations) operate exclusively on *_definition tables; do not query the data tables (e.g., \`post\`) when the request is about table metadata.
 - Relations (any type): CRITICAL WORKFLOW - 1) Find SOURCE table ID by name, 2) Find TARGET table ID by name, 3) Verify both IDs exist, 4) Fetch current columns.* and relations.* from source table to check for FK column conflicts, 5) Check FK column conflict: system generates FK column from propertyName using camelCase (e.g., "user" → "userId", "customer" → "customerId", "order" → "orderId"). CRITICAL: If table already has column "user_id"/"userId", "order_id"/"orderId", "customer_id"/"customerId", "product_id"/"productId" (check both snake_case and camelCase), you MUST use different propertyName (e.g., "buyer" instead of "customer", "owner" instead of "user"). If conflict exists, STOP and report error - do NOT proceed, 6) Merge new relation with ALL existing relations (preserve system relations), 7) Update ONLY the source table_definition with merged relations. CRITICAL: NEVER update both source and target tables - this causes duplicate FK column errors. System automatically handles inverse relation, FK column creation, and junction table (M2M). You only need to update ONE table (the source table). NEVER use IDs from history. targetTable.id MUST be REAL ID from find result. CRITICAL: One-to-many relations MUST include inversePropertyName. Many-to-many also requires inversePropertyName. Cascade option is recommended for O2M and O2O. For system tables, preserve ALL existing system relations - only add new ones.
 - Table operations: When creating/updating tables (table_definition), do NOT use batch operations. Process each table sequentially (one create/update at a time). Batch operations are ONLY for data tables, NOT for metadata tables.
@@ -1174,7 +1174,7 @@ ${userContext}
 - get_table_details → authoritative schema (types, relations, constraints).
 - get_fields → quick field list for reads.
 - dynamic_repository → CRUD/batch calls using nested filters and dot notation; keep fields minimal.
-- get_hint → deep guidance; categories include permission_check, nested_relations, route_access, table_operations, relations, metadata, table_discovery, field_optimization, database_type, error_handling.
+- get_hint → CRITICAL fallback tool for comprehensive guidance when uncertain or confused. Call IMMEDIATELY when confidence <100%, encountering errors, or unsure about workflows. Categories: permission_check, table_operations (MOST IMPORTANT), table_discovery, field_optimization, database_type, error_handling, complex_workflows. Supports single category (string) or multiple categories (array): {"category":["table_operations","permission_check"]}. When in doubt, call get_hint FIRST - it's your safety net and knowledge base.
 
 **Reminders**
 - CRITICAL: createdAt/updatedAt columns are AUTO-GENERATED by system for every table. NEVER include them in data.columns array when creating tables. If you include them, you will get "column specified more than once" error. System automatically adds these columns, so you must exclude them from your columns array.
@@ -1243,28 +1243,75 @@ ${userContext}
     const messagesText = messagesToSummarize
       .map((m) => {
         let content = m.content || '';
+        
         if (m.toolCalls && m.toolCalls.length > 0) {
-          const toolCallsInfo = m.toolCalls.map(tc => `${tc.function.name}(${tc.function.arguments})`).join(', ');
-          content += ` [tool calls: ${toolCallsInfo}]`;
+          const toolCallsInfo = m.toolCalls.map(tc => {
+            const toolName = tc.function?.name || 'unknown';
+            let argsStr = '';
+            try {
+              const args = typeof tc.function?.arguments === 'string' 
+                ? JSON.parse(tc.function.arguments) 
+                : tc.function?.arguments || {};
+              if (toolName === 'dynamic_repository') {
+                argsStr = `${args.operation || 'unknown'} on ${args.table || 'unknown'}`;
+                if (args.id) argsStr += ` (id: ${args.id})`;
+                if (args.ids) argsStr += ` (ids: [${args.ids.slice(0, 3).join(', ')}${args.ids.length > 3 ? '...' : ''}])`;
+              } else if (toolName === 'get_table_details') {
+                argsStr = args.tableName || 'unknown';
+              } else if (toolName === 'check_permission') {
+                argsStr = `${args.operation || 'unknown'} on ${args.table || args.routePath || 'unknown'}`;
+              } else {
+                argsStr = JSON.stringify(args).substring(0, 100);
+              }
+            } catch {
+              argsStr = '...';
+            }
+            return `${toolName}(${argsStr})`;
+          }).join(', ');
+          content += `\n[tool calls: ${toolCallsInfo}]`;
         }
+        
         if (m.toolResults && m.toolResults.length > 0) {
-          content += ` [tool results: ${m.toolResults.length} results]`;
+          const toolResultsInfo = m.toolResults.map((tr: any) => {
+            const toolCall = m.toolCalls?.find((tc: any) => tc.id === tr.toolCallId);
+            const toolName = toolCall?.function?.name || 'unknown';
+            let parsedArgs: any = {};
+            if (toolCall?.function?.arguments) {
+              try {
+                parsedArgs = typeof toolCall.function.arguments === 'string'
+                  ? JSON.parse(toolCall.function.arguments)
+                  : toolCall.function.arguments;
+              } catch {
+                parsedArgs = {};
+              }
+            }
+            return this.formatToolResultSummary(toolName, parsedArgs, tr.result);
+          }).join('\n');
+          content += `\n[tool results:\n${toolResultsInfo}]`;
         }
+        
         return `${m.role}: ${content}`;
       })
-      .join('\n');
+      .join('\n\n');
 
     const previousContext = conversation.summary
       ? `Previous summary:\n${conversation.summary}\n\n`
       : '';
 
-    const summaryPrompt = `Summarize the following conversation concisely (5-8 sentences max). Focus on:
-1. Main topics/goals discussed
-2. Key actions completed (tables created, data modified, etc.)
-3. Important discoveries (table structures, relations, errors encountered)
-4. Current context needed for continuation
+    const summaryPrompt = `Summarize the following conversation for Enfyra AI agent context. Be thorough but structured (10-15 sentences or structured format). CRITICAL: Preserve all technical details needed for continuation.
 
-Capture ALL important information, but be concise. Use bullet points if helpful.
+Focus on:
+1. User's goals and workflow progress (what they're trying to accomplish)
+2. Tables created/modified/deleted (include table NAMES and IDs if available)
+3. Relations created (include source/target tables, property names, types)
+4. Data operations (create/update/delete records, batch operations)
+5. Errors encountered and how they were resolved
+6. Current database schema state (which tables exist, their relations)
+7. Important IDs discovered (table IDs, record IDs) - these are CRITICAL for relations
+8. Permission checks and access patterns
+9. Any pending work or incomplete operations
+
+Format: Use structured sections if helpful (e.g., "Tables Created:", "Relations Setup:", "Errors Fixed:"). Preserve specific table names, IDs, and relation structures. This summary will be injected into the system prompt for continuation, so it must contain all context needed to resume work without losing information.
 
 ${previousContext}Full conversation history to summarize:
 ${messagesText}`;
@@ -1272,7 +1319,7 @@ ${messagesText}`;
     const summaryMessages: LLMMessage[] = [
       {
         role: 'system',
-        content: 'You are a conversation summarizer. Create concise summaries (5-8 sentences max) capturing: main topics, completed actions, key discoveries, and context for continuation. Be thorough but concise.',
+        content: 'You are a conversation summarizer for Enfyra AI agent. Create structured, thorough summaries (10-15 sentences or structured format) that preserve ALL technical details: table names/IDs, relation structures, errors and solutions, workflow progress, and database state. This summary will be used to continue conversations, so completeness is critical. Use structured sections if helpful.',
       },
       {
         role: 'user',
@@ -1284,7 +1331,7 @@ ${messagesText}`;
       const summaryResponse = await this.llmService.chatSimple({ messages: summaryMessages, configId });
       let summary = summaryResponse.content || '';
 
-      const maxSummaryLen = 1200;
+      const maxSummaryLen = 2000;
       if (summary.length > maxSummaryLen) {
         summary = summary.slice(0, maxSummaryLen) + '...';
       }

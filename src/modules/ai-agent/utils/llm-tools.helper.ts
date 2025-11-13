@@ -152,32 +152,63 @@ Example request:
   },
   {
     name: 'get_hint',
-    description: `Purpose → pull focused guidance when confidence drops.
+    description: `Purpose → CRITICAL fallback tool for comprehensive guidance when uncertain or confused. This is your SAFETY NET and KNOWLEDGE BASE.
 
-Call when:
-- Confidence <80% on syntax, permissions, relations, or M2M steps
-- A tool returned an error you cannot explain
-- You need a checklist before attempting an operation
+CRITICAL: Call get_hint IMMEDIATELY when:
+- Confidence drops below 100% on ANY operation (syntax, permissions, relations, M2M, batch operations, etc.)
+- You encounter an error you don't understand or cannot explain
+- You're unsure about the correct workflow or sequence of steps
+- You need detailed checklists before attempting complex operations (table creation, relation setup, batch operations)
+- User asks about something you're not 100% certain about
+- Tool returns unexpected results and you need guidance
 
-Categories:
-- permission_check, nested_relations, route_access, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery
+STRATEGY: When in doubt, call get_hint FIRST before attempting operations. It's better to spend one extra tool call to get guidance than to make mistakes that waste tokens and cause errors.
 
-Rule: if any checklist fails, stop and call get_hint before retrying.
+Available categories (call with single category string, array of categories for multiple topics, or omit for all):
+- table_operations → Table creation, relations, batch operations, workflows (MOST IMPORTANT for Enfyra)
+- permission_check → Permission flows and route access
+- field_optimization → Field selection, nested relations, query optimization
+- database_type → Database-specific context (ID fields, types)
+- error_handling → Error protocols and recovery
+- table_discovery → Finding and identifying tables
+- complex_workflows → Step-by-step workflows for complex tasks
+
+TIP: When you need guidance on multiple related topics, use array format: {"category":["table_operations","permission_check"]} to get hints for multiple categories in one call.
 
 Returns:
-- dbType, idField (context-aware)
-- hints[] → each {category,title,content,examples?}
+- dbType, idField (context-aware for current database)
+- hints[] → Comprehensive guidance with examples, checklists, and workflows
 - availableCategories (string[])
 
-Example request:
-{"category":"nested_relations"}`,
+Example requests:
+- {"category":"table_operations"} → Get guidance on table creation, relations, batch operations
+- {"category":["table_operations","permission_check"]} → Get multiple categories at once
+- {"category":"permission_check"} → Get guidance on permission flows
+- {} → Get ALL hints (use when completely confused or need comprehensive overview)
+
+REMEMBER: get_hint is your best friend. When confused, uncertain, or encountering errors → call get_hint immediately. Don't guess - get guidance.`,
     parameters: {
       type: 'object',
       properties: {
         category: {
-          type: 'string',
+          oneOf: [
+            {
+              type: 'string',
+              description:
+                'Single hint category: permission_check, database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows.',
+            },
+            {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['permission_check', 'database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows'],
+              },
+              description:
+                'Multiple hint categories to retrieve at once. Useful when you need guidance on multiple topics (e.g., ["table_operations", "permission_check"]).',
+            },
+          ],
           description:
-            'Hint category: permission_check, database_type, relations, metadata, field_optimization, table_operations, error_handling, table_discovery, nested_relations, route_access. Omit for all.',
+            'Hint category (string) or categories (array of strings). Available: permission_check, database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows. Omit for all hints.',
         },
       },
     },
@@ -190,7 +221,7 @@ Planning checklist:
 1. Run check_permission for any read/create/update/delete on business tables.
 2. Use get_table_details / get_fields to understand columns or relations before writing.
 3. Metadata requests (tables/columns/relations/routes) must operate on *_definition tables only; never scan the data tables.
-4. If a step is unclear, call get_hint(category="...") before using this tool.
+4. CRITICAL: If ANY step is unclear, confusing, or you're uncertain → STOP and call get_hint(category="...") BEFORE using this tool. get_hint provides comprehensive guidance, examples, and checklists. Don't guess - get guidance first.
 5. Reuse tool outputs from this turn; only repeat a call if the scope or filters change.
 6. Table structure changes (columns/relations/indexes) must target table_definition / column_definition / relation_definition only; modifying actual data rows belongs to the non-definition tables.
 

@@ -133,10 +133,6 @@ export class DynamicRepository {
       });
 
       if (this.tableName === 'table_definition') {
-        console.log('[DynamicRepository] Creating table_definition with body:', JSON.stringify(body, null, 2));
-        console.log('[DynamicRepository] body.columns:', body.columns);
-        console.log('[DynamicRepository] body.columns type:', typeof body.columns);
-        console.log('[DynamicRepository] body.columns isArray:', Array.isArray(body.columns));
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(body);
         await this.reload();
@@ -157,7 +153,6 @@ export class DynamicRepository {
       await this.reload();
       return result;
     } catch (error) {
-      console.error('Error in dynamic repo [create]:', error);
       throw new BadRequestException(error.message);
     }
   }
@@ -197,7 +192,6 @@ export class DynamicRepository {
       await this.reload();
       return result;
     } catch (error) {
-      console.error('Error in dynamic repo [update]:', error);
       throw new BadRequestException(error.message);
     }
   }
@@ -235,7 +229,6 @@ export class DynamicRepository {
       await this.reload();
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error) {
-      console.error('Error in dynamic repo [delete]:', error);
       throw new BadRequestException(error.message);
     }
   }

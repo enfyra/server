@@ -96,10 +96,7 @@ export class ToolExecutor {
       return finalResult;
     };
 
-    console.log(`[check_permission] Called with table=${table}, operation=${operation}, userId=${userId}`);
-
     if (!userId) {
-      console.warn(`[check_permission] ❌ No userId in context`);
       return setCache({
         allowed: false,
         reason: 'not_authenticated',
@@ -151,11 +148,7 @@ export class ToolExecutor {
 
     const user = userResult.data[0];
 
-    console.log(`[check_permission] User query result:`, JSON.stringify(user, null, 2));
-    console.log(`[check_permission] isRootAdmin value: ${user.isRootAdmin} (type: ${typeof user.isRootAdmin})`);
-
     if (user.isRootAdmin === true) {
-      console.log(`[check_permission] ✅ ALLOWED: User is root admin`);
       return setCache({
         allowed: true,
         reason: 'root_admin',
@@ -293,7 +286,6 @@ export class ToolExecutor {
       }
     }
 
-    console.log(`[check_permission] ❌ DENIED: No matching permissions found`);
     return setCache({
       allowed: false,
       reason: 'permission_denied',
@@ -347,7 +339,7 @@ export class ToolExecutor {
     };
   }
 
-  private async executeGetHint(args: { category?: string }, context: TDynamicContext): Promise<any> {
+  private async executeGetHint(args: { category?: string | string[] }, context: TDynamicContext): Promise<any> {
     const dbType = this.queryBuilder.getDbType();
     const isMongoDB = dbType === 'mongodb';
     const idFieldName = isMongoDB ? '_id' : 'id';
@@ -366,43 +358,23 @@ export class ToolExecutor {
       content: dbTypeContent,
     };
 
-    const relationContent = `Relation checklist:
-- Always use propertyName (never raw FK columns like "userId")
-- CRITICAL: targetTable must use REAL ID from database, NEVER use IDs from history or previous operations
-- Before creating relation, ALWAYS find table_definition by name to get the current ID
-- targetTable format: {"${idFieldName}": <REAL_ID_FROM_FIND>}
-- Workflow: 1) Find source table ID by name, 2) Find target table ID by name, 3) Verify both exist, 4) Create relation with REAL IDs
-- M2O / O2O: {"category":{"${idFieldName}":<REAL_ID>}}, {"profile":{"${idFieldName}":<REAL_ID>}}
-- M2M: {"tags":[{"${idFieldName}":<REAL_ID_1>},{"${idFieldName}":<REAL_ID_2>}]}
-- O2M: {"items":[{"${idFieldName}":10,"qty":5}, {...newItem}]}
-- Cascade: Use cascade option when you want automatic deletion/update of related records (e.g., {"propertyName":"orderItems","type":"one-to-many","targetTable":{"${idFieldName}":X},"inversePropertyName":"order","cascade":true})`;
-
-    const relationHint = {
-      category: 'relations',
-      title: 'Relation Behavior',
-      content: relationContent,
-    };
-
-    const metadataContent = `Metadata rules:
-- createdAt/updatedAt are auto-generated → do not declare them when creating tables
-- Foreign keys are indexed automatically
-- Table names usually end with "_definition"
-- Schema changes (columns, relations, indexes) belong to table_definition / column_definition / relation_definition only
-- Update business data rows via the actual tables (post, order, etc.); do NOT touch them when editing structure
-- Discover actual names via get_metadata, then choose the closest match`;
-
-    const metadataHint = {
-      category: 'metadata',
-      title: 'Table Metadata & Auto-fields',
-      content: metadataContent,
-    };
-
     const fieldOptContent = `Field & limit checklist:
 - Call get_fields or get_table_details before querying
 - Count queries: fields="${idFieldName}", limit=1, meta="totalCount"
 - Name lists: fields="${idFieldName},name", pick limit as needed
 - Use limit=0 only when you truly need every row (default limit is 10)
-- CRITICAL: For create/update operations, ALWAYS specify minimal fields parameter (e.g., "fields": "${idFieldName}" or "fields": "${idFieldName},name") to save tokens. This is MANDATORY - do NOT omit fields parameter in create/update calls.`;
+- CRITICAL: For create/update operations, ALWAYS specify minimal fields parameter (e.g., "fields": "${idFieldName}" or "fields": "${idFieldName},name") to save tokens. This is MANDATORY - do NOT omit fields parameter in create/update calls.
+- Read operations: Specify only needed fields (e.g., "id,name" for lists, "id" for counts). Supports wildcards like "columns.*", "relations.*".
+- Write operations: Always specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter.
+
+Nested relations & query optimization:
+- fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
+- where → nest objects {"roles":{"name":{"_eq":"Admin"}}}
+- Prefer one nested query instead of multiple separate calls
+- Select only the fields you need (avoid broad "*")
+
+Sample nested query:
+{"table":"route_definition","operation":"find","fields":"id,path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
 
     const fieldOptHint = {
       category: 'field_optimization',
@@ -410,7 +382,7 @@ export class ToolExecutor {
       content: fieldOptContent,
     };
 
-    const tableOpsContent = `Table creation rules:
+    const tableOpsContent = `Table creation & metadata rules:
 - CRITICAL: Before creating a table, ALWAYS check if it already exists by finding table_definition by name first. If table exists, skip creation or inform user.
 - Check existence: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"${idFieldName},name","limit":1}
 - If find returns data → table exists, do NOT create again. If find returns empty → table does not exist, proceed with creation.
@@ -419,6 +391,11 @@ export class ToolExecutor {
 - MongoDB: ONLY use type="uuid" for ID
 - CRITICAL: createdAt/updatedAt are AUTO-GENERATED by system → NEVER include them in data.columns array. System automatically adds these columns to every table. If you include them, you will get "column specified more than once" error.
 - Include ALL columns in ONE create call (including id column, but EXCLUDING createdAt/updatedAt)
+- Foreign keys are indexed automatically
+- Table names usually end with "_definition" for metadata tables
+- Schema changes (columns, relations, indexes) belong to table_definition / column_definition / relation_definition only
+- Update business data rows via the actual tables (post, order, etc.); do NOT touch them when editing structure
+- Discover actual names via get_metadata, then choose the closest match
 
 Example - Creating a table (with existence check):
 Step 1: Check if table exists:
@@ -442,12 +419,12 @@ Step 2: If find returns empty (table does not exist), create table:
 CRITICAL: Do NOT include createdAt or updatedAt in columns array - system automatically adds them to every table. If you include them, you will get "column specified more than once" error.
 If find returns data → table already exists, skip creation and inform user.
 
-CRITICAL: Always include "fields" parameter in create/update operations (e.g., "fields": "${idFieldName}" or "fields": "${idFieldName},name") to save tokens. Do NOT omit this parameter.
-
-Relation rules:
+Relation rules & workflow:
 - CRITICAL: Create relation on ONLY ONE SIDE (source table). NEVER create relation on both sides - this causes duplicate FK column errors.
-- Workflow: 1) Create tables WITHOUT relations first, 2) Find source table ID by name, 3) Find target table ID by name, 4) Verify both IDs exist, 5) Update EXACTLY ONE table_definition (source table) with relations array
+- Always use propertyName (never raw FK columns like "userId")
 - CRITICAL: targetTable.id MUST be REAL ID from database. ALWAYS find table_definition by name first to get current ID. NEVER use IDs from history or previous operations.
+- targetTable format: {"${idFieldName}": <REAL_ID_FROM_FIND>}
+- Workflow: 1) Create tables WITHOUT relations first, 2) Find source table ID by name, 3) Find target table ID by name, 4) Verify both IDs exist, 5) Update EXACTLY ONE table_definition (source table) with relations array
 - One-to-many (O2M): MUST include inversePropertyName. Create relation on source table (e.g., customer has orders → update customer table with {"propertyName":"orders","type":"one-to-many","targetTable":{"${idFieldName}":<order_table_id>},"inversePropertyName":"customer"}). System automatically creates FK column "customerId" in order table. DO NOT update order table separately.
 - Many-to-one (M2O): Create relation on source table (e.g., product has category → update product table with {"propertyName":"category","type":"many-to-one","targetTable":{"${idFieldName}":<category_table_id>}}). System automatically creates FK column "categoryId" in product table. DO NOT update category table separately.
 - One-to-one (O2O): inversePropertyName is optional. Create relation on ONE side only (e.g., user has profile → update user table with {"propertyName":"profile","type":"one-to-one","targetTable":{"${idFieldName}":<profile_table_id>}}). System automatically creates FK column. DO NOT update profile table separately.
@@ -456,10 +433,15 @@ Relation rules:
 - Update EXACTLY ONE table_definition (source table) with data.relations array (merge existing relations, add new one)
 - System automatically handles: inverse relation, FK column creation, junction table (M2M). You only need to update ONE table.
 
-Table operations (table_definition):
-- CRITICAL: When creating/updating tables, do NOT use batch operations. Process each table sequentially (one create/update at a time).
-- Batch operations are ONLY for data tables (post, category, etc.), NOT for table_definition.
+Batch operations:
+- CRITICAL: When creating/updating tables (table_definition), do NOT use batch operations. Process each table sequentially (one create/update at a time). Batch operations are ONLY for data tables (post, category, etc.), NOT for metadata tables.
 - Example: Create 3 tables → 3 separate create calls, NOT batch_create
+- For data tables: Use batch_delete for 2+ delete operations (collect ALL IDs from find, then batch_delete with ids array)
+- For data tables: Use batch_create/batch_update for 5+ create/update operations
+- CRITICAL: When find returns multiple records, you MUST use batch operations with ALL collected IDs, not individual calls
+- batch_create: dataArray: [...]
+- batch_update: updates: [{id, data}, ...]
+- batch_delete: ids: [...]
 
 Example - Adding relation (workflow for ANY relation type):
 Step 1: Find SOURCE table ID by name (ALWAYS do this first):
@@ -501,12 +483,7 @@ CRITICAL WORKFLOW:
 10. For O2M: include inversePropertyName and optionally cascade. Create relation on source table ONLY (e.g., customer → orders, update customer table).
 11. For M2M: include inversePropertyName, system handles inverse automatically. Create relation on ONE side ONLY (e.g., post → categories, update post table only).
 12. CRITICAL: Update ONLY the source table. NEVER update both source and target tables - this causes duplicate FK column errors. System automatically handles inverse relation, FK column creation, and junction table.
-13. If you need bidirectional relation (e.g., customer ↔ orders), create relation on ONE side only with inversePropertyName. System handles the inverse automatically.
-
-Batch operations (≥5 records):
-- batch_create with dataArray: [...]
-- batch_update with updates: [{id, data}, ...]
-- batch_delete with ids: [...]`;
+13. If you need bidirectional relation (e.g., customer ↔ orders), create relation on ONE side only with inversePropertyName. System handles the inverse automatically.`;
 
     const tableOpsHint = {
       category: 'table_operations',
@@ -597,52 +574,23 @@ Examples:
       content: discoveryContent,
     };
 
-    const nestedContent = `Nested relations:
-- fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
-- where → nest objects {"roles":{"name":{"_eq":"Admin"}}}
-- Prefer one nested query instead of multiple separate calls
-- Select only the fields you need (avoid broad "*")
+    const permissionContent = `Permission & route access flow:
+1. Use check_permission tool before any CRUD operations (metadata tools are exempt)
+2. Permission check flow:
+   - Fetch current user: {"table":"user_definition","operation":"find","where":{"${idFieldName}":{"_eq":"$user.${idFieldName}"}},"fields":"${idFieldName},email,isRootAdmin,roles.${idFieldName}"}
+   - If isRootAdmin=true → allow immediately
+   - Otherwise fetch route_definition: {"table":"route_definition","operation":"find","where":{"path":{"_eq":"/resource-path"}},"fields":"routePermissions.methods.method,routePermissions.allowedUsers.${idFieldName},routePermissions.role.${idFieldName}"}
+   - Allow when: allowedUsers includes user OR allowedRoles matches user role OR user owns resource (createdBy.${idFieldName} === user.${idFieldName})
+   - If none match → deny and state reason
 
-Sample request:
-{"table":"route_definition","operation":"find","fields":"id,path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
-
-    const nestedHint = {
-      category: 'nested_relations',
-      title: 'Nested Relations & Query Optimization',
-      content: nestedContent,
-    };
-
-    const routeAccessContent = `Route access flow:
-1. @Public()/publishedMethods → allow
-2. Missing JWT → 401
-3. user.isRootAdmin → allow (skip remaining checks)
-4. No matching routePermissions → 403
-5. For each permission:
-   - Request method matches
-   - allowedUsers contains the user OR allowedRoles matches a user role
-
-Notes:
-- RoleGuard is disabled → authorization happens via routePermissions only
-- Use nested fields like "routePermissions.role.name" and "routePermissions.methods.method"
-- After changes, POST /admin/reload/routes to refresh the cache`;
-
-    const routeAccessHint = {
-      category: 'route_access',
-      title: 'Route Access Control Flow',
-      content: routeAccessContent,
-    };
-
-    const permissionContent = `Permission flow:
-1. Fetch current user:
-   {"table":"user_definition","operation":"find","where":{"${idFieldName}":{"_eq":"$user.${idFieldName}"}},"fields":"${idFieldName},email,isRootAdmin,roles.${idFieldName}"}
-2. If isRootAdmin=true → allow immediately
-3. Otherwise fetch route_definition:
-   {"table":"route_definition","operation":"find","where":{"path":{"_eq":"/resource-path"}},"fields":"allowedUsers.${idFieldName},allowedRoles.${idFieldName}"}
-4. Allow when any condition passes:
-   - allowedUsers includes the user
-   - allowedRoles overlaps a user role
-   - User owns the resource (createdBy.${idFieldName} === user.${idFieldName})
-5. If none match → deny and state the reason
+Route access details:
+- @Public()/publishedMethods → allow
+- Missing JWT → 401
+- user.isRootAdmin → allow (skip remaining checks)
+- No matching routePermissions → 403
+- RoleGuard is disabled → authorization via routePermissions only
+- Use nested fields: "routePermissions.role.name", "routePermissions.methods.method"
+- After changes: POST /admin/reload/routes to refresh cache
 
 Reminders:
 - Check permissions for read/create/update/delete (metadata tools are exempt)
@@ -651,15 +599,17 @@ Reminders:
 
     const permissionHint = {
       category: 'permission_check',
-      title: 'Permission & Authorization Checking',
+      title: 'Permission & Route Access Control',
       content: permissionContent,
     };
 
-    allHints.push(dbTypeHint, relationHint, metadataHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, nestedHint, routeAccessHint, permissionHint, complexWorkflowsHint);
+    allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, permissionHint, complexWorkflowsHint);
 
-    const filteredHints = args.category
-      ? allHints.filter(h => h.category === args.category)
-      : allHints;
+    let filteredHints = allHints;
+    if (args.category) {
+      const categories = Array.isArray(args.category) ? args.category : [args.category];
+      filteredHints = allHints.filter(h => categories.includes(h.category));
+    }
 
     return {
       dbType,
@@ -667,7 +617,7 @@ Reminders:
       idField: idFieldName,
       hints: filteredHints,
       count: filteredHints.length,
-      availableCategories: ['database_type', 'relations', 'metadata', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'nested_relations', 'route_access', 'permission_check', 'complex_workflows'],
+      availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'permission_check', 'complex_workflows'],
     };
   }
 
@@ -800,15 +750,6 @@ Reminders:
 
       switch (args.operation) {
         case 'find':
-          console.log('[Tool Executor - dynamic_repository] Find operation:', {
-            table: args.table,
-            where: args.where,
-            fields: args.fields,
-            limit: args.limit,
-            sort: args.sort,
-            meta: args.meta,
-          });
-
           return await repo.find({
             where: args.where,
             fields: args.fields,
@@ -821,11 +762,6 @@ Reminders:
             throw new Error('data is required for create operation');
           }
           this.logger.log(`[ToolExecutor] dynamic_repository CREATE → table=${args.table}, fields=${args.fields || 'NOT SPECIFIED'}, dataKeys=${Object.keys(args.data || {}).join(',')}`);
-          console.log('[Tool Executor - dynamic_repository] Create operation:', {
-            table: args.table,
-            fields: args.fields || 'NOT SPECIFIED ⚠️',
-            data: args.data,
-          });
           return await repo.create({ data: args.data, fields: args.fields });
         case 'update':
           if (!args.id) {
@@ -835,12 +771,6 @@ Reminders:
             throw new Error('data is required for update operation');
           }
           this.logger.log(`[ToolExecutor] dynamic_repository UPDATE → table=${args.table}, id=${args.id}, fields=${args.fields || 'NOT SPECIFIED'}, dataKeys=${Object.keys(args.data || {}).join(',')}`);
-          console.log('[Tool Executor - dynamic_repository] Update operation:', {
-            table: args.table,
-            id: args.id,
-            fields: args.fields || 'NOT SPECIFIED ⚠️',
-            data: args.data,
-          });
           return await repo.update({ id: args.id, data: args.data, fields: args.fields });
         case 'delete':
           if (!args.id) {
@@ -852,12 +782,6 @@ Reminders:
             throw new Error('dataArray (array) is required for batch_create operation');
           }
           this.logger.log(`[ToolExecutor] dynamic_repository BATCH_CREATE → table=${args.table}, count=${args.dataArray.length}, fields=${args.fields || 'NOT SPECIFIED'}`);
-          console.log('[Tool Executor - dynamic_repository] Batch create operation:', {
-            table: args.table,
-            count: args.dataArray.length,
-            fields: args.fields || 'NOT SPECIFIED ⚠️',
-            sampleData: args.dataArray.slice(0, 2),
-          });
           return Promise.all(
             args.dataArray.map(data => repo.create({ data, fields: args.fields }))
           );
@@ -866,12 +790,6 @@ Reminders:
             throw new Error('updates (array of {id, data}) is required for batch_update operation');
           }
           this.logger.log(`[ToolExecutor] dynamic_repository BATCH_UPDATE → table=${args.table}, count=${args.updates.length}, fields=${args.fields || 'NOT SPECIFIED'}`);
-          console.log('[Tool Executor - dynamic_repository] Batch update operation:', {
-            table: args.table,
-            count: args.updates.length,
-            fields: args.fields || 'NOT SPECIFIED ⚠️',
-            sampleUpdates: args.updates.slice(0, 2),
-          });
           return Promise.all(
             args.updates.map(update => repo.update({ id: update.id, data: update.data, fields: args.fields }))
           );

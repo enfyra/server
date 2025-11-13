@@ -144,7 +144,7 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
     ]
   },
 
-  nested_relations: {
+  field_optimization: {
     name: 'Nested Relations',
     keywords: ['with', 'and their', 'including', 'along with', 'related'],
     examples: [
@@ -200,12 +200,12 @@ export const EXAMPLE_CATEGORIES: Record<string, ExampleCategory> = {
         id: 'UNC-01',
         scenario: 'Uncertain about nested relations',
         userMessage: 'Show me routes with their roles',
-        correctApproach: 'When confidence <80%, call get_hint before acting.',
+        correctApproach: 'CRITICAL: When confidence <100% or uncertain, call get_hint IMMEDIATELY before acting. This is your safety net.',
         toolCalls: [
           {
             tool: 'get_hint',
-            args: { category: 'nested_relations' },
-            reasoning: 'Confidence <80% on nested fields syntax. Call get_hint BEFORE attempting query'
+            args: { category: 'field_optimization' },
+            reasoning: 'CRITICAL: Confidence <100% on nested fields syntax. STOP and call get_hint FIRST before attempting query. get_hint provides comprehensive guidance and examples.'
           },
           {
             tool: 'get_fields',
