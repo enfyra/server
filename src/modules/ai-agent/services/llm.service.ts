@@ -34,6 +34,7 @@ export interface LLMResponse {
   content: string | null;
   toolCalls: IToolCall[];
   toolResults: IToolResult[];
+  toolLoops?: number;
 }
 
 @Injectable()
@@ -371,6 +372,7 @@ Call tool_binds now.`;
             content: result.content || '',
             toolCalls: allToolCalls,
             toolResults: allToolResults,
+            toolLoops: iterations + 1,
           };
         }
 
@@ -804,6 +806,7 @@ Call tool_binds now.`;
                 content: fullContent,
                 toolCalls: allToolCalls,
                 toolResults: allToolResults,
+                toolLoops: iterations,
               };
             }
           } else if (canStream && currentToolCalls.length > 0) {
@@ -877,6 +880,7 @@ Call tool_binds now.`;
             content: fullContent,
             toolCalls: allToolCalls,
             toolResults: allToolResults,
+            toolLoops: iterations,
           };
         }
 
@@ -974,6 +978,7 @@ Call tool_binds now.`;
             content: fullContent,
             toolCalls: allToolCalls,
             toolResults: allToolResults,
+            toolLoops: iterations,
           };
         }
 
@@ -1066,6 +1071,7 @@ Call tool_binds now.`;
         content: fallbackMessage,
         toolCalls: allToolCalls,
         toolResults: allToolResults,
+        toolLoops: iterations,
       };
     } catch (error: any) {
       this.logger.error('[LLM Stream] Error:', error);

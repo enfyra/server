@@ -25,6 +25,7 @@ Available tools:
 - get_fields: Get field list for reads
 - dynamic_repository: CRUD operations on tables
 - get_hint: Get comprehensive guidance when uncertain
+- get_tool_rules: Get detailed rules for specific tools by category
 
 Examples:
 - Simple greeting: {"toolNames": []}
@@ -38,15 +39,16 @@ Examples:
         type: 'array',
         items: {
           type: 'string',
-          enum: [
-            'check_permission',
-            'list_tables',
-            'get_table_details',
-            'get_metadata',
-            'get_fields',
-            'dynamic_repository',
-            'get_hint',
-          ],
+                 enum: [
+                   'check_permission',
+                   'list_tables',
+                   'get_table_details',
+                   'get_metadata',
+                   'get_fields',
+                   'dynamic_repository',
+                   'get_hint',
+                   'get_tool_rules',
+                 ],
         },
         description: 'Array of tool names to bind for this request. Use empty array [] if no tools are needed.',
       },
@@ -58,13 +60,15 @@ Examples:
 export const COMMON_TOOLS: ToolDefinition[] = [
   {
     name: 'check_permission',
-    description: `Purpose → verify access before any data operation.
+    description: `Purpose → verify access before any data operation. THIS IS MANDATORY - you MUST call this BEFORE calling dynamic_repository for business tables.
 
-Required workflow for business tables (non-metadata):
+CRITICAL - Required workflow for business tables (non-metadata):
 1. Call check_permission FIRST: {"table":"product","operation":"create"}
 2. Wait for result: {"allowed":true,"reason":"..."}
 3. If allowed=true → proceed with dynamic_repository
-4. If allowed=false → STOP, inform user
+4. If allowed=false → STOP, inform user - do NOT call dynamic_repository
+
+WARNING: If you call dynamic_repository without calling check_permission first, the operation will be rejected with an error. Always check permission FIRST.
 
 Example - Creating a product:
 Step 1: check_permission({"table":"product","operation":"create"})
@@ -264,29 +268,28 @@ Example request:
   },
   {
     name: 'get_hint',
-    description: `Purpose → Comprehensive guidance, examples, and checklists. Your SAFETY NET when uncertain.
+    description: `Purpose → General guidance for system operations. Use for general workflows, not tool-specific rules.
 
-Call IMMEDIATELY when:
-- Confidence <100% on any operation
-- Encountering errors you don't understand
-- Unsure about workflow or sequence
-- Need checklists before complex operations
+Use when:
+- Need general guidance about system operations (table operations, database type, error handling)
+- Unsure about table discovery or complex workflows
+- Need general permission check overview
 
 Available categories:
-- table_operations (MOST IMPORTANT) → Table creation, relations, batch operations
-- permission_check → Permission flows
-- field_optimization → Field selection, query optimization
+- table_operations → Table creation/update operations (create_table, update_table tools)
+- permission_check → General permission overview
+- field_optimization → General field selection and query optimization (NOT tool-specific)
 - database_type → Database-specific context
-- error_handling → Error protocols
+- error_handling → General error handling protocols
 - table_discovery → Finding tables
 - complex_workflows → Step-by-step workflows
+
+Note: For tool-specific detailed rules (e.g., dynamic_repository workflows, schema validation, relations format), use get_tool_rules(toolName="...", category=[...]) instead.
 
 Input: category (string) or categories (array) or omit for all
 Example: {"category":"table_operations"} or {"category":["table_operations","permission_check"]}
 
-Returns: {dbType, idField, hints[], availableCategories[]}
-
-STRATEGY: When in doubt, call get_hint FIRST. Better to spend one tool call for guidance than make mistakes.`,
+Returns: {dbType, idField, hints[], availableCategories[]}`,
     parameters: {
       type: 'object',
       properties: {
@@ -311,6 +314,58 @@ STRATEGY: When in doubt, call get_hint FIRST. Better to spend one tool call for 
             'Hint category (string) or categories (array of strings). Available: permission_check, database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows. Omit for all hints.',
         },
       },
+    },
+  },
+  {
+    name: 'get_tool_rules',
+    description: `Purpose → Get detailed rules for a specific tool by category.
+
+Use when:
+- You need detailed workflows, examples, or best practices for a tool
+- The tool description mentions available rules categories
+- You encounter errors and need specific guidance
+
+Available tools with detailed rules:
+- dynamic_repository: permission, workflow, schema, relations, best_practices
+
+Inputs:
+- toolName (required): Name of the tool (e.g., "dynamic_repository")
+- category (optional): Single category or array of categories to retrieve
+
+Returns:
+- toolName: The requested tool name
+- categories: Array of rule objects with category, title, and content
+- availableCategories: List of all available categories for this tool
+
+Example:
+- Get all rules: get_tool_rules({"toolName":"dynamic_repository"})
+- Get specific categories: get_tool_rules({"toolName":"dynamic_repository","category":["permission","workflow"]})`,
+    parameters: {
+      type: 'object',
+      properties: {
+        toolName: {
+          type: 'string',
+          description: 'Name of the tool to get rules for. Currently supported: "dynamic_repository".',
+        },
+        category: {
+          oneOf: [
+            {
+              type: 'string',
+              description: 'Single category to retrieve (e.g., "permission", "workflow", "schema", "relations", "best_practices").',
+            },
+            {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['permission', 'workflow', 'schema', 'relations', 'best_practices'],
+              },
+              description: 'Multiple categories to retrieve at once (e.g., ["permission", "workflow"]).',
+            },
+          ],
+          description: 'Category (string) or categories (array) to retrieve. Omit for all categories.',
+        },
+      },
+      required: ['toolName'],
     },
   },
   {
@@ -556,72 +611,36 @@ Returns:
     name: 'dynamic_repository',
     description: `Purpose → single gateway for CRUD and batch operations.
 
-Example - Creating a product:
-Step 1: check_permission({"table":"product","operation":"create"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"product","operation":"create","data":{"name":"Product 1","price":100}})
+CRITICAL - Permission Check FIRST (MANDATORY):
+- For ANY business table operation, you MUST call check_permission FIRST, wait for result, then call this tool
+- Applies to ALL operations: create, read, update, delete, batch_create, batch_update, batch_delete
+- NEVER call this tool before check_permission - the operation will fail if permission is not checked first
+- Workflow: check_permission({"table":"X","operation":"Y"}) → wait → if allowed=true → dynamic_repository
+- If you skip check_permission, the tool executor will reject your request with error
 
-Example - Reading orders:
-Step 1: check_permission({"table":"order","operation":"read"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
+Other critical rules:
+1. Execute ONE operation at a time (sequential, not parallel)
+2. For create/update/batch_create: get_table_details to check schema first
 
-Example - Updating customer:
-Step 1: check_permission({"table":"customer","operation":"update"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"customer","operation":"update","where":{"id":{"_eq":1}},"data":{"name":"New Name"}})
+Basic examples:
+- Create: check_permission({"table":"product","operation":"create"}) → wait → dynamic_repository({"table":"product","operation":"create","data":{...}})
+- Batch Create: check_permission({"table":"product","operation":"create"}) → wait → dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{...},{...}],"fields":"id"})
+- Read: check_permission({"table":"order","operation":"read"}) → wait → dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
+- Update: check_permission({"table":"customer","operation":"update"}) → wait → dynamic_repository({"table":"customer","operation":"update","where":{"id":{"_eq":1}},"data":{...}})
+- Batch Delete: check_permission({"table":"order_item","operation":"delete"}) → wait → dynamic_repository({"table":"order_item","operation":"batch_delete","where":{"order_id":{"_in":[1,2,3]}}})
 
-Metadata tables (*_definition) can skip permission check:
+Metadata tables (*_definition) can skip permission:
 - dynamic_repository({"table":"table_definition","operation":"find","skipPermissionCheck":true})
 
-Sequential Execution:
-- Execute operations ONE AT A TIME, step by step
-- Do NOT call multiple dynamic_repository operations simultaneously
-- Execute first operation → wait for result → analyze → proceed to next
-- Example: If deleting from multiple tables, delete from table1 → wait for result → delete from table2 → wait for result → continue
+Available detailed rules (query when needed):
+- Call get_tool_rules(toolName="dynamic_repository", category=["permission", "workflow", "schema", "relations", "best_practices"]) for:
+  * permission: Permission check workflows and examples
+  * workflow: Complete create/update/delete workflows with all steps
+  * schema: Schema validation, required fields, column naming (snake_case)
+  * relations: Relations format (TypeORM style), FK handling, verification
+  * best_practices: Query optimization, batch operations, field selection
 
-Schema Check (for create/update):
-- Before creating or updating records, call get_table_details to get the full schema
-- Check which columns are required (isNullable=false) and have default values
-- Ensure your data object includes ALL required fields (not-null constraints)
-- Common required fields: id (auto-generated), createdAt/updatedAt (auto-generated), but check for others like slug, stock, order_number, etc.
-- If you get constraint errors, call get_table_details to fix the issue
-
-Operations:
-- find: Read records with filters, fields, limit, sort, meta
-- create/update/delete: Single record operations
-- batch_create/batch_update/batch_delete: Multiple records (use for 2+ deletes, 5+ creates/updates)
-- Always specify minimal fields parameter for create/update (e.g., "id" or "id,name") to save tokens
-
-Workflow for create/update:
-1. Call check_permission FIRST: {"table":"product","operation":"create"} → wait for result
-2. If allowed=true → call get_table_details with tableName to get schema (required fields, types, defaults, relations)
-3. If allowed=false → STOP, inform user
-4. For relations (foreign keys): You MUST verify the referenced record exists first
-   - Example: If creating product with category relation, first call dynamic_repository with find to check if category exists
-   - NEVER use hardcoded IDs without verifying they exist
-   - If the referenced record doesn't exist, create it first or use an existing ID
-4. Prepare data object with ALL required fields (check schema for isNullable=false fields)
-   - Use EXACT column names from get_table_details (they are in snake_case format, e.g., order_number, unit_price, not camelCase like orderNumber, unitPrice)
-   - Column names in database are ALWAYS snake_case, never camelCase
-   - If you see an error about missing column, check if you used camelCase instead of snake_case
-5. Relations Format (TypeORM style):
-   - Use propertyName from relations array (e.g., "category", "customer", "order"), NOT FK column names (e.g., "category_id", "customerId")
-   - Format: {"category": {"id": 19}} OR {"category": 19} (pass object with id, or just id directly)
-   - NEVER use FK column names like "category_id", "customerId", "orderId" - these are auto-generated by system
-   - Example: If product has relation "category" → use {"category": {"id": 19}}, NOT {"category_id": 19}
-   - Check get_table_details result.relations[] to see available propertyNames
-6. Call dynamic_repository with create/update operation
-
-Best practices:
-- Use get_table_details/get_fields before writing to understand schema
-- Use nested filters/fields (e.g., "roles.name") instead of multiple queries
-- For counts: limit=1 + meta="totalCount" (faster than limit=0)
-- Metadata operations target *_definition tables only
-- Table_definition operations: process sequentially, NO batch operations
-- When find returns multiple records, collect ALL IDs and use batch operations
-
-For detailed workflows and examples, call get_hint(category="table_operations") or get_hint(category="complex_workflows")`,
+For general guidance, also see get_hint(category="table_operations")`,
     parameters: {
       type: 'object',
       properties: {
@@ -674,7 +693,7 @@ For detailed workflows and examples, call get_hint(category="table_operations") 
           items: {
             type: 'object',
           },
-          description: 'Array of data objects for batch_create operation. Each object represents one record to create.',
+          description: 'Array of data objects for batch_create operation. Each object represents one record to create. REQUIRED for batch_create operation. Example: [{"name":"P1","price":100},{"name":"P2","price":200}].',
         },
         updates: {
           type: 'array',
