@@ -567,7 +567,7 @@ export class LLMService {
 
                 onEvent({
                   type: 'text',
-                  data: { delta, text: fullContent },
+                  data: { delta },
                 });
               }
             }
@@ -641,7 +641,7 @@ export class LLMService {
                 fullContent += chunk;
                 onEvent({
                   type: 'text',
-                  data: { delta: chunk, text: fullContent },
+                  data: { delta: chunk },
                 });
               });
             }
@@ -665,7 +665,6 @@ export class LLMService {
               type: 'text',
               data: {
                 delta: '\n\n⚠️ Connection interrupted by provider, continuing with available data...\n',
-                text: fullContent + '\n\n⚠️ Connection interrupted by provider, continuing with available data...\n',
               },
             });
             
@@ -698,7 +697,6 @@ export class LLMService {
               type: 'text',
               data: {
                 delta: '\n\n⚠️ Connection interrupted, attempting to continue with partial data...\n',
-                text: fullContent + '\n\n⚠️ Connection interrupted, attempting to continue with partial data...\n',
               },
             });
           } else {
@@ -753,7 +751,6 @@ export class LLMService {
                     type: 'text',
                     data: {
                       delta: chunk,
-                      text: fullContent,
                     },
                   });
                 });
@@ -920,7 +917,6 @@ export class LLMService {
               type: 'text',
               data: {
                 delta: successText,
-                text: fullContent,
               },
             });
           } catch (error: any) {
@@ -938,7 +934,6 @@ export class LLMService {
               type: 'text',
               data: {
                 delta: errorIconText,
-                text: fullContent,
               },
             });
 

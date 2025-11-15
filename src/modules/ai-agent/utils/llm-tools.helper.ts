@@ -470,6 +470,13 @@ Returns:
     name: 'dynamic_repository',
     description: `Purpose → single gateway for CRUD and batch operations.
 
+CRITICAL - Schema Check (MANDATORY for create/update):
+- BEFORE creating or updating records, you MUST call get_table_details to get the full schema
+- Check which columns are required (isNullable=false) and have default values
+- Ensure your data object includes ALL required fields (not-null constraints)
+- Common required fields: id (auto-generated), createdAt/updatedAt (auto-generated), but check for others like slug, stock, order_number, etc.
+- If you skip schema check and get constraint errors, you MUST call get_table_details to fix the issue
+
 CRITICAL - Permission Check:
 - MUST call check_permission BEFORE any read/create/update/delete on business tables (non-metadata)
 - Metadata tables (*_definition) may skip with skipPermissionCheck=true
@@ -481,8 +488,14 @@ Operations:
 - batch_create/batch_update/batch_delete: Multiple records (use for 2+ deletes, 5+ creates/updates)
 - CRITICAL: Always specify minimal fields parameter for create/update (e.g., "id" or "id,name") to save tokens
 
+Workflow for create/update:
+1. Call get_table_details with tableName to get schema (required fields, types, defaults)
+2. Check permission with check_permission if needed
+3. Prepare data object with ALL required fields
+4. Call dynamic_repository with create/update operation
+
 Best practices:
-- Use get_table_details/get_fields before writing to understand schema
+- Use get_table_details/get_fields before writing to understand schema - THIS IS MANDATORY
 - Use nested filters/fields (e.g., "roles.name") instead of multiple queries
 - For counts: limit=1 + meta="totalCount" (faster than limit=0)
 - Metadata operations target *_definition tables only

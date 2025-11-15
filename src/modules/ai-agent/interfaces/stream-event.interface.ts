@@ -2,7 +2,6 @@ export interface StreamTextEvent {
   type: 'text';
   data: {
     delta: string;
-    text: string;
     metadata?: Record<string, any>;
   };
 }
@@ -44,14 +43,10 @@ export interface StreamErrorEvent {
 export interface StreamDoneEvent {
   type: 'done';
   data: {
-    conversation: string | number;
-    finalResponse: string;
-    toolCalls: Array<{
-      id: string;
-      name: string;
-      arguments: any;
-      result?: any;
-    }>;
+    delta: string;
+    metadata: {
+      conversation: string | number;
+    };
   };
 }
 

@@ -566,11 +566,6 @@ export class AiAgentService implements OnModuleInit {
         model: config.model,
       });
 
-      sendEvent({
-        type: 'text',
-        data: { delta: '', text: '', metadata: { conversation: conversation.id } },
-      });
-
       lastSequence = await this.conversationService.getLastSequence({ conversationId: conversation.id, userId });
       const userSequence = lastSequence + 1;
 
@@ -699,8 +694,13 @@ export class AiAgentService implements OnModuleInit {
             }
             
             if (event.type === 'text' && event.data?.delta) {
-              fullContent = event.data.text || fullContent;
-              sendEvent(event);
+              fullContent = fullContent + (event.data.delta || '');
+              sendEvent({
+                type: 'text',
+                data: {
+                  delta: event.data.delta || '',
+                },
+              });
             } else if (event.type === 'tool_call') {
               allToolCalls.push({
                 id: event.data.id,
@@ -718,6 +718,7 @@ export class AiAgentService implements OnModuleInit {
                 toolCallId: event.data.toolCallId,
                 result: event.data.result,
               });
+              sendEvent(event);
             } else if (event.type === 'tokens') {
               actualInputTokens = event.data?.inputTokens || 0;
               actualOutputTokens = event.data?.outputTokens || 0;
@@ -736,49 +737,63 @@ export class AiAgentService implements OnModuleInit {
           await savePartialMessage();
         }
 
-        try {
-          sendEvent({
-            type: 'error',
-            data: {
-              error: errorMsg,
-              details: llmError?.response?.data || llmError?.data,
-            },
-          });
-        } catch (sendError) {
-          // Ignore send error
-        }
+        cleanup();
 
-        if (conversation && lastSequence !== undefined && !hasPartialContent) {
+        (async () => {
           try {
-            const assistantSequence = lastSequence + 2;
-            await this.conversationService.createMessage({
-              data: {
-                conversationId: conversation.id,
-                role: 'assistant',
-                content: `Error: ${errorMsg}`,
-                sequence: assistantSequence,
-              },
-              userId,
-            });
-            await this.conversationService.updateMessageCount({ conversationId: conversation.id, userId });
+            if (conversation && lastSequence !== undefined && !hasPartialContent) {
+              const assistantSequence = lastSequence + 2;
+              await this.conversationService.createMessage({
+                data: {
+                  conversationId: conversation.id,
+                  role: 'assistant',
+                  content: `Error: ${errorMsg}`,
+                  sequence: assistantSequence,
+                },
+                userId,
+              });
+              await this.conversationService.updateMessageCount({ conversationId: conversation.id, userId });
+            }
+
+            if (conversation) {
+              sendEvent({
+                type: 'done',
+                data: {
+                  delta: '',
+                  metadata: {
+                    conversation: conversation.id,
+                  },
+                },
+              });
+            }
+
+            try {
+              await new Promise(resolve => setTimeout(resolve, 100));
+              if (!res.destroyed && !res.writableEnded) {
+                res.end();
+              }
+            } catch (endError) {
+              this.logger.debug({
+                action: 'res_end_failed',
+                conversationId: conversation?.id,
+                error: endError instanceof Error ? endError.message : String(endError),
+              });
+            }
           } catch (dbError) {
             this.logger.error('Failed to save error message to database:', dbError);
+            try {
+              if (!res.destroyed && !res.writableEnded) {
+                res.end();
+              }
+            } catch (endError) {
+              this.logger.debug({
+                action: 'res_end_failed_after_db_error',
+                conversationId: conversation?.id,
+                error: endError instanceof Error ? endError.message : String(endError),
+              });
+            }
           }
-        }
-
-        cleanup();
-        try {
-          await new Promise(resolve => setTimeout(resolve, 100));
-          if (!res.destroyed && !res.writableEnded) {
-            res.end();
-          }
-        } catch (endError) {
-          this.logger.debug({
-            action: 'res_end_failed',
-            conversationId: conversation.id,
-            error: endError instanceof Error ? endError.message : String(endError),
-          });
-        }
+        })();
         return;
       }
 
@@ -788,64 +803,48 @@ export class AiAgentService implements OnModuleInit {
           await savePartialMessage();
         }
         cleanup();
-        try {
-          if (!res.destroyed && !res.writableEnded) {
-            res.end();
-          }
-        } catch (endError) {
-          this.logger.debug({
-            action: 'res_end_failed',
-            conversationId: conversation.id,
-            error: endError instanceof Error ? endError.message : String(endError),
-          });
-        }
-        return;
-      }
 
-      sendEvent({
-        type: 'done',
-        data: {
-          conversation: conversation.id,
-          finalResponse: llmResponse.content || '',
-          toolCalls: (llmResponse.toolCalls || []).map((tc) => {
-            const result = (llmResponse.toolResults || []).find((tr) => tr.toolCallId === tc.id);
-            let parsedArgs = {};
-            try {
-              parsedArgs = typeof tc.function.arguments === 'string' 
-                ? JSON.parse(tc.function.arguments) 
-                : tc.function.arguments || {};
-            } catch (e) {
-              this.logger.warn(`[AI-Agent][Stream] Failed to parse tool arguments for ${tc.function.name}: ${e.message}`);
+        (async () => {
+          try {
+            if (conversation) {
+              sendEvent({
+                type: 'done',
+                data: {
+                  delta: '',
+                  metadata: {
+                    conversation: conversation.id,
+                  },
+                },
+              });
             }
-            return {
-              id: tc.id,
-              name: tc.function.name,
-              arguments: parsedArgs,
-              result: result?.result,
-            };
-          }),
-        },
-      });
 
-      try {
-        const updatedConversation = await this.conversationService.getConversation({ id: conversation.id, userId });
-        if (updatedConversation?.task) {
-          sendEvent({
-            type: 'task',
-            data: { task: updatedConversation.task },
-          });
-        } else {
-          sendEvent({
-            type: 'task',
-            data: { task: null },
-          });
-        }
-      } catch (taskError) {
-        this.logger.debug({
-          action: 'load_task_failed',
-          conversationId: conversation.id,
-          error: taskError instanceof Error ? taskError.message : String(taskError),
-        });
+            try {
+              if (!res.destroyed && !res.writableEnded) {
+                res.end();
+              }
+            } catch (endError) {
+              this.logger.debug({
+                action: 'res_end_failed',
+                conversationId: conversation?.id,
+                error: endError instanceof Error ? endError.message : String(endError),
+              });
+            }
+          } catch (error) {
+            this.logger.error(`[Stream] Failed to send conversationId:`, error);
+            try {
+              if (!res.destroyed && !res.writableEnded) {
+                res.end();
+              }
+            } catch (endError) {
+              this.logger.debug({
+                action: 'res_end_failed_after_error',
+                conversationId: conversation?.id,
+                error: endError instanceof Error ? endError.message : String(endError),
+              });
+            }
+          }
+        })();
+        return;
       }
 
       cleanup();
@@ -863,18 +862,6 @@ export class AiAgentService implements OnModuleInit {
         summary: 'AI-Agent Summary',
         ...summary,
       });
-
-      try {
-        if (!res.destroyed && !res.writableEnded) {
-          res.end();
-        }
-      } catch (endError) {
-        this.logger.debug({
-          action: 'res_end_failed',
-          conversationId: conversation.id,
-          error: endError instanceof Error ? endError.message : String(endError),
-        });
-      }
 
       (async () => {
         try {
@@ -915,8 +902,41 @@ export class AiAgentService implements OnModuleInit {
             conversationId: conversation.id,
             action: 'DB save completed',
           });
+
+          sendEvent({
+            type: 'done',
+            data: {
+              delta: '',
+              metadata: {
+                conversation: conversation.id,
+              },
+            },
+          });
+
+          try {
+            if (!res.destroyed && !res.writableEnded) {
+              res.end();
+            }
+          } catch (endError) {
+            this.logger.debug({
+              action: 'res_end_failed',
+              conversationId: conversation.id,
+              error: endError instanceof Error ? endError.message : String(endError),
+            });
+          }
         } catch (error) {
           this.logger.error(`[Stream] Failed to save to DB after streaming response:`, error);
+          try {
+            if (!res.destroyed && !res.writableEnded) {
+              res.end();
+            }
+          } catch (endError) {
+            this.logger.debug({
+              action: 'res_end_failed_after_error',
+              conversationId: conversation.id,
+              error: endError instanceof Error ? endError.message : String(endError),
+            });
+          }
         }
       })();
     } catch (error: any) {

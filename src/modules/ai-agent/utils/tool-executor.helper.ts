@@ -770,6 +770,19 @@ export class ToolExecutor {
 - Read operations: Specify only needed fields (e.g., "id,name" for lists, "id" for counts). Supports wildcards like "columns.*", "relations.*".
 - Write operations: Always specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter.
 
+CRITICAL - Schema Check Before Create/Update:
+- BEFORE creating or updating records, you MUST call get_table_details to get the full schema
+- Check which columns are required (isNullable=false) and have default values
+- Ensure your data object includes ALL required fields (not-null constraints)
+- Common required fields: id (auto-generated), createdAt/updatedAt (auto-generated), but ALWAYS check for others like slug, stock, order_number, unit_price, etc.
+- If you get constraint errors, you MUST call get_table_details to see all required fields and fix your data
+
+Workflow for create/update:
+1. Call get_table_details with tableName to get schema (required fields, types, defaults)
+2. Check permission with check_permission if needed
+3. Prepare data object with ALL required fields
+4. Call dynamic_repository with create/update operation
+
 Nested relations & query optimization:
 - fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
 - where → nest objects {"roles":{"name":{"_eq":"Admin"}}}
@@ -1154,6 +1167,33 @@ Tool executor validation:
       const errorMessage = error?.message || error?.response?.message || String(error);
       const recovery = getRecoveryStrategy(error);
       const details = error?.details || error?.response?.details || {};
+
+      const isConstraintError =
+        (args.operation === 'create' || args.operation === 'batch_create' || args.operation === 'update' || args.operation === 'batch_update') &&
+        (errorMessage.includes('null value in column') ||
+          errorMessage.includes('violates not-null constraint') ||
+          errorMessage.includes('violates check constraint') ||
+          errorMessage.includes('column') && errorMessage.includes('is required'));
+
+      if (isConstraintError) {
+        const columnMatch = errorMessage.match(/column "([^"]+)" of relation "([^"]+)"/);
+        const columnName = columnMatch ? columnMatch[1] : 'unknown';
+        const tableName = columnMatch ? columnMatch[2] : args.table;
+
+        return {
+          error: true,
+          errorType: 'INVALID_INPUT',
+          errorCode: 'MISSING_REQUIRED_FIELD',
+          message: errorMessage,
+          userMessage: `❌ **Schema Constraint Error**: Missing required field "${columnName}" in table "${tableName}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${tableName}" to get the full schema\n2. Check which columns are required (isNullable=false) and have default values\n3. Update your data object to include ALL required fields\n4. Retry the operation with complete data\n\n💡 **Note**: Always check schema BEFORE creating/updating records to avoid this error.`,
+          suggestion: `Call get_table_details with tableName="${tableName}" to see all required fields, then update your data object accordingly.`,
+          details: {
+            ...details,
+            missingColumn: columnName,
+            table: tableName,
+          },
+        };
+      }
 
       const escalation = shouldEscalateToHuman({
         operation: args.operation,
