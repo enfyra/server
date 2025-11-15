@@ -7,8 +7,10 @@ import { TDynamicContext } from '../../shared/interfaces/dynamic-context.interfa
 import { QueryEngine } from '../query-engine/services/query-engine.service';
 import { RouteCacheService } from '../cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../cache/services/storage-config-cache.service';
+import { AiConfigCacheService } from '../cache/services/ai-config-cache.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
+import { TableValidationService } from '../../modules/dynamic-api/services/table-validation.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
@@ -28,8 +30,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private tableHandlerService: TableHandlerService,
     private routeCacheService: RouteCacheService,
     private storageConfigCacheService: StorageConfigCacheService,
+    private aiConfigCacheService: AiConfigCacheService,
     private metadataCacheService: MetadataCacheService,
     private systemProtectionService: SystemProtectionService,
+    private tableValidationService: TableValidationService,
     private cacheService: CacheService,
     private bcryptService: BcryptService,
     private swaggerService: SwaggerService,
@@ -118,8 +122,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
             queryEngine: this.queryEngine,
             routeCacheService: this.routeCacheService,
             storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
             metadataCacheService: this.metadataCacheService,
             systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
             bootstrapScriptService: undefined,
             swaggerService: this.swaggerService,
             graphqlService: this.graphqlService,

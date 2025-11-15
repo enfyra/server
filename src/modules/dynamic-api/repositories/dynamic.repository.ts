@@ -5,7 +5,9 @@ import { TableHandlerService } from '../../table-management/services/table-handl
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
+import { AiConfigCacheService } from '../../../infrastructure/cache/services/ai-config-cache.service';
 import { SystemProtectionService } from '../services/system-protection.service';
+import { TableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
@@ -22,12 +24,15 @@ export class DynamicRepository {
   private tableHandlerService: TableHandlerService;
   private routeCacheService: RouteCacheService;
   private storageConfigCacheService?: StorageConfigCacheService;
+  private aiConfigCacheService?: AiConfigCacheService;
   private systemProtectionService: SystemProtectionService;
+  private tableValidationService: TableValidationService;
   private bootstrapScriptService?: BootstrapScriptService;
   private redisPubSubService?: RedisPubSubService;
   private metadataCacheService: MetadataCacheService;
   private graphqlService: GraphqlService;
   private swaggerService: SwaggerService;
+  private tableMetadata: any;
 
   constructor({
     context,
@@ -37,7 +42,9 @@ export class DynamicRepository {
     tableHandlerService,
     routeCacheService,
     storageConfigCacheService,
+    aiConfigCacheService,
     systemProtectionService,
+    tableValidationService,
     bootstrapScriptService,
     redisPubSubService,
     metadataCacheService,
@@ -51,7 +58,9 @@ export class DynamicRepository {
     tableHandlerService: TableHandlerService;
     routeCacheService: RouteCacheService;
     storageConfigCacheService?: StorageConfigCacheService;
+    aiConfigCacheService?: AiConfigCacheService;
     systemProtectionService: SystemProtectionService;
+    tableValidationService: TableValidationService;
     bootstrapScriptService?: BootstrapScriptService;
     redisPubSubService?: RedisPubSubService;
     metadataCacheService: MetadataCacheService;
@@ -65,7 +74,9 @@ export class DynamicRepository {
     this.tableHandlerService = tableHandlerService;
     this.routeCacheService = routeCacheService;
     this.storageConfigCacheService = storageConfigCacheService;
+    this.aiConfigCacheService = aiConfigCacheService;
     this.systemProtectionService = systemProtectionService;
+    this.tableValidationService = tableValidationService;
     this.bootstrapScriptService = bootstrapScriptService;
     this.redisPubSubService = redisPubSubService;
     this.metadataCacheService = metadataCacheService;
@@ -74,13 +85,14 @@ export class DynamicRepository {
   }
 
   async init() {
+    this.tableMetadata = await this.metadataCacheService.lookupTableByName(this.tableName);
   }
 
   private getIdField(): string {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
   }
 
-  async find(opt: { where?: any; fields?: string | string[] }) {
+  async find(opt: { where?: any; fields?: string | string[]; limit?: number; sort?: string; meta?: string | string[] }) {
     const debugMode = this.context.$query?.debugMode === 'true' || this.context.$query?.debugMode === true;
 
     return await this.queryEngine.find({
@@ -88,17 +100,30 @@ export class DynamicRepository {
       fields: opt?.fields || this.context.$query?.fields || '',
       filter: opt?.where || this.context.$query?.filter || {},
       page: this.context.$query?.page || 1,
-      limit: this.context.$query?.limit || 10,
-      meta: this.context.$query?.meta,
-      sort: this.context.$query?.sort || 'id',
+      // If opt.limit is provided (including 0), prefer it. Otherwise fall back to context or default.
+      limit: (opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10)),
+      meta: opt?.meta || this.context.$query?.meta,
+      sort: (opt?.sort || this.context.$query?.sort || 'id'),
       aggregate: this.context.$query?.aggregate || {},
       deep: this.context.$query?.deep || {},
       debugMode: debugMode,
     });
   }
 
-  async create(body: any) {
+  async create(opt: { data: any; fields?: string | string[] }) {
     try {
+      const { data: body, fields } = opt;
+      
+      if (!body || typeof body !== 'object') {
+        throw new BadRequestException('data is required and must be an object');
+      }
+      
+      await this.tableValidationService.assertTableValid({
+        operation: 'create',
+        tableName: this.tableName,
+        tableMetadata: this.tableMetadata,
+      });
+
       await this.systemProtectionService.assertSystemSafe({
         operation: 'create',
         tableName: this.tableName,
@@ -112,7 +137,7 @@ export class DynamicRepository {
         const table: any = await this.tableHandlerService.createTable(body);
         await this.reload();
         const idValue = table._id || table.id;
-        return await this.find({ where: { [this.getIdField()]: { _eq: idValue } } });
+        return await this.find({ where: { [this.getIdField()]: { _eq: idValue } }, fields });
       }
 
       const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
@@ -124,20 +149,27 @@ export class DynamicRepository {
       const inserted = await this.queryBuilder.insertAndGet(this.tableName, body);
       const createdId = inserted.id || inserted._id || body.id;
 
-      const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } } });
+      const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } }, fields });
       await this.reload();
       return result;
     } catch (error) {
-      console.error('Error in dynamic repo [create]:', error);
       throw new BadRequestException(error.message);
     }
   }
 
-  async update(id: string | number, body: any) {
+  async update(opt: { id: string | number; data: any; fields?: string | string[] }) {
     try {
+      const { id, data: body, fields } = opt;
+      
       const existsResult = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+
+      await this.tableValidationService.assertTableValid({
+        operation: 'update',
+        tableName: this.tableName,
+        tableMetadata: this.tableMetadata,
+      });
 
       await this.systemProtectionService.assertSystemSafe({
         operation: 'update',
@@ -151,25 +183,32 @@ export class DynamicRepository {
         const table: any = await this.tableHandlerService.updateTable(id, body);
         const tableId = table._id || table.id;
         await this.reload();
-        return this.find({ where: { [this.getIdField()]: { _eq: tableId } } });
+        return this.find({ where: { [this.getIdField()]: { _eq: tableId } }, fields });
       }
 
       await this.queryBuilder.updateById(this.tableName, id, body);
 
-      const result = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
+      const result = await this.find({ where: { [this.getIdField()]: { _eq: id } }, fields });
       await this.reload();
       return result;
     } catch (error) {
-      console.error('Error in dynamic repo [update]:', error);
       throw new BadRequestException(error.message);
     }
   }
 
-  async delete(id: string | number) {
+  async delete(opt: { id: string | number }) {
     try {
+      const { id } = opt;
+      
       const existsResult = await this.find({ where: { id: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+
+      await this.tableValidationService.assertTableValid({
+        operation: 'delete',
+        tableName: this.tableName,
+        tableMetadata: this.tableMetadata,
+      });
 
       await this.systemProtectionService.assertSystemSafe({
         operation: 'delete',
@@ -190,7 +229,6 @@ export class DynamicRepository {
       await this.reload();
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error) {
-      console.error('Error in dynamic repo [delete]:', error);
       throw new BadRequestException(error.message);
     }
   }
@@ -237,6 +275,10 @@ export class DynamicRepository {
 
     if (this.tableName === 'storage_config_definition' && this.storageConfigCacheService) {
       await this.storageConfigCacheService.reload();
+    }
+
+    if (this.tableName === 'ai_config_definition' && this.aiConfigCacheService) {
+      await this.aiConfigCacheService.reload();
     }
   }
 }

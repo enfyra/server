@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
@@ -24,7 +23,6 @@ export class SqlTableHandlerService {
     private schemaMigrationService: SqlSchemaMigrationService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
-    private moduleRef: ModuleRef,
   ) {}
 
   private validateRelations(relations: any[]) {
@@ -42,9 +40,104 @@ export class SqlTableHandlerService {
     }
   }
 
-  /**
-   * Validate that all columns (explicit + FK from relations + junction columns) are unique
-   */
+  private async validateNoDuplicateInverseRelation(
+    trx: any,
+    sourceTableId: number,
+    sourceTableName: string,
+    newRelations: any[],
+    targetTablesMap: Map<number, string>,
+  ): Promise<void> {
+    for (const rel of newRelations || []) {
+      const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
+      if (!targetTableId) continue;
+
+      const targetTableName = targetTablesMap.get(targetTableId);
+      if (!targetTableName) continue;
+
+      let inverseExists = false;
+      let inverseRelationInfo = null;
+
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        const targetRelations = await trx('relation_definition')
+          .where({ sourceTableId: targetTableId })
+          .where({ targetTableId: sourceTableId })
+          .where((builder: any) => {
+            if (rel.inversePropertyName) {
+              builder
+                .where({ propertyName: rel.inversePropertyName })
+                .orWhere({ inversePropertyName: rel.propertyName });
+            } else {
+              builder.where({ inversePropertyName: rel.propertyName });
+            }
+          })
+          .select('*');
+
+        if (targetRelations.length > 0) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: targetRelations[0].propertyName,
+            type: targetRelations[0].type,
+          };
+        }
+      } else if (rel.type === 'one-to-many') {
+        if (!rel.inversePropertyName) continue;
+
+        const targetRelations = await trx('relation_definition')
+          .where({ sourceTableId: targetTableId })
+          .where({ targetTableId: sourceTableId })
+          .where({ propertyName: rel.inversePropertyName })
+          .whereIn('type', ['many-to-one', 'one-to-one'])
+          .select('*');
+
+        if (targetRelations.length > 0) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: targetRelations[0].propertyName,
+            type: targetRelations[0].type,
+          };
+        }
+      } else if (rel.type === 'many-to-many') {
+        if (!rel.inversePropertyName) continue;
+
+        const targetRelations = await trx('relation_definition')
+          .where({ sourceTableId: targetTableId })
+          .where({ targetTableId: sourceTableId })
+          .where({ propertyName: rel.inversePropertyName })
+          .where({ type: 'many-to-many' })
+          .select('*');
+
+        if (targetRelations.length > 0) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: targetRelations[0].propertyName,
+            type: targetRelations[0].type,
+          };
+        }
+      }
+
+      if (inverseExists && inverseRelationInfo) {
+        throw new ValidationException(
+          `Cannot create relation '${rel.propertyName}' (${rel.type}) from '${sourceTableName}' to '${targetTableName}': ` +
+          `The inverse relation already exists on target table '${targetTableName}' as '${inverseRelationInfo.propertyName}' (${inverseRelationInfo.type}). ` +
+          `Relations should be created on ONLY ONE side. System automatically handles the inverse relation. ` +
+          `Please remove the relation from '${targetTableName}' or update it instead of creating a duplicate.`,
+          {
+            sourceTable: sourceTableName,
+            targetTable: targetTableName,
+            relationName: rel.propertyName,
+            relationType: rel.type,
+            existingInverseTable: targetTableName,
+            existingInverseRelation: inverseRelationInfo.propertyName,
+            existingInverseType: inverseRelationInfo.type,
+          },
+        );
+      }
+    }
+  }
+
   private validateAllColumnsUnique(columns: any[], relations: any[], tableName: string, targetTablesMap: Map<number, string>) {
     const allColumnNames = new Set<string>();
     const duplicates: string[] = [];
@@ -74,7 +167,6 @@ export class SqlTableHandlerService {
         if (targetTableName) {
           const { sourceColumn, targetColumn } = getJunctionColumnNames(tableName, rel.propertyName, targetTableName);
 
-          // This should never happen now with the new naming strategy, but keep as safety check
           if (sourceColumn === targetColumn) {
             throw new ValidationException(
               `Many-to-many relation '${rel.propertyName}' in table '${tableName}' creates duplicate junction columns. ` +
@@ -104,7 +196,7 @@ export class SqlTableHandlerService {
     }
   }
 
-  async createTable(body: any) {
+  async createTable(body: CreateTableDto) {
     this.logger.log(`CREATE TABLE: ${body?.name} (${body.columns?.length || 0} columns, ${body.relations?.length || 0} relations)`);
 
     if (/[A-Z]/.test(body?.name)) {
@@ -178,7 +270,6 @@ export class SqlTableHandlerService {
         throw error;
       }
 
-      // Load target table names for M2M validation
       const targetTableIds = body.relations
         ?.filter((rel: any) => rel.type === 'many-to-many')
         ?.map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
@@ -195,7 +286,6 @@ export class SqlTableHandlerService {
         }
       }
 
-      // Validate all columns are unique (explicit + FK from relations)
       try {
         this.validateAllColumnsUnique(body.columns || [], body.relations || [], body.name, targetTablesMap);
       } catch (error) {
@@ -241,7 +331,6 @@ export class SqlTableHandlerService {
 
       if (body.relations?.length > 0) {
         this.logger.log(`\nSaving ${body.relations.length} relation(s) metadata...`);
-        // Load all target tables at once (avoid N+1)
         const targetTableIds = body.relations
           .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
           .filter((id: any) => id != null);
@@ -260,7 +349,6 @@ export class SqlTableHandlerService {
         const relationsToInsert = [];
         
         for (const rel of body.relations) {
-          // Extract targetTableId and targetTableName
           const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
           
           const insertData: any = {
@@ -274,7 +362,6 @@ export class SqlTableHandlerService {
             sourceTableId: tableId,
           };
 
-          // Add junction table info for M2M relations
           if (rel.type === 'many-to-many') {
             const targetTableName = targetTablesMap.get(targetTableId);
 
@@ -289,12 +376,10 @@ export class SqlTableHandlerService {
             this.logger.log(`      Junction table: ${junctionTableName}`);
             this.logger.log(`      Columns: ${sourceColumn}, ${targetColumn}`);
 
-            // Note: Validation already done in validateAllColumnsUnique()
             insertData.junctionTableName = junctionTableName;
             insertData.junctionSourceColumn = sourceColumn;
             insertData.junctionTargetColumn = targetColumn;
           } else {
-            // Explicitly set to null for non-M2M relations
             insertData.junctionTableName = null;
             insertData.junctionSourceColumn = null;
             insertData.junctionTargetColumn = null;
@@ -308,7 +393,6 @@ export class SqlTableHandlerService {
       }
 
       this.logger.log(`\n🔧 Running physical schema migration...`);
-      // Check if route already exists before creating
       const existingRoute = await trx('route_definition')
         .where({ path: `/${body.name}` })
         .first();
@@ -326,15 +410,12 @@ export class SqlTableHandlerService {
         this.logger.warn(`Route /${body.name} already exists, skipping route creation`);
       }
 
-      // Fetch full table metadata with columns and relations (before physical migration)
       this.logger.log(`Fetching full table metadata...`);
       const fullMetadata = await this.getFullTableMetadataInTransaction(trx, tableId);
 
-      // Migrate physical schema INSIDE transaction (before commit)
       this.logger.log(`Calling SqlSchemaMigrationService.createTable()...`);
       await this.schemaMigrationService.createTable(fullMetadata);
 
-      // Commit transaction AFTER physical schema migration succeeds
       this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
 
@@ -346,7 +427,6 @@ export class SqlTableHandlerService {
       this.logger.log(`${'='.repeat(80)}\n`);
       return fullMetadata;
     } catch (error) {
-      // Rollback transaction on error (if not already committed/rolled back)
       if (trx && !trx.isCompleted()) {
         try {
           await trx.rollback();
@@ -372,7 +452,7 @@ export class SqlTableHandlerService {
     }
   }
 
-  async updateTable(id: string | number, body: any) {
+  async updateTable(id: string | number, body: CreateTableDto) {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -403,7 +483,6 @@ export class SqlTableHandlerService {
 
         validateUniquePropertyNames(body.columns || [], body.relations || []);
 
-        // Load target table names for M2M validation
         const targetTableIds = body.relations
           ?.filter((rel: any) => rel.type === 'many-to-many')
           ?.map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
@@ -420,10 +499,11 @@ export class SqlTableHandlerService {
           }
         }
 
-        // Validate all columns are unique (explicit + FK from relations)
         this.validateAllColumnsUnique(body.columns || [], body.relations || [], exists.name, targetTablesMap);
 
-        // Skip validation for ID column - it's always present and immutable
+        if (body.relations && body.relations.length > 0) {
+          await this.validateNoDuplicateInverseRelation(trx, Number(id), exists.name, body.relations, targetTablesMap);
+        }
 
         await trx('table_definition')
           .where({ id })
@@ -452,7 +532,6 @@ export class SqlTableHandlerService {
           }
 
         for (const col of body.columns) {
-          // Skip system columns - they're immutable and always present
           if (col.name === 'id' || col.name === 'createdAt' || col.name === 'updatedAt') {
             continue;
           }
@@ -499,7 +578,6 @@ export class SqlTableHandlerService {
               .delete();
           }
 
-        // Load all target tables at once (avoid N+1)
         const targetTableIds = body.relations
           .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
           .filter((id: any) => id != null);
@@ -516,7 +594,6 @@ export class SqlTableHandlerService {
         }
         
         for (const rel of body.relations) {
-          // Extract targetTableId and targetTableName
           const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
           
           const relationData: any = {
@@ -530,7 +607,6 @@ export class SqlTableHandlerService {
             sourceTableId: id,
           };
 
-          // Add junction table info for M2M relations
           if (rel.type === 'many-to-many') {
             const targetTableName = targetTablesMap.get(targetTableId);
 
@@ -538,19 +614,16 @@ export class SqlTableHandlerService {
               throw new Error(`Target table with ID ${targetTableId} not found`);
             }
 
-            // Preserve existing junction table name if relation already exists
             if (rel.id) {
               const existingRel = await trx('relation_definition')
                 .where({ id: rel.id })
                 .first();
               
               if (existingRel && existingRel.junctionTableName) {
-                // Keep existing junction table name and columns
                 relationData.junctionTableName = existingRel.junctionTableName;
                 relationData.junctionSourceColumn = existingRel.junctionSourceColumn;
                 relationData.junctionTargetColumn = existingRel.junctionTargetColumn;
               } else {
-                // Generate new junction table name for existing relation without one
             const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
             const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
             relationData.junctionTableName = junctionTableName;
@@ -558,7 +631,6 @@ export class SqlTableHandlerService {
             relationData.junctionTargetColumn = targetColumn;
               }
             } else {
-              // Generate new junction table name for new relation
               const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
               const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
               relationData.junctionTableName = junctionTableName;
@@ -566,7 +638,6 @@ export class SqlTableHandlerService {
               relationData.junctionTargetColumn = targetColumn;
             }
           } else {
-            // Clear junction table metadata if type is NOT M2M
             relationData.junctionTableName = null;
             relationData.junctionSourceColumn = null;
             relationData.junctionTargetColumn = null;
@@ -582,19 +653,13 @@ export class SqlTableHandlerService {
         }
       }
 
-        // Get old metadata before migration
         const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
 
-        // Create new metadata from request body (before database update)
-        // Preserve inverse relations (relations not owned by this table)
-        // Frontend doesn't always send inverse relations, so we need to preserve them
         const preserveInverseRelations = (oldRels: any[] = [], newRels: any[] = []) => {
-          // Filter inverse relations using isInverse flag (set by metadata cache)
           const inverseRels = (oldRels || []).filter(r => r.isInverse === true);
 
           this.logger.log(`Preserving ${inverseRels.length} inverse relations: ${inverseRels.map(r => r.propertyName).join(', ')}`);
 
-          // Merge: keep inverse relations from old + new relations from request
           const newRelIds = new Set(newRels.map(r => r.id).filter(id => id != null));
           const preservedInverse = inverseRels.filter(r => !newRelIds.has(r.id));
 
@@ -646,7 +711,6 @@ export class SqlTableHandlerService {
   async delete(id: string | number) {
     const knex = this.queryBuilder.getKnex();
 
-    // Wrap entire operation in transaction
     return await knex.transaction(async (trx) => {
       try {
         const exists = await trx('table_definition')
@@ -669,13 +733,11 @@ export class SqlTableHandlerService {
 
         const tableName = exists.name;
 
-        // Delete routes with this table as mainTable
         const deletedRoutes = await trx('route_definition')
           .where({ mainTableId: id })
           .delete();
         this.logger.log(`Deleted ${deletedRoutes} routes with mainTableId = ${id}`);
         
-        // Delete M2M relations in junction table (route_definition_targetTables_table_definition)
         const junctionTableName = 'route_definition_targetTables_table_definition';
         if (await trx.schema.hasTable(junctionTableName)) {
           const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
@@ -686,8 +748,6 @@ export class SqlTableHandlerService {
           this.logger.log(`Deleted junction records for table ${id}`);
         }
 
-        // Fetch relations BEFORE deleting them (needed for junction table cleanup)
-        // 1. Fetch all relations involving this table (for physical migration later)
         const allRelations = await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
@@ -701,7 +761,6 @@ export class SqlTableHandlerService {
 
         this.logger.log(`Found ${targetRelations.length} target relations for table ${tableName}`);
 
-        // Drop FK columns from source tables before deleting relations
         for (const rel of targetRelations) {
           if (['one-to-many', 'many-to-one', 'one-to-one'].includes(rel.type)) {
             const sourceTable = await trx('table_definition')
@@ -710,19 +769,48 @@ export class SqlTableHandlerService {
 
             if (sourceTable) {
               const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
-              const fkColumn = getForeignKeyColumnName(tableName); // FK column name in source table
+              const fkColumn = getForeignKeyColumnName(tableName);
 
               this.logger.log(`Dropping FK column ${fkColumn} from table ${sourceTable.name}`);
 
-              // Check if column exists before dropping
               const columnExists = await trx.schema.hasColumn(sourceTable.name, fkColumn);
               if (columnExists) {
-                // Drop FK constraint and column using schema builder (database-agnostic)
                 try {
-                  await trx.schema.alterTable(sourceTable.name, (table) => {
-                    table.dropForeign([fkColumn]);
-                  });
-                  this.logger.log(`Dropped FK constraint for column: ${fkColumn}`);
+                  const dbType = this.queryBuilder.getDatabaseType();
+                  let constraintName: string | null = null;
+
+                  if (dbType === 'postgres') {
+                    const result = await trx.raw(`
+                      SELECT tc.constraint_name
+                      FROM information_schema.table_constraints AS tc
+                      JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                      WHERE tc.constraint_type = 'FOREIGN KEY'
+                        AND tc.table_schema = 'public'
+                        AND tc.table_name = ?
+                        AND kcu.column_name = ?
+                    `, [sourceTable.name, fkColumn]);
+                    constraintName = result.rows[0]?.constraint_name || null;
+                  } else if (dbType === 'mysql') {
+                    const result = await trx.raw(`
+                      SELECT CONSTRAINT_NAME as constraint_name
+                      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                      WHERE TABLE_SCHEMA = DATABASE()
+                        AND TABLE_NAME = ?
+                        AND COLUMN_NAME = ?
+                        AND REFERENCED_TABLE_NAME IS NOT NULL
+                    `, [sourceTable.name, fkColumn]);
+                    constraintName = result[0][0]?.constraint_name || null;
+                  }
+
+                  if (constraintName) {
+                    const qt = dbType === 'mysql' ? (id: string) => `\`${id}\`` : (id: string) => `"${id}"`;
+                    await trx.raw(`ALTER TABLE ${qt(sourceTable.name)} DROP CONSTRAINT ${qt(constraintName)}`);
+                    this.logger.log(`Dropped FK constraint: ${constraintName} for column ${fkColumn}`);
+                  } else {
+                    this.logger.log(`No FK constraint found for column ${fkColumn}, skipping constraint drop`);
+                  }
                 } catch (error) {
                   this.logger.log(`Error dropping FK constraint: ${error.message}`);
                 }
@@ -747,8 +835,6 @@ export class SqlTableHandlerService {
           let allFkConstraints;
 
           if (dbType === 'postgres') {
-            // PostgreSQL query for FK constraints
-            // Use lowercase column names in result to avoid case sensitivity issues
             const result = await trx.raw(`
               SELECT
                 tc.table_name,
@@ -768,10 +854,8 @@ export class SqlTableHandlerService {
                 AND ccu.table_name = ?
             `, [tableName]);
 
-            // PostgreSQL returns lowercase column names by default
             allFkConstraints = result.rows || [];
           } else {
-            // MySQL query for FK constraints
             const result = await trx.raw(`
               SELECT
                 TABLE_NAME as table_name,
@@ -795,25 +879,20 @@ export class SqlTableHandlerService {
               this.logger.log(`Dropping FK constraint: ${fk.constraint_name} from ${fk.table_name}.${fk.column_name}`);
 
               try {
-                // Drop FK constraint using schema builder (database-agnostic)
-                await trx.schema.alterTable(fk.table_name, (table: any) => {
-                  table.dropForeign([fk.column_name]);
-                });
+                const qt = dbType === 'mysql' ? (id: string) => `\`${id}\`` : (id: string) => `"${id}"`;
+                await trx.raw(`ALTER TABLE ${qt(fk.table_name)} DROP CONSTRAINT ${qt(fk.constraint_name)}`);
                 this.logger.log(`Dropped FK constraint: ${fk.constraint_name}`);
               } catch (error) {
                 this.logger.log(`Error dropping FK constraint: ${error.message}`);
-                // Don't rethrow - continue with other constraints
               }
 
               try {
-                // Drop FK column using schema builder (database-agnostic)
                 await trx.schema.alterTable(fk.table_name, (table: any) => {
                   table.dropColumn(fk.column_name);
                 });
                 this.logger.log(`Dropped FK column: ${fk.column_name} from ${fk.table_name}`);
               } catch (error) {
                 this.logger.log(`Error dropping FK column: ${error.message}`);
-                // Don't rethrow - continue with other constraints
               }
             }
           } else {
@@ -823,7 +902,6 @@ export class SqlTableHandlerService {
           this.logger.log(`Error checking FK constraints: ${error.message}`);
         }
 
-        // Now delete ALL relations metadata (both source and target)
         await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
@@ -838,18 +916,13 @@ export class SqlTableHandlerService {
           .where({ id })
           .delete();
 
-        // Drop physical table and junction tables INSIDE transaction (before commit)
-        // Pass relations so schema migration can drop M2M junction tables
-        // Pass transaction to avoid issues with transaction isolation
         await this.schemaMigrationService.dropTable(tableName, allRelations, trx);
 
-        // Commit transaction AFTER physical schema migration succeeds
         await trx.commit();
 
         this.logger.log(`Table deleted: ${tableName} (metadata + physical schema)`);
         return exists;
       } catch (error) {
-        // Rollback transaction on error (if not already committed)
         if (trx && !trx.isCompleted()) {
           try {
             await trx.rollback();
@@ -877,14 +950,10 @@ export class SqlTableHandlerService {
     });
   }
 
-  /**
-   * Get full table metadata with columns and relations (within transaction)
-   */
   private async getFullTableMetadataInTransaction(trx: any, tableId: string | number): Promise<any> {
     const table = await trx('table_definition').where({ id: tableId }).first();
     if (!table) return null;
 
-    // Parse JSON fields
     if (table.uniques && typeof table.uniques === 'string') {
       try {
         table.uniques = JSON.parse(table.uniques);
@@ -900,30 +969,25 @@ export class SqlTableHandlerService {
       }
     }
 
-    // Load columns
     table.columns = await trx('column_definition')
       .where({ tableId })
       .select('*');
 
-    // Parse column JSON fields
     for (const col of table.columns) {
       if (col.defaultValue && typeof col.defaultValue === 'string') {
         try {
           col.defaultValue = JSON.parse(col.defaultValue);
         } catch (e) {
-          // Keep as string
         }
       }
       if (col.options && typeof col.options === 'string') {
         try {
           col.options = JSON.parse(col.options);
         } catch (e) {
-          // Keep as string
         }
       }
     }
 
-    // Load relations with target table names (use JOIN to avoid N+1)
     const relations = await trx('relation_definition')
       .where({ 'relation_definition.sourceTableId': tableId })
       .leftJoin('table_definition', 'relation_definition.targetTableId', 'table_definition.id')
@@ -932,86 +996,12 @@ export class SqlTableHandlerService {
         'table_definition.name as targetTableName'
       );
 
-    // Add computed fields
     for (const rel of relations) {
       rel.sourceTableName = table.name;
 
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
         rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
       }
-      // M2M junction info already stored in DB
-    }
-
-    table.relations = relations;
-
-    return table;
-  }
-
-  /**
-   * Get full table metadata with columns and relations
-   */
-  private async getFullTableMetadata(tableId: string | number): Promise<any> {
-    const knex = this.queryBuilder.getKnex();
-
-    const table = await knex('table_definition').where({ id: tableId }).first();
-    if (!table) return null;
-
-    // Parse JSON fields
-    if (table.uniques && typeof table.uniques === 'string') {
-      try {
-        table.uniques = JSON.parse(table.uniques);
-      } catch (e) {
-        table.uniques = [];
-      }
-    }
-    if (table.indexes && typeof table.indexes === 'string') {
-      try {
-        table.indexes = JSON.parse(table.indexes);
-      } catch (e) {
-        table.indexes = [];
-      }
-    }
-
-    // Load columns
-    table.columns = await knex('column_definition')
-      .where({ tableId })
-      .select('*');
-
-    // Parse column JSON fields
-    for (const col of table.columns) {
-      if (col.defaultValue && typeof col.defaultValue === 'string') {
-        try {
-          col.defaultValue = JSON.parse(col.defaultValue);
-        } catch (e) {
-          // Keep as string
-        }
-      }
-      if (col.options && typeof col.options === 'string') {
-        try {
-          col.options = JSON.parse(col.options);
-        } catch (e) {
-          // Keep as string
-        }
-      }
-    }
-
-    // Load relations with target table names (use JOIN to avoid N+1)
-    const relations = await knex('relation_definition')
-      .where({ 'relation_definition.sourceTableId': tableId })
-      .leftJoin('table_definition', 'relation_definition.targetTableId', 'table_definition.id')
-      .select(
-        'relation_definition.*',
-        'table_definition.name as targetTableName'
-      );
-
-    // Add computed fields
-    for (const rel of relations) {
-      rel.sourceTableName = table.name;
-      
-      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-        rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
-      }
-      // M2M junction info already stored in DB
     }
 
     table.relations = relations;

@@ -16,7 +16,7 @@ async function getPrimaryKeyTypeForTable(
   knex: Knex,
   tableName: string,
   metadataCacheService?: any,
-): Promise<'uuid' | 'integer'> {
+): Promise<'uuid' | 'int'> {
   try {
     if (metadataCacheService) {
       const targetMetadata = await metadataCacheService.lookupTableByName(tableName);
@@ -24,7 +24,7 @@ async function getPrimaryKeyTypeForTable(
         const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
         if (pkColumn) {
           const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
         }
       }
     }
@@ -38,14 +38,14 @@ async function getPrimaryKeyTypeForTable(
     
     if (pkInfo) {
       const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
     }
     
-    logger.warn(`Could not find primary key for table ${tableName}, defaulting to integer`);
-    return 'integer';
+    logger.warn(`Could not find primary key for table ${tableName}, defaulting to int`);
+    return 'int';
   } catch (error) {
-    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to integer`);
-    return 'integer';
+    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`);
+    return 'int';
   }
 }
 
@@ -154,19 +154,33 @@ export async function generateSQLFromDiff(
   const sqlStatements: string[] = [];
   const qt = (id: string) => quoteIdentifier(id, dbType); // Quote helper
 
-  if (diff.table.update) {
-    sqlStatements.push(generateRenameTableSQL(diff.table.update.oldName, diff.table.update.newName, dbType));
+  const ensureArray = <T>(value: T | T[] | undefined | null): T[] => {
+    if (!value) {
+      return [];
+    }
+    return Array.isArray(value) ? value : [value];
+  };
+
+  const tableDiff = diff.table || {};
+  const columnDiff = diff.columns || {};
+  const constraintDiff = diff.constraints || {};
+  const junctionDiff = diff.junctionTables || {};
+  const fkDiff = diff.foreignKeys || {};
+  const crossTableOps = ensureArray(diff.crossTableOperations);
+
+  if (tableDiff.update) {
+    sqlStatements.push(generateRenameTableSQL(tableDiff.update.oldName, tableDiff.update.newName, dbType));
   }
 
   const renamedColumns = new Set<string>();
-  for (const rename of diff.columns.rename) {
+  for (const rename of ensureArray(columnDiff.rename)) {
     sqlStatements.push(generateRenameColumnSQL(tableName, rename.oldName, rename.newName, dbType));
     renamedColumns.add(rename.oldName);
     renamedColumns.add(rename.newName);
   }
 
   // DELETE columns first (before CREATE) to avoid duplicate column name errors
-  for (const col of diff.columns.delete) {
+  for (const col of ensureArray(columnDiff.delete)) {
     if (col.isForeignKey) {
       await dropForeignKeyIfExists(knex, tableName, col.name, dbType);
     }
@@ -174,12 +188,12 @@ export async function generateSQLFromDiff(
   }
 
   // CREATE columns after DELETE
-  for (const col of diff.columns.create) {
+  for (const col of ensureArray(columnDiff.create)) {
     const columnDef = generateColumnDefinition(col, dbType);
     sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD COLUMN ${qt(col.name)} ${columnDef}`);
 
     if (col.isForeignKey && col.foreignKeyTarget) {
-      const onDelete = col.isNullable === false ? 'RESTRICT' : 'SET NULL';
+      const onDelete = col.onDelete || (col.isNullable === false ? 'RESTRICT' : 'SET NULL');
       sqlStatements.push(
         `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(`fk_${tableName}_${col.name}`)} FOREIGN KEY (${qt(col.name)}) REFERENCES ${qt(col.foreignKeyTarget)} (${qt(col.foreignKeyColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`
       );
@@ -203,7 +217,7 @@ export async function generateSQLFromDiff(
   }
 
   const processedUpdates = new Set<string>();
-  for (const update of diff.columns.update) {
+  for (const update of ensureArray(columnDiff.update)) {
     const colName = update.newColumn.name;
 
     if (renamedColumns.has(colName)) {
@@ -222,7 +236,7 @@ export async function generateSQLFromDiff(
   }
 
   // Handle UNIQUE constraint CREATE
-  for (const uniqueGroup of diff.constraints.uniques.create || []) {
+  for (const uniqueGroup of ensureArray(constraintDiff.uniques?.create) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     const constraintName = `uq_${tableName}_${uniqueGroup.join('_')}`;
     sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(constraintName)} UNIQUE (${columns})`);
@@ -230,23 +244,23 @@ export async function generateSQLFromDiff(
   }
 
   // Handle UNIQUE constraint UPDATE (should be same as CREATE for now)
-  for (const uniqueGroup of diff.constraints.uniques.update || []) {
+  for (const uniqueGroup of ensureArray(constraintDiff.uniques?.update) || []) {
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD UNIQUE (${columns})`);
   }
 
-  for (const indexGroup of diff.constraints.indexes.update || []) {
+  for (const indexGroup of ensureArray(constraintDiff.indexes?.update) || []) {
     const indexName = `idx_${tableName}_${indexGroup.join('_')}`;
     sqlStatements.push(generateAddIndexSQL(tableName, indexName, indexGroup, dbType));
   }
 
-  for (const crossOp of diff.crossTableOperations || []) {
+  for (const crossOp of crossTableOps) {
     if (crossOp.operation === 'createColumn') {
       const columnDef = generateColumnDefinition(crossOp.column, dbType);
       sqlStatements.push(`ALTER TABLE ${qt(crossOp.targetTable)} ADD COLUMN ${qt(crossOp.column.name)} ${columnDef}`);
 
       if (crossOp.column.isForeignKey) {
-        const onDelete = crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT';
+        const onDelete = crossOp.column.onDelete || (crossOp.column.isNullable !== false ? 'SET NULL' : 'RESTRICT');
         sqlStatements.push(
           `ALTER TABLE ${qt(crossOp.targetTable)} ADD CONSTRAINT ${qt(`fk_${crossOp.targetTable}_${crossOp.column.name}`)} FOREIGN KEY (${qt(crossOp.column.name)}) REFERENCES ${qt(crossOp.column.foreignKeyTarget)} (${qt(crossOp.column.foreignKeyColumn)}) ON DELETE ${onDelete} ON UPDATE CASCADE`
         );
@@ -260,13 +274,13 @@ export async function generateSQLFromDiff(
   }
 
   // Junction table RENAME should execute before CREATE/DROP to avoid conflicts
-  for (const junctionRename of diff.junctionTables?.rename || []) {
+  for (const junctionRename of ensureArray(junctionDiff.rename)) {
     const { oldTableName, newTableName } = junctionRename;
     logger.log(`Renaming junction table: ${oldTableName} → ${newTableName}`);
     sqlStatements.push(generateRenameTableSQL(oldTableName, newTableName, dbType));
   }
 
-  for (const junctionCreate of diff.junctionTables?.create || []) {
+  for (const junctionCreate of ensureArray(junctionDiff.create)) {
     const { tableName: junctionName, sourceTable, targetTable, sourceColumn, targetColumn } = junctionCreate;
 
     const tableExists = await knex.schema.hasTable(junctionName);
@@ -358,9 +372,25 @@ export async function generateSQLFromDiff(
     sqlStatements.push(createJunctionSQL);
   }
 
-  for (const junctionDrop of diff.junctionTables?.drop || []) {
+  for (const junctionDrop of ensureArray(junctionDiff.drop)) {
     const { tableName: junctionName } = junctionDrop;
     sqlStatements.push(`DROP TABLE IF EXISTS ${qt(junctionName)}`);
+  }
+
+  // Handle FK constraint recreation (for onDelete changes)
+  for (const fkRecreate of ensureArray(fkDiff.recreate)) {
+    const { tableName: fkTableName, columnName, targetTable, targetColumn, onDelete } = fkRecreate;
+    const fkName = `fk_${fkTableName}_${columnName}`;
+
+    logger.log(`Recreating FK constraint ${fkName} with onDelete: ${onDelete}`);
+
+    // Drop existing FK constraint
+    await dropForeignKeyIfExists(knex, fkTableName, columnName, dbType);
+
+    // Recreate FK constraint with new onDelete action
+    sqlStatements.push(
+      `ALTER TABLE ${qt(fkTableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn || 'id')}) ON DELETE ${onDelete} ON UPDATE CASCADE`
+    );
   }
 
   return sqlStatements;

@@ -164,7 +164,9 @@ export class SystemProtectionService {
     );
 
     if (operation === 'create') {
-      this.commonService.assertNoSystemFlagDeep([data]);
+      const jsonFields = await this.getJsonFields(tableName);
+      const dataWithoutJson = this.excludeJsonFields(data, jsonFields);
+      this.commonService.assertNoSystemFlagDeep([dataWithoutJson]);
     }
 
     if (operation === 'delete' && fullExisting?.isSystem) {
@@ -493,5 +495,40 @@ export class SystemProtectionService {
         }
       }
     }
+  }
+
+  private async getJsonFields(tableName: string): Promise<string[]> {
+    try {
+      const metadata = await this.metadataCache.getMetadata();
+      const tableMeta = metadata.tables.get(tableName);
+      if (!tableMeta) return [];
+      
+      return (tableMeta.columns || [])
+        .filter((col: any) => col.type === 'simple-json')
+        .map((col: any) => col.name);
+    } catch {
+      return [];
+    }
+  }
+
+  private excludeJsonFields(data: any, jsonFields: string[]): any {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return data;
+    }
+    
+    const result: any = {};
+    for (const key of Object.keys(data)) {
+      if (jsonFields.includes(key)) {
+        continue;
+      }
+      
+      if (typeof data[key] === 'object' && data[key] !== null && !Array.isArray(data[key])) {
+        result[key] = this.excludeJsonFields(data[key], jsonFields);
+      } else {
+        result[key] = data[key];
+      }
+    }
+    
+    return result;
   }
 }

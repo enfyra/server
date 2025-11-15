@@ -1,6 +1,6 @@
 {
   "name": "enfyra_be",
-  "version": "1.1.0-stable",
+  "version": "1.2.0-beta",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
@@ -29,6 +29,12 @@
     "@aws-sdk/client-s3": "^3.927.0",
     "@google-cloud/storage": "^7.17.3",
     "@graphql-tools/schema": "^10.0.23",
+    "@langchain/anthropic": "^1.0.0",
+    "@langchain/core": "^1.0.4",
+    "@langchain/deepseek": "^1.0.0",
+    "@langchain/google-genai": "^1.0.0",
+    "@langchain/langgraph": "^1.0.2",
+    "@langchain/openai": "^1.1.0",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.2",
@@ -59,6 +65,7 @@
     "mongodb": "^6.20.0",
     "multer": "latest",
     "mysql2": "^3.14.1",
+    "openai": "^6.8.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "path-to-regexp": "^8.2.0",
@@ -70,7 +77,8 @@
     "sqlite3": "^5.1.7",
     "ts-morph": "^26.0.0",
     "uuid": "latest",
-    "yargs": "^18.0.0"
+    "yargs": "^18.0.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",

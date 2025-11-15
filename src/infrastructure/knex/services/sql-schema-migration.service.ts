@@ -31,8 +31,65 @@ export class SqlSchemaMigrationService {
     private readonly queryBuilderService: QueryBuilderService,
   ) {}
 
-  private async getPrimaryKeyType(targetTableName: string): Promise<'uuid' | 'integer'> {
+  private async getPrimaryKeyType(targetTableName: string): Promise<'uuid' | 'varchar' | 'integer'> {
     try {
+      // First, check the ACTUAL database column type (not metadata)
+      // This is critical for junction tables to match FK types correctly
+      const knex = this.knexService.getKnex();
+      const dbType = this.queryBuilderService.getDatabaseType();
+
+      if (dbType === 'postgres') {
+        const result = await knex.raw(`
+          SELECT data_type, udt_name, character_maximum_length
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ?
+            AND column_name = 'id'
+        `, [targetTableName]);
+
+        if (result.rows && result.rows.length > 0) {
+          const colType = result.rows[0].data_type?.toLowerCase() || '';
+          const udtName = result.rows[0].udt_name?.toLowerCase() || '';
+
+          // Check if it's a real UUID type
+          if (udtName === 'uuid' || colType === 'uuid') {
+            return 'uuid';
+          }
+
+          // If it's varchar/char, return varchar type
+          // Even if metadata says uuid, actual DB type takes precedence
+          if (colType === 'character varying' || colType === 'varchar' || colType === 'character') {
+            return 'varchar';
+          }
+
+          // Integer types
+          if (colType === 'integer' || colType === 'bigint' || colType === 'serial' || colType === 'bigserial') {
+            return 'integer';
+          }
+        }
+      } else if (dbType === 'mysql') {
+        const result = await knex.raw(`
+          SELECT DATA_TYPE, COLUMN_TYPE
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = 'id'
+        `, [targetTableName]);
+
+        if (result[0] && result[0].length > 0) {
+          const colType = result[0][0].DATA_TYPE?.toLowerCase() || '';
+
+          if (colType === 'varchar' || colType === 'char') {
+            return 'varchar';
+          }
+
+          if (colType === 'int' || colType === 'bigint' || colType === 'integer') {
+            return 'integer';
+          }
+        }
+      }
+
+      // Fallback to metadata if DB query fails
       const targetMetadata = await this.metadataCacheService.lookupTableByName(targetTableName);
       if (!targetMetadata) {
         this.logger.warn(`Could not find metadata for table ${targetTableName}, defaulting to integer`);
@@ -46,7 +103,18 @@ export class SqlSchemaMigrationService {
       }
 
       const type = pkColumn.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'integer';
+
+      // Check if metadata type is uuid
+      if (type === 'uuid' || type === 'uuidv4' || type.includes('uuid')) {
+        return 'uuid';
+      }
+
+      // Check if metadata type is string/varchar
+      if (type === 'string' || type === 'varchar' || type === 'char') {
+        return 'varchar';
+      }
+
+      return 'integer';
     } catch (error) {
       this.logger.warn(`Error getting primary key type for ${targetTableName}: ${error.message}, defaulting to integer`);
       return 'integer';
@@ -64,7 +132,7 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`Creating table: ${tableName}`);
 
-    const targetPkTypes = new Map<string, 'uuid' | 'integer'>();
+    const targetPkTypes = new Map<string, 'uuid' | 'varchar' | 'integer'>();
     if (tableMetadata.relations) {
       for (const rel of tableMetadata.relations) {
         if (['many-to-one', 'one-to-one'].includes(rel.type)) {
@@ -116,6 +184,8 @@ export class SqlSchemaMigrationService {
             } else {
               fkCol = table.string(fkColumn, 36);
             }
+          } else if (targetPkType === 'varchar') {
+            fkCol = table.string(fkColumn, 36);
           } else {
             fkCol = table.integer(fkColumn).unsigned();
           }
@@ -218,6 +288,8 @@ export class SqlSchemaMigrationService {
               } else {
                 fkCol = table.string(fkColumn, 36);
               }
+            } else if (sourcePkType === 'varchar') {
+              fkCol = table.string(fkColumn, 36);
             } else {
               fkCol = table.integer(fkColumn).unsigned();
             }
@@ -293,6 +365,9 @@ export class SqlSchemaMigrationService {
               return 'VARCHAR(36)';
             }
           }
+          if (sourcePkType === 'varchar') {
+            return 'VARCHAR(36)';
+          }
           if (dbType === 'postgres') {
             return 'INTEGER';
           } else if (dbType === 'sqlite') {
@@ -309,6 +384,9 @@ export class SqlSchemaMigrationService {
             } else {
               return 'VARCHAR(36)';
             }
+          }
+          if (targetPkType === 'varchar') {
+            return 'VARCHAR(36)';
           }
           if (dbType === 'postgres') {
             return 'INTEGER';
@@ -480,13 +558,47 @@ export class SqlSchemaMigrationService {
   async dropTable(tableName: string, relations?: any[], trx?: any): Promise<void> {
     // Use transaction if provided, otherwise use knex
     const db = trx || this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
-    if (!(await db.schema.hasTable(tableName))) {
+    // Use raw SQL to check table existence (schema builder may not work correctly in transaction)
+    const qt = (id: string) => {
+      if (dbType === 'mysql') return `\`${id}\``;
+      return `"${id}"`;
+    };
+
+    let tableExists = false;
+    try {
+      if (dbType === 'postgres') {
+        const result = await db.raw(
+          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?)`,
+          [tableName]
+        );
+        tableExists = result.rows[0]?.exists || false;
+      } else if (dbType === 'mysql') {
+        const result = await db.raw(
+          `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+          [tableName]
+        );
+        tableExists = result[0][0]?.count > 0;
+      } else {
+        // SQLite
+        const result = await db.raw(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+          [tableName]
+        );
+        tableExists = result.length > 0;
+      }
+    } catch (error) {
+      this.logger.error(`Error checking table existence: ${error.message}`);
+      tableExists = false;
+    }
+
+    if (!tableExists) {
       this.logger.warn(`Table ${tableName} does not exist, skipping drop`);
       return;
     }
 
-    this.logger.log(` Dropping table: ${tableName}`);
+    this.logger.log(`Dropping table: ${tableName}`);
 
     // If relations not provided, get from metadata
     let relationsToCheck = relations;
@@ -498,16 +610,18 @@ export class SqlSchemaMigrationService {
       }
     }
 
-    // Drop M2M junction tables first
+    // Drop M2M junction tables first (using raw SQL)
     if (relationsToCheck && relationsToCheck.length > 0) {
       const m2mRelations = relationsToCheck.filter((rel: any) => rel.type === 'many-to-many');
 
       for (const rel of m2mRelations) {
         if (rel.junctionTableName) {
-          const hasJunctionTable = await db.schema.hasTable(rel.junctionTableName);
-          if (hasJunctionTable) {
-            await db.schema.dropTable(rel.junctionTableName);
+          try {
+            // Use raw SQL instead of schema builder
+            await db.raw(`DROP TABLE IF EXISTS ${qt(rel.junctionTableName)}`);
             this.logger.log(`Dropped junction table: ${rel.junctionTableName}`);
+          } catch (error) {
+            this.logger.error(`Failed to drop junction table ${rel.junctionTableName}: ${error.message}`);
           }
         }
       }
@@ -517,15 +631,19 @@ export class SqlSchemaMigrationService {
     // NOTE: When called within a transaction (trx is provided), FK constraints are already
     // handled by SqlTableHandlerService.delete() to avoid transaction isolation issues
     if (!trx) {
-      const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
       await dropAllForeignKeysReferencingTable(db, tableName, dbType);
     } else {
       this.logger.log(`Skipping FK constraint check (already handled in transaction)`);
     }
 
-    // Drop the table itself
-    await db.schema.dropTableIfExists(tableName);
-    this.logger.log(`Dropped table: ${tableName}`);
+    // Drop the table itself using raw SQL (schema builder may not work correctly in transaction)
+    try {
+      await db.raw(`DROP TABLE IF EXISTS ${qt(tableName)}`);
+      this.logger.log(`Dropped table: ${tableName}`);
+    } catch (error) {
+      this.logger.error(`Failed to drop table ${tableName}: ${error.message}`);
+      throw error;
+    }
   }
 
 

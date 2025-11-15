@@ -303,9 +303,16 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
         }
 
-        const tableData = { ...table };
-        if (tableData.isSystem !== undefined && tableData.isSystem !== null) {
-          tableData.isSystem = tableData.isSystem === 1 || tableData.isSystem === true;
+        const tableData: any = { ...table };
+
+        for (const key in tableData) {
+          if (tableData[key] !== undefined && tableData[key] !== null) {
+            if (tableData[key] === 1 || tableData[key] === true) {
+              tableData[key] = true;
+            } else if (tableData[key] === 0 || tableData[key] === false) {
+              tableData[key] = false;
+            }
+          }
         }
 
         const metadata: any = {
