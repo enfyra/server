@@ -55,10 +55,27 @@ export interface StreamDoneEvent {
   };
 }
 
+export interface StreamTaskEvent {
+  type: 'task';
+  data: {
+    task: {
+      type: string;
+      status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'failed';
+      priority?: number;
+      data?: any;
+      result?: any;
+      error?: string;
+      createdAt?: Date;
+      updatedAt?: Date;
+    } | null;
+  };
+}
+
 export type StreamEvent =
   | StreamTextEvent
   | StreamToolCallEvent
   | StreamToolResultEvent
   | StreamTokenEvent
   | StreamErrorEvent
-  | StreamDoneEvent;
+  | StreamDoneEvent
+  | StreamTaskEvent;

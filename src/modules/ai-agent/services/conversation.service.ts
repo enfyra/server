@@ -151,13 +151,14 @@ export class ConversationService {
   }): Promise<IConversation | null> {
     const { id, userId } = params;
 
-    const context = this.createContext(userId);
+    const context = this.createContext();
     const repo = await this.createRepository('ai_conversation_definition', context);
+
+    const conversationId = typeof id === 'string' && /^\d+$/.test(id) ? parseInt(id, 10) : id;
 
     const result = await repo.find({
       where: {
-        id: { _eq: id },
-        ...(userId ? { user: { id: { _eq: userId } } } : {}),
+        id: { _eq: conversationId },
       },
     });
 
@@ -165,12 +166,18 @@ export class ConversationService {
       return null;
     }
 
-    return this.mapConversation(result.data[0]);
+    const conversation = this.mapConversation(result.data[0]);
+
+    if (userId && conversation.userId !== userId) {
+      return null;
+    }
+
+    return conversation;
   }
 
   async updateConversation(params: {
     id: string | number;
-    data: IConversationUpdate;
+    data: Partial<IConversationUpdate>;
     userId?: string | number;
   }): Promise<IConversation> {
     const { id, data, userId } = params;
@@ -178,14 +185,17 @@ export class ConversationService {
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_conversation_definition', context);
 
+    const conversationId = typeof id === 'string' && /^\d+$/.test(id) ? parseInt(id, 10) : id;
+
     const updateData: any = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.messageCount !== undefined) updateData.messageCount = data.messageCount;
     if (data.summary !== undefined) updateData.summary = data.summary;
     if (data.lastSummaryAt !== undefined) updateData.lastSummaryAt = data.lastSummaryAt;
     if (data.lastActivityAt !== undefined) updateData.lastActivityAt = data.lastActivityAt;
+    if (data.task !== undefined) updateData.task = data.task;
 
-    const result = await repo.update({ id, data: updateData });
+    const result = await repo.update({ id: conversationId, data: updateData });
     return this.mapConversation(result.data[0]);
   }
 
@@ -197,8 +207,9 @@ export class ConversationService {
 
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_conversation_definition', context);
-    await repo.delete({ id });
-    this.logger.log(`Deleted conversation ${id}`);
+    const conversationId = typeof id === 'string' && /^\d+$/.test(id) ? parseInt(id, 10) : id;
+    await repo.delete({ id: conversationId });
+    this.logger.log(`Deleted conversation ${conversationId}`);
   }
 
   async getMessages(params: {
@@ -400,6 +411,19 @@ export class ConversationService {
   }
 
   private mapConversation(data: any): IConversation {
+    let task = null;
+    if (data.task !== undefined && data.task !== null) {
+      if (typeof data.task === 'string') {
+        try {
+          task = JSON.parse(data.task);
+        } catch {
+          task = null;
+        }
+      } else if (typeof data.task === 'object') {
+        task = data.task;
+      }
+    }
+
     return {
       id: data.id || data._id,
       userId: data.user?.id || data.user?._id || data.userId,
@@ -409,6 +433,7 @@ export class ConversationService {
       summary: data.summary,
       lastSummaryAt: data.lastSummaryAt ? new Date(data.lastSummaryAt) : undefined,
       lastActivityAt: data.lastActivityAt ? new Date(data.lastActivityAt) : undefined,
+      task,
       createdAt: new Date(data.createdAt),
       updatedAt: new Date(data.updatedAt),
     };

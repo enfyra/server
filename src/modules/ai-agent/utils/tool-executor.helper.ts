@@ -19,6 +19,9 @@ import {
   formatEscalationMessage,
   getRecoveryStrategy,
 } from './error-recovery.helper';
+import { TableCreationWorkflow } from './table-creation-workflow';
+import { TableUpdateWorkflow } from './table-update-workflow';
+import { ConversationService } from '../services/conversation.service';
 
 export class ToolExecutor {
   private readonly logger = new Logger(ToolExecutor.name);
@@ -35,6 +38,7 @@ export class ToolExecutor {
     private readonly tableValidationService: TableValidationService,
     private readonly swaggerService: SwaggerService,
     private readonly graphqlService: GraphqlService,
+    private readonly conversationService: ConversationService,
   ) {}
 
   async executeTool(
@@ -46,7 +50,15 @@ export class ToolExecutor {
       };
     },
     context: TDynamicContext,
+    abortSignal?: AbortSignal,
   ): Promise<any> {
+    if (abortSignal?.aborted) {
+      return {
+        error: true,
+        errorCode: 'REQUEST_ABORTED',
+        message: 'Request aborted by client',
+      };
+    }
     const { name, arguments: argsStr } = toolCall.function;
     let args: any;
 
@@ -62,13 +74,19 @@ export class ToolExecutor {
       case 'list_tables':
         return await this.executeListTables();
       case 'get_table_details':
-        return await this.executeGetTableDetails(args);
+        return await this.executeGetTableDetails(args, context);
       case 'get_fields':
         return await this.executeGetFields(args);
       case 'get_hint':
         return await this.executeGetHint(args, context);
+      case 'create_table':
+        return await this.executeCreateTable(args, context, abortSignal);
+      case 'update_table':
+        return await this.executeUpdateTable(args, context, abortSignal);
+      case 'update_task':
+        return await this.executeUpdateTask(args, context);
       case 'dynamic_repository':
-        return await this.executeDynamicRepository(args, context);
+        return await this.executeDynamicRepository(args, context, abortSignal);
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -312,17 +330,159 @@ export class ToolExecutor {
     };
   }
 
-  private async executeGetTableDetails(args: { tableName: string; forceRefresh?: boolean }): Promise<any> {
+  private async executeGetTableDetails(
+    args: {
+      tableName: string[];
+      forceRefresh?: boolean;
+      id?: string | number;
+      name?: string;
+      getData?: boolean;
+    },
+    context?: TDynamicContext,
+  ): Promise<any> {
     if (args.forceRefresh) {
       await this.metadataCacheService.reload();
     }
 
-    const metadata = await this.metadataCacheService.getTableMetadata(args.tableName);
-    if (!metadata) {
-      throw new Error(`Table ${args.tableName} not found`);
+    if (!Array.isArray(args.tableName)) {
+      throw new Error('tableName must be an array. For single table, use array with 1 element: ["table_name"]');
     }
 
-    return optimizeMetadataForLLM(metadata);
+    const tableNames = args.tableName;
+
+    if (tableNames.length === 0) {
+      throw new Error('At least one table name is required');
+    }
+
+    const shouldGetData = args.getData === true && (args.id !== undefined || args.name !== undefined);
+
+    if (tableNames.length === 1) {
+      const tableName = tableNames[0];
+      const metadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!metadata) {
+        throw new Error(`Table ${tableName} not found`);
+      }
+
+      const result: any = optimizeMetadataForLLM(metadata);
+
+      if (shouldGetData && context) {
+        try {
+          const repo = new DynamicRepository({
+            context,
+            tableName,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            metadataCacheService: this.metadataCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            bootstrapScriptService: undefined,
+            redisPubSubService: undefined,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          });
+
+          await repo.init();
+
+          let where: any = {};
+          if (args.id !== undefined) {
+            where.id = { _eq: args.id };
+          } else if (args.name !== undefined) {
+            where.name = { _eq: args.name };
+          }
+
+          const dataResult = await repo.find({
+            where,
+            fields: '*',
+            limit: 1,
+          });
+
+          if (dataResult?.data && dataResult.data.length > 0) {
+            result.data = dataResult.data[0];
+          } else {
+            result.data = null;
+          }
+        } catch (error: any) {
+          result.dataError = error.message;
+        }
+      }
+
+      return result;
+    }
+
+    const result: Record<string, any> = {};
+    const errors: string[] = [];
+
+    for (const tableName of tableNames) {
+      try {
+        const metadata = await this.metadataCacheService.getTableMetadata(tableName);
+        if (!metadata) {
+          errors.push(`Table ${tableName} not found`);
+          continue;
+        }
+        result[tableName] = optimizeMetadataForLLM(metadata);
+
+        if (shouldGetData && context) {
+          try {
+            const repo = new DynamicRepository({
+              context,
+              tableName,
+              queryBuilder: this.queryBuilder,
+              tableHandlerService: this.tableHandlerService,
+              queryEngine: this.queryEngine,
+              routeCacheService: this.routeCacheService,
+              storageConfigCacheService: this.storageConfigCacheService,
+              aiConfigCacheService: this.aiConfigCacheService,
+              metadataCacheService: this.metadataCacheService,
+              systemProtectionService: this.systemProtectionService,
+              tableValidationService: this.tableValidationService,
+              bootstrapScriptService: undefined,
+              redisPubSubService: undefined,
+              swaggerService: this.swaggerService,
+              graphqlService: this.graphqlService,
+            });
+
+            await repo.init();
+
+            let where: any = {};
+            if (args.id !== undefined) {
+              where.id = { _eq: args.id };
+            } else if (args.name !== undefined) {
+              where.name = { _eq: args.name };
+            }
+
+            const dataResult = await repo.find({
+              where,
+              fields: '*',
+              limit: 1,
+            });
+
+            if (dataResult?.data && dataResult.data.length > 0) {
+              result[tableName].data = dataResult.data[0];
+            } else {
+              result[tableName].data = null;
+            }
+          } catch (error: any) {
+            result[tableName].dataError = error.message;
+          }
+        }
+      } catch (error: any) {
+        errors.push(`Error loading ${tableName}: ${error.message}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      result._errors = errors;
+    }
+
+    if (Object.keys(result).length === 0 && errors.length > 0) {
+      result._allFailed = true;
+    }
+
+    return result;
   }
 
   private async executeGetFields(args: { tableName: string }): Promise<any> {
@@ -337,6 +497,247 @@ export class ToolExecutor {
       table: args.tableName,
       fields: fieldNames,
     };
+  }
+
+  private async executeCreateTable(
+    args: {
+      name: string;
+      description?: string;
+      columns: any[];
+      relations?: any[];
+      uniques?: any[][];
+      indexes?: any[];
+    },
+    context: TDynamicContext,
+    abortSignal?: AbortSignal,
+  ): Promise<any> {
+    if (abortSignal?.aborted) {
+      return {
+        error: true,
+        errorCode: 'REQUEST_ABORTED',
+        message: 'Request aborted by client',
+      };
+    }
+    const workflow = new TableCreationWorkflow(
+      this.metadataCacheService,
+      this.queryBuilder,
+      this.tableHandlerService,
+      this.queryEngine,
+      this.routeCacheService,
+      this.storageConfigCacheService,
+      this.aiConfigCacheService,
+      this.systemProtectionService,
+      this.tableValidationService,
+      this.swaggerService,
+      this.graphqlService,
+    );
+
+    const workflowResult = await workflow.execute({
+      tableName: args.name,
+      tableData: {
+        name: args.name,
+        description: args.description,
+        columns: args.columns,
+        relations: args.relations,
+        uniques: args.uniques,
+        indexes: args.indexes,
+      },
+      context,
+      maxRetries: 3,
+    });
+
+    if (!workflowResult.success) {
+      const errorMessage = workflowResult.stopReason || 'Table creation workflow failed';
+      const errorDetails = workflowResult.errors?.map(e => e.error).join('; ') || errorMessage;
+      return {
+        error: true,
+        errorCode: 'WORKFLOW_ERROR',
+        message: errorDetails,
+        errors: workflowResult.errors,
+        stopReason: workflowResult.stopReason,
+      };
+    }
+
+    return workflowResult.result;
+  }
+
+  private async executeUpdateTable(
+    args: {
+      tableName: string;
+      tableId?: number;
+      description?: string;
+      columns?: any[];
+      relations?: any[];
+      uniques?: any[][];
+      indexes?: any[];
+    },
+    context: TDynamicContext,
+    abortSignal?: AbortSignal,
+  ): Promise<any> {
+    if (abortSignal?.aborted) {
+      return {
+        error: true,
+        errorCode: 'REQUEST_ABORTED',
+        message: 'Request aborted by client',
+      };
+    }
+    try {
+
+      const workflow = new TableUpdateWorkflow(
+        this.metadataCacheService,
+        this.queryBuilder,
+        this.tableHandlerService,
+        this.queryEngine,
+        this.routeCacheService,
+        this.storageConfigCacheService,
+        this.aiConfigCacheService,
+        this.systemProtectionService,
+        this.tableValidationService,
+        this.swaggerService,
+        this.graphqlService,
+      );
+
+      const updateData: any = {};
+      if (args.description !== undefined) updateData.description = args.description;
+      if (args.columns) updateData.columns = args.columns;
+      if (args.relations) updateData.relations = args.relations;
+      if (args.uniques) updateData.uniques = args.uniques;
+      if (args.indexes) updateData.indexes = args.indexes;
+
+      const workflowResult = await workflow.execute({
+        tableName: args.tableName,
+        tableId: args.tableId,
+        updateData,
+        context,
+      });
+
+      if (workflowResult.success) {
+        const result = workflowResult.result;
+        const updatedFields: string[] = [];
+        if (args.description !== undefined) updatedFields.push('description');
+        if (args.columns && args.columns.length > 0) updatedFields.push(`${args.columns.length} column(s)`);
+        if (args.relations !== undefined) {
+          if (args.relations.length === 0) {
+            updatedFields.push('all relations deleted');
+          } else {
+            updatedFields.push(`${args.relations.length} relation(s)`);
+          }
+        }
+        if (args.uniques !== undefined) {
+          if (args.uniques.length === 0) {
+            updatedFields.push('all unique constraints deleted');
+          } else {
+            updatedFields.push(`${args.uniques.length} unique constraint(s)`);
+          }
+        }
+        if (args.indexes !== undefined) {
+          if (args.indexes.length === 0) {
+            updatedFields.push('all indexes deleted');
+          } else {
+            updatedFields.push(`${args.indexes.length} index(es)`);
+          }
+        }
+        
+        return {
+          success: true,
+          tableName: args.tableName,
+          tableId: result?.id || args.tableId,
+          updated: updatedFields.length > 0 ? updatedFields.join(', ') : 'table metadata',
+          result,
+        };
+      }
+
+      const errorMessage = workflowResult.stopReason || 'Table update workflow failed';
+      this.logger.error(`[ToolExecutor] update_table → FAILED: ${errorMessage}`);
+
+      return {
+        error: true,
+        errorCode: 'TABLE_UPDATE_FAILED',
+        message: errorMessage,
+        errors: workflowResult.errors,
+        suggestion: 'Check the errors array for details. Ensure table exists and update data is valid.',
+      };
+    } catch (error: any) {
+      this.logger.error(`[ToolExecutor] update_table → EXCEPTION: ${error.message}`);
+      return {
+        error: true,
+        errorCode: 'TABLE_UPDATE_EXCEPTION',
+        message: error.message,
+        suggestion: 'An unexpected error occurred. Please try again or check table name and update data.',
+      };
+    }
+  }
+
+  private async executeUpdateTask(
+    args: {
+      conversationId: string | number;
+      type: 'create_table' | 'update_table' | 'delete_table' | 'custom';
+      status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'failed';
+      data?: any;
+      result?: any;
+      error?: string;
+      priority?: number;
+    },
+    context: TDynamicContext,
+  ): Promise<any> {
+    try {
+      const { conversationId, type, status, data, result, error, priority } = args;
+
+      const conversation = await this.conversationService.getConversation({ id: conversationId });
+      if (!conversation) {
+        return {
+          error: true,
+          errorCode: 'CONVERSATION_NOT_FOUND',
+          message: `Conversation with ID ${conversationId} not found`,
+        };
+      }
+
+      const now = new Date();
+      const existingTask = conversation.task;
+
+      let task: any;
+      if (existingTask && existingTask.status !== 'completed' && existingTask.status !== 'failed' && existingTask.status !== 'cancelled') {
+        task = {
+          ...existingTask,
+          type,
+          status,
+          priority: priority !== undefined ? priority : existingTask.priority || 0,
+          updatedAt: now,
+        };
+        if (data !== undefined) task.data = data;
+        if (result !== undefined) task.result = result;
+        if (error !== undefined) task.error = error;
+      } else {
+        task = {
+          type,
+          status,
+          priority: priority || 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+        if (data !== undefined) task.data = data;
+        if (result !== undefined) task.result = result;
+        if (error !== undefined) task.error = error;
+      }
+
+      await this.conversationService.updateConversation({
+        id: conversationId,
+        data: { task },
+      });
+
+      return {
+        success: true,
+        task,
+      };
+    } catch (error: any) {
+      this.logger.error(`[ToolExecutor] update_task → EXCEPTION: ${error.message}`);
+      return {
+        error: true,
+        errorCode: 'TASK_UPDATE_EXCEPTION',
+        message: error.message,
+        suggestion: 'An unexpected error occurred while updating task.',
+      };
+    }
   }
 
   private async executeGetHint(args: { category?: string | string[] }, context: TDynamicContext): Promise<any> {
@@ -360,6 +761,8 @@ export class ToolExecutor {
 
     const fieldOptContent = `Field & limit checklist:
 - Call get_fields or get_table_details before querying
+- get_table_details supports single table (string) or multiple tables (array): {"tableName": "post"} or {"tableName": ["post", "category", "user_definition"]}
+- When comparing multiple tables or need schemas for multiple tables, use array format to get all in one call: {"tableName": ["table1", "table2", "table3"]}
 - Count queries: fields="${idFieldName}", limit=1, meta="totalCount"
 - Name lists: fields="${idFieldName},name", pick limit as needed
 - Use limit=0 only when you truly need every row (default limit is 10)
@@ -382,108 +785,37 @@ Sample nested query:
       content: fieldOptContent,
     };
 
-    const tableOpsContent = `Table creation & metadata rules:
-- CRITICAL: Before creating a table, ALWAYS check if it already exists by finding table_definition by name first. If table exists, skip creation or inform user.
-- Check existence: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"${idFieldName},name","limit":1}
-- If find returns data → table exists, do NOT create again. If find returns empty → table does not exist, proceed with creation.
-- Every table MUST have "${idFieldName}" column with isPrimary=true, isGenerated=true
-- SQL: use type="int" for auto-increment ID, or "uuid" for UUID
-- MongoDB: ONLY use type="uuid" for ID
-- CRITICAL: createdAt/updatedAt are AUTO-GENERATED by system → NEVER include them in data.columns array. System automatically adds these columns to every table. If you include them, you will get "column specified more than once" error.
-- Include ALL columns in ONE create call (including id column, but EXCLUDING createdAt/updatedAt)
-- Foreign keys are indexed automatically
-- Table names usually end with "_definition" for metadata tables
-- Schema changes (columns, relations, indexes) belong to table_definition / column_definition / relation_definition only
-- Update business data rows via the actual tables (post, order, etc.); do NOT touch them when editing structure
-- Discover actual names via get_metadata, then choose the closest match
+    const tableOpsContent = `Table operations - use tools for automatic validation & error handling:
 
-Example - Creating a table (with existence check):
-Step 1: Check if table exists:
-{"table":"table_definition","operation":"find","where":{"name":{"_eq":"product"}},"fields":"${idFieldName},name","limit":1}
+Creating tables:
+- Use create_table tool (automatically checks existence, validates, handles errors)
+- Check if table exists first: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"${idFieldName},name","limit":1}
+- CRITICAL: Every table MUST have "${idFieldName}" column with isPrimary=true, type="int" (SQL) or "uuid" (MongoDB)
+- CRITICAL: NEVER include createdAt/updatedAt in columns - system auto-generates them
+- Include ALL columns in one create call (excluding createdAt/updatedAt)
 
-Step 2: If find returns empty (table does not exist), create table:
-{
-  "table": "table_definition",
-  "operation": "create",
-  "data": {
-    "name": "product",
-    "description": "Products",
-    "columns": [
-      {"name": "${idFieldName}", "type": "int", "isPrimary": true, "isGenerated": true},
-      {"name": "name", "type": "varchar", "isNullable": false},
-      {"name": "price", "type": "decimal", "isNullable": true}
-    ]
-  },
-  "fields": "${idFieldName},name"
-}
-CRITICAL: Do NOT include createdAt or updatedAt in columns array - system automatically adds them to every table. If you include them, you will get "column specified more than once" error.
-If find returns data → table already exists, skip creation and inform user.
+Updating tables:
+- Use update_table tool (automatically loads current data, validates, merges, checks FK conflicts)
+- Columns merged by name, relations merged by propertyName
+- System columns (id, createdAt, updatedAt) automatically preserved
 
-Relation rules & workflow:
-- CRITICAL: Create relation on ONLY ONE SIDE (source table). NEVER create relation on both sides - this causes duplicate FK column errors.
-- Always use propertyName (never raw FK columns like "userId")
-- CRITICAL: targetTable.id MUST be REAL ID from database. ALWAYS find table_definition by name first to get current ID. NEVER use IDs from history or previous operations.
-- targetTable format: {"${idFieldName}": <REAL_ID_FROM_FIND>}
-- Workflow: 1) Create tables WITHOUT relations first, 2) Find source table ID by name, 3) Find target table ID by name, 4) Verify both IDs exist, 5) Update EXACTLY ONE table_definition (source table) with relations array
-- One-to-many (O2M): MUST include inversePropertyName. Create relation on source table (e.g., customer has orders → update customer table with {"propertyName":"orders","type":"one-to-many","targetTable":{"${idFieldName}":<order_table_id>},"inversePropertyName":"customer"}). System automatically creates FK column "customerId" in order table. DO NOT update order table separately.
-- Many-to-one (M2O): Create relation on source table (e.g., product has category → update product table with {"propertyName":"category","type":"many-to-one","targetTable":{"${idFieldName}":<category_table_id>}}). System automatically creates FK column "categoryId" in product table. DO NOT update category table separately.
-- One-to-one (O2O): inversePropertyName is optional. Create relation on ONE side only (e.g., user has profile → update user table with {"propertyName":"profile","type":"one-to-one","targetTable":{"${idFieldName}":<profile_table_id>}}). System automatically creates FK column. DO NOT update profile table separately.
-- Many-to-many (M2M): MUST include inversePropertyName. Create relation on ONE side only (e.g., post has categories → update post table with {"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":<category_table_id>},"inversePropertyName":"posts"}). System automatically creates junction table and inverse relation. DO NOT update category table separately.
-- Cascade: Use cascade option to automatically delete/update related records when parent is deleted/updated (recommended for O2M and O2O)
-- Update EXACTLY ONE table_definition (source table) with data.relations array (merge existing relations, add new one)
-- System automatically handles: inverse relation, FK column creation, junction table (M2M). You only need to update ONE table.
+Relations:
+- Use update_table tool to add relations (recommended - handles everything automatically)
+- Find target table ID first, then: {"tableName": "post", "relations": [{"propertyName": "categories", "type": "many-to-many", "targetTable": {"id": <REAL_ID>}, "inversePropertyName": "posts"}]}
+- Create on ONE side only - system handles inverse automatically
+- O2M and M2M MUST include inversePropertyName
+- targetTable.id MUST be REAL ID from find result (never use IDs from history)
 
 Batch operations:
-- CRITICAL: When creating/updating tables (table_definition), do NOT use batch operations. Process each table sequentially (one create/update at a time). Batch operations are ONLY for data tables (post, category, etc.), NOT for metadata tables.
-- Example: Create 3 tables → 3 separate create calls, NOT batch_create
-- For data tables: Use batch_delete for 2+ delete operations (collect ALL IDs from find, then batch_delete with ids array)
-- For data tables: Use batch_create/batch_update for 5+ create/update operations
-- CRITICAL: When find returns multiple records, you MUST use batch operations with ALL collected IDs, not individual calls
-- batch_create: dataArray: [...]
-- batch_update: updates: [{id, data}, ...]
-- batch_delete: ids: [...]
+- Metadata tables (table_definition): Process sequentially, NO batch operations. CRITICAL: When deleting tables, delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks
+- Data tables: Use batch_delete for 2+ deletes, batch_create/batch_update for 5+ creates/updates
+- When find returns multiple records, collect ALL IDs and use batch operations (except table deletion - must be sequential)
 
-Example - Adding relation (workflow for ANY relation type):
-Step 1: Find SOURCE table ID by name (ALWAYS do this first):
-{"table":"table_definition","operation":"find","where":{"name":{"_eq":"post"}},"fields":"${idFieldName},name","limit":1}
-
-Step 2: Find TARGET table ID by name (ALWAYS do this second):
-{"table":"table_definition","operation":"find","where":{"name":{"_eq":"category"}},"fields":"${idFieldName},name","limit":1}
-
-Step 3: Verify both IDs exist from Step 1 and Step 2 results. If either is missing, STOP and report error.
-
-Step 4: Fetch current columns and relations from source table (CRITICAL - to check for conflicts and merge correctly):
-{"table":"table_definition","operation":"find","where":{"name":{"_eq":"post"}},"fields":"${idFieldName},columns.*,relations.*","limit":1}
-
-Step 5: Check for FK column conflicts (CRITICAL):
-- System generates FK column name from propertyName using camelCase: propertyName="order" → FK column="orderId", propertyName="user" → FK column="userId", propertyName="customer" → FK column="customerId"
-- CRITICAL: Check existing columns in Step 4 result. If table already has column "user_id", "order_id", "customer_id", "product_id" (snake_case) OR "userId", "orderId", "customerId", "productId" (camelCase), you MUST use a different propertyName to avoid conflict
-- Example: If table has "customer_id" or "customerId" column, use propertyName="buyer" instead of "customer", or use propertyName="owner" instead of "user"
-- If conflict exists, STOP and report error to user - do NOT proceed with relation creation
-
-Step 6: Merge new relation with existing relations (preserve ALL existing relations, especially system relations):
-- Get existing relations from Step 4 result
-- Add new relation to the array
-- NEVER replace the entire relations array - always merge
-- For system tables (user_definition, etc.), preserve ALL existing system relations
-
-Step 7: Update source table with merged relations:
-{"table":"table_definition","operation":"update","id":"<REAL_POST_ID_FROM_STEP1>","data":{"relations":[{...ALL existing relations from Step 4...},{"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":"<REAL_CATEGORY_ID_FROM_STEP2>"},"inversePropertyName":"posts"}]},"fields":"${idFieldName}"}
-
-CRITICAL WORKFLOW:
-1. ALWAYS find source table ID by name FIRST
-2. ALWAYS find target table ID by name SECOND
-3. ALWAYS verify both IDs exist before creating relation
-4. ALWAYS fetch current columns and relations from source table to check for conflicts
-5. CRITICAL: Check FK column conflict - system generates FK column from propertyName (e.g., propertyName="user" → FK column="userId"). If table already has "user_id" or similar column, use different propertyName or check if existing column can be used.
-6. NEVER use IDs from conversation history or previous operations
-7. NEVER use placeholder IDs like "X" or "new_table_id" - must use REAL IDs from find results
-8. ALWAYS merge relations - preserve ALL existing relations (especially system relations), never replace entire array
-9. For system tables (user_definition, etc.), preserve ALL existing system relations - only add new ones
-10. For O2M: include inversePropertyName and optionally cascade. Create relation on source table ONLY (e.g., customer → orders, update customer table).
-11. For M2M: include inversePropertyName, system handles inverse automatically. Create relation on ONE side ONLY (e.g., post → categories, update post table only).
-12. CRITICAL: Update ONLY the source table. NEVER update both source and target tables - this causes duplicate FK column errors. System automatically handles inverse relation, FK column creation, and junction table.
-13. If you need bidirectional relation (e.g., customer ↔ orders), create relation on ONE side only with inversePropertyName. System handles the inverse automatically.`;
+Best practices:
+- Use get_metadata to discover table names
+- Schema changes target *_definition tables only
+- Use _in filter to find multiple tables in one call
+- Always specify minimal fields parameter to save tokens`;
 
     const tableOpsHint = {
       category: 'table_operations',
@@ -491,55 +823,25 @@ CRITICAL WORKFLOW:
       content: tableOpsContent,
     };
 
-    const complexWorkflowsContent = `Workflow: Recreate tables with M2M relation
+    const complexWorkflowsContent = `Complex workflows - use tools for automatic handling:
 
-Goal: Delete existing post & category tables, recreate with M2M relation
+Recreate tables with relations:
+1. Find existing tables: {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
+2. Check permissions, then delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks: {"table":"table_definition","operation":"delete","id":<id1>}, then {"table":"table_definition","operation":"delete","id":<id2>}, etc.
+3. Use create_table tool to create new tables (validates automatically)
+4. Find new table IDs, then use update_table tool to add relations (merges automatically)
 
-Step-by-step (8-10 tool calls total):
-
-1. Ask user confirmation & outline plan FIRST
-
-2. Find existing table metadata (ONE query):
-   {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
-
-3. Permission checks (check once per unique table):
-   {"table":"post","operation":"delete"} → check_permission
-   {"table":"category","operation":"delete"} → check_permission
-
-4. Delete table metadata (ONE batch_delete call):
-   {"table":"table_definition","operation":"batch_delete","ids":["<post_table_${idFieldName}>","<category_table_${idFieldName}>"]}
-
-5. Create new tables (2 calls, include ALL columns + id, ALWAYS include fields parameter):
-   Post table:
-   {"table":"table_definition","operation":"create","data":{"name":"post","description":"Blog posts","columns":[{"name":"${idFieldName}","type":"int","isPrimary":true,"isGenerated":true},{"name":"title","type":"varchar","isNullable":false},{"name":"content","type":"text","isNullable":true}]},"fields":"${idFieldName},name"}
-
-   Category table:
-   {"table":"table_definition","operation":"create","data":{"name":"category","description":"Categories","columns":[{"name":"${idFieldName}","type":"int","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar","isNullable":false},{"name":"description","type":"text","isNullable":true}]},"fields":"${idFieldName},name"}
-
-6. Fetch newly created table IDs (ONE query):
-   {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
-
-7. Create M2M relation (ONE call, update post side only, ALWAYS include fields parameter):
-   {"table":"table_definition","operation":"update","id":"<new_post_${idFieldName}>","data":{"relations":[{"propertyName":"categories","type":"many-to-many","targetTable":{"${idFieldName}":"<new_category_${idFieldName}>"},"inversePropertyName":"posts"}]},"fields":"${idFieldName}"}
-
-8. Remind user to reload Admin UI
-
-Common mistakes to AVOID:
-❌ Calling get_table_details on data tables (post, category) for metadata work
+Common mistakes:
 ❌ Creating tables without id column
-❌ Defining createdAt/updatedAt manually
-❌ Updating both sides of M2M relation
-❌ Using findOne operation (use find with limit=1)
-❌ Multiple find calls instead of using _in filter
-❌ Not including all columns in table create
-❌ Deleting multiple tables one by one instead of using batch_delete with ids array
-❌ Not collecting all IDs before batch_delete (must find first, then batch_delete)
+❌ Including createdAt/updatedAt in columns
+❌ Updating both sides of relation
+❌ Multiple find calls instead of _in filter
+❌ Not using batch operations for multiple deletes
 
-Efficiency rules:
-✅ Use _in filter to find multiple tables in ONE call
-✅ Include complete data in create/update (avoid multiple calls)
-✅ Only operate on *_definition tables for metadata work
-✅ Never scan data tables when working with metadata`;
+Efficiency:
+✅ Use _in filter for multiple tables
+✅ Use create_table/update_table tools (automatic validation)
+✅ Use batch operations for data tables (not metadata tables)`;
 
     const complexWorkflowsHint = {
       category: 'complex_workflows',
@@ -547,11 +849,10 @@ Efficiency rules:
       content: complexWorkflowsContent,
     };
 
-    const errorContent = `Error protocol:
-- If a tool returns error=true → stop the entire workflow
-- Do not call additional tools after the failure
-- Report the error message/details back to the user
-- Delete operations require ${idFieldName}; fetch the record first if needed`;
+    const errorContent = `Error handling:
+- If tool returns error=true → stop workflow and report error to user
+- Tools have automatic retry logic - let them handle retries
+- Report exact error message from tool result to user`;
 
     const errorHint = {
       category: 'error_handling',
@@ -563,10 +864,12 @@ Efficiency rules:
 - Never guess table names from user phrasing
 - Use get_metadata to list tables and pick the closest match
 - Need structure? call get_table_details
+- Need multiple table structures? Use get_table_details with array: {"tableName": ["table1", "table2"]}
 
 Examples:
 - "route" → get_metadata → choose "route_definition"
-- "users" → get_metadata → choose "user_definition"`;
+- "users" → get_metadata → choose "user_definition"
+- Need schemas for post, category, and user → get_table_details with {"tableName": ["post", "category", "user_definition"]}`;
 
     const discoveryHint = {
       category: 'table_discovery',
@@ -574,28 +877,36 @@ Examples:
       content: discoveryContent,
     };
 
-    const permissionContent = `Permission & route access flow:
-1. Use check_permission tool before any CRUD operations (metadata tools are exempt)
-2. Permission check flow:
-   - Fetch current user: {"table":"user_definition","operation":"find","where":{"${idFieldName}":{"_eq":"$user.${idFieldName}"}},"fields":"${idFieldName},email,isRootAdmin,roles.${idFieldName}"}
-   - If isRootAdmin=true → allow immediately
-   - Otherwise fetch route_definition: {"table":"route_definition","operation":"find","where":{"path":{"_eq":"/resource-path"}},"fields":"routePermissions.methods.method,routePermissions.allowedUsers.${idFieldName},routePermissions.role.${idFieldName}"}
-   - Allow when: allowedUsers includes user OR allowedRoles matches user role OR user owns resource (createdBy.${idFieldName} === user.${idFieldName})
-   - If none match → deny and state reason
+    const permissionContent = `Permission checks - CRITICAL for business tables:
 
-Route access details:
-- @Public()/publishedMethods → allow
-- Missing JWT → 401
-- user.isRootAdmin → allow (skip remaining checks)
-- No matching routePermissions → 403
-- RoleGuard is disabled → authorization via routePermissions only
-- Use nested fields: "routePermissions.role.name", "routePermissions.methods.method"
-- After changes: POST /admin/reload/routes to refresh cache
+MANDATORY permission check:
+- You MUST call check_permission BEFORE any read/create/update/delete operation on business tables (non-metadata tables)
+- Business tables = any table that is NOT a *_definition table (e.g., "post", "user", "order", "product")
+- Permission check is MANDATORY for: user data, business data, any table that is NOT a metadata table
+- If you skip permission check without valid reason, the operation will fail
 
-Reminders:
-- Check permissions for read/create/update/delete (metadata tools are exempt)
-- Always return explicit denial messages
-- When uncertain, deny (fail-safe)`;
+Metadata tables exception:
+- Metadata tables (*_definition) operations may skip permission check by setting skipPermissionCheck=true in dynamic_repository
+- Example: {"table":"table_definition","operation":"find","skipPermissionCheck":true}
+- If you skip permission check, you MUST explain why in your reasoning
+
+How to use:
+1. Call check_permission first: {"table":"post","operation":"read"} or {"table":"post","operation":"create"}
+2. Check result.allowed - if true, proceed with dynamic_repository
+3. If false, stop and report reason to user
+4. Cache result per table/route+operation in same turn (reuse, don't repeat)
+
+check_permission automatically handles:
+- User lookup (from context)
+- Route lookup (if routePath provided)
+- Role matching (if roles configured)
+- Returns: {allowed: boolean, reason: string, userInfo: object, routeInfo: object}
+
+Tool executor validation:
+- Tool executor automatically validates permission for business tables
+- If permission check not found → warning logged (but operation may proceed)
+- If permission denied → operation fails immediately with error message
+- Metadata tables with skipPermissionCheck=true bypass validation`;
 
     const permissionHint = {
       category: 'permission_check',
@@ -635,9 +946,18 @@ Reminders:
       dataArray?: any[];
       updates?: Array<{ id: string | number; data: any }>;
       ids?: Array<string | number>;
+      skipPermissionCheck?: boolean;
     },
     context: TDynamicContext,
+    abortSignal?: AbortSignal,
   ): Promise<any> {
+    if (abortSignal?.aborted) {
+      return {
+        error: true,
+        errorCode: 'REQUEST_ABORTED',
+        message: 'Request aborted by client',
+      };
+    }
     if (args.operation === 'findOne') {
       args.operation = 'find' as any;
       if (!args.limit || args.limit > 1) {
@@ -692,6 +1012,38 @@ Reminders:
 
     await repo.init();
 
+    const isMetadataTable = args.table.endsWith('_definition');
+    const needsPermissionCheck =
+      !args.skipPermissionCheck &&
+      !isMetadataTable &&
+      ['find', 'create', 'update', 'delete', 'batch_create', 'batch_update', 'batch_delete'].includes(args.operation);
+
+    if (needsPermissionCheck) {
+      const permissionCache: Map<string, any> =
+        ((context as any).__permissionCache as Map<string, any>) ||
+        (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
+
+      const userId = context.$user?.id;
+      const operation = args.operation === 'find' ? 'read' : args.operation === 'batch_create' ? 'create' : args.operation === 'batch_update' ? 'update' : args.operation === 'batch_delete' ? 'delete' : args.operation;
+      const cacheKey = `${userId || 'anon'}|${operation}|${args.table}`;
+
+      if (!permissionCache.has(cacheKey)) {
+        this.logger.warn(
+          `[ToolExecutor] Permission check not found for ${operation} on ${args.table}. AI should have called check_permission first. Proceeding with operation, but this may fail if permission is denied.`,
+        );
+      } else {
+        const permissionResult = permissionCache.get(cacheKey);
+        if (!permissionResult?.allowed) {
+          return {
+            error: true,
+            errorCode: 'PERMISSION_DENIED',
+            message: `Permission denied for ${operation} operation on ${args.table}. Reason: ${permissionResult?.reason || 'unknown'}. You must call check_permission first and ensure allowed=true before performing this operation.`,
+            suggestion: `Call check_permission with table="${args.table}" and operation="${operation}" first to verify access.`,
+          };
+        }
+      }
+    }
+
     const preview: Record<string, any> = {
       operation: args.operation,
       table: args.table,
@@ -713,7 +1065,6 @@ Reminders:
     if (args.ids) {
       preview.idsLength = Array.isArray(args.ids) ? args.ids.length : 0;
     }
-    this.logger.log(`[ToolExecutor] dynamic_repository call → ${JSON.stringify(preview)}`);
 
     try {
       if (args.operation === 'delete' && !args.id) {
@@ -761,7 +1112,6 @@ Reminders:
           if (!args.data) {
             throw new Error('data is required for create operation');
           }
-          this.logger.log(`[ToolExecutor] dynamic_repository CREATE → table=${args.table}, fields=${args.fields || 'NOT SPECIFIED'}, dataKeys=${Object.keys(args.data || {}).join(',')}`);
           return await repo.create({ data: args.data, fields: args.fields });
         case 'update':
           if (!args.id) {
@@ -770,7 +1120,6 @@ Reminders:
           if (!args.data) {
             throw new Error('data is required for update operation');
           }
-          this.logger.log(`[ToolExecutor] dynamic_repository UPDATE → table=${args.table}, id=${args.id}, fields=${args.fields || 'NOT SPECIFIED'}, dataKeys=${Object.keys(args.data || {}).join(',')}`);
           return await repo.update({ id: args.id, data: args.data, fields: args.fields });
         case 'delete':
           if (!args.id) {
@@ -781,7 +1130,6 @@ Reminders:
           if (!args.dataArray || !Array.isArray(args.dataArray)) {
             throw new Error('dataArray (array) is required for batch_create operation');
           }
-          this.logger.log(`[ToolExecutor] dynamic_repository BATCH_CREATE → table=${args.table}, count=${args.dataArray.length}, fields=${args.fields || 'NOT SPECIFIED'}`);
           return Promise.all(
             args.dataArray.map(data => repo.create({ data, fields: args.fields }))
           );
@@ -789,7 +1137,6 @@ Reminders:
           if (!args.updates || !Array.isArray(args.updates)) {
             throw new Error('updates (array of {id, data}) is required for batch_update operation');
           }
-          this.logger.log(`[ToolExecutor] dynamic_repository BATCH_UPDATE → table=${args.table}, count=${args.updates.length}, fields=${args.fields || 'NOT SPECIFIED'}`);
           return Promise.all(
             args.updates.map(update => repo.update({ id: update.id, data: update.data, fields: args.fields }))
           );

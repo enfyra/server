@@ -33,6 +33,7 @@
     "@langchain/core": "^1.0.4",
     "@langchain/deepseek": "^1.0.0",
     "@langchain/google-genai": "^1.0.0",
+    "@langchain/langgraph": "^1.0.2",
     "@langchain/openai": "^1.1.0",
     "@liaoliaots/nestjs-redis": "^10.0.0",
     "@nestjs/common": "^11.0.0",

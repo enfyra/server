@@ -285,8 +285,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:square",
-            "description": "Cancel AI Agent streaming",
-            "publishedMethods": ["POST"]
+            "description": "Cancel AI Agent streaming"
         },
         {
             "path": "/ai_conversation_definition",

@@ -5,6 +5,10 @@ export function optimizeMetadataForLLM(tableMetadata: any): any {
     isSingleRecord: tableMetadata.isSingleRecord || false,
   };
 
+  if (tableMetadata.id !== undefined && tableMetadata.id !== null) {
+    optimized.id = tableMetadata.id;
+  }
+
   if (tableMetadata.uniques) {
     optimized.uniques = tableMetadata.uniques;
   }

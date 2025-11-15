@@ -392,7 +392,8 @@
             { "name": "messageCount", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 0, "description": "Cached count of messages in this conversation (user + assistant messages)" },
             { "name": "summary", "type": "text", "isNullable": true, "isSystem": true, "description": "Summary of old messages (created when conversation exceeds threshold)" },
             { "name": "lastSummaryAt", "type": "date", "isNullable": true, "isSystem": true, "description": "Timestamp when summary was last created or updated" },
-            { "name": "lastActivityAt", "type": "date", "isNullable": true, "isSystem": true, "description": "Timestamp of the last activity in this conversation (updated when new messages are added)" }
+            { "name": "lastActivityAt", "type": "date", "isNullable": true, "isSystem": true, "description": "Timestamp of the last activity in this conversation (updated when new messages are added)" },
+            { "name": "task", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Current active task for this conversation. Format: { type: string, status: 'pending'|'in_progress'|'completed'|'cancelled'|'failed', priority?: number, data?: any, result?: any, error?: string, createdAt?: Date, updatedAt?: Date }" }
         ],
         "relations": [
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "inversePropertyName": "aiConversations", "description": "User who owns this conversation" },

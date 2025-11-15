@@ -81,39 +81,72 @@ Returns:
   },
   {
     name: 'get_table_details',
-    description: `Purpose → load the full schema (columns, relations, indexes, constraints).
+    description: `Purpose → load the full schema (columns, relations, indexes, constraints), table ID, AND optionally table data for one or multiple tables.
 
 Use when:
 - Preparing create/update payloads that must match schema exactly
 - Investigating relation structure or constraints
+- Need to compare multiple tables' schemas
+- Need to check if tables have relations
+- Need to get table ID (e.g., for relations, updates) - the metadata includes the table ID field
+- Need to get actual table data by ID or name - set getData=true with id or name parameter (array with 1 element only)
+- CRITICAL: When you need table ID or table data, use this tool instead of querying table_definition with dynamic_repository
 
 Skip when:
 - You only need field names → prefer get_fields
 
 Inputs:
-- tableName (required) → exact table identifier as stored (case-sensitive)
+- tableName (required) → array of table names (case-sensitive). For single table, use array with 1 element: ["user_definition"]
 - forceRefresh (optional) true to reload metadata
+- getData (optional) true to fetch actual table data (requires id or name, array must have exactly 1 element)
+- id (optional) table record ID to fetch (requires getData=true, array must have exactly 1 element)
+- name (optional) table record name to fetch (requires getData=true, array must have exactly 1 element, searches by name column)
 
-Response highlights:
-- name, description, isSingleRecord, database type info
+Response format:
+- Returns object with table names as keys, each containing that table's metadata including id field (if available), and data field (if getData=true)
+- Example: {"product": {...}, "category": {...}, "order": {...}, "_errors": [...] if any errors}
+- Single table: {"user_definition": {...}}
+
+Response highlights (per table):
+- name, description, isSingleRecord, database type info, id (table metadata ID)
 - columns[] → {name,type,isNullable,isPrimary,defaultValue,isUnique}
 - relations[] → {propertyName,type,targetTable:{id:<REAL_ID_FROM_FIND>},inversePropertyName?,cascade?}
-- CRITICAL: targetTable.id MUST be REAL ID from database. ALWAYS find table_definition by name first to get current ID. NEVER use IDs from history.
-- indexes[] / uniques[] definitions
+  - To check if a table has relations: if relations array is empty [] or missing → no relations; if has items → has relations
+- data (if getData=true) → actual table record data matching id or name, or null if not found
+- CRITICAL: targetTable.id MUST be REAL ID from database. ALWAYS use get_table_details to get current ID. NEVER use IDs from history.
 
-Example:
-{"tableName":"user_definition"}`,
+Examples:
+Single table: {"tableName":["user_definition"]}
+Single table + data: {"tableName":["user_definition"],"getData":true,"id":123}
+Multiple tables: {"tableName":["product","category","order","order_item","customer"]}
+With force refresh: {"tableName":["product","category"],"forceRefresh":true}`,
     parameters: {
       type: 'object',
       properties: {
         tableName: {
-          type: 'string',
-          description: 'REQUIRED. The exact name of the table (e.g., "user_definition", "post", "route_definition"). Extract this from the user message.',
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description: 'REQUIRED. Array of table names. For single table, use array with 1 element: ["user_definition"]. For multiple tables: ["product", "category", "order"].',
         },
         forceRefresh: {
           type: 'boolean',
           description: 'Optional. Set to true to reload metadata from database. Default: false.',
           default: false,
+        },
+        getData: {
+          type: 'boolean',
+          description: 'Optional. Set to true to fetch actual table data. Requires id or name parameter. Default: false.',
+          default: false,
+        },
+        id: {
+          oneOf: [{ type: 'string' }, { type: 'number' }],
+          description: 'Optional. Table record ID to fetch. Requires getData=true. Use this to get a specific record by ID.',
+        },
+        name: {
+          type: 'string',
+          description: 'Optional. Table record name to fetch. Requires getData=true. Searches by name column (exact match).',
         },
       },
       required: ['tableName'],
@@ -152,41 +185,29 @@ Example request:
   },
   {
     name: 'get_hint',
-    description: `Purpose → CRITICAL fallback tool for comprehensive guidance when uncertain or confused. This is your SAFETY NET and KNOWLEDGE BASE.
+    description: `Purpose → Comprehensive guidance, examples, and checklists. Your SAFETY NET when uncertain.
 
-CRITICAL: Call get_hint IMMEDIATELY when:
-- Confidence drops below 100% on ANY operation (syntax, permissions, relations, M2M, batch operations, etc.)
-- You encounter an error you don't understand or cannot explain
-- You're unsure about the correct workflow or sequence of steps
-- You need detailed checklists before attempting complex operations (table creation, relation setup, batch operations)
-- User asks about something you're not 100% certain about
-- Tool returns unexpected results and you need guidance
+Call IMMEDIATELY when:
+- Confidence <100% on any operation
+- Encountering errors you don't understand
+- Unsure about workflow or sequence
+- Need checklists before complex operations
 
-STRATEGY: When in doubt, call get_hint FIRST before attempting operations. It's better to spend one extra tool call to get guidance than to make mistakes that waste tokens and cause errors.
+Available categories:
+- table_operations (MOST IMPORTANT) → Table creation, relations, batch operations
+- permission_check → Permission flows
+- field_optimization → Field selection, query optimization
+- database_type → Database-specific context
+- error_handling → Error protocols
+- table_discovery → Finding tables
+- complex_workflows → Step-by-step workflows
 
-Available categories (call with single category string, array of categories for multiple topics, or omit for all):
-- table_operations → Table creation, relations, batch operations, workflows (MOST IMPORTANT for Enfyra)
-- permission_check → Permission flows and route access
-- field_optimization → Field selection, nested relations, query optimization
-- database_type → Database-specific context (ID fields, types)
-- error_handling → Error protocols and recovery
-- table_discovery → Finding and identifying tables
-- complex_workflows → Step-by-step workflows for complex tasks
+Input: category (string) or categories (array) or omit for all
+Example: {"category":"table_operations"} or {"category":["table_operations","permission_check"]}
 
-TIP: When you need guidance on multiple related topics, use array format: {"category":["table_operations","permission_check"]} to get hints for multiple categories in one call.
+Returns: {dbType, idField, hints[], availableCategories[]}
 
-Returns:
-- dbType, idField (context-aware for current database)
-- hints[] → Comprehensive guidance with examples, checklists, and workflows
-- availableCategories (string[])
-
-Example requests:
-- {"category":"table_operations"} → Get guidance on table creation, relations, batch operations
-- {"category":["table_operations","permission_check"]} → Get multiple categories at once
-- {"category":"permission_check"} → Get guidance on permission flows
-- {} → Get ALL hints (use when completely confused or need comprehensive overview)
-
-REMEMBER: get_hint is your best friend. When confused, uncertain, or encountering errors → call get_hint immediately. Don't guess - get guidance.`,
+STRATEGY: When in doubt, call get_hint FIRST. Better to spend one tool call for guidance than make mistakes.`,
     parameters: {
       type: 'object',
       properties: {
@@ -214,44 +235,261 @@ REMEMBER: get_hint is your best friend. When confused, uncertain, or encounterin
     },
   },
   {
+    name: 'create_table',
+    description: `Purpose → Create a new table with automatic validation, FK conflict detection, and retry logic.
+
+This tool automatically:
+- Checks if table already exists (fails if exists - use update_table instead)
+- Validates table name (snake_case, lowercase), columns, relations
+- Validates target tables for relations
+- Checks FK column conflicts (system auto-generates FK columns from relation propertyName)
+- Retries on retryable errors
+
+CRITICAL - FK Columns:
+- System automatically generates FK columns from relation propertyName (e.g., "user" → "userId")
+- Do NOT manually create FK columns in columns array - system handles this automatically
+- If FK column name conflicts with existing column, use different propertyName
+
+CRITICAL - Create with Relations:
+- ALWAYS include relations in the initial create_table call. Do NOT create table first then update with relations
+- Include all relations in data.relations array from the start - this saves tool calls and time
+- For multiple related tables: Create tables with FK columns (M2O/O2O) BEFORE creating target tables they reference
+
+Inputs:
+- name (required): Table name (snake_case, lowercase)
+- description (optional): Table description
+- columns (required): Array of column definitions. MUST include id column with isPrimary=true, type="int" or "uuid". CRITICAL: Do NOT include createdAt/updatedAt - system auto-generates them. Do NOT include FK columns - system auto-generates them from relations
+- relations (optional): Array of relation definitions. targetTable.id MUST be REAL ID from find result. one-to-many and many-to-many MUST include inversePropertyName. System automatically creates FK columns. CRITICAL: Include relations here, not in separate update_table call
+- uniques (optional): Array of unique constraints (e.g., [["slug"], ["email", "username"]])
+- indexes (optional): Array of index definitions
+
+Output: {success: boolean, result?: object, errors?: array, stopReason?: string}
+
+For detailed examples and validation rules, call get_hint(category="table_operations")`,
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Table name (must be snake_case, lowercase, a-z0-9_)',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional table description',
+        },
+        columns: {
+          type: 'array',
+          items: {
+            type: 'object',
+          },
+          description: 'Array of column definitions. MUST include id column with isPrimary=true.',
+        },
+        relations: {
+          type: 'array',
+          items: {
+            type: 'object',
+          },
+          description: 'Optional array of relation definitions. targetTable.id must be REAL ID from find result.',
+        },
+        uniques: {
+          type: 'array',
+          items: {
+            type: 'array',
+            items: {
+              type: 'string',
+            },
+          },
+          description: 'Optional array of unique constraints. Format: [["slug"], ["email", "username"]]',
+        },
+        indexes: {
+          type: 'array',
+          items: {
+            type: 'object',
+          },
+          description: 'Optional array of index definitions',
+        },
+      },
+      required: ['name', 'columns'],
+    },
+  },
+  {
+    name: 'update_table',
+    description: `Purpose → Update an existing table with automatic validation, FK conflict detection, merging, and retry logic.
+
+This tool automatically:
+- Loads current table data
+- Validates update data (columns, relations)
+- Validates target tables for new relations
+- Checks FK column conflicts (system auto-generates FK columns from relation propertyName)
+- Merges update data with existing (preserves system columns/relations)
+- Retries on retryable errors
+
+CRITICAL - FK Columns:
+- System automatically generates FK columns from relation propertyName (e.g., "user" → "userId")
+- Do NOT manually create FK columns in columns array - system handles this automatically
+- If FK column name conflicts with existing column, use different propertyName
+
+Inputs:
+- tableName (required): Table name to update (must exist)
+- tableId (optional): Table ID for faster lookup
+- description (optional): New table description
+- columns (optional): Array of column definitions to add/update. Merged by name. CRITICAL: Do NOT include createdAt/updatedAt - system auto-generates them. Do NOT include FK columns - system auto-generates them from relations. System columns (id, createdAt, updatedAt) preserved automatically
+- relations (optional): Array of relation definitions to add/update. Merged by propertyName. targetTable.id MUST be REAL ID from find result. one-to-many and many-to-many MUST include inversePropertyName. System automatically creates FK columns
+- uniques (optional): Array of unique constraints (replaces existing)
+- indexes (optional): Array of index definitions (replaces existing)
+
+Output: {success: boolean, result?: object, errors?: array, stopReason?: string}
+
+For detailed examples and workflows, call get_hint(category="table_operations")`,
+    parameters: {
+      type: 'object',
+      properties: {
+        tableName: {
+          type: 'string',
+          description: 'Table name to update (must exist)',
+        },
+        tableId: {
+          type: 'number',
+          description: 'Optional table ID for faster lookup (if you already have it)',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional new table description',
+        },
+        columns: {
+          type: 'array',
+          items: {
+            type: 'object',
+          },
+          description: 'Optional array of column definitions to add/update. Columns are merged with existing columns by name.',
+        },
+        relations: {
+          type: 'array',
+          items: {
+            type: 'object',
+          },
+          description: 'Optional array of relation definitions to add/update. Relations are merged with existing relations by propertyName.',
+        },
+        uniques: {
+          type: 'array',
+          items: {
+            type: 'array',
+            items: {
+              type: 'string',
+            },
+          },
+          description: 'Optional array of unique constraints. Replaces existing uniques.',
+        },
+        indexes: {
+          type: 'array',
+          items: {
+            type: 'object',
+          },
+          description: 'Optional array of index definitions. Replaces existing indexes.',
+        },
+      },
+      required: ['tableName'],
+    },
+  },
+  {
+    name: 'update_task',
+    description: `Purpose → manage task state in conversation.
+
+Use when:
+- Starting a new task (create task with status='pending' or 'in_progress')
+- Updating task progress (status='in_progress', add data/result)
+- Completing task (status='completed' with result)
+- Cancelling task (status='cancelled')
+- Task failed (status='failed' with error)
+
+CRITICAL - Task Conflict Detection:
+- Before creating a new task, check if conversation already has a task with status='pending' or 'in_progress'
+- If new task type conflicts with existing task (e.g., create vs delete), cancel existing task first (status='cancelled')
+- If new task is continuation of existing task, update existing task instead of creating new one
+
+Task types:
+- create_table: Creating new tables
+- update_table: Updating existing tables
+- delete_table: Deleting tables
+- custom: Other custom tasks
+
+Task status flow:
+- pending → in_progress → completed/failed/cancelled
+
+Inputs:
+- conversationId (required): Current conversation ID
+- type (required): Task type (create_table|update_table|delete_table|custom)
+- status (required): Task status (pending|in_progress|completed|cancelled|failed)
+- data (optional): Task-specific data (e.g., table names, operations)
+- result (optional): Task result when completed
+- error (optional): Error message when failed
+- priority (optional): Task priority (default: 0, higher = more priority)
+
+Returns:
+- success (boolean)
+- task (object): Updated task object`,
+    parameters: {
+      type: 'object',
+      properties: {
+        conversationId: {
+          oneOf: [{ type: 'string' }, { type: 'number' }],
+          description: 'Current conversation ID. Required.',
+        },
+        type: {
+          type: 'string',
+          enum: ['create_table', 'update_table', 'delete_table', 'custom'],
+          description: 'Task type.',
+        },
+        status: {
+          type: 'string',
+          enum: ['pending', 'in_progress', 'completed', 'cancelled', 'failed'],
+          description: 'Task status.',
+        },
+        data: {
+          type: 'object',
+          description: 'Optional. Task-specific data (e.g., table names, operations).',
+        },
+        result: {
+          type: 'object',
+          description: 'Optional. Task result when status is completed.',
+        },
+        error: {
+          type: 'string',
+          description: 'Optional. Error message when status is failed.',
+        },
+        priority: {
+          type: 'number',
+          description: 'Optional. Task priority (default: 0, higher = more priority).',
+          default: 0,
+        },
+      },
+      required: ['conversationId', 'type', 'status'],
+    },
+  },
+  {
     name: 'dynamic_repository',
     description: `Purpose → single gateway for CRUD and batch operations.
 
-Planning checklist:
-1. Run check_permission for any read/create/update/delete on business tables.
-2. Use get_table_details / get_fields to understand columns or relations before writing.
-3. Metadata requests (tables/columns/relations/routes) must operate on *_definition tables only; never scan the data tables.
-4. CRITICAL: If ANY step is unclear, confusing, or you're uncertain → STOP and call get_hint(category="...") BEFORE using this tool. get_hint provides comprehensive guidance, examples, and checklists. Don't guess - get guidance first.
-5. Reuse tool outputs from this turn; only repeat a call if the scope or filters change.
-6. Table structure changes (columns/relations/indexes) must target table_definition / column_definition / relation_definition only; modifying actual data rows belongs to the non-definition tables.
+CRITICAL - Permission Check:
+- MUST call check_permission BEFORE any read/create/update/delete on business tables (non-metadata)
+- Metadata tables (*_definition) may skip with skipPermissionCheck=true
+- Permission check is MANDATORY for business tables
 
-Read (find):
-- Query only the fields the user requested.
-- For counts → limit=1 + meta="totalCount" (faster than limit=0).
-- Use nested filters/fields (e.g., "roles.name") instead of multiple queries.
+Operations:
+- find: Read records with filters, fields, limit, sort, meta
+- create/update/delete: Single record operations
+- batch_create/batch_update/batch_delete: Multiple records (use for 2+ deletes, 5+ creates/updates)
+- CRITICAL: Always specify minimal fields parameter for create/update (e.g., "id" or "id,name") to save tokens
 
-Write (create/update):
-- Match schema returned by get_table_details.
-- CRITICAL: After create/update, only fetch essential fields (e.g., "id,name" or just "id") using the fields parameter. Do NOT fetch all fields - this wastes tokens. Example: create({data: {...}, fields: "id,name"}) or update({id: X, data: {...}, fields: "id"}).
-- Relations (one-to-one, one-to-many, many-to-many): CRITICAL WORKFLOW - 1) Find source table ID by name, 2) Find target table ID by name, 3) Verify both exist, 4) Fetch current relations from source table, 5) Merge new relation with existing, 6) Update source table with REAL IDs. NEVER use IDs from history. targetTable.id MUST be REAL ID from find result (e.g., {"propertyName":"orderItems","type":"one-to-many","targetTable":{"id":<REAL_ID_FROM_FIND>},"inversePropertyName":"order","cascade":true}). One-to-many MUST include inversePropertyName. Many-to-many also requires inversePropertyName. Never issue a mirrored update on the inverse table.
-- Removing M2M: rewrite relations array on the surviving table.
+Best practices:
+- Use get_table_details/get_fields before writing to understand schema
+- Use nested filters/fields (e.g., "roles.name") instead of multiple queries
+- For counts: limit=1 + meta="totalCount" (faster than limit=0)
+- Metadata operations target *_definition tables only
+- Table_definition operations: process sequentially, NO batch operations
+- When find returns multiple records, collect ALL IDs and use batch operations
 
-Batch:
-- Use batch_delete for 2+ delete operations (collect ALL IDs from find, then batch_delete with ids array).
-- Use batch_create/batch_update for 5+ create/update operations.
-- CRITICAL: When find returns multiple records, you MUST use batch operations with ALL collected IDs, not individual calls.
-- EXCEPTION: For table_definition operations (creating/updating tables), do NOT use batch operations. Process each table sequentially (one create/update at a time). Batch operations are ONLY for data tables, NOT for metadata tables.
-
-Metadata workflow examples:
-- Create table: CRITICAL - First check if table exists by finding table_definition by name. If exists, skip creation. If not exists, create with {data: {name, description, columns: [...], relations: [...]}, fields: "id,name"}. CRITICAL: Do NOT include createdAt or updatedAt in columns array - system automatically adds them. Always include fields parameter (e.g., "id" or "id,name") to save tokens.
-- Drop table: find table_definition by name, then delete via dynamic_repository.delete using {id: tableId} (include meta="human_confirmed" after user confirmation). Always remind the user to reload the admin UI.
-- Add relation: CRITICAL WORKFLOW - 1) Find SOURCE table ID by name, 2) Find TARGET table ID by name, 3) Verify both IDs exist, 4) Fetch current columns.* and relations.* from source table to check for FK column conflicts, 5) Check FK column conflict: system generates FK column from propertyName using camelCase (e.g., "user" → "userId", "customer" → "customerId", "order" → "orderId"). CRITICAL: If table already has column "user_id"/"userId", "order_id"/"orderId", "customer_id"/"customerId", "product_id"/"productId" (check both snake_case and camelCase), you MUST use different propertyName (e.g., "buyer" instead of "customer"). If conflict exists, STOP and report error - do NOT proceed, 6) Merge new relation with ALL existing relations (preserve system relations), 7) Update ONLY the source table_definition with merged relations. CRITICAL: NEVER update both source and target tables - this causes duplicate FK column errors. System automatically handles inverse relation, FK column creation, and junction table. You only need to update ONE table. NEVER use IDs from history. NEVER use placeholder IDs. MUST use REAL IDs from find results. For system tables, preserve ALL existing system relations.
-
-Safety notes:
-- Do not mutate file_definition; it is read-only.
-- System tables (user_definition, role_definition, route_definition, etc.) should be extended, not rewritten—only add new columns/relations.
-    - Avoid redundant find calls (e.g., scanning \`post\`) when working on metadata; target *_definition tables directly.
-- Surface permission errors clearly to the user.`,
+For detailed workflows and examples, call get_hint(category="table_operations") or get_hint(category="complex_workflows")`,
     parameters: {
       type: 'object',
       properties: {
@@ -329,6 +567,12 @@ Safety notes:
             type: ['string', 'number'],
           },
           description: 'Array of IDs for batch_delete operation.',
+        },
+        skipPermissionCheck: {
+          type: 'boolean',
+          description:
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). CRITICAL: For business tables (non-metadata), you MUST call check_permission first. Default: false.',
+          default: false,
         },
       },
       required: ['table', 'operation'],

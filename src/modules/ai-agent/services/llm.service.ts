@@ -1,3 +1,4 @@
+
 import { Injectable, Logger, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
@@ -20,6 +21,7 @@ import { IToolCall, IToolResult } from '../interfaces/message.interface';
 import { createLLMContext } from '../utils/context.helper';
 import { ToolExecutor } from '../utils/tool-executor.helper';
 import { StreamEvent } from '../interfaces/stream-event.interface';
+import { ConversationService } from './conversation.service';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -51,6 +53,7 @@ export class LLMService {
     private readonly tableValidationService: TableValidationService,
     private readonly swaggerService: SwaggerService,
     private readonly graphqlService: GraphqlService,
+    private readonly conversationService: ConversationService,
   ) {
     this.toolExecutor = new ToolExecutor(
       this.metadataCacheService,
@@ -64,6 +67,7 @@ export class LLMService {
       this.tableValidationService,
       this.swaggerService,
       this.graphqlService,
+      this.conversationService,
     );
   }
 
@@ -108,7 +112,7 @@ export class LLMService {
     throw new BadRequestException(`Unsupported LLM provider: ${config.provider}`);
   }
 
-  private createTools(context: any): any[] {
+  private createTools(context: any, abortSignal?: AbortSignal): any[] {
     const toolDefFile = require('../utils/llm-tools.helper');
     const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
 
@@ -120,6 +124,10 @@ export class LLMService {
         description: toolDef.description,
         schema: zodSchema,
         func: async (input: any) => {
+          if (abortSignal?.aborted) {
+            throw new Error('Request aborted by client');
+          }
+
           const toolCall = {
             id: `tool_${Date.now()}_${Math.random()}`,
             function: {
@@ -128,7 +136,7 @@ export class LLMService {
             },
           };
 
-          const result = await this.toolExecutor.executeTool(toolCall, context);
+          const result = await this.toolExecutor.executeTool(toolCall, context, abortSignal);
           return JSON.stringify(result);
         },
       };
@@ -198,8 +206,6 @@ export class LLMService {
               try {
                 toolArgs = JSON.parse(toolArgs);
               } catch (e) {
-                const truncated = toolArgs.length > 200 ? toolArgs.substring(0, 200) + '... [truncated]' : toolArgs;
-                this.logger.warn(`[convertToLangChainMessages] Failed to parse tool arguments (${toolArgs.length} chars): ${truncated}`);
                 toolArgs = {};
               }
             }
@@ -274,7 +280,6 @@ export class LLMService {
 
         if (toolCalls.length === 0) {
           this.reportTokenUsage('chat', result);
-          this.logger.log(`[LLM] Tool calls executed: ${allToolCalls.length}`);
           return {
             content: result.content || '',
             toolCalls: allToolCalls,
@@ -397,7 +402,7 @@ export class LLMService {
     try {
       const llm = await this.createLLM(config);
       const context = createLLMContext(user);
-      const tools = this.createTools(context);
+      const tools = this.createTools(context, abortSignal);
 
       const llmWithTools = (llm as any).bindTools(tools);
       const provider = config.provider;
@@ -553,7 +558,6 @@ export class LLMService {
                   } else if (typeof delta === 'object' && delta.text) {
                     delta = delta.text;
                   } else {
-                    this.logger.warn(`[LLM Stream] chunk.content is unexpected type ${typeof delta}, stringifying`);
                     delta = JSON.stringify(delta);
                   }
                 }
@@ -586,8 +590,6 @@ export class LLMService {
                       },
                     };
                   } catch (e) {
-                    this.logger.warn(`[LLM Stream] Failed to parse aggregated arguments: ${argsString.substring(0, 100)}`);
-                    this.logger.warn(`[LLM Stream] Full tool call before parse: ${JSON.stringify(tc)}`);
                     return {
                       ...tc,
                       function: {
@@ -611,15 +613,10 @@ export class LLMService {
                 const toolCalls = this.getToolCallsFromResponse(chunk);
                 if (toolCalls.length > 0) {
                   currentToolCalls = toolCalls;
-                  this.logger.log(`[LLM Stream] Found ${toolCalls.length} tool calls in chunk ${i + 1}/${allChunks.length}`);
                   break;
                 }
               }
               
-              if (currentToolCalls.length === 0) {
-                this.logger.warn(`[LLM Stream] No tool calls found in any of ${allChunks.length} chunks. Checking aggregateResponse...`);
-                this.logger.debug(`[LLM Stream] Last chunk structure: ${JSON.stringify(Object.keys(aggregateResponse || {})).substring(0, 200)}`);
-              }
             }
           } else {
             aggregateResponse = await llmWithTools.invoke(conversationMessages);
@@ -664,7 +661,6 @@ export class LLMService {
           }
 
           if (isSocketError && (canStream || currentToolCalls.length > 0 || allToolCalls.length > 0)) {
-            this.logger.warn(`[LLM Stream] Socket closed but recovered ${currentToolCalls.length} current + ${allToolCalls.length} total tool calls`);
             onEvent({
               type: 'text',
               data: {
@@ -674,7 +670,6 @@ export class LLMService {
             });
             
             if (currentToolCalls.length === 0 && allToolCalls.length > 0) {
-              this.logger.log(`[LLM Stream] No current tool calls, but have ${allToolCalls.length} total. Returning partial result.`);
               const finalUsage = this.extractTokenUsage(aggregateResponse);
               if (finalUsage) {
                 accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
@@ -699,7 +694,6 @@ export class LLMService {
               };
             }
           } else if (canStream && currentToolCalls.length > 0) {
-            this.logger.warn(`[LLM Stream] Stream interrupted but recovered ${currentToolCalls.length} tool calls`);
             onEvent({
               type: 'text',
               data: {
@@ -726,9 +720,6 @@ export class LLMService {
           const toolCalls = this.getToolCallsFromResponse(aggregateResponse);
           if (toolCalls.length > 0) {
             currentToolCalls = toolCalls;
-            this.logger.log(`[LLM Stream] Found ${toolCalls.length} tool calls in aggregateResponse`);
-          } else {
-            this.logger.debug(`[LLM Stream] No tool calls found in aggregateResponse. Response keys: ${Object.keys(aggregateResponse || {}).join(', ')}`);
           }
         }
 
@@ -749,9 +740,28 @@ export class LLMService {
             });
           }
           
+          const finalContent = this.reduceContentToString(aggregateResponse?.content) || '';
+          if (finalContent) {
+            const previousFullContentLength = fullContent.length - currentContent.length;
+            const expectedFullContent = fullContent.substring(0, previousFullContentLength) + finalContent;
+            if (expectedFullContent.length > fullContent.length) {
+              const newContent = expectedFullContent.substring(fullContent.length);
+              if (newContent) {
+                fullContent = expectedFullContent;
+                await this.streamChunkedContent(newContent, abortSignal, (chunk) => {
+                  onEvent({
+                    type: 'text',
+                    data: {
+                      delta: chunk,
+                      text: fullContent,
+                    },
+                  });
+                });
+              }
+            }
+          }
+          
           this.reportTokenUsage('stream', aggregateResponse);
-          this.logger.log(`[LLM] Tool calls executed: ${allToolCalls.length}`);
-          this.logger.log(`[LLM] Final accumulated tokens → input=${accumulatedTokenUsage.inputTokens}, output=${accumulatedTokenUsage.outputTokens}`);
           return {
             content: fullContent,
             toolCalls: allToolCalls,
@@ -777,7 +787,6 @@ export class LLMService {
           .map((tc, index) => {
             const toolName = tc.function?.name || tc.name;
             if (!toolName) {
-              this.logger.warn(`[LLM Stream] Skipping tool call without name. Full tool call: ${JSON.stringify(tc)}`);
               return null;
             }
 
@@ -786,16 +795,11 @@ export class LLMService {
               try {
                 toolArgs = JSON.parse(toolArgs);
               } catch (e) {
-                this.logger.warn(`[LLM Stream] Failed to parse tool arguments: ${toolArgs}`);
                 toolArgs = {};
               }
             }
 
             const toolCallId = tc.id || tc.tool_call_id || `call_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            if (!tc.id && !tc.tool_call_id) {
-              this.logger.warn(`[LLM Stream] Tool call missing id, generated: ${toolCallId} for ${toolName}`);
-            }
 
             return {
               name: toolName,
@@ -807,7 +811,6 @@ export class LLMService {
           .filter((tc) => tc !== null) as any[];
 
         if (langchainToolCalls.length === 0) {
-          this.logger.warn(`[LLM Stream] No valid tool calls found after filtering. Original tool calls: ${JSON.stringify(currentToolCalls)}`);
           this.reportTokenUsage('stream', aggregateResponse, onEvent);
           return {
             content: fullContent,
@@ -842,7 +845,6 @@ export class LLMService {
             try {
               toolCallArgs = JSON.parse(toolArgs);
             } catch (e) {
-              this.logger.warn(`[LLM Stream] Failed to parse tool args for ${toolName}: ${toolArgs.substring(0, 100)}`);
               toolCallArgs = {};
             }
           } else if (toolArgs && typeof toolArgs === 'object') {
@@ -858,8 +860,6 @@ export class LLMService {
             },
           });
 
-          this.logger.log(`[LLM Stream] Tool call ${toolName} - args source: function.arguments=${!!tc.function?.arguments}, args=${!!tc.args}, arguments=${!!tc.arguments}`);
-          this.logger.log(`[LLM Stream] Tool call ${toolName} - raw toolArgs type: ${typeof toolArgs}, value: ${JSON.stringify(toolArgs)}`);
 
           let parsedArgs: any;
           if (typeof toolArgs === 'string') {
@@ -870,21 +870,15 @@ export class LLMService {
               try {
                 parsedArgs = JSON.parse(trimmedArgs);
               } catch (parseError) {
-                this.logger.error(`[LLM Stream] Failed to parse tool args string: ${toolArgs}`);
-                this.logger.error(`[LLM Stream] Full tool call: ${JSON.stringify(tc)}`);
                 parsedArgs = {};
-                this.logger.warn(`[LLM Stream] Using empty object as fallback for invalid JSON`);
               }
             }
           } else if (typeof toolArgs === 'object' && toolArgs !== null) {
             parsedArgs = toolArgs;
           } else {
-            this.logger.warn(`[LLM Stream] Tool args is ${typeof toolArgs}, using empty object`);
-            this.logger.warn(`[LLM Stream] Full tool call: ${JSON.stringify(tc)}`);
             parsedArgs = {};
           }
 
-          this.logger.log(`[LLM Stream] Executing ${toolName} with args: ${JSON.stringify(parsedArgs)}`);
 
           allToolCalls.push({
             id: toolId,
@@ -1009,7 +1003,6 @@ export class LLMService {
       const result: any = await (llm as any).invoke(lcMessages);
 
       this.reportTokenUsage('chatSimple', result);
-      this.logger.log('[LLM] Tool calls executed: 0');
 
       return {
         content: result.content as string,
@@ -1159,7 +1152,12 @@ export class LLMService {
       });
     }
 
-    this.logger.log(`[LLM] Tokens (${context}) → input=${inputTokens}, output=${outputTokens}`);
+    this.logger.debug({
+      context,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+    });
   }
 
   private extractTokenUsage(source: any): { inputTokens?: number; outputTokens?: number } | null {
@@ -1218,7 +1216,27 @@ export class LLMService {
     }
 
     if (name === 'get_metadata' || name === 'get_table_details') {
+      if (name === 'get_table_details') {
+        const tableName = toolArgs?.tableName;
+        if (Array.isArray(tableName)) {
+          const tableCount = tableName.length;
+          const tableNames = tableName.slice(0, 3).join(', ');
+          const moreInfo = tableCount > 3 ? ` (+${tableCount - 3} more)` : '';
+          return `[get_table_details] Executed for ${tableCount} table(s): ${tableNames}${moreInfo}. Schema details omitted to save tokens.`;
+        }
+        return `[get_table_details] Executed for table: ${tableName || 'unknown'}. Schema details omitted to save tokens. Re-run the tool if you need the raw metadata.`;
+      }
       return `[${name}] Executed. Schema details omitted to save tokens. Re-run the tool if you need the raw metadata.`;
+    }
+
+    if (name === 'update_table') {
+      if (result?.error) {
+        const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+        return `[update_table] ${toolArgs?.tableName || 'unknown'} -> ERROR: ${message.substring(0, 220)}`;
+      }
+      const tableName = result?.tableName || toolArgs?.tableName || 'unknown';
+      const updated = result?.updated || 'table metadata';
+      return `[update_table] ${tableName} -> SUCCESS: Updated ${updated}`;
     }
 
     if (name === 'check_permission') {
@@ -1256,7 +1274,7 @@ export class LLMService {
           const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
           if (length > 1) {
-            return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: You MUST delete ALL ${length} tables using batch_delete with ALL ${allIds.length} IDs: [${allIds.join(', ')}]. Do NOT delete only one table.`;
+            return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: For table deletion, you MUST delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks. Delete each table separately: delete id1, then delete id2, etc.`;
           }
           return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;
         }
