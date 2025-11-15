@@ -1738,8 +1738,8 @@ export class AiAgentService implements OnModuleInit {
   - CRITICAL: When dynamic_repository.find returns multiple records, collect ALL IDs and use batch_dynamic_repository.
 
 2. **Data Creation Rules**
-  - CRITICAL - Check Unique Constraints: BEFORE creating records, ALWAYS check if records with unique field values already exist. Use dynamic_repository.find to check existence first. Duplicate unique values will cause errors.
   - CRITICAL - Schema Check: BEFORE create/update operations, ALWAYS call get_table_details FIRST to check schema (required fields, unique constraints, relations).
+  - CRITICAL - Check Unique Constraints: BEFORE creating records, ALWAYS check if records with unique field values already exist. Use dynamic_repository.find to check existence first. Duplicate unique values will cause errors.
 
 5. **Error Handling & Fallback**
   - If confusion or error arises, immediately call get_hint(category="...").

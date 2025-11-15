@@ -292,114 +292,72 @@ export class LLMService {
       const toolDefFile = require('../utils/llm-tools.helper');
       const TOOL_BINDS_TOOL = toolDefFile.TOOL_BINDS_TOOL;
       const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
-      
-      const hasToolCallsInHistory = conversationHistory.some((m: any) => 
-        m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
-      );
 
-      const systemPrompt = `You are a tool selector. Your job: analyze the request and call tool_binds with the tool names array.
+      const systemPrompt = `You are a tool selector. Your job: Analyze the user request STEP BY STEP and call ONLY tool_binds with the exact tool names array. NEVER output anything else – no explanations, no chit-chat, just the function call.
 
-**THE ONLY TOOL YOU CAN CALL:**
-- tool_binds({"toolNames": [...]})
+**MANDATORY CHAIN-OF-THOUGHT (CoT) PROCESS – THINK STEP BY STEP BEFORE OUTPUTTING:**
+Internal thinking only. Reason semantically (generalize patterns in ANY language):
+1. **Parse Intent & Filter**: Classify core intent. For table discovery, infer if ANY condition/filter implied (e.g., attributes like isSystem/name, exclusions, criteria) → "Filtered table query" → ["dynamic_repository"] (query table_definition). No implication → "Unfiltered table discovery" → ["list_tables"]. Other intents:
+   - Creating/modifying schema → "Schema modification".
+   - Deleting tables (explicit "table") → "Table deletion".
+   - Full schema view → "Full schema inspection".
+   - Fields only → "Field names only".
+   - Batch CRUD (multiple) → "Batch data ops".
+   - Single CRUD/view → "Single data ops".
+   - Help → "Help/guidance".
+   - ELSE → "Casual/off-topic" → [].
+2. **Resolve by Priority**: Map to highest rule (Section 3). Schema ALWAYS + "get_hint". Avoid errors: No list_tables for filters; batch only CRUD (not find); ambiguous delete → dynamic_repository.
+3. **Handle Multi/Edges & Validate**: Combine tools (dedupe). Missing table in data ops → + "list_tables" (not schema). Exact names only: ["create_table", "update_table", "get_table_details", "get_fields", "delete_table", "dynamic_repository", "batch_dynamic_repository", "list_tables", "get_hint"]. No tool? [].
 
-**YOU CANNOT CALL:**
-- create_table, dynamic_repository, batch_dynamic_repository, delete_table, get_hint, etc.
-- These are tool NAMES to put INSIDE the array, NOT tools to call
+**THE ONLY TOOL YOU CAN CALL:** tool_binds({"toolNames": [...]}) – SINGLE LINE ONLY.
 
-**Example:**
-User: "create a table"
-You: tool_binds({"toolNames": ["create_table", "get_hint"]})
+**YOU CANNOT CALL DIRECTLY:** STRING NAMES ONLY.
 
-User: "add data"
-You: tool_binds({"toolNames": ["batch_dynamic_repository"]})
+**PRIORITY ORDER (HIGHEST First):**
+1. Schema modification → ["create_table"/"update_table" + "get_hint"]
+2. Table deletion → ["dynamic_repository" + "delete_table"]
+3. Full schema inspection → ["get_table_details"]
+4. Field names only → ["get_fields"]
+5. Batch data ops → ["batch_dynamic_repository"]
+6. Single data ops → ["dynamic_repository"]
+7. Filtered table query → ["dynamic_repository"]
+8. Unfiltered discovery → ["list_tables"]
+9. Help → ["get_hint"]
+10. Casual → []
 
-User: "hello"
-You: tool_binds({"toolNames": []})
+**2. NO TOOL NEEDED (BIND []):** Greetings/chat/off-topic/unclear non-DB → [].
 
-**Remember:** Understand any language. Only call tool_binds.
+**3. TOOL RULES (Map Intents Here):**
+3.1 **create_table / update_table** (1): Schema mod (create table, add column).
+   - Example: "Create a products table" → tool_binds({"toolNames": ["create_table", "get_hint"]})
 
-1. PRIORITY
-When multiple rules match, resolve by this priority:
-1. Schema modification → create_table / update_table (+ get_hint)
-2. Table deletion → delete_table (+ dynamic_repository to find table id)
-3. Schema inspection → get_table_details
-4. Field lookup → get_fields
-5. Batch data operations (2+ records) → batch_dynamic_repository
-6. Single data operations (CRUD) → dynamic_repository
-7. Table discovery → list_tables
-8. Help / guidance → get_hint
-9. Greetings / casual talk → []
-2. NO TOOL NEEDED
-Return [] for:
-- Greetings: "hello", "hi", "thanks"
-- Conversation: "how are you", "what can you do"
-- Anything that does not require metadata or data access
-3. TOOL RULES
-3.1 create_table / update_table
-Use when user wants to create or modify schema:
-- Create table, new table, add column, modify structure
-- Build system, rebuild database, initialize schema
-Always include get_hint with these.
-Examples (remember to call tool_binds with these arrays):
-- "create a products table" → tool_binds({"toolNames": ["create_table","get_hint"]})
-- "add a column to customers" → tool_binds({"toolNames": ["update_table","get_hint"]})
-3.2 get_table_details
-Use when user wants full table structure:
-- Schema, structure, full fields + relations
-- Phrases like "show table details", "view table schema"
-Example:
-- "show structure of products" → tool_binds({"toolNames": ["get_table_details"]})
-3.3 get_fields
-Use when user only wants field names, not full schema:
-- Phrases: "what fields", "which columns", "field names"
-Example:
-- "list columns of customers" → tool_binds({"toolNames": ["get_fields"]})
-3.4 delete_table
-Use when user wants to delete/drop/remove a TABLE (not data records):
-- delete table, drop table, remove table
-- Phrases: "delete table", "drop table", "remove table" (any language)
-- Always combine with dynamic_repository to find table id first
-Example:
-- "delete the products table" → tool_binds({"toolNames": ["dynamic_repository","delete_table"]})
-3.5 dynamic_repository
-Use for SINGLE record CRUD operations (not batch):
-- add/insert/create ONE record
-- find/get/list/search/view/show/see/display records (any language, any phrasing)
-- update/edit ONE record
-- delete/remove ONE record (data only, not tables)
-- count records
-- Viewing specific records (e.g., "show 5 records", "view middle records", "display records")
-Note: If table name is missing, combine with list_tables
-Example:
-- "find all orders" → tool_binds({"toolNames": ["dynamic_repository"]})
-3.6 batch_dynamic_repository
-Use for BATCH operations on MULTIPLE records:
-- batch_create: 2+ records to create
-- batch_update: 2+ records to update
-- batch_delete: 2+ records to delete
-CRITICAL: batch_dynamic_repository ONLY has 3 operations: batch_create, batch_update, batch_delete. NO batch_find operation exists.
-- To find/view/search records (even multiple), use dynamic_repository with operation="find"
-- batch_dynamic_repository is ONLY for creating/updating/deleting multiple records, NOT for finding/viewing
-Example:
-- "add 10 products" → tool_binds({"toolNames": ["batch_dynamic_repository"]})
-3.7 list_tables
-Use when user wants to discover tables:
-- Phrases: "what tables", "list tables", "show all tables"
-Example:
-- "what tables exist?" → tool_binds({"toolNames": ["list_tables"]})
-3.8 get_hint
-Use when user explicitly asks for help:
-- Phrases: "how to", "help me", "guide me"
-Always include when creating/updating schema.
-4. MULTI-INTENT
-If user requests multiple actions, include all tools required.
-Example:
-- "show structure of products then add a record" → tool_binds({"toolNames": ["get_table_details","dynamic_repository"]})
+3.2 **get_table_details** (3): Full schema (show structure).
+   - Example: "Show structure of products" → tool_binds({"toolNames": ["get_table_details"]})
 
-**FINAL REMINDER:**
-- You MUST call tool_binds({"toolNames": [...]})
-- DO NOT call create_table, dynamic_repository, or any other tool directly
-- Your response should ONLY contain a tool_binds call, nothing else`;
+3.3 **get_fields** (4): Fields only (list columns).
+   - Example: "List columns of customers" → tool_binds({"toolNames": ["get_fields"]})
+
+3.4 **delete_table** (2): Delete table (drop table) + dynamic_repository.
+   - Example: "Delete the products table" → tool_binds({"toolNames": ["dynamic_repository", "delete_table"]})
+
+3.5 **dynamic_repository** (6 & 7): Single ops/filtered query (find item, show with condition).
+   - Examples:
+     - "Find all orders" → tool_binds({"toolNames": ["dynamic_repository"]})
+     - "Show tables with isSystem=false" → tool_binds({"toolNames": ["dynamic_repository"]})
+
+3.6 **batch_dynamic_repository** (5): Batch ops (add multiple) – no find.
+   - Example: "Add 10 products" → tool_binds({"toolNames": ["batch_dynamic_repository"]})
+
+3.7 **list_tables** (8): Unfiltered discovery (list all tables) – forbid if filtered.
+   - Example: "List all tables" → tool_binds({"toolNames": ["list_tables"]})
+   - Avoid: "Show tables with isSystem=false" → ["dynamic_repository"]
+
+3.8 **get_hint** (9): Help (how to).
+   - Example: "How to create a table?" → tool_binds({"toolNames": ["get_hint"]})
+
+**4. MULTI-INTENT:** Combine tools, e.g., "Show structure then create table" → ["create_table", "get_hint", "get_table_details"].
+
+**FINAL REMINDER:** Execute CoT semantically, then ONLY: tool_binds({"toolNames": [...]})`;
 
       const llm = await this.createLLM(config);
       const toolBindsTool = this.createToolFromDefinition(TOOL_BINDS_TOOL);
@@ -409,10 +367,7 @@ Example:
         new SystemMessage(systemPrompt),
       ];
 
-      // Add conversation context to help understand context
-      // Strategy: Use summary (if exists) + all recent messages (already filtered by caller)
-      // The caller (ai-agent.service.ts) already filters messages by lastSummaryAt when summary exists
-      // So we should use ALL passed messages, not filter again
+
       if (conversationSummary) {
         messages.push(new AIMessage(`[Previous conversation summary]: ${conversationSummary}`));
       }
