@@ -8,27 +8,91 @@ interface ToolDefinition {
   };
 }
 
+export const TOOL_BINDS_TOOL: ToolDefinition = {
+  name: 'tool_binds',
+  description: `Purpose → select which tools are needed for the current request.
+
+Use this tool FIRST to determine which tools should be available for this conversation turn.
+
+Inputs:
+- toolNames (required): array of tool names to bind for this request
+
+Available tools:
+- check_permission: Verify access before data operations
+- list_tables: Get list of all tables
+- get_table_details: Get full schema and optionally table data
+- get_metadata: Get system metadata
+- get_fields: Get field list for reads
+- dynamic_repository: CRUD operations on tables
+- get_hint: Get comprehensive guidance when uncertain
+
+Examples:
+- Simple greeting: {"toolNames": []}
+- Data operation: {"toolNames": ["check_permission", "dynamic_repository"]}
+- Schema query: {"toolNames": ["get_table_details"]}
+- Need guidance: {"toolNames": ["get_hint"]}`,
+  parameters: {
+    type: 'object',
+    properties: {
+      toolNames: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'check_permission',
+            'list_tables',
+            'get_table_details',
+            'get_metadata',
+            'get_fields',
+            'dynamic_repository',
+            'get_hint',
+          ],
+        },
+        description: 'Array of tool names to bind for this request. Use empty array [] if no tools are needed.',
+      },
+    },
+    required: ['toolNames'],
+  },
+};
+
 export const COMMON_TOOLS: ToolDefinition[] = [
   {
     name: 'check_permission',
     description: `Purpose → verify access before any data operation.
 
-CRITICAL - Call ONCE per table+operation:
+Required workflow for business tables (non-metadata):
+1. Call check_permission FIRST: {"table":"product","operation":"create"}
+2. Wait for result: {"allowed":true,"reason":"..."}
+3. If allowed=true → proceed with dynamic_repository
+4. If allowed=false → STOP, inform user
+
+Example - Creating a product:
+Step 1: check_permission({"table":"product","operation":"create"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"product","operation":"create","data":{...}})
+
+Example - Reading orders:
+Step 1: check_permission({"table":"order","operation":"read"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"order","operation":"find",...})
+
+Call ONCE per table+operation:
 - Call check_permission ONLY ONCE for each unique table+operation combination
 - After calling check_permission, REUSE the result for all subsequent operations on the same table+operation
 - Do NOT call check_permission multiple times for the same table+operation in the same response
 - If you already called check_permission for "table=order_item, operation=delete", do NOT call it again - reuse the previous result
 
 Use when:
-- Handling read/create/update/delete on protected data
+- Handling read/create/update/delete on protected data (required for business tables)
 - User targets restricted tables or admin routes
 - No check_permission result exists yet for the same table/route and operation in this response
 
 Skip when:
-- Only calling get_metadata, get_table_details, get_fields, get_hint
+- Only calling get_metadata, get_table_details, get_fields, get_hint (these don't require permission)
 - Answering casual questions without touching data
 - A matching check_permission result already exists in this response (reuse it instead of calling again)
 - You already called check_permission for the same table+operation earlier in this response
+- Metadata tables (*_definition) - these may skip permission check
 
 Inputs:
 - operation (required): read | create | update | delete
@@ -260,13 +324,13 @@ This tool automatically:
 - Checks FK column conflicts (system auto-generates FK columns from relation propertyName)
 - Retries on retryable errors
 
-CRITICAL - FK Columns:
+FK Columns:
 - System automatically generates FK columns from relation propertyName (e.g., "user" → "userId")
 - Do NOT manually create FK columns in columns array - system handles this automatically
 - If FK column name conflicts with existing column, use different propertyName
 
-CRITICAL - Create with Relations:
-- ALWAYS include relations in the initial create_table call. Do NOT create table first then update with relations
+Create with Relations:
+- Include relations in the initial create_table call. Do NOT create table first then update with relations
 - Include all relations in data.relations array from the start - this saves tool calls and time
 - For multiple related tables: Create tables with FK columns (M2O/O2O) BEFORE creating target tables they reference
 
@@ -339,10 +403,17 @@ This tool automatically:
 - Merges update data with existing (preserves system columns/relations)
 - Retries on retryable errors
 
-CRITICAL - FK Columns:
+FK Columns:
 - System automatically generates FK columns from relation propertyName (e.g., "user" → "userId")
 - Do NOT manually create FK columns in columns array - system handles this automatically
 - If FK column name conflicts with existing column, use different propertyName
+
+Example:
+update_table({
+  "tableName": "product",
+  "columns": [{"name":"stock","type":"int"}],
+  "relations": [{"propertyName":"supplier","type":"many-to-one","targetTable":{"id":2}}]
+})
 
 Inputs:
 - tableName (required): Table name to update (must exist)
@@ -485,44 +556,56 @@ Returns:
     name: 'dynamic_repository',
     description: `Purpose → single gateway for CRUD and batch operations.
 
-CRITICAL - Sequential Execution:
-- ALWAYS execute operations ONE AT A TIME, step by step
+Example - Creating a product:
+Step 1: check_permission({"table":"product","operation":"create"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"product","operation":"create","data":{"name":"Product 1","price":100}})
+
+Example - Reading orders:
+Step 1: check_permission({"table":"order","operation":"read"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
+
+Example - Updating customer:
+Step 1: check_permission({"table":"customer","operation":"update"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"customer","operation":"update","where":{"id":{"_eq":1}},"data":{"name":"New Name"}})
+
+Metadata tables (*_definition) can skip permission check:
+- dynamic_repository({"table":"table_definition","operation":"find","skipPermissionCheck":true})
+
+Sequential Execution:
+- Execute operations ONE AT A TIME, step by step
 - Do NOT call multiple dynamic_repository operations simultaneously
 - Execute first operation → wait for result → analyze → proceed to next
-- If you call multiple operations at once and one fails, you'll have to retry all, causing duplicates
 - Example: If deleting from multiple tables, delete from table1 → wait for result → delete from table2 → wait for result → continue
-- This prevents errors, duplicate operations, and ensures proper error handling
 
-CRITICAL - Schema Check (MANDATORY for create/update):
-- BEFORE creating or updating records, you MUST call get_table_details to get the full schema
+Schema Check (for create/update):
+- Before creating or updating records, call get_table_details to get the full schema
 - Check which columns are required (isNullable=false) and have default values
 - Ensure your data object includes ALL required fields (not-null constraints)
 - Common required fields: id (auto-generated), createdAt/updatedAt (auto-generated), but check for others like slug, stock, order_number, etc.
-- If you skip schema check and get constraint errors, you MUST call get_table_details to fix the issue
-
-CRITICAL - Permission Check:
-- MUST call check_permission BEFORE any read/create/update/delete on business tables (non-metadata)
-- Metadata tables (*_definition) may skip with skipPermissionCheck=true
-- Permission check is MANDATORY for business tables
+- If you get constraint errors, call get_table_details to fix the issue
 
 Operations:
 - find: Read records with filters, fields, limit, sort, meta
 - create/update/delete: Single record operations
 - batch_create/batch_update/batch_delete: Multiple records (use for 2+ deletes, 5+ creates/updates)
-- CRITICAL: Always specify minimal fields parameter for create/update (e.g., "id" or "id,name") to save tokens
+- Always specify minimal fields parameter for create/update (e.g., "id" or "id,name") to save tokens
 
 Workflow for create/update:
-1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
-2. Check permission with check_permission if needed (MANDATORY for business tables)
-3. For relations (foreign keys): You MUST verify the referenced record exists first
+1. Call check_permission FIRST: {"table":"product","operation":"create"} → wait for result
+2. If allowed=true → call get_table_details with tableName to get schema (required fields, types, defaults, relations)
+3. If allowed=false → STOP, inform user
+4. For relations (foreign keys): You MUST verify the referenced record exists first
    - Example: If creating product with category relation, first call dynamic_repository with find to check if category exists
    - NEVER use hardcoded IDs without verifying they exist
    - If the referenced record doesn't exist, create it first or use an existing ID
 4. Prepare data object with ALL required fields (check schema for isNullable=false fields)
-   - CRITICAL: Use EXACT column names from get_table_details (they are in snake_case format, e.g., order_number, unit_price, not camelCase like orderNumber, unitPrice)
+   - Use EXACT column names from get_table_details (they are in snake_case format, e.g., order_number, unit_price, not camelCase like orderNumber, unitPrice)
    - Column names in database are ALWAYS snake_case, never camelCase
    - If you see an error about missing column, check if you used camelCase instead of snake_case
-5. CRITICAL - Relations Format (TypeORM style):
+5. Relations Format (TypeORM style):
    - Use propertyName from relations array (e.g., "category", "customer", "order"), NOT FK column names (e.g., "category_id", "customerId")
    - Format: {"category": {"id": 19}} OR {"category": 19} (pass object with id, or just id directly)
    - NEVER use FK column names like "category_id", "customerId", "orderId" - these are auto-generated by system
@@ -531,7 +614,7 @@ Workflow for create/update:
 6. Call dynamic_repository with create/update operation
 
 Best practices:
-- Use get_table_details/get_fields before writing to understand schema - THIS IS MANDATORY
+- Use get_table_details/get_fields before writing to understand schema
 - Use nested filters/fields (e.g., "roles.name") instead of multiple queries
 - For counts: limit=1 + meta="totalCount" (faster than limit=0)
 - Metadata operations target *_definition tables only
@@ -620,7 +703,7 @@ For detailed workflows and examples, call get_hint(category="table_operations") 
         skipPermissionCheck: {
           type: 'boolean',
           description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). CRITICAL: For business tables (non-metadata), you MUST call check_permission first. Default: false.',
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). For business tables (non-metadata), call check_permission first. Default: false.',
           default: false,
         },
       },
