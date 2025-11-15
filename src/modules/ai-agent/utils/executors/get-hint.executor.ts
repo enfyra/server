@@ -1,5 +1,8 @@
+import { Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+
+const logger = new Logger('GetHintExecutor');
 
 export interface GetHintExecutorDependencies {
   queryBuilder: QueryBuilderService;
@@ -10,6 +13,7 @@ export async function executeGetHint(
   context: TDynamicContext,
   deps: GetHintExecutorDependencies,
 ): Promise<any> {
+  logger.debug(`[get_hint] Called with category=${JSON.stringify(args.category)}`);
   const { queryBuilder } = deps;
   const dbType = queryBuilder.getDbType();
   const isMongoDB = dbType === 'mongodb';
@@ -20,7 +24,9 @@ export async function executeGetHint(
   const dbTypeContent = `Database context:
 - Engine: ${dbType}
 - ID field: ${isMongoDB ? '"_id"' : '"id"'}
-- New table ID type → ${isMongoDB ? '"uuid"' : '"int" (auto increment) hoặc "uuid"'}
+- New table ID type → ${isMongoDB ? '"uuid" (REQUIRED for MongoDB)' : '"int" (PREFERRED for SQL, auto increment) or "uuid"'}
+- CRITICAL: For SQL databases, ALWAYS use type="int" for id column unless you have a specific reason to use uuid
+- CRITICAL: For MongoDB, you MUST use type="uuid" for _id column
 - Relation payload → {${isMongoDB ? '"_id"' : '"id"'}: value}`;
 
   const dbTypeHint = {
@@ -75,7 +81,7 @@ Sample nested query:
 Creating tables:
 - Use create_table tool (automatically checks existence, validates, handles errors)
 - Check if table exists first: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"${idFieldName},name","limit":1}
-- CRITICAL: Every table MUST have "${idFieldName}" column with isPrimary=true, type="int" (SQL) or "uuid" (MongoDB)
+- CRITICAL: Every table MUST have "${idFieldName}" column with isPrimary=true, type="int" (SQL - PREFERRED) or "uuid" (MongoDB - REQUIRED)
 - CRITICAL: NEVER include createdAt/updatedAt in columns - system auto-generates them
 - Include ALL columns in one create call (excluding createdAt/updatedAt)
 
@@ -85,6 +91,8 @@ Updating tables:
 - System columns (id, createdAt, updatedAt) automatically preserved
 
 Relations:
+- CRITICAL: When creating/updating relations, type field is REQUIRED. Must be one of: "one-to-one", "many-to-one", "one-to-many", "many-to-many"
+- Format: {"propertyName": "user", "type": "many-to-one", "targetTable": {"id": <REAL_ID>}, "inversePropertyName": "orders"} (for O2M/M2M)
 - Use update_table tool to add relations (recommended - handles everything automatically)
 - Find target table ID first, then: {"tableName": "post", "relations": [{"propertyName": "categories", "type": "many-to-many", "targetTable": {"id": <REAL_ID>}, "inversePropertyName": "posts"}]}
 - Create on ONE side only - system handles inverse automatically
@@ -178,6 +186,9 @@ Examples:
   if (args.category) {
     const categories = Array.isArray(args.category) ? args.category : [args.category];
     filteredHints = allHints.filter(h => categories.includes(h.category));
+    logger.debug(`[get_hint] Filtered to ${filteredHints.length} hints for categories: ${categories.join(', ')}`);
+  } else {
+    logger.debug(`[get_hint] Returning all ${allHints.length} hints`);
   }
 
   return {

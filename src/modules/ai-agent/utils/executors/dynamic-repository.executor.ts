@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
 import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../../table-management/services/table-handler.service';
@@ -19,8 +20,20 @@ import {
 } from '../error-recovery.helper';
 import { executeCheckPermission, CheckPermissionExecutorDependencies } from './check-permission.executor';
 
+const logger = new Logger('DynamicRepositoryExecutor');
+
 export interface DynamicRepositoryExecutorDependencies extends CheckPermissionExecutorDependencies {
   metadataCacheService: MetadataCacheService;
+  queryBuilder: QueryBuilderService;
+  tableHandlerService: TableHandlerService;
+  queryEngine: QueryEngine;
+  routeCacheService: RouteCacheService;
+  storageConfigCacheService: StorageConfigCacheService;
+  aiConfigCacheService: AiConfigCacheService;
+  systemProtectionService: SystemProtectionService;
+  tableValidationService: TableValidationService;
+  swaggerService: SwaggerService;
+  graphqlService: GraphqlService;
 }
 
 export async function executeDynamicRepository(
@@ -43,7 +56,19 @@ export async function executeDynamicRepository(
   abortSignal: AbortSignal | undefined,
   deps: DynamicRepositoryExecutorDependencies,
 ): Promise<any> {
+  logger.debug(`[dynamic_repository] Called with operation=${args.operation}, table=${args.table}`, {
+    operation: args.operation,
+    table: args.table,
+    hasWhere: !!args.where,
+    hasData: !!args.data,
+    hasDataArray: !!args.dataArray,
+    fields: args.fields,
+    limit: args.limit,
+    id: args.id,
+  });
+
   if (abortSignal?.aborted) {
+    logger.debug(`[dynamic_repository] Request aborted`);
     return {
       error: true,
       errorCode: 'REQUEST_ABORTED',
@@ -52,6 +77,7 @@ export async function executeDynamicRepository(
   }
 
   if (args.table === 'table_definition' && (args.operation === 'create' || args.operation === 'update' || args.operation === 'batch_create' || args.operation === 'batch_update')) {
+    logger.debug(`[dynamic_repository] Invalid operation: cannot ${args.operation} table_definition`);
     return {
       error: true,
       errorCode: 'INVALID_OPERATION',
@@ -109,6 +135,7 @@ export async function executeDynamicRepository(
     ['find', 'create', 'update', 'delete', 'batch_create', 'batch_update', 'batch_delete'].includes(args.operation);
 
   if (needsPermissionCheck) {
+    logger.debug(`[dynamic_repository] Checking permission for ${args.operation} on ${args.table}`);
     const permissionCache: Map<string, any> =
       ((context as any).__permissionCache as Map<string, any>) ||
       (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
@@ -125,7 +152,9 @@ export async function executeDynamicRepository(
           context,
           deps,
         );
+        logger.debug(`[dynamic_repository] Permission check result: allowed=${permissionResult?.allowed}, reason=${permissionResult?.reason || 'N/A'}`);
         if (!permissionResult?.allowed) {
+          logger.debug(`[dynamic_repository] Permission denied for ${operation} on ${args.table}`);
           return {
             error: true,
             errorCode: 'PERMISSION_DENIED',
@@ -135,10 +164,13 @@ export async function executeDynamicRepository(
             reason: permissionResult?.reason || 'unknown',
           };
         }
+        permissionCache.set(cacheKey, permissionResult);
       }
     } else {
       const permissionResult = permissionCache.get(cacheKey);
+      logger.debug(`[dynamic_repository] Using cached permission: allowed=${permissionResult?.allowed}`);
       if (!permissionResult?.allowed) {
+        logger.debug(`[dynamic_repository] Cached permission denied for ${operation} on ${args.table}`);
         return {
           error: true,
           errorCode: 'PERMISSION_DENIED',
@@ -206,20 +238,33 @@ export async function executeDynamicRepository(
       }
     }
 
+    // Ensure fields has a valid value (at least 'id') to avoid query engine issues
+    const safeFields = args.fields && args.fields.trim() ? args.fields : 'id';
+
+    let result: any;
     switch (args.operation) {
       case 'find':
-        return await repo.find({
+        logger.debug(`[dynamic_repository] Executing find on ${args.table}`, { where: args.where, fields: args.fields, limit: args.limit });
+        result = await repo.find({
           where: args.where,
           fields: args.fields,
           limit: args.limit,
           sort: args.sort,
           meta: args.meta,
         });
+        logger.debug(`[dynamic_repository] Find result: ${Array.isArray(result?.data) ? result.data.length : 0} records`);
+        return result;
       case 'create':
         if (!args.data) {
           throw new Error('data is required for create operation');
         }
-        return await repo.create({ data: args.data, fields: args.fields });
+        if (args.data.id !== undefined) {
+          throw new Error('CRITICAL: Do NOT include "id" field in create operations. The database will automatically generate the id. Remove "id" from your data object and try again.');
+        }
+        logger.debug(`[dynamic_repository] Executing create on ${args.table}`, { dataKeys: Object.keys(args.data), fields: safeFields });
+        result = await repo.create({ data: args.data, fields: safeFields });
+        logger.debug(`[dynamic_repository] Create result: id=${result?.data?.id || result?.data?._id || 'N/A'}`);
+        return result;
       case 'update':
         if (!args.id) {
           throw new Error('id is required for update operation');
@@ -227,38 +272,58 @@ export async function executeDynamicRepository(
         if (!args.data) {
           throw new Error('data is required for update operation');
         }
-        return await repo.update({ id: args.id, data: args.data, fields: args.fields });
+        logger.debug(`[dynamic_repository] Executing update on ${args.table}`, { id: args.id, dataKeys: Object.keys(args.data), fields: safeFields });
+        result = await repo.update({ id: args.id, data: args.data, fields: safeFields });
+        logger.debug(`[dynamic_repository] Update result: success=${!!result?.data}`);
+        return result;
       case 'delete':
         if (!args.id) {
           throw new Error('id is required for delete operation');
         }
-        return await repo.delete({ id: args.id });
+        logger.debug(`[dynamic_repository] Executing delete on ${args.table}`, { id: args.id });
+        result = await repo.delete({ id: args.id });
+        logger.debug(`[dynamic_repository] Delete result: success=${!!result}`);
+        return result;
       case 'batch_create':
         if (!args.dataArray || !Array.isArray(args.dataArray)) {
           throw new Error('dataArray (array) is required for batch_create operation');
         }
-        return Promise.all(
-          args.dataArray.map(data => repo.create({ data, fields: args.fields }))
+        const itemsWithId = args.dataArray.filter((item: any) => item.id !== undefined);
+        if (itemsWithId.length > 0) {
+          throw new Error(`CRITICAL: Do NOT include "id" field in batch_create operations. The database will automatically generate the id. Found "id" field in ${itemsWithId.length} item(s). Remove "id" from all data objects and try again.`);
+        }
+        logger.debug(`[dynamic_repository] Executing batch_create on ${args.table}`, { count: args.dataArray.length, fields: safeFields });
+        result = await Promise.all(
+          args.dataArray.map(data => repo.create({ data, fields: safeFields }))
         );
+        logger.debug(`[dynamic_repository] Batch_create result: ${result.length} records created`);
+        return result;
       case 'batch_update':
         if (!args.updates || !Array.isArray(args.updates)) {
           throw new Error('updates (array of {id, data}) is required for batch_update operation');
         }
-        return Promise.all(
-          args.updates.map(update => repo.update({ id: update.id, data: update.data, fields: args.fields }))
+        logger.debug(`[dynamic_repository] Executing batch_update on ${args.table}`, { count: args.updates.length, fields: safeFields });
+        result = await Promise.all(
+          args.updates.map(update => repo.update({ id: update.id, data: update.data, fields: safeFields }))
         );
+        logger.debug(`[dynamic_repository] Batch_update result: ${result.length} records updated`);
+        return result;
       case 'batch_delete':
         if (!args.ids || !Array.isArray(args.ids)) {
           throw new Error('ids (array) is required for batch_delete operation');
         }
-        return Promise.all(
+        logger.debug(`[dynamic_repository] Executing batch_delete on ${args.table}`, { count: args.ids.length });
+        result = await Promise.all(
           args.ids.map(id => repo.delete({ id }))
         );
+        logger.debug(`[dynamic_repository] Batch_delete result: ${result.length} records deleted`);
+        return result;
       default:
         throw new Error(`Unknown operation: ${args.operation}`);
     }
   } catch (error: any) {
     const errorMessage = error?.message || error?.response?.message || String(error);
+    logger.error(`[dynamic_repository] Error in ${args.operation} on ${args.table}: ${errorMessage}`, error?.stack);
     const recovery = getRecoveryStrategy(error);
     const details = error?.details || error?.response?.details || {};
 
@@ -274,7 +339,6 @@ export async function executeDynamicRepository(
       error?.code === 'PERMISSION_DENIED';
 
     if (isPermissionError) {
-      const isMetadataTable = args.table?.endsWith('_definition');
       return {
         error: true,
         errorCode: 'PERMISSION_DENIED',
@@ -312,6 +376,30 @@ export async function executeDynamicRepository(
           foreignKeyColumn: fkColumn,
           referencedTable: refTable,
           table: args.table,
+        },
+      };
+    }
+
+    // Detect if LLM is trying to use table name as id value (common mistake when deleting tables)
+    const isTableNameAsIdError =
+      (args.operation === 'delete' || args.operation === 'update') &&
+      (errorMessage.includes('operator does not exist: character varying = uuid') ||
+        errorMessage.includes('operator does not exist') && errorMessage.includes('character varying')) &&
+      (args.where?.id?._eq === args.table || args.id === args.table);
+
+    if (isTableNameAsIdError) {
+      return {
+        error: true,
+        errorType: 'INVALID_INPUT',
+        errorCode: 'TABLE_NAME_AS_ID',
+        message: `Cannot use table name "${args.table}" as id value. To delete a TABLE (not data), you must delete the table_definition record.`,
+        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name"}\n2. Get the id (number) from the result\n3. Delete the table_definition record: {"table":"table_definition","operation":"delete","id":<id_from_step_1>}\n\n💡 **Note**: Using delete operation on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must delete the table_definition record.`,
+        suggestion: `To delete table "${args.table}", first find it in table_definition: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name"}. Then use the id (number) from the result to delete: {"table":"table_definition","operation":"delete","id":<id>}.`,
+        details: {
+          ...details,
+          table: args.table,
+          operation: args.operation,
+          incorrectIdValue: args.where?.id?._eq || args.id,
         },
       };
     }

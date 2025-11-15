@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../../table-management/services/table-handler.service';
@@ -12,6 +13,8 @@ import { GraphqlService } from '../../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 import { TableCreationWorkflow } from '../table-creation-workflow';
 import { executeCheckPermission, CheckPermissionExecutorDependencies } from './check-permission.executor';
+
+const logger = new Logger('CreateTableExecutor');
 
 export interface CreateTableExecutorDependencies extends CheckPermissionExecutorDependencies {
   metadataCacheService: MetadataCacheService;
@@ -40,7 +43,16 @@ export async function executeCreateTable(
   abortSignal: AbortSignal | undefined,
   deps: CreateTableExecutorDependencies,
 ): Promise<any> {
+  logger.debug(`[create_table] Called with name=${args.name}`, {
+    name: args.name,
+    columnsCount: args.columns?.length || 0,
+    relationsCount: args.relations?.length || 0,
+    uniquesCount: args.uniques?.length || 0,
+    indexesCount: args.indexes?.length || 0,
+  });
+
   if (abortSignal?.aborted) {
+    logger.debug(`[create_table] Request aborted`);
     return {
       error: true,
       errorCode: 'REQUEST_ABORTED',
@@ -113,6 +125,7 @@ export async function executeCreateTable(
     graphqlService,
   );
 
+  logger.debug(`[create_table] Executing workflow for table ${args.name}`);
   const workflowResult = await workflow.execute({
     tableName: args.name,
     tableData: {
@@ -130,6 +143,7 @@ export async function executeCreateTable(
   if (!workflowResult.success) {
     const errorMessage = workflowResult.stopReason || 'Table creation workflow failed';
     const errorDetails = workflowResult.errors?.map(e => e.error).join('; ') || errorMessage;
+    logger.error(`[create_table] Workflow failed for ${args.name}: ${errorDetails}`);
     return {
       error: true,
       errorCode: 'WORKFLOW_ERROR',
@@ -139,6 +153,10 @@ export async function executeCreateTable(
     };
   }
 
+  logger.debug(`[create_table] Successfully created table ${args.name}`, {
+    tableId: workflowResult.result?.id,
+    tableName: workflowResult.result?.name,
+  });
   return workflowResult.result;
 }
 

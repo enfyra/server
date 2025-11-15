@@ -18,6 +18,7 @@ import { executeGetFields } from './executors/get-fields.executor';
 import { executeGetHint } from './executors/get-hint.executor';
 import { executeCreateTable } from './executors/create-table.executor';
 import { executeUpdateTable } from './executors/update-table.executor';
+import { executeDeleteTable } from './executors/delete-table.executor';
 import { executeUpdateTask } from './executors/update-task.executor';
 import { executeDynamicRepository } from './executors/dynamic-repository.executor';
 
@@ -109,6 +110,20 @@ export class ToolExecutor {
         });
       case 'update_table':
         return await executeUpdateTable(args, context, abortSignal, {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        });
+      case 'delete_table':
+        return await executeDeleteTable(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,

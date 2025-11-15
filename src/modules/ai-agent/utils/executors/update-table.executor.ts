@@ -14,6 +14,8 @@ import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.i
 import { TableUpdateWorkflow } from '../table-update-workflow';
 import { executeCheckPermission, CheckPermissionExecutorDependencies } from './check-permission.executor';
 
+const logger = new Logger('UpdateTableExecutor');
+
 export interface UpdateTableExecutorDependencies extends CheckPermissionExecutorDependencies {
   metadataCacheService: MetadataCacheService;
   queryBuilder: QueryBuilderService;
@@ -42,7 +44,17 @@ export async function executeUpdateTable(
   abortSignal: AbortSignal | undefined,
   deps: UpdateTableExecutorDependencies,
 ): Promise<any> {
+  logger.debug(`[update_table] Called with tableName=${args.tableName}`, {
+    tableName: args.tableName,
+    tableId: args.tableId,
+    columnsCount: args.columns?.length || 0,
+    relationsCount: args.relations?.length || 0,
+    uniquesCount: args.uniques?.length || 0,
+    indexesCount: args.indexes?.length || 0,
+  });
+
   if (abortSignal?.aborted) {
+    logger.debug(`[update_table] Request aborted`);
     return {
       error: true,
       errorCode: 'REQUEST_ABORTED',
@@ -87,7 +99,6 @@ export async function executeUpdateTable(
     }
   }
 
-  const logger = new Logger('UpdateTableExecutor');
   const {
     metadataCacheService,
     queryBuilder,
@@ -103,6 +114,7 @@ export async function executeUpdateTable(
   } = deps;
 
   try {
+    logger.debug(`[update_table] Executing workflow for table ${args.tableName}`);
     const workflow = new TableUpdateWorkflow(
       metadataCacheService,
       queryBuilder,
@@ -158,6 +170,10 @@ export async function executeUpdateTable(
         }
       }
 
+      logger.debug(`[update_table] Successfully updated table ${args.tableName}`, {
+        tableId: result?.id || args.tableId,
+        updatedFields: updatedFields,
+      });
       return {
         success: true,
         tableName: args.tableName,
@@ -168,7 +184,7 @@ export async function executeUpdateTable(
     }
 
     const errorMessage = workflowResult.stopReason || 'Table update workflow failed';
-    logger.error(`[UpdateTableExecutor] update_table → FAILED: ${errorMessage}`);
+    logger.error(`[update_table] Workflow failed for ${args.tableName}: ${errorMessage}`);
 
     return {
       error: true,

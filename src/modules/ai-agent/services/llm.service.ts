@@ -98,6 +98,7 @@ export class LLMService {
         model: config.model?.trim() || 'gemini-2.0-flash-exp',
         temperature: 0.7,
         maxOutputTokens: 8192,
+        streaming: true,
       });
     }
 
@@ -117,9 +118,11 @@ export class LLMService {
     const toolDefFile = require('../utils/llm-tools.helper');
     const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
 
-    const toolsToCreate = selectedToolNames && selectedToolNames.length > 0
-      ? COMMON_TOOLS.filter((tool: any) => selectedToolNames.includes(tool.name))
-      : COMMON_TOOLS;
+    if (!selectedToolNames || selectedToolNames.length === 0) {
+      return [];
+    }
+
+    const toolsToCreate = COMMON_TOOLS.filter((tool: any) => selectedToolNames.includes(tool.name));
 
     return toolsToCreate.map((toolDef: any) => {
       const zodSchema = this.convertParametersToZod(toolDef.parameters);
@@ -264,18 +267,86 @@ export class LLMService {
         m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
       );
 
-      const systemPrompt = `Analyze the request and call tool_binds with tool names needed.
+      const systemPrompt = `Goal: Analyze the user request and determine which tools are needed. Call tool_binds with an array of tool names.
 
-Request: "${userMessage}"
-${hasToolCallsInHistory ? 'Previous messages used tools.' : ''}
+**CRITICAL - YOU MUST CALL tool_binds:**
+- You MUST call tool_binds with the selected tool names
+- DO NOT call any other tools (dynamic_repository, delete_table, etc.) - you are ONLY selecting tools, not executing them
+- Format: tool_binds({"toolNames": ["tool1", "tool2"]})
+- If no tools needed, call tool_binds({"toolNames": []})
 
-Rules:
-- Greetings (hello, thanks) → []
-- Data ops (create/read/update/delete) → ["dynamic_repository"]
-- Schema/metadata → ["get_table_details"] or ["get_metadata"]
-- Need guidance → ["get_hint"]
+**Important:** Understand requests in any language. Focus on intent, not language.
 
-Call tool_binds now.`;
+1. PRIORITY
+When multiple rules match, resolve by this priority:
+1. Schema modification → create_table / update_table (+ get_hint)
+2. Table deletion → delete_table (+ dynamic_repository to find table id)
+3. Schema inspection → get_table_details
+4. Field lookup → get_fields
+5. Data operations (CRUD) → dynamic_repository
+6. Table discovery → list_tables
+7. Help / guidance → get_hint
+8. Greetings / casual talk → []
+2. NO TOOL NEEDED
+Return [] for:
+- Greetings: "hello", "hi", "thanks"
+- Conversation: "how are you", "what can you do"
+- Anything that does not require metadata or data access
+3. TOOL RULES
+3.1 create_table / update_table
+Use when user wants to create or modify schema:
+- Create table, new table, add column, modify structure
+- Build system, rebuild database, initialize schema
+Always include get_hint with these.
+Examples:
+- "create a products table" → ["create_table","get_hint"]
+- "add a column to customers" → ["update_table","get_hint"]
+3.2 get_table_details
+Use when user wants full table structure:
+- Schema, structure, full fields + relations
+- Phrases like "show table details", "view table schema"
+Examples:
+- "show structure of products" → ["get_table_details"]
+3.3 get_fields
+Use when user only wants field names, not full schema:
+- Phrases: "what fields", "which columns", "field names"
+Examples:
+- "list columns of customers" → ["get_fields"]
+3.4 delete_table
+Use when user wants to delete/drop/remove a TABLE (not data records):
+- delete table, drop table, remove table
+- Phrases: "delete table", "drop table", "remove table", "xóa bảng"
+- Always combine with dynamic_repository to find table id first
+Examples:
+- "delete the products table" → ["dynamic_repository","delete_table"]
+- "drop categories table" → ["dynamic_repository","delete_table"]
+- "xóa bảng orders" → ["dynamic_repository","delete_table"]
+3.5 dynamic_repository
+Use for all CRUD operations on DATA RECORDS (not table structure):
+- add/insert/create records
+- find/get/list/search records
+- update/edit records
+- delete/remove records (data only, not tables)
+- count records
+Note: If table name is missing, combine with list_tables
+Examples:
+- "add a new product" → ["dynamic_repository"]
+- "find all orders" → ["dynamic_repository"]
+- "add new record" → ["list_tables","dynamic_repository"]
+3.6 list_tables
+Use when user wants to discover tables:
+- Phrases: "what tables", "list tables", "show all tables"
+Examples:
+- "what tables exist?" → ["list_tables"]
+3.7 get_hint
+Use when user explicitly asks for help:
+- Phrases: "how to", "help me", "guide me"
+Always include when creating/updating schema.
+4. MULTI-INTENT
+If user requests multiple actions, include all tools required.
+Example:
+- "show structure of products then add a record" → ["get_table_details","dynamic_repository"]
+Call tool_binds with the final list of tools.`;
 
       const llm = await this.createLLM(config);
       const toolBindsTool = this.createToolFromDefinition(TOOL_BINDS_TOOL);
@@ -287,18 +358,36 @@ Call tool_binds now.`;
       ];
 
       const response = await llmWithToolBinds.invoke(messages);
-      const toolCalls = response.tool_calls || response.additional_kwargs?.tool_calls || [];
+      const toolCalls = this.getToolCallsFromResponse(response);
       
-      if (toolCalls.length > 0 && toolCalls[0].name === 'tool_binds') {
-        const toolArgs = typeof toolCalls[0].args === 'string' 
-          ? JSON.parse(toolCalls[0].args) 
-          : toolCalls[0].args || {};
+      this.logger.debug(`[evaluateNeedsTools] User message: "${userMessage}", Found ${toolCalls.length} tool calls`);
+      
+      if (toolCalls.length > 0) {
+        const toolCallsInfo = toolCalls.map((tc: any) => ({ 
+          name: tc.name || tc.function?.name, 
+          args: tc.args || tc.function?.arguments 
+        }));
+        this.logger.debug(`[evaluateNeedsTools] Tool calls: ${JSON.stringify(toolCallsInfo)}`);
         
-        const selectedToolNames = toolArgs.toolNames || [];
-        if (Array.isArray(selectedToolNames)) {
-          return selectedToolNames.filter((tool: any) => 
-            typeof tool === 'string' && COMMON_TOOLS.some((t: any) => t.name === tool)
-          );
+        const toolBindCall = toolCalls.find((tc: any) => (tc.name || tc.function?.name) === 'tool_binds');
+        if (toolBindCall) {
+          let toolArgs: any = {};
+          if (toolBindCall.args) {
+            toolArgs = typeof toolBindCall.args === 'string' ? JSON.parse(toolBindCall.args) : toolBindCall.args;
+          } else if (toolBindCall.function?.arguments) {
+            toolArgs = typeof toolBindCall.function.arguments === 'string' ? JSON.parse(toolBindCall.function.arguments) : toolBindCall.function.arguments;
+          }
+          
+          const selectedToolNames = toolArgs.toolNames || [];
+          if (Array.isArray(selectedToolNames)) {
+            const filtered = selectedToolNames.filter((tool: any) => 
+              typeof tool === 'string' && COMMON_TOOLS.some((t: any) => t.name === tool)
+            );
+            this.logger.debug(`[evaluateNeedsTools] Selected tools: ${JSON.stringify(filtered)}`);
+            return filtered;
+          }
+        } else {
+          this.logger.debug(`[evaluateNeedsTools] No tool_binds call found in ${toolCalls.length} tool calls`);
         }
       }
       
@@ -338,13 +427,9 @@ Call tool_binds now.`;
     try {
       const llm = await this.createLLM(config);
       
-      let llmWithTools = llm;
-      let tools: any[] = [];
-      if (selectedToolNames && selectedToolNames.length > 0) {
       const context = createLLMContext(user);
-        tools = this.createTools(context, undefined, selectedToolNames);
-        llmWithTools = (llm as any).bindTools(tools);
-      }
+      const tools = this.createTools(context, undefined, selectedToolNames);
+      const llmWithTools = (llm as any).bindTools(tools);
 
       const conversationMessages = this.convertToLangChainMessages(messages);
 
@@ -492,15 +577,13 @@ Call tool_binds now.`;
     try {
       const llm = await this.createLLM(config);
       
-      let llmWithTools = llm;
-      let tools: any[] = [];
-      if (selectedToolNames && selectedToolNames.length > 0) {
       const context = createLLMContext(user);
-        tools = this.createTools(context, abortSignal, selectedToolNames);
-        llmWithTools = (llm as any).bindTools(tools);
-      }
+      const tools = this.createTools(context, abortSignal, selectedToolNames);
+      this.logger.debug(`[LLM Stream] Created ${tools.length} tools: ${tools.map((t: any) => t.name).join(', ')}`);
+      const llmWithTools = (llm as any).bindTools(tools);
       const provider = config.provider;
-      const canStream = provider !== 'Google' && typeof llmWithTools.stream === 'function';
+      const canStream = typeof llmWithTools.stream === 'function';
+      this.logger.debug(`[LLM Stream] Tools bound to LLM. Provider: ${provider}, canStream: ${canStream}, hasStream: ${typeof llmWithTools.stream === 'function'}`);
 
       let conversationMessages = this.convertToLangChainMessages(messages);
 
@@ -633,19 +716,8 @@ Call tool_binds now.`;
                     const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
                     const shouldEmit = hasValidArgs || canHaveEmptyArgs;
                     
-                    if (!streamedToolCallIds.has(streamKey)) {
-                      if (shouldEmit) {
-                        streamedToolCallIds.add(streamKey);
-                    onEvent({
-                      type: 'tool_call',
-                      data: {
-                        id: toolId,
-                        name: toolName,
-                        arguments: toolCallArgs,
-                      },
-                    });
-                      }
-                    } else if (shouldEmit) {
+                    if (!streamedToolCallIds.has(streamKey) && shouldEmit) {
+                      streamedToolCallIds.add(streamKey);
                       onEvent({
                         type: 'tool_call',
                         data: {
@@ -736,6 +808,13 @@ Call tool_binds now.`;
             }
           } else {
             aggregateResponse = await llmWithTools.invoke(conversationMessages);
+            this.logger.debug(`[LLM Stream] Non-streaming provider invoke response keys: ${Object.keys(aggregateResponse || {}).join(', ')}`);
+            this.logger.debug(`[LLM Stream] Non-streaming provider response.tool_calls: ${JSON.stringify(aggregateResponse?.tool_calls || 'none')}`);
+            this.logger.debug(`[LLM Stream] Non-streaming provider response.lc_kwargs: ${JSON.stringify(aggregateResponse?.lc_kwargs || 'none')}`);
+            this.logger.debug(`[LLM Stream] Non-streaming provider response.additional_kwargs: ${JSON.stringify(aggregateResponse?.additional_kwargs || 'none')}`);
+            this.logger.debug(`[LLM Stream] Non-streaming provider response.response_metadata: ${JSON.stringify(aggregateResponse?.response_metadata || 'none')}`);
+            this.logger.debug(`[LLM Stream] Non-streaming provider FULL response (first 500 chars): ${JSON.stringify(aggregateResponse || {}).substring(0, 500)}`);
+            
             const usage = this.extractTokenUsage(aggregateResponse);
             if (usage) {
               accumulatedTokenUsage.inputTokens += usage.inputTokens ?? 0;
@@ -750,7 +829,9 @@ Call tool_binds now.`;
               });
             }
             
+            this.logger.debug(`[LLM Stream] Non-streaming provider response.content type: ${typeof aggregateResponse?.content}, isArray: ${Array.isArray(aggregateResponse?.content)}, value: ${JSON.stringify(aggregateResponse?.content || 'none').substring(0, 200)}`);
             const fullDelta = this.reduceContentToString(aggregateResponse?.content);
+            this.logger.debug(`[LLM Stream] Non-streaming provider reduceContentToString result: ${fullDelta ? `"${fullDelta.substring(0, 100)}" (length: ${fullDelta.length})` : 'empty'}`);
             if (fullDelta) {
               await this.streamChunkedContent(fullDelta, abortSignal, (chunk) => {
                 currentContent += chunk;
@@ -760,6 +841,8 @@ Call tool_binds now.`;
                   data: { delta: chunk },
                 });
               });
+            } else {
+              this.logger.debug(`[LLM Stream] Non-streaming provider: No content to stream. aggregateResponse?.content: ${JSON.stringify(aggregateResponse?.content || 'none')}`);
             }
           }
         } catch (streamErr: any) {
@@ -835,6 +918,67 @@ Call tool_binds now.`;
           const toolCalls = this.getToolCallsFromResponse(aggregateResponse);
           if (toolCalls.length > 0) {
             currentToolCalls = toolCalls;
+            this.logger.debug(`[LLM Stream] Found ${toolCalls.length} tool calls from response (provider: ${provider}, canStream: ${canStream})`);
+            
+            if (!canStream) {
+              for (const tc of toolCalls) {
+                const toolName = tc.function?.name || tc.name;
+                // Generate toolId if not present and store it in tc.id for later use
+                if (!tc.id) {
+                  tc.id = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                }
+                const toolId = tc.id;
+                const toolArgs = tc.function?.arguments || tc.args || tc.arguments || {};
+                
+                let toolCallArgs = {};
+                if (typeof toolArgs === 'string' && toolArgs.trim() && toolArgs !== '{}') {
+                  try {
+                    toolCallArgs = JSON.parse(toolArgs);
+                  } catch (e) {
+                    toolCallArgs = {};
+                  }
+                } else if (toolArgs && typeof toolArgs === 'object') {
+                  toolCallArgs = toolArgs;
+                }
+                
+                const hasValidArgs = Object.keys(toolCallArgs).length > 0;
+                const toolsWithoutArgs = ['list_tables'];
+                const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
+                const shouldEmit = hasValidArgs || canHaveEmptyArgs;
+                
+                const streamKey = toolId;
+                if (toolName && shouldEmit && !streamedToolCallIds.has(streamKey)) {
+                  streamedToolCallIds.add(streamKey);
+                  this.logger.debug(`[LLM Stream] Emitting tool_call event (non-streaming): ${toolName} (id: ${toolId})`);
+                  onEvent({
+                    type: 'tool_call',
+                    data: {
+                      id: toolId,
+                      name: toolName,
+                      arguments: toolCallArgs,
+                    },
+                  });
+                }
+                
+                this.logger.debug(`[LLM Stream] Tool call: ${toolName} (id: ${toolId}, args: ${typeof toolArgs === 'string' ? toolArgs.substring(0, 100) : JSON.stringify(toolArgs).substring(0, 100)})`);
+              }
+            } else {
+              for (const tc of toolCalls) {
+                const toolName = tc.function?.name || tc.name;
+                const toolId = tc.id || 'no-id';
+                const toolArgs = tc.function?.arguments || tc.args || tc.arguments || {};
+                this.logger.debug(`[LLM Stream] Tool call: ${toolName} (id: ${toolId}, args: ${typeof toolArgs === 'string' ? toolArgs.substring(0, 100) : JSON.stringify(toolArgs).substring(0, 100)})`);
+              }
+            }
+          } else if (!canStream) {
+            const toolCallsValue = aggregateResponse?.tool_calls;
+            const toolCallsType = toolCallsValue ? typeof toolCallsValue : 'undefined';
+            const toolCallsIsArray = Array.isArray(toolCallsValue);
+            const toolCallsLength = toolCallsIsArray ? toolCallsValue.length : 'N/A';
+            this.logger.debug(`[LLM Stream] Non-streaming provider: No tool calls found in response. Response keys: ${Object.keys(aggregateResponse || {}).join(', ')}, tool_calls type: ${toolCallsType}, isArray: ${toolCallsIsArray}, length: ${toolCallsLength}`);
+            if (toolCallsIsArray && toolCallsValue.length === 0) {
+              this.logger.debug(`[LLM Stream] tool_calls is empty array`);
+            }
           }
         }
 
@@ -856,6 +1000,7 @@ Call tool_binds now.`;
           }
           
           const finalContent = this.reduceContentToString(aggregateResponse?.content) || '';
+          this.logger.debug(`[LLM Stream] Final content check: aggregateResponse?.content type: ${typeof aggregateResponse?.content}, isArray: ${Array.isArray(aggregateResponse?.content)}, finalContent length: ${finalContent.length}`);
           if (finalContent) {
             const previousFullContentLength = fullContent.length - currentContent.length;
             const expectedFullContent = fullContent.substring(0, previousFullContentLength) + finalContent;
@@ -872,6 +1017,18 @@ Call tool_binds now.`;
                   });
                 });
               }
+            }
+          } else if (!canStream && aggregateResponse) {
+            this.logger.debug(`[LLM Stream] No final content found. aggregateResponse keys: ${Object.keys(aggregateResponse).join(', ')}, content: ${JSON.stringify(aggregateResponse.content || 'none').substring(0, 200)}`);
+            if (fullContent.length === 0 && allToolCalls.length === 0) {
+              this.logger.warn(`[LLM Stream] Gemini returned empty response (no content, no tool calls). This may indicate an issue with the model or prompt.`);
+              onEvent({
+                type: 'text',
+                data: {
+                  delta: 'I apologize, but I was unable to generate a response. Please try again.',
+                },
+              });
+              fullContent = 'I apologize, but I was unable to generate a response. Please try again.';
             }
           }
           
@@ -909,6 +1066,7 @@ Call tool_binds now.`;
           }
 
           let toolArgs = tc.function?.arguments || tc.args || tc.arguments;
+          // Use tc.id if available (set above for non-streaming providers), otherwise generate
           let toolCallId = tc.id || tc.tool_call_id;
           
           if (!toolCallId) {
@@ -931,6 +1089,8 @@ Call tool_binds now.`;
           const toolsWithoutArgs = ['list_tables'];
           const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
           
+          this.logger.debug(`[LLM Stream] Processing tool call: ${toolName} (id: ${toolCallId}), hasValidArgs: ${hasValidArgs}, canHaveEmptyArgs: ${canHaveEmptyArgs}, argsKeys: ${Object.keys(toolCallArgs).join(', ')}`);
+          
           if (!hasValidArgs && !canHaveEmptyArgs) {
             this.logger.warn(`[LLM Stream] Skipping tool call ${toolCallId} (${toolName}) - no valid arguments`);
             continue;
@@ -945,16 +1105,31 @@ Call tool_binds now.`;
             }
           }
 
-          if (!streamedToolCallIds.has(toolCallId)) {
-            streamedToolCallIds.add(toolCallId);
-          onEvent({
-            type: 'tool_call',
-            data: {
-                id: toolCallId,
-              name: toolName,
-              arguments: toolCallArgs,
-            },
-          });
+          // For non-streaming providers (Gemini), tool calls are already emitted above (line 965-976)
+          // Only emit here for streaming providers
+          if (!canStream) {
+            // Already emitted above, just log
+            if (!streamedToolCallIds.has(toolCallId)) {
+              this.logger.debug(`[LLM Stream] Tool call not found in streamedToolCallIds (non-streaming): ${toolName} (id: ${toolCallId})`);
+            } else {
+              this.logger.debug(`[LLM Stream] Skipping duplicate emit for non-streaming provider (already emitted above): ${toolName} (id: ${toolCallId})`);
+            }
+          } else {
+            // For streaming providers, emit if not already emitted
+            if (!streamedToolCallIds.has(toolCallId)) {
+              streamedToolCallIds.add(toolCallId);
+              this.logger.debug(`[LLM Stream] Emitting tool_call event: ${toolName} (id: ${toolCallId}, provider: ${provider}, canStream: ${canStream})`);
+              onEvent({
+                type: 'tool_call',
+                data: {
+                  id: toolCallId,
+                  name: toolName,
+                  arguments: toolCallArgs,
+                },
+              });
+            } else {
+              this.logger.debug(`[LLM Stream] Skipping already emitted tool_call: ${toolName} (id: ${toolCallId})`);
+            }
           }
 
           validToolCalls.push({
@@ -1003,7 +1178,37 @@ Call tool_binds now.`;
           try {
             const tool = tools.find((t) => t.name === toolName);
             if (!tool) {
-              throw new Error(`Tool ${toolName} not found`);
+              const availableTools = tools.map((t: any) => t.name).join(', ');
+              this.logger.warn(`[LLM Stream] Tool ${toolName} not found in available tools. Available: ${availableTools || 'none'}`);
+              const errorResult = {
+                error: true,
+                errorCode: 'TOOL_NOT_FOUND',
+                message: `Tool "${toolName}" not found. Available tools: ${availableTools || 'none'}`,
+                suggestion: `Please use only the available tools: ${availableTools || 'none'}`,
+              };
+              allToolResults.push({
+                toolCallId: toolId,
+                result: errorResult,
+              });
+              
+              const ToolMessage = require('@langchain/core/messages').ToolMessage;
+              const summarizedError = this.summarizeToolResult(toolName, parsedArgs, errorResult);
+              conversationMessages.push(
+                new ToolMessage({
+                  content: summarizedError,
+                  tool_call_id: toolId,
+                }),
+              );
+              
+              const errorIconText = `\n\n❌ ${toolName}\n`;
+              fullContent += errorIconText;
+              onEvent({
+                type: 'text',
+                data: {
+                  delta: errorIconText,
+                },
+              });
+              continue;
             }
 
             const toolResult = await tool.func(parsedArgs);
@@ -1139,6 +1344,9 @@ Call tool_binds now.`;
       return content;
     }
     if (Array.isArray(content)) {
+      if (content.length === 0) {
+        return '';
+      }
       return content
         .map((item) => {
           if (!item) {
@@ -1157,6 +1365,25 @@ Call tool_binds now.`;
             if (item.content) {
               return this.reduceContentToString(item.content);
             }
+            if (item.type === 'text' && item.text) {
+              return item.text;
+            }
+            if (item.type === 'text' && item.content) {
+              return this.reduceContentToString(item.content);
+            }
+            if (item.message && typeof item.message === 'string') {
+              return item.message;
+            }
+            if (item.parts && Array.isArray(item.parts)) {
+              return item.parts.map((part: any) => {
+                if (typeof part === 'string') return part;
+                if (part?.text) return part.text;
+                return '';
+              }).join('');
+            }
+            if (item.type && item.type !== 'text') {
+              this.logger.debug(`[LLM Stream] reduceContentToString: Unhandled content item type: ${item.type}, item: ${JSON.stringify(item).substring(0, 100)}`);
+            }
           }
           return '';
         })
@@ -1171,6 +1398,16 @@ Call tool_binds now.`;
       }
       if (content.content) {
         return this.reduceContentToString(content.content);
+      }
+      if (content.type === 'text' && content.text) {
+        return content.text;
+      }
+      if (content.parts && Array.isArray(content.parts)) {
+        return content.parts.map((part: any) => {
+          if (typeof part === 'string') return part;
+          if (part?.text) return part.text;
+          return '';
+        }).join('');
       }
     }
     return '';
@@ -1215,14 +1452,17 @@ Call tool_binds now.`;
     }
 
     if (response.response_metadata?.tool_calls && Array.isArray(response.response_metadata.tool_calls) && response.response_metadata.tool_calls.length > 0) {
+      this.logger.debug(`[LLM Stream] Found tool_calls in response.response_metadata.tool_calls: ${response.response_metadata.tool_calls.length}`);
       return response.response_metadata.tool_calls;
     }
 
     if (response.lc_kwargs?.tool_calls && Array.isArray(response.lc_kwargs.tool_calls) && response.lc_kwargs.tool_calls.length > 0) {
+      this.logger.debug(`[LLM Stream] Found tool_calls in response.lc_kwargs.tool_calls: ${response.lc_kwargs.tool_calls.length}`);
       return response.lc_kwargs.tool_calls;
     }
 
     if (response.kwargs?.tool_calls && Array.isArray(response.kwargs.tool_calls) && response.kwargs.tool_calls.length > 0) {
+      this.logger.debug(`[LLM Stream] Found tool_calls in response.kwargs.tool_calls: ${response.kwargs.tool_calls.length}`);
       return response.kwargs.tool_calls;
     }
 
@@ -1230,6 +1470,7 @@ Call tool_binds now.`;
       try {
         const parsed = JSON.parse(response.content);
         if (parsed.tool_calls && Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
+          this.logger.debug(`[LLM Stream] Found tool_calls in response.content (parsed): ${parsed.tool_calls.length}`);
           return parsed.tool_calls;
         }
       } catch {
@@ -1237,8 +1478,15 @@ Call tool_binds now.`;
     }
 
     if (response.tool_call_chunks && Array.isArray(response.tool_call_chunks) && response.tool_call_chunks.length > 0) {
+      this.logger.debug(`[LLM Stream] Found tool_calls in response.tool_call_chunks: ${response.tool_call_chunks.length}`);
       return response.tool_call_chunks;
     }
+
+    // Check for invalid_tool_calls (Gemini sometimes returns tools that weren't bound)
+    if (response.invalid_tool_calls && Array.isArray(response.invalid_tool_calls) && response.invalid_tool_calls.length > 0) {
+      this.logger.warn(`[LLM Stream] Found ${response.invalid_tool_calls.length} invalid tool calls: ${response.invalid_tool_calls.map((tc: any) => tc.name || tc.function?.name || 'unknown').join(', ')}`);
+    }
+
 
     return [];
   }
@@ -1342,27 +1590,40 @@ Call tool_binds now.`;
             const tablesSummary = result.tables.slice(0, 3).map((t: any) => {
               const relCount = t.relations?.length || 0;
               const colCount = t.columnCount || t.columns?.length || 0;
-              return `${t.name}(${colCount} cols, ${relCount} rels)`;
+              const tableId = t.id ? `(id=${t.id})` : '';
+              return `${t.name}${tableId ? ' ' + tableId : ''}(${colCount} cols, ${relCount} rels)`;
             }).join(', ');
-            return `[get_table_details] ${tableCount} table(s): ${tablesSummary}${moreInfo}. Full schema in result.`;
+            return `[get_table_details] ${tableCount} table(s): ${tablesSummary}${moreInfo}. Schema available in result if needed.`;
         }
-          return `[get_table_details] ${tableCount} table(s): ${tableNames}${moreInfo}. Full schema in result.`;
+          return `[get_table_details] ${tableCount} table(s): ${tableNames}${moreInfo}. Schema available in result if needed.`;
         }
         
         if (result?.table) {
           const table = result.table;
           const relCount = table.relations?.length || 0;
           const colCount = table.columnCount || table.columns?.length || 0;
-          const relations = table.relations?.map((r: any) => `${r.type}:${r.targetTableName || r.targetTable}`).slice(0, 3).join(', ') || 'none';
-          const moreRels = relCount > 3 ? ` (+${relCount - 3} more)` : '';
-          const requiredCols = table.columns?.filter((c: any) => !c.isNullable && !c.isGenerated && !c.isPrimary).map((c: any) => c.name).slice(0, 5).join(', ') || 'none';
-          const moreCols = colCount > 5 ? ` (+${colCount - 5} more columns)` : '';
-          return `[get_table_details] ${tableName || 'unknown'}: ${colCount} column(s), ${relCount} relation(s) [${relations}${moreRels}]. Required fields: ${requiredCols}${moreCols}. Full schema in result.`;
+          const tableId = table.id ? ` (id=${table.id})` : '';
+          const relations = table.relations?.map((r: any) => `${r.type}:${r.targetTableName || r.targetTable}`).slice(0, 2).join(', ') || 'none';
+          const moreRels = relCount > 2 ? ` (+${relCount - 2} more)` : '';
+          const requiredCols = table.columns?.filter((c: any) => !c.isNullable && !c.isGenerated && !c.isPrimary).map((c: any) => c.name).slice(0, 3).join(', ') || 'none';
+          const moreCols = colCount > 3 ? ` (+${colCount - 3} more)` : '';
+          return `[get_table_details] ${tableName || 'unknown'}${tableId}: ${colCount} col(s), ${relCount} rel(s) [${relations}${moreRels}]. Required: ${requiredCols}${moreCols}. Schema available in result if needed.`;
         }
         
-        return `[get_table_details] ${tableName || 'unknown'}: Schema retrieved. Full details in result.`;
+        return `[get_table_details] ${tableName || 'unknown'}: Schema retrieved. Details available in result if needed.`;
       }
       return `[${name}] Executed. Metadata retrieved. Full details available in result.`;
+    }
+
+    if (name === 'create_table') {
+      if (result?.error) {
+        const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+        return `[create_table] ${toolArgs?.name || 'unknown'} -> ERROR: ${message.substring(0, 220)}`;
+      }
+      const tableName = result?.data?.[0]?.name || result?.name || toolArgs?.name || 'unknown';
+      const tableId = result?.data?.[0]?.id || result?.id;
+      const idInfo = tableId ? ` (id=${tableId})` : '';
+      return `[create_table] ${tableName}${idInfo} -> SUCCESS: Table created`;
     }
 
     if (name === 'update_table') {
@@ -1371,8 +1632,10 @@ Call tool_binds now.`;
         return `[update_table] ${toolArgs?.tableName || 'unknown'} -> ERROR: ${message.substring(0, 220)}`;
       }
       const tableName = result?.tableName || toolArgs?.tableName || 'unknown';
+      const tableId = result?.tableId || result?.result?.id || result?.id;
       const updated = result?.updated || 'table metadata';
-      return `[update_table] ${tableName} -> SUCCESS: Updated ${updated}`;
+      const idInfo = tableId ? ` (id=${tableId})` : '';
+      return `[update_table] ${tableName}${idInfo} -> SUCCESS: Updated ${updated}`;
     }
 
     if (name === 'dynamic_repository') {
@@ -1473,17 +1736,20 @@ Call tool_binds now.`;
 
     if (name === 'get_hint') {
       const category = toolArgs?.category || 'all';
-      const hintsCount = Array.isArray(result?.hints) ? result.hints.length : 0;
-      const titles =
-        Array.isArray(result?.hints) && result.hints.length > 0
-          ? result.hints
-              .slice(0, 2)
-              .map((h: any) => h?.title)
-              .filter(Boolean)
-              .join(', ')
-          : '';
-      const titleInfo = titles ? ` sampleTitles=[${titles.substring(0, 120)}]` : '';
-      return `[get_hint] category=${category} -> ${hintsCount} hint(s)${titleInfo}`;
+      const hints = Array.isArray(result?.hints) ? result.hints : [];
+      const hintsCount = hints.length;
+      
+      if (hintsCount === 0) {
+        return `[get_hint] category=${category} -> No hints found`;
+      }
+      
+      const hintsContent = hints.map((h: any) => {
+        const title = h?.title || 'Untitled';
+        const content = h?.content || '';
+        return `## ${title}\n${content}`;
+      }).join('\n\n');
+      
+      return `[get_hint] category=${category} -> ${hintsCount} hint(s)\n\n${hintsContent}`;
     }
 
     if (name === 'get_fields') {
