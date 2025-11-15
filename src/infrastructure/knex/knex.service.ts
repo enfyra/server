@@ -247,8 +247,9 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return result;
     });
 
-    this.addHook('afterSelect', (tableName, result) => {
-      return this.autoParseJsonFields(result, { table: tableName });
+    this.addHook('afterSelect', async (tableName, result) => {
+      await this.loadColumnTypesForTable(tableName);
+      return await this.autoParseJsonFields(result, { table: tableName });
     });
 
     // Recursive boolean normalization for nested relations (MySQL only).
@@ -533,8 +534,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
 
-  private autoParseJsonFields(result: any, queryContext?: any): any {
-    if (!result) return result;
+  private async autoParseJsonFields(result: any, queryContext?: any): Promise<any> {
+    if (!result) {
+      return result;
+    }
 
     const tableName = queryContext?.table || queryContext?.__knexQueryUid?.split('.')[0];
 
@@ -545,17 +548,47 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const columnTypes = this.columnTypesMap.get(tableName)!;
 
     if (Array.isArray(result)) {
-      return result.map(record => this.parseRecord(record, columnTypes));
+      return Promise.all(result.map(record => this.parseRecord(record, columnTypes, tableName)));
     }
 
     if (typeof result === 'object' && !Buffer.isBuffer(result)) {
-      return this.parseRecord(result, columnTypes);
+      return this.parseRecord(result, columnTypes, tableName);
     }
 
     return result;
   }
 
-  private parseRecord(record: any, columnTypes: Map<string, string>): any {
+  private async loadColumnTypesForTable(tableName: string): Promise<void> {
+    if (this.columnTypesMap.has(tableName)) {
+      return;
+    }
+
+    try {
+      const tableDef = await this.knexInstance('table_definition')
+        .where('name', tableName)
+        .first();
+
+      if (!tableDef) {
+        return;
+      }
+
+      const tableIdColumn = this.dbType === 'postgres' ? 'tableId' : 'tableId';
+      const columns = await this.knexInstance('column_definition')
+        .where(tableIdColumn, tableDef.id)
+        .select('name', 'type');
+
+      const columnTypes = new Map<string, string>();
+      for (const col of columns) {
+        columnTypes.set(col.name, col.type);
+      }
+
+      this.columnTypesMap.set(tableName, columnTypes);
+    } catch (error) {
+      this.logger.error(`[loadColumnTypesForTable] Error loading columnTypes for ${tableName}:`, error);
+    }
+  }
+
+  private async parseRecord(record: any, columnTypes: Map<string, string>, tableName?: string): Promise<any> {
     if (!record || typeof record !== 'object') {
       return record;
     }
@@ -563,17 +596,109 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const parsed = { ...record };
 
     for (const [fieldName, fieldType] of columnTypes) {
-      if ((fieldType === 'simple-json' || fieldType === 'json') &&
-          parsed[fieldName] &&
-          typeof parsed[fieldName] === 'string') {
-        try {
-          parsed[fieldName] = JSON.parse(parsed[fieldName]);
-        } catch (e) {
+      if (fieldType === 'simple-json') {
+        const fieldValue = parsed[fieldName];
+        
+        if (fieldValue === null || fieldValue === undefined) {
+          continue;
+        }
+
+        if (typeof fieldValue === 'string') {
+          if (fieldValue.trim() === '') {
+            continue;
+          }
+          
+          try {
+            parsed[fieldName] = JSON.parse(fieldValue);
+          } catch (e) {
+          }
+        }
+      }
+    }
+
+    if (tableName) {
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && !Buffer.isBuffer(value)) {
+          const valueAny = value as any;
+          if (valueAny.id !== undefined || valueAny.createdAt !== undefined) {
+            const nestedTableName = await this.getTargetTableNameFromRelation(key, tableName);
+            if (nestedTableName) {
+              await this.loadColumnTypesForTable(nestedTableName);
+              const nestedColumnTypes = this.columnTypesMap.get(nestedTableName);
+              if (nestedColumnTypes) {
+                parsed[key] = await this.parseRecord(value, nestedColumnTypes, nestedTableName);
+              }
+            }
+          }
+        } else if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+          const firstItem = value[0] as any;
+          if (firstItem.id !== undefined) {
+            const nestedTableName = await this.getTargetTableNameFromRelation(key, tableName);
+            if (nestedTableName) {
+              await this.loadColumnTypesForTable(nestedTableName);
+              const nestedColumnTypes = this.columnTypesMap.get(nestedTableName);
+              if (nestedColumnTypes) {
+                parsed[key] = await Promise.all(value.map(item => this.parseRecord(item, nestedColumnTypes, nestedTableName)));
+              }
+            }
+          }
         }
       }
     }
 
     return parsed;
+  }
+
+  private async getTargetTableNameFromRelation(relationName: string, parentTableName: string): Promise<string | null> {
+    if (relationName.endsWith('_definition')) {
+      return relationName;
+    }
+    if (relationName.endsWith('s')) {
+      const singular = relationName.slice(0, -1);
+      if (singular.endsWith('_definition')) {
+        return singular;
+      }
+    }
+
+    try {
+      const tableMetadata = await this.metadataCacheService.getTableMetadata?.(parentTableName);
+      if (tableMetadata && tableMetadata.relations) {
+        const relation = tableMetadata.relations.find((r: any) => r.propertyName === relationName);
+        if (relation && relation.targetTable) {
+          return relation.targetTable;
+        }
+      }
+
+      const tableDef = await this.knexInstance('table_definition')
+        .where('name', parentTableName)
+        .first();
+
+      if (!tableDef) {
+        return null;
+      }
+
+      const relationDef = await this.knexInstance('relation_definition')
+        .where('sourceTableId', tableDef.id)
+        .where('propertyName', relationName)
+        .first();
+
+      if (!relationDef) {
+        return null;
+      }
+
+      const targetTableDef = await this.knexInstance('table_definition')
+        .where('id', relationDef.targetTableId)
+        .first();
+
+      if (!targetTableDef) {
+        return null;
+      }
+
+      return targetTableDef.name;
+    } catch (error) {
+      this.logger.error(`[getTargetTableNameFromRelation] Error getting target table for relation ${relationName} from ${parentTableName}:`, error);
+      return null;
+    }
   }
 
   async insertWithCascade(tableName: string, data: any): Promise<any> {

@@ -140,18 +140,29 @@ export class DynamicRepository {
         return await this.find({ where: { [this.getIdField()]: { _eq: idValue } }, fields });
       }
 
-      const metadata = await this.metadataCacheService.lookupTableByName(this.tableName);
-
-      if (!this.queryBuilder.isMongoDb() && metadata?.columns?.some((c: any) => c.isPrimary && c.type === 'uuid')) {
-        body.id = body.id || randomUUID();
+      if (body.id !== undefined) {
+        delete body.id;
       }
 
       const inserted = await this.queryBuilder.insertAndGet(this.tableName, body);
       const createdId = inserted.id || inserted._id || body.id;
 
-      const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } }, fields });
-      await this.reload();
-      return result;
+      try {
+        const result = await this.find({ where: { [this.getIdField()]: { _eq: createdId } }, fields });
+        await this.reload();
+        return result;
+      } catch (error: any) {
+        // If query fails (e.g., type mismatch), return the inserted data directly
+        const errorMessage = error?.message || error?.toString() || '';
+        if (errorMessage.includes('operator does not exist') || errorMessage.includes('character varying')) {
+          await this.reload();
+          return {
+            data: [inserted],
+            count: 1,
+          };
+        }
+        throw error;
+      }
     } catch (error) {
       throw new BadRequestException(error.message);
     }

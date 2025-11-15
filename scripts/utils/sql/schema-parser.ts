@@ -128,7 +128,7 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
     date: 'timestamp',
     datetime: 'datetime',
     timestamp: 'timestamp',
-    'simple-json': 'json',
+    'simple-json': 'text',
     richtext: 'text',
     code: 'text',
     'array-select': 'json',
@@ -147,6 +147,7 @@ export function getPrimaryKeyType(schemas: KnexTableSchema[], tableName: string)
 
   return pkColumn.type === 'uuid' ? 'uuid' : 'integer';
 }
+
 
 
 

@@ -209,8 +209,27 @@ export class TableCreationWorkflow {
         errors.push({ step: 'validateTableData', error: 'Table must have an "id" column with isPrimary=true', retryable: false });
       }
 
+      // Auto-set id column type if not specified: int for SQL (preferred), uuid for MongoDB (required)
+      if (idColumn && !idColumn.type) {
+        const isMongoDB = this.queryBuilder.isMongoDb();
+        idColumn.type = isMongoDB ? 'uuid' : 'int';
+        this.logger.debug(`[validateTableData] Auto-set id column type to "${idColumn.type}" for ${isMongoDB ? 'MongoDB' : 'SQL'}`);
+      }
+
       if (idColumn && !['int', 'uuid'].includes(idColumn.type)) {
         errors.push({ step: 'validateTableData', error: 'Primary key "id" column must be type "int" or "uuid"', retryable: false });
+      }
+
+      // Validate type matches database: MongoDB must use uuid, SQL should prefer int
+      if (idColumn && idColumn.type) {
+        const isMongoDB = this.queryBuilder.isMongoDb();
+        if (isMongoDB && idColumn.type !== 'uuid') {
+          errors.push({ step: 'validateTableData', error: 'MongoDB requires id column to be type "uuid", not "' + idColumn.type + '"', retryable: false });
+        }
+        // SQL can use either int or uuid, but int is preferred (just warn, don't error)
+        if (!isMongoDB && idColumn.type === 'uuid') {
+          this.logger.warn(`[validateTableData] SQL database detected but id column uses "uuid". Consider using "int" for better performance.`);
+        }
       }
 
       const primaryCount = state.tableData.columns.filter((col: any) => col.isPrimary).length;

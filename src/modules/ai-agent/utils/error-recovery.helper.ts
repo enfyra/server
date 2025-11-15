@@ -228,15 +228,8 @@ export function shouldEscalateToHuman(params: {
   error?: any;
   retryCount?: number;
   confidenceLevel?: number;
-  humanConfirmed?: boolean;
 }): EscalationTrigger {
-  const { operation, table, error, retryCount = 0, confidenceLevel = 1.0, humanConfirmed = false } = params;
-
-  if (humanConfirmed) {
-    return {
-      shouldEscalate: false,
-    };
-  }
+  const { operation, table, error, retryCount = 0, confidenceLevel = 1.0 } = params;
 
   if (operation === 'delete' && table?.includes('_definition')) {
     return {

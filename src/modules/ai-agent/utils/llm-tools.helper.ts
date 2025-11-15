@@ -18,19 +18,25 @@ Inputs:
 - toolNames (required): array of tool names to bind for this request
 
 Available tools:
-- check_permission: Verify access before data operations
 - list_tables: Get list of all tables
 - get_table_details: Get full schema and optionally table data
 - get_metadata: Get system metadata
 - get_fields: Get field list for reads
-- dynamic_repository: CRUD operations on tables
+- dynamic_repository: CRUD operations on single records (find, create, update, delete)
+- batch_dynamic_repository: Batch operations on multiple records (batch_create 5+, batch_update 5+, batch_delete 2+)
+- create_table: Create new table schema
+- update_table: Update existing table schema
+- delete_table: Delete/drop table
 - get_hint: Get comprehensive guidance when uncertain
 - get_tool_rules: Get detailed rules for specific tools by category
 
 Examples:
 - Simple greeting: {"toolNames": []}
-- Data operation: {"toolNames": ["check_permission", "dynamic_repository"]}
+- Single data operation: {"toolNames": ["dynamic_repository"]}
+- Batch data operation (5+ records): {"toolNames": ["batch_dynamic_repository"]}
 - Schema query: {"toolNames": ["get_table_details"]}
+- Create table: {"toolNames": ["create_table", "get_hint"]}
+- Delete table: {"toolNames": ["dynamic_repository", "delete_table"]}
 - Need guidance: {"toolNames": ["get_hint"]}`,
   parameters: {
     type: 'object',
@@ -40,12 +46,15 @@ Examples:
         items: {
           type: 'string',
                  enum: [
-                   'check_permission',
                    'list_tables',
                    'get_table_details',
                    'get_metadata',
                    'get_fields',
                    'dynamic_repository',
+                   'batch_dynamic_repository',
+                   'create_table',
+                   'update_table',
+                   'delete_table',
                    'get_hint',
                    'get_tool_rules',
                  ],
@@ -58,81 +67,6 @@ Examples:
 };
 
 export const COMMON_TOOLS: ToolDefinition[] = [
-  {
-    name: 'check_permission',
-    description: `Purpose → verify access before any data operation. THIS IS MANDATORY - you MUST call this BEFORE calling dynamic_repository for business tables.
-
-CRITICAL - Required workflow for business tables (non-metadata):
-1. Call check_permission FIRST: {"table":"product","operation":"create"}
-2. Wait for result: {"allowed":true,"reason":"..."}
-3. If allowed=true → proceed with dynamic_repository
-4. If allowed=false → STOP, inform user - do NOT call dynamic_repository
-
-WARNING: If you call dynamic_repository without calling check_permission first, the operation will be rejected with an error. Always check permission FIRST.
-
-Example - Creating a product:
-Step 1: check_permission({"table":"product","operation":"create"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"product","operation":"create","data":{...}})
-
-Example - Reading orders:
-Step 1: check_permission({"table":"order","operation":"read"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"order","operation":"find",...})
-
-Call ONCE per table+operation:
-- Call check_permission ONLY ONCE for each unique table+operation combination
-- After calling check_permission, REUSE the result for all subsequent operations on the same table+operation
-- Do NOT call check_permission multiple times for the same table+operation in the same response
-- If you already called check_permission for "table=order_item, operation=delete", do NOT call it again - reuse the previous result
-
-Use when:
-- Handling read/create/update/delete on protected data (required for business tables)
-- User targets restricted tables or admin routes
-- No check_permission result exists yet for the same table/route and operation in this response
-
-Skip when:
-- Only calling get_metadata, get_table_details, get_fields, get_hint (these don't require permission)
-- Answering casual questions without touching data
-- A matching check_permission result already exists in this response (reuse it instead of calling again)
-- You already called check_permission for the same table+operation earlier in this response
-- Metadata tables (*_definition) - these may skip permission check
-
-Inputs:
-- operation (required): read | create | update | delete
-- table (preferred) → exact table name (e.g., "route_definition")
-- routePath (fallback) → exact API route (e.g., "/admin/routes")
-- Provide only one; table takes precedence if both sent
-
-Output fields:
-- allowed (boolean)
-- reason (string: root_admin | user_match | role_match | denied | no_route)
-- userInfo (object: id/email/isRootAdmin/roles[])
-- routeInfo (object: matched route + permissions array when applicable)
-- cacheKey (string) to help identify duplicate checks within the same turn
-
-Example:
-{"table":"route_definition","operation":"delete"}`,
-    parameters: {
-      type: 'object',
-      properties: {
-        routePath: {
-          type: 'string',
-          description: 'The route path to check permissions for (e.g., "/admin/routes", "/user"). Optional if table is provided.',
-        },
-        table: {
-          type: 'string',
-          description: 'The table name to check permissions for. System will infer the route path from table. Optional if routePath is provided.',
-        },
-        operation: {
-          type: 'string',
-          enum: ['read', 'create', 'update', 'delete'],
-          description: 'The operation type to check permission for.',
-        },
-      },
-      required: ['operation'],
-    },
-  },
   {
     name: 'list_tables',
     description: `Purpose → refresh the current list of tables with short descriptions.
@@ -147,8 +81,10 @@ Skip when:
 Inputs: {}
 
 Returns:
-- tables (array) -> [{name, description?, isSingleRecord?}]
-- tablesList (array of names for quick lookup)`,
+{
+  tables: Array<{name: string; description?: string; isSingleRecord?: boolean}>;
+  tablesList: string[];
+}`,
     parameters: {
       type: 'object',
       properties: {},
@@ -171,7 +107,7 @@ Use when:
 - Need to compare multiple tables' schemas (call once with array of all table names)
 - Need to check if tables have relations (call ONCE, then reuse)
 - Need to get table ID (e.g., for relations, updates) - the metadata includes the table ID field
-- Need to get actual table data by ID or name - set getData=true with id or name parameter (array with 1 element only)
+- Need to get actual table data by ID or name - set getData=true AND provide either id or name parameter (both must be arrays). CRITICAL: If getData=true but no id/name provided, the tool will fail.
 - CRITICAL: When you need table ID or table data, use this tool instead of querying table_definition with dynamic_repository
 
 Skip when:
@@ -181,27 +117,64 @@ Skip when:
 Inputs:
 - tableName (required) → array of table names (case-sensitive). For single table, use array with 1 element: ["user_definition"]
 - forceRefresh (optional) true to reload metadata
-- getData (optional) true to fetch actual table data (requires id or name, array must have exactly 1 element)
-- id (optional) table record ID to fetch (requires getData=true, array must have exactly 1 element)
-- name (optional) table record name to fetch (requires getData=true, array must have exactly 1 element, searches by name column)
+- getData (optional) true to fetch actual table data. CRITICAL: If getData=true, you MUST provide either id or name parameter. If you only need schema metadata (columns, relations, etc.), omit getData parameter.
+- id (optional) array of table record IDs to fetch. REQUIRED if getData=true. Array length must match tableName length. For single value, use array with 1 element: [123]
+- name (optional) array of table record names to fetch. REQUIRED if getData=true (and id is not provided). Array length must match tableName length. For single value, use array with 1 element: ["table_name"]. Searches by name column
 
 Response format:
-- Returns object with table names as keys, each containing that table's metadata including id field (if available), and data field (if getData=true)
-- Example: {"product": {...}, "category": {...}, "order": {...}, "_errors": [...] if any errors}
-- Single table: {"user_definition": {...}}
+{
+  [tableName: string]: {
+    name: string;
+    description?: string;
+    isSingleRecord?: boolean;
+    id?: number;
+    columns: Array<{
+      name: string;
+      type: string; // fieldType: "string" | "number" | "boolean" | "date" | "json" | "text" | etc.
+      isNullable: boolean;
+      isPrimary: boolean;
+      isGenerated?: boolean; // true for auto-generated fields (id, createdAt, updatedAt)
+      defaultValue?: any;
+      isUnique?: boolean;
+      description?: string;
+      options?: Record<string, any>; // for enum or other options
+    }>;
+    relations: Array<{
+      propertyName: string; // CRITICAL: Use this propertyName when creating/updating records with relations
+      type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
+      targetTableName: string; // name of the related table
+      foreignKeyColumn?: string; // database column name (for reference only, DO NOT use directly)
+      description?: string;
+      isNullable: boolean;
+      inversePropertyName?: string; // reverse relation property name
+      cascade?: string; // cascade behavior
+    }>;
+    data?: any | null; // actual table data (if getData=true)
+  };
+  _errors?: string[];
+}
 
-Response highlights (per table):
-- name, description, isSingleRecord, database type info, id (table metadata ID)
-- columns[] → {name,type,isNullable,isPrimary,defaultValue,isUnique}
-- relations[] → {propertyName,type,targetTable:{id:<REAL_ID_FROM_FIND>},inversePropertyName?,cascade?}
-  - To check if a table has relations: if relations array is empty [] or missing → no relations; if has items → has relations
-- data (if getData=true) → actual table record data matching id or name, or null if not found
-- CRITICAL: targetTable.id MUST be REAL ID from database. ALWAYS use get_table_details to get current ID. NEVER use IDs from history.
+CRITICAL - Relations Format for Create/Update:
+- When creating or updating records with relations, you MUST use propertyName from relations array
+- Format for SQL databases (PostgreSQL, MySQL, etc.): {[propertyName]: {id: value}}
+  Example: {"customer": {id: 1}} or {"category": {id: 19}}
+- Format for MongoDB: {[propertyName]: {_id: value}}
+  Example: {"customer": {_id: "507f1f77bcf86cd799439011"}}
+- NEVER use foreignKeyColumn directly (e.g., "customer_id", "customerId") - it's only for reference
+- NEVER use simple ID value (e.g., {"customer": 1}) - always use object format with id/_id
+- For many-to-many relations, use array format: {[propertyName]: [{id: 1}, {id: 2}]} or {[propertyName]: [{_id: "..."}, {_id: "..."}]}
+- Example: If relations array shows {propertyName: "customer", type: "many-to-one", targetTableName: "customers"}, use {"customer": {id: 1}} NOT {"customer_id": 1} or {"customerId": 1} or {"customer": 1}
+
+Note: To check if a table has relations, check if relations array is empty [] or missing → no relations; if has items → has relations.
+CRITICAL: Always check relations array to see available propertyName values before creating/updating records with relations.
 
 Examples:
 Single table: {"tableName":["user_definition"]}
-Single table + data: {"tableName":["user_definition"],"getData":true,"id":123}
+Single table + data: {"tableName":["user_definition"],"getData":true,"id":[123]}
+Single table + data by name: {"tableName":["user_definition"],"getData":true,"name":["admin"]}
 Multiple tables: {"tableName":["product","category","order","order_item","customer"]}
+Multiple tables + data: {"tableName":["product","category"],"getData":true,"id":[1,2]}
+Multiple tables + data by name: {"tableName":["product","category"],"getData":true,"name":["laptop","electronics"]}
 With force refresh: {"tableName":["product","category"],"forceRefresh":true}`,
     parameters: {
       type: 'object',
@@ -220,16 +193,20 @@ With force refresh: {"tableName":["product","category"],"forceRefresh":true}`,
         },
         getData: {
           type: 'boolean',
-          description: 'Optional. Set to true to fetch actual table data. Requires id or name parameter. Default: false.',
+          description: 'Optional. Set to true to fetch actual table data. CRITICAL: If getData=true, you MUST provide either id or name parameter. If you only need schema metadata (columns, relations, etc.), omit this parameter or set to false. Default: false.',
           default: false,
         },
         id: {
-          oneOf: [{ type: 'string' }, { type: 'number' }],
-          description: 'Optional. Table record ID to fetch. Requires getData=true. Use this to get a specific record by ID.',
+          type: 'array',
+          items: {
+            oneOf: [{ type: 'string' }, { type: 'number' }],
+          },
+          description: 'REQUIRED if getData=true (and name is not provided). Array of table record IDs to fetch. Array length must match tableName length. Each ID corresponds to the table at the same index. For single value, use array with 1 element: [123]',
         },
         name: {
-          type: 'string',
-          description: 'Optional. Table record name to fetch. Requires getData=true. Searches by name column (exact match).',
+          type: 'array',
+          items: { type: 'string' },
+          description: 'REQUIRED if getData=true (and id is not provided). Array of table record names to fetch. Array length must match tableName length. Each name corresponds to the table at the same index. For single value, use array with 1 element: ["table_name"]. Searches by name column (exact match).',
         },
       },
       required: ['tableName'],
@@ -250,8 +227,10 @@ Inputs:
 - tableName (required)
 
 Response:
-- table (string echo)
-- fields (string[]) sorted alphabetically
+{
+  table: string;
+  fields: string[];
+}
 
 Example request:
 {"tableName":"post"}`,
@@ -270,14 +249,19 @@ Example request:
     name: 'get_hint',
     description: `Purpose → General guidance for system operations. Use for general workflows, not tool-specific rules.
 
+CRITICAL - Call ONCE per tool loop iteration:
+- Call get_hint ONLY ONCE per tool loop iteration, even if you need multiple categories
+- Use the category array parameter to get multiple categories in ONE call: {"category":["table_operations","error_handling"]}
+- NEVER call get_hint multiple times in the same response or in the same tool loop iteration - this wastes tokens and causes infinite loops
+- If you already called get_hint in this iteration, DO NOT call it again - reuse the result you already received
+- After calling get_hint ONCE, wait for the result, analyze it, then proceed with your next action (which should NOT be calling get_hint again)
+- If you find yourself wanting to call get_hint again after already calling it, STOP - you already have the information you need, use it
+
 Use when:
 - Need general guidance about system operations (table operations, database type, error handling)
 - Unsure about table discovery or complex workflows
-- Need general permission check overview
-
 Available categories:
 - table_operations → Table creation/update operations (create_table, update_table tools)
-- permission_check → General permission overview
 - field_optimization → General field selection and query optimization (NOT tool-specific)
 - database_type → Database-specific context
 - error_handling → General error handling protocols
@@ -287,9 +271,15 @@ Available categories:
 Note: For tool-specific detailed rules (e.g., dynamic_repository workflows, schema validation, relations format), use get_tool_rules(toolName="...", category=[...]) instead.
 
 Input: category (string) or categories (array) or omit for all
-Example: {"category":"table_operations"} or {"category":["table_operations","permission_check"]}
+Example: {"category":"table_operations"} or {"category":["table_operations","error_handling"]}
 
-Returns: {dbType, idField, hints[], availableCategories[]}`,
+Returns:
+{
+  dbType: string;
+  idField: string;
+  hints: Array<{category: string; title: string; content: string}>;
+  availableCategories: string[];
+}`,
     parameters: {
       type: 'object',
       properties: {
@@ -298,20 +288,20 @@ Returns: {dbType, idField, hints[], availableCategories[]}`,
             {
               type: 'string',
               description:
-                'Single hint category: permission_check, database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows.',
+                'Single hint category: database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows.',
             },
             {
               type: 'array',
               items: {
                 type: 'string',
-                enum: ['permission_check', 'database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows'],
+                enum: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows'],
               },
               description:
-                'Multiple hint categories to retrieve at once. Useful when you need guidance on multiple topics (e.g., ["table_operations", "permission_check"]).',
+                'Multiple hint categories to retrieve at once. Useful when you need guidance on multiple topics (e.g., ["table_operations", "error_handling"]).',
             },
           ],
           description:
-            'Hint category (string) or categories (array of strings). Available: permission_check, database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows. Omit for all hints.',
+            'Hint category (string) or categories (array of strings). Available: database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows. Omit for all hints.',
         },
       },
     },
@@ -326,20 +316,22 @@ Use when:
 - You encounter errors and need specific guidance
 
 Available tools with detailed rules:
-- dynamic_repository: permission, workflow, schema, relations, best_practices
+- dynamic_repository: workflow, schema, relations, best_practices
 
 Inputs:
 - toolName (required): Name of the tool (e.g., "dynamic_repository")
 - category (optional): Single category or array of categories to retrieve
 
 Returns:
-- toolName: The requested tool name
-- categories: Array of rule objects with category, title, and content
-- availableCategories: List of all available categories for this tool
+{
+  toolName: string;
+  categories: Array<{category: string; title: string; content: string}>;
+  availableCategories: string[];
+}
 
 Example:
 - Get all rules: get_tool_rules({"toolName":"dynamic_repository"})
-- Get specific categories: get_tool_rules({"toolName":"dynamic_repository","category":["permission","workflow"]})`,
+- Get specific categories: get_tool_rules({"toolName":"dynamic_repository","category":["workflow","schema"]})`,
     parameters: {
       type: 'object',
       properties: {
@@ -351,15 +343,15 @@ Example:
           oneOf: [
             {
               type: 'string',
-              description: 'Single category to retrieve (e.g., "permission", "workflow", "schema", "relations", "best_practices").',
+              description: 'Single category to retrieve (e.g., "workflow", "schema", "relations", "best_practices").',
             },
             {
               type: 'array',
               items: {
                 type: 'string',
-                enum: ['permission', 'workflow', 'schema', 'relations', 'best_practices'],
+                enum: ['workflow', 'schema', 'relations', 'best_practices'],
               },
-              description: 'Multiple categories to retrieve at once (e.g., ["permission", "workflow"]).',
+              description: 'Multiple categories to retrieve at once (e.g., ["workflow", "schema"]).',
             },
           ],
           description: 'Category (string) or categories (array) to retrieve. Omit for all categories.',
@@ -370,60 +362,101 @@ Example:
   },
   {
     name: 'create_table',
-    description: `Purpose → Create a new table with automatic validation, FK conflict detection, and retry logic.
+    description: `Purpose → Create a new table.
 
-This tool automatically:
-- Checks if table already exists (fails if exists - use update_table instead)
-- Validates table name (snake_case, lowercase), columns, relations
-- Validates target tables for relations
-- Checks FK column conflicts (system auto-generates FK columns from relation propertyName)
-- Retries on retryable errors
-
-FK Columns:
-- System automatically generates FK columns from relation propertyName (e.g., "user" → "userId")
-- Do NOT manually create FK columns in columns array - system handles this automatically
-- If FK column name conflicts with existing column, use different propertyName
+CRITICAL - ONE Table Per Response:
+- Call create_table ONLY ONCE per response
+- If you need to create multiple tables, call create_table ONE BY ONE in separate responses
+- Wait for the result of the first create_table call before calling the next one
+- NEVER call create_table multiple times in the same response (e.g., creating 5 tables at once) - this causes errors and violates the one-tool-per-response rule
 
 Create with Relations:
 - Include relations in the initial create_table call. Do NOT create table first then update with relations
 - Include all relations in data.relations array from the start - this saves tool calls and time
-- For multiple related tables: Create tables with FK columns (M2O/O2O) BEFORE creating target tables they reference
+- CRITICAL: Do NOT create FK columns manually - the system auto-generates them from relations
+- For M2O/O2O relations: Create target tables FIRST, then create source tables with relations
+- Example: To create order with customer relation, create customers table first, then create orders table with relation to customers
+
+System Table Safety:
+- Do not remove/edit built-in columns/relations in system tables (*_definition tables)
+- Only add new columns/relations when extending system tables
+- createdAt/updatedAt are auto-generated; do not include in columns array
 
 Inputs:
 - name (required): Table name (snake_case, lowercase)
 - description (optional): Table description
-- columns (required): Array of column definitions. MUST include id column with isPrimary=true, type="int" or "uuid". CRITICAL: Do NOT include createdAt/updatedAt - system auto-generates them. Do NOT include FK columns - system auto-generates them from relations
-- relations (optional): Array of relation definitions. targetTable.id MUST be REAL ID from find result. one-to-many and many-to-many MUST include inversePropertyName. System automatically creates FK columns. CRITICAL: Include relations here, not in separate update_table call
+- columns (required): Array of column definition objects. MUST include id column with isPrimary=true. CRITICAL: For SQL databases, use type="int" (PREFERRED). For MongoDB, use type="uuid" (REQUIRED). CRITICAL: Do NOT include createdAt/updatedAt. Do NOT include FK columns
+
+Column Schema:
+{
+  name: string; // Required
+  type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; // Required
+  isPrimary?: boolean; // Optional, default: false
+  isGenerated?: boolean; // Optional, default: false
+  isNullable?: boolean; // Optional, default: true
+  default?: any; // Optional
+  isUnique?: boolean; // Optional, default: false
+  description?: string; // Optional
+  isHidden?: boolean; // Optional, default: false
+  isUpdatable?: boolean; // Optional, default: true
+  isSystem?: boolean; // Optional, default: false
+  values?: string[]; // Optional, for enum type
+  index?: boolean; // Optional, default: false
+}
+
+Example columns:
+[{"name":"id","type":"int","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar","isNullable":false},{"name":"email","type":"varchar","isNullable":false,"isUnique":true}]
+
+- relations (optional): Array of relation definition objects. CRITICAL: Include relations here, not in separate update_table call. Do NOT include FK columns in columns array
+
+Relation Schema:
+{
+  propertyName: string; // Required
+  type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; // Required
+  targetTable: {id: number}; // Required, id MUST be REAL ID from find result
+  inversePropertyName?: string; // Optional, REQUIRED for "one-to-many" and "many-to-many"
+  isNullable?: boolean; // Optional, default: true
+  description?: string; // Optional
+  onDelete?: "CASCADE" | "RESTRICT" | "SET NULL"; // Optional
+  isEager?: boolean; // Optional, default: false
+  index?: boolean; // Optional, default: false
+}
+
+Example relations:
+[{"propertyName":"user","type":"many-to-one","targetTable":{"id":271},"isNullable":false},{"propertyName":"categories","type":"many-to-many","targetTable":{"id":270},"inversePropertyName":"products"}]
+
 - uniques (optional): Array of unique constraints (e.g., [["slug"], ["email", "username"]])
 - indexes (optional): Array of index definitions
 
-Output: {success: boolean, result?: object, errors?: array, stopReason?: string}
+Output:
+{
+  success: boolean;
+  result?: object;
+  errors?: Array<{step: string; error: string; retryable: boolean}>;
+  stopReason?: string;
+}
 
-For detailed examples and validation rules, call get_hint(category="table_operations")`,
+For detailed examples and validation rules, call get_hint(category="table_operations") ONCE, then proceed`,
     parameters: {
       type: 'object',
       properties: {
         name: {
           type: 'string',
-          description: 'Table name (must be snake_case, lowercase, a-z0-9_)',
         },
         description: {
           type: 'string',
-          description: 'Optional table description',
         },
         columns: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Array of column definitions. MUST include id column with isPrimary=true.',
         },
         relations: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Optional array of relation definitions. targetTable.id must be REAL ID from find result.',
         },
         uniques: {
           type: 'array',
@@ -433,14 +466,12 @@ For detailed examples and validation rules, call get_hint(category="table_operat
               type: 'string',
             },
           },
-          description: 'Optional array of unique constraints. Format: [["slug"], ["email", "username"]]',
         },
         indexes: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Optional array of index definitions',
         },
       },
       required: ['name', 'columns'],
@@ -448,20 +479,12 @@ For detailed examples and validation rules, call get_hint(category="table_operat
   },
   {
     name: 'update_table',
-    description: `Purpose → Update an existing table with automatic validation, FK conflict detection, merging, and retry logic.
+    description: `Purpose → Update an existing table.
 
-This tool automatically:
-- Loads current table data
-- Validates update data (columns, relations)
-- Validates target tables for new relations
-- Checks FK column conflicts (system auto-generates FK columns from relation propertyName)
-- Merges update data with existing (preserves system columns/relations)
-- Retries on retryable errors
-
-FK Columns:
-- System automatically generates FK columns from relation propertyName (e.g., "user" → "userId")
-- Do NOT manually create FK columns in columns array - system handles this automatically
-- If FK column name conflicts with existing column, use different propertyName
+System Table Safety:
+- Do not remove/edit built-in columns/relations in system tables (*_definition tables)
+- Only add new columns/relations when extending system tables
+- createdAt/updatedAt are auto-generated; do not include in columns array
 
 Example:
 update_table({
@@ -474,12 +497,50 @@ Inputs:
 - tableName (required): Table name to update (must exist)
 - tableId (optional): Table ID for faster lookup
 - description (optional): New table description
-- columns (optional): Array of column definitions to add/update. Merged by name. CRITICAL: Do NOT include createdAt/updatedAt - system auto-generates them. Do NOT include FK columns - system auto-generates them from relations. System columns (id, createdAt, updatedAt) preserved automatically
-- relations (optional): Array of relation definitions to add/update. Merged by propertyName. targetTable.id MUST be REAL ID from find result. one-to-many and many-to-many MUST include inversePropertyName. System automatically creates FK columns
+- columns (optional): Array of column definition objects to add/update. Merged by name. CRITICAL: Do NOT include createdAt/updatedAt. Do NOT include FK columns
+
+Column Schema (same as create_table):
+{
+  name: string; // Required
+  type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; // Required
+  isPrimary?: boolean; // Optional, default: false
+  isGenerated?: boolean; // Optional, default: false
+  isNullable?: boolean; // Optional, default: true
+  default?: any; // Optional
+  isUnique?: boolean; // Optional, default: false
+  description?: string; // Optional
+  isHidden?: boolean; // Optional, default: false
+  isUpdatable?: boolean; // Optional, default: true
+  isSystem?: boolean; // Optional, default: false
+  values?: string[]; // Optional, for enum type
+  index?: boolean; // Optional, default: false
+}
+
+- relations (optional): Array of relation definition objects to add/update. Merged by propertyName
+
+Relation Schema (same as create_table):
+{
+  propertyName: string; // Required
+  type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; // Required
+  targetTable: {id: number}; // Required, id MUST be REAL ID from find result
+  inversePropertyName?: string; // Optional, REQUIRED for "one-to-many" and "many-to-many"
+  isNullable?: boolean; // Optional, default: true
+  description?: string; // Optional
+  onDelete?: "CASCADE" | "RESTRICT" | "SET NULL"; // Optional
+  isEager?: boolean; // Optional, default: false
+  index?: boolean; // Optional, default: false
+}
+
 - uniques (optional): Array of unique constraints (replaces existing)
 - indexes (optional): Array of index definitions (replaces existing)
 
-Output: {success: boolean, result?: object, errors?: array, stopReason?: string}
+Output:
+{
+  success: boolean;
+  result?: object;
+  errors?: Array<{step: string; error: string; retryable: boolean}>;
+  stopReason?: string;
+}
 
 For detailed examples and workflows, call get_hint(category="table_operations")`,
     parameters: {
@@ -487,29 +548,24 @@ For detailed examples and workflows, call get_hint(category="table_operations")`
       properties: {
         tableName: {
           type: 'string',
-          description: 'Table name to update (must exist)',
         },
         tableId: {
           type: 'number',
-          description: 'Optional table ID for faster lookup (if you already have it)',
         },
         description: {
           type: 'string',
-          description: 'Optional new table description',
         },
         columns: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Optional array of column definitions to add/update. Columns are merged with existing columns by name.',
         },
         relations: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Optional array of relation definitions to add/update. Relations are merged with existing relations by propertyName.',
         },
         uniques: {
           type: 'array',
@@ -519,17 +575,59 @@ For detailed examples and workflows, call get_hint(category="table_operations")`
               type: 'string',
             },
           },
-          description: 'Optional array of unique constraints. Replaces existing uniques.',
         },
         indexes: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Optional array of index definitions. Replaces existing indexes.',
         },
       },
       required: ['tableName'],
+    },
+  },
+  {
+    name: 'delete_table',
+    description: `Purpose → Delete a table by its ID. This tool permanently removes the table structure and all its data.
+
+CRITICAL - Find Table ID First:
+- This tool ONLY accepts table ID (number), NOT table name
+- BEFORE calling this tool, you MUST find the table ID first using one of these methods:
+  1. Using dynamic_repository: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}
+  2. Using get_table_details: {"tableName":["table_name"],"getData":false} (check the id field in result)
+- Extract the id (number) from the result and use it in this tool
+- NEVER use table name as id - this tool only accepts numeric id
+
+Workflow:
+1. Find table ID: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name"})
+2. Get id from result (e.g., id: 123)
+3. Delete table: delete_table({"id":123})
+
+Example:
+Step 1: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"categories"}},"fields":"id,name"})
+Step 2: delete_table({"id":123}) ← Use the id from step 1
+
+Inputs:
+- id (required): Table ID (number) from table_definition. Must be found first using dynamic_repository or get_table_details.
+
+Output:
+{
+  success: boolean;
+  id: number;
+  name: string;
+  message: string;
+}
+
+For multiple tables: Delete them ONE BY ONE sequentially (not in parallel) to avoid deadlocks.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'number',
+          description: 'Table ID (number) from table_definition. Must be found first using dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name"}) or get_table_details.',
+        },
+      },
+      required: ['id'],
     },
   },
   {
@@ -567,40 +665,46 @@ Inputs:
 - priority (optional): Task priority (default: 0, higher = more priority)
 
 Returns:
-- success (boolean)
-- task (object): Updated task object`,
+{
+  success: boolean;
+  task: {
+    id: number | string;
+    conversationId: number | string;
+    type: "create_table" | "update_table" | "delete_table" | "custom";
+    status: "pending" | "in_progress" | "completed" | "cancelled" | "failed";
+    data?: any;
+    result?: any;
+    error?: string;
+    priority?: number;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+}`,
     parameters: {
       type: 'object',
       properties: {
         conversationId: {
           oneOf: [{ type: 'string' }, { type: 'number' }],
-          description: 'Current conversation ID. Required.',
         },
         type: {
           type: 'string',
           enum: ['create_table', 'update_table', 'delete_table', 'custom'],
-          description: 'Task type.',
         },
         status: {
           type: 'string',
           enum: ['pending', 'in_progress', 'completed', 'cancelled', 'failed'],
-          description: 'Task status.',
         },
         data: {
           type: 'object',
-          description: 'Optional. Task-specific data (e.g., table names, operations).',
         },
         result: {
           type: 'object',
-          description: 'Optional. Task result when status is completed.',
         },
         error: {
           type: 'string',
-          description: 'Optional. Error message when status is failed.',
         },
         priority: {
           type: 'number',
-          description: 'Optional. Task priority (default: 0, higher = more priority).',
           default: 0,
         },
       },
@@ -609,36 +713,78 @@ Returns:
   },
   {
     name: 'dynamic_repository',
-    description: `Purpose → single gateway for CRUD and batch operations.
+    description: `Purpose → single gateway for CRUD operations (single record operations only).
 
-CRITICAL - Permission Check FIRST (MANDATORY):
-- For ANY business table operation, you MUST call check_permission FIRST, wait for result, then call this tool
-- Applies to ALL operations: create, read, update, delete, batch_create, batch_update, batch_delete
-- NEVER call this tool before check_permission - the operation will fail if permission is not checked first
-- Workflow: check_permission({"table":"X","operation":"Y"}) → wait → if allowed=true → dynamic_repository
-- If you skip check_permission, the tool executor will reject your request with error
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
-Other critical rules:
+CRITICAL - Schema Check Required:
+- BEFORE create/update operations: You MUST call get_table_details FIRST to check the table schema
+- Schema check is MANDATORY to ensure:
+  * All required fields (not-null, non-generated) are included in data
+  * Column names match exactly (snake_case vs camelCase)
+  * Relations format is correct (propertyName, not FK column names)
+  * Data types match column types
+- Workflow: get_table_details → analyze schema → prepare data → dynamic_repository
+- DO NOT skip schema check - missing required fields will cause errors
+
+CRITICAL - Check Unique Constraints Before Create:
+- BEFORE create operations: You MUST check if records with unique field values already exist
+- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using dynamic_repository.find
+- Workflow: get_table_details (to identify unique columns) → dynamic_repository.find (to check existence) → create only if not exists
+- Example: Before creating category with name="Electronics", check: dynamic_repository({"table":"category","operation":"find","where":{"name":{"_eq":"Electronics"}},"fields":"id","limit":1})
+- If record exists, skip creation or use update instead - duplicate unique values will cause errors
+- This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
+
+CRITICAL - Relations Format:
+- For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
+- Format: {"propertyName": <id_value>} where propertyName is from relations[].propertyName and id_value is a number or string
+- Example: If get_table_details shows relation with propertyName="customer", use {"customer": 1} NOT {"customer_id": 1} or {"customerId": 1}
+- The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
+- Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
+
+CRITICAL - DO NOT Include ID in Create Operations:
+- When using create operations, NEVER include "id" field in data
+- Including id in create operations will cause errors
+- Example CORRECT: {"table":"product","operation":"create","data":{"name":"Product 1","price":100}}
+- Example WRONG: {"table":"product","operation":"create","data":{"id":123,"name":"Product 1","price":100}}
+
+CRITICAL - Deleting Tables (NOT Data):
+- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_table tool:
+  1. Find the table_definition record: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
+  2. Get the id (number) from the result
+  3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})
+- NEVER use dynamic_repository to delete tables - use delete_table tool instead
+- NEVER use delete operation on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
+- NEVER use table name as id value - delete_table only accepts numeric id
+- Example CORRECT for deleting table: 
+  Step 1: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"categories"}},"fields":"id,name"})
+  Step 2: delete_table({"id":123}) ← Use the id from step 1
+- Example WRONG: dynamic_repository({"table":"categories","operation":"delete","where":{"id":{"_eq":"categories"}}}) ← This is INCORRECT
+
+CRITICAL - Batch Operations:
+- For batch operations (2+ records), use batch_dynamic_repository tool instead
+- Use batch_dynamic_repository for: batch_create (5+ records), batch_update (5+ records), batch_delete (2+ records)
+- When find returns multiple records, collect ALL IDs and use batch_dynamic_repository
+
+Critical rules:
 1. Execute ONE operation at a time (sequential, not parallel)
-2. For create/update/batch_create: get_table_details to check schema first
+2. For create/update: ALWAYS call get_table_details FIRST to check schema
 
 Basic examples:
-- Create: check_permission({"table":"product","operation":"create"}) → wait → dynamic_repository({"table":"product","operation":"create","data":{...}})
-- Batch Create: check_permission({"table":"product","operation":"create"}) → wait → dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{...},{...}],"fields":"id"})
-- Read: check_permission({"table":"order","operation":"read"}) → wait → dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
-- Update: check_permission({"table":"customer","operation":"update"}) → wait → dynamic_repository({"table":"customer","operation":"update","where":{"id":{"_eq":1}},"data":{...}})
-- Batch Delete: check_permission({"table":"order_item","operation":"delete"}) → wait → dynamic_repository({"table":"order_item","operation":"batch_delete","where":{"order_id":{"_in":[1,2,3]}}})
+- Create: dynamic_repository({"table":"product","operation":"create","data":{...},"fields":"id"})
+- Read: dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
+- Update: dynamic_repository({"table":"customer","operation":"update","id":1,"data":{...},"fields":"id"})
+- Delete: dynamic_repository({"table":"order_item","operation":"delete","id":1})
 
 Metadata tables (*_definition) can skip permission:
 - dynamic_repository({"table":"table_definition","operation":"find","skipPermissionCheck":true})
 
 Available detailed rules (query when needed):
-- Call get_tool_rules(toolName="dynamic_repository", category=["permission", "workflow", "schema", "relations", "best_practices"]) for:
-  * permission: Permission check workflows and examples
+- Call get_tool_rules(toolName="dynamic_repository", category=["workflow", "schema", "relations", "best_practices"]) for:
   * workflow: Complete create/update/delete workflows with all steps
   * schema: Schema validation, required fields, column naming (snake_case)
   * relations: Relations format (TypeORM style), FK handling, verification
-  * best_practices: Query optimization, batch operations, field selection
+  * best_practices: Query optimization, field selection
 
 For general guidance, also see get_hint(category="table_operations")`,
     parameters: {
@@ -650,9 +796,9 @@ For general guidance, also see get_hint(category="table_operations")`,
         },
         operation: {
           type: 'string',
-          enum: ['find', 'create', 'update', 'delete', 'batch_create', 'batch_update', 'batch_delete'],
+          enum: ['find', 'create', 'update', 'delete'],
           description:
-            'Operation to perform: "find" (read records), "create" (insert one), "update" (modify one by id), "delete" (remove one by id), "batch_create" (insert many), "batch_update" (modify many), "batch_delete" (remove many). CRITICAL: Use batch_delete for 2+ deletes, batch_create/batch_update for 5+ creates/updates. When find returns multiple records, collect ALL IDs and use batch operations. NO "findOne" operation - use "find" with limit=1 instead.',
+            'Operation to perform: "find" (read records), "create" (insert one), "update" (modify one by id), "delete" (remove one by id). CRITICAL: For batch operations (2+ records), use batch_dynamic_repository tool instead. NO "findOne" operation - use "find" with limit=1 instead.',
         },
         where: {
           type: 'object',
@@ -662,7 +808,7 @@ For general guidance, also see get_hint(category="table_operations")`,
         fields: {
           type: 'string',
           description:
-            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: For create/update operations, always specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
+            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: For create/update operations, ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
         },
         limit: {
           type: 'number',
@@ -682,18 +828,116 @@ For general guidance, also see get_hint(category="table_operations")`,
         data: {
           type: 'object',
           description:
-            'Data for create/update operations. For creating tables, include: name, description, columns, relations, uniques, indexes.',
+            'Data for create/update operations. For creating tables, include: name, description, columns, relations, uniques, indexes. CRITICAL: When operation is "create", DO NOT include "id" field. Including id will cause errors.',
         },
         id: {
           oneOf: [{ type: 'string' }, { type: 'number' }],
           description: 'ID for update/delete operations',
+        },
+        skipPermissionCheck: {
+          type: 'boolean',
+          description:
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
+          default: false,
+        },
+      },
+      required: ['table', 'operation'],
+    },
+  },
+  {
+    name: 'batch_dynamic_repository',
+    description: `Purpose → batch operations for multiple records (batch_create, batch_update, batch_delete).
+
+CRITICAL - Available Operations:
+- ONLY 3 operations: batch_create, batch_update, batch_delete
+- NO batch_find operation - use dynamic_repository with operation="find" to find/view/search records (even multiple records)
+- batch_dynamic_repository is ONLY for creating/updating/deleting multiple records, NOT for finding/viewing
+
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - When to Use:
+- batch_create: Use for 2+ records to create
+- batch_update: Use for 2+ records to update
+- batch_delete: Use for 2+ records to delete
+- When dynamic_repository.find returns multiple records, collect ALL IDs and use batch_dynamic_repository for batch_delete
+- To find/view multiple records: use dynamic_repository with operation="find" and limit parameter
+
+CRITICAL - Metadata Tables:
+- Always process metadata tables (table_definition/column_definition/relation_definition) sequentially, one at a time
+- NEVER use batch operations on metadata tables - process them one by one
+
+CRITICAL - Schema Check Required:
+- BEFORE batch_create/batch_update operations: You MUST call get_table_details FIRST to check the table schema
+- Schema check is MANDATORY to ensure:
+  * All required fields (not-null, non-generated) are included in data
+  * Column names match exactly (snake_case vs camelCase)
+  * Relations format is correct (propertyName, not FK column names)
+  * Data types match column types
+- Workflow: get_table_details → analyze schema → prepare data → batch_dynamic_repository
+- DO NOT skip schema check - missing required fields will cause errors
+
+CRITICAL - Check Unique Constraints Before Batch Create:
+- BEFORE batch_create operations: You MUST check if records with unique field values already exist
+- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using dynamic_repository.find or get_table_details with getData=true
+- Workflow: get_table_details (to identify unique columns) → check existing records (dynamic_repository.find or get_table_details with getData=true) → filter out existing records → batch_create only new records
+- Example: Before batch creating categories, check existing: dynamic_repository({"table":"category","operation":"find","fields":"id,name","limit":0}) or get_table_details({"tableName":["category"],"getData":true})
+- Filter dataArray to exclude records that already exist (compare unique field values)
+- If all records exist, skip batch_create - duplicate unique values will cause errors
+- This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
+
+CRITICAL - Relations Format:
+- For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
+- Format: {"propertyName": <id_value>} where propertyName is from relations[].propertyName and id_value is a number or string
+- Example: If get_table_details shows relation with propertyName="customer", use {"customer": 1} NOT {"customer_id": 1} or {"customerId": 1}
+- The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
+- Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
+
+CRITICAL - DO NOT Include ID in Batch Create:
+- When using batch_create, NEVER include "id" field in any data object
+- Including id in batch_create will cause errors
+- Example CORRECT: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
+- Example WRONG: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"id":1,"name":"P1"}],"fields":"id"})
+
+CRITICAL - Fields Parameter is MANDATORY:
+- ALWAYS specify fields parameter for batch_create and batch_update to reduce response size
+- Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields
+- batch_delete does NOT need fields (it only deletes, no data returned)
+- Example: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{...}],"fields":"id"})
+- Example: batch_dynamic_repository({"table":"product","operation":"batch_update","updates":[{"id":1,"data":{...}}],"fields":"id"})
+
+Basic examples:
+- Batch Create: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
+- Batch Update: batch_dynamic_repository({"table":"customer","operation":"batch_update","updates":[{"id":1,"data":{...}},{"id":2,"data":{...}}],"fields":"id"})
+- Batch Delete: batch_dynamic_repository({"table":"order_item","operation":"batch_delete","ids":[1,2,3]})
+
+Metadata tables (*_definition) can skip permission:
+- batch_dynamic_repository({"table":"table_definition","operation":"batch_create","dataArray":[...],"skipPermissionCheck":true,"fields":"id"})
+
+For general guidance, also see get_hint(category="table_operations")`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to operate on.',
+        },
+        operation: {
+          type: 'string',
+          enum: ['batch_create', 'batch_update', 'batch_delete'],
+          description:
+            'Batch operation to perform: "batch_create" (insert many), "batch_update" (modify many), "batch_delete" (remove many). CRITICAL: Use batch_create for 5+ records, batch_update for 5+ records, batch_delete for 2+ records.',
+        },
+        fields: {
+          type: 'string',
+          description:
+            'Fields to return. MANDATORY for batch_create and batch_update to reduce response size. Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields. Do NOT use for batch_delete (no data returned).',
         },
         dataArray: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Array of data objects for batch_create operation. Each object represents one record to create. REQUIRED for batch_create operation. Example: [{"name":"P1","price":100},{"name":"P2","price":200}].',
+          description: 'Array of data objects for batch_create operation. Each object represents one record to create. REQUIRED for batch_create operation. CRITICAL: DO NOT include "id" field in any object. Example: [{"name":"P1","price":100},{"name":"P2","price":200}].',
         },
         updates: {
           type: 'array',
@@ -722,7 +966,7 @@ For general guidance, also see get_hint(category="table_operations")`,
         skipPermissionCheck: {
           type: 'boolean',
           description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). For business tables (non-metadata), call check_permission first. Default: false.',
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
           default: false,
         },
       },
