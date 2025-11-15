@@ -13,15 +13,22 @@ export const COMMON_TOOLS: ToolDefinition[] = [
     name: 'check_permission',
     description: `Purpose → verify access before any data operation.
 
+CRITICAL - Call ONCE per table+operation:
+- Call check_permission ONLY ONCE for each unique table+operation combination
+- After calling check_permission, REUSE the result for all subsequent operations on the same table+operation
+- Do NOT call check_permission multiple times for the same table+operation in the same response
+- If you already called check_permission for "table=order_item, operation=delete", do NOT call it again - reuse the previous result
+
 Use when:
 - Handling read/create/update/delete on protected data
 - User targets restricted tables or admin routes
-- No cached check_permission result exists for the same table/route and operation in this response
+- No check_permission result exists yet for the same table/route and operation in this response
 
 Skip when:
 - Only calling get_metadata, get_table_details, get_fields, get_hint
 - Answering casual questions without touching data
 - A matching check_permission result already exists in this response (reuse it instead of calling again)
+- You already called check_permission for the same table+operation earlier in this response
 
 Inputs:
 - operation (required): read | create | update | delete
@@ -83,17 +90,25 @@ Returns:
     name: 'get_table_details',
     description: `Purpose → load the full schema (columns, relations, indexes, constraints), table ID, AND optionally table data for one or multiple tables.
 
+CRITICAL - Call ONCE per table:
+- Call get_table_details ONLY ONCE for each table you need schema for
+- After calling, REUSE the schema information for all subsequent operations on that table
+- Do NOT call get_table_details multiple times for the same table in the same response
+- If you already called get_table_details for "product", do NOT call it again - reuse the previous result
+- This tool returns LARGE amounts of data - calling it multiple times wastes tokens
+
 Use when:
-- Preparing create/update payloads that must match schema exactly
-- Investigating relation structure or constraints
-- Need to compare multiple tables' schemas
-- Need to check if tables have relations
+- Preparing create/update payloads that must match schema exactly (call ONCE, then reuse)
+- Investigating relation structure or constraints (call ONCE, then reuse)
+- Need to compare multiple tables' schemas (call once with array of all table names)
+- Need to check if tables have relations (call ONCE, then reuse)
 - Need to get table ID (e.g., for relations, updates) - the metadata includes the table ID field
 - Need to get actual table data by ID or name - set getData=true with id or name parameter (array with 1 element only)
 - CRITICAL: When you need table ID or table data, use this tool instead of querying table_definition with dynamic_repository
 
 Skip when:
 - You only need field names → prefer get_fields
+- You already called get_table_details for this table earlier in this response - reuse the previous result
 
 Inputs:
 - tableName (required) → array of table names (case-sensitive). For single table, use array with 1 element: ["user_definition"]
@@ -470,6 +485,14 @@ Returns:
     name: 'dynamic_repository',
     description: `Purpose → single gateway for CRUD and batch operations.
 
+CRITICAL - Sequential Execution:
+- ALWAYS execute operations ONE AT A TIME, step by step
+- Do NOT call multiple dynamic_repository operations simultaneously
+- Execute first operation → wait for result → analyze → proceed to next
+- If you call multiple operations at once and one fails, you'll have to retry all, causing duplicates
+- Example: If deleting from multiple tables, delete from table1 → wait for result → delete from table2 → wait for result → continue
+- This prevents errors, duplicate operations, and ensures proper error handling
+
 CRITICAL - Schema Check (MANDATORY for create/update):
 - BEFORE creating or updating records, you MUST call get_table_details to get the full schema
 - Check which columns are required (isNullable=false) and have default values
@@ -489,10 +512,23 @@ Operations:
 - CRITICAL: Always specify minimal fields parameter for create/update (e.g., "id" or "id,name") to save tokens
 
 Workflow for create/update:
-1. Call get_table_details with tableName to get schema (required fields, types, defaults)
-2. Check permission with check_permission if needed
-3. Prepare data object with ALL required fields
-4. Call dynamic_repository with create/update operation
+1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
+2. Check permission with check_permission if needed (MANDATORY for business tables)
+3. For relations (foreign keys): You MUST verify the referenced record exists first
+   - Example: If creating product with category relation, first call dynamic_repository with find to check if category exists
+   - NEVER use hardcoded IDs without verifying they exist
+   - If the referenced record doesn't exist, create it first or use an existing ID
+4. Prepare data object with ALL required fields (check schema for isNullable=false fields)
+   - CRITICAL: Use EXACT column names from get_table_details (they are in snake_case format, e.g., order_number, unit_price, not camelCase like orderNumber, unitPrice)
+   - Column names in database are ALWAYS snake_case, never camelCase
+   - If you see an error about missing column, check if you used camelCase instead of snake_case
+5. CRITICAL - Relations Format (TypeORM style):
+   - Use propertyName from relations array (e.g., "category", "customer", "order"), NOT FK column names (e.g., "category_id", "customerId")
+   - Format: {"category": {"id": 19}} OR {"category": 19} (pass object with id, or just id directly)
+   - NEVER use FK column names like "category_id", "customerId", "orderId" - these are auto-generated by system
+   - Example: If product has relation "category" → use {"category": {"id": 19}}, NOT {"category_id": 19}
+   - Check get_table_details result.relations[] to see available propertyNames
+6. Call dynamic_repository with create/update operation
 
 Best practices:
 - Use get_table_details/get_fields before writing to understand schema - THIS IS MANDATORY

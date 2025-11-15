@@ -102,7 +102,9 @@ export class ToolExecutor {
     const permissionCache: Map<string, any> =
       ((context as any).__permissionCache as Map<string, any>) ||
       (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
-    const cacheKey = `${userId || 'anon'}|${operation}|${table || ''}|${routePath || ''}`;
+    const cacheKey = table
+      ? `${userId || 'anon'}|${operation}|${table}|`
+      : `${userId || 'anon'}|${operation}||${routePath || ''}`;
 
     if (permissionCache.has(cacheKey)) {
       return permissionCache.get(cacheKey);
@@ -778,10 +780,13 @@ CRITICAL - Schema Check Before Create/Update:
 - If you get constraint errors, you MUST call get_table_details to see all required fields and fix your data
 
 Workflow for create/update:
-1. Call get_table_details with tableName to get schema (required fields, types, defaults)
+1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
 2. Check permission with check_permission if needed
-3. Prepare data object with ALL required fields
-4. Call dynamic_repository with create/update operation
+3. For relations: Use propertyName from result.relations[] (e.g., "category", "customer"), NOT FK columns (e.g., "category_id", "customerId")
+   - Format: {"category": {"id": 19}} OR {"category": 19}
+   - NEVER use FK column names - system auto-generates them from propertyName
+4. Prepare data object with ALL required fields
+5. Call dynamic_repository with create/update operation
 
 Nested relations & query optimization:
 - fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
@@ -862,10 +867,19 @@ Efficiency:
       content: complexWorkflowsContent,
     };
 
-    const errorContent = `Error handling:
+    const errorContent = `CRITICAL - Sequential Execution (PREVENTS ERRORS):
+- ALWAYS execute tools ONE AT A TIME, step by step
+- Do NOT call multiple tools simultaneously in a single response
+- Execute first tool → wait for result → analyze → proceed to next
+- If you call multiple tools at once and one fails, you'll have to retry all, causing duplicates and wasted tokens
+- Example workflow: check_permission → wait → dynamic_repository find → wait → dynamic_repository delete → wait → continue
+- This prevents errors, duplicate operations, and ensures proper error handling
+
+Error handling:
 - If tool returns error=true → stop workflow and report error to user
 - Tools have automatic retry logic - let them handle retries
-- Report exact error message from tool result to user`;
+- Report exact error message from tool result to user
+- If you encounter errors after calling multiple tools at once, execute them sequentially instead`;
 
     const errorHint = {
       category: 'error_handling',
@@ -904,10 +918,10 @@ Metadata tables exception:
 - If you skip permission check, you MUST explain why in your reasoning
 
 How to use:
-1. Call check_permission first: {"table":"post","operation":"read"} or {"table":"post","operation":"create"}
+1. Call check_permission ONCE: {"table":"post","operation":"read"} or {"table":"post","operation":"create"}
 2. Check result.allowed - if true, proceed with dynamic_repository
 3. If false, stop and report reason to user
-4. Cache result per table/route+operation in same turn (reuse, don't repeat)
+4. CRITICAL: Call check_permission ONLY ONCE per table+operation combination. After calling, REUSE the result for all subsequent operations on the same table+operation. Do NOT call check_permission multiple times for the same table+operation in the same response.
 
 check_permission automatically handles:
 - User lookup (from context)
@@ -1038,12 +1052,23 @@ Tool executor validation:
 
       const userId = context.$user?.id;
       const operation = args.operation === 'find' ? 'read' : args.operation === 'batch_create' ? 'create' : args.operation === 'batch_update' ? 'update' : args.operation === 'batch_delete' ? 'delete' : args.operation;
-      const cacheKey = `${userId || 'anon'}|${operation}|${args.table}`;
+      const cacheKey = `${userId || 'anon'}|${operation}|${args.table || ''}|`;
 
       if (!permissionCache.has(cacheKey)) {
-        this.logger.warn(
-          `[ToolExecutor] Permission check not found for ${operation} on ${args.table}. AI should have called check_permission first. Proceeding with operation, but this may fail if permission is denied.`,
-        );
+        const isMetadataTable = args.table?.endsWith('_definition');
+        if (!isMetadataTable) {
+          return {
+            error: true,
+            errorCode: 'MISSING_PERMISSION_CHECK',
+            message: `Permission check required but not found for ${operation} operation on ${args.table}. You MUST call check_permission first before performing any operation on business tables.`,
+            userMessage: `❌ **Permission Check Required**: You must call check_permission before performing ${operation} operation on table "${args.table}".\n\n📋 **Action Required**:\n1. Call check_permission with table="${args.table}" and operation="${operation}" first\n2. Verify that allowed=true in the result\n3. Only then proceed with the ${operation} operation\n\n💡 **Note**: Permission check is MANDATORY for all business tables (non-metadata tables). Metadata tables (*_definition) may skip with skipPermissionCheck=true.`,
+            suggestion: `Call check_permission with table="${args.table}" and operation="${operation}" first to verify access before performing this operation.`,
+          };
+        } else {
+          this.logger.warn(
+            `[ToolExecutor] Permission check not found for ${operation} on ${args.table}. AI should have called check_permission first. Proceeding with operation, but this may fail if permission is denied.`,
+          );
+        }
       } else {
         const permissionResult = permissionCache.get(cacheKey);
         if (!permissionResult?.allowed) {
@@ -1051,6 +1076,7 @@ Tool executor validation:
             error: true,
             errorCode: 'PERMISSION_DENIED',
             message: `Permission denied for ${operation} operation on ${args.table}. Reason: ${permissionResult?.reason || 'unknown'}. You must call check_permission first and ensure allowed=true before performing this operation.`,
+            userMessage: `❌ **Permission Denied**: You do not have permission to perform ${operation} operation on table "${args.table}".\n\n📋 **Reason**: ${permissionResult?.reason || 'unknown'}\n\n💡 **Note**: This operation cannot proceed. Please check your access rights or contact an administrator.`,
             suggestion: `Call check_permission with table="${args.table}" and operation="${operation}" first to verify access.`,
           };
         }
@@ -1168,6 +1194,60 @@ Tool executor validation:
       const recovery = getRecoveryStrategy(error);
       const details = error?.details || error?.response?.details || {};
 
+      const isPermissionError =
+        errorMessage.includes('permission denied') ||
+        errorMessage.includes('unauthorized') ||
+        errorMessage.includes('forbidden') ||
+        errorMessage.includes('access denied') ||
+        error?.status === 401 ||
+        error?.status === 403 ||
+        error?.statusCode === 401 ||
+        error?.statusCode === 403 ||
+        error?.code === 'PERMISSION_DENIED';
+
+      if (isPermissionError) {
+        const isMetadataTable = args.table?.endsWith('_definition');
+        return {
+          error: true,
+          errorCode: 'PERMISSION_DENIED',
+          message: errorMessage,
+          userMessage: `❌ **Permission Denied**: Operation ${args.operation} on table "${args.table}" was denied.\n\n📋 **Error**: ${errorMessage}\n\n💡 **Action Required**:\n1. Call check_permission with table="${args.table}" and operation="${args.operation}" first\n2. Verify that allowed=true in the result\n3. If permission is denied, you cannot proceed with this operation${isMetadataTable ? '\n4. For metadata tables, you may use skipPermissionCheck=true if you have system access' : ''}\n\n⚠️ **Note**: Permission check is MANDATORY for business tables. Always call check_permission before performing operations.`,
+          suggestion: `Call check_permission with table="${args.table}" and operation="${args.operation}" first to verify access. If permission is denied, you cannot proceed with this operation.`,
+          details: {
+            ...details,
+            table: args.table,
+            operation: args.operation,
+          },
+        };
+      }
+
+      const isForeignKeyError =
+        errorMessage.includes('violates foreign key constraint') ||
+        errorMessage.includes('foreign key constraint') ||
+        errorMessage.includes('Key (') && errorMessage.includes(') is not present in table');
+
+      if (isForeignKeyError) {
+        const fkMatch = errorMessage.match(/Key \(([^)]+)\)/);
+        const fkColumn = fkMatch ? fkMatch[1] : 'unknown';
+        const refTableMatch = errorMessage.match(/table "([^"]+)"/);
+        const refTable = refTableMatch ? refTableMatch[1] : 'unknown';
+
+        return {
+          error: true,
+          errorType: 'INVALID_INPUT',
+          errorCode: 'FOREIGN_KEY_VIOLATION',
+          message: errorMessage,
+          userMessage: `❌ **Foreign Key Constraint Error**: The value for "${fkColumn}" in table "${args.table}" references a record that doesn't exist in table "${refTable}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${args.table}" to see the relation structure\n2. Call dynamic_repository with find operation to check if the referenced record exists\n   - Example: {"table":"${refTable}","operation":"find","where":{"id":{"_eq":<your_id>}},"fields":"id"}\n3. If the record doesn't exist, create it first or use an existing ID\n4. NEVER use hardcoded IDs (like ${fkColumn}: 1) without verifying they exist\n\n💡 **Note**: Always verify foreign key references exist BEFORE creating records with foreign keys.`,
+          suggestion: `Call dynamic_repository with find operation to verify the referenced record exists in table "${refTable}" before creating the record.`,
+          details: {
+            ...details,
+            foreignKeyColumn: fkColumn,
+            referencedTable: refTable,
+            table: args.table,
+          },
+        };
+      }
+
       const isConstraintError =
         (args.operation === 'create' || args.operation === 'batch_create' || args.operation === 'update' || args.operation === 'batch_update') &&
         (errorMessage.includes('null value in column') ||
@@ -1180,17 +1260,50 @@ Tool executor validation:
         const columnName = columnMatch ? columnMatch[1] : 'unknown';
         const tableName = columnMatch ? columnMatch[2] : args.table;
 
+        const providedFields = args.data ? Object.keys(args.data) : (args.dataArray && args.dataArray.length > 0 ? Object.keys(args.dataArray[0]) : []);
+        
+        const snakeToCamel = (str: string) => str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+        const camelToSnake = (str: string) => str.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+        
+        const columnCamelCase = snakeToCamel(columnName);
+        const possibleMismatch = providedFields.find((field: string) => {
+          const fieldSnakeCase = camelToSnake(field);
+          return field === columnCamelCase || 
+                 fieldSnakeCase === columnName ||
+                 field.toLowerCase() === columnName.toLowerCase() ||
+                 field.replace(/_/g, '').toLowerCase() === columnName.replace(/_/g, '').toLowerCase();
+        });
+
+        const isFkColumn = columnName.includes('_id') || columnName.toLowerCase().endsWith('id');
+        const possibleRelationField = providedFields.find((field: string) => {
+          const fieldSnakeCase = camelToSnake(field);
+          const fieldWithoutId = field.replace(/[Ii]d$/, '').replace(/_id$/, '');
+          const columnWithoutId = columnName.replace(/_id$/, '').replace(/[Ii]d$/, '');
+          return fieldWithoutId === columnWithoutId || fieldSnakeCase.replace(/_id$/, '') === columnName.replace(/_id$/, '');
+        });
+
+        let mismatchHint = '';
+        if (possibleMismatch && possibleMismatch !== columnName) {
+          mismatchHint = `\n\n⚠️ **Column Name Mismatch Detected**: You used "${possibleMismatch}" but the database column is "${columnName}". Column names in the database are in snake_case (e.g., order_number, unit_price), not camelCase (e.g., orderNumber, unitPrice). Always use the exact column names from get_table_details.`;
+        }
+        
+        if (isFkColumn && possibleRelationField && possibleRelationField !== columnName) {
+          mismatchHint += `\n\n⚠️ **Relation Format Error**: You used FK column "${possibleRelationField}" (or similar), but relations should use propertyName from get_table_details result.relations[]. Use propertyName format: {"${possibleRelationField.replace(/[Ii]d$/, '').replace(/_id$/, '')}": {"id": <value>}} OR {"${possibleRelationField.replace(/[Ii]d$/, '').replace(/_id$/, '')}": <value>}. NEVER use FK column names like "${columnName}" - system auto-generates them from propertyName.`;
+        }
+
         return {
           error: true,
           errorType: 'INVALID_INPUT',
           errorCode: 'MISSING_REQUIRED_FIELD',
           message: errorMessage,
-          userMessage: `❌ **Schema Constraint Error**: Missing required field "${columnName}" in table "${tableName}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${tableName}" to get the full schema\n2. Check which columns are required (isNullable=false) and have default values\n3. Update your data object to include ALL required fields\n4. Retry the operation with complete data\n\n💡 **Note**: Always check schema BEFORE creating/updating records to avoid this error.`,
-          suggestion: `Call get_table_details with tableName="${tableName}" to see all required fields, then update your data object accordingly.`,
+          userMessage: `❌ **Schema Constraint Error**: Missing required field "${columnName}" in table "${tableName}".${mismatchHint}\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${tableName}" to get the full schema with EXACT column names\n2. Check which columns are required (isNullable=false) and have default values\n3. Use EXACT column names from schema (snake_case format, e.g., order_number, unit_price, not camelCase)\n4. Update your data object to include ALL required fields with correct column names\n5. Retry the operation with complete data\n\n💡 **Note**: Always check schema BEFORE creating/updating records. Use the exact column names from get_table_details (they are in snake_case format).`,
+          suggestion: `Call get_table_details with tableName="${tableName}" to see all required fields with exact column names (snake_case), then update your data object accordingly.`,
           details: {
             ...details,
             missingColumn: columnName,
             table: tableName,
+            providedFields,
+            possibleMismatch,
           },
         };
       }

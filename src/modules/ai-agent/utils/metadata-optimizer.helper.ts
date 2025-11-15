@@ -18,28 +18,32 @@ export function optimizeMetadataForLLM(tableMetadata: any): any {
   }
 
   if (tableMetadata.columns && Array.isArray(tableMetadata.columns)) {
-    optimized.columns = tableMetadata.columns
-      .filter((col: any) => !col.isHidden)
+    const visibleColumns = tableMetadata.columns.filter((col: any) => !col.isHidden);
+    optimized.columns = visibleColumns
       .map((col: any) => {
         const colData: any = {
           name: col.name,
           type: col.type,
-          description: col.description,
           isNullable: col.isNullable,
           isPrimary: col.isPrimary || false,
           isGenerated: col.isGenerated || false,
         };
 
+        if (col.description) {
+          colData.description = col.description;
+        }
+
         if (col.defaultValue !== undefined && col.defaultValue !== null) {
           colData.defaultValue = col.defaultValue;
         }
 
-        if (col.options) {
+        if (col.options && Object.keys(col.options).length > 0) {
           colData.options = col.options;
         }
 
         return colData;
       });
+    optimized.columnCount = visibleColumns.length;
   }
 
   if (tableMetadata.relations && Array.isArray(tableMetadata.relations)) {

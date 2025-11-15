@@ -702,6 +702,20 @@ export class AiAgentService implements OnModuleInit {
                 },
               });
             } else if (event.type === 'tool_call') {
+              let parsedArgs = {};
+              try {
+                parsedArgs = typeof event.data.arguments === 'string' 
+                  ? JSON.parse(event.data.arguments) 
+                  : event.data.arguments || {};
+              } catch (e) {
+                parsedArgs = {};
+              }
+
+              this.logger.debug({
+                tool: event.data.name,
+                params: parsedArgs,
+              });
+
               allToolCalls.push({
                 id: event.data.id,
                 type: 'function',
@@ -1249,21 +1263,43 @@ export class AiAgentService implements OnModuleInit {
             this.logger.warn(`[buildLLMMessages] ⚠️ Skipping ${message.toolResults.length} orphaned tool results (assistant message was not pushed)`);
           }
 
-          if (assistantPushed && message.toolResults && message.toolResults.length > 0) {
-            for (const toolResult of message.toolResults) {
-              let resultContent: string;
-              if (typeof toolResult.result === 'string') {
-                resultContent = toolResult.result;
-              } else {
-                resultContent = JSON.stringify(toolResult.result || {});
+          if (assistantPushed && assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+            const toolCallIds = new Set(assistantMessage.tool_calls.map(tc => tc.id));
+            const toolResultsMap = new Map<string, any>();
+            
+            if (message.toolResults && message.toolResults.length > 0) {
+              for (const toolResult of message.toolResults) {
+                if (toolCallIds.has(toolResult.toolCallId)) {
+                  toolResultsMap.set(toolResult.toolCallId, toolResult);
+                }
               }
+            }
 
-              llmMessages.push({
-                role: 'tool',
-                content: resultContent,
-                tool_call_id: toolResult.toolCallId,
-              });
-              toolResultsPushed++;
+            for (const toolCall of assistantMessage.tool_calls) {
+              const toolResult = toolResultsMap.get(toolCall.id);
+              if (toolResult) {
+                let resultContent: string;
+                if (typeof toolResult.result === 'string') {
+                  resultContent = toolResult.result;
+                } else {
+                  resultContent = JSON.stringify(toolResult.result || {});
+                }
+
+                llmMessages.push({
+                  role: 'tool',
+                  content: resultContent,
+                  tool_call_id: toolCall.id,
+                });
+                toolResultsPushed++;
+              } else {
+                this.logger.warn(`[buildLLMMessages] ⚠️ Missing tool result for tool_call_id: ${toolCall.id}, creating empty result`);
+                llmMessages.push({
+                  role: 'tool',
+                  content: JSON.stringify({ error: 'Tool result not found in conversation history' }),
+                  tool_call_id: toolCall.id,
+                });
+                toolResultsPushed++;
+              }
             }
           }
         }
@@ -1543,7 +1579,9 @@ ${tablesList}
 ${userContext}
 
 **Core Rules**
+- CRITICAL - Sequential Execution: ALWAYS execute tools ONE AT A TIME, step by step. Do NOT call multiple tools simultaneously in a single response. Execute the first tool, wait for the result, analyze it, then proceed to the next tool. This prevents errors, duplicate operations, and ensures proper error handling. If you call multiple tools at once and one fails, you'll have to retry all of them, causing duplicate operations and wasted tokens.
 - Plan the full approach before calling tools; avoid exploratory calls that do not serve the user request.
+- CRITICAL - Reuse Tool Results: After calling check_permission for a table+operation, REUSE that result for all subsequent operations on the same table+operation. Do NOT call check_permission multiple times for the same table+operation. If you already checked permission for "order_item + delete", do NOT check again - reuse the previous result.
 - Reuse tool results gathered in this response; do not repeat check_permission or duplicate finds when the table, filters, and operation are unchanged.
 - CRITICAL - Permission Check: You MUST call check_permission BEFORE any read/create/update/delete operation on business tables (non-metadata tables). Metadata tables (*_definition) operations may skip permission check by setting skipPermissionCheck=true in dynamic_repository, but you MUST explain why you're skipping it. Permission check is MANDATORY for: user data, business data, any table that is NOT a *_definition table. If you skip permission check without valid reason, the operation will fail.
 - Use the table list above instead of guessing names; call get_metadata only if the user requests updates.
@@ -1568,7 +1606,7 @@ ${userContext}
 - check_permission → gatekeeper for dynamic_repository and any CRUD; cache the result per table/route + operation for this turn and reuse it.
 - get_table_details → authoritative schema (types, relations, constraints) AND optionally table data. REQUIRES array format: {"tableName": ["table1", "table2"]} or {"tableName": ["table1"]} for single table. Can fetch table data by ID or name (array must have exactly 1 element): {"tableName": ["table_definition"], "getData": true, "id": 123}. Use this instead of dynamic_repository when you need table metadata ID or specific table data. To check relations: call with array of table names, then check relations array in response (empty [] = no relations, has items = has relations).
 - get_fields → quick field list for reads.
-- dynamic_repository → CRUD/batch calls using nested filters and dot notation; keep fields minimal.
+- dynamic_repository → CRUD/batch calls using nested filters and dot notation; keep fields minimal. CRITICAL - Relations: Use propertyName from get_table_details result.relations[] (e.g., "category", "customer"), NOT FK column names (e.g., "category_id", "customerId"). Format: {"category": {"id": 19}} OR {"category": 19}. System auto-generates FK columns from propertyName.
 - get_hint → CRITICAL fallback tool for comprehensive guidance when uncertain or confused. Call IMMEDIATELY when confidence <100%, encountering errors, or unsure about workflows. Categories: permission_check, table_operations (MOST IMPORTANT), table_discovery, field_optimization, database_type, error_handling, complex_workflows. Supports single category (string) or multiple categories (array): {"category":["table_operations","permission_check"]}. When in doubt, call get_hint FIRST - it's your safety net and knowledge base.
 
 **Reminders**
