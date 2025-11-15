@@ -1349,6 +1349,12 @@ Example:
         for (const [toolCallId, { tc, toolName, toolArgs, parsedArgs }] of toolCallIdMap) {
           const toolId = toolCallId;
 
+          const alreadyExecuted = allToolCalls.some((tc) => tc.id === toolId);
+          if (alreadyExecuted) {
+            this.logger.debug(`[LLM Stream] Skipping already executed tool_call: ${toolName} (id: ${toolId})`);
+            continue;
+          }
+
           allToolCalls.push({
             id: toolId,
             type: 'function',
