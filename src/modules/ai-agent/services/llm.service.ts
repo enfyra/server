@@ -271,7 +271,7 @@ ${hasToolCallsInHistory ? 'Previous messages used tools.' : ''}
 
 Rules:
 - Greetings (hello, thanks) → []
-- Data ops (create/read/update/delete) → ["check_permission", "dynamic_repository"]
+- Data ops (create/read/update/delete) → ["dynamic_repository"]
 - Schema/metadata → ["get_table_details"] or ["get_metadata"]
 - Need guidance → ["get_hint"]
 
@@ -341,7 +341,7 @@ Call tool_binds now.`;
       let llmWithTools = llm;
       let tools: any[] = [];
       if (selectedToolNames && selectedToolNames.length > 0) {
-        const context = createLLMContext(user);
+      const context = createLLMContext(user);
         tools = this.createTools(context, undefined, selectedToolNames);
         llmWithTools = (llm as any).bindTools(tools);
       }
@@ -495,7 +495,7 @@ Call tool_binds now.`;
       let llmWithTools = llm;
       let tools: any[] = [];
       if (selectedToolNames && selectedToolNames.length > 0) {
-        const context = createLLMContext(user);
+      const context = createLLMContext(user);
         tools = this.createTools(context, abortSignal, selectedToolNames);
         llmWithTools = (llm as any).bindTools(tools);
       }
@@ -636,14 +636,14 @@ Call tool_binds now.`;
                     if (!streamedToolCallIds.has(streamKey)) {
                       if (shouldEmit) {
                         streamedToolCallIds.add(streamKey);
-                        onEvent({
-                          type: 'tool_call',
-                          data: {
-                            id: toolId,
-                            name: toolName,
-                            arguments: toolCallArgs,
-                          },
-                        });
+                    onEvent({
+                      type: 'tool_call',
+                      data: {
+                        id: toolId,
+                        name: toolName,
+                        arguments: toolCallArgs,
+                      },
+                    });
                       }
                     } else if (shouldEmit) {
                       onEvent({
@@ -947,14 +947,14 @@ Call tool_binds now.`;
 
           if (!streamedToolCallIds.has(toolCallId)) {
             streamedToolCallIds.add(toolCallId);
-            onEvent({
-              type: 'tool_call',
-              data: {
+          onEvent({
+            type: 'tool_call',
+            data: {
                 id: toolCallId,
-                name: toolName,
-                arguments: toolCallArgs,
-              },
-            });
+              name: toolName,
+              arguments: toolCallArgs,
+            },
+          });
           }
 
           validToolCalls.push({
@@ -1345,7 +1345,7 @@ Call tool_binds now.`;
               return `${t.name}(${colCount} cols, ${relCount} rels)`;
             }).join(', ');
             return `[get_table_details] ${tableCount} table(s): ${tablesSummary}${moreInfo}. Full schema in result.`;
-          }
+        }
           return `[get_table_details] ${tableCount} table(s): ${tableNames}${moreInfo}. Full schema in result.`;
         }
         
@@ -1373,16 +1373,6 @@ Call tool_binds now.`;
       const tableName = result?.tableName || toolArgs?.tableName || 'unknown';
       const updated = result?.updated || 'table metadata';
       return `[update_table] ${tableName} -> SUCCESS: Updated ${updated}`;
-    }
-
-    if (name === 'check_permission') {
-      const table = toolArgs?.table || 'n/a';
-      const routePath = toolArgs?.routePath || 'n/a';
-      const operation = toolArgs?.operation || 'n/a';
-      const allowed = result?.allowed === true ? 'ALLOWED' : 'DENIED';
-      const reason = result?.reason || 'unknown_reason';
-      const cacheKey = result?.cacheKey ? ` cacheKey=${result.cacheKey}` : '';
-      return `[check_permission] table=${table} route=${routePath} operation=${operation} -> ${allowed} (${reason})${cacheKey}`;
     }
 
     if (name === 'dynamic_repository') {

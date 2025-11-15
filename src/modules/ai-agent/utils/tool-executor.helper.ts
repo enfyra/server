@@ -902,7 +902,6 @@ Examples:
       content: discoveryContent,
     };
 
-
     allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, complexWorkflowsHint);
 
     let filteredHints = allHints;
