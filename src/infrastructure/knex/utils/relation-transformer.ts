@@ -18,7 +18,12 @@ export class RelationTransformer {
     const tableMeta = metadata.tables?.get?.(tableName) ||
                       metadata.tablesList?.find((t: any) => t.name === tableName);
 
-    if (!tableMeta || !tableMeta.relations) return data;
+    if (!tableMeta || !tableMeta.relations) {
+      this.logger.debug(`[RelationTransformer] No relations found for table: ${tableName}`);
+      return data;
+    }
+
+    this.logger.debug(`[RelationTransformer] Transforming relations for table: ${tableName}, relations count: ${tableMeta.relations.length}, data keys: ${Object.keys(data).join(', ')}`);
 
     const transformed = { ...data };
     const manyToManyRelations: Array<{ relationName: string; ids: any[] }> = [];
@@ -38,12 +43,17 @@ export class RelationTransformer {
         case 'many-to-one': {
           const fkColumn = relation.foreignKeyColumn || `${relName}Id`;
 
+          this.logger.debug(`[RelationTransformer] Transforming many-to-one relation: ${relName} -> ${fkColumn}, value: ${JSON.stringify(relValue)}`);
+
           if (relValue === null) {
             transformed[fkColumn] = null;
           } else if (typeof relValue === 'object' && relValue.id !== undefined) {
             transformed[fkColumn] = relValue.id;
+            this.logger.debug(`[RelationTransformer] Extracted id from object: ${relValue.id} -> ${fkColumn}`);
           } else if (typeof relValue === 'number' || typeof relValue === 'string') {
             transformed[fkColumn] = relValue;
+          } else {
+            this.logger.warn(`[RelationTransformer] Unexpected relation value format for ${relName}: ${typeof relValue}, value: ${JSON.stringify(relValue)}`);
           }
 
           delete transformed[relName];
@@ -136,6 +146,8 @@ export class RelationTransformer {
     if (oneToOneRelations.length > 0) {
       transformed._o2oRelations = oneToOneRelations;
     }
+
+    this.logger.debug(`[RelationTransformer] Transformation complete for table: ${tableName}, transformed keys: ${Object.keys(transformed).join(', ')}`);
 
     return transformed;
   }

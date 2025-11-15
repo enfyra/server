@@ -359,36 +359,69 @@ export async function applyColumnMigrations(
         }
       }
       
-      await knex.schema.alterTable(tableName, (table) => {
-        for (const { column: col, changes } of diff.columnsToModify) {
-          if (changes.includes('enum-options')) {
-            continue;
+      for (const { column: col, changes } of diff.columnsToModify) {
+        if (changes.includes('enum-options')) {
+          continue;
+        }
+        
+        const knexType = getKnexColumnType(col);
+        
+        const currentTypeResult = await knex.raw(`
+          SELECT data_type, udt_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ?
+            AND column_name = ?
+        `, [tableName, col.name]);
+        
+        const currentDataType = currentTypeResult.rows[0]?.data_type;
+        const currentUdtName = currentTypeResult.rows[0]?.udt_name;
+        const isCurrentJson = currentDataType === 'jsonb' || currentUdtName === 'jsonb';
+        const isCurrentText = currentDataType === 'text' || currentUdtName === 'text';
+        
+        if (knexType === 'json') {
+          if (isCurrentText) {
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE jsonb USING "${col.name}"::jsonb`);
+          } else if (!isCurrentJson) {
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE jsonb USING "${col.name}"::jsonb`);
           }
-          
-          const knexType = getKnexColumnType(col);
-          let column: Knex.ColumnBuilder;
-
-          switch (knexType) {
-            case 'integer':
-              column = table.integer(col.name).alter();
-              break;
-            case 'string':
-              column = table.string(col.name, 255).alter();
-              break;
-            case 'text':
-              column = table.text(col.name).alter();
-              break;
-            default:
-              continue;
+        } else if (knexType === 'text') {
+          if (isCurrentJson) {
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
+          } else if (!isCurrentText) {
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
           }
+        } else {
+          await knex.schema.alterTable(tableName, (table) => {
+            let column: Knex.ColumnBuilder;
 
+            switch (knexType) {
+              case 'integer':
+                column = table.integer(col.name).alter();
+                break;
+              case 'string':
+                column = table.string(col.name, 255).alter();
+                break;
+              default:
+                return;
+            }
+
+            if (col.isNullable === false) {
+              column.notNullable();
+            } else {
+              column.nullable();
+            }
+          });
+        }
+        
+        if (changes.includes('nullable')) {
           if (col.isNullable === false) {
-            column.notNullable();
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`);
           } else {
-            column.nullable();
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP NOT NULL`);
           }
         }
-      });
+      }
     }
   }
 }

@@ -221,6 +221,8 @@ export class ConversationService {
   }): Promise<IMessage[]> {
     const { conversationId, limit, userId, sort, since } = params;
 
+    this.logger.debug(`[getMessages] Loading messages: conversationId=${conversationId}, limit=${limit}, sort=${sort}, since=${since}`);
+
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
 
@@ -239,7 +241,22 @@ export class ConversationService {
     });
 
     const messages = result.data || [];
-    return messages.map((msg: any) => this.mapMessage(msg));
+    this.logger.debug(`[getMessages] Found ${messages.length} messages from DB`);
+    
+    const mappedMessages = messages.map((msg: any, index: number) => {
+      this.logger.debug(`[getMessages] Mapping message ${index + 1}/${messages.length}: id=${msg.id}, role=${msg.role}, sequence=${msg.sequence}, contentLength=${msg.content?.length || 0}, toolCallsType=${typeof msg.toolCalls}, toolResultsType=${typeof msg.toolResults}`);
+      this.logger.debug(`[getMessages] Message ${index + 1} (raw from DB): ${JSON.stringify(msg, null, 2)}`);
+      
+      const mapped = this.mapMessage(msg);
+      
+      this.logger.debug(`[getMessages] Message ${index + 1} (mapped): ${JSON.stringify(mapped, null, 2)}`);
+      
+      return mapped;
+    });
+    
+    this.logger.debug(`[getMessages] Returning ${mappedMessages.length} mapped messages`);
+    
+    return mappedMessages;
   }
 
   async deleteMessage(params: {
@@ -440,30 +457,40 @@ export class ConversationService {
   }
 
   private mapMessage(data: any): IMessage {
+    this.logger.debug(`[mapMessage] Input data: id=${data.id}, role=${data.role}, contentType=${typeof data.content}, toolCallsType=${typeof data.toolCalls}, toolResultsType=${typeof data.toolResults}`);
+    
     let toolCalls = null;
     let toolResults = null;
 
     if (data.toolCalls !== undefined && data.toolCalls !== null) {
+      this.logger.debug(`[mapMessage] Processing toolCalls: type=${typeof data.toolCalls}, value=${typeof data.toolCalls === 'string' ? data.toolCalls.substring(0, 200) : JSON.stringify(data.toolCalls).substring(0, 200)}`);
+      
       if (typeof data.toolCalls === 'string') {
         try {
           toolCalls = JSON.parse(data.toolCalls);
-        } catch (e) {
-          this.logger.warn('Failed to parse toolCalls:', e);
+          this.logger.debug(`[mapMessage] Successfully parsed toolCalls: ${JSON.stringify(toolCalls, null, 2)}`);
+        } catch (e: any) {
+          this.logger.error(`[mapMessage] Failed to parse toolCalls: ${e.message}, stack: ${e.stack}, raw: ${data.toolCalls?.substring(0, 500)}`);
         }
       } else {
         toolCalls = data.toolCalls;
+        this.logger.debug(`[mapMessage] toolCalls already object: ${JSON.stringify(toolCalls, null, 2)}`);
       }
     }
 
     if (data.toolResults !== undefined && data.toolResults !== null) {
+      this.logger.debug(`[mapMessage] Processing toolResults: type=${typeof data.toolResults}, value=${typeof data.toolResults === 'string' ? data.toolResults.substring(0, 200) : JSON.stringify(data.toolResults).substring(0, 200)}`);
+      
       if (typeof data.toolResults === 'string') {
         try {
           toolResults = JSON.parse(data.toolResults);
-        } catch (e) {
-          this.logger.warn('Failed to parse toolResults:', e);
+          this.logger.debug(`[mapMessage] Successfully parsed toolResults: ${JSON.stringify(toolResults, null, 2)}`);
+        } catch (e: any) {
+          this.logger.error(`[mapMessage] Failed to parse toolResults: ${e.message}, stack: ${e.stack}, raw: ${data.toolResults?.substring(0, 500)}`);
         }
       } else {
         toolResults = data.toolResults;
+        this.logger.debug(`[mapMessage] toolResults already object: ${JSON.stringify(toolResults, null, 2)}`);
       }
     }
 
@@ -473,12 +500,13 @@ export class ConversationService {
       try {
         const parsed = JSON.parse(content);
         content = parsed;
-      } catch (e) {
-        this.logger.warn(`[mapMessage] Failed to parse content as JSON: ${e.message}`);
+        this.logger.debug(`[mapMessage] Successfully parsed content as JSON`);
+      } catch (e: any) {
+        this.logger.warn(`[mapMessage] Failed to parse content as JSON: ${e.message}, keeping as string`);
       }
     }
 
-    return {
+    const mapped: IMessage = {
       id: data.id || data._id,
       conversationId: data.conversation?.id || data.conversation?._id || data.conversationId,
       role: data.role,
@@ -488,6 +516,10 @@ export class ConversationService {
       sequence: data.sequence,
       createdAt: new Date(data.createdAt),
     };
+    
+    this.logger.debug(`[mapMessage] Mapped message: ${JSON.stringify(mapped, null, 2)}`);
+    
+    return mapped;
   }
 }
 

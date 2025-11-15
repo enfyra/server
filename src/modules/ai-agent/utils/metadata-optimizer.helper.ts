@@ -47,14 +47,22 @@ export function optimizeMetadataForLLM(tableMetadata: any): any {
   }
 
   if (tableMetadata.relations && Array.isArray(tableMetadata.relations)) {
-    optimized.relations = tableMetadata.relations.map((rel: any) => ({
-      propertyName: rel.propertyName,
-      type: rel.type,
-      targetTableName: rel.targetTableName,
-      description: rel.description,
-      isNullable: rel.isNullable,
-      inversePropertyName: rel.inversePropertyName,
-    }));
+    optimized.relations = tableMetadata.relations.map((rel: any) => {
+      const relData: any = {
+        propertyName: rel.propertyName,
+        type: rel.type,
+        targetTableName: rel.targetTableName,
+        description: rel.description,
+        isNullable: rel.isNullable,
+        inversePropertyName: rel.inversePropertyName,
+      };
+
+      if (rel.foreignKeyColumn) {
+        relData.foreignKeyColumn = rel.foreignKeyColumn;
+      }
+
+      return relData;
+    });
   }
 
   return optimized;

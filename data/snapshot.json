@@ -411,29 +411,29 @@
             { "name": "role", "type": "enum", "isNullable": false, "isSystem": true, "options": ["user", "assistant", "system"], "description": "Message role: user (from user), assistant (from LLM), system (system prompts)" },
             { "name": "content", "type": "text", "isNullable": true, "isSystem": true, "description": "Message content. Null if assistant message has tool_calls (will have content in final response)" },
             { "name": "toolCalls", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Tool calls made by LLM. Format: [{ id: 'call_abc123', type: 'function', function: { name: '...', arguments: '...' } }]" },
-            { "name": "toolResults", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Tool execution results. Format: [{ toolCallId: 'call_abc123', result: {...} }]. Must match tool_call_id with toolCalls." },
-            { "name": "sequence", "type": "int", "isNullable": false, "isSystem": true, "description": "Message sequence number within conversation (incremental)" }
-        ],
-        "relations": [
-            { "propertyName": "conversation", "type": "many-to-one", "targetTable": "ai_conversation_definition", "isSystem": true, "isNullable": false, "description": "Conversation this message belongs to", "onDelete": "CASCADE" }
-        ]
-    },
-    "ai_config_definition": {
-        "name": "ai_config_definition",
-        "description": "Stores AI agent configuration settings. Supports OpenAI, Anthropic (Claude), Google (Gemini), and DeepSeek.",
-        "isSystem": true,
-        "uniques": [["provider"]],
-        "columns": [
-            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google", "DeepSeek"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI, Anthropic, Google, or DeepSeek)" },
-            { "name": "apiKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "API key for the AI provider (sensitive, hidden from API responses)" },
-            { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use" },
-            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether AI agent is enabled" },
-            { "name": "maxConversationMessages", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of messages to include in LLM context (default: 10)" },
-            { "name": "llmTimeout", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 30000, "description": "LLM API timeout in milliseconds (default: 30000 - 30 seconds)" },
-            { "name": "maxToolIterations", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of tool execution loops per LLM response (default: 10)" },
-            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of the AI configuration" }
-        ],
-        "relations": []
+                { "name": "toolResults", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Tool execution results. Format: [{ toolCallId: 'call_abc123', result: {...} }]. Must match tool_call_id with toolCalls." },
+                { "name": "sequence", "type": "int", "isNullable": false, "isSystem": true, "description": "Message sequence number within conversation (incremental)" }
+            ],
+            "relations": [
+                { "propertyName": "conversation", "type": "many-to-one", "targetTable": "ai_conversation_definition", "isSystem": true, "isNullable": false, "description": "Conversation this message belongs to", "onDelete": "CASCADE" }
+            ]
+        },
+        "ai_config_definition": {
+            "name": "ai_config_definition",
+            "description": "Stores AI agent configuration settings. Supports OpenAI, Anthropic (Claude), Google (Gemini), and DeepSeek.",
+            "isSystem": true,
+            "uniques": [["provider"]],
+            "columns": [
+                { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+                { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google", "DeepSeek"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI, Anthropic, Google, or DeepSeek)" },
+                { "name": "apiKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "API key for the AI provider (sensitive, hidden from API responses)" },
+                { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use" },
+                { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether AI agent is enabled" },
+                { "name": "maxConversationMessages", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of messages to include in LLM context (default: 10)" },
+                { "name": "llmTimeout", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 30000, "description": "LLM API timeout in milliseconds (default: 30000 - 30 seconds)" },
+                { "name": "maxToolIterations", "type": "int", "isNullable": false, "isSystem": true, "defaultValue": 10, "description": "Maximum number of tool execution loops per LLM response (default: 10)" },
+                { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of the AI configuration" }
+            ],
+            "relations": []
     }
 }

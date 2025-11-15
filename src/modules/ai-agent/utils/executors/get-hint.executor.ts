@@ -53,11 +53,22 @@ CRITICAL - Schema Check Before Create/Update:
 - Common required fields: id (auto-generated), createdAt/updatedAt (auto-generated), but ALWAYS check for others like slug, stock, order_number, unit_price, etc.
 - If you get constraint errors, you MUST call get_table_details to see all required fields and fix your data
 
+CRITICAL - Check Unique Constraints Before Create:
+- BEFORE creating records, you MUST check if records with unique field values already exist
+- Use get_table_details to identify which columns have unique constraints (isUnique=true)
+- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using dynamic_repository.find
+- Workflow: get_table_details (to identify unique columns) → dynamic_repository.find (to check existence) → create only if not exists
+- Example: Before creating category with name="Electronics", check: dynamic_repository({"table":"category","operation":"find","where":{"name":{"_eq":"Electronics"}},"fields":"id","limit":1})
+- If record exists, skip creation or use update instead - duplicate unique values will cause "duplicate key value violates unique constraint" errors
+- For batch_create: Check all records first, filter out existing ones, then create only new records
+- This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
+
 Workflow for create/update:
 1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
 2. For relations: Use propertyName from result.relations[] (e.g., "category", "customer"), NOT FK columns (e.g., "category_id", "customerId")
-   - Format: {"category": {"id": 19}} OR {"category": 19}
+   - Format: {"category": 19} OR {"category": {"id": 19}} (both work, but simple ID is preferred)
    - NEVER use FK column names - system auto-generates them from propertyName
+   - Check result.relations[] to see propertyName and foreignKeyColumn (for reference only)
 3. Prepare data object with ALL required fields
 4. Call dynamic_repository with create/update operation (permission is automatically checked)
 
@@ -101,7 +112,7 @@ Relations:
 
 Batch operations:
 - Metadata tables (table_definition): Process sequentially, NO batch operations. CRITICAL: When deleting tables, delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks
-- Data tables: Use batch_delete for 2+ deletes, batch_create/batch_update for 5+ creates/updates
+- Data tables: Use batch_delete for 2+ deletes, batch_create/batch_update for 2+ creates/updates
 - When find returns multiple records, collect ALL IDs and use batch operations (except table deletion - must be sequential)
 
 Best practices:
@@ -127,6 +138,7 @@ Recreate tables with relations:
 Common mistakes:
 ❌ Creating tables without id column
 ❌ Including createdAt/updatedAt in columns
+❌ Including FK columns (customer_id, customerId, etc.) in columns array - system auto-generates from relations
 ❌ Updating both sides of relation
 ❌ Multiple find calls instead of _in filter
 ❌ Not using batch operations for multiple deletes

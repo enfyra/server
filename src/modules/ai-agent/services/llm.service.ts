@@ -196,9 +196,15 @@ export class LLMService {
   }
 
   private convertToLangChainMessages(messages: LLMMessage[]): any[] {
+    this.logger.debug(`[convertToLangChainMessages] Input messages count: ${messages.length}`);
+    this.logger.debug(`[convertToLangChainMessages] Input messages (full): ${JSON.stringify(messages, null, 2)}`);
+    
     const result: any[] = [];
 
-    for (const msg of messages) {
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      this.logger.debug(`[convertToLangChainMessages] Processing message ${i + 1}/${messages.length}: role=${msg.role}, contentLength=${msg.content?.length || 0}, tool_calls=${msg.tool_calls?.length || 0}, tool_call_id=${msg.tool_call_id || 'none'}`);
+      
       if (msg.role === 'system') {
         result.push(new SystemMessage(msg.content || ''));
       } else if (msg.role === 'user') {
@@ -207,23 +213,38 @@ export class LLMService {
         let toolCallsFormatted = undefined;
 
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-          toolCallsFormatted = msg.tool_calls.map((tc: any) => {
+          this.logger.debug(`[convertToLangChainMessages] Processing ${msg.tool_calls.length} tool calls for assistant message ${i + 1}`);
+          this.logger.debug(`[convertToLangChainMessages] Tool calls (raw): ${JSON.stringify(msg.tool_calls, null, 2)}`);
+          
+          toolCallsFormatted = msg.tool_calls.map((tc: any, tcIndex: number) => {
             const toolName = tc.function?.name || tc.name;
             let toolArgs = tc.function?.arguments || tc.arguments || tc.input || tc.args;
+            
+            this.logger.debug(`[convertToLangChainMessages] Tool call ${tcIndex + 1}: name=${toolName}, id=${tc.id}, argsType=${typeof toolArgs}, argsLength=${typeof toolArgs === 'string' ? toolArgs.length : 'N/A'}`);
+            
             if (typeof toolArgs === 'string') {
               try {
+                if (toolArgs.length > 0 && !toolArgs.trim().endsWith('}') && !toolArgs.trim().endsWith(']')) {
+                  this.logger.error(`[convertToLangChainMessages] Tool args string appears truncated: length=${toolArgs.length}, last 100 chars: ${toolArgs.substring(Math.max(0, toolArgs.length - 100))}`);
+                }
                 toolArgs = JSON.parse(toolArgs);
+                this.logger.debug(`[convertToLangChainMessages] Successfully parsed tool args for ${toolName}`);
               } catch (e) {
+                this.logger.error(`[convertToLangChainMessages] Failed to parse tool args for ${toolName}: ${e}, argsLength=${toolArgs?.length || 0}, first 500 chars: ${toolArgs?.substring(0, 500)}, last 100 chars: ${toolArgs?.substring(Math.max(0, (toolArgs?.length || 0) - 100))}`);
                 toolArgs = {};
               }
             }
 
-            return {
+            const formatted = {
               name: toolName,
               args: toolArgs || {},
               id: tc.id,
               type: 'tool_call' as const,
             };
+            
+            this.logger.debug(`[convertToLangChainMessages] Formatted tool call ${tcIndex + 1}: ${JSON.stringify(formatted, null, 2)}`);
+            
+            return formatted;
           });
         }
 
@@ -231,18 +252,26 @@ export class LLMService {
           content: msg.content || '',
           tool_calls: toolCallsFormatted || [],
         });
+        
+        this.logger.debug(`[convertToLangChainMessages] Created AIMessage: contentLength=${aiMsg.content?.length || 0}, tool_callsCount=${aiMsg.tool_calls?.length || 0}`);
+        
         result.push(aiMsg);
       } else if (msg.role === 'tool') {
         const ToolMessage = require('@langchain/core/messages').ToolMessage;
+        this.logger.debug(`[convertToLangChainMessages] Creating ToolMessage: tool_call_id=${msg.tool_call_id}, contentLength=${msg.content?.length || 0}`);
+        
         result.push(
           new ToolMessage({
             content: msg.content || '',
             tool_call_id: msg.tool_call_id,
           }),
         );
+      } else {
+        this.logger.warn(`[convertToLangChainMessages] Unknown message role: ${msg.role}, message: ${JSON.stringify(msg, null, 2)}`);
       }
     }
 
+    this.logger.debug(`[convertToLangChainMessages] Output messages count: ${result.length}`);
     return result;
   }
 
@@ -250,8 +279,9 @@ export class LLMService {
     userMessage: string;
     configId: string | number;
     conversationHistory?: any[];
+    conversationSummary?: string;
   }): Promise<string[]> {
-    const { userMessage, configId, conversationHistory = [] } = params;
+    const { userMessage, configId, conversationHistory = [], conversationSummary } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -267,15 +297,26 @@ export class LLMService {
         m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
       );
 
-      const systemPrompt = `Goal: Analyze the user request and determine which tools are needed. Call tool_binds with an array of tool names.
+      const systemPrompt = `You are a tool selector. Your job: analyze the request and call tool_binds with the tool names array.
 
-**CRITICAL - YOU MUST CALL tool_binds:**
-- You MUST call tool_binds with the selected tool names
-- DO NOT call any other tools (dynamic_repository, delete_table, etc.) - you are ONLY selecting tools, not executing them
-- Format: tool_binds({"toolNames": ["tool1", "tool2"]})
-- If no tools needed, call tool_binds({"toolNames": []})
+**THE ONLY TOOL YOU CAN CALL:**
+- tool_binds({"toolNames": [...]})
 
-**Important:** Understand requests in any language. Focus on intent, not language.
+**YOU CANNOT CALL:**
+- create_table, dynamic_repository, batch_dynamic_repository, delete_table, get_hint, etc.
+- These are tool NAMES to put INSIDE the array, NOT tools to call
+
+**Example:**
+User: "create a table"
+You: tool_binds({"toolNames": ["create_table", "get_hint"]})
+
+User: "add data"
+You: tool_binds({"toolNames": ["batch_dynamic_repository"]})
+
+User: "hello"
+You: tool_binds({"toolNames": []})
+
+**Remember:** Understand any language. Only call tool_binds.
 
 1. PRIORITY
 When multiple rules match, resolve by this priority:
@@ -283,10 +324,11 @@ When multiple rules match, resolve by this priority:
 2. Table deletion → delete_table (+ dynamic_repository to find table id)
 3. Schema inspection → get_table_details
 4. Field lookup → get_fields
-5. Data operations (CRUD) → dynamic_repository
-6. Table discovery → list_tables
-7. Help / guidance → get_hint
-8. Greetings / casual talk → []
+5. Batch data operations (2+ records) → batch_dynamic_repository
+6. Single data operations (CRUD) → dynamic_repository
+7. Table discovery → list_tables
+8. Help / guidance → get_hint
+9. Greetings / casual talk → []
 2. NO TOOL NEEDED
 Return [] for:
 - Greetings: "hello", "hi", "thanks"
@@ -298,77 +340,102 @@ Use when user wants to create or modify schema:
 - Create table, new table, add column, modify structure
 - Build system, rebuild database, initialize schema
 Always include get_hint with these.
-Examples:
-- "create a products table" → ["create_table","get_hint"]
-- "add a column to customers" → ["update_table","get_hint"]
+Examples (remember to call tool_binds with these arrays):
+- "create a products table" → tool_binds({"toolNames": ["create_table","get_hint"]})
+- "add a column to customers" → tool_binds({"toolNames": ["update_table","get_hint"]})
 3.2 get_table_details
 Use when user wants full table structure:
 - Schema, structure, full fields + relations
 - Phrases like "show table details", "view table schema"
-Examples:
-- "show structure of products" → ["get_table_details"]
+Example:
+- "show structure of products" → tool_binds({"toolNames": ["get_table_details"]})
 3.3 get_fields
 Use when user only wants field names, not full schema:
 - Phrases: "what fields", "which columns", "field names"
-Examples:
-- "list columns of customers" → ["get_fields"]
+Example:
+- "list columns of customers" → tool_binds({"toolNames": ["get_fields"]})
 3.4 delete_table
 Use when user wants to delete/drop/remove a TABLE (not data records):
 - delete table, drop table, remove table
-- Phrases: "delete table", "drop table", "remove table", "xóa bảng"
+- Phrases: "delete table", "drop table", "remove table" (any language)
 - Always combine with dynamic_repository to find table id first
-Examples:
-- "delete the products table" → ["dynamic_repository","delete_table"]
-- "drop categories table" → ["dynamic_repository","delete_table"]
-- "xóa bảng orders" → ["dynamic_repository","delete_table"]
+Example:
+- "delete the products table" → tool_binds({"toolNames": ["dynamic_repository","delete_table"]})
 3.5 dynamic_repository
-Use for all CRUD operations on DATA RECORDS (not table structure):
-- add/insert/create records
-- find/get/list/search records
-- update/edit records
-- delete/remove records (data only, not tables)
+Use for SINGLE record CRUD operations (not batch):
+- add/insert/create ONE record
+- find/get/list/search/view/show/see/display records (any language, any phrasing)
+- update/edit ONE record
+- delete/remove ONE record (data only, not tables)
 - count records
+- Viewing specific records (e.g., "show 5 records", "view middle records", "display records")
 Note: If table name is missing, combine with list_tables
-Examples:
-- "add a new product" → ["dynamic_repository"]
-- "find all orders" → ["dynamic_repository"]
-- "add new record" → ["list_tables","dynamic_repository"]
-3.6 list_tables
+Example:
+- "find all orders" → tool_binds({"toolNames": ["dynamic_repository"]})
+3.6 batch_dynamic_repository
+Use for BATCH operations on MULTIPLE records:
+- batch_create: 2+ records to create
+- batch_update: 2+ records to update
+- batch_delete: 2+ records to delete
+CRITICAL: batch_dynamic_repository ONLY has 3 operations: batch_create, batch_update, batch_delete. NO batch_find operation exists.
+- To find/view/search records (even multiple), use dynamic_repository with operation="find"
+- batch_dynamic_repository is ONLY for creating/updating/deleting multiple records, NOT for finding/viewing
+Example:
+- "add 10 products" → tool_binds({"toolNames": ["batch_dynamic_repository"]})
+3.7 list_tables
 Use when user wants to discover tables:
 - Phrases: "what tables", "list tables", "show all tables"
-Examples:
-- "what tables exist?" → ["list_tables"]
-3.7 get_hint
+Example:
+- "what tables exist?" → tool_binds({"toolNames": ["list_tables"]})
+3.8 get_hint
 Use when user explicitly asks for help:
 - Phrases: "how to", "help me", "guide me"
 Always include when creating/updating schema.
 4. MULTI-INTENT
 If user requests multiple actions, include all tools required.
 Example:
-- "show structure of products then add a record" → ["get_table_details","dynamic_repository"]
-Call tool_binds with the final list of tools.`;
+- "show structure of products then add a record" → tool_binds({"toolNames": ["get_table_details","dynamic_repository"]})
+
+**FINAL REMINDER:**
+- You MUST call tool_binds({"toolNames": [...]})
+- DO NOT call create_table, dynamic_repository, or any other tool directly
+- Your response should ONLY contain a tool_binds call, nothing else`;
 
       const llm = await this.createLLM(config);
       const toolBindsTool = this.createToolFromDefinition(TOOL_BINDS_TOOL);
       const llmWithToolBinds = (llm as any).bindTools([toolBindsTool]);
 
-      const messages = [
+      const messages: any[] = [
         new SystemMessage(systemPrompt),
-        new HumanMessage(userMessage),
       ];
 
+      // Add conversation context to help understand context
+      // Strategy: Use summary (if exists) + all recent messages (already filtered by caller)
+      // The caller (ai-agent.service.ts) already filters messages by lastSummaryAt when summary exists
+      // So we should use ALL passed messages, not filter again
+      if (conversationSummary) {
+        messages.push(new AIMessage(`[Previous conversation summary]: ${conversationSummary}`));
+      }
+
+      // Always add all conversation history messages (caller already did the filtering by lastSummaryAt)
+      if (conversationHistory && conversationHistory.length > 0) {
+        for (const msg of conversationHistory) {
+          if (msg.role === 'user') {
+            messages.push(new HumanMessage(msg.content || ''));
+          } else if (msg.role === 'assistant') {
+            const content = msg.content || '';
+            if (content) {
+              messages.push(new AIMessage(content));
+            }
+          }
+        }
+      }
+
+      messages.push(new HumanMessage(userMessage));
       const response = await llmWithToolBinds.invoke(messages);
       const toolCalls = this.getToolCallsFromResponse(response);
-      
-      this.logger.debug(`[evaluateNeedsTools] User message: "${userMessage}", Found ${toolCalls.length} tool calls`);
-      
+
       if (toolCalls.length > 0) {
-        const toolCallsInfo = toolCalls.map((tc: any) => ({ 
-          name: tc.name || tc.function?.name, 
-          args: tc.args || tc.function?.arguments 
-        }));
-        this.logger.debug(`[evaluateNeedsTools] Tool calls: ${JSON.stringify(toolCallsInfo)}`);
-        
         const toolBindCall = toolCalls.find((tc: any) => (tc.name || tc.function?.name) === 'tool_binds');
         if (toolBindCall) {
           let toolArgs: any = {};
@@ -377,23 +444,26 @@ Call tool_binds with the final list of tools.`;
           } else if (toolBindCall.function?.arguments) {
             toolArgs = typeof toolBindCall.function.arguments === 'string' ? JSON.parse(toolBindCall.function.arguments) : toolBindCall.function.arguments;
           }
-          
+
           const selectedToolNames = toolArgs.toolNames || [];
           if (Array.isArray(selectedToolNames)) {
-            const filtered = selectedToolNames.filter((tool: any) => 
+            const filtered = selectedToolNames.filter((tool: any) =>
               typeof tool === 'string' && COMMON_TOOLS.some((t: any) => t.name === tool)
             );
-            this.logger.debug(`[evaluateNeedsTools] Selected tools: ${JSON.stringify(filtered)}`);
+            this.logger.debug(`[evaluateNeedsTools] ✓ Selected: ${JSON.stringify(filtered)}`);
             return filtered;
           }
         } else {
-          this.logger.debug(`[evaluateNeedsTools] No tool_binds call found in ${toolCalls.length} tool calls`);
+          const wrongCall = toolCalls[0];
+          const wrongName = wrongCall.name || wrongCall.function?.name;
+          this.logger.warn(`[evaluateNeedsTools] ✗ Wrong tool called: ${wrongName} (expected tool_binds)`);
         }
       }
-      
+
       return [];
     } catch (error) {
-      this.logger.warn(`Failed to select tools, defaulting to empty: ${error}`);
+      this.logger.error(`[evaluateNeedsTools] ERROR - Failed to select tools: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(`[evaluateNeedsTools] Stack trace: ${error instanceof Error ? error.stack : 'N/A'}`);
       return [];
     }
   }
@@ -746,13 +816,17 @@ Call tool_binds with the final list of tools.`;
                   }
                 }
 
+                // Accumulate content even if it contains tool call markers - we'll parse them later
                 currentContent += delta;
                 fullContent += delta;
 
-                onEvent({
-                  type: 'text',
-                  data: { delta },
-                });
+                // Don't emit tool call markers as text to user
+                if (!delta.includes('redacted_tool_calls_begin') && !delta.includes('<|redacted_tool_call')) {
+                  onEvent({
+                    type: 'text',
+                    data: { delta },
+                  });
+                }
               }
             }
 
@@ -804,7 +878,93 @@ Call tool_binds with the final list of tools.`;
                   break;
                 }
               }
+            }
+
+            // Parse tool calls from fullContent if they appear as text (DeepSeek format)
+            if (currentToolCalls.length === 0 && fullContent && (fullContent.includes('redacted_tool_calls_begin') || fullContent.includes('<|redacted_tool_call'))) {
+              this.logger.warn(`[LLM Stream] LLM rendered tool calls as text in stream. Attempting to parse from fullContent...`);
+              this.logger.debug(`[LLM Stream] fullContent (first 1000 chars): ${fullContent.substring(0, 1000)}`);
+              this.logger.debug(`[LLM Stream] fullContent (full length: ${fullContent.length}): ${JSON.stringify(fullContent)}`);
               
+              try {
+                const toolCallRegex = /<\|redacted_tool_call_begin\|>([^<]+)<\|redacted_tool_sep\|>([^<]+)<\|redacted_tool_call_end\|>/g;
+                const matches = [...fullContent.matchAll(toolCallRegex)];
+                
+                this.logger.debug(`[LLM Stream] Found ${matches.length} tool call matches in fullContent`);
+                
+                if (matches.length > 0) {
+                  this.logger.debug(`[LLM Stream] Matches (raw): ${JSON.stringify(matches, null, 2)}`);
+                  
+                  const parsedToolCalls = matches.map((match, index) => {
+                    this.logger.debug(`[LLM Stream] Processing match ${index + 1}: match[0]=${match[0]?.substring(0, 200)}, match[1]=${match[1]}, match[2]=${match[2]?.substring(0, 200)}`);
+                    
+                    const toolName = match[1].trim();
+                    let toolArgs = {};
+                    
+                    try {
+                      const argsString = match[2].trim();
+                      this.logger.debug(`[LLM Stream] 🔍 Tool ${index + 1} "${toolName}": argsString.length=${argsString.length}`);
+                      this.logger.debug(`[LLM Stream] 🔍 Full argsString: ${argsString}`);
+                      toolArgs = JSON.parse(argsString);
+                      this.logger.debug(`[LLM Stream] ✅ Successfully parsed tool args for ${toolName}`);
+                    } catch (parseError: any) {
+                      this.logger.error(`[LLM Stream] ❌ Failed to parse tool args for ${toolName}: ${parseError.message}`);
+                      this.logger.error(`[LLM Stream] ❌ argsString.length=${match[2]?.trim().length}, first 500 chars: ${match[2]?.substring(0, 500)}`);
+                      this.logger.error(`[LLM Stream] ❌ last 100 chars: ${match[2]?.substring(Math.max(0, (match[2]?.length || 0) - 100))}`);
+                    }
+                    
+                    const parsed = {
+                      id: `call_${Date.now()}_${index}`,
+                      name: toolName,
+                      args: toolArgs,
+                      function: {
+                        name: toolName,
+                        arguments: JSON.stringify(toolArgs),
+                      },
+                      type: 'tool_call' as const,
+                    };
+                    
+                    this.logger.debug(`[LLM Stream] Parsed tool call ${index + 1}: ${JSON.stringify(parsed, null, 2)}`);
+                    
+                    return parsed;
+                  });
+                  
+                  this.logger.debug(`[LLM Stream] Parsed ${parsedToolCalls.length} tool calls from fullContent text format: ${JSON.stringify(parsedToolCalls, null, 2)}`);
+                  currentToolCalls = parsedToolCalls;
+                  
+                  for (const tc of parsedToolCalls) {
+                    allToolCalls.push({
+                      id: tc.id,
+                      type: 'function',
+                      function: {
+                        name: tc.name,
+                        arguments: tc.function.arguments,
+                      },
+                    });
+                    
+                    onEvent({
+                      type: 'tool_call',
+                      data: {
+                        id: tc.id,
+                        name: tc.name,
+                        arguments: tc.function.arguments,
+                      },
+                    });
+                  }
+                  
+                  // Remove tool call markers from fullContent
+                  const beforeReplace = fullContent;
+                  fullContent = fullContent.replace(/<\|redacted_tool_calls_begin\|>.*?<\|redacted_tool_calls_end\|>/gs, '').replace(/<\|redacted_tool_call_begin\|>.*?<\|redacted_tool_call_end\|>/g, '');
+                  this.logger.debug(`[LLM Stream] Removed tool call markers: beforeLength=${beforeReplace.length}, afterLength=${fullContent.length}`);
+                  currentContent = fullContent;
+                } else {
+                  this.logger.warn(`[LLM Stream] No tool call matches found despite detecting markers in fullContent`);
+                }
+              } catch (e: any) {
+                this.logger.error(`[LLM Stream] Failed to parse tool calls from fullContent: ${e.message}`);
+                this.logger.error(`[LLM Stream] Error stack: ${e.stack}`);
+                this.logger.error(`[LLM Stream] fullContent at error: ${JSON.stringify(fullContent)}`);
+              }
             }
           } else {
             aggregateResponse = await llmWithTools.invoke(conversationMessages);
@@ -982,6 +1142,16 @@ Call tool_binds with the final list of tools.`;
           }
         }
 
+        // Debug: Log full stream content from LLM
+        if (fullContent) {
+          this.logger.debug(`[LLM Stream] Full stream content from LLM (length: ${fullContent.length}): ${JSON.stringify(fullContent)}`);
+        }
+
+        // Debug: Log aggregateResponse to see what LLM returned
+        if (aggregateResponse) {
+          this.logger.debug(`[LLM Stream] Aggregate response from LLM: ${JSON.stringify(aggregateResponse, null, 2)}`);
+        }
+
         if (currentToolCalls.length === 0) {
           const finalUsage = this.extractTokenUsage(aggregateResponse);
           if (finalUsage) {
@@ -999,29 +1169,35 @@ Call tool_binds with the final list of tools.`;
             });
           }
           
-          const finalContent = this.reduceContentToString(aggregateResponse?.content) || '';
-          this.logger.debug(`[LLM Stream] Final content check: aggregateResponse?.content type: ${typeof aggregateResponse?.content}, isArray: ${Array.isArray(aggregateResponse?.content)}, finalContent length: ${finalContent.length}`);
-          if (finalContent) {
-            const previousFullContentLength = fullContent.length - currentContent.length;
-            const expectedFullContent = fullContent.substring(0, previousFullContentLength) + finalContent;
-            if (expectedFullContent.length > fullContent.length) {
-              const newContent = expectedFullContent.substring(fullContent.length);
-              if (newContent) {
-                fullContent = expectedFullContent;
-                await this.streamChunkedContent(newContent, abortSignal, (chunk) => {
-                  onEvent({
-                    type: 'text',
-                    data: {
-                      delta: chunk,
-                    },
+          // For streaming providers, content is already streamed and accumulated in fullContent
+          // For non-streaming providers, check aggregateResponse.content
+          if (canStream) {
+            // Content already streamed in loop, fullContent should have the complete response
+            this.logger.debug(`[LLM Stream] Streaming provider: fullContent length: ${fullContent.length}, currentContent length: ${currentContent.length}`);
+            // No need to re-stream, content already sent
+          } else {
+            // Non-streaming provider: check aggregateResponse for any remaining content
+            const finalContent = this.reduceContentToString(aggregateResponse?.content) || '';
+            this.logger.debug(`[LLM Stream] Non-streaming provider: aggregateResponse?.content type: ${typeof aggregateResponse?.content}, isArray: ${Array.isArray(aggregateResponse?.content)}, finalContent length: ${finalContent.length}`);
+            if (finalContent) {
+              const previousFullContentLength = fullContent.length - currentContent.length;
+              const expectedFullContent = fullContent.substring(0, previousFullContentLength) + finalContent;
+              if (expectedFullContent.length > fullContent.length) {
+                const newContent = expectedFullContent.substring(fullContent.length);
+                if (newContent) {
+                  fullContent = expectedFullContent;
+                  await this.streamChunkedContent(newContent, abortSignal, (chunk) => {
+                    onEvent({
+                      type: 'text',
+                      data: {
+                        delta: chunk,
+                      },
+                    });
                   });
-                });
+                }
               }
-            }
-          } else if (!canStream && aggregateResponse) {
-            this.logger.debug(`[LLM Stream] No final content found. aggregateResponse keys: ${Object.keys(aggregateResponse).join(', ')}, content: ${JSON.stringify(aggregateResponse.content || 'none').substring(0, 200)}`);
-            if (fullContent.length === 0 && allToolCalls.length === 0) {
-              this.logger.warn(`[LLM Stream] Gemini returned empty response (no content, no tool calls). This may indicate an issue with the model or prompt.`);
+            } else if (fullContent.length === 0 && allToolCalls.length === 0) {
+              this.logger.warn(`[LLM Stream] No content found in response. aggregateResponse keys: ${Object.keys(aggregateResponse || {}).join(', ')}, content: ${JSON.stringify(aggregateResponse?.content || 'none').substring(0, 200)}`);
               onEvent({
                 type: 'text',
                 data: {
@@ -1055,10 +1231,17 @@ Call tool_binds with the final list of tools.`;
           });
         }
 
+        if (abortSignal?.aborted) {
+          throw new Error('Request aborted by client');
+        }
+
         const validToolCalls: any[] = [];
         const toolCallIdMap = new Map<string, any>();
 
         for (const tc of currentToolCalls) {
+          if (abortSignal?.aborted) {
+            throw new Error('Request aborted by client');
+          }
           const toolName = tc.function?.name || tc.name;
           if (!toolName) {
             this.logger.error(`[LLM Stream] Tool name is undefined. Full tool call: ${JSON.stringify(tc)}`);
@@ -1211,7 +1394,15 @@ Call tool_binds with the final list of tools.`;
               continue;
             }
 
+            if (abortSignal?.aborted) {
+              throw new Error('Request aborted by client');
+            }
+
             const toolResult = await tool.func(parsedArgs);
+
+            if (abortSignal?.aborted) {
+              throw new Error('Request aborted by client');
+            }
 
             const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
 
@@ -1467,6 +1658,36 @@ Call tool_binds with the final list of tools.`;
     }
 
     if (response.content && typeof response.content === 'string') {
+      if (response.content.includes('redacted_tool_calls_begin') || response.content.includes('<|redacted_tool_call')) {
+        this.logger.warn(`[LLM Stream] LLM rendered tool calls as text instead of executing them. Attempting to parse...`);
+        try {
+          const toolCallRegex = /<\|redacted_tool_call_begin\|>([^<]+)<\|redacted_tool_sep\|>([^<]+)<\|redacted_tool_call_end\|>/g;
+          const matches = [...response.content.matchAll(toolCallRegex)];
+          if (matches.length > 0) {
+            const parsedToolCalls = matches.map((match, index) => {
+              const toolName = match[1].trim();
+              let toolArgs = {};
+              try {
+                toolArgs = JSON.parse(match[2].trim());
+              } catch {
+                this.logger.warn(`[LLM Stream] Failed to parse tool args for ${toolName}: ${match[2].substring(0, 100)}`);
+              }
+              return {
+                id: `call_${Date.now()}_${index}`,
+                function: {
+                  name: toolName,
+                  arguments: JSON.stringify(toolArgs),
+                },
+              };
+            });
+            this.logger.debug(`[LLM Stream] Parsed ${parsedToolCalls.length} tool calls from text format`);
+            return parsedToolCalls;
+          }
+        } catch (e) {
+          this.logger.error(`[LLM Stream] Failed to parse tool calls from text: ${e}`);
+        }
+        return [];
+      }
       try {
         const parsed = JSON.parse(response.content);
         if (parsed.tool_calls && Array.isArray(parsed.tool_calls) && parsed.tool_calls.length > 0) {
@@ -1641,23 +1862,20 @@ Call tool_binds with the final list of tools.`;
     if (name === 'dynamic_repository') {
       const table = toolArgs?.table || 'unknown';
       const operation = toolArgs?.operation || 'unknown';
+      const fields = toolArgs?.fields;
 
       if (result?.error) {
         const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
         const userMessage = result?.userMessage || '';
         const suggestion = result?.suggestion || '';
         const fullError = userMessage || message;
-        return `[dynamic_repository] ${operation} ${table} -> ERROR: ${fullError.substring(0, 500)}${suggestion ? ` Suggestion: ${suggestion.substring(0, 200)}` : ''}`;
-      }
-
-      if (operation === 'batch_delete') {
-        const ids = Array.isArray(toolArgs?.ids) ? toolArgs.ids : [];
-        const deletedCount = result?.count ?? ids.length;
-        return `[dynamic_repository] ${operation} ${table} -> DELETED ${deletedCount} record(s) (ids: ${ids.length})`;
+        const fieldsInfo = fields ? ` fields=${fields}` : '';
+        return `[dynamic_repository] ${operation} ${table}${fieldsInfo} -> ERROR: ${fullError.substring(0, 500)}${suggestion ? ` Suggestion: ${suggestion.substring(0, 200)}` : ''}`;
       }
 
       if (operation === 'find' && Array.isArray(result?.data)) {
         const length = result.data.length;
+        const fieldsInfo = fields ? ` fields=${fields}` : '';
         if (table === 'table_definition' && length > 0) {
           const allIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined);
           const tableNames = result.data.map((r: any) => r.name).filter(Boolean).slice(0, 5);
@@ -1666,9 +1884,9 @@ Call tool_binds with the final list of tools.`;
           const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
           if (length > 1) {
-            return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: For table deletion, you MUST delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks. Delete each table separately: delete id1, then delete id2, etc.`;
+            return `[dynamic_repository] ${operation} ${table}${fieldsInfo} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: For table deletion, you MUST delete ONE BY ONE sequentially to avoid deadlocks. Delete each table separately: delete id1, then delete id2, etc.`;
           }
-          return `[dynamic_repository] ${operation} ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;
+          return `[dynamic_repository] ${operation} ${table}${fieldsInfo} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;
         }
         if (length > 1) {
           const allIds = result.data.map((r: any) => r.id).filter((id: any) => id !== undefined);
@@ -1676,7 +1894,7 @@ Call tool_binds with the final list of tools.`;
           const idsStr = ids.length > 0 ? ` ids=[${ids.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
           const allIdsStr = allIds.length > 0 ? ` ALL IDs: [${allIds.join(', ')}]` : '';
-          return `[dynamic_repository] ${operation} ${table} -> Found ${length} record(s)${idsStr}${moreInfo}.${allIdsStr} CRITICAL: For delete operations on 2+ records, use batch_delete with ALL ${allIds.length} IDs. For create/update on 5+ records, use batch_create/batch_update. Process ALL ${length} records, not just one.`;
+          return `[dynamic_repository] ${operation} ${table}${fieldsInfo} -> Found ${length} record(s)${idsStr}${moreInfo}.${allIdsStr} CRITICAL: For operations on 2+ records, use batch_dynamic_repository with operation="batch_create"/"batch_update"/"batch_delete" and ALL ${allIds.length} IDs. Process ALL ${length} records, not just one.`;
         }
       }
 
@@ -1731,7 +1949,48 @@ Call tool_binds with the final list of tools.`;
       }
 
       const metaInfo = metaParts.length > 0 ? ` ${metaParts.join(' ')}` : '';
-      return `[dynamic_repository] ${operation} ${table}${metaInfo}${dataInfo}`;
+      const fieldsInfo = fields ? ` fields=${fields}` : '';
+      return `[dynamic_repository] ${operation} ${table}${fieldsInfo}${metaInfo}${dataInfo}`;
+    }
+
+    if (name === 'batch_dynamic_repository') {
+      const table = toolArgs?.table || 'unknown';
+      const operation = toolArgs?.operation || 'unknown';
+      const fields = toolArgs?.fields;
+
+      if (result?.error) {
+        const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+        const userMessage = result?.userMessage || '';
+        const suggestion = result?.suggestion || '';
+        const fullError = userMessage || message;
+        const fieldsInfo = fields ? ` fields=${fields}` : '';
+        return `[batch_dynamic_repository] ${operation} ${table}${fieldsInfo} -> ERROR: ${fullError.substring(0, 500)}${suggestion ? ` Suggestion: ${suggestion.substring(0, 200)}` : ''}`;
+      }
+
+      if (Array.isArray(result)) {
+        const length = result.length;
+        const fieldsInfo = fields ? ` fields=${fields}` : '';
+        if (operation === 'batch_create') {
+          const createdIds = result.map((r: any) => r?.data?.id || r?.id).filter((id: any) => id !== undefined).slice(0, 5);
+          const idsStr = createdIds.length > 0 ? ` ids=[${createdIds.join(', ')}]` : '';
+          const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
+          return `[batch_dynamic_repository] ${operation} ${table}${fieldsInfo} -> CREATED ${length} record(s)${idsStr}${moreInfo}`;
+        }
+        if (operation === 'batch_update') {
+          const updatedIds = result.map((r: any) => r?.data?.id || r?.id).filter((id: any) => id !== undefined).slice(0, 5);
+          const idsStr = updatedIds.length > 0 ? ` ids=[${updatedIds.join(', ')}]` : '';
+          const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
+          return `[batch_dynamic_repository] ${operation} ${table}${fieldsInfo} -> UPDATED ${length} record(s)${idsStr}${moreInfo}`;
+        }
+        if (operation === 'batch_delete') {
+          const ids = Array.isArray(toolArgs?.ids) ? toolArgs.ids : [];
+          const deletedCount = length;
+          return `[batch_dynamic_repository] ${operation} ${table}${fieldsInfo} -> DELETED ${deletedCount} record(s) (ids: ${ids.length})`;
+        }
+      }
+
+      const fieldsInfo = fields ? ` fields=${fields}` : '';
+      return `[batch_dynamic_repository] ${operation} ${table}${fieldsInfo} -> Completed`;
     }
 
     if (name === 'get_hint') {
@@ -1765,7 +2024,7 @@ Call tool_binds with the final list of tools.`;
       return `[list_tables] -> ${tables.length} table(s) sample=[${sample}]`;
     }
 
-    const summary = JSON.stringify(result).substring(0, 200);
-    return `[${name}] ${summary}${resultStr.length > 200 ? '...' : ''}`;
+    const serialized = JSON.stringify(result).substring(0, 200);
+    return `[${name}] result=${serialized}${resultStr.length > 200 ? '...' : ''}`;
   }
 }

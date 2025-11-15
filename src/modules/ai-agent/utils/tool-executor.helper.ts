@@ -21,6 +21,7 @@ import { executeUpdateTable } from './executors/update-table.executor';
 import { executeDeleteTable } from './executors/delete-table.executor';
 import { executeUpdateTask } from './executors/update-task.executor';
 import { executeDynamicRepository } from './executors/dynamic-repository.executor';
+import { executeBatchDynamicRepository } from './executors/batch-dynamic-repository.executor';
 
 export class ToolExecutor {
   private readonly logger = new Logger(ToolExecutor.name);
@@ -142,6 +143,20 @@ export class ToolExecutor {
         });
       case 'dynamic_repository':
         return await executeDynamicRepository(args, context, abortSignal, {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        });
+      case 'batch_dynamic_repository':
+        return await executeBatchDynamicRepository(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,

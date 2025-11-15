@@ -39,7 +39,7 @@ export interface DynamicRepositoryExecutorDependencies extends CheckPermissionEx
 export async function executeDynamicRepository(
   args: {
     table: string;
-    operation: 'find' | 'findOne' | 'create' | 'update' | 'delete' | 'batch_create' | 'batch_update' | 'batch_delete';
+    operation: 'find' | 'findOne' | 'create' | 'update' | 'delete';
     where?: any;
     fields?: string;
     limit?: number;
@@ -47,9 +47,6 @@ export async function executeDynamicRepository(
     meta?: string;
     data?: any;
     id?: string | number;
-    dataArray?: any[];
-    updates?: Array<{ id: string | number; data: any }>;
-    ids?: Array<string | number>;
     skipPermissionCheck?: boolean;
   },
   context: TDynamicContext,
@@ -61,7 +58,6 @@ export async function executeDynamicRepository(
     table: args.table,
     hasWhere: !!args.where,
     hasData: !!args.data,
-    hasDataArray: !!args.dataArray,
     fields: args.fields,
     limit: args.limit,
     id: args.id,
@@ -76,14 +72,14 @@ export async function executeDynamicRepository(
     };
   }
 
-  if (args.table === 'table_definition' && (args.operation === 'create' || args.operation === 'update' || args.operation === 'batch_create' || args.operation === 'batch_update')) {
+  if (args.table === 'table_definition' && (args.operation === 'create' || args.operation === 'update')) {
     logger.debug(`[dynamic_repository] Invalid operation: cannot ${args.operation} table_definition`);
     return {
       error: true,
       errorCode: 'INVALID_OPERATION',
       message: `Cannot use dynamic_repository to ${args.operation} table_definition. Use create_table or update_table tool instead.`,
       userMessage: `❌ **Invalid Operation**: You cannot use dynamic_repository to ${args.operation} table_definition.\n\n📋 **Action Required**: Use the correct tool:\n- To create a new table: Use \`create_table\` tool\n- To update an existing table: Use \`update_table\` tool\n\n💡 **Note**: Table schema operations (create/update) must use the dedicated table management tools, not dynamic_repository.`,
-      suggestion: `Use ${args.operation === 'create' || args.operation === 'batch_create' ? 'create_table' : 'update_table'} tool instead of dynamic_repository for table_definition operations.`,
+      suggestion: `Use ${args.operation === 'create' ? 'create_table' : 'update_table'} tool instead of dynamic_repository for table_definition operations.`,
     };
   }
 
@@ -132,7 +128,7 @@ export async function executeDynamicRepository(
   const needsPermissionCheck =
     !args.skipPermissionCheck &&
     !isMetadataTable &&
-    ['find', 'create', 'update', 'delete', 'batch_create', 'batch_update', 'batch_delete'].includes(args.operation);
+    ['find', 'create', 'update', 'delete'].includes(args.operation);
 
   if (needsPermissionCheck) {
     logger.debug(`[dynamic_repository] Checking permission for ${args.operation} on ${args.table}`);
@@ -141,7 +137,7 @@ export async function executeDynamicRepository(
       (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
 
     const userId = context.$user?.id;
-    const operation = args.operation === 'find' || args.operation === 'findOne' ? 'read' : args.operation === 'batch_create' ? 'create' : args.operation === 'batch_update' ? 'update' : args.operation === 'batch_delete' ? 'delete' : args.operation;
+    const operation = args.operation === 'find' || args.operation === 'findOne' ? 'read' : args.operation;
     const cacheKey = `${userId || 'anon'}|${operation}|${args.table || ''}|`;
 
     if (!permissionCache.has(cacheKey)) {
@@ -194,15 +190,6 @@ export async function executeDynamicRepository(
   }
   if (args.data) {
     preview.dataKeys = Object.keys(args.data);
-  }
-  if (args.dataArray) {
-    preview.dataArrayLength = Array.isArray(args.dataArray) ? args.dataArray.length : 0;
-  }
-  if (args.updates) {
-    preview.updatesLength = Array.isArray(args.updates) ? args.updates.length : 0;
-  }
-  if (args.ids) {
-    preview.idsLength = Array.isArray(args.ids) ? args.ids.length : 0;
   }
 
   try {
@@ -283,40 +270,6 @@ export async function executeDynamicRepository(
         logger.debug(`[dynamic_repository] Executing delete on ${args.table}`, { id: args.id });
         result = await repo.delete({ id: args.id });
         logger.debug(`[dynamic_repository] Delete result: success=${!!result}`);
-        return result;
-      case 'batch_create':
-        if (!args.dataArray || !Array.isArray(args.dataArray)) {
-          throw new Error('dataArray (array) is required for batch_create operation');
-        }
-        const itemsWithId = args.dataArray.filter((item: any) => item.id !== undefined);
-        if (itemsWithId.length > 0) {
-          throw new Error(`CRITICAL: Do NOT include "id" field in batch_create operations. The database will automatically generate the id. Found "id" field in ${itemsWithId.length} item(s). Remove "id" from all data objects and try again.`);
-        }
-        logger.debug(`[dynamic_repository] Executing batch_create on ${args.table}`, { count: args.dataArray.length, fields: safeFields });
-        result = await Promise.all(
-          args.dataArray.map(data => repo.create({ data, fields: safeFields }))
-        );
-        logger.debug(`[dynamic_repository] Batch_create result: ${result.length} records created`);
-        return result;
-      case 'batch_update':
-        if (!args.updates || !Array.isArray(args.updates)) {
-          throw new Error('updates (array of {id, data}) is required for batch_update operation');
-        }
-        logger.debug(`[dynamic_repository] Executing batch_update on ${args.table}`, { count: args.updates.length, fields: safeFields });
-        result = await Promise.all(
-          args.updates.map(update => repo.update({ id: update.id, data: update.data, fields: safeFields }))
-        );
-        logger.debug(`[dynamic_repository] Batch_update result: ${result.length} records updated`);
-        return result;
-      case 'batch_delete':
-        if (!args.ids || !Array.isArray(args.ids)) {
-          throw new Error('ids (array) is required for batch_delete operation');
-        }
-        logger.debug(`[dynamic_repository] Executing batch_delete on ${args.table}`, { count: args.ids.length });
-        result = await Promise.all(
-          args.ids.map(id => repo.delete({ id }))
-        );
-        logger.debug(`[dynamic_repository] Batch_delete result: ${result.length} records deleted`);
         return result;
       default:
         throw new Error(`Unknown operation: ${args.operation}`);
@@ -405,7 +358,7 @@ export async function executeDynamicRepository(
     }
 
     const isConstraintError =
-      (args.operation === 'create' || args.operation === 'batch_create' || args.operation === 'update' || args.operation === 'batch_update') &&
+      (args.operation === 'create' || args.operation === 'update') &&
       (errorMessage.includes('null value in column') ||
         errorMessage.includes('violates not-null constraint') ||
         errorMessage.includes('violates check constraint') ||
@@ -416,7 +369,7 @@ export async function executeDynamicRepository(
       const columnName = columnMatch ? columnMatch[1] : 'unknown';
       const tableName = columnMatch ? columnMatch[2] : args.table;
 
-      const providedFields = args.data ? Object.keys(args.data) : (args.dataArray && args.dataArray.length > 0 ? Object.keys(args.dataArray[0]) : []);
+      const providedFields = args.data ? Object.keys(args.data) : [];
       
       const snakeToCamel = (str: string) => str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
       const camelToSnake = (str: string) => str.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
