@@ -34,6 +34,7 @@ export interface LLMResponse {
   content: string | null;
   toolCalls: IToolCall[];
   toolResults: IToolResult[];
+  toolLoops?: number;
 }
 
 @Injectable()
@@ -112,11 +113,15 @@ export class LLMService {
     throw new BadRequestException(`Unsupported LLM provider: ${config.provider}`);
   }
 
-  private createTools(context: any, abortSignal?: AbortSignal): any[] {
+  private createTools(context: any, abortSignal?: AbortSignal, selectedToolNames?: string[]): any[] {
     const toolDefFile = require('../utils/llm-tools.helper');
     const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
 
-    return COMMON_TOOLS.map((toolDef: any) => {
+    const toolsToCreate = selectedToolNames && selectedToolNames.length > 0
+      ? COMMON_TOOLS.filter((tool: any) => selectedToolNames.includes(tool.name))
+      : COMMON_TOOLS;
+
+    return toolsToCreate.map((toolDef: any) => {
       const zodSchema = this.convertParametersToZod(toolDef.parameters);
 
       return {
@@ -238,13 +243,92 @@ export class LLMService {
     return result;
   }
 
+  async evaluateNeedsTools(params: {
+    userMessage: string;
+    configId: string | number;
+    conversationHistory?: any[];
+  }): Promise<string[]> {
+    const { userMessage, configId, conversationHistory = [] } = params;
+
+    const config = await this.aiConfigCacheService.getConfigById(configId);
+    if (!config || !config.isEnabled) {
+      return [];
+    }
+
+    try {
+      const toolDefFile = require('../utils/llm-tools.helper');
+      const TOOL_BINDS_TOOL = toolDefFile.TOOL_BINDS_TOOL;
+      const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
+      
+      const hasToolCallsInHistory = conversationHistory.some((m: any) => 
+        m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0
+      );
+
+      const systemPrompt = `Analyze the request and call tool_binds with tool names needed.
+
+Request: "${userMessage}"
+${hasToolCallsInHistory ? 'Previous messages used tools.' : ''}
+
+Rules:
+- Greetings (hello, thanks) → []
+- Data ops (create/read/update/delete) → ["check_permission", "dynamic_repository"]
+- Schema/metadata → ["get_table_details"] or ["get_metadata"]
+- Need guidance → ["get_hint"]
+
+Call tool_binds now.`;
+
+      const llm = await this.createLLM(config);
+      const toolBindsTool = this.createToolFromDefinition(TOOL_BINDS_TOOL);
+      const llmWithToolBinds = (llm as any).bindTools([toolBindsTool]);
+
+      const messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(userMessage),
+      ];
+
+      const response = await llmWithToolBinds.invoke(messages);
+      const toolCalls = response.tool_calls || response.additional_kwargs?.tool_calls || [];
+      
+      if (toolCalls.length > 0 && toolCalls[0].name === 'tool_binds') {
+        const toolArgs = typeof toolCalls[0].args === 'string' 
+          ? JSON.parse(toolCalls[0].args) 
+          : toolCalls[0].args || {};
+        
+        const selectedToolNames = toolArgs.toolNames || [];
+        if (Array.isArray(selectedToolNames)) {
+          return selectedToolNames.filter((tool: any) => 
+            typeof tool === 'string' && COMMON_TOOLS.some((t: any) => t.name === tool)
+          );
+        }
+      }
+      
+      return [];
+    } catch (error) {
+      this.logger.warn(`Failed to select tools, defaulting to empty: ${error}`);
+      return [];
+    }
+  }
+
+  private createToolFromDefinition(toolDef: any): any {
+    const zodSchema = this.convertParametersToZod(toolDef.parameters);
+    return {
+      name: toolDef.name,
+      description: toolDef.description,
+      schema: zodSchema,
+      func: async (input: any) => {
+        return JSON.stringify(input);
+      },
+    };
+  }
+
   async chat(params: {
     messages: LLMMessage[];
     configId: string | number;
     user?: any;
     conversationId?: string | number;
+    selectedToolNames?: string[];
   }): Promise<LLMResponse> {
-    const { messages, configId, user, conversationId } = params;
+    const { messages, configId, user, conversationId, selectedToolNames } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -253,10 +337,14 @@ export class LLMService {
 
     try {
       const llm = await this.createLLM(config);
-      const context = createLLMContext(user);
-      const tools = this.createTools(context);
-
-      const llmWithTools = (llm as any).bindTools(tools);
+      
+      let llmWithTools = llm;
+      let tools: any[] = [];
+      if (selectedToolNames && selectedToolNames.length > 0) {
+        const context = createLLMContext(user);
+        tools = this.createTools(context, undefined, selectedToolNames);
+        llmWithTools = (llm as any).bindTools(tools);
+      }
 
       const conversationMessages = this.convertToLangChainMessages(messages);
 
@@ -284,6 +372,7 @@ export class LLMService {
             content: result.content || '',
             toolCalls: allToolCalls,
             toolResults: allToolResults,
+            toolLoops: iterations + 1,
           };
         }
 
@@ -391,8 +480,9 @@ export class LLMService {
     onEvent: (event: StreamEvent) => void;
     user?: any;
     conversationId?: string | number;
+    selectedToolNames?: string[];
   }): Promise<LLMResponse> {
-    const { messages, configId, abortSignal, onEvent, user, conversationId } = params;
+    const { messages, configId, abortSignal, onEvent, user, conversationId, selectedToolNames } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -401,10 +491,14 @@ export class LLMService {
 
     try {
       const llm = await this.createLLM(config);
-      const context = createLLMContext(user);
-      const tools = this.createTools(context, abortSignal);
-
-      const llmWithTools = (llm as any).bindTools(tools);
+      
+      let llmWithTools = llm;
+      let tools: any[] = [];
+      if (selectedToolNames && selectedToolNames.length > 0) {
+        const context = createLLMContext(user);
+        tools = this.createTools(context, abortSignal, selectedToolNames);
+        llmWithTools = (llm as any).bindTools(tools);
+      }
       const provider = config.provider;
       const canStream = provider !== 'Google' && typeof llmWithTools.stream === 'function';
 
@@ -712,6 +806,7 @@ export class LLMService {
                 content: fullContent,
                 toolCalls: allToolCalls,
                 toolResults: allToolResults,
+                toolLoops: iterations,
               };
             }
           } else if (canStream && currentToolCalls.length > 0) {
@@ -785,6 +880,7 @@ export class LLMService {
             content: fullContent,
             toolCalls: allToolCalls,
             toolResults: allToolResults,
+            toolLoops: iterations,
           };
         }
 
@@ -882,6 +978,7 @@ export class LLMService {
             content: fullContent,
             toolCalls: allToolCalls,
             toolResults: allToolResults,
+            toolLoops: iterations,
           };
         }
 
@@ -974,6 +1071,7 @@ export class LLMService {
         content: fallbackMessage,
         toolCalls: allToolCalls,
         toolResults: allToolResults,
+        toolLoops: iterations,
       };
     } catch (error: any) {
       this.logger.error('[LLM Stream] Error:', error);

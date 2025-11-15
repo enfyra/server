@@ -780,8 +780,8 @@ CRITICAL - Schema Check Before Create/Update:
 - If you get constraint errors, you MUST call get_table_details to see all required fields and fix your data
 
 Workflow for create/update:
-1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
-2. Check permission with check_permission if needed
+1. 🚨 MANDATORY FIRST STEP: Call check_permission(table="X", operation="create/update") for business tables - DO NOT SKIP THIS
+2. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
 3. For relations: Use propertyName from result.relations[] (e.g., "category", "customer"), NOT FK columns (e.g., "category_id", "customerId")
    - Format: {"category": {"id": 19}} OR {"category": 19}
    - NEVER use FK column names - system auto-generates them from propertyName
@@ -904,24 +904,37 @@ Examples:
       content: discoveryContent,
     };
 
-    const permissionContent = `Permission checks - CRITICAL for business tables:
+    const permissionContent = `Permission checks for business tables:
 
-MANDATORY permission check:
-- You MUST call check_permission BEFORE any read/create/update/delete operation on business tables (non-metadata tables)
-- Business tables = any table that is NOT a *_definition table (e.g., "post", "user", "order", "product")
-- Permission check is MANDATORY for: user data, business data, any table that is NOT a metadata table
-- If you skip permission check without valid reason, the operation will fail
+Required workflow:
+1. Call check_permission FIRST: {"table":"product","operation":"create"}
+2. Wait for result: {"allowed":true,"reason":"..."}
+3. If allowed=true → proceed with dynamic_repository
+4. If allowed=false → STOP, inform user
+
+Example - Creating a product:
+Step 1: check_permission({"table":"product","operation":"create"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"product","operation":"create","data":{"name":"Product 1","price":100}})
+
+Example - Reading orders:
+Step 1: check_permission({"table":"order","operation":"read"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
+
+Example - Updating customer:
+Step 1: check_permission({"table":"customer","operation":"update"})
+Step 2: Wait for result → {"allowed":true}
+Step 3: dynamic_repository({"table":"customer","operation":"update","where":{"id":{"_eq":1}},"data":{"name":"New Name"}})
+
+Business tables = any table that is NOT a *_definition table (e.g., "post", "user", "order", "product", "customer", "category")
 
 Metadata tables exception:
-- Metadata tables (*_definition) operations may skip permission check by setting skipPermissionCheck=true in dynamic_repository
-- Example: {"table":"table_definition","operation":"find","skipPermissionCheck":true}
-- If you skip permission check, you MUST explain why in your reasoning
+- Metadata tables (*_definition) can skip: dynamic_repository({"table":"table_definition","operation":"find","skipPermissionCheck":true})
 
-How to use:
-1. Call check_permission ONCE: {"table":"post","operation":"read"} or {"table":"post","operation":"create"}
-2. Check result.allowed - if true, proceed with dynamic_repository
-3. If false, stop and report reason to user
-4. CRITICAL: Call check_permission ONLY ONCE per table+operation combination. After calling, REUSE the result for all subsequent operations on the same table+operation. Do NOT call check_permission multiple times for the same table+operation in the same response.
+Reuse results:
+- Call check_permission ONLY ONCE per table+operation combination
+- After calling, REUSE the result for all subsequent operations on the same table+operation
 
 check_permission automatically handles:
 - User lookup (from context)
