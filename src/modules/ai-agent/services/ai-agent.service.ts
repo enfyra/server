@@ -1404,21 +1404,16 @@ export class AiAgentService implements OnModuleInit {
       return `[update_table] ${tableName} -> SUCCESS: Updated ${updated}`;
     }
 
-    if (name === 'check_permission') {
-      const table = toolArgs?.table || 'n/a';
-      const routePath = toolArgs?.routePath || 'n/a';
-      const operation = toolArgs?.operation || 'n/a';
-      const allowed = result?.allowed === true ? 'ALLOWED' : 'DENIED';
-      const reason = result?.reason || 'unknown_reason';
-      const cacheKey = result?.cacheKey ? ` cacheKey=${result.cacheKey}` : '';
-      return `[check_permission] table=${table} route=${routePath} operation=${operation} -> ${allowed} (${reason})${cacheKey}`;
-    }
 
     if (name === 'dynamic_repository') {
       const table = toolArgs?.table || 'unknown';
       const operation = toolArgs?.operation || 'unknown';
 
       if (result?.error) {
+        if (result.errorCode === 'PERMISSION_DENIED') {
+          const reason = result.reason || result.message || 'unknown';
+          return `[dynamic_repository] ${operation} ${table} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to ${operation} on table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
+        }
         const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
         return `[dynamic_repository] ${operation} ${table} -> ERROR: ${this.truncateString(message, 220)}`;
       }
@@ -1608,9 +1603,9 @@ ${userContext}
 
 **Core Rules**
 - CRITICAL - Action Required: When user requests an action (create, update, delete, read data), you MUST call tools immediately. Do NOT just say "I will do it" or "wait a moment" - actually execute the tools. If you need to explain, do it AFTER executing tools, not before.
-- Permission Check: For business tables, call check_permission FIRST before dynamic_repository. Metadata tables (*_definition) may skip with skipPermissionCheck=true.
+- Permission: Automatically checked inside dynamic_repository for business tables. You can call dynamic_repository directly - permission will be verified automatically. Metadata tables (*_definition) may skip with skipPermissionCheck=true.
 - Sequential Execution: Execute tools ONE AT A TIME, step by step. Do NOT call multiple tools simultaneously.
-- Reuse Tool Results: After calling check_permission for a table+operation, REUSE that result.
+- Reuse Tool Results: After calling a tool, REUSE the result if needed again.
 - Use the table list above instead of guessing names; call get_metadata only if the user requests updates.
 - If confidence drops below 100%, confusion, or error → STOP IMMEDIATELY and call get_hint(category="...") before acting. get_hint is your SAFETY NET.
 - Prefer single nested queries with precise fields and filters; return only what the user asked for (counts → meta="totalCount" + limit=1).
@@ -1628,13 +1623,13 @@ ${userContext}
 - Do not perform CUD on file_definition; only read from it.
 - For many-to-many changes, update exactly one side with targetTable {id} objects and inversePropertyName; the system handles the rest.
 - Stop immediately if any tool returns error:true and explain the failure to the user.
+- CRITICAL - Permission Errors: When a tool returns errorCode="PERMISSION_DENIED", you MUST immediately inform the user that they do not have permission to perform the requested operation. Do NOT retry the operation. Clearly state: "You do not have permission to [operation] on [table]. Please check your access rights or contact an administrator." Do NOT suggest calling any other tools - permission is automatically checked and denied.
 
 **Tool Playbook**
-- check_permission → gatekeeper for CRUD; cache result per table+operation and reuse.
 - get_table_details → schema (types, relations, constraints) and optionally table data. REQUIRES array format: {"tableName": ["table1"]}. For table data: {"tableName": ["table_definition"], "getData": true, "id": 123}. Use for table metadata ID.
 - get_fields → quick field list for reads.
 - dynamic_repository → CRUD/batch calls; keep fields minimal. CRITICAL - Relations: Use propertyName (e.g., "category"), NOT FK column names (e.g., "category_id"). Format: {"category": {"id": 19}} or {"category": 19}.
-- get_hint → CRITICAL fallback when uncertain. Categories: permission_check, table_operations, table_discovery, field_optimization, database_type, error_handling, complex_workflows. Supports array: {"category":["table_operations","permission_check"]}.
+- get_hint → CRITICAL fallback when uncertain. Categories: table_operations, table_discovery, field_optimization, database_type, error_handling, complex_workflows. Supports array: {"category":["table_operations","error_handling"]}.
 
 **Reminders**
 - CRITICAL: createdAt/updatedAt are AUTO-GENERATED. NEVER include in data.columns when creating tables.
@@ -1729,8 +1724,6 @@ CRITICAL - Task Management:
                 } else {
                 argsStr = args.tableName || 'unknown';
                 }
-              } else if (toolName === 'check_permission') {
-                argsStr = `${args.operation || 'unknown'} on ${args.table || args.routePath || 'unknown'}`;
               } else {
                 argsStr = JSON.stringify(args).substring(0, 100);
               }

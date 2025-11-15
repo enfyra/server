@@ -69,8 +69,6 @@ export class ToolExecutor {
     }
 
     switch (name) {
-      case 'check_permission':
-        return await this.executeCheckPermission(args, context);
       case 'list_tables':
         return await this.executeListTables();
       case 'get_table_details':
@@ -780,13 +778,12 @@ CRITICAL - Schema Check Before Create/Update:
 - If you get constraint errors, you MUST call get_table_details to see all required fields and fix your data
 
 Workflow for create/update:
-1. 🚨 MANDATORY FIRST STEP: Call check_permission(table="X", operation="create/update") for business tables - DO NOT SKIP THIS
-2. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
-3. For relations: Use propertyName from result.relations[] (e.g., "category", "customer"), NOT FK columns (e.g., "category_id", "customerId")
+1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
+2. For relations: Use propertyName from result.relations[] (e.g., "category", "customer"), NOT FK columns (e.g., "category_id", "customerId")
    - Format: {"category": {"id": 19}} OR {"category": 19}
    - NEVER use FK column names - system auto-generates them from propertyName
-4. Prepare data object with ALL required fields
-5. Call dynamic_repository with create/update operation
+3. Prepare data object with ALL required fields
+4. Call dynamic_repository with create/update operation (permission is automatically checked)
 
 Nested relations & query optimization:
 - fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
@@ -845,7 +842,7 @@ Best practices:
 
 Recreate tables with relations:
 1. Find existing tables: {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
-2. Check permissions, then delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks: {"table":"table_definition","operation":"delete","id":<id1>}, then {"table":"table_definition","operation":"delete","id":<id2>}, etc.
+2. Delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks: {"table":"table_definition","operation":"delete","id":<id1>}, then {"table":"table_definition","operation":"delete","id":<id2>}, etc.
 3. Use create_table tool to create new tables (validates automatically)
 4. Find new table IDs, then use update_table tool to add relations (merges automatically)
 
@@ -872,14 +869,15 @@ Efficiency:
 - Do NOT call multiple tools simultaneously in a single response
 - Execute first tool → wait for result → analyze → proceed to next
 - If you call multiple tools at once and one fails, you'll have to retry all, causing duplicates and wasted tokens
-- Example workflow: check_permission → wait → dynamic_repository find → wait → dynamic_repository delete → wait → continue
+- Example workflow: dynamic_repository find → wait → dynamic_repository delete → wait → continue
 - This prevents errors, duplicate operations, and ensures proper error handling
 
 Error handling:
 - If tool returns error=true → stop workflow and report error to user
 - Tools have automatic retry logic - let them handle retries
 - Report exact error message from tool result to user
-- If you encounter errors after calling multiple tools at once, execute them sequentially instead`;
+- If you encounter errors after calling multiple tools at once, execute them sequentially instead
+- Permission errors: When errorCode="PERMISSION_DENIED", inform user clearly and do NOT retry`;
 
     const errorHint = {
       category: 'error_handling',
@@ -904,57 +902,8 @@ Examples:
       content: discoveryContent,
     };
 
-    const permissionContent = `Permission checks for business tables:
 
-Required workflow:
-1. Call check_permission FIRST: {"table":"product","operation":"create"}
-2. Wait for result: {"allowed":true,"reason":"..."}
-3. If allowed=true → proceed with dynamic_repository
-4. If allowed=false → STOP, inform user
-
-Example - Creating a product:
-Step 1: check_permission({"table":"product","operation":"create"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"product","operation":"create","data":{"name":"Product 1","price":100}})
-
-Example - Reading orders:
-Step 1: check_permission({"table":"order","operation":"read"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
-
-Example - Updating customer:
-Step 1: check_permission({"table":"customer","operation":"update"})
-Step 2: Wait for result → {"allowed":true}
-Step 3: dynamic_repository({"table":"customer","operation":"update","where":{"id":{"_eq":1}},"data":{"name":"New Name"}})
-
-Business tables = any table that is NOT a *_definition table (e.g., "post", "user", "order", "product", "customer", "category")
-
-Metadata tables exception:
-- Metadata tables (*_definition) can skip: dynamic_repository({"table":"table_definition","operation":"find","skipPermissionCheck":true})
-
-Reuse results:
-- Call check_permission ONLY ONCE per table+operation combination
-- After calling, REUSE the result for all subsequent operations on the same table+operation
-
-check_permission automatically handles:
-- User lookup (from context)
-- Route lookup (if routePath provided)
-- Role matching (if roles configured)
-- Returns: {allowed: boolean, reason: string, userInfo: object, routeInfo: object}
-
-Tool executor validation:
-- Tool executor automatically validates permission for business tables
-- If permission check not found → warning logged (but operation may proceed)
-- If permission denied → operation fails immediately with error message
-- Metadata tables with skipPermissionCheck=true bypass validation`;
-
-    const permissionHint = {
-      category: 'permission_check',
-      title: 'Permission & Route Access Control',
-      content: permissionContent,
-    };
-
-    allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, permissionHint, complexWorkflowsHint);
+    allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, complexWorkflowsHint);
 
     let filteredHints = allHints;
     if (args.category) {
@@ -968,7 +917,7 @@ Tool executor validation:
       idField: idFieldName,
       hints: filteredHints,
       count: filteredHints.length,
-      availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'permission_check', 'complex_workflows'],
+      availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows'],
     };
   }
 
@@ -1064,23 +1013,26 @@ Tool executor validation:
         (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
 
       const userId = context.$user?.id;
-      const operation = args.operation === 'find' ? 'read' : args.operation === 'batch_create' ? 'create' : args.operation === 'batch_update' ? 'update' : args.operation === 'batch_delete' ? 'delete' : args.operation;
+      const operation = args.operation === 'find' || args.operation === 'findOne' ? 'read' : args.operation === 'batch_create' ? 'create' : args.operation === 'batch_update' ? 'update' : args.operation === 'batch_delete' ? 'delete' : args.operation;
       const cacheKey = `${userId || 'anon'}|${operation}|${args.table || ''}|`;
 
       if (!permissionCache.has(cacheKey)) {
         const isMetadataTable = args.table?.endsWith('_definition');
         if (!isMetadataTable) {
-          return {
-            error: true,
-            errorCode: 'MISSING_PERMISSION_CHECK',
-            message: `Permission check required but not found for ${operation} operation on ${args.table}. You MUST call check_permission first before performing any operation on business tables.`,
-            userMessage: `❌ **Permission Check Required**: You must call check_permission before performing ${operation} operation on table "${args.table}".\n\n📋 **Action Required**:\n1. Call check_permission with table="${args.table}" and operation="${operation}" first\n2. Verify that allowed=true in the result\n3. Only then proceed with the ${operation} operation\n\n💡 **Note**: Permission check is MANDATORY for all business tables (non-metadata tables). Metadata tables (*_definition) may skip with skipPermissionCheck=true.`,
-            suggestion: `Call check_permission with table="${args.table}" and operation="${operation}" first to verify access before performing this operation.`,
-          };
-        } else {
-          this.logger.warn(
-            `[ToolExecutor] Permission check not found for ${operation} on ${args.table}. AI should have called check_permission first. Proceeding with operation, but this may fail if permission is denied.`,
+          const permissionResult = await this.executeCheckPermission(
+            { table: args.table, operation: operation as 'read' | 'create' | 'update' | 'delete' },
+            context,
           );
+          if (!permissionResult?.allowed) {
+            return {
+              error: true,
+              errorCode: 'PERMISSION_DENIED',
+              message: `Permission denied for ${operation} operation on ${args.table}. Reason: ${permissionResult?.reason || 'unknown'}.`,
+              userMessage: `❌ **Permission Denied**: You do not have permission to perform ${operation} operation on table "${args.table}".\n\n📋 **Reason**: ${permissionResult?.reason || 'unknown'}\n\n💡 **Note**: This operation cannot proceed. Please check your access rights or contact an administrator.`,
+              suggestion: `You MUST inform the user: "You do not have permission to ${operation} on table ${args.table}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`,
+              reason: permissionResult?.reason || 'unknown',
+            };
+          }
         }
       } else {
         const permissionResult = permissionCache.get(cacheKey);
@@ -1088,9 +1040,10 @@ Tool executor validation:
           return {
             error: true,
             errorCode: 'PERMISSION_DENIED',
-            message: `Permission denied for ${operation} operation on ${args.table}. Reason: ${permissionResult?.reason || 'unknown'}. You must call check_permission first and ensure allowed=true before performing this operation.`,
+            message: `Permission denied for ${operation} operation on ${args.table}. Reason: ${permissionResult?.reason || 'unknown'}.`,
             userMessage: `❌ **Permission Denied**: You do not have permission to perform ${operation} operation on table "${args.table}".\n\n📋 **Reason**: ${permissionResult?.reason || 'unknown'}\n\n💡 **Note**: This operation cannot proceed. Please check your access rights or contact an administrator.`,
-            suggestion: `Call check_permission with table="${args.table}" and operation="${operation}" first to verify access.`,
+            suggestion: `You MUST inform the user: "You do not have permission to ${operation} on table ${args.table}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`,
+            reason: permissionResult?.reason || 'unknown',
           };
         }
       }
@@ -1224,8 +1177,8 @@ Tool executor validation:
           error: true,
           errorCode: 'PERMISSION_DENIED',
           message: errorMessage,
-          userMessage: `❌ **Permission Denied**: Operation ${args.operation} on table "${args.table}" was denied.\n\n📋 **Error**: ${errorMessage}\n\n💡 **Action Required**:\n1. Call check_permission with table="${args.table}" and operation="${args.operation}" first\n2. Verify that allowed=true in the result\n3. If permission is denied, you cannot proceed with this operation${isMetadataTable ? '\n4. For metadata tables, you may use skipPermissionCheck=true if you have system access' : ''}\n\n⚠️ **Note**: Permission check is MANDATORY for business tables. Always call check_permission before performing operations.`,
-          suggestion: `Call check_permission with table="${args.table}" and operation="${args.operation}" first to verify access. If permission is denied, you cannot proceed with this operation.`,
+          userMessage: `❌ **Permission Denied**: Operation ${args.operation} on table "${args.table}" was denied.\n\n📋 **Error**: ${errorMessage}\n\n💡 **Note**: You do not have permission to perform this operation. Please check your access rights or contact an administrator.`,
+          suggestion: `You MUST inform the user: "You do not have permission to ${args.operation} on table ${args.table}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`,
           details: {
             ...details,
             table: args.table,
