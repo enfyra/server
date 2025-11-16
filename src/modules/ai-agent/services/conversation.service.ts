@@ -548,6 +548,8 @@ export class ConversationService {
         agentResponseLength: agentResponse.length,
         toolCallsCount: toolCallsDetails?.length || 0,
         toolCalls: toolCallsDetails,
+        toolResultsCount: toolResults?.length || 0,
+        toolResultsLength: toolResults ? JSON.stringify(toolResults).length : 0,
         boundTools: context?.boundTools || null,
         createdAt: mapped.createdAt,
       }, null, 2)}`);

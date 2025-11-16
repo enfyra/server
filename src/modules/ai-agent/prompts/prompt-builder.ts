@@ -116,7 +116,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     const userMessagePreview = latestUserMessage.length > 200 
       ? latestUserMessage.substring(0, 200) + '...' 
       : latestUserMessage;
-    prompt += `\n\n**Current User Message (for language reference):**\n"${userMessagePreview}"\n\nIMPORTANT: Respond in the EXACT SAME language as this user message. If it's Vietnamese, respond in Vietnamese. If it's English, respond in English. Match the language exactly.`;
+    prompt += `\n\n**Current User Message (for language reference):**\n"${userMessagePreview}"\n\nIMPORTANT: Respond in the EXACT SAME language as this user message. Match the language exactly.`;
   }
   
   if (conversationSummary) {

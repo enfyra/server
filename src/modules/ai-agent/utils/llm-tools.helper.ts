@@ -41,9 +41,13 @@ Available tools:
 - batch_create_records: Create multiple records (2+ records)
 - batch_update_records: Update multiple records (2+ records)
 - batch_delete_records: Delete multiple records (2+ records)
-- create_table: Create new table schema
-- update_table: Update existing table schema
-- delete_table: Delete/drop table
+- create_table: Create new table schema (single table)
+- update_table: Update existing table schema (single table)
+- delete_table: Delete/drop table (single table)
+- batch_create_tables: Create multiple tables (2+ tables) - processes sequentially internally
+- batch_update_tables: Update multiple tables (2+ tables) - processes sequentially internally
+- batch_delete_tables: Delete multiple tables (2+ tables) - processes sequentially internally
+- update_task: Manage task state for multi-step operations (create/update/complete/cancel tasks)
 - get_hint: Get comprehensive guidance when uncertain
 
 Examples:
@@ -62,9 +66,12 @@ Examples:
 - Batch delete (2+ records): {"toolNames": ["batch_delete_records"]}
 
 **Schema Operations:**
-- Create table: {"toolNames": ["create_table", "get_hint"]}
-- Update table: {"toolNames": ["update_table", "get_hint"]}
-- Delete table: {"toolNames": ["find_records", "delete_table"]}
+- Create single table: {"toolNames": ["create_table", "get_hint"]}
+- Create multiple tables (2+): {"toolNames": ["batch_create_tables", "get_hint"]}
+- Update single table: {"toolNames": ["update_table", "get_hint"]}
+- Update multiple tables (2+): {"toolNames": ["batch_update_tables", "get_hint"]}
+- Delete single table: {"toolNames": ["find_records", "delete_table"]}
+- Delete multiple tables (2+): {"toolNames": ["find_records", "batch_delete_tables"]}
 - View full schema: {"toolNames": ["get_table_details"]}
 - Field names only: {"toolNames": ["get_fields"]}
 - When uncertain about fields: {"toolNames": ["get_fields", "find_records"]}
@@ -72,7 +79,7 @@ Examples:
 **Table Discovery:**
 - List all tables (metadata list, no filter): {"toolNames": ["list_tables"]}
 - Filter tables (with condition): {"toolNames": ["find_records"]}
-- Count records in specific table ("how many X", "có bao nhiêu X"): {"toolNames": ["count_records"]}
+- Count records in specific table ("how many X"): {"toolNames": ["count_records"]}
 - Query records in table: {"toolNames": ["find_records"]}
 `,
   parameters: {
@@ -97,6 +104,10 @@ Examples:
                    'create_table',
                    'update_table',
                    'delete_table',
+                   'batch_create_tables',
+                   'batch_update_tables',
+                   'batch_delete_tables',
+                   'update_task',
                    'get_hint',
                  ],
         },
@@ -625,7 +636,7 @@ Output:
   message: string;
 }
 
-For multiple tables: Delete them ONE BY ONE sequentially (not in parallel) to avoid deadlocks.`,
+For multiple tables: Use batch_delete_tables instead.`,
     parameters: {
       type: 'object',
       properties: {
@@ -635,6 +646,189 @@ For multiple tables: Delete them ONE BY ONE sequentially (not in parallel) to av
         },
       },
       required: ['id'],
+    },
+  },
+  {
+    name: 'batch_create_tables',
+    description: `Purpose → Create multiple tables (2+ tables) in a single call. Processes tables sequentially internally to avoid deadlocks.
+
+CRITICAL - Use for Multiple Tables:
+- Use batch_create_tables when creating 2+ tables
+- Tool processes tables sequentially internally (one by one)
+- Do NOT call create_table multiple times - use this batch tool instead
+- All tables are processed in order, errors are collected and reported
+
+Inputs:
+- tables (required): Array of table definition objects (same structure as create_table)
+
+Each table object:
+{
+  name: string;
+  description?: string;
+  columns: any[];
+  relations?: any[];
+  uniques?: any[][];
+  indexes?: any[];
+}
+
+Output:
+{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; tableName: string; tableId?: number; error?: string; message?: string}>;
+  errors?: Array<{index: number; tableName: string; error: string; message: string}>;
+  reloadAdminUI: boolean;
+  message: string;
+}
+
+Example:
+batch_create_tables({
+  "tables": [
+    {"name": "categories", "columns": [{"name": "id", "type": "int", "isPrimary": true, "isGenerated": true}, {"name": "name", "type": "varchar"}]},
+    {"name": "products", "columns": [{"name": "id", "type": "int", "isPrimary": true, "isGenerated": true}, {"name": "name", "type": "varchar"}]}
+  ]
+})`,
+    parameters: {
+      type: 'object',
+      properties: {
+        tables: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string' },
+              columns: { type: 'array', items: { type: 'object' } },
+              relations: { type: 'array', items: { type: 'object' } },
+              uniques: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+              indexes: { type: 'array', items: { type: 'object' } },
+            },
+            required: ['name', 'columns'],
+          },
+          description: 'Array of table definitions. Each table has same structure as create_table.',
+        },
+      },
+      required: ['tables'],
+    },
+  },
+  {
+    name: 'batch_update_tables',
+    description: `Purpose → Update multiple tables (2+ tables) in a single call. Processes tables sequentially internally to avoid deadlocks.
+
+CRITICAL - Use for Multiple Tables:
+- Use batch_update_tables when updating 2+ tables
+- Tool processes tables sequentially internally (one by one)
+- Do NOT call update_table multiple times - use this batch tool instead
+- All tables are processed in order, errors are collected and reported
+
+Inputs:
+- tables (required): Array of table update objects (same structure as update_table)
+
+Each table object:
+{
+  tableId?: number;
+  tableName?: string;
+  description?: string;
+  columns?: any[];
+  relations?: any[];
+  uniques?: any[][];
+  indexes?: any[];
+}
+
+Output:
+{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; tableName: string; tableId?: number; updated?: string; error?: string; message?: string}>;
+  errors?: Array<{index: number; tableName?: string; tableId?: number; error: string; message: string}>;
+  reloadAdminUI: boolean;
+  message: string;
+}
+
+Example:
+batch_update_tables({
+  "tables": [
+    {"tableName": "categories", "description": "Updated description"},
+    {"tableName": "products", "columns": [{"name": "price", "type": "float"}]}
+  ]
+})`,
+    parameters: {
+      type: 'object',
+      properties: {
+        tables: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              tableId: { type: 'number' },
+              tableName: { type: 'string' },
+              description: { type: 'string' },
+              columns: { type: 'array', items: { type: 'object' } },
+              relations: { type: 'array', items: { type: 'object' } },
+              uniques: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+              indexes: { type: 'array', items: { type: 'object' } },
+            },
+          },
+          description: 'Array of table update definitions. Each table has same structure as update_table.',
+        },
+      },
+      required: ['tables'],
+    },
+  },
+  {
+    name: 'batch_delete_tables',
+    description: `Purpose → Delete multiple tables (2+ tables) in a single call. Processes tables sequentially internally to avoid deadlocks.
+
+CRITICAL - Use for Multiple Tables:
+- Use batch_delete_tables when deleting 2+ tables
+- Tool processes tables sequentially internally (one by one) to avoid deadlocks
+- Do NOT call delete_table multiple times - use this batch tool instead
+- All tables are processed in order, errors are collected and reported
+
+CRITICAL - Find Table IDs First:
+- This tool ONLY accepts table IDs (array of numbers), NOT table names
+- BEFORE calling this tool, you MUST find the table IDs first using find_records with _in operator:
+  find_records({"table":"table_definition","where":{"name":{"_in":["table1","table2","table3"]}},"fields":"id,name","limit":0})
+- Extract the ids (array of numbers) from the result and use them in this tool
+- NEVER use table names as ids - this tool only accepts numeric ids
+
+Workflow:
+1. Find table IDs: find_records({"table":"table_definition","where":{"name":{"_in":["categories","products","orders"]}},"fields":"id,name","limit":0})
+2. Get ids array from result (e.g., [123, 124, 125])
+3. Delete tables: batch_delete_tables({"ids":[123,124,125]})
+
+Inputs:
+- ids (required): Array of table IDs (numbers) from table_definition. Must be found first using find_records with _in operator.
+
+Output:
+{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; id: number; name?: string; error?: string; message?: string}>;
+  errors?: Array<{index: number; id: number; error: string; message: string}>;
+  reloadAdminUI: boolean;
+  message: string;
+}
+
+Example:
+Step 1: find_records({"table":"table_definition","where":{"name":{"_in":["categories","products"]}},"fields":"id,name","limit":0})
+Step 2: batch_delete_tables({"ids":[123,124]}) ← Use the ids from step 1`,
+    parameters: {
+      type: 'object',
+      properties: {
+        ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Array of table IDs (numbers) from table_definition. Must be found first using find_records({"table":"table_definition","where":{"name":{"_in":["table1","table2"]}},"fields":"id,name","limit":0}).',
+        },
+      },
+      required: ['ids'],
     },
   },
   {

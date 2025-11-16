@@ -19,6 +19,9 @@ import { executeGetHint } from './executors/get-hint.executor';
 import { executeCreateTable } from './executors/create-table.executor';
 import { executeUpdateTable } from './executors/update-table.executor';
 import { executeDeleteTable } from './executors/delete-table.executor';
+import { executeBatchCreateTables } from './executors/batch-create-tables.executor';
+import { executeBatchUpdateTables } from './executors/batch-update-tables.executor';
+import { executeBatchDeleteTables } from './executors/batch-delete-tables.executor';
 import { executeUpdateTask } from './executors/update-task.executor';
 import { executeDynamicRepository } from './executors/dynamic-repository.executor';
 import { executeBatchDynamicRepository } from './executors/batch-dynamic-repository.executor';
@@ -125,6 +128,51 @@ export class ToolExecutor {
         });
       case 'delete_table':
         return await executeDeleteTable(args, context, abortSignal, {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        });
+
+      case 'batch_create_tables':
+        return await executeBatchCreateTables(args, context, abortSignal, {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        });
+
+      case 'batch_update_tables':
+        return await executeBatchUpdateTables(args, context, abortSignal, {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        });
+
+      case 'batch_delete_tables':
+        return await executeBatchDeleteTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
