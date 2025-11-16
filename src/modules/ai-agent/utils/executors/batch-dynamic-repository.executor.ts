@@ -152,13 +152,11 @@ export async function executeBatchDynamicRepository(
   }
 
   try {
-    // CRITICAL: fields parameter is MANDATORY for batch operations to reduce response size
     const safeFields = args.fields && args.fields.trim() ? args.fields : 'id';
 
-    // Validate operation
     const validOperations = ['batch_create', 'batch_update', 'batch_delete'];
     if (!validOperations.includes(args.operation)) {
-      throw new Error(`Invalid operation: "${args.operation}". Valid operations are: ${validOperations.join(', ')}. For finding records, use dynamic_repository with operation="find" instead.`);
+      throw new Error(`Invalid operation: "${args.operation}". Valid operations are: ${validOperations.join(', ')}. For finding records, use find_records tool instead.`);
     }
 
     let result: any;

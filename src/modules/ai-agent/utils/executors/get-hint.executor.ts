@@ -64,10 +64,10 @@ export async function executeGetHint(
 - IMPORTANT: If you call find with limit=10 and get results, DO NOT call again with limit=20 - reuse result or use limit=0 from start
 
 **COUNT Query Examples:**
-✅ Count total records: dynamic_repository({"table":"product","operation":"find","fields":"${idFieldName}","limit":1,"meta":"totalCount"})
+✅ Count total records: count_records({"table":"product","fields":"${idFieldName}","meta":"totalCount"})
 → Read totalCount from response metadata
 
-✅ Count with filter: dynamic_repository({"table":"product","operation":"find","fields":"${idFieldName}","limit":1,"where":{"price":{"_gt":100}},"meta":"filterCount"})
+✅ Count with filter: count_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"meta":"filterCount"})
 → Read filterCount from response metadata
 
 **CRITICAL - Schema Check Before Create/Update:**
@@ -80,7 +80,7 @@ export async function executeGetHint(
 **CRITICAL - Check Unique Constraints Before Create:**
 1. Call get_table_details to see which columns have isUnique=true
 2. For unique fields (name, email, slug), check existence FIRST:
-   Example: dynamic_repository({"table":"category","operation":"find","where":{"name":{"_eq":"Electronics"}},"fields":"${idFieldName}","limit":1})
+   Example: find_records({"table":"category","where":{"name":{"_eq":"Electronics"}},"fields":"${idFieldName}","limit":1})
 3. If record exists → skip creation or use update instead
 4. For batch_create: Check all records first, filter out existing ones
 
@@ -108,7 +108,7 @@ export async function executeGetHint(
   const tableOpsContent = `**Table Operations - Step by Step Examples**
 
 **Creating Tables:**
-1. Check if table exists: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+1. Check if table exists: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 2. If not exists, create table:
    ✅ CORRECT Example:
    create_table({
@@ -134,7 +134,7 @@ update_table({
 })
 
 ✅ Example - Add relation:
-1. Find target table ID: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
+1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
 2. Add relation: update_table({
   "tableName": "products",
   "relations": [{
@@ -146,18 +146,18 @@ update_table({
 
 **Deleting Tables (NOT Data):**
 ✅ CORRECT Workflow:
-1. Find table ID: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 2. Delete table: delete_table({"id": 19})
 
 ❌ WRONG:
-- dynamic_repository({"table":"products","operation":"delete"}) → This deletes DATA, not the table structure
+- delete_record({"table":"products","id":1}) → This deletes DATA, not the table structure
 - delete_table({"id": "products"}) → Must use numeric ID, not table name
 
 **Batch Operations:**
 ✅ For data tables (2+ records):
-- batch_create: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"name":"P1"},{"name":"P2"}],"fields":"${idFieldName}"})
-- batch_update: batch_dynamic_repository({"table":"product","operation":"batch_update","updates":[{"id":1,"data":{"price":100}}],"fields":"${idFieldName}"})
-- batch_delete: batch_dynamic_repository({"table":"product","operation":"batch_delete","ids":[1,2,3]})
+- batch_create: batch_create_records({"table":"product","dataArray":[{"name":"P1"},{"name":"P2"}],"fields":"${idFieldName}"})
+- batch_update: batch_update_records({"table":"product","updates":[{"id":1,"data":{"price":100}}],"fields":"${idFieldName}"})
+- batch_delete: batch_delete_records({"table":"product","ids":[1,2,3]})
 
 ❌ For metadata tables (table_definition):
 - NEVER use batch operations
@@ -169,14 +169,14 @@ update_table({
     content: tableOpsContent,
   };
 
-  const dynamicRepoContent = `**dynamic_repository - Complete Workflows with Examples**
+  const dynamicRepoContent = `**CRUD Operations - Complete Workflows with Examples**
 
 **CREATE Workflow:**
 Step 1: Get schema
 get_table_details({"tableName": ["product"]})
 
 Step 2: Check unique constraints (if any)
-dynamic_repository({"table":"product","operation":"find","where":{"name":{"_eq":"Laptop"}},"fields":"${idFieldName}","limit":1})
+find_records({"table":"product","where":{"name":{"_eq":"Laptop"}},"fields":"${idFieldName}","limit":1})
 
 Step 3: Prepare data with ALL required fields
 {
@@ -186,9 +186,8 @@ Step 3: Prepare data with ALL required fields
 }
 
 Step 4: Create record
-dynamic_repository({
+create_record({
   "table": "product",
-  "operation": "create",
   "data": {"name": "Laptop", "price": 999.99, "category": 19},
   "fields": "${idFieldName}"
 })
@@ -198,12 +197,11 @@ Step 1: Get schema
 get_table_details({"tableName": ["product"]})
 
 Step 2: Check if record exists
-dynamic_repository({"table":"product","operation":"find","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
+find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
 
 Step 3: Update
-dynamic_repository({
+update_record({
   "table": "product",
-  "operation": "update",
   "id": 1,
   "data": {"price": 899.99},
   "fields": "${idFieldName}"
@@ -211,20 +209,19 @@ dynamic_repository({
 
 **DELETE Workflow (for DATA records):**
 Step 1: Verify exists
-dynamic_repository({"table":"product","operation":"find","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
+find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
 
 Step 2: Delete
-dynamic_repository({
+delete_record({
   "table": "product",
-  "operation": "delete",
   "id": 1
 })
 
 **CRITICAL - Deleting TABLES (not data):**
-❌ WRONG: dynamic_repository({"table":"products","operation":"delete","id":1}) → This deletes DATA, not table
+❌ WRONG: delete_record({"table":"products","id":1}) → This deletes DATA, not table
 
 ✅ CORRECT:
-1. Find table ID: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 2. Delete table: delete_table({"id": 19})
 
 **FIND Workflow:**
@@ -232,9 +229,8 @@ Step 1: Get field names (if needed)
 get_fields({"tableName": "product"})
 
 Step 2: Query
-dynamic_repository({
+find_records({
   "table": "product",
-  "operation": "find",
   "fields": "${idFieldName},name,price",
   "where": {"price": {"_gt": 100}},
   "limit": 10,
@@ -246,7 +242,7 @@ dynamic_repository({
 ❌ Not checking unique constraints → duplicate key errors
 ❌ Using FK column names instead of propertyName → errors
 ❌ Including id in create operations → errors
-❌ Using dynamic_repository.delete to delete tables → wrong tool
+❌ Using delete_record to delete tables → wrong tool
 
 **Best Practices:**
 ✅ Always call get_table_details FIRST for create/update
@@ -256,15 +252,15 @@ dynamic_repository({
 ✅ Execute ONE operation at a time (sequential)`;
 
   const dynamicRepoHint = {
-    category: 'dynamic_repository',
-    title: 'dynamic_repository Complete Workflows',
+    category: 'crud_operations',
+    title: 'CRUD Operations Complete Workflows',
     content: dynamicRepoContent,
   };
 
   const complexWorkflowsContent = `**Complex Workflows - Step by Step**
 
 **Recreate Tables with Relations:**
-1. Find existing tables: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0})
+1. Find existing tables: find_records({"table":"table_definition","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0})
 2. Delete ONE BY ONE (not batch): 
    - delete_table({"id": 1})
    - delete_table({"id": 2})
@@ -294,7 +290,7 @@ dynamic_repository({
 - Do NOT call multiple tools simultaneously in a single response
 - Execute first tool → wait for result → analyze → proceed to next
 - If you call multiple tools at once and one fails, you'll have to retry all, causing duplicates and wasted tokens
-- Example workflow: dynamic_repository find → wait → dynamic_repository delete → wait → continue
+- Example workflow: find_records → wait → delete_record → wait → continue
 - This prevents errors, duplicate operations, and ensures proper error handling
 
 Error handling:
@@ -344,7 +340,7 @@ Examples:
     idField: idFieldName,
     hints: filteredHints,
     count: filteredHints.length,
-    availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows', 'dynamic_repository'],
+    availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows', 'crud_operations'],
   };
 }
 

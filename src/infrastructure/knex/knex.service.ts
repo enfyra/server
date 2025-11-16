@@ -608,9 +608,9 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
             continue;
           }
           
-          try {
+        try {
             parsed[fieldName] = JSON.parse(fieldValue);
-          } catch (e) {
+        } catch (e) {
           }
         }
       }

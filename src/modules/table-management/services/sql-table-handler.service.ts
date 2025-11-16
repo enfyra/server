@@ -432,8 +432,27 @@ export class SqlTableHandlerService {
       this.logger.log(`Fetching full table metadata...`);
       const fullMetadata = await this.getFullTableMetadataInTransaction(trx, tableId);
 
+      if (!fullMetadata) {
+        throw new Error(`Failed to fetch metadata for table ${body.name}`);
+      }
+
+      if (fullMetadata.relations) {
+        for (const rel of fullMetadata.relations) {
+          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+            if (!rel.targetTableName) {
+              this.logger.error(`Relation ${rel.propertyName} has invalid targetTableName. targetTableId: ${rel.targetTableId}`);
+            }
+          }
+        }
+      }
+
       this.logger.log(`Calling SqlSchemaMigrationService.createTable()...`);
-      await this.schemaMigrationService.createTable(fullMetadata);
+      try {
+        await this.schemaMigrationService.createTable(fullMetadata);
+      } catch (migrationError) {
+        this.logger.error(`Physical schema migration failed: ${migrationError.message}`);
+        throw migrationError;
+      }
 
       this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
@@ -1017,6 +1036,10 @@ export class SqlTableHandlerService {
 
     for (const rel of relations) {
       rel.sourceTableName = table.name;
+
+      if (!rel.targetTableName) {
+        this.logger.warn(`Relation ${rel.propertyName} (${rel.type}) has no targetTableName. targetTableId: ${rel.targetTableId}`);
+      }
 
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
         rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);

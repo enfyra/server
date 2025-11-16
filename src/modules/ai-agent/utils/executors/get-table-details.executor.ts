@@ -72,14 +72,14 @@ export async function executeGetTableDetails(
     throw new Error('At least one table name is required');
   }
 
-  // Validate getData requirement
+
   if (args.getData === true && args.id === undefined && args.name === undefined) {
     throw new Error('getData=true requires either id or name parameter. If you only need schema metadata, omit getData parameter. If you need actual table data, provide id (array) or name (array) parameter.');
   }
 
   const shouldGetData = args.getData === true && (args.id !== undefined || args.name !== undefined);
 
-  // Validate id and name are arrays
+
   if (args.id !== undefined && !Array.isArray(args.id)) {
     throw new Error('id must be an array. For single value, use array with 1 element: [123]');
   }
@@ -87,7 +87,7 @@ export async function executeGetTableDetails(
     throw new Error('name must be an array. For single value, use array with 1 element: ["table_name"]');
   }
 
-  // Validate array lengths match tableNames length
+
   if (args.id && args.id.length !== tableNames.length) {
     throw new Error(`id array length (${args.id.length}) must match tableName array length (${tableNames.length})`);
   }
@@ -197,7 +197,7 @@ export async function executeGetTableDetails(
           await repo.init();
 
           let where: any = {};
-          // Use corresponding id/name for this table index
+
           const id = args.id ? args.id[i] : undefined;
           const name = args.name ? args.name[i] : undefined;
           
