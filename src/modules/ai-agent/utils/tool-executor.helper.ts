@@ -141,34 +141,158 @@ export class ToolExecutor {
         return await executeUpdateTask(args, context, {
           conversationService: this.conversationService,
         });
-      case 'dynamic_repository':
-        return await executeDynamicRepository(args, context, abortSignal, {
-          metadataCacheService: this.metadataCacheService,
-          queryBuilder: this.queryBuilder,
-          tableHandlerService: this.tableHandlerService,
-          queryEngine: this.queryEngine,
-          routeCacheService: this.routeCacheService,
-          storageConfigCacheService: this.storageConfigCacheService,
-          aiConfigCacheService: this.aiConfigCacheService,
-          systemProtectionService: this.systemProtectionService,
-          tableValidationService: this.tableValidationService,
-          swaggerService: this.swaggerService,
-          graphqlService: this.graphqlService,
-        });
-      case 'batch_dynamic_repository':
-        return await executeBatchDynamicRepository(args, context, abortSignal, {
-          metadataCacheService: this.metadataCacheService,
-          queryBuilder: this.queryBuilder,
-          tableHandlerService: this.tableHandlerService,
-          queryEngine: this.queryEngine,
-          routeCacheService: this.routeCacheService,
-          storageConfigCacheService: this.storageConfigCacheService,
-          aiConfigCacheService: this.aiConfigCacheService,
-          systemProtectionService: this.systemProtectionService,
-          tableValidationService: this.tableValidationService,
-          swaggerService: this.swaggerService,
-          graphqlService: this.graphqlService,
-        });
+      case 'find_records':
+        return await executeDynamicRepository(
+          { ...args, operation: 'find' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'count_records':
+        return await executeDynamicRepository(
+          { ...args, operation: 'find', limit: 1, fields: args.fields || 'id', meta: args.meta },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'create_record':
+        return await executeDynamicRepository(
+          { ...args, operation: 'create' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'update_record':
+        return await executeDynamicRepository(
+          { ...args, operation: 'update' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'delete_record':
+        return await executeDynamicRepository(
+          { ...args, operation: 'delete' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'batch_create_records':
+        return await executeBatchDynamicRepository(
+          { ...args, operation: 'batch_create' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'batch_update_records':
+        return await executeBatchDynamicRepository(
+          { ...args, operation: 'batch_update' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
+      case 'batch_delete_records':
+        return await executeBatchDynamicRepository(
+          { ...args, operation: 'batch_delete' },
+          context,
+          abortSignal,
+          {
+            metadataCacheService: this.metadataCacheService,
+            queryBuilder: this.queryBuilder,
+            tableHandlerService: this.tableHandlerService,
+            queryEngine: this.queryEngine,
+            routeCacheService: this.routeCacheService,
+            storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
+            systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
+            swaggerService: this.swaggerService,
+            graphqlService: this.graphqlService,
+          },
+        );
       default:
         throw new Error(`Unknown tool: ${name}`);
     }

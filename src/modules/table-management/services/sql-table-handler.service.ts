@@ -218,18 +218,37 @@ export class SqlTableHandlerService {
     try {
       trx = await knex.transaction();
 
+      // Check metadata and physical table SEPARATELY
       const hasTable = await knex.schema.hasTable(body.name);
       const existing = await trx('table_definition')
         .where({ name: body.name })
         .first();
 
-      if (hasTable || existing) {
+      // If metadata exists, throw error (normal case)
+      if (existing) {
         await trx.rollback();
         throw new DuplicateResourceException(
           'table_definition',
           'name',
           body.name
         );
+      }
+
+      // If physical table exists but no metadata (mismatch) -> drop physical table first
+      if (hasTable && !existing) {
+        this.logger.warn(`Mismatch detected: Physical table "${body.name}" exists but no metadata found. Dropping physical table...`);
+        try {
+          // No metadata exists, so no relations to check - drop physical table with empty relations
+          await this.schemaMigrationService.dropTable(body.name, [], trx);
+          this.logger.log(`Physical table "${body.name}" dropped successfully`);
+        } catch (dropError) {
+          await trx.rollback();
+          this.logger.error(`Failed to drop physical table "${body.name}": ${dropError.message}`);
+          throw new DatabaseException(
+            `Failed to drop existing physical table "${body.name}": ${dropError.message}`,
+            { tableName: body.name, operation: 'drop_existing_table' }
+          );
+        }
       }
 
       const idCol = body.columns.find(
@@ -413,8 +432,27 @@ export class SqlTableHandlerService {
       this.logger.log(`Fetching full table metadata...`);
       const fullMetadata = await this.getFullTableMetadataInTransaction(trx, tableId);
 
+      if (!fullMetadata) {
+        throw new Error(`Failed to fetch metadata for table ${body.name}`);
+      }
+
+      if (fullMetadata.relations) {
+        for (const rel of fullMetadata.relations) {
+          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+            if (!rel.targetTableName) {
+              this.logger.error(`Relation ${rel.propertyName} has invalid targetTableName. targetTableId: ${rel.targetTableId}`);
+            }
+          }
+        }
+      }
+
       this.logger.log(`Calling SqlSchemaMigrationService.createTable()...`);
-      await this.schemaMigrationService.createTable(fullMetadata);
+      try {
+        await this.schemaMigrationService.createTable(fullMetadata);
+      } catch (migrationError) {
+        this.logger.error(`Physical schema migration failed: ${migrationError.message}`);
+        throw migrationError;
+      }
 
       this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
@@ -998,6 +1036,10 @@ export class SqlTableHandlerService {
 
     for (const rel of relations) {
       rel.sourceTableName = table.name;
+
+      if (!rel.targetTableName) {
+        this.logger.warn(`Relation ${rel.propertyName} (${rel.type}) has no targetTableName. targetTableId: ${rel.targetTableId}`);
+      }
 
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
         rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);

@@ -14,30 +14,67 @@ export const TOOL_BINDS_TOOL: ToolDefinition = {
 
 Use this tool FIRST to determine which tools should be available for this conversation turn.
 
+**CRITICAL - Complete Tool Selection:**
+- You MUST include ALL tools that might be needed for the request, even if they seem optional
+- If the LLM might need a tool (e.g., get_fields for field validation, get_table_details for schema check), include it in the toolNames array
+- It's better to bind a few extra tools than to miss a required tool
+- If you're uncertain, include the tool - unused tools don't cause problems, but missing tools cause errors
+
+**Common mistakes to avoid:**
+- Missing get_fields when LLM might need to check field names
+- Missing get_table_details when LLM might need schema information
+- Missing get_hint when creating/updating tables (always include for schema operations)
+- Only binding one tool when multiple might be needed (e.g., get_table_details + create_record for create operations)
+
 Inputs:
 - toolNames (required): array of tool names to bind for this request
 
 Available tools:
 - list_tables: Get list of all tables
 - get_table_details: Get full schema and optionally table data
-- get_metadata: Get system metadata
-- get_fields: Get field list for reads
-- dynamic_repository: CRUD operations on single records (find, create, update, delete)
-- batch_dynamic_repository: Batch operations on multiple records (batch_create 5+, batch_update 5+, batch_delete 2+)
+- get_fields: Get field list for reads (include if LLM might need to check field names)
+- find_records: Find/query records in a table
+- count_records: Count records in a table (with or without filter)
+- create_record: Create a single record in a table
+- update_record: Update a single record by ID
+- delete_record: Delete a single record by ID
+- batch_create_records: Create multiple records (2+ records)
+- batch_update_records: Update multiple records (2+ records)
+- batch_delete_records: Delete multiple records (2+ records)
 - create_table: Create new table schema
 - update_table: Update existing table schema
 - delete_table: Delete/drop table
 - get_hint: Get comprehensive guidance when uncertain
-- get_tool_rules: Get detailed rules for specific tools by category
 
 Examples:
 - Simple greeting: {"toolNames": []}
-- Single data operation: {"toolNames": ["dynamic_repository"]}
-- Batch data operation (5+ records): {"toolNames": ["batch_dynamic_repository"]}
-- Schema query: {"toolNames": ["get_table_details"]}
+- Need guidance: {"toolNames": ["get_hint"]}
+
+**CRUD Operations:**
+- Find/view records: {"toolNames": ["find_records"]}
+- Count records: {"toolNames": ["count_records"]}
+- Find with schema check: {"toolNames": ["get_table_details", "find_records"]}
+- Create single record: {"toolNames": ["get_table_details", "create_record"]}
+- Update single record: {"toolNames": ["get_table_details", "update_record"]}
+- Delete single record: {"toolNames": ["delete_record"]}
+- Batch create (2+ records): {"toolNames": ["get_table_details", "batch_create_records"]}
+- Batch update (2+ records): {"toolNames": ["get_table_details", "batch_update_records"]}
+- Batch delete (2+ records): {"toolNames": ["batch_delete_records"]}
+
+**Schema Operations:**
 - Create table: {"toolNames": ["create_table", "get_hint"]}
-- Delete table: {"toolNames": ["dynamic_repository", "delete_table"]}
-- Need guidance: {"toolNames": ["get_hint"]}`,
+- Update table: {"toolNames": ["update_table", "get_hint"]}
+- Delete table: {"toolNames": ["find_records", "delete_table"]}
+- View full schema: {"toolNames": ["get_table_details"]}
+- Field names only: {"toolNames": ["get_fields"]}
+- When uncertain about fields: {"toolNames": ["get_fields", "find_records"]}
+
+**Table Discovery:**
+- List all tables (metadata list, no filter): {"toolNames": ["list_tables"]}
+- Filter tables (with condition): {"toolNames": ["find_records"]}
+- Count records in specific table ("how many X", "có bao nhiêu X"): {"toolNames": ["count_records"]}
+- Query records in table: {"toolNames": ["find_records"]}
+`,
   parameters: {
     type: 'object',
     properties: {
@@ -48,15 +85,19 @@ Examples:
                  enum: [
                    'list_tables',
                    'get_table_details',
-                   'get_metadata',
                    'get_fields',
-                   'dynamic_repository',
-                   'batch_dynamic_repository',
+                   'find_records',
+                   'count_records',
+                   'create_record',
+                   'update_record',
+                   'delete_record',
+                   'batch_create_records',
+                   'batch_update_records',
+                   'batch_delete_records',
                    'create_table',
                    'update_table',
                    'delete_table',
                    'get_hint',
-                   'get_tool_rules',
                  ],
         },
         description: 'Array of tool names to bind for this request. Use empty array [] if no tools are needed.',
@@ -108,7 +149,7 @@ Use when:
 - Need to check if tables have relations (call ONCE, then reuse)
 - Need to get table ID (e.g., for relations, updates) - the metadata includes the table ID field
 - Need to get actual table data by ID or name - set getData=true AND provide either id or name parameter (both must be arrays). CRITICAL: If getData=true but no id/name provided, the tool will fail.
-- CRITICAL: When you need table ID or table data, use this tool instead of querying table_definition with dynamic_repository
+- CRITICAL: When you need table ID or table data, use this tool instead of querying table_definition with find_records
 
 Skip when:
 - You only need field names → prefer get_fields
@@ -130,26 +171,26 @@ Response format:
     id?: number;
     columns: Array<{
       name: string;
-      type: string; // fieldType: "string" | "number" | "boolean" | "date" | "json" | "text" | etc.
+      type: string; 
       isNullable: boolean;
       isPrimary: boolean;
-      isGenerated?: boolean; // true for auto-generated fields (id, createdAt, updatedAt)
+      isGenerated?: boolean; 
       defaultValue?: any;
       isUnique?: boolean;
       description?: string;
-      options?: Record<string, any>; // for enum or other options
+      options?: Record<string, any>; 
     }>;
     relations: Array<{
-      propertyName: string; // CRITICAL: Use this propertyName when creating/updating records with relations
+      propertyName: string; 
       type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
-      targetTableName: string; // name of the related table
-      foreignKeyColumn?: string; // database column name (for reference only, DO NOT use directly)
+      targetTableName: string; 
+      foreignKeyColumn?: string; 
       description?: string;
       isNullable: boolean;
-      inversePropertyName?: string; // reverse relation property name
-      cascade?: string; // cascade behavior
+      inversePropertyName?: string; 
+      cascade?: string; 
     }>;
-    data?: any | null; // actual table data (if getData=true)
+    data?: any | null; 
   };
   _errors?: string[];
 }
@@ -217,7 +258,7 @@ With force refresh: {"tableName":["product","category"],"forceRefresh":true}`,
     description: `Purpose → list valid field names for a table (lightweight).
 
 Use when:
-- Before dynamic_repository.find to avoid invalid field selections
+- Before find_records to avoid invalid field selections
 - You know the table but forgot exact column names
 
 Skip when:
@@ -268,7 +309,6 @@ Available categories:
 - table_discovery → Finding tables
 - complex_workflows → Step-by-step workflows
 
-Note: For tool-specific detailed rules (e.g., dynamic_repository workflows, schema validation, relations format), use get_tool_rules(toolName="...", category=[...]) instead.
 
 Input: category (string) or categories (array) or omit for all
 Example: {"category":"table_operations"} or {"category":["table_operations","error_handling"]}
@@ -307,60 +347,6 @@ Returns:
     },
   },
   {
-    name: 'get_tool_rules',
-    description: `Purpose → Get detailed rules for a specific tool by category.
-
-Use when:
-- You need detailed workflows, examples, or best practices for a tool
-- The tool description mentions available rules categories
-- You encounter errors and need specific guidance
-
-Available tools with detailed rules:
-- dynamic_repository: workflow, schema, relations, best_practices
-
-Inputs:
-- toolName (required): Name of the tool (e.g., "dynamic_repository")
-- category (optional): Single category or array of categories to retrieve
-
-Returns:
-{
-  toolName: string;
-  categories: Array<{category: string; title: string; content: string}>;
-  availableCategories: string[];
-}
-
-Example:
-- Get all rules: get_tool_rules({"toolName":"dynamic_repository"})
-- Get specific categories: get_tool_rules({"toolName":"dynamic_repository","category":["workflow","schema"]})`,
-    parameters: {
-      type: 'object',
-      properties: {
-        toolName: {
-          type: 'string',
-          description: 'Name of the tool to get rules for. Currently supported: "dynamic_repository".',
-        },
-        category: {
-          oneOf: [
-            {
-              type: 'string',
-              description: 'Single category to retrieve (e.g., "workflow", "schema", "relations", "best_practices").',
-            },
-            {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['workflow', 'schema', 'relations', 'best_practices'],
-              },
-              description: 'Multiple categories to retrieve at once (e.g., ["workflow", "schema"]).',
-            },
-          ],
-          description: 'Category (string) or categories (array) to retrieve. Omit for all categories.',
-        },
-      },
-      required: ['toolName'],
-    },
-  },
-  {
     name: 'create_table',
     description: `Purpose → Create a new table.
 
@@ -389,19 +375,19 @@ Inputs:
 
 Column Schema:
 {
-  name: string; // Required
-  type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; // Required
-  isPrimary?: boolean; // Optional, default: false
-  isGenerated?: boolean; // Optional, default: false
-  isNullable?: boolean; // Optional, default: true
-  default?: any; // Optional
-  isUnique?: boolean; // Optional, default: false
-  description?: string; // Optional
-  isHidden?: boolean; // Optional, default: false
-  isUpdatable?: boolean; // Optional, default: true
-  isSystem?: boolean; // Optional, default: false
-  values?: string[]; // Optional, for enum type
-  index?: boolean; // Optional, default: false
+  name: string; 
+  type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; 
+  isPrimary?: boolean; 
+  isGenerated?: boolean; 
+  isNullable?: boolean; 
+  default?: any; 
+  isUnique?: boolean; 
+  description?: string; 
+  isHidden?: boolean; 
+  isUpdatable?: boolean; 
+  isSystem?: boolean; 
+  values?: string[]; 
+  index?: boolean; 
 }
 
 Example columns:
@@ -411,15 +397,15 @@ Example columns:
 
 Relation Schema:
 {
-  propertyName: string; // Required
-  type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; // Required
-  targetTable: {id: number}; // Required, id MUST be REAL ID from find result
-  inversePropertyName?: string; // Optional, REQUIRED for "one-to-many" and "many-to-many"
-  isNullable?: boolean; // Optional, default: true
-  description?: string; // Optional
-  onDelete?: "CASCADE" | "RESTRICT" | "SET NULL"; // Optional
-  isEager?: boolean; // Optional, default: false
-  index?: boolean; // Optional, default: false
+  propertyName: string; 
+  type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; 
+  targetTable: {id: number}; 
+  inversePropertyName?: string; 
+  isNullable?: boolean; 
+  description?: string; 
+  onDelete?: "CASCADE" | "RESTRICT" | "SET NULL"; 
+  isEager?: boolean; 
+  index?: boolean; 
 }
 
 Example relations:
@@ -501,34 +487,34 @@ Inputs:
 
 Column Schema (same as create_table):
 {
-  name: string; // Required
-  type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; // Required
-  isPrimary?: boolean; // Optional, default: false
-  isGenerated?: boolean; // Optional, default: false
-  isNullable?: boolean; // Optional, default: true
-  default?: any; // Optional
-  isUnique?: boolean; // Optional, default: false
-  description?: string; // Optional
-  isHidden?: boolean; // Optional, default: false
-  isUpdatable?: boolean; // Optional, default: true
-  isSystem?: boolean; // Optional, default: false
-  values?: string[]; // Optional, for enum type
-  index?: boolean; // Optional, default: false
+  name: string; 
+  type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; 
+  isPrimary?: boolean; 
+  isGenerated?: boolean; 
+  isNullable?: boolean; 
+  default?: any; 
+  isUnique?: boolean; 
+  description?: string; 
+  isHidden?: boolean; 
+  isUpdatable?: boolean; 
+  isSystem?: boolean; 
+  values?: string[]; 
+  index?: boolean; 
 }
 
 - relations (optional): Array of relation definition objects to add/update. Merged by propertyName
 
 Relation Schema (same as create_table):
 {
-  propertyName: string; // Required
-  type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; // Required
-  targetTable: {id: number}; // Required, id MUST be REAL ID from find result
-  inversePropertyName?: string; // Optional, REQUIRED for "one-to-many" and "many-to-many"
-  isNullable?: boolean; // Optional, default: true
-  description?: string; // Optional
-  onDelete?: "CASCADE" | "RESTRICT" | "SET NULL"; // Optional
-  isEager?: boolean; // Optional, default: false
-  index?: boolean; // Optional, default: false
+  propertyName: string; 
+  type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; 
+  targetTable: {id: number}; 
+  inversePropertyName?: string; 
+  isNullable?: boolean; 
+  description?: string; 
+  onDelete?: "CASCADE" | "RESTRICT" | "SET NULL"; 
+  isEager?: boolean; 
+  index?: boolean; 
 }
 
 - uniques (optional): Array of unique constraints (replaces existing)
@@ -593,22 +579,22 @@ For detailed examples and workflows, call get_hint(category="table_operations")`
 CRITICAL - Find Table ID First:
 - This tool ONLY accepts table ID (number), NOT table name
 - BEFORE calling this tool, you MUST find the table ID first using one of these methods:
-  1. Using dynamic_repository: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}
+  1. Using find_records: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
   2. Using get_table_details: {"tableName":["table_name"],"getData":false} (check the id field in result)
 - Extract the id (number) from the result and use it in this tool
 - NEVER use table name as id - this tool only accepts numeric id
 
 Workflow:
-1. Find table ID: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name"})
+1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
 2. Get id from result (e.g., id: 123)
 3. Delete table: delete_table({"id":123})
 
 Example:
-Step 1: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"categories"}},"fields":"id,name"})
+Step 1: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"id,name","limit":1})
 Step 2: delete_table({"id":123}) ← Use the id from step 1
 
 Inputs:
-- id (required): Table ID (number) from table_definition. Must be found first using dynamic_repository or get_table_details.
+- id (required): Table ID (number) from table_definition. Must be found first using find_records or get_table_details.
 
 Output:
 {
@@ -624,7 +610,7 @@ For multiple tables: Delete them ONE BY ONE sequentially (not in parallel) to av
       properties: {
         id: {
           type: 'number',
-          description: 'Table ID (number) from table_definition. Must be found first using dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name"}) or get_table_details.',
+          description: 'Table ID (number) from table_definition. Must be found first using find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}) or get_table_details.',
         },
       },
       required: ['id'],
@@ -712,27 +698,135 @@ Returns:
     },
   },
   {
-    name: 'dynamic_repository',
-    description: `Purpose → single gateway for CRUD operations (single record operations only).
+    name: 'find_records',
+    description: `Purpose → Find/query records in a table.
+
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - Field Names Check:
+- BEFORE using fields parameter: You MUST call get_table_details or get_fields FIRST to verify field names
+- Field names must match exactly (snake_case vs camelCase)
+- Use get_fields for lightweight field list, or get_table_details for full schema
+
+Basic examples:
+- Find records: find_records({"table":"order","fields":"id,total","limit":10})
+- Find with filter: find_records({"table":"product","where":{"price":{"_gt":100}},"fields":"id,name,price","limit":10})
+- Find single record: find_records({"table":"customer","where":{"id":{"_eq":1}},"fields":"id,name,email","limit":1})
+
+Metadata tables (*_definition) can skip permission:
+- find_records({"table":"table_definition","skipPermissionCheck":true})
+
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to query.',
+        },
+        where: {
+          type: 'object',
+          description:
+            'Filter conditions. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
+        },
+        fields: {
+          type: 'string',
+          description:
+            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: Specify ONLY needed fields to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
+        },
+        limit: {
+          type: 'number',
+          description:
+            'Max records to return. 0 = no limit (fetch all), > 0 = specified number. Default: 10.',
+        },
+        sort: {
+          type: 'string',
+          description:
+            'Sort field(s). Format: "fieldName" (ascending) or "-fieldName" (descending). Multi-field: comma-separated, e.g., "name,-createdAt". Examples: "createdAt", "-createdAt", "name,-price". Default: "id".',
+        },
+        skipPermissionCheck: {
+          type: 'boolean',
+          description:
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
+          default: false,
+        },
+      },
+      required: ['table'],
+    },
+  },
+  {
+    name: 'count_records',
+    description: `Purpose → Count records in a table (with or without filter).
+
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - COUNT Queries:
+- To count TOTAL number of records in a table (no filter):
+  * Use: where=null (or omit), meta="totalCount"
+  * Read the totalCount value from the response metadata
+- To count records WITH a filter (e.g., "how many tables have isSystem=true?"):
+  * Use: where={filter conditions}, meta="filterCount"
+  * Read the filterCount value from the response metadata
+- NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
+
+Basic examples:
+- Count all records: count_records({"table":"product","meta":"totalCount"})
+- Count with filter: count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"meta":"filterCount"})
+
+Metadata tables (*_definition) can skip permission:
+- count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"meta":"filterCount","skipPermissionCheck":true})
+
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to count records in.',
+        },
+        where: {
+          type: 'object',
+          description:
+            'Optional filter conditions. Omit or set to null to count all records. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
+        },
+        meta: {
+          type: 'string',
+          enum: ['totalCount', 'filterCount'],
+          description:
+            'REQUIRED. "totalCount" for counting all records (no filter), "filterCount" for counting records matching filter conditions.',
+        },
+        skipPermissionCheck: {
+          type: 'boolean',
+          description:
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
+          default: false,
+        },
+      },
+      required: ['table', 'meta'],
+    },
+  },
+  {
+    name: 'create_record',
+    description: `Purpose → Create a single record in a table.
 
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
 CRITICAL - Schema Check Required:
-- BEFORE create/update operations: You MUST call get_table_details FIRST to check the table schema
+- BEFORE create operations: You MUST call get_table_details FIRST to check the table schema
 - Schema check is MANDATORY to ensure:
   * All required fields (not-null, non-generated) are included in data
   * Column names match exactly (snake_case vs camelCase)
   * Relations format is correct (propertyName, not FK column names)
   * Data types match column types
-- Workflow: get_table_details → analyze schema → prepare data → dynamic_repository
+- Workflow: get_table_details → analyze schema → prepare data → create_record
 - DO NOT skip schema check - missing required fields will cause errors
 
 CRITICAL - Check Unique Constraints Before Create:
 - BEFORE create operations: You MUST check if records with unique field values already exist
-- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using dynamic_repository.find
-- Workflow: get_table_details (to identify unique columns) → dynamic_repository.find (to check existence) → create only if not exists
-- Example: Before creating category with name="Electronics", check: dynamic_repository({"table":"category","operation":"find","where":{"name":{"_eq":"Electronics"}},"fields":"id","limit":1})
-- If record exists, skip creation or use update instead - duplicate unique values will cause errors
+- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using find_records
+- Workflow: get_table_details (to identify unique columns) → find_records (to check existence) → create only if not exists
+- Example: Before creating category with name="Electronics", check: find_records({"table":"category","where":{"name":{"_eq":"Electronics"}},"fields":"id","limit":1})
+- If record exists, skip creation or use update_record instead - duplicate unique values will cause errors
 - This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
 
 CRITICAL - Relations Format:
@@ -743,144 +837,179 @@ CRITICAL - Relations Format:
 - Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
 
 CRITICAL - DO NOT Include ID in Create Operations:
-- When using create operations, NEVER include "id" field in data
+- NEVER include "id" field in data
 - Including id in create operations will cause errors
-- Example CORRECT: {"table":"product","operation":"create","data":{"name":"Product 1","price":100}}
-- Example WRONG: {"table":"product","operation":"create","data":{"id":123,"name":"Product 1","price":100}}
-
-CRITICAL - Deleting Tables (NOT Data):
-- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_table tool:
-  1. Find the table_definition record: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
-  2. Get the id (number) from the result
-  3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})
-- NEVER use dynamic_repository to delete tables - use delete_table tool instead
-- NEVER use delete operation on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
-- NEVER use table name as id value - delete_table only accepts numeric id
-- Example CORRECT for deleting table: 
-  Step 1: dynamic_repository({"table":"table_definition","operation":"find","where":{"name":{"_eq":"categories"}},"fields":"id,name"})
-  Step 2: delete_table({"id":123}) ← Use the id from step 1
-- Example WRONG: dynamic_repository({"table":"categories","operation":"delete","where":{"id":{"_eq":"categories"}}}) ← This is INCORRECT
-
-CRITICAL - Batch Operations:
-- For batch operations (2+ records), use batch_dynamic_repository tool instead
-- Use batch_dynamic_repository for: batch_create (5+ records), batch_update (5+ records), batch_delete (2+ records)
-- When find returns multiple records, collect ALL IDs and use batch_dynamic_repository
+- Example CORRECT: create_record({"table":"product","data":{"name":"Product 1","price":100},"fields":"id"})
+- Example WRONG: create_record({"table":"product","data":{"id":123,"name":"Product 1","price":100}})
 
 Critical rules:
 1. Execute ONE operation at a time (sequential, not parallel)
-2. For create/update: ALWAYS call get_table_details FIRST to check schema
+2. ALWAYS call get_table_details FIRST to check schema
+3. ALWAYS check unique constraints before create
 
 Basic examples:
-- Create: dynamic_repository({"table":"product","operation":"create","data":{...},"fields":"id"})
-- Read: dynamic_repository({"table":"order","operation":"find","fields":"id,total","limit":10})
-- Update: dynamic_repository({"table":"customer","operation":"update","id":1,"data":{...},"fields":"id"})
-- Delete: dynamic_repository({"table":"order_item","operation":"delete","id":1})
+- Create: create_record({"table":"product","data":{"name":"Product 1","price":100},"fields":"id"})
 
-Metadata tables (*_definition) can skip permission:
-- dynamic_repository({"table":"table_definition","operation":"find","skipPermissionCheck":true})
-
-Available detailed rules (query when needed):
-- Call get_tool_rules(toolName="dynamic_repository", category=["workflow", "schema", "relations", "best_practices"]) for:
-  * workflow: Complete create/update/delete workflows with all steps
-  * schema: Schema validation, required fields, column naming (snake_case)
-  * relations: Relations format (TypeORM style), FK handling, verification
-  * best_practices: Query optimization, field selection
-
-For general guidance, also see get_hint(category="table_operations")`,
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
     parameters: {
       type: 'object',
       properties: {
         table: {
           type: 'string',
-          description: 'Name of the table to operate on. Use "table_definition" to create new tables.',
-        },
-        operation: {
-          type: 'string',
-          enum: ['find', 'create', 'update', 'delete'],
-          description:
-            'Operation to perform: "find" (read records), "create" (insert one), "update" (modify one by id), "delete" (remove one by id). CRITICAL: For batch operations (2+ records), use batch_dynamic_repository tool instead. NO "findOne" operation - use "find" with limit=1 instead.',
-        },
-        where: {
-          type: 'object',
-          description:
-            'Filter conditions for find/update/delete operations. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
-        },
-        fields: {
-          type: 'string',
-          description:
-            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: For create/update operations, ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
-        },
-        limit: {
-          type: 'number',
-          description:
-            'Max records to return. 0 = no limit (fetch all), > 0 = specified number. Default: 10. For COUNT queries, use limit=1 with meta="totalCount" (much faster than limit=0).',
-        },
-        sort: {
-          type: 'string',
-          description:
-            'Sort field(s). Format: "fieldName" (ascending) or "-fieldName" (descending). Multi-field: comma-separated, e.g., "name,-createdAt". Examples: "createdAt", "-createdAt", "name,-price". Default: "id".',
-        },
-        meta: {
-          type: 'string',
-          description:
-            'Include metadata in response. Values: "totalCount" (total records in table), "filterCount" (records matching filter), "*" (all metadata). CRITICAL: For count queries ("how many?"), use meta="totalCount" with limit=1 (NOT limit=0) for 100x faster performance.',
+          description: 'Name of the table to create record in.',
         },
         data: {
           type: 'object',
           description:
-            'Data for create/update operations. For creating tables, include: name, description, columns, relations, uniques, indexes. CRITICAL: When operation is "create", DO NOT include "id" field. Including id will cause errors.',
+            'Data for the new record. CRITICAL: DO NOT include "id" field. Including id will cause errors.',
         },
-        id: {
-          oneOf: [{ type: 'string' }, { type: 'number' }],
-          description: 'ID for update/delete operations',
-        },
-        skipPermissionCheck: {
-          type: 'boolean',
+        fields: {
+          type: 'string',
           description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
-          default: false,
+            'Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
         },
       },
-      required: ['table', 'operation'],
+      required: ['table', 'data'],
     },
   },
   {
-    name: 'batch_dynamic_repository',
-    description: `Purpose → batch operations for multiple records (batch_create, batch_update, batch_delete).
+    name: 'update_record',
+    description: `Purpose → Update a single record by ID.
 
-CRITICAL - Available Operations:
-- ONLY 3 operations: batch_create, batch_update, batch_delete
-- NO batch_find operation - use dynamic_repository with operation="find" to find/view/search records (even multiple records)
-- batch_dynamic_repository is ONLY for creating/updating/deleting multiple records, NOT for finding/viewing
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - Schema Check Required:
+- BEFORE update operations: You MUST call get_table_details FIRST to check the table schema
+- Schema check is MANDATORY to ensure:
+  * Column names match exactly (snake_case vs camelCase)
+  * Relations format is correct (propertyName, not FK column names)
+  * Data types match column types
+- Workflow: get_table_details → analyze schema → prepare data → update_record
+- DO NOT skip schema check - invalid field names or types will cause errors
+
+CRITICAL - Check Record Exists Before Update:
+- BEFORE update operations: You MUST check if the record exists using find_records
+- Workflow: find_records (to verify record exists) → update_record
+- Example: Before updating customer with id=1, check: find_records({"table":"customer","where":{"id":{"_eq":1}},"fields":"id","limit":1})
+- If record does not exist, skip update or report error
+
+CRITICAL - Relations Format:
+- For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
+- Format: {"propertyName": <id_value>} where propertyName is from relations[].propertyName and id_value is a number or string
+- Example: If get_table_details shows relation with propertyName="customer", use {"customer": 1} NOT {"customer_id": 1} or {"customerId": 1}
+- The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
+- Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
+
+Critical rules:
+1. Execute ONE operation at a time (sequential, not parallel)
+2. ALWAYS call get_table_details FIRST to check schema
+3. ALWAYS check record exists before update
+
+Basic examples:
+- Update: update_record({"table":"customer","id":1,"data":{"name":"New Name"},"fields":"id"})
+
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+    parameters: {
+          type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to update record in.',
+        },
+        id: {
+          oneOf: [{ type: 'string' }, { type: 'number' }],
+          description: 'ID of the record to update.',
+        },
+        data: {
+          type: 'object',
+          description: 'Data to update. Only include fields that need to be changed.',
+        },
+        fields: {
+          type: 'string',
+          description:
+            'Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
+        },
+      },
+      required: ['table', 'id', 'data'],
+    },
+  },
+  {
+    name: 'delete_record',
+    description: `Purpose → Delete a single record by ID.
+
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - Check Record Exists Before Delete:
+- BEFORE delete operations: You MUST check if the record exists using find_records
+- Workflow: find_records (to verify record exists) → delete_record
+- Example: Before deleting order with id=1, check: find_records({"table":"order","where":{"id":{"_eq":1}},"fields":"id","limit":1})
+- If record does not exist, skip delete or report error
+
+CRITICAL - Deleting Tables (NOT Data):
+- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_table tool:
+  1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
+  2. Get the id (number) from the result
+  3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})
+- NEVER use delete_record to delete tables - use delete_table tool instead
+- NEVER use delete_record on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
+- NEVER use table name as id value - delete_table only accepts numeric id
+- Example CORRECT for deleting table: 
+  Step 1: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"id,name","limit":1})
+  Step 2: delete_table({"id":123}) ← Use the id from step 1
+- Example WRONG: delete_record({"table":"categories","id":"categories"}) ← This is INCORRECT
+
+Critical rules:
+1. Execute ONE operation at a time (sequential, not parallel)
+2. ALWAYS check record exists before delete
+
+Basic examples:
+- Delete: delete_record({"table":"order_item","id":1})
+
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to delete record from.',
+        },
+        id: {
+          oneOf: [{ type: 'string' }, { type: 'number' }],
+          description: 'ID of the record to delete.',
+        },
+      },
+      required: ['table', 'id'],
+    },
+  },
+  {
+    name: 'batch_create_records',
+    description: `Purpose → Create multiple records in a table (2+ records).
 
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
 CRITICAL - When to Use:
-- batch_create: Use for 2+ records to create
-- batch_update: Use for 2+ records to update
-- batch_delete: Use for 2+ records to delete
-- When dynamic_repository.find returns multiple records, collect ALL IDs and use batch_dynamic_repository for batch_delete
-- To find/view multiple records: use dynamic_repository with operation="find" and limit parameter
+- Use for 2+ records to create
+- When find_records returns multiple records that need to be created, use this tool
 
 CRITICAL - Metadata Tables:
 - Always process metadata tables (table_definition/column_definition/relation_definition) sequentially, one at a time
 - NEVER use batch operations on metadata tables - process them one by one
 
 CRITICAL - Schema Check Required:
-- BEFORE batch_create/batch_update operations: You MUST call get_table_details FIRST to check the table schema
+- BEFORE batch_create operations: You MUST call get_table_details FIRST to check the table schema
 - Schema check is MANDATORY to ensure:
   * All required fields (not-null, non-generated) are included in data
   * Column names match exactly (snake_case vs camelCase)
   * Relations format is correct (propertyName, not FK column names)
   * Data types match column types
-- Workflow: get_table_details → analyze schema → prepare data → batch_dynamic_repository
+- Workflow: get_table_details → analyze schema → prepare data → batch_create_records
 - DO NOT skip schema check - missing required fields will cause errors
 
 CRITICAL - Check Unique Constraints Before Batch Create:
 - BEFORE batch_create operations: You MUST check if records with unique field values already exist
-- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using dynamic_repository.find or get_table_details with getData=true
-- Workflow: get_table_details (to identify unique columns) → check existing records (dynamic_repository.find or get_table_details with getData=true) → filter out existing records → batch_create only new records
-- Example: Before batch creating categories, check existing: dynamic_repository({"table":"category","operation":"find","fields":"id,name","limit":0}) or get_table_details({"tableName":["category"],"getData":true})
+- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using find_records or get_table_details with getData=true
+- Workflow: get_table_details (to identify unique columns) → check existing records (find_records or get_table_details with getData=true) → filter out existing records → batch_create only new records
+- Example: Before batch creating categories, check existing: find_records({"table":"category","fields":"id,name","limit":0}) or get_table_details({"tableName":["category"],"getData":true})
 - Filter dataArray to exclude records that already exist (compare unique field values)
 - If all records exist, skip batch_create - duplicate unique values will cause errors
 - This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
@@ -893,51 +1022,104 @@ CRITICAL - Relations Format:
 - Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
 
 CRITICAL - DO NOT Include ID in Batch Create:
-- When using batch_create, NEVER include "id" field in any data object
+- NEVER include "id" field in any data object
 - Including id in batch_create will cause errors
-- Example CORRECT: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
-- Example WRONG: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"id":1,"name":"P1"}],"fields":"id"})
+- Example CORRECT: batch_create_records({"table":"product","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
+- Example WRONG: batch_create_records({"table":"product","dataArray":[{"id":1,"name":"P1"}],"fields":"id"})
 
 CRITICAL - Fields Parameter is MANDATORY:
-- ALWAYS specify fields parameter for batch_create and batch_update to reduce response size
+- ALWAYS specify fields parameter to reduce response size
 - Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields
-- batch_delete does NOT need fields (it only deletes, no data returned)
-- Example: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{...}],"fields":"id"})
-- Example: batch_dynamic_repository({"table":"product","operation":"batch_update","updates":[{"id":1,"data":{...}}],"fields":"id"})
 
 Basic examples:
-- Batch Create: batch_dynamic_repository({"table":"product","operation":"batch_create","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
-- Batch Update: batch_dynamic_repository({"table":"customer","operation":"batch_update","updates":[{"id":1,"data":{...}},{"id":2,"data":{...}}],"fields":"id"})
-- Batch Delete: batch_dynamic_repository({"table":"order_item","operation":"batch_delete","ids":[1,2,3]})
+- Batch Create: batch_create_records({"table":"product","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
 
 Metadata tables (*_definition) can skip permission:
-- batch_dynamic_repository({"table":"table_definition","operation":"batch_create","dataArray":[...],"skipPermissionCheck":true,"fields":"id"})
+- batch_create_records({"table":"table_definition","dataArray":[...],"skipPermissionCheck":true,"fields":"id"})
 
-For general guidance, also see get_hint(category="table_operations")`,
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
     parameters: {
       type: 'object',
       properties: {
         table: {
           type: 'string',
-          description: 'Name of the table to operate on.',
-        },
-        operation: {
-          type: 'string',
-          enum: ['batch_create', 'batch_update', 'batch_delete'],
-          description:
-            'Batch operation to perform: "batch_create" (insert many), "batch_update" (modify many), "batch_delete" (remove many). CRITICAL: Use batch_create for 5+ records, batch_update for 5+ records, batch_delete for 2+ records.',
-        },
-        fields: {
-          type: 'string',
-          description:
-            'Fields to return. MANDATORY for batch_create and batch_update to reduce response size. Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields. Do NOT use for batch_delete (no data returned).',
+          description: 'Name of the table to create records in.',
         },
         dataArray: {
           type: 'array',
           items: {
             type: 'object',
           },
-          description: 'Array of data objects for batch_create operation. Each object represents one record to create. REQUIRED for batch_create operation. CRITICAL: DO NOT include "id" field in any object. Example: [{"name":"P1","price":100},{"name":"P2","price":200}].',
+          description: 'Array of data objects. Each object represents one record to create. REQUIRED. CRITICAL: DO NOT include "id" field in any object. Example: [{"name":"P1","price":100},{"name":"P2","price":200}].',
+        },
+        fields: {
+          type: 'string',
+          description:
+            'REQUIRED. Fields to return. Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields.',
+        },
+        skipPermissionCheck: {
+          type: 'boolean',
+          description:
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
+          default: false,
+        },
+      },
+      required: ['table', 'dataArray', 'fields'],
+    },
+  },
+  {
+    name: 'batch_update_records',
+    description: `Purpose → Update multiple records in a table (2+ records).
+
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - When to Use:
+- Use for 2+ records to update
+- When find_records returns multiple records that need to be updated, collect ALL IDs and use this tool
+
+CRITICAL - Metadata Tables:
+- Always process metadata tables (table_definition/column_definition/relation_definition) sequentially, one at a time
+- NEVER use batch operations on metadata tables - process them one by one
+
+CRITICAL - Schema Check Required:
+- BEFORE batch_update operations: You MUST call get_table_details FIRST to check the table schema
+- Schema check is MANDATORY to ensure:
+  * Column names match exactly (snake_case vs camelCase)
+  * Relations format is correct (propertyName, not FK column names)
+  * Data types match column types
+- Workflow: get_table_details → analyze schema → prepare data → batch_update_records
+- DO NOT skip schema check - invalid field names or types will cause errors
+
+CRITICAL - Check Records Exist Before Batch Update:
+- BEFORE batch_update operations: You MUST check if the records exist using find_records
+- Workflow: find_records (to verify records exist) → batch_update_records
+- Example: Before batch updating customers, check: find_records({"table":"customer","where":{"id":{"_in":[1,2,3]}},"fields":"id","limit":0})
+- If any record does not exist, skip that record or report error
+
+CRITICAL - Relations Format:
+- For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
+- Format: {"propertyName": <id_value>} where propertyName is from relations[].propertyName and id_value is a number or string
+- Example: If get_table_details shows relation with propertyName="customer", use {"customer": 1} NOT {"customer_id": 1} or {"customerId": 1}
+- The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
+- Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
+
+CRITICAL - Fields Parameter is MANDATORY:
+- ALWAYS specify fields parameter to reduce response size
+- Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields
+
+Basic examples:
+- Batch Update: batch_update_records({"table":"customer","updates":[{"id":1,"data":{"name":"New Name 1"}},{"id":2,"data":{"name":"New Name 2"}}],"fields":"id"})
+
+Metadata tables (*_definition) can skip permission:
+- batch_update_records({"table":"table_definition","updates":[...],"skipPermissionCheck":true,"fields":"id"})
+
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to update records in.',
         },
         updates: {
           type: 'array',
@@ -954,14 +1136,12 @@ For general guidance, also see get_hint(category="table_operations")`,
             required: ['id', 'data'],
           },
           description:
-            'Array of update objects for batch_update operation. Each object must have {id: string|number, data: object}.',
+            'Array of update objects. Each object must have {id: string|number, data: object}. REQUIRED.',
         },
-        ids: {
-          type: 'array',
-          items: {
-            type: ['string', 'number'],
-          },
-          description: 'Array of IDs for batch_delete operation.',
+        fields: {
+          type: 'string',
+          description:
+            'REQUIRED. Fields to return. Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields.',
         },
         skipPermissionCheck: {
           type: 'boolean',
@@ -970,7 +1150,62 @@ For general guidance, also see get_hint(category="table_operations")`,
           default: false,
         },
       },
-      required: ['table', 'operation'],
+      required: ['table', 'updates', 'fields'],
+    },
+  },
+  {
+    name: 'batch_delete_records',
+    description: `Purpose → Delete multiple records in a table (2+ records).
+
+Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+
+CRITICAL - When to Use:
+- Use for 2+ records to delete
+- When find_records returns multiple records that need to be deleted, collect ALL IDs and use this tool
+
+CRITICAL - Check Records Exist Before Batch Delete:
+- BEFORE batch_delete operations: You MUST check if the records exist using find_records
+- Workflow: find_records (to verify records exist) → batch_delete_records
+- Example: Before batch deleting orders, check: find_records({"table":"order","where":{"id":{"_in":[1,2,3]}},"fields":"id","limit":0})
+- If any record does not exist, skip that record or report error
+
+CRITICAL - Deleting Tables (NOT Data):
+- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_table tool:
+  1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
+  2. Get the id (number) from the result
+  3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})
+- NEVER use batch_delete_records to delete tables - use delete_table tool instead
+- NEVER use batch_delete_records on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
+
+Basic examples:
+- Batch Delete: batch_delete_records({"table":"order_item","ids":[1,2,3]})
+
+Metadata tables (*_definition) can skip permission:
+- batch_delete_records({"table":"table_definition","ids":[1,2,3],"skipPermissionCheck":true})
+
+For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Name of the table to delete records from.',
+        },
+        ids: {
+          type: 'array',
+          items: {
+            type: ['string', 'number'],
+          },
+          description: 'Array of IDs to delete. REQUIRED.',
+        },
+        skipPermissionCheck: {
+          type: 'boolean',
+          description:
+            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
+          default: false,
+        },
+      },
+      required: ['table', 'ids'],
     },
   },
 ];

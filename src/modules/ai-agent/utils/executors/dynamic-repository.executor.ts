@@ -53,15 +53,7 @@ export async function executeDynamicRepository(
   abortSignal: AbortSignal | undefined,
   deps: DynamicRepositoryExecutorDependencies,
 ): Promise<any> {
-  logger.debug(`[dynamic_repository] Called with operation=${args.operation}, table=${args.table}`, {
-    operation: args.operation,
-    table: args.table,
-    hasWhere: !!args.where,
-    hasData: !!args.data,
-    fields: args.fields,
-    limit: args.limit,
-    id: args.id,
-  });
+  logger.debug(`[dynamic_repository] Called with operation=${args.operation}, table=${args.table}, hasWhere=${!!args.where}, hasData=${!!args.data}, fields=${args.fields}, limit=${args.limit}, id=${args.id}`);
 
   if (abortSignal?.aborted) {
     logger.debug(`[dynamic_repository] Request aborted`);
@@ -77,9 +69,9 @@ export async function executeDynamicRepository(
     return {
       error: true,
       errorCode: 'INVALID_OPERATION',
-      message: `Cannot use dynamic_repository to ${args.operation} table_definition. Use create_table or update_table tool instead.`,
-      userMessage: `❌ **Invalid Operation**: You cannot use dynamic_repository to ${args.operation} table_definition.\n\n📋 **Action Required**: Use the correct tool:\n- To create a new table: Use \`create_table\` tool\n- To update an existing table: Use \`update_table\` tool\n\n💡 **Note**: Table schema operations (create/update) must use the dedicated table management tools, not dynamic_repository.`,
-      suggestion: `Use ${args.operation === 'create' ? 'create_table' : 'update_table'} tool instead of dynamic_repository for table_definition operations.`,
+      message: `Cannot use ${args.operation === 'create' ? 'create_record' : 'update_record'} to ${args.operation} table_definition. Use create_table or update_table tool instead.`,
+      userMessage: `❌ **Invalid Operation**: You cannot use ${args.operation === 'create' ? 'create_record' : 'update_record'} to ${args.operation} table_definition.\n\n📋 **Action Required**: Use the correct tool:\n- To create a new table: Use \`create_table\` tool\n- To update an existing table: Use \`update_table\` tool\n\n💡 **Note**: Table schema operations (create/update) must use the dedicated table management tools.`,
+      suggestion: `Use ${args.operation === 'create' ? 'create_table' : 'update_table'} tool instead for table_definition operations.`,
     };
   }
 
@@ -231,7 +223,7 @@ export async function executeDynamicRepository(
     let result: any;
     switch (args.operation) {
       case 'find':
-        logger.debug(`[dynamic_repository] Executing find on ${args.table}`, { where: args.where, fields: args.fields, limit: args.limit });
+        logger.debug(`[dynamic_repository] Executing find on ${args.table}, fields=${args.fields}, limit=${args.limit}`);
         result = await repo.find({
           where: args.where,
           fields: args.fields,
@@ -248,7 +240,7 @@ export async function executeDynamicRepository(
         if (args.data.id !== undefined) {
           throw new Error('CRITICAL: Do NOT include "id" field in create operations. The database will automatically generate the id. Remove "id" from your data object and try again.');
         }
-        logger.debug(`[dynamic_repository] Executing create on ${args.table}`, { dataKeys: Object.keys(args.data), fields: safeFields });
+        logger.debug(`[dynamic_repository] Executing create on ${args.table}, dataKeys=${Object.keys(args.data).join(',')}, fields=${safeFields}`);
         result = await repo.create({ data: args.data, fields: safeFields });
         logger.debug(`[dynamic_repository] Create result: id=${result?.data?.id || result?.data?._id || 'N/A'}`);
         return result;
@@ -259,7 +251,7 @@ export async function executeDynamicRepository(
         if (!args.data) {
           throw new Error('data is required for update operation');
         }
-        logger.debug(`[dynamic_repository] Executing update on ${args.table}`, { id: args.id, dataKeys: Object.keys(args.data), fields: safeFields });
+        logger.debug(`[dynamic_repository] Executing update on ${args.table}, id=${args.id}, dataKeys=${Object.keys(args.data).join(',')}, fields=${safeFields}`);
         result = await repo.update({ id: args.id, data: args.data, fields: safeFields });
         logger.debug(`[dynamic_repository] Update result: success=${!!result?.data}`);
         return result;
@@ -267,7 +259,7 @@ export async function executeDynamicRepository(
         if (!args.id) {
           throw new Error('id is required for delete operation');
         }
-        logger.debug(`[dynamic_repository] Executing delete on ${args.table}`, { id: args.id });
+        logger.debug(`[dynamic_repository] Executing delete on ${args.table}, id=${args.id}`);
         result = await repo.delete({ id: args.id });
         logger.debug(`[dynamic_repository] Delete result: success=${!!result}`);
         return result;
@@ -322,8 +314,8 @@ export async function executeDynamicRepository(
         errorType: 'INVALID_INPUT',
         errorCode: 'FOREIGN_KEY_VIOLATION',
         message: errorMessage,
-        userMessage: `❌ **Foreign Key Constraint Error**: The value for "${fkColumn}" in table "${args.table}" references a record that doesn't exist in table "${refTable}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${args.table}" to see the relation structure\n2. Call dynamic_repository with find operation to check if the referenced record exists\n   - Example: {"table":"${refTable}","operation":"find","where":{"id":{"_eq":<your_id>}},"fields":"id"}\n3. If the record doesn't exist, create it first or use an existing ID\n4. NEVER use hardcoded IDs (like ${fkColumn}: 1) without verifying they exist\n\n💡 **Note**: Always verify foreign key references exist BEFORE creating records with foreign keys.`,
-        suggestion: `Call dynamic_repository with find operation to verify the referenced record exists in table "${refTable}" before creating the record.`,
+        userMessage: `❌ **Foreign Key Constraint Error**: The value for "${fkColumn}" in table "${args.table}" references a record that doesn't exist in table "${refTable}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${args.table}" to see the relation structure\n2. Call find_records to check if the referenced record exists\n   - Example: {"table":"${refTable}","where":{"id":{"_eq":<your_id>}},"fields":"id","limit":1}\n3. If the record doesn't exist, create it first or use an existing ID\n4. NEVER use hardcoded IDs (like ${fkColumn}: 1) without verifying they exist\n\n💡 **Note**: Always verify foreign key references exist BEFORE creating records with foreign keys.`,
+        suggestion: `Call find_records to verify the referenced record exists in table "${refTable}" before creating the record.`,
         details: {
           ...details,
           foreignKeyColumn: fkColumn,
@@ -346,8 +338,8 @@ export async function executeDynamicRepository(
         errorType: 'INVALID_INPUT',
         errorCode: 'TABLE_NAME_AS_ID',
         message: `Cannot use table name "${args.table}" as id value. To delete a TABLE (not data), you must delete the table_definition record.`,
-        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name"}\n2. Get the id (number) from the result\n3. Delete the table_definition record: {"table":"table_definition","operation":"delete","id":<id_from_step_1>}\n\n💡 **Note**: Using delete operation on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must delete the table_definition record.`,
-        suggestion: `To delete table "${args.table}", first find it in table_definition: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name"}. Then use the id (number) from the result to delete: {"table":"table_definition","operation":"delete","id":<id>}.`,
+        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1})\n2. Get the id (number) from the result\n3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})\n\n💡 **Note**: Using delete_record on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must use delete_table tool.`,
+        suggestion: `To delete table "${args.table}", first find it in table_definition: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1}). Then use the id (number) from the result to delete: delete_table({"id":<id>}).`,
         details: {
           ...details,
           table: args.table,

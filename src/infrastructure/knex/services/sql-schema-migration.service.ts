@@ -242,17 +242,109 @@ export class SqlSchemaMigrationService {
         continue;
       }
 
+      if (typeof targetTable !== 'string' || targetTable.trim() === '') {
+        this.logger.error(`Invalid targetTableName for relation ${rel.propertyName}: ${targetTable}. Skipping FK constraint.`);
+        continue;
+      }
+
       const fkColumn = `${rel.propertyName}Id`;
 
       this.logger.log(`CREATE TABLE: Creating FK constraint ${fkColumn} -> ${targetTable} for relation ${rel.propertyName}`);
 
+      const targetTableExists = await knex.schema.hasTable(targetTable);
+      if (!targetTableExists) {
+        this.logger.error(`Skipping FK constraint ${fkColumn} -> ${targetTable}: target table does not exist. This may indicate invalid relation metadata.`);
+        continue;
+      }
+
+      const maxRetries = 3;
       try {
-        await knex.schema.alterTable(tableName, (table) => {
-          const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
-          table.foreign(fkColumn).references('id').inTable(targetTable).onDelete(onDelete).onUpdate('CASCADE');
-        });
-      } catch (error) {
-        this.logger.warn(`Failed to add FK constraint ${fkColumn} -> ${targetTable}: ${error.message}`);
+        let lastError: any = null;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+              this.logger.log(`Retrying FK constraint creation (attempt ${attempt + 1}/${maxRetries}) after ${backoffMs}ms backoff...`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+            }
+
+            const dbType = this.queryBuilderService.getDatabaseType();
+            if (dbType === 'postgres') {
+              await knex.raw('SET LOCAL lock_timeout = \'5s\'');
+            } else if (dbType === 'mysql') {
+              await knex.raw('SET SESSION innodb_lock_wait_timeout = 5');
+            }
+
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('FK constraint creation timeout after 10 seconds')), 10000);
+            });
+
+            const createFkPromise = knex.schema.alterTable(tableName, (table) => {
+              const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
+              table.foreign(fkColumn).references('id').inTable(targetTable).onDelete(onDelete).onUpdate('CASCADE');
+            });
+
+            await Promise.race([createFkPromise, timeoutPromise]);
+            this.logger.log(`CREATE TABLE: FK constraint ${fkColumn} -> ${targetTable} created successfully`);
+            lastError = null;
+            break;
+          } catch (attemptError: any) {
+            lastError = attemptError;
+            const errorCode = attemptError?.code || attemptError?.errno || '';
+            const errorMessage = attemptError?.message || '';
+            const sqlState = attemptError?.sqlState || '';
+
+            const isDeadlock = 
+              errorCode === '40P01' ||
+              errorCode === '40001' ||
+              sqlState === '40P01' ||
+              sqlState === '40001' ||
+              errorCode === '1213' ||
+              errorCode === '1205' ||
+              errorCode === 1213 ||
+              errorCode === 1205 ||
+              errorMessage.toLowerCase().includes('deadlock') ||
+              errorMessage.toLowerCase().includes('lock wait timeout') ||
+              errorMessage.toLowerCase().includes('try restarting transaction');
+
+            if (isDeadlock && attempt < maxRetries - 1) {
+              this.logger.warn(`Deadlock detected on FK constraint ${fkColumn} -> ${targetTable} (attempt ${attempt + 1}/${maxRetries}). Retrying...`);
+              continue;
+            }
+
+            if (attempt === maxRetries - 1) {
+              throw attemptError;
+            }
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
+        }
+      } catch (error: any) {
+        const errorCode = error?.code || error?.errno || '';
+        const errorMessage = error?.message || '';
+        const sqlState = error?.sqlState || '';
+        const isDeadlock = 
+          errorCode === '40P01' ||
+          errorCode === '40001' ||
+          sqlState === '40P01' ||
+          sqlState === '40001' ||
+          errorCode === '1213' ||
+          errorCode === '1205' ||
+          errorCode === 1213 ||
+          errorCode === 1205 ||
+          errorMessage.toLowerCase().includes('deadlock') ||
+          errorMessage.toLowerCase().includes('lock wait timeout') ||
+          errorMessage.toLowerCase().includes('try restarting transaction');
+
+        if (isDeadlock) {
+          this.logger.error(`Deadlock occurred while creating FK constraint ${fkColumn} -> ${targetTable} after ${maxRetries} attempts: ${errorMessage}`);
+        } else {
+          this.logger.error(`Failed to add FK constraint ${fkColumn} -> ${targetTable}: ${errorMessage}`);
+        }
+        this.logger.warn(`Continuing without FK constraint - table ${tableName} will be created but FK constraint will be skipped`);
       }
     }
 

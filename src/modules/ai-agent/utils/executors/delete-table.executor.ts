@@ -86,7 +86,7 @@ export async function executeDeleteTable(
   }
 
   try {
-    // Get table info before deletion
+
     const repo = new DynamicRepository({
       context,
       tableName: 'table_definition',
@@ -118,8 +118,8 @@ export async function executeDeleteTable(
         error: true,
         errorCode: 'TABLE_NOT_FOUND',
         message: `Table with id ${args.id} not found`,
-        userMessage: `❌ **Table Not Found**: Table with id ${args.id} does not exist.\n\n💡 **Note**: Please verify the table id is correct. Use get_table_details or dynamic_repository to find the correct table id.`,
-        suggestion: `First find the table using: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"<table_name>"}},"fields":"id,name"}. Then use the id from the result.`,
+        userMessage: `❌ **Table Not Found**: Table with id ${args.id} does not exist.\n\n💡 **Note**: Please verify the table id is correct. Use get_table_details or find_records to find the correct table id.`,
+        suggestion: `First find the table using: {"table":"table_definition","where":{"name":{"_eq":"<table_name>"}},"fields":"id,name","limit":1}. Then use the id from the result.`,
       };
     }
 
@@ -127,7 +127,7 @@ export async function executeDeleteTable(
 
     logger.debug(`[delete_table] Deleting table ${tableName} (id=${args.id})`);
 
-    // Delete the table
+
     await repo.delete({ id: args.id });
 
     logger.debug(`[delete_table] Successfully deleted table ${tableName} (id=${args.id})`);

@@ -35,51 +35,69 @@ export async function executeGetHint(
     content: dbTypeContent,
   };
 
-  const fieldOptContent = `Field & limit checklist:
-- Call get_fields or get_table_details before querying
-- get_table_details supports single table (string) or multiple tables (array): {"tableName": "post"} or {"tableName": ["post", "category", "user_definition"]}
-- When comparing multiple tables or need schemas for multiple tables, use array format to get all in one call: {"tableName": ["table1", "table2", "table3"]}
-- Count queries: fields="${idFieldName}", limit=1, meta="totalCount"
-- Name lists: fields="${idFieldName},name", pick limit as needed
-- Use limit=0 only when you truly need every row (default limit is 10)
-- CRITICAL: For create/update operations, ALWAYS specify minimal fields parameter (e.g., "fields": "${idFieldName}" or "fields": "${idFieldName},name") to save tokens. This is MANDATORY - do NOT omit fields parameter in create/update calls.
-- Read operations: Specify only needed fields (e.g., "id,name" for lists, "id" for counts). Supports wildcards like "columns.*", "relations.*".
-- Write operations: Always specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter.
+  const fieldOptContent = `**Field Selection & Query Optimization**
 
-CRITICAL - Schema Check Before Create/Update:
-- BEFORE creating or updating records, you MUST call get_table_details to get the full schema
-- Check which columns are required (isNullable=false) and have default values
-- Ensure your data object includes ALL required fields (not-null constraints)
-- Common required fields: id (auto-generated), createdAt/updatedAt (auto-generated), but ALWAYS check for others like slug, stock, order_number, unit_price, etc.
-- If you get constraint errors, you MUST call get_table_details to see all required fields and fix your data
+**Basic Rules:**
+- Always call get_fields or get_table_details BEFORE querying to know available fields
+- get_table_details supports single or multiple tables: {"tableName": "post"} or {"tableName": ["post", "category"]}
+- For multiple tables, use array format to get all schemas in ONE call: {"tableName": ["table1", "table2", "table3"]}
 
-CRITICAL - Check Unique Constraints Before Create:
-- BEFORE creating records, you MUST check if records with unique field values already exist
-- Use get_table_details to identify which columns have unique constraints (isUnique=true)
-- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using dynamic_repository.find
-- Workflow: get_table_details (to identify unique columns) → dynamic_repository.find (to check existence) → create only if not exists
-- Example: Before creating category with name="Electronics", check: dynamic_repository({"table":"category","operation":"find","where":{"name":{"_eq":"Electronics"}},"fields":"id","limit":1})
-- If record exists, skip creation or use update instead - duplicate unique values will cause "duplicate key value violates unique constraint" errors
-- For batch_create: Check all records first, filter out existing ones, then create only new records
-- This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
+**Field Parameter Examples:**
+✅ CORRECT - Read operations:
+- List with names: {"fields": "${idFieldName},name", "limit": 10}
+- Count records: {"fields": "${idFieldName}", "limit": 1, "meta": "totalCount"}
+- With relations: {"fields": "${idFieldName},name,category.name"}
+- Multiple relations: {"fields": "${idFieldName},order.customer.name,order.items.product.name"}
 
-Workflow for create/update:
-1. Call get_table_details with tableName to get schema (required fields, types, defaults, relations)
-2. For relations: Use propertyName from result.relations[] (e.g., "category", "customer"), NOT FK columns (e.g., "category_id", "customerId")
-   - Format: {"category": 19} OR {"category": {"id": 19}} (both work, but simple ID is preferred)
-   - NEVER use FK column names - system auto-generates them from propertyName
-   - Check result.relations[] to see propertyName and foreignKeyColumn (for reference only)
-3. Prepare data object with ALL required fields
-4. Call dynamic_repository with create/update operation (permission is automatically checked)
+✅ CORRECT - Write operations (ALWAYS specify minimal fields):
+- After create: {"fields": "${idFieldName}"}
+- After update: {"fields": "${idFieldName},name"}
 
-Nested relations & query optimization:
-- fields → use "relation.field" or "relation.*" (multi-level like "routePermissions.role.name")
-- where → nest objects {"roles":{"name":{"_eq":"Admin"}}}
-- Prefer one nested query instead of multiple separate calls
-- Select only the fields you need (avoid broad "*")
+❌ WRONG:
+- {"fields": "*"} → wastes tokens
+- Omitting fields parameter → returns all fields, wastes tokens
 
-Sample nested query:
-{"table":"route_definition","operation":"find","fields":"id,path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
+**Limit Parameter:**
+- limit=0: Fetch ALL records (use when user wants "all records")
+- limit>0: Fetch specified number (default: 10)
+- For COUNT: limit=1 with meta="totalCount" (no filter) or meta="filterCount" (with filter)
+- IMPORTANT: If you call find with limit=10 and get results, DO NOT call again with limit=20 - reuse result or use limit=0 from start
+
+**COUNT Query Examples:**
+✅ Count total records: count_records({"table":"product","fields":"${idFieldName}","meta":"totalCount"})
+→ Read totalCount from response metadata
+
+✅ Count with filter: count_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"meta":"filterCount"})
+→ Read filterCount from response metadata
+
+**CRITICAL - Schema Check Before Create/Update:**
+1. Call get_table_details FIRST: get_table_details({"tableName":["product"]})
+2. Check required fields: Look for isNullable=false AND no default value
+3. Common required: id (auto), createdAt/updatedAt (auto), but ALWAYS check for others (slug, stock, etc.)
+4. Prepare data with ALL required fields
+5. If you get constraint errors → call get_table_details again to see all required fields
+
+**CRITICAL - Check Unique Constraints Before Create:**
+1. Call get_table_details to see which columns have isUnique=true
+2. For unique fields (name, email, slug), check existence FIRST:
+   Example: find_records({"table":"category","where":{"name":{"_eq":"Electronics"}},"fields":"${idFieldName}","limit":1})
+3. If record exists → skip creation or use update instead
+4. For batch_create: Check all records first, filter out existing ones
+
+**Relations Format Examples:**
+✅ CORRECT:
+- {"category": 19} (simple ID - preferred)
+- {"category": {"id": 19}} (object format - also works)
+- {"customer": 1, "category": 19} (multiple relations)
+
+❌ WRONG:
+- {"category_id": 19} → Use propertyName, not FK column
+- {"categoryId": 19} → Use propertyName, not camelCase
+- {"category": {"name": "Electronics"}} → Use ID, not name
+
+**Nested Query Examples:**
+✅ Get order with customer name: {"table":"order","operation":"find","fields":"${idFieldName},total,customer.name","where":{"customer":{"name":{"_eq":"John"}}}}
+✅ Multi-level: {"table":"route_definition","operation":"find","fields":"${idFieldName},path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
 
   const fieldOptHint = {
     category: 'field_optimization',
@@ -87,39 +105,63 @@ Sample nested query:
     content: fieldOptContent,
   };
 
-  const tableOpsContent = `Table operations - use tools for automatic validation & error handling:
+  const tableOpsContent = `**Table Operations - Step by Step Examples**
 
-Creating tables:
-- Use create_table tool (automatically checks existence, validates, handles errors)
-- Check if table exists first: {"table":"table_definition","operation":"find","where":{"name":{"_eq":"table_name"}},"fields":"${idFieldName},name","limit":1}
-- CRITICAL: Every table MUST have "${idFieldName}" column with isPrimary=true, type="int" (SQL - PREFERRED) or "uuid" (MongoDB - REQUIRED)
-- CRITICAL: NEVER include createdAt/updatedAt in columns - system auto-generates them
-- Include ALL columns in one create call (excluding createdAt/updatedAt)
+**Creating Tables:**
+1. Check if table exists: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+2. If not exists, create table:
+   ✅ CORRECT Example:
+   create_table({
+     "name": "products",
+     "description": "Product catalog",
+     "columns": [
+       {"name": "${idFieldName}", "type": "${isMongoDB ? 'uuid' : 'int'}", "isPrimary": true, "isGenerated": true},
+       {"name": "name", "type": "varchar", "isNullable": false},
+       {"name": "price", "type": "float", "isNullable": false}
+     ]
+   })
+   
+   ❌ WRONG:
+   - Missing ${idFieldName} column
+   - Including createdAt/updatedAt (auto-generated)
+   - Including FK columns (use relations instead)
 
-Updating tables:
-- Use update_table tool (automatically loads current data, validates, merges, checks FK conflicts)
-- Columns merged by name, relations merged by propertyName
-- System columns (id, createdAt, updatedAt) automatically preserved
+**Updating Tables:**
+✅ Example - Add new column:
+update_table({
+  "tableName": "products",
+  "columns": [{"name": "stock", "type": "int", "isNullable": true, "default": 0}]
+})
 
-Relations:
-- CRITICAL: When creating/updating relations, type field is REQUIRED. Must be one of: "one-to-one", "many-to-one", "one-to-many", "many-to-many"
-- Format: {"propertyName": "user", "type": "many-to-one", "targetTable": {"id": <REAL_ID>}, "inversePropertyName": "orders"} (for O2M/M2M)
-- Use update_table tool to add relations (recommended - handles everything automatically)
-- Find target table ID first, then: {"tableName": "post", "relations": [{"propertyName": "categories", "type": "many-to-many", "targetTable": {"id": <REAL_ID>}, "inversePropertyName": "posts"}]}
-- Create on ONE side only - system handles inverse automatically
-- O2M and M2M MUST include inversePropertyName
-- targetTable.id MUST be REAL ID from find result (never use IDs from history)
+✅ Example - Add relation:
+1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
+2. Add relation: update_table({
+  "tableName": "products",
+  "relations": [{
+    "propertyName": "category",
+    "type": "many-to-one",
+    "targetTable": {"id": 19}
+  }]
+})
 
-Batch operations:
-- Metadata tables (table_definition): Process sequentially, NO batch operations. CRITICAL: When deleting tables, delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks
-- Data tables: Use batch_delete for 2+ deletes, batch_create/batch_update for 2+ creates/updates
-- When find returns multiple records, collect ALL IDs and use batch operations (except table deletion - must be sequential)
+**Deleting Tables (NOT Data):**
+✅ CORRECT Workflow:
+1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+2. Delete table: delete_table({"id": 19})
 
-Best practices:
-- Use get_metadata to discover table names
-- Schema changes target *_definition tables only
-- Use _in filter to find multiple tables in one call
-- Always specify minimal fields parameter to save tokens`;
+❌ WRONG:
+- delete_record({"table":"products","id":1}) → This deletes DATA, not the table structure
+- delete_table({"id": "products"}) → Must use numeric ID, not table name
+
+**Batch Operations:**
+✅ For data tables (2+ records):
+- batch_create: batch_create_records({"table":"product","dataArray":[{"name":"P1"},{"name":"P2"}],"fields":"${idFieldName}"})
+- batch_update: batch_update_records({"table":"product","updates":[{"id":1,"data":{"price":100}}],"fields":"${idFieldName}"})
+- batch_delete: batch_delete_records({"table":"product","ids":[1,2,3]})
+
+❌ For metadata tables (table_definition):
+- NEVER use batch operations
+- Delete ONE BY ONE sequentially to avoid deadlocks`;
 
   const tableOpsHint = {
     category: 'table_operations',
@@ -127,26 +169,115 @@ Best practices:
     content: tableOpsContent,
   };
 
-  const complexWorkflowsContent = `Complex workflows - use tools for automatic handling:
+  const dynamicRepoContent = `**CRUD Operations - Complete Workflows with Examples**
 
-Recreate tables with relations:
-1. Find existing tables: {"table":"table_definition","operation":"find","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0}
-2. Delete ONE BY ONE sequentially (not batch_delete) to avoid deadlocks: {"table":"table_definition","operation":"delete","id":<id1>}, then {"table":"table_definition","operation":"delete","id":<id2>}, etc.
-3. Use create_table tool to create new tables (validates automatically)
-4. Find new table IDs, then use update_table tool to add relations (merges automatically)
+**CREATE Workflow:**
+Step 1: Get schema
+get_table_details({"tableName": ["product"]})
 
-Common mistakes:
-❌ Creating tables without id column
+Step 2: Check unique constraints (if any)
+find_records({"table":"product","where":{"name":{"_eq":"Laptop"}},"fields":"${idFieldName}","limit":1})
+
+Step 3: Prepare data with ALL required fields
+{
+  "name": "Laptop",
+  "price": 999.99,
+  "category": 19
+}
+
+Step 4: Create record
+create_record({
+  "table": "product",
+  "data": {"name": "Laptop", "price": 999.99, "category": 19},
+  "fields": "${idFieldName}"
+})
+
+**UPDATE Workflow:**
+Step 1: Get schema
+get_table_details({"tableName": ["product"]})
+
+Step 2: Check if record exists
+find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
+
+Step 3: Update
+update_record({
+  "table": "product",
+  "id": 1,
+  "data": {"price": 899.99},
+  "fields": "${idFieldName}"
+})
+
+**DELETE Workflow (for DATA records):**
+Step 1: Verify exists
+find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
+
+Step 2: Delete
+delete_record({
+  "table": "product",
+  "id": 1
+})
+
+**CRITICAL - Deleting TABLES (not data):**
+❌ WRONG: delete_record({"table":"products","id":1}) → This deletes DATA, not table
+
+✅ CORRECT:
+1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+2. Delete table: delete_table({"id": 19})
+
+**FIND Workflow:**
+Step 1: Get field names (if needed)
+get_fields({"tableName": "product"})
+
+Step 2: Query
+find_records({
+  "table": "product",
+  "fields": "${idFieldName},name,price",
+  "where": {"price": {"_gt": 100}},
+  "limit": 10,
+  "sort": "-price"
+})
+
+**Common Mistakes:**
+❌ Missing schema check before create/update → constraint errors
+❌ Not checking unique constraints → duplicate key errors
+❌ Using FK column names instead of propertyName → errors
+❌ Including id in create operations → errors
+❌ Using delete_record to delete tables → wrong tool
+
+**Best Practices:**
+✅ Always call get_table_details FIRST for create/update
+✅ Always check unique constraints before create
+✅ Use propertyName from relations array, not FK columns
+✅ Specify minimal fields parameter to save tokens
+✅ Execute ONE operation at a time (sequential)`;
+
+  const dynamicRepoHint = {
+    category: 'crud_operations',
+    title: 'CRUD Operations Complete Workflows',
+    content: dynamicRepoContent,
+  };
+
+  const complexWorkflowsContent = `**Complex Workflows - Step by Step**
+
+**Recreate Tables with Relations:**
+1. Find existing tables: find_records({"table":"table_definition","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0})
+2. Delete ONE BY ONE (not batch): 
+   - delete_table({"id": 1})
+   - delete_table({"id": 2})
+3. Create new tables: create_table({...})
+4. Find new IDs and add relations: update_table({"tableName": "post", "relations": [...]})
+
+**Common Mistakes:**
+❌ Creating tables without ${idFieldName} column
 ❌ Including createdAt/updatedAt in columns
-❌ Including FK columns (customer_id, customerId, etc.) in columns array - system auto-generates from relations
-❌ Updating both sides of relation
+❌ Including FK columns in columns array
+❌ Using batch_delete for table deletion
 ❌ Multiple find calls instead of _in filter
-❌ Not using batch operations for multiple deletes
 
-Efficiency:
+**Efficiency Tips:**
 ✅ Use _in filter for multiple tables
-✅ Use create_table/update_table tools (automatic validation)
-✅ Use batch operations for data tables (not metadata tables)`;
+✅ Use create_table/update_table tools (auto-validation)
+✅ Use batch operations for data tables only`;
 
   const complexWorkflowsHint = {
     category: 'complex_workflows',
@@ -159,7 +290,7 @@ Efficiency:
 - Do NOT call multiple tools simultaneously in a single response
 - Execute first tool → wait for result → analyze → proceed to next
 - If you call multiple tools at once and one fails, you'll have to retry all, causing duplicates and wasted tokens
-- Example workflow: dynamic_repository find → wait → dynamic_repository delete → wait → continue
+- Example workflow: find_records → wait → delete_record → wait → continue
 - This prevents errors, duplicate operations, and ensures proper error handling
 
 Error handling:
@@ -192,7 +323,7 @@ Examples:
     content: discoveryContent,
   };
 
-  allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, complexWorkflowsHint);
+  allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, complexWorkflowsHint, dynamicRepoHint);
 
   let filteredHints = allHints;
   if (args.category) {
@@ -209,7 +340,7 @@ Examples:
     idField: idFieldName,
     hints: filteredHints,
     count: filteredHints.length,
-    availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows'],
+    availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows', 'crud_operations'],
   };
 }
 

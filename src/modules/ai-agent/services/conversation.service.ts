@@ -221,8 +221,6 @@ export class ConversationService {
   }): Promise<IMessage[]> {
     const { conversationId, limit, userId, sort, since } = params;
 
-    this.logger.debug(`[getMessages] Loading messages: conversationId=${conversationId}, limit=${limit}, sort=${sort}, since=${since}`);
-
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
 
@@ -241,20 +239,10 @@ export class ConversationService {
     });
 
     const messages = result.data || [];
-    this.logger.debug(`[getMessages] Found ${messages.length} messages from DB`);
     
-    const mappedMessages = messages.map((msg: any, index: number) => {
-      this.logger.debug(`[getMessages] Mapping message ${index + 1}/${messages.length}: id=${msg.id}, role=${msg.role}, sequence=${msg.sequence}, contentLength=${msg.content?.length || 0}, toolCallsType=${typeof msg.toolCalls}, toolResultsType=${typeof msg.toolResults}`);
-      this.logger.debug(`[getMessages] Message ${index + 1} (raw from DB): ${JSON.stringify(msg, null, 2)}`);
-      
-      const mapped = this.mapMessage(msg);
-      
-      this.logger.debug(`[getMessages] Message ${index + 1} (mapped): ${JSON.stringify(mapped, null, 2)}`);
-      
-      return mapped;
-    });
-    
-    this.logger.debug(`[getMessages] Returning ${mappedMessages.length} mapped messages`);
+    const mappedMessages = await Promise.all(messages.map((msg: any) => {
+      return this.mapMessage(msg, undefined, false); 
+    }));
     
     return mappedMessages;
   }
@@ -343,11 +331,12 @@ export class ConversationService {
   async createMessage(params: {
     data: IMessageCreate;
     userId?: string | number;
+    context?: { userMessage?: string; boundTools?: string[]; provider?: string };
   }): Promise<IMessage> {
-    const { data, userId } = params;
+    const { data, userId, context } = params;
 
-    const context = this.createContext(userId);
-    const repo = await this.createRepository('ai_message_definition', context);
+    const dbContext = this.createContext(userId);
+    const repo = await this.createRepository('ai_message_definition', dbContext);
 
     const createData: any = {
       conversation: { id: data.conversationId },
@@ -373,7 +362,7 @@ export class ConversationService {
 
     const result = await repo.create({ data: createData });
 
-    return this.mapMessage(result.data[0]);
+    return await this.mapMessage(result.data[0], context, true); 
   }
 
   async getLastSequence(params: {
@@ -456,41 +445,31 @@ export class ConversationService {
     };
   }
 
-  private mapMessage(data: any): IMessage {
-    this.logger.debug(`[mapMessage] Input data: id=${data.id}, role=${data.role}, contentType=${typeof data.content}, toolCallsType=${typeof data.toolCalls}, toolResultsType=${typeof data.toolResults}`);
-    
+  private async mapMessage(data: any, context?: { userMessage?: string; boundTools?: string[]; provider?: string }, debug: boolean = false): Promise<IMessage> {
     let toolCalls = null;
     let toolResults = null;
 
     if (data.toolCalls !== undefined && data.toolCalls !== null) {
-      this.logger.debug(`[mapMessage] Processing toolCalls: type=${typeof data.toolCalls}, value=${typeof data.toolCalls === 'string' ? data.toolCalls.substring(0, 200) : JSON.stringify(data.toolCalls).substring(0, 200)}`);
-      
       if (typeof data.toolCalls === 'string') {
         try {
           toolCalls = JSON.parse(data.toolCalls);
-          this.logger.debug(`[mapMessage] Successfully parsed toolCalls: ${JSON.stringify(toolCalls, null, 2)}`);
         } catch (e: any) {
           this.logger.error(`[mapMessage] Failed to parse toolCalls: ${e.message}, stack: ${e.stack}, raw: ${data.toolCalls?.substring(0, 500)}`);
         }
       } else {
         toolCalls = data.toolCalls;
-        this.logger.debug(`[mapMessage] toolCalls already object: ${JSON.stringify(toolCalls, null, 2)}`);
       }
     }
 
     if (data.toolResults !== undefined && data.toolResults !== null) {
-      this.logger.debug(`[mapMessage] Processing toolResults: type=${typeof data.toolResults}, value=${typeof data.toolResults === 'string' ? data.toolResults.substring(0, 200) : JSON.stringify(data.toolResults).substring(0, 200)}`);
-      
       if (typeof data.toolResults === 'string') {
         try {
           toolResults = JSON.parse(data.toolResults);
-          this.logger.debug(`[mapMessage] Successfully parsed toolResults: ${JSON.stringify(toolResults, null, 2)}`);
         } catch (e: any) {
           this.logger.error(`[mapMessage] Failed to parse toolResults: ${e.message}, stack: ${e.stack}, raw: ${data.toolResults?.substring(0, 500)}`);
         }
       } else {
         toolResults = data.toolResults;
-        this.logger.debug(`[mapMessage] toolResults already object: ${JSON.stringify(toolResults, null, 2)}`);
       }
     }
 
@@ -500,9 +479,8 @@ export class ConversationService {
       try {
         const parsed = JSON.parse(content);
         content = parsed;
-        this.logger.debug(`[mapMessage] Successfully parsed content as JSON`);
-      } catch (e: any) {
-        this.logger.warn(`[mapMessage] Failed to parse content as JSON: ${e.message}, keeping as string`);
+      } catch {
+
       }
     }
 
@@ -517,7 +495,63 @@ export class ConversationService {
       createdAt: new Date(data.createdAt),
     };
     
-    this.logger.debug(`[mapMessage] Mapped message: ${JSON.stringify(mapped, null, 2)}`);
+
+    if (mapped.role === 'assistant' && debug) {
+
+      let userMessage: string | null = context?.userMessage || null;
+      if (!userMessage && mapped.conversationId && mapped.sequence !== undefined) {
+        try {
+          const userContext = this.createContext();
+          const userRepo = await this.createRepository('ai_message_definition', userContext);
+          const prevUserMsgResult = await userRepo.find({
+            where: {
+              conversation: { id: { _eq: mapped.conversationId } },
+              role: { _eq: 'user' },
+              sequence: { _eq: mapped.sequence - 1 },
+            },
+            fields: 'columns.content',
+            limit: 1,
+          });
+          if (prevUserMsgResult?.data?.[0]?.content) {
+            const content = prevUserMsgResult.data[0].content;
+            userMessage = typeof content === 'string' 
+              ? content 
+              : JSON.stringify(content);
+          }
+        } catch (e: any) {
+
+        }
+      }
+
+
+      const toolCallsDetails = Array.isArray(mapped.toolCalls) ? mapped.toolCalls.map((tc: any) => {
+        const name = tc.function?.name || tc.name;
+        let argsStr = typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {});
+        return {
+          name,
+          id: tc.id,
+          params: argsStr.length > 1000 ? argsStr.substring(0, 1000) + '...' : argsStr,
+          paramsLength: argsStr.length,
+        };
+      }) : null;
+
+      const agentResponse = typeof mapped.content === 'string' ? mapped.content : JSON.stringify(mapped.content || '');
+      
+      this.logger.debug(`[mapMessage] Assistant message: ${JSON.stringify({
+        id: mapped.id,
+        conversationId: mapped.conversationId,
+        sequence: mapped.sequence,
+        provider: context?.provider || null,
+        userMessage: userMessage?.substring(0, 500) || null,
+        userMessageLength: userMessage?.length || 0,
+        agentResponse: agentResponse.substring(0, 500),
+        agentResponseLength: agentResponse.length,
+        toolCallsCount: toolCallsDetails?.length || 0,
+        toolCalls: toolCallsDetails,
+        boundTools: context?.boundTools || null,
+        createdAt: mapped.createdAt,
+      }, null, 2)}`);
+    }
     
     return mapped;
   }

@@ -417,20 +417,6 @@
         },
         {
             "type": "Menu",
-            "label": "AI Settings",
-            "icon": "heroicons:sparkles",
-            "path": "/settings/ai",
-            "isEnabled": true,
-            "isSystem": true,
-            "description": "AI agent configuration",
-            "order": 2,
-            "parent": "Settings",
-            "permission": {
-                "and": [{ "route": "/ai_config_definition", "actions": ["read", "update"] }]
-            }
-        },
-        {
-            "type": "Menu",
             "label": "Menu",
             "icon": "heroicons:bars-3",
             "path": "/settings/menus",

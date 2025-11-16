@@ -18,17 +18,17 @@ export async function executeCheckPermission(
   const { queryBuilder, routeCacheService } = deps;
   const user = context.$user;
 
-  // Root admin always allowed
+
   if (user?.isRootAdmin) {
     return { allowed: true };
   }
 
-  // System user always allowed
+
   if (user?.isSystem) {
     return { allowed: true };
   }
 
-  // For metadata tables, check route permissions
+
   const isMetadataTable = args.table?.endsWith('_definition');
   if (isMetadataTable) {
     const method = args.operation === 'read' ? 'GET' : args.operation === 'create' ? 'POST' : args.operation === 'update' ? 'PUT' : 'DELETE';
@@ -50,18 +50,18 @@ export async function executeCheckPermission(
       return { allowed: false, reason: 'No route permissions configured' };
     }
 
-    // Check if user has permission
+
     const hasPermission = routePermissions.some((rp: any) => {
       if (!rp.isEnabled) return false;
       
-      // Check if user is in allowedUsers
+
       if (rp.allowedUsers && Array.isArray(rp.allowedUsers)) {
         if (rp.allowedUsers.some((au: any) => (au.id || au) === user?.id)) {
           return true;
         }
       }
 
-      // Check if user's role has permission
+
       if (user?.role?.id && rp.roleId === user.role.id) {
         return true;
       }
@@ -73,7 +73,7 @@ export async function executeCheckPermission(
       return { allowed: false, reason: 'User does not have permission for this route' };
     }
 
-    // Check method permission
+
     const methodPermissions = await queryBuilder.findWhere('method_definition', {
       routePermissionId: routePermissions[0].id,
       method,
@@ -86,7 +86,7 @@ export async function executeCheckPermission(
     return { allowed: true };
   }
 
-  // For business tables, check via route permissions
+
   const method = args.operation === 'read' ? 'GET' : args.operation === 'create' ? 'POST' : args.operation === 'update' ? 'PUT' : 'DELETE';
   const routePath = `/${args.table}`;
   
@@ -106,18 +106,18 @@ export async function executeCheckPermission(
     return { allowed: false, reason: 'No route permissions configured' };
   }
 
-  // Check if user has permission
+
   const hasPermission = routePermissions.some((rp: any) => {
     if (!rp.isEnabled) return false;
     
-    // Check if user is in allowedUsers
+
     if (rp.allowedUsers && Array.isArray(rp.allowedUsers)) {
       if (rp.allowedUsers.some((au: any) => (au.id || au) === user?.id)) {
         return true;
       }
     }
 
-    // Check if user's role has permission
+
     if (user?.role?.id && rp.roleId === user.role.id) {
       return true;
     }

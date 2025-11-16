@@ -359,12 +359,12 @@ export async function applyColumnMigrations(
         }
       }
       
-      for (const { column: col, changes } of diff.columnsToModify) {
-        if (changes.includes('enum-options')) {
-          continue;
-        }
-        
-        const knexType = getKnexColumnType(col);
+        for (const { column: col, changes } of diff.columnsToModify) {
+          if (changes.includes('enum-options')) {
+            continue;
+          }
+          
+          const knexType = getKnexColumnType(col);
         
         const currentTypeResult = await knex.raw(`
           SELECT data_type, udt_name
@@ -393,25 +393,25 @@ export async function applyColumnMigrations(
           }
         } else {
           await knex.schema.alterTable(tableName, (table) => {
-            let column: Knex.ColumnBuilder;
+          let column: Knex.ColumnBuilder;
 
-            switch (knexType) {
-              case 'integer':
-                column = table.integer(col.name).alter();
-                break;
-              case 'string':
-                column = table.string(col.name, 255).alter();
-                break;
-              default:
+          switch (knexType) {
+            case 'integer':
+              column = table.integer(col.name).alter();
+              break;
+            case 'string':
+              column = table.string(col.name, 255).alter();
+              break;
+            default:
                 return;
-            }
+          }
 
-            if (col.isNullable === false) {
-              column.notNullable();
-            } else {
-              column.nullable();
-            }
-          });
+          if (col.isNullable === false) {
+            column.notNullable();
+          } else {
+            column.nullable();
+          }
+      });
         }
         
         if (changes.includes('nullable')) {
