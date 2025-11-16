@@ -53,15 +53,7 @@ export async function executeDynamicRepository(
   abortSignal: AbortSignal | undefined,
   deps: DynamicRepositoryExecutorDependencies,
 ): Promise<any> {
-  logger.debug(`[dynamic_repository] Called with operation=${args.operation}, table=${args.table}`, {
-    operation: args.operation,
-    table: args.table,
-    hasWhere: !!args.where,
-    hasData: !!args.data,
-    fields: args.fields,
-    limit: args.limit,
-    id: args.id,
-  });
+  logger.debug(`[dynamic_repository] Called with operation=${args.operation}, table=${args.table}, hasWhere=${!!args.where}, hasData=${!!args.data}, fields=${args.fields}, limit=${args.limit}, id=${args.id}`);
 
   if (abortSignal?.aborted) {
     logger.debug(`[dynamic_repository] Request aborted`);
@@ -231,7 +223,7 @@ export async function executeDynamicRepository(
     let result: any;
     switch (args.operation) {
       case 'find':
-        logger.debug(`[dynamic_repository] Executing find on ${args.table}`, { where: args.where, fields: args.fields, limit: args.limit });
+        logger.debug(`[dynamic_repository] Executing find on ${args.table}, fields=${args.fields}, limit=${args.limit}`);
         result = await repo.find({
           where: args.where,
           fields: args.fields,
@@ -248,7 +240,7 @@ export async function executeDynamicRepository(
         if (args.data.id !== undefined) {
           throw new Error('CRITICAL: Do NOT include "id" field in create operations. The database will automatically generate the id. Remove "id" from your data object and try again.');
         }
-        logger.debug(`[dynamic_repository] Executing create on ${args.table}`, { dataKeys: Object.keys(args.data), fields: safeFields });
+        logger.debug(`[dynamic_repository] Executing create on ${args.table}, dataKeys=${Object.keys(args.data).join(',')}, fields=${safeFields}`);
         result = await repo.create({ data: args.data, fields: safeFields });
         logger.debug(`[dynamic_repository] Create result: id=${result?.data?.id || result?.data?._id || 'N/A'}`);
         return result;
@@ -259,7 +251,7 @@ export async function executeDynamicRepository(
         if (!args.data) {
           throw new Error('data is required for update operation');
         }
-        logger.debug(`[dynamic_repository] Executing update on ${args.table}`, { id: args.id, dataKeys: Object.keys(args.data), fields: safeFields });
+        logger.debug(`[dynamic_repository] Executing update on ${args.table}, id=${args.id}, dataKeys=${Object.keys(args.data).join(',')}, fields=${safeFields}`);
         result = await repo.update({ id: args.id, data: args.data, fields: safeFields });
         logger.debug(`[dynamic_repository] Update result: success=${!!result?.data}`);
         return result;
@@ -267,7 +259,7 @@ export async function executeDynamicRepository(
         if (!args.id) {
           throw new Error('id is required for delete operation');
         }
-        logger.debug(`[dynamic_repository] Executing delete on ${args.table}`, { id: args.id });
+        logger.debug(`[dynamic_repository] Executing delete on ${args.table}, id=${args.id}`);
         result = await repo.delete({ id: args.id });
         logger.debug(`[dynamic_repository] Delete result: success=${!!result}`);
         return result;

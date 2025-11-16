@@ -463,34 +463,34 @@ export class ConversationService {
     let toolResults = null;
 
     if (data.toolCalls !== undefined && data.toolCalls !== null) {
-      this.logger.debug(`[mapMessage] Processing toolCalls: type=${typeof data.toolCalls}, value=${typeof data.toolCalls === 'string' ? data.toolCalls.substring(0, 200) : JSON.stringify(data.toolCalls).substring(0, 200)}`);
+      this.logger.debug(`[mapMessage] Processing toolCalls: type=${typeof data.toolCalls}`);
       
       if (typeof data.toolCalls === 'string') {
         try {
           toolCalls = JSON.parse(data.toolCalls);
-          this.logger.debug(`[mapMessage] Successfully parsed toolCalls: ${JSON.stringify(toolCalls, null, 2)}`);
+          this.logger.debug(`[mapMessage] Successfully parsed toolCalls: ${Array.isArray(toolCalls) ? toolCalls.length : 0} items`);
         } catch (e: any) {
           this.logger.error(`[mapMessage] Failed to parse toolCalls: ${e.message}, stack: ${e.stack}, raw: ${data.toolCalls?.substring(0, 500)}`);
         }
       } else {
         toolCalls = data.toolCalls;
-        this.logger.debug(`[mapMessage] toolCalls already object: ${JSON.stringify(toolCalls, null, 2)}`);
+        this.logger.debug(`[mapMessage] toolCalls already object: ${Array.isArray(toolCalls) ? toolCalls.length : 0} items`);
       }
     }
 
     if (data.toolResults !== undefined && data.toolResults !== null) {
-      this.logger.debug(`[mapMessage] Processing toolResults: type=${typeof data.toolResults}, value=${typeof data.toolResults === 'string' ? data.toolResults.substring(0, 200) : JSON.stringify(data.toolResults).substring(0, 200)}`);
+      this.logger.debug(`[mapMessage] Processing toolResults: type=${typeof data.toolResults}`);
       
       if (typeof data.toolResults === 'string') {
         try {
           toolResults = JSON.parse(data.toolResults);
-          this.logger.debug(`[mapMessage] Successfully parsed toolResults: ${JSON.stringify(toolResults, null, 2)}`);
+          this.logger.debug(`[mapMessage] Successfully parsed toolResults: ${Array.isArray(toolResults) ? toolResults.length : 0} items`);
         } catch (e: any) {
           this.logger.error(`[mapMessage] Failed to parse toolResults: ${e.message}, stack: ${e.stack}, raw: ${data.toolResults?.substring(0, 500)}`);
         }
       } else {
         toolResults = data.toolResults;
-        this.logger.debug(`[mapMessage] toolResults already object: ${JSON.stringify(toolResults, null, 2)}`);
+        this.logger.debug(`[mapMessage] toolResults already object: ${Array.isArray(toolResults) ? toolResults.length : 0} items`);
       }
     }
 

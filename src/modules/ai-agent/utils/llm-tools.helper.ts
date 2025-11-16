@@ -14,6 +14,18 @@ export const TOOL_BINDS_TOOL: ToolDefinition = {
 
 Use this tool FIRST to determine which tools should be available for this conversation turn.
 
+**CRITICAL - Complete Tool Selection:**
+- You MUST include ALL tools that might be needed for the request, even if they seem optional
+- If the LLM might need a tool (e.g., get_fields for field validation, get_table_details for schema check), include it in the toolNames array
+- It's better to bind a few extra tools than to miss a required tool
+- If you're uncertain, include the tool - unused tools don't cause problems, but missing tools cause errors
+
+**Common mistakes to avoid:**
+- Missing get_fields when LLM might need to check field names
+- Missing get_table_details when LLM might need schema information
+- Missing get_hint when creating/updating tables (always include for schema operations)
+- Only binding one tool when multiple might be needed (e.g., get_table_details + dynamic_repository for create operations)
+
 Inputs:
 - toolNames (required): array of tool names to bind for this request
 
@@ -21,7 +33,7 @@ Available tools:
 - list_tables: Get list of all tables
 - get_table_details: Get full schema and optionally table data
 - get_metadata: Get system metadata
-- get_fields: Get field list for reads
+- get_fields: Get field list for reads (include if LLM might need to check field names)
 - dynamic_repository: CRUD operations on single records (find, create, update, delete)
 - batch_dynamic_repository: Batch operations on multiple records (batch_create 5+, batch_update 5+, batch_delete 2+)
 - create_table: Create new table schema
@@ -32,12 +44,31 @@ Available tools:
 
 Examples:
 - Simple greeting: {"toolNames": []}
-- Single data operation: {"toolNames": ["dynamic_repository"]}
-- Batch data operation (5+ records): {"toolNames": ["batch_dynamic_repository"]}
-- Schema query: {"toolNames": ["get_table_details"]}
+- Need guidance: {"toolNames": ["get_hint"]}
+
+**CRUD Operations:**
+- Find/view records: {"toolNames": ["dynamic_repository"]}
+- Find with schema check: {"toolNames": ["get_table_details", "dynamic_repository"]}
+- Create single record: {"toolNames": ["get_table_details", "dynamic_repository"]}
+- Update single record: {"toolNames": ["get_table_details", "dynamic_repository"]}
+- Delete single record: {"toolNames": ["dynamic_repository"]}
+- Batch create (2+ records): {"toolNames": ["get_table_details", "batch_dynamic_repository"]}
+- Batch update (2+ records): {"toolNames": ["get_table_details", "batch_dynamic_repository"]}
+- Batch delete (2+ records): {"toolNames": ["batch_dynamic_repository"]}
+
+**Schema Operations:**
 - Create table: {"toolNames": ["create_table", "get_hint"]}
+- Update table: {"toolNames": ["update_table", "get_hint"]}
 - Delete table: {"toolNames": ["dynamic_repository", "delete_table"]}
-- Need guidance: {"toolNames": ["get_hint"]}`,
+- View full schema: {"toolNames": ["get_table_details"]}
+- Field names only: {"toolNames": ["get_fields"]}
+- When uncertain about fields: {"toolNames": ["get_fields", "dynamic_repository"]}
+
+**Table Discovery:**
+- List all tables (no filter): {"toolNames": ["list_tables"]}
+- Filter tables (with condition): {"toolNames": ["dynamic_repository"]}
+- Get system metadata: {"toolNames": ["get_metadata"]}
+- Get tool rules: {"toolNames": ["get_tool_rules"]}`,
   parameters: {
     type: 'object',
     properties: {
@@ -813,7 +844,7 @@ For general guidance, also see get_hint(category="table_operations")`,
         limit: {
           type: 'number',
           description:
-            'Max records to return. 0 = no limit (fetch all), > 0 = specified number. Default: 10. For COUNT queries, use limit=1 with meta="totalCount" (much faster than limit=0).',
+            'Max records to return. 0 = no limit (fetch all), > 0 = specified number. Default: 10. CRITICAL: limit is used to LIMIT the number of records returned. For COUNT queries, use limit=1 with fields="id" and appropriate meta parameter (see meta description).',
         },
         sort: {
           type: 'string',
@@ -823,7 +854,7 @@ For general guidance, also see get_hint(category="table_operations")`,
         meta: {
           type: 'string',
           description:
-            'Include metadata in response. Values: "totalCount" (total records in table), "filterCount" (records matching filter), "*" (all metadata). CRITICAL: For count queries ("how many?"), use meta="totalCount" with limit=1 (NOT limit=0) for 100x faster performance.',
+            'Include metadata in response. Values: "totalCount" (total records in table), "filterCount" (records matching filter), "*" (all metadata). CRITICAL - COUNT Queries: To count TOTAL records (no filter): use fields="id", limit=1, meta="totalCount" → read totalCount from response. To count WITH filter (e.g., "how many tables have isSystem=true?"): use fields="id", limit=1, where={filter}, meta="filterCount" → read filterCount from response. NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter.',
         },
         data: {
           type: 'object',

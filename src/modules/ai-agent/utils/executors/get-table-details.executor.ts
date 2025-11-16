@@ -41,13 +41,7 @@ export async function executeGetTableDetails(
   context: TDynamicContext | undefined,
   deps: GetTableDetailsExecutorDependencies,
 ): Promise<any> {
-  logger.debug(`[get_table_details] Called with tableName=${JSON.stringify(args.tableName)}, getData=${args.getData}, forceRefresh=${args.forceRefresh}`, {
-    tableName: args.tableName,
-    getData: args.getData,
-    forceRefresh: args.forceRefresh,
-    hasId: !!args.id,
-    hasName: !!args.name,
-  });
+  logger.debug(`[get_table_details] Called with tableName=${JSON.stringify(args.tableName)}, getData=${args.getData}, forceRefresh=${args.forceRefresh}, hasId=${!!args.id}, hasName=${!!args.name}`);
 
   const {
     metadataCacheService,
@@ -141,7 +135,7 @@ export async function executeGetTableDetails(
           where.name = { _eq: name };
         }
 
-        logger.debug(`[get_table_details] Fetching data for ${tableName}`, { where });
+        logger.debug(`[get_table_details] Fetching data for ${tableName}`);
         const dataResult = await repo.find({
           where,
           fields: '*',

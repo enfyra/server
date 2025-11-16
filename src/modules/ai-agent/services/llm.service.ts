@@ -197,7 +197,6 @@ export class LLMService {
 
   private convertToLangChainMessages(messages: LLMMessage[]): any[] {
     this.logger.debug(`[convertToLangChainMessages] Input messages count: ${messages.length}`);
-    this.logger.debug(`[convertToLangChainMessages] Input messages (full): ${JSON.stringify(messages, null, 2)}`);
     
     const result: any[] = [];
 
@@ -288,76 +287,51 @@ export class LLMService {
       return [];
     }
 
+
+
+
     try {
       const toolDefFile = require('../utils/llm-tools.helper');
       const TOOL_BINDS_TOOL = toolDefFile.TOOL_BINDS_TOOL;
       const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
 
-      const systemPrompt = `You are a tool selector. Your job: Analyze the user request STEP BY STEP and call ONLY tool_binds with the exact tool names array. NEVER output anything else – no explanations, no chit-chat, just the function call.
+      const systemPrompt = `You are a strict tool binder for DB operations. For ANY request, your SOLE action is to call tool_binds FIRST to bind tools. You CANNOT call ANY other tool directly – they are bound AFTER this call.
 
-**MANDATORY CHAIN-OF-THOUGHT (CoT) PROCESS – THINK STEP BY STEP BEFORE OUTPUTTING:**
-Internal thinking only. Reason semantically (generalize patterns in ANY language):
-1. **Parse Intent & Filter**: Classify core intent. For table discovery, infer if ANY condition/filter implied (e.g., attributes like isSystem/name, exclusions, criteria) → "Filtered table query" → ["dynamic_repository"] (query table_definition). No implication → "Unfiltered table discovery" → ["list_tables"]. Other intents:
-   - Creating/modifying schema → "Schema modification".
-   - Deleting tables (explicit "table") → "Table deletion".
-   - Full schema view → "Full schema inspection".
-   - Fields only → "Field names only".
-   - Batch CRUD (multiple) → "Batch data ops".
-   - Single CRUD/view → "Single data ops".
-   - Help → "Help/guidance".
-   - ELSE → "Casual/off-topic" → [].
-2. **Resolve by Priority**: Map to highest rule (Section 3). Schema ALWAYS + "get_hint". Avoid errors: No list_tables for filters; batch only CRUD (not find); ambiguous delete → dynamic_repository.
-3. **Handle Multi/Edges & Validate**: Combine tools (dedupe). Missing table in data ops → + "list_tables" (not schema). Exact names only: ["create_table", "update_table", "get_table_details", "get_fields", "delete_table", "dynamic_repository", "batch_dynamic_repository", "list_tables", "get_hint"]. No tool? [].
+**CRITICAL RULES:**
 
-**THE ONLY TOOL YOU CAN CALL:** tool_binds({"toolNames": [...]}) – SINGLE LINE ONLY.
+- You will receive conversation history (previous messages) and a FINAL/LATEST user message.
+- **COMBINE BOTH: Use conversation history for context understanding + LATEST message for intent/action.**
+- **How to combine:**
+  - **Conversation history**: Use to understand references (e.g., "that table" → which table from previous messages), context (e.g., what was discussed before), and entity resolution (e.g., table names mentioned earlier).
+  - **LATEST user message**: Use to determine the INTENT and ACTION (what the user wants to do NOW).
+- **Tool selection logic:**
+  - Parse the LATEST message to identify the action/intent (e.g., "show", "create", "filter", "list").
+  - Use history to resolve references and understand full context (e.g., if latest says "show that table" → use history to know which table).
+  - **The LATEST message's intent determines which tools to bind, but history helps resolve what entities/parameters are being referenced.**
+- Examples:
+  - History: "I created a products table", Latest: "show tables with isSystem=false" → Latest intent is "filter tables" → bind ["dynamic_repository"] (history only provides context, doesn't change intent).
+  - History: "Let's work with the users table", Latest: "show that table" → Latest intent is "view schema" but "that table" refers to "users" from history → bind ["get_table_details"] (combine: intent from latest + entity from history).
+  - History: "List all tables", Latest: "now filter by isSystem=false" → Latest intent is "filter" (not "list all") → bind ["dynamic_repository"] (latest intent overrides previous intent).
 
-**YOU CANNOT CALL DIRECTLY:** STRING NAMES ONLY.
+**JSON Output ONLY:** {"toolNames": [...]}
 
-**PRIORITY ORDER (HIGHEST First):**
-1. Schema modification → ["create_table"/"update_table" + "get_hint"]
-2. Table deletion → ["dynamic_repository" + "delete_table"]
-3. Full schema inspection → ["get_table_details"]
-4. Field names only → ["get_fields"]
-5. Batch data ops → ["batch_dynamic_repository"]
-6. Single data ops → ["dynamic_repository"]
-7. Filtered table query → ["dynamic_repository"]
-8. Unfiltered discovery → ["list_tables"]
-9. Help → ["get_hint"]
-10. Casual → []
+- Output ONLY a valid tool_binds JSON call. No text, no other tools, no reasoning.
+- If no tools needed (greetings/casual), bind [].
+- Analyze semantically (any language): Bind based on intent (e.g., create → ["create_table", "get_hint"]; find → ["dynamic_repository"]).
+- For CRUD: Single/batch create/update → bind get_table_details + repository; delete/find → repository only.
+- Schema: Always + "get_hint".
+- Filters on tables → dynamic_repository.
+- Multi: Combine, dedupe.
 
-**2. NO TOOL NEEDED (BIND []):** Greetings/chat/off-topic/unclear non-DB → [].
-
-**3. TOOL RULES (Map Intents Here):**
-3.1 **create_table / update_table** (1): Schema mod (create table, add column).
-   - Example: "Create a products table" → tool_binds({"toolNames": ["create_table", "get_hint"]})
-
-3.2 **get_table_details** (3): Full schema (show structure).
-   - Example: "Show structure of products" → tool_binds({"toolNames": ["get_table_details"]})
-
-3.3 **get_fields** (4): Fields only (list columns).
-   - Example: "List columns of customers" → tool_binds({"toolNames": ["get_fields"]})
-
-3.4 **delete_table** (2): Delete table (drop table) + dynamic_repository.
-   - Example: "Delete the products table" → tool_binds({"toolNames": ["dynamic_repository", "delete_table"]})
-
-3.5 **dynamic_repository** (6 & 7): Single ops/filtered query (find item, show with condition).
-   - Examples:
-     - "Find all orders" → tool_binds({"toolNames": ["dynamic_repository"]})
-     - "Show tables with isSystem=false" → tool_binds({"toolNames": ["dynamic_repository"]})
-
-3.6 **batch_dynamic_repository** (5): Batch ops (add multiple) – no find.
-   - Example: "Add 10 products" → tool_binds({"toolNames": ["batch_dynamic_repository"]})
-
-3.7 **list_tables** (8): Unfiltered discovery (list all tables) – forbid if filtered.
-   - Example: "List all tables" → tool_binds({"toolNames": ["list_tables"]})
-   - Avoid: "Show tables with isSystem=false" → ["dynamic_repository"]
-
-3.8 **get_hint** (9): Help (how to).
-   - Example: "How to create a table?" → tool_binds({"toolNames": ["get_hint"]})
-
-**4. MULTI-INTENT:** Combine tools, e.g., "Show structure then create table" → ["create_table", "get_hint", "get_table_details"].
-
-**FINAL REMINDER:** Execute CoT semantically, then ONLY: tool_binds({"toolNames": [...]})`;
+Examples:
+{"user": "Hello", "output": {"toolNames": []}}
+{"user": "Create products table", "output": {"toolNames": ["create_table", "get_hint"]}}
+{"user": "Find orders by ID", "output": {"toolNames": ["dynamic_repository"]}}
+{"user": "Add 10 products", "output": {"toolNames": ["get_table_details", "batch_dynamic_repository"]}}
+{"user": "Show tables isSystem=false", "output": {"toolNames": ["dynamic_repository"]}}
+{"user": "List all tables", "output": {"toolNames": ["list_tables"]}}
+{"user": "Update customer by ID", "output": {"toolNames": ["get_table_details", "dynamic_repository"]}}
+{"user": "How to use dynamic_repository?", "output": {"toolNames": ["get_tool_rules"]}}`;
 
       const llm = await this.createLLM(config);
       const toolBindsTool = this.createToolFromDefinition(TOOL_BINDS_TOOL);
@@ -366,7 +340,6 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
       const messages: any[] = [
         new SystemMessage(systemPrompt),
       ];
-
 
       if (conversationSummary) {
         messages.push(new AIMessage(`[Previous conversation summary]: ${conversationSummary}`));
@@ -603,9 +576,16 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
       const llm = await this.createLLM(config);
       
       const context = createLLMContext(user);
-      const tools = this.createTools(context, abortSignal, selectedToolNames);
+      
+      // Track selected tools and allow dynamic addition
+      let currentSelectedToolNames = selectedToolNames ? [...selectedToolNames] : [];
+      const toolDefFile = require('../utils/llm-tools.helper');
+      const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
+      const availableToolNames = COMMON_TOOLS.map((t: any) => t.name);
+      
+      let tools = this.createTools(context, abortSignal, currentSelectedToolNames);
+      let llmWithTools = (llm as any).bindTools(tools);
       this.logger.debug(`[LLM Stream] Created ${tools.length} tools: ${tools.map((t: any) => t.name).join(', ')}`);
-      const llmWithTools = (llm as any).bindTools(tools);
       const provider = config.provider;
       const canStream = typeof llmWithTools.stream === 'function';
       this.logger.debug(`[LLM Stream] Tools bound to LLM. Provider: ${provider}, canStream: ${canStream}, hasStream: ${typeof llmWithTools.stream === 'function'}`);
@@ -615,6 +595,8 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
       let fullContent = '';
       const allToolCalls: IToolCall[] = [];
       const allToolResults: IToolResult[] = [];
+      // Track executed tool calls by name + normalized arguments to prevent duplicates
+      const executedToolCalls = new Map<string, { toolId: string; result: any }>();
       let iterations = 0;
       const maxIterations = config.maxToolIterations || 15;
       let accumulatedTokenUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
@@ -879,12 +861,11 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
                       type: 'tool_call' as const,
                     };
                     
-                    this.logger.debug(`[LLM Stream] Parsed tool call ${index + 1}: ${JSON.stringify(parsed, null, 2)}`);
                     
                     return parsed;
                   });
                   
-                  this.logger.debug(`[LLM Stream] Parsed ${parsedToolCalls.length} tool calls from fullContent text format: ${JSON.stringify(parsedToolCalls, null, 2)}`);
+                  this.logger.debug(`[LLM Stream] Parsed ${parsedToolCalls.length} tool calls from fullContent text format`);
                   currentToolCalls = parsedToolCalls;
                   
                   for (const tc of parsedToolCalls) {
@@ -1102,10 +1083,6 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
           this.logger.debug(`[LLM Stream] Full stream content from LLM (length: ${fullContent.length}): ${JSON.stringify(fullContent)}`);
         }
 
-        // Debug: Log aggregateResponse to see what LLM returned
-        if (aggregateResponse) {
-          this.logger.debug(`[LLM Stream] Aggregate response from LLM: ${JSON.stringify(aggregateResponse, null, 2)}`);
-        }
 
         if (currentToolCalls.length === 0) {
           const finalUsage = this.extractTokenUsage(aggregateResponse);
@@ -1304,8 +1281,93 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
         for (const [toolCallId, { tc, toolName, toolArgs, parsedArgs }] of toolCallIdMap) {
           const toolId = toolCallId;
 
-          const alreadyExecuted = allToolCalls.some((tc) => tc.id === toolId);
-          if (alreadyExecuted) {
+          // Check if this exact tool call (name + args) was already executed
+          // Normalize args: sort keys for consistent comparison
+          let normalizedArgs: string;
+          
+          if (typeof parsedArgs === 'object' && parsedArgs !== null) {
+            const sorted = Object.keys(parsedArgs).sort().reduce((acc: any, key) => {
+              acc[key] = parsedArgs[key];
+              return acc;
+            }, {});
+            normalizedArgs = JSON.stringify(sorted);
+          } else {
+            normalizedArgs = String(parsedArgs || '');
+          }
+          
+          const toolCallKey = `${toolName}:${normalizedArgs}`;
+          const existingCall = executedToolCalls.get(toolCallKey);
+          
+          if (existingCall) {
+            this.logger.warn(`[LLM Stream] Duplicate tool call detected: ${toolName} with same arguments. Reusing previous result from call ${existingCall.toolId}`);
+            
+            // Reuse previous result
+            allToolResults.push({
+              toolCallId: toolId,
+              result: existingCall.result,
+            });
+            
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const summarizedResult = this.summarizeToolResult(toolName, parsedArgs, existingCall.result);
+            conversationMessages.push(
+              new ToolMessage({
+                content: summarizedResult,
+                tool_call_id: toolId,
+              }),
+            );
+            
+            continue;
+          }
+          
+          // For find operations: check if we already called with same table/operation/fields/where but different limit
+          // If we already have result from a find with same query, reuse it (limit only affects how many records are returned, not the query itself)
+          if (toolName === 'dynamic_repository' && parsedArgs.operation === 'find' && typeof parsedArgs === 'object') {
+            const currentQuery = {
+              table: parsedArgs.table,
+              operation: parsedArgs.operation,
+              fields: parsedArgs.fields,
+              where: parsedArgs.where,
+            };
+            
+            for (const [key, value] of executedToolCalls.entries()) {
+              if (key.startsWith('dynamic_repository:')) {
+                try {
+                  const prevArgsStr = key.replace('dynamic_repository:', '');
+                  const prevArgs = JSON.parse(prevArgsStr);
+                  
+                  if (prevArgs.operation === 'find' && 
+                      prevArgs.table === currentQuery.table &&
+                      prevArgs.fields === currentQuery.fields &&
+                      JSON.stringify(prevArgs.where || {}) === JSON.stringify(currentQuery.where || {})) {
+                    // Same query (table/fields/where), different limit - reuse result
+                    this.logger.warn(`[LLM Stream] Similar find query detected (same table/fields/where, different limit: prev=${prevArgs.limit}, current=${parsedArgs.limit}). Reusing previous result from call ${value.toolId}`);
+                    
+                    allToolResults.push({
+                      toolCallId: toolId,
+                      result: value.result,
+                    });
+                    
+                    const ToolMessage = require('@langchain/core/messages').ToolMessage;
+                    const summarizedResult = this.summarizeToolResult(toolName, parsedArgs, value.result);
+                    conversationMessages.push(
+                      new ToolMessage({
+                        content: summarizedResult,
+                        tool_call_id: toolId,
+                      }),
+                    );
+                    
+                    continue;
+                  }
+                } catch (e) {
+                  // Ignore parse errors
+                }
+              }
+            }
+          }
+          
+          // Also check by toolId (for same tool call ID)
+          const alreadyExecutedById = allToolCalls.some((tc) => tc.id === toolId);
+          if (alreadyExecutedById) {
             this.logger.debug(`[LLM Stream] Skipping already executed tool_call: ${toolName} (id: ${toolId})`);
             continue;
           }
@@ -1320,39 +1382,88 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
           });
 
           try {
-            const tool = tools.find((t) => t.name === toolName);
+            let tool = tools.find((t) => t.name === toolName);
             if (!tool) {
-              const availableTools = tools.map((t: any) => t.name).join(', ');
-              this.logger.warn(`[LLM Stream] Tool ${toolName} not found in available tools. Available: ${availableTools || 'none'}`);
-              const errorResult = {
-                error: true,
-                errorCode: 'TOOL_NOT_FOUND',
-                message: `Tool "${toolName}" not found. Available tools: ${availableTools || 'none'}`,
-                suggestion: `Please use only the available tools: ${availableTools || 'none'}`,
-              };
-              allToolResults.push({
-                toolCallId: toolId,
-                result: errorResult,
-              });
-              
-              const ToolMessage = require('@langchain/core/messages').ToolMessage;
-              const summarizedError = this.summarizeToolResult(toolName, parsedArgs, errorResult);
-              conversationMessages.push(
-                new ToolMessage({
-                  content: summarizedError,
-                  tool_call_id: toolId,
-                }),
-              );
-              
-              const errorIconText = `\n\n❌ ${toolName}\n`;
-              fullContent += errorIconText;
-              onEvent({
-                type: 'text',
-                data: {
-                  delta: errorIconText,
-                },
-              });
-              continue;
+              // Auto-bind missing tool if it exists in COMMON_TOOLS and retry the call
+              if (availableToolNames.includes(toolName) && !currentSelectedToolNames.includes(toolName)) {
+                this.logger.warn(`[LLM Stream] Tool ${toolName} called but not bound. Auto-binding and retrying call...`);
+                currentSelectedToolNames.push(toolName);
+                tools = this.createTools(context, abortSignal, currentSelectedToolNames);
+                llmWithTools = (llm as any).bindTools(tools);
+                this.logger.debug(`[LLM Stream] Rebound tools. Now available: ${tools.map((t: any) => t.name).join(', ')}`);
+                tool = tools.find((t) => t.name === toolName);
+                
+                if (tool) {
+                  this.logger.debug(`[LLM Stream] Retrying tool call ${toolName} with newly bound tool...`);
+                  // Tool is now available, continue to execute it below
+                } else {
+                  // Should not happen, but handle gracefully
+                  const availableTools = tools.map((t: any) => t.name).join(', ');
+                  this.logger.error(`[LLM Stream] Failed to bind tool ${toolName} even after adding to selected tools. Available: ${availableTools || 'none'}`);
+                  const errorResult = {
+                    error: true,
+                    errorCode: 'TOOL_BIND_FAILED',
+                    message: `Tool "${toolName}" binding failed. Available tools: ${availableTools || 'none'}.`,
+                    suggestion: `Please use one of the available tools: ${availableTools || 'none'}.`,
+                  };
+                  allToolResults.push({
+                    toolCallId: toolId,
+                    result: errorResult,
+                  });
+                  
+                  const ToolMessage = require('@langchain/core/messages').ToolMessage;
+                  const summarizedError = this.summarizeToolResult(toolName, parsedArgs, errorResult);
+                  conversationMessages.push(
+                    new ToolMessage({
+                      content: summarizedError,
+                      tool_call_id: toolId,
+                    }),
+                  );
+                  
+                  const errorIconText = `\n\n❌ ${toolName}\n`;
+                  fullContent += errorIconText;
+                  onEvent({
+                    type: 'text',
+                    data: {
+                      delta: errorIconText,
+                    },
+                  });
+                  continue;
+                }
+              } else {
+                // Tool doesn't exist in COMMON_TOOLS or already bound
+                const availableTools = tools.map((t: any) => t.name).join(', ');
+                this.logger.warn(`[LLM Stream] Tool ${toolName} not found in available tools. Available: ${availableTools || 'none'}`);
+                const errorResult = {
+                  error: true,
+                  errorCode: 'TOOL_NOT_FOUND',
+                  message: `Tool "${toolName}" is not available in this conversation. Available tools: ${availableTools || 'none'}. Please use one of the available tools instead.`,
+                  suggestion: `Use one of these available tools: ${availableTools || 'none'}. If you need ${toolName}, it was not selected for this conversation turn.`,
+                };
+                allToolResults.push({
+                  toolCallId: toolId,
+                  result: errorResult,
+                });
+                
+                const ToolMessage = require('@langchain/core/messages').ToolMessage;
+                const summarizedError = this.summarizeToolResult(toolName, parsedArgs, errorResult);
+                conversationMessages.push(
+                  new ToolMessage({
+                    content: summarizedError,
+                    tool_call_id: toolId,
+                  }),
+                );
+                
+                const errorIconText = `\n\n❌ ${toolName}\n`;
+                fullContent += errorIconText;
+                onEvent({
+                  type: 'text',
+                  data: {
+                    delta: errorIconText,
+                  },
+                });
+                continue;
+              }
             }
 
             if (abortSignal?.aborted) {
@@ -1366,6 +1477,9 @@ Internal thinking only. Reason semantically (generalize patterns in ANY language
             }
 
             const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
+
+            // Store executed tool call to prevent duplicates
+            executedToolCalls.set(toolCallKey, { toolId, result: resultObj });
 
             allToolResults.push({
               toolCallId: toolId,
