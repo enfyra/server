@@ -658,7 +658,7 @@ export class LLMService {
                 const prevInput = accumulatedTokenUsage.inputTokens;
                 const prevOutput = accumulatedTokenUsage.outputTokens;
                 accumulatedTokenUsage.inputTokens = Math.max(prevInput, chunkUsage.inputTokens ?? 0);
-                accumulatedTokenUsage.outputTokens += chunkUsage.outputTokens ?? 0;
+                accumulatedTokenUsage.outputTokens = Math.max(prevOutput, chunkUsage.outputTokens ?? 0);
                 
                 if (accumulatedTokenUsage.inputTokens > prevInput || accumulatedTokenUsage.outputTokens > prevOutput) {
                   onEvent({
@@ -922,8 +922,8 @@ export class LLMService {
             
             const usage = this.extractTokenUsage(aggregateResponse);
             if (usage) {
-              accumulatedTokenUsage.inputTokens += usage.inputTokens ?? 0;
-              accumulatedTokenUsage.outputTokens += usage.outputTokens ?? 0;
+              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, usage.inputTokens ?? 0);
+              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, usage.outputTokens ?? 0);
               
               onEvent({
                 type: 'tokens',
@@ -973,7 +973,7 @@ export class LLMService {
               const finalUsage = this.extractTokenUsage(aggregateResponse);
               if (finalUsage) {
                 accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
-                accumulatedTokenUsage.outputTokens += finalUsage.outputTokens ?? 0;
+                accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
               }
               
               if (accumulatedTokenUsage.inputTokens > 0 || accumulatedTokenUsage.outputTokens > 0) {
@@ -1083,7 +1083,7 @@ export class LLMService {
           const finalUsage = this.extractTokenUsage(aggregateResponse);
           if (finalUsage) {
             accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
-            accumulatedTokenUsage.outputTokens += finalUsage.outputTokens ?? 0;
+            accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
           }
           
           if (accumulatedTokenUsage.inputTokens > 0 || accumulatedTokenUsage.outputTokens > 0) {
@@ -1144,7 +1144,7 @@ export class LLMService {
         const iterationUsage = this.extractTokenUsage(aggregateResponse);
         if (iterationUsage) {
           accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, iterationUsage.inputTokens ?? 0);
-          accumulatedTokenUsage.outputTokens += iterationUsage.outputTokens ?? 0;
+          accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, iterationUsage.outputTokens ?? 0);
           
           onEvent({
             type: 'tokens',
