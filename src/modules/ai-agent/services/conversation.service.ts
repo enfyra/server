@@ -526,7 +526,15 @@ export class ConversationService {
 
       const toolCallsDetails = Array.isArray(mapped.toolCalls) ? mapped.toolCalls.map((tc: any) => {
         const name = tc.function?.name || tc.name;
-        let argsStr = typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {});
+        let args: any = tc.function?.arguments || tc.args || tc.arguments || {};
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch {
+            args = {};
+          }
+        }
+        const argsStr = JSON.stringify(args);
         return {
           name,
           id: tc.id,

@@ -392,10 +392,15 @@ delete_records({
   const crudQueryOpsContent = `**CRUD Query Operations (Find & Count) - Complete Workflow**
 
 **WORKFLOW FOR FINDING RECORDS:**
-Step 1: Get field names (if needed)
+Step 1: Get table schema to know available fields (MANDATORY - NEVER guess fields)
 get_table_details({"tableName": ["product"]})
 
-Step 2: Query records
+Step 2: Extract field names from schema result
+- Use only field names that exist in result.columns[].name
+- NEVER guess or invent field names
+- If you need specific fields, check they exist in schema first
+
+Step 3: Query records with verified fields
 find_records({
   "table": "product",
   "fields": "${idFieldName},name,price",
@@ -439,9 +444,12 @@ find_records({
 })
 
 **CRITICAL RULES:**
+- ALWAYS get table schema first using get_table_details before find_records
+- NEVER guess field names - always verify they exist in schema.columns[].name
 - Always specify fields parameter (minimal fields to save tokens)
 - Use limit=0 to fetch ALL records
 - Use _in operator for multiple values (more efficient than multiple calls)
+- If you don't know the fields, call get_table_details first, then use fields from result
 - Read metadata.totalCount or metadata.filterCount for count results`;
 
   const crudQueryOpsHint: HintContent = {
