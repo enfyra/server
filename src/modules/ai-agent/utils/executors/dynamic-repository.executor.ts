@@ -53,10 +53,8 @@ export async function executeDynamicRepository(
   abortSignal: AbortSignal | undefined,
   deps: DynamicRepositoryExecutorDependencies,
 ): Promise<any> {
-  logger.debug(`[dynamic_repository] Called with operation=${args.operation}, table=${args.table}, hasWhere=${!!args.where}, hasData=${!!args.data}, fields=${args.fields}, limit=${args.limit}, id=${args.id}`);
 
   if (abortSignal?.aborted) {
-    logger.debug(`[dynamic_repository] Request aborted`);
     return {
       error: true,
       errorCode: 'REQUEST_ABORTED',
@@ -65,13 +63,12 @@ export async function executeDynamicRepository(
   }
 
   if (args.table === 'table_definition' && (args.operation === 'create' || args.operation === 'update')) {
-    logger.debug(`[dynamic_repository] Invalid operation: cannot ${args.operation} table_definition`);
     return {
       error: true,
       errorCode: 'INVALID_OPERATION',
-      message: `Cannot use ${args.operation === 'create' ? 'create_record' : 'update_record'} to ${args.operation} table_definition. Use create_table or update_table tool instead.`,
-      userMessage: `❌ **Invalid Operation**: You cannot use ${args.operation === 'create' ? 'create_record' : 'update_record'} to ${args.operation} table_definition.\n\n📋 **Action Required**: Use the correct tool:\n- To create a new table: Use \`create_table\` tool\n- To update an existing table: Use \`update_table\` tool\n\n💡 **Note**: Table schema operations (create/update) must use the dedicated table management tools.`,
-      suggestion: `Use ${args.operation === 'create' ? 'create_table' : 'update_table'} tool instead for table_definition operations.`,
+      message: `Cannot use ${args.operation === 'create' ? 'create_record' : 'update_record'} to ${args.operation} table_definition. Use create_tables or update_tables tool instead.`,
+      userMessage: `❌ **Invalid Operation**: You cannot use ${args.operation === 'create' ? 'create_record' : 'update_record'} to ${args.operation} table_definition.\n\n📋 **Action Required**: Use the correct tool:\n- To create a new table: Use \`create_tables\` tool\n- To update an existing table: Use \`update_tables\` tool\n\n💡 **Note**: Table schema operations (create/update) must use the dedicated table management tools.`,
+      suggestion: `Use ${args.operation === 'create' ? 'create_tables' : 'update_tables'} tool instead for table_definition operations.`,
     };
   }
 
@@ -123,7 +120,6 @@ export async function executeDynamicRepository(
     ['find', 'create', 'update', 'delete'].includes(args.operation);
 
   if (needsPermissionCheck) {
-    logger.debug(`[dynamic_repository] Checking permission for ${args.operation} on ${args.table}`);
     const permissionCache: Map<string, any> =
       ((context as any).__permissionCache as Map<string, any>) ||
       (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
@@ -140,9 +136,7 @@ export async function executeDynamicRepository(
           context,
           deps,
         );
-        logger.debug(`[dynamic_repository] Permission check result: allowed=${permissionResult?.allowed}, reason=${permissionResult?.reason || 'N/A'}`);
         if (!permissionResult?.allowed) {
-          logger.debug(`[dynamic_repository] Permission denied for ${operation} on ${args.table}`);
           return {
             error: true,
             errorCode: 'PERMISSION_DENIED',
@@ -156,9 +150,7 @@ export async function executeDynamicRepository(
       }
     } else {
       const permissionResult = permissionCache.get(cacheKey);
-      logger.debug(`[dynamic_repository] Using cached permission: allowed=${permissionResult?.allowed}`);
       if (!permissionResult?.allowed) {
-        logger.debug(`[dynamic_repository] Cached permission denied for ${operation} on ${args.table}`);
         return {
           error: true,
           errorCode: 'PERMISSION_DENIED',
@@ -223,7 +215,6 @@ export async function executeDynamicRepository(
     let result: any;
     switch (args.operation) {
       case 'find':
-        logger.debug(`[dynamic_repository] Executing find on ${args.table}, fields=${args.fields}, limit=${args.limit}`);
         result = await repo.find({
           where: args.where,
           fields: args.fields,
@@ -231,7 +222,6 @@ export async function executeDynamicRepository(
           sort: args.sort,
           meta: args.meta,
         });
-        logger.debug(`[dynamic_repository] Find result: ${Array.isArray(result?.data) ? result.data.length : 0} records`);
         return result;
       case 'create':
         if (!args.data) {
@@ -240,9 +230,7 @@ export async function executeDynamicRepository(
         if (args.data.id !== undefined) {
           throw new Error('CRITICAL: Do NOT include "id" field in create operations. The database will automatically generate the id. Remove "id" from your data object and try again.');
         }
-        logger.debug(`[dynamic_repository] Executing create on ${args.table}, dataKeys=${Object.keys(args.data).join(',')}, fields=${safeFields}`);
         result = await repo.create({ data: args.data, fields: safeFields });
-        logger.debug(`[dynamic_repository] Create result: id=${result?.data?.id || result?.data?._id || 'N/A'}`);
         return result;
       case 'update':
         if (!args.id) {
@@ -251,17 +239,13 @@ export async function executeDynamicRepository(
         if (!args.data) {
           throw new Error('data is required for update operation');
         }
-        logger.debug(`[dynamic_repository] Executing update on ${args.table}, id=${args.id}, dataKeys=${Object.keys(args.data).join(',')}, fields=${safeFields}`);
         result = await repo.update({ id: args.id, data: args.data, fields: safeFields });
-        logger.debug(`[dynamic_repository] Update result: success=${!!result?.data}`);
         return result;
       case 'delete':
         if (!args.id) {
           throw new Error('id is required for delete operation');
         }
-        logger.debug(`[dynamic_repository] Executing delete on ${args.table}, id=${args.id}`);
         result = await repo.delete({ id: args.id });
-        logger.debug(`[dynamic_repository] Delete result: success=${!!result}`);
         return result;
       default:
         throw new Error(`Unknown operation: ${args.operation}`);
@@ -338,8 +322,8 @@ export async function executeDynamicRepository(
         errorType: 'INVALID_INPUT',
         errorCode: 'TABLE_NAME_AS_ID',
         message: `Cannot use table name "${args.table}" as id value. To delete a TABLE (not data), you must delete the table_definition record.`,
-        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1})\n2. Get the id (number) from the result\n3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})\n\n💡 **Note**: Using delete_record on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must use delete_table tool.`,
-        suggestion: `To delete table "${args.table}", first find it in table_definition: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1}). Then use the id (number) from the result to delete: delete_table({"id":<id>}).`,
+        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1})\n2. Get the id (number) from the result\n3. Delete the table using delete_tables tool: delete_tables({"ids":[<id_from_step_1>]})\n\n💡 **Note**: Using delete_record on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must use delete_tables tool.`,
+        suggestion: `To delete table "${args.table}", first find it in table_definition: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1}). Then use the id (number) from the result to delete: delete_tables({"ids":[<id>]}).`,
         details: {
           ...details,
           table: args.table,

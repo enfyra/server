@@ -9,6 +9,10 @@ export function optimizeMetadataForLLM(tableMetadata: any): any {
     optimized.id = tableMetadata.id;
   }
 
+  if (tableMetadata.isSystem !== undefined && tableMetadata.isSystem !== null) {
+    optimized.isSystem = tableMetadata.isSystem;
+  }
+
   if (tableMetadata.uniques) {
     optimized.uniques = tableMetadata.uniques;
   }

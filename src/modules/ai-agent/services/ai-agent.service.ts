@@ -139,13 +139,13 @@ export class AiAgentService implements OnModuleInit {
     const isCreateRequest = /(tạo|create|add)\s+(bảng|table|tables)/i.test(userMessageText);
     const isUpdateRequest = /(cập nhật|update|sửa|modify)\s+(bảng|table|tables)/i.test(userMessageText);
 
-    let detectedTaskType: 'create_table' | 'update_table' | 'delete_table' | 'custom' | null = null;
+    let detectedTaskType: 'create_tables' | 'update_tables' | 'delete_tables' | 'custom' | null = null;
     if (isDeleteRequest) {
-      detectedTaskType = 'delete_table';
+      detectedTaskType = 'delete_tables';
     } else if (isCreateRequest) {
-      detectedTaskType = 'create_table';
+      detectedTaskType = 'create_tables';
     } else if (isUpdateRequest) {
-      detectedTaskType = 'update_table';
+      detectedTaskType = 'update_tables';
     }
 
     if (conversation.task && 
@@ -281,10 +281,13 @@ export class AiAgentService implements OnModuleInit {
     const { request, req, res, userId, user } = params;
 
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
+    
+    if (typeof res.flushHeaders === 'function') {
+      res.flushHeaders();
+    }
 
     if (res.socket && typeof res.socket.setMaxListeners === 'function') {
       res.socket.setMaxListeners(20);
@@ -330,9 +333,20 @@ export class AiAgentService implements OnModuleInit {
 
         const assistantSequence = currentLastSequence + 2;
         const contentToSave = fullContent.trim() || '(Message cancelled by user)';
-        const toolCallsToSave = allToolCalls.length > 0 ? allToolCalls : null;
+        const uniqueToolCalls = allToolCalls.length > 0 ? (() => {
+          const seen = new Set<string>();
+          return allToolCalls.filter((tc) => {
+            const id = tc.id;
+            if (!id || seen.has(id)) {
+              return false;
+            }
+            seen.add(id);
+            return true;
+          });
+        })() : null;
+        const toolCallsToSave = uniqueToolCalls;
         const toolResultsToSave = allToolResults.length > 0
-          ? this.summarizeToolResults(allToolCalls, allToolResults)
+          ? this.summarizeToolResults(uniqueToolCalls || [], allToolResults)
           : null;
 
         await this.conversationService.createMessage({
@@ -581,92 +595,46 @@ export class AiAgentService implements OnModuleInit {
       const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || request.message;
       const userMessageStr = typeof latestUserMessage === 'string' ? latestUserMessage : JSON.stringify(latestUserMessage);
 
-      let selectedToolNames = await this.llmService.evaluateNeedsTools({
+      const evaluateResult = await this.llmService.evaluateNeedsTools({
         userMessage: userMessageStr,
         configId,
         conversationHistory: messages,
         conversationSummary: conversation.summary,
       });
       
-
-
-      if (!selectedToolNames || selectedToolNames.length === 0) {
-        this.logger.warn(`[processRequestStream] evaluateNeedsTools returned empty array. User message: "${userMessageStr.substring(0, 200)}"`);
-        
-
-        const isShortMessage = userMessageStr.length <= 20;
-        const shortMessagePatterns = /^(tạo|tạo đi|ok|được|yes|yep|go ahead|do it|make it|create|create it|làm|làm đi)$/i;
-        const isAmbiguous = shortMessagePatterns.test(userMessageStr.trim());
-        
-        if (isShortMessage || isAmbiguous) {
-
-          const previousUserMessages = messages
-            .filter(m => m.role === 'user')
-            .slice(-3) 
-            .map(m => {
-              const content = m.content || '';
-              return typeof content === 'string' ? content : JSON.stringify(content);
-            })
-            .join(' ')
-            .toLowerCase();
-          
-
-          if (previousUserMessages.includes('tạo') || previousUserMessages.includes('create') || previousUserMessages.includes('bán khóa học') || previousUserMessages.includes('backend')) {
-            selectedToolNames = ['create_table', 'get_hint'];
-            this.logger.log(`[processRequestStream] Fallback: Inferred create_table intent from history for short message: "${userMessageStr}"`);
-          }
-
-          else if (previousUserMessages.includes('xem') || previousUserMessages.includes('show') || previousUserMessages.includes('find') || previousUserMessages.includes('tìm')) {
-            selectedToolNames = ['find_records'];
-            this.logger.log(`[processRequestStream] Fallback: Inferred find_records intent from history for short message: "${userMessageStr}"`);
-          }
-
-          else if (previousUserMessages.includes('đếm') || previousUserMessages.includes('count') || previousUserMessages.includes('bao nhiêu')) {
-            selectedToolNames = ['count_records'];
-            this.logger.log(`[processRequestStream] Fallback: Inferred count_records intent from history for short message: "${userMessageStr}"`);
-          }
-        }
-      }
+      let selectedToolNames = evaluateResult.toolNames || [];
+      const hintCategories = evaluateResult.categories || [];
 
 
 
       if (selectedToolNames && selectedToolNames.length > 0) {
-        const hasCreateTable = selectedToolNames.includes('create_table');
-        const hasUpdateTable = selectedToolNames.includes('update_table');
-        const hasGetHint = selectedToolNames.includes('get_hint');
-        
-        if ((hasCreateTable || hasUpdateTable) && !hasGetHint) {
-          selectedToolNames = [...selectedToolNames, 'get_hint'];
-        }
+        selectedToolNames = selectedToolNames.filter(name => name !== 'get_hint');
       }
 
 
       if (selectedToolNames && selectedToolNames.length > 0) {
         const hasFindRecords = selectedToolNames.includes('find_records');
-        const hasCreateRecord = selectedToolNames.includes('create_record');
-        const hasUpdateRecord = selectedToolNames.includes('update_record');
-        const hasBatchCreateRecords = selectedToolNames.includes('batch_create_records');
-        const hasBatchUpdateRecords = selectedToolNames.includes('batch_update_records');
+        const hasCreateRecord = selectedToolNames.includes('create_records');
+        const hasUpdateRecord = selectedToolNames.includes('update_records');
         const hasGetTableDetails = selectedToolNames.includes('get_table_details');
         
 
 
-        if ((hasBatchCreateRecords || hasBatchUpdateRecords || selectedToolNames.includes('batch_delete_records')) && !hasFindRecords) {
+        if ((hasCreateRecord || hasUpdateRecord || selectedToolNames.includes('delete_records')) && !hasFindRecords) {
           selectedToolNames = [...selectedToolNames, 'find_records'];
         }
         
 
 
-        if ((hasCreateRecord || hasUpdateRecord || hasBatchCreateRecords || hasBatchUpdateRecords) && !hasGetTableDetails) {
+        if ((hasCreateRecord || hasUpdateRecord) && !hasGetTableDetails) {
           selectedToolNames = [...selectedToolNames, 'get_table_details'];
         }
       }
 
       const needsTools = selectedToolNames && selectedToolNames.length > 0;
-      const llmMessages = await this.buildLLMMessages({ conversation, messages, config, user, needsTools });
+      const llmMessages = await this.buildLLMMessages({ conversation, messages, config, user, needsTools, hintCategories, selectedToolNames });
 
       let toolsDefSize = 0;
-      let toolsDefTokens = 0;
       if (selectedToolNames && selectedToolNames.length > 0) {
         const toolsDefFile = require('../utils/llm-tools.helper');
         const COMMON_TOOLS = toolsDefFile.COMMON_TOOLS || [];
@@ -691,35 +659,18 @@ export class AiAgentService implements OnModuleInit {
         });
         const formattedTools = formatTools(config.provider, selectedTools);
         toolsDefSize = JSON.stringify(formattedTools).length;
-        toolsDefTokens = this.estimateTokens(JSON.stringify(formattedTools));
       }
       
-    let totalEstimate = 0;
     let historyCount = 0;
     let toolCallsCount = 0;
     for (const msg of llmMessages) {
-      if (msg.role === 'system') {
-        const tokens = this.estimateTokens(msg.content || '');
-        totalEstimate += tokens;
-      } else if (msg.role === 'user') {
-        const tokens = this.estimateTokens(msg.content || '');
-        totalEstimate += tokens;
+      if (msg.role === 'user') {
         historyCount++;
       } else if (msg.role === 'assistant') {
-        const contentTokens = this.estimateTokens(msg.content || '');
-        let toolCallsTokens = 0;
         if (msg.tool_calls) {
           toolCallsCount += msg.tool_calls.length;
-          for (const tc of msg.tool_calls) {
-            const argsStr = typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {});
-            toolCallsTokens += this.estimateTokens(argsStr) + 50;
-          }
         }
-        totalEstimate += contentTokens + toolCallsTokens;
         historyCount++;
-      } else if (msg.role === 'tool') {
-        const tokens = this.estimateTokens(msg.content || '');
-        totalEstimate += tokens;
       }
     }
 
@@ -746,34 +697,43 @@ export class AiAgentService implements OnModuleInit {
             }
             
             if (event.type === 'text' && event.data?.delta) {
-              fullContent = fullContent + (event.data.delta || '');
-              sendEvent({
-                type: 'text',
-                data: {
-                  delta: event.data.delta || '',
-                },
-              });
-            } else if (event.type === 'tool_call') {
-              let parsedArgs = {};
-              try {
-                parsedArgs = typeof event.data.arguments === 'string' 
-                  ? JSON.parse(event.data.arguments) 
-                  : event.data.arguments || {};
-              } catch (e) {
-                parsedArgs = {};
+              const delta = event.data.delta || '';
+              fullContent = fullContent + delta;
+              
+              if (delta.length > 0) {
+                sendEvent({
+                  type: 'text',
+                  data: {
+                    delta: delta,
+                  },
+                });
               }
+            } else if (event.type === 'tool_call') {
+              const toolCallId = event.data.id;
+              if (toolCallId) {
+                const alreadyExists = allToolCalls.some((tc) => tc.id === toolCallId);
+                if (!alreadyExists) {
+                  let parsedArgs = {};
+                  try {
+                    parsedArgs = typeof event.data.arguments === 'string' 
+                      ? JSON.parse(event.data.arguments) 
+                      : event.data.arguments || {};
+                  } catch (e) {
+                    parsedArgs = {};
+                  }
 
-
-              allToolCalls.push({
-                id: event.data.id,
-                type: 'function',
-                function: {
-                  name: event.data.name,
-                  arguments: typeof event.data.arguments === 'string' 
-                    ? event.data.arguments 
-                    : JSON.stringify(event.data.arguments || {}),
-                },
-              });
+                  allToolCalls.push({
+                    id: toolCallId,
+                    type: 'function',
+                    function: {
+                      name: event.data.name,
+                      arguments: typeof event.data.arguments === 'string' 
+                        ? event.data.arguments 
+                        : JSON.stringify(event.data.arguments || {}),
+                    },
+                  });
+                }
+              }
               sendEvent(event);
             } else if (event.type === 'tool_result') {
               allToolResults.push({
@@ -893,7 +853,6 @@ export class AiAgentService implements OnModuleInit {
 
       const summary = {
         conversationId: conversation.id,
-        estimatedInput: totalEstimate + toolsDefTokens,
         actualInput: actualInputTokens,
         actualOutput: actualOutputTokens,
         historyTurns: historyCount,
@@ -911,7 +870,18 @@ export class AiAgentService implements OnModuleInit {
           }
 
           const assistantSequence = lastSequence + 2;
-          const toolCallsToSave = allToolCalls.length > 0 ? allToolCalls : (llmResponse.toolCalls || []);
+          const uniqueToolCalls = allToolCalls.length > 0 ? (() => {
+            const seen = new Set<string>();
+            return allToolCalls.filter((tc) => {
+              const id = tc.id;
+              if (!id || seen.has(id)) {
+                return false;
+              }
+              seen.add(id);
+              return true;
+            });
+          })() : (llmResponse.toolCalls || []);
+          const toolCallsToSave = uniqueToolCalls;
           const toolResultsToSave = allToolResults.length > 0 ? allToolResults : (llmResponse.toolResults || []);
           const summarizedToolResults = toolResultsToSave.length > 0
             ? this.summarizeToolResults(toolCallsToSave, toolResultsToSave)
@@ -935,6 +905,10 @@ export class AiAgentService implements OnModuleInit {
               userMessage: userMessageStr,
               boundTools: selectedToolNames || [],
               provider: provider,
+              tokenUsage: {
+                inputTokens: actualInputTokens > 0 ? actualInputTokens : undefined,
+                outputTokens: actualOutputTokens > 0 ? actualOutputTokens : undefined,
+              },
             },
           });
 
@@ -1095,27 +1069,23 @@ export class AiAgentService implements OnModuleInit {
     return trimmed.substring(0, maxLength - 3) + '...';
   }
 
-  private estimateTokens(text: string): number {
-    if (!text) return 0;
-    return Math.ceil(text.length / 4);
-  }
-
   private async buildLLMMessages(params: {
     conversation: IConversation;
     messages: IMessage[];
     config: any;
     user?: any;
     needsTools?: boolean;
+    hintCategories?: string[];
+    selectedToolNames?: string[];
   }): Promise<LLMMessage[]> {
-    const { conversation, messages, config, user, needsTools = true } = params;
+    const { conversation, messages, config, user, needsTools = true, hintCategories, selectedToolNames } = params;
 
 
     const latestUserMessage = messages.length > 0
       ? messages[messages.length - 1]?.content
       : undefined;
 
-    const systemPrompt = await this.buildSystemPrompt({ conversation, config, user, latestUserMessage, needsTools });
-    
+    const systemPrompt = await this.buildSystemPrompt({ conversation, config, user, latestUserMessage, needsTools, hintCategories, selectedToolNames });
     
     const llmMessages: LLMMessage[] = [
       {
@@ -1338,7 +1308,9 @@ export class AiAgentService implements OnModuleInit {
     }
 
     const toolResultsCount = llmMessages.filter(m => m.role === 'tool').length;
-
+    const historyUserCount = llmMessages.filter(m => m.role === 'user').length;
+    const historyAssistantCount = llmMessages.filter(m => m.role === 'assistant').length;
+    const historyToolCount = llmMessages.filter(m => m.role === 'tool').length;
 
     return llmMessages;
   }
@@ -1412,14 +1384,14 @@ export class AiAgentService implements OnModuleInit {
       return `[${name}] Executed. Schema details omitted to save tokens. Re-run the tool if you need the raw metadata.`;
     }
 
-    if (name === 'update_table') {
+    if (name === 'update_tables') {
       if (result?.error) {
         const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
-        return `[update_table] ${toolArgs?.tableName || 'unknown'} -> ERROR: ${this.truncateString(message, 220)}`;
+        return `[update_tables] ${toolArgs?.tables?.[0]?.tableName || 'unknown'} -> ERROR: ${this.truncateString(message, 220)}`;
       }
-      const tableName = result?.tableName || toolArgs?.tableName || 'unknown';
+      const tableName = result?.tableName || toolArgs?.tables?.[0]?.tableName || 'unknown';
       const updated = result?.updated || 'table metadata';
-      return `[update_table] ${tableName} -> SUCCESS: Updated ${updated}`;
+      return `[update_tables] ${tableName} -> SUCCESS: Updated ${updated}`;
     }
 
 
@@ -1448,7 +1420,7 @@ export class AiAgentService implements OnModuleInit {
           const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
           if (length > 1) {
-            return `[${name}] ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: For table deletion, you MUST delete ONE BY ONE sequentially (not batch_delete_records) to avoid deadlocks. Delete each table separately: delete id1, then delete id2, etc.`;
+            return `[${name}] ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: For table deletion, use delete_tables with ALL IDs in array: delete_tables({"ids":[${allIds.join(',')}]})`;
           }
           return `[${name}] ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;
         }
@@ -1458,7 +1430,7 @@ export class AiAgentService implements OnModuleInit {
           const idsStr = ids.length > 0 ? ` ids=[${ids.join(', ')}]` : '';
           const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
           const allIdsStr = allIds.length > 0 ? ` ALL IDs: [${allIds.join(', ')}]` : '';
-          return `[${name}] ${table} -> Found ${length} record(s)${idsStr}${moreInfo}.${allIdsStr} CRITICAL: For operations on 2+ records, use batch_create_records, batch_update_records, or batch_delete_records with ALL ${allIds.length} IDs. Process ALL ${length} records, not just one.`;
+          return `[${name}] ${table} -> Found ${length} record(s)${idsStr}${moreInfo}.${allIdsStr} CRITICAL: For operations on 2+ records, use create_records, update_records, or delete_records with ALL ${allIds.length} IDs. Process ALL ${length} records, not just one.`;
         }
       }
 
@@ -1514,18 +1486,18 @@ export class AiAgentService implements OnModuleInit {
       return `[count_records] ${table} -> Count: ${count}`;
     }
 
-    if (name === 'create_record') {
+    if (name === 'create_records') {
       const table = toolArgs?.table || 'unknown';
 
       if (result?.error) {
         if (result.errorCode === 'PERMISSION_DENIED') {
           const reason = result.reason || result.message || 'unknown';
-          return `[create_record] ${table} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to create records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
+          return `[create_records] ${table} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to create records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
         }
         const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
         const errorMessage = this.truncateString(message, 500);
         const errorCode = result.errorCode ? ` (${result.errorCode})` : '';
-        return `[create_record] ${table} -> ERROR${errorCode}: ${errorMessage}`;
+        return `[create_records] ${table} -> ERROR${errorCode}: ${errorMessage}`;
       }
 
       const essential: any = {};
@@ -1534,22 +1506,22 @@ export class AiAgentService implements OnModuleInit {
       if (result?.data?.email !== undefined) essential.email = result.data.email;
       if (result?.data?.title !== undefined) essential.title = result.data.title;
       const dataInfo = Object.keys(essential).length > 0 ? ` essentialFields=${this.truncateString(JSON.stringify(essential), 120)}` : '';
-      return `[create_record] ${table} -> CREATED${dataInfo}`;
+      return `[create_records] ${table} -> CREATED${dataInfo}`;
     }
 
-    if (name === 'update_record') {
+    if (name === 'update_records') {
       const table = toolArgs?.table || 'unknown';
       const id = toolArgs?.id || 'unknown';
 
       if (result?.error) {
         if (result.errorCode === 'PERMISSION_DENIED') {
           const reason = result.reason || result.message || 'unknown';
-          return `[update_record] ${table} id=${id} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to update records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
+          return `[update_records] ${table} id=${id} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to update records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
         }
         const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
         const errorMessage = this.truncateString(message, 500);
         const errorCode = result.errorCode ? ` (${result.errorCode})` : '';
-        return `[update_record] ${table} id=${id} -> ERROR${errorCode}: ${errorMessage}`;
+        return `[update_records] ${table} id=${id} -> ERROR${errorCode}: ${errorMessage}`;
       }
 
       const essential: any = {};
@@ -1558,31 +1530,31 @@ export class AiAgentService implements OnModuleInit {
       if (result?.data?.email !== undefined) essential.email = result.data.email;
       if (result?.data?.title !== undefined) essential.title = result.data.title;
       const dataInfo = Object.keys(essential).length > 0 ? ` essentialFields=${this.truncateString(JSON.stringify(essential), 120)}` : '';
-      return `[update_record] ${table} id=${id} -> UPDATED${dataInfo}`;
+      return `[update_records] ${table} id=${id} -> UPDATED${dataInfo}`;
     }
 
-    if (name === 'delete_record') {
+    if (name === 'delete_records') {
       const table = toolArgs?.table || 'unknown';
       const id = toolArgs?.id || 'unknown';
 
       if (result?.error) {
         if (result.errorCode === 'PERMISSION_DENIED') {
           const reason = result.reason || result.message || 'unknown';
-          return `[delete_record] ${table} id=${id} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to delete records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
+          return `[delete_records] ${table} id=${id} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to delete records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
         }
         const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
         const errorMessage = this.truncateString(message, 500);
         const errorCode = result.errorCode ? ` (${result.errorCode})` : '';
-        return `[delete_record] ${table} id=${id} -> ERROR${errorCode}: ${errorMessage}`;
+        return `[delete_records] ${table} id=${id} -> ERROR${errorCode}: ${errorMessage}`;
       }
 
-      return `[delete_record] ${table} id=${id} -> DELETED`;
+      return `[delete_records] ${table} id=${id} -> DELETED`;
     }
 
 
-    if (name === 'batch_create_records' || name === 'batch_update_records' || name === 'batch_delete_records') {
+    if (name === 'create_records' || name === 'update_records' || name === 'delete_records') {
       const table = toolArgs?.table || 'unknown';
-      const operation = name.replace('batch_', '').replace('_records', '');
+      const operation = name.replace('_records', '');
 
       if (result?.error) {
         if (result.errorCode === 'PERMISSION_DENIED') {
@@ -1664,19 +1636,35 @@ export class AiAgentService implements OnModuleInit {
     user?: any;
     latestUserMessage?: string;
     needsTools?: boolean;
+    hintCategories?: string[];
+    selectedToolNames?: string[];
   }): Promise<string> {
-    const { conversation, user, latestUserMessage, needsTools = true, config } = params;
+    const { conversation, user, latestUserMessage, needsTools = true, config, hintCategories, selectedToolNames } = params;
     const provider = config?.provider || 'OpenAI';
 
     let tablesList: string | undefined;
-    if (needsTools) {
+    const needsTableListForReference = needsTools && selectedToolNames && (
+      selectedToolNames.includes('create_tables') ||
+      selectedToolNames.includes('update_tables') ||
+      selectedToolNames.includes('delete_tables') ||
+      (selectedToolNames.includes('find_records') && !hintCategories?.includes('metadata_operations'))
+    );
+    if (needsTableListForReference) {
       const metadata = await this.metadataCacheService.getMetadata();
       tablesList = Array.from(metadata.tables.keys()).map(name => `- ${name}`).join('\n');
     }
 
     const dbType = this.queryBuilder.getDbType();
+    const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
 
-    return buildSystemPrompt({
+    let hintContent: string | undefined;
+    if (hintCategories && hintCategories.length > 0) {
+      const { buildHintContent, getHintContentString } = require('../utils/executors/get-hint.executor');
+      const hints = buildHintContent(dbType, idFieldName, hintCategories);
+      hintContent = getHintContentString(hints);
+    }
+
+    const systemPrompt = buildSystemPrompt({
       provider,
       needsTools,
       tablesList,
@@ -1685,7 +1673,10 @@ export class AiAgentService implements OnModuleInit {
       latestUserMessage,
       conversationSummary: conversation.summary,
       task: conversation.task,
+      hintContent,
     });
+    
+    return systemPrompt;
   }
 
 
@@ -1731,8 +1722,8 @@ export class AiAgentService implements OnModuleInit {
               const args = typeof tc.function?.arguments === 'string' 
                 ? JSON.parse(tc.function.arguments) 
                 : tc.function?.arguments || {};
-              if (toolName === 'batch_create_records' || toolName === 'batch_update_records' || toolName === 'batch_delete_records') {
-                argsStr = `${toolName.replace('batch_', '').replace('_records', '')} on ${args.table || 'unknown'}`;
+              if (toolName === 'create_records' || toolName === 'update_records' || toolName === 'delete_records') {
+                argsStr = `${toolName.replace('_records', '')} on ${args.table || 'unknown'}`;
                 if (args.ids) argsStr += ` (ids: [${args.ids.slice(0, 3).join(', ')}${args.ids.length > 3 ? '...' : ''}])`;
                 if (args.dataArray) argsStr += ` (${args.dataArray.length} items)`;
                 if (args.updates) argsStr += ` (${args.updates.length} updates)`;

@@ -41,7 +41,6 @@ export async function executeGetTableDetails(
   context: TDynamicContext | undefined,
   deps: GetTableDetailsExecutorDependencies,
 ): Promise<any> {
-  logger.debug(`[get_table_details] Called with tableName=${JSON.stringify(args.tableName)}, getData=${args.getData}, forceRefresh=${args.forceRefresh}, hasId=${!!args.id}, hasName=${!!args.name}`);
 
   const {
     metadataCacheService,
@@ -58,7 +57,6 @@ export async function executeGetTableDetails(
   } = deps;
 
   if (args.forceRefresh) {
-    logger.debug(`[get_table_details] Force refreshing metadata`);
     await metadataCacheService.reload();
   }
 
@@ -135,7 +133,6 @@ export async function executeGetTableDetails(
           where.name = { _eq: name };
         }
 
-        logger.debug(`[get_table_details] Fetching data for ${tableName}`);
         const dataResult = await repo.find({
           where,
           fields: '*',
@@ -144,10 +141,8 @@ export async function executeGetTableDetails(
 
         if (dataResult?.data && dataResult.data.length > 0) {
           result.data = dataResult.data[0];
-          logger.debug(`[get_table_details] Found data for ${tableName}`);
         } else {
           result.data = null;
-          logger.debug(`[get_table_details] No data found for ${tableName}`);
         }
       } catch (error: any) {
         logger.error(`[get_table_details] Error fetching data for ${tableName}: ${error.message}`);
@@ -161,18 +156,32 @@ export async function executeGetTableDetails(
 
   const result: Record<string, any> = {};
   const errors: string[] = [];
+  const isBulkQuery = tableNames.length > 5;
 
   for (let i = 0; i < tableNames.length; i++) {
     const tableName = tableNames[i];
     try {
-      logger.debug(`[get_table_details] Processing table ${i + 1}/${tableNames.length}: ${tableName}`);
       const metadata = await metadataCacheService.getTableMetadata(tableName);
       if (!metadata) {
-        logger.debug(`[get_table_details] Table ${tableName} not found`);
         errors.push(`Table ${tableName} not found`);
         continue;
       }
-      result[tableName] = optimizeMetadataForLLM(metadata);
+      
+      if (isBulkQuery) {
+        const optimized = optimizeMetadataForLLM(metadata);
+        result[tableName] = {
+          name: optimized.name,
+          description: optimized.description,
+          isSystem: metadata.isSystem || false,
+          id: optimized.id,
+          columnCount: optimized.columnCount || (optimized.columns?.length || 0),
+          relationCount: optimized.relations?.length || 0,
+          hasUniques: !!optimized.uniques && optimized.uniques.length > 0,
+          hasIndexes: !!optimized.indexes && optimized.indexes.length > 0,
+        };
+      } else {
+        result[tableName] = optimizeMetadataForLLM(metadata);
+      }
 
       if (shouldGetData && context) {
         try {

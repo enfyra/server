@@ -1,6 +1,6 @@
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 
-export function createLLMContext(user?: any): TDynamicContext {
+export function createLLMContext(user?: any, conversationId?: string | number): TDynamicContext {
   return {
     $body: {},
     $data: undefined,
@@ -25,7 +25,7 @@ export function createLLMContext(user?: any): TDynamicContext {
     $logs: (...args: any[]) => {},
     $helpers: {},
     $cache: undefined,
-    $params: {},
+    $params: { conversationId },
     $query: {},
     $user: user || null,
     $repos: {},

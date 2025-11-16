@@ -1,4 +1,4 @@
-export const DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT = `Only tool_binds available. Output ONLY: {"toolNames": [...]}. NO <|tool_calls_begin|>, NO text. Delete tables: {"toolNames": ["find_records", "delete_table"]}`;
+export const DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT = `Output ONLY valid JSON: {"categories": [...]}. NO <|tool_calls_begin|>, NO text. Example: {"categories": ["table_deletion"]}`;
 
 export const DEEPSEEK_SYSTEM_PROMPT_ADDITION = `
    - Do not show tool call syntax (NO <|tool_calls_begin|>) - system calls tools automatically
