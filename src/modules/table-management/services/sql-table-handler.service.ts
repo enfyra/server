@@ -218,18 +218,37 @@ export class SqlTableHandlerService {
     try {
       trx = await knex.transaction();
 
+      // Check metadata and physical table SEPARATELY
       const hasTable = await knex.schema.hasTable(body.name);
       const existing = await trx('table_definition')
         .where({ name: body.name })
         .first();
 
-      if (hasTable || existing) {
+      // If metadata exists, throw error (normal case)
+      if (existing) {
         await trx.rollback();
         throw new DuplicateResourceException(
           'table_definition',
           'name',
           body.name
         );
+      }
+
+      // If physical table exists but no metadata (mismatch) -> drop physical table first
+      if (hasTable && !existing) {
+        this.logger.warn(`Mismatch detected: Physical table "${body.name}" exists but no metadata found. Dropping physical table...`);
+        try {
+          // No metadata exists, so no relations to check - drop physical table with empty relations
+          await this.schemaMigrationService.dropTable(body.name, [], trx);
+          this.logger.log(`Physical table "${body.name}" dropped successfully`);
+        } catch (dropError) {
+          await trx.rollback();
+          this.logger.error(`Failed to drop physical table "${body.name}": ${dropError.message}`);
+          throw new DatabaseException(
+            `Failed to drop existing physical table "${body.name}": ${dropError.message}`,
+            { tableName: body.name, operation: 'drop_existing_table' }
+          );
+        }
       }
 
       const idCol = body.columns.find(

@@ -277,11 +277,18 @@ export class MongoTableHandlerService {
     this.validateRelations(body.relations);
 
     try {
-      // Check if collection already exists
       const db = this.queryBuilder.getMongoDb();
-      const collections = await db.listCollections({ name: body.name }).toArray();
       
-      if (collections.length > 0) {
+      // Check metadata and physical collection SEPARATELY
+      const collections = await db.listCollections({ name: body.name }).toArray();
+      const hasCollection = collections.length > 0;
+      
+      const existing = await this.queryBuilder.findOneWhere('table_definition', {
+        name: body.name,
+      });
+
+      // If metadata exists, throw error (normal case)
+      if (existing) {
         throw new DuplicateResourceException(
           'table_definition',
           'name',
@@ -289,17 +296,19 @@ export class MongoTableHandlerService {
         );
       }
 
-      // Check if metadata already exists
-      const existing = await this.queryBuilder.findOneWhere('table_definition', {
-        name: body.name,
-      });
-
-      if (existing) {
-        throw new DuplicateResourceException(
-          'table_definition',
-          'name',
-          body.name
-        );
+      // If physical collection exists but no metadata (mismatch) -> drop physical collection first
+      if (hasCollection && !existing) {
+        this.logger.warn(`Mismatch detected: Physical collection "${body.name}" exists but no metadata found. Dropping physical collection...`);
+        try {
+          await db.collection(body.name).drop();
+          this.logger.log(`Physical collection "${body.name}" dropped successfully`);
+        } catch (dropError) {
+          this.logger.error(`Failed to drop physical collection "${body.name}": ${dropError.message}`);
+          throw new DatabaseException(
+            `Failed to drop existing physical collection "${body.name}": ${dropError.message}`,
+            { collectionName: body.name, operation: 'drop_existing_collection' }
+          );
+        }
       }
 
       // MongoDB: primary key must be named "_id", not "id"
