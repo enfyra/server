@@ -171,6 +171,11 @@ export class SqlSchemaMigrationService {
             throw new Error(`Relation '${rel.propertyName}' must have targetTableName or targetTable`);
           }
 
+          const systemTables = ['table_definition', 'column_definition', 'relation_definition', 'route_definition'];
+          if (systemTables.includes(targetTableName)) {
+            throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${tableMetadata.name}' cannot target system table '${targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
+          }
+
           const fkColumn = `${rel.propertyName}Id`;
 
           this.logger.log(`CREATE TABLE: Creating FK column ${fkColumn} for relation ${rel.propertyName} (target: ${targetTableName})`);

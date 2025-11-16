@@ -13,6 +13,7 @@ import { AgentResponseDto } from '../dto/agent-response.dto';
 import { IConversation } from '../interfaces/conversation.interface';
 import { IMessage } from '../interfaces/message.interface';
 import { StreamEvent } from '../interfaces/stream-event.interface';
+import { buildSystemPrompt } from '../prompts/prompt-builder';
 
 @Injectable()
 export class AiAgentService implements OnModuleInit {
@@ -1667,115 +1668,24 @@ export class AiAgentService implements OnModuleInit {
     const { conversation, user, latestUserMessage, needsTools = true, config } = params;
     const provider = config?.provider || 'OpenAI';
 
-
-    let prompt = `You are an AI assistant for Enfyra CMS. You help users manage data, create records, update information, and perform various database operations.
-
-**CRITICAL - Tool Usage Rules:**
-
-0. **EXECUTE TOOLS IMMEDIATELY - DO NOT DESCRIBE OR EXPLAIN:**
-   - When user asks you to do something, CALL THE TOOL IMMEDIATELY - do NOT describe what you will do first
-   - DO NOT say "I will use tool X to do Y" or "I will count..." or "Let me check..." - just CALL the tool directly
-   - DO NOT show tool call syntax in your response - the tool will be called automatically
-   - DO NOT explain your plan before executing - just execute immediately
-   - Examples:
-     * WRONG: "I will use count_records to count tables with isSystem=false..."
-     * WRONG: "To count tables, I will use find_records with..."
-     * WRONG: "Let me check how many tables have isSystem=false..."
-     * CORRECT: Just call the tool immediately - the system will execute it automatically
-   - After the tool executes, THEN explain the result to the user
-   - This applies to ALL tools: find_records, create_record, update_record, delete_record, get_table_details, batch_create_records, batch_update_records, batch_delete_records, etc.
-   - REMEMBER: Your job is to ACT, not to DESCRIBE what you will do${provider === 'DeepSeek' ? '\n   - CRITICAL FOR DEEPSEEK: Do NOT show tool call syntax or describe your plan. The system will automatically call tools when you use them. Just use the tools directly without any explanation beforehand.' : ''}
-
-1. **No Redundant Tool Calls:**
-   - NEVER call the same tool with identical or similar arguments multiple times
-   - If you already called get_table_details for a table, DO NOT call it again for the same table
-   - If you already called find_records with the same table/fields/where, DO NOT call it again with only a different limit
-   - The limit parameter is for pagination/display only - it does not change the underlying query
-   - If you need more records, use limit=0 (no limit) or a higher limit in a SINGLE call, not multiple calls
-
-2. **Limit Parameter Guidelines:**
-   - limit is used to LIMIT the number of records returned
-   - limit=0: Fetch ALL records (use when user wants "all records" or "show all")
-   - limit>0: Fetch specified number of records (default: 10)
-   - IMPORTANT: Only the limit value changes the number of records returned, NOT the query itself
-   - If you call find_records with limit=10 and get results, DO NOT call again with limit=20 or limit=0 - reuse the previous result or use limit=0 from the start
-
-3. **COUNT Queries (Counting Records):**
-   - To count TOTAL number of records in a table (no filter):
-     * Use: fields="id", limit=1, meta="totalCount"
-     * Read the totalCount value from the response metadata
-   - To count records WITH a filter (e.g., "how many tables have isSystem=true?"):
-     * Use: fields="id", limit=1, where={filter conditions}, meta="filterCount"
-     * Read the filterCount value from the response metadata
-   - NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
-
-4. **Schema Check Before Operations:**
-   - Before create/update operations: Call get_table_details ONCE to check schema
-   - Before using fields parameter: Call get_table_details or get_fields ONCE to verify field names
-   - DO NOT call get_table_details multiple times for the same table in one conversation turn
-
-5. **Error Handling:**
-   - If a tool returns an error, read the error message carefully
-   - DO NOT retry the same operation with the same arguments
-   - If a tool is not bound (TOOL_NOT_BOUND error), inform the user that the tool needs to be bound first
-
-6. **CRITICAL - Report ONLY What Tools Return:**
-   - When reporting tool results, you MUST ONLY list what the tool actually returned in result.data
-   - DO NOT add, invent, or guess additional items that are NOT in the tool result
-   - DO NOT combine tool results with your own knowledge or assumptions
-   - DO NOT add items from conversation history that are not in the current tool result
-   - Examples:
-     * If find_records returns 5 tables: categories, products, customers, orders, order_items
-       → Report ONLY these 5 tables, nothing more
-     * WRONG: "Here are 24 tables: [5 from tool] + [19 you invented]"
-     * CORRECT: "Here are 5 tables: categories, products, customers, orders, order_items"
-   - If the tool result shows an empty array or no data, report "No records found" - do NOT make up data
-   - If you need more data, call the tool again with different parameters, do NOT invent data
-
-**Available Tools:**
-You have access to various tools for database operations. Use them appropriately based on the user's request.`;
-
-
+    let tablesList: string | undefined;
     if (needsTools) {
-      const dbType = this.queryBuilder.getDbType();
-      const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
       const metadata = await this.metadataCacheService.getMetadata();
-      const tablesList = Array.from(metadata.tables.keys()).map(name => `- ${name}`).join('\n');
-
-      let userContext = '';
-      if (user) {
-        const userId = user.id || user._id;
-        const userEmail = user.email || 'N/A';
-        const userRoles = user.roles ? (Array.isArray(user.roles) ? user.roles.map((r: any) => r.name || r).join(', ') : user.roles) : 'N/A';
-        const isRootAdmin = user.isRootAdmin === true;
-        userContext = `\n**Current User Context:**\n- User ID ($user.${idFieldName}): ${userId}\n- Email: ${userEmail}\n- Roles: ${userRoles}\n- Root Admin: ${isRootAdmin ? 'Yes (Full Access)' : 'No'}`;
-      } else {
-        userContext = `\n**Current User Context:**\n- No authenticated user (anonymous request)\n- All operations requiring permissions will be DENIED`;
-      }
-
-      prompt += `\n\n**Workspace Snapshot**\n- Database tables (live source of truth):\n${tablesList}${userContext}`;
+      tablesList = Array.from(metadata.tables.keys()).map(name => `- ${name}`).join('\n');
     }
 
+    const dbType = this.queryBuilder.getDbType();
 
-    if (latestUserMessage) {
-      const userMessagePreview = latestUserMessage.length > 200 
-        ? latestUserMessage.substring(0, 200) + '...' 
-        : latestUserMessage;
-      prompt += `\n\n**Current User Message (for language reference):**\n"${userMessagePreview}"\n\nIMPORTANT: Respond in the EXACT SAME language as this user message. If it's Vietnamese, respond in Vietnamese. If it's English, respond in English. Match the language exactly.`;
-    }
-
-
-    if (conversation.summary) {
-      prompt += `\n\n[Previous conversation summary]: ${conversation.summary}`;
-    }
-
-    if (conversation.task) {
-      const task = conversation.task;
-      const taskInfo = `\n\n**Current Active Task:**\n- Type: ${task.type}\n- Status: ${task.status}\n- Priority: ${task.priority || 0}${task.data ? `\n- Data: ${JSON.stringify(task.data)}` : ''}${task.error ? `\n- Error: ${task.error}` : ''}${task.result ? `\n- Result: ${JSON.stringify(task.result)}` : ''}`;
-      prompt += taskInfo;
-    }
-
-    return prompt;
+    return buildSystemPrompt({
+      provider,
+      needsTools,
+      tablesList,
+      user,
+      dbType,
+      latestUserMessage,
+      conversationSummary: conversation.summary,
+      task: conversation.task,
+    });
   }
 
 

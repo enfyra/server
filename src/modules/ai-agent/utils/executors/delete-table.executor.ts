@@ -136,7 +136,8 @@ export async function executeDeleteTable(
       success: true,
       id: args.id,
       name: tableName,
-      message: `Table "${tableName}" (id: ${args.id}) has been deleted successfully.`,
+      reloadAdminUI: true,
+      message: `Table "${tableName}" (id: ${args.id}) has been deleted successfully. ⚠️ **Important**: Please reload the admin UI to see the changes.`,
     };
   } catch (error: any) {
     const errorMessage = error?.message || String(error);
