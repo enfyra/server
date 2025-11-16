@@ -55,5 +55,21 @@ Examples:
 {"user": "Create products table", "output": {"categories": ["table_schema_operations"]}}
 {"user": "Find orders", "output": {"categories": ["crud_query_operations"]}}
 {"user": "Create 5 tables", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
-{"user": "Create backend", "output": {"categories": ["system_workflows", "table_schema_operations"]}}`;
+{"user": "Create backend", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
+{"user": "Show me all tables", "output": {"categories": ["metadata_operations"]}}
+{"user": "List non-system tables", "output": {"categories": ["metadata_operations"]}}
+{"user": "Show tables that are not system", "output": {"categories": ["metadata_operations"]}}
+{"user": "What tables do I have?", "output": {"categories": ["metadata_operations"]}}
+{"user": "Get table schema for products", "output": {"categories": ["metadata_operations"]}}
+{"user": "Show me user tables", "output": {"categories": ["metadata_operations"]}}
+{"user": "Display all non-system tables", "output": {"categories": ["metadata_operations"]}}
+{"user": "Delete products table", "output": {"categories": ["table_deletion"]}}
+{"user": "Remove the orders table", "output": {"categories": ["table_deletion"]}}
+{"user": "Add a new record", "output": {"categories": ["crud_write_operations"]}}
+{"user": "Update customer name", "output": {"categories": ["crud_write_operations"]}}
+{"user": "Delete order with id 123", "output": {"categories": ["crud_delete_operations"]}}
+{"user": "Count products", "output": {"categories": ["crud_query_operations"]}}
+{"user": "Find all users", "output": {"categories": ["crud_query_operations"]}}
+{"user": "Create e-commerce system with 5 tables", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
+{"user": "Build backend and add sample data", "output": {"categories": ["system_workflows", "table_schema_operations", "crud_write_operations"]}}`;
 
