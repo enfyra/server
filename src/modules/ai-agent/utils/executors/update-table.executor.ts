@@ -180,6 +180,8 @@ export async function executeUpdateTable(
         tableId: result?.id || args.tableId,
         updated: updatedFields.length > 0 ? updatedFields.join(', ') : 'table metadata',
         result,
+        reloadAdminUI: true,
+        message: `Table "${args.tableName}" has been updated successfully. ⚠️ **Important**: Please reload the admin UI to see the changes.`,
       };
     }
 

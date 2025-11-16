@@ -157,6 +157,10 @@ export async function executeCreateTable(
     tableId: workflowResult.result?.id,
     tableName: workflowResult.result?.name,
   });
-  return workflowResult.result;
+  return {
+    ...workflowResult.result,
+    reloadAdminUI: true,
+    message: workflowResult.result?.message || `Table "${args.name}" has been created successfully. ⚠️ **Important**: Please reload the admin UI to see the changes.`,
+  };
 }
 

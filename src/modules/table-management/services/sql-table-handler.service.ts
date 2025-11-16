@@ -440,7 +440,12 @@ export class SqlTableHandlerService {
         for (const rel of fullMetadata.relations) {
           if (['many-to-one', 'one-to-one'].includes(rel.type)) {
             if (!rel.targetTableName) {
-              this.logger.error(`Relation ${rel.propertyName} has invalid targetTableName. targetTableId: ${rel.targetTableId}`);
+              throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${body.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found. Please verify the target table ID is correct.`);
+            }
+
+            const systemTables = ['table_definition', 'column_definition', 'relation_definition', 'route_definition'];
+            if (systemTables.includes(rel.targetTableName)) {
+              throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${body.name}' cannot target system table '${rel.targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
             }
           }
         }
@@ -1037,11 +1042,25 @@ export class SqlTableHandlerService {
     for (const rel of relations) {
       rel.sourceTableName = table.name;
 
-      if (!rel.targetTableName) {
-        this.logger.warn(`Relation ${rel.propertyName} (${rel.type}) has no targetTableName. targetTableId: ${rel.targetTableId}`);
+      if (!rel.targetTableName && rel.targetTableId) {
+        const targetTable = await trx('table_definition').where({ id: rel.targetTableId }).first();
+        if (targetTable) {
+          rel.targetTableName = targetTable.name;
+        } else {
+          this.logger.error(`Relation ${rel.propertyName} (${rel.type}) has invalid targetTableId: ${rel.targetTableId} - table not found`);
+        }
       }
 
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+        if (!rel.targetTableName) {
+          throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found.`);
+        }
+
+        const systemTables = ['table_definition', 'column_definition', 'relation_definition', 'route_definition'];
+        if (systemTables.includes(rel.targetTableName)) {
+          throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' cannot target system table '${rel.targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
+        }
+
         rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
       }
     }
