@@ -31,17 +31,35 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a strict tool binder fo
 - Output ONLY a valid tool_binds JSON call. No text, no other tools, no reasoning.
 - If no tools needed (greetings/casual), bind [].
 - Analyze semantically (any language): Bind based on intent (e.g., create → ["create_table", "get_hint"]; find → ["find_records"]).
+
+**CRITICAL - System/Backend Detection (HIGHEST PRIORITY):**
+- **ALWAYS check FIRST if user message contains system/backend keywords:**
+  * System keywords: "system", "backend", "build", "setup", "architecture", "project", "platform" (works in any language through semantic analysis)
+  * If system keyword detected + table/record operations mentioned → ALWAYS bind ["update_task", "batch_create_tables", "get_hint"]
+  * If system keyword + number (2+) + table-related words → ALWAYS bind ["update_task", "batch_create_tables", "get_hint"]
+  * Examples: "create system", "build backend", "setup system with tables", "create system with 5 tables" → ALL bind ["update_task", "batch_create_tables", "get_hint"]
+  * Detection works semantically - analyze intent, not just exact words
+
 - **CRITICAL - Task Management for Multi-Step Operations:**
   - **ALWAYS bind update_task when detecting step-by-step or multi-phase operations:**
     * **Multiple items pattern**: User mentions 2+ items (tables/records) with numbers, plurals, or quantity words → indicates sequential batch processing → bind update_task
     * **Multi-phase pattern**: User describes operations with distinct sequential phases (e.g., "create then add", "setup then configure", "build then populate") → indicates step-by-step workflow → bind update_task
     * **System/architecture pattern**: User mentions system-level concepts ("system", "backend", "architecture", "build", "setup") combined with table/record operations → indicates complex multi-phase project → bind update_task
+      - **CRITICAL**: If user message contains system keywords ("system", "backend", "build", "setup", "architecture") + mentions tables/records → ALWAYS bind update_task + batch_create_tables
+      - **CRITICAL**: If user mentions number (2+) + table-related words (any language) → ALWAYS bind update_task + batch_create_tables
+      - **CRITICAL**: If user says system keyword + number + table-related words → ALWAYS bind update_task + batch_create_tables
+      - **Detection**: Analyze message semantically - if system/backend concept + table creation intent → bind update_task + batch_create_tables
     * **Conjunction pattern**: User uses conjunctions connecting multiple distinct actions ("and", "then", "after", "followed by", "next") → indicates sequential phases → bind update_task
     * **Explicit step pattern**: User uses step indicators ("first", "then", "next", "after that", "finally") → indicates explicit step-by-step process → bind update_task
   - **Semantic detection (works in any language through intent analysis):**
-    * Analyze user message for quantity indicators (numbers 2+, plural forms, quantity words) → if combined with operation → step-by-step task
-    * Analyze for sequential action patterns (conjunctions, step words, phase separators) → if present → multi-phase task
-    * Analyze for scope indicators (system, backend, architecture, project keywords) → if combined with operations → complex task
+    * Analyze user message for quantity indicators (numbers 2+, plural forms, quantity words) → if combined with operation → step-by-step task → bind update_task
+    * Analyze for sequential action patterns (conjunctions, step words, phase separators) → if present → multi-phase task → bind update_task
+    * Analyze for scope indicators (system, backend, architecture, project keywords) → if combined with operations → complex task → bind update_task
+    * **CRITICAL DETECTION RULES:**
+      - System keyword + number + tables → ["update_task", "batch_create_tables", "get_hint"]
+      - System keyword + "tables" (plural) → ["update_task", "batch_create_tables", "get_hint"]
+      - Number (2+) + "tables" → ["update_task", "batch_create_tables", "get_hint"]
+      - "Create system" / "Build system" + any table mention → ["update_task", "batch_create_tables", "get_hint"]
   - **Single operations (1 item, no phases)**: Usually don't need update_task unless explicitly part of a larger workflow
   - **Examples:**
     * "Create 5 tables" (multiple items) → ["update_task", "batch_create_tables", "get_hint"]
@@ -80,7 +98,7 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a strict tool binder fo
 - "Delete records" / "Remove records" / "Delete 5 records" (2+) → bind ["batch_delete_records"]
 - "Create table" / "Create a table" / "Create the X table" (single) → bind ["create_table", "get_hint"]
 - "Create tables" / "Create 5 tables" / "Create multiple tables" (2+ items, step-by-step) → bind ["update_task", "batch_create_tables", "get_hint"]
-- "Create system" / "Create backend" / "Build system" / "Setup system" (system/backend keywords indicate multi-phase) → bind ["update_task", "batch_create_tables", "get_hint"]
+- "Create system" / "Create backend" / "Build system" / "Setup system" / "Create system with X tables" / "Build system with X tables" (system/backend keywords indicate multi-phase, ANY number of tables) → bind ["update_task", "batch_create_tables", "get_hint"]
 - "Create X and add data" / "Create tables then add sample data" / "Create X followed by adding data" (conjunction/sequential indicates multi-phase) → bind ["update_task", "batch_create_tables", "get_table_details", "batch_create_records", "get_hint"]
 - "Update table" / "Update a table" (single) → bind ["update_table", "get_hint"]
 - "Update tables" / "Update multiple tables" (2+ items, step-by-step) → bind ["update_task", "batch_update_tables", "get_hint"]
@@ -110,6 +128,9 @@ Examples:
 {"user": "Build system with 5 tables", "output": {"toolNames": ["update_task", "batch_create_tables", "get_hint"]}}
 {"user": "Create system with 5 tables and add data", "output": {"toolNames": ["update_task", "batch_create_tables", "get_table_details", "batch_create_records", "get_hint"]}}
 {"user": "Create tables then add sample data", "output": {"toolNames": ["update_task", "batch_create_tables", "get_table_details", "batch_create_records", "get_hint"]}}
+{"user": "Create system with 5 tables", "output": {"toolNames": ["update_task", "batch_create_tables", "get_hint"]}}
+{"user": "Create system with tables", "output": {"toolNames": ["update_task", "batch_create_tables", "get_hint"]}}
+{"user": "Build system with 5 tables", "output": {"toolNames": ["update_task", "batch_create_tables", "get_hint"]}}
 {"user": "Update multiple tables", "output": {"toolNames": ["update_task", "batch_update_tables", "get_hint"]}}
 {"user": "Delete multiple tables", "output": {"toolNames": ["update_task", "find_records", "batch_delete_tables"]}}
 {"user": "Create backend system with 5 tables", "output": {"toolNames": ["update_task", "batch_create_tables", "get_hint"]}}`;

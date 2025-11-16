@@ -362,6 +362,24 @@ export class LLMService {
         }
       } else {
         const responseContent = typeof response?.content === 'string' ? response.content : JSON.stringify(response?.content || '');
+        
+        try {
+          const parsed = JSON.parse(responseContent);
+          if (parsed.toolNames && Array.isArray(parsed.toolNames)) {
+            this.logger.debug(`[evaluateNeedsTools] Parsed toolNames from response content: ${JSON.stringify(parsed.toolNames)}`);
+            const filtered = parsed.toolNames.filter((tool: any) =>
+              typeof tool === 'string' && COMMON_TOOLS.some((t: any) => t.name === tool)
+            );
+            if (filtered.length > 0) {
+              return filtered;
+            }
+            if (parsed.toolNames.length > 0 && filtered.length === 0) {
+              this.logger.warn(`[evaluateNeedsTools] All tool names filtered out from parsed content. Provider: ${provider}, Selected: ${JSON.stringify(parsed.toolNames)}, Available tools: ${COMMON_TOOLS.map((t: any) => t.name).join(', ')}`);
+            }
+          }
+        } catch (e) {
+        }
+        
         this.logger.warn(`[evaluateNeedsTools] No tool calls from LLM. Provider: ${provider}, Response content: ${responseContent.substring(0, 500)}`);
       }
 
