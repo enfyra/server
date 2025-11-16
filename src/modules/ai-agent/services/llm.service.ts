@@ -298,8 +298,22 @@ ${isDeepSeek ? `**CRITICAL FOR DEEPSEEK - YOU MUST FOLLOW THIS EXACTLY:**
 - Your ONLY job is to analyze the request and call tool_binds with the correct toolNames array
 - DO NOT show tool call syntax in your response - just call tool_binds directly
 - DO NOT describe what you will do - just call tool_binds immediately
-- Example: User says "delete tables" → You call tool_binds({"toolNames": ["delete_table"]}) - that's it, nothing else
+- DO NOT use text-based tool call format - use structured tool_binds JSON only
+
+**DELETE TABLE EXAMPLES (CRITICAL):**
+- User says "delete tables" / "xóa các bảng" / "xóa bảng" → You MUST bind: {"toolNames": ["find_records", "delete_table"]}
+- User says "delete table X" / "xóa bảng X" → You MUST bind: {"toolNames": ["find_records", "delete_table"]}
+- User says "remove tables" / "drop tables" → You MUST bind: {"toolNames": ["find_records", "delete_table"]}
+- Why find_records + delete_table? Because delete_table needs table ID (number), so first find table_definition records to get IDs, then delete_table uses those IDs
+
+**OTHER EXAMPLES:**
+- User says "create table" → {"toolNames": ["create_table", "get_hint"]}
+- User says "show tables" → {"toolNames": ["find_records"]}
+- User says "list all tables" → {"toolNames": ["list_tables"]}
+- User says "find records" → {"toolNames": ["find_records"]}
+
 - If you see tool call markers like <｜tool▁calls▁begin｜> in your response, you are doing it WRONG - you should only call tool_binds
+- Your response should be ONLY: {"toolNames": [...]} - nothing else
 
 ` : ''}**CRITICAL RULES:**
 
@@ -342,6 +356,8 @@ ${isDeepSeek ? `**CRITICAL FOR DEEPSEEK - YOU MUST FOLLOW THIS EXACTLY:**
 - "Create record" / "Add record" → bind ["get_table_details", "create_record"]
 - "Update record" / "Modify record" → bind ["get_table_details", "update_record"]
 - "Delete record" / "Remove record" → bind ["delete_record"]
+- "Delete table" / "Drop table" / "Xóa bảng" / "Xóa các bảng" → bind ["find_records", "delete_table"] (need to find table IDs first)
+- "Remove tables" / "Delete tables" → bind ["find_records", "delete_table"]
 
 Examples:
 {"user": "Hello", "output": {"toolNames": []}}
@@ -354,7 +370,10 @@ Examples:
 {"user": "Count users", "output": {"toolNames": ["count_records"]}}
 {"user": "Update customer by ID", "output": {"toolNames": ["get_table_details", "update_record"]}}
 {"user": "Create a product", "output": {"toolNames": ["get_table_details", "create_record"]}}
-{"user": "Delete order", "output": {"toolNames": ["delete_record"]}}`;
+{"user": "Delete order", "output": {"toolNames": ["delete_record"]}}
+{"user": "Delete tables", "output": {"toolNames": ["find_records", "delete_table"]}}
+{"user": "Xóa các bảng", "output": {"toolNames": ["find_records", "delete_table"]}}
+{"user": "Drop table posts", "output": {"toolNames": ["find_records", "delete_table"]}}`;
 
       const llm = await this.createLLM(config);
       const toolBindsTool = this.createToolFromDefinition(TOOL_BINDS_TOOL);
