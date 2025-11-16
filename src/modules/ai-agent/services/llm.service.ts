@@ -767,14 +767,27 @@ export class LLMService {
                 }
 
 
-                currentContent += delta;
-                fullContent += delta;
-
-                if (delta && delta.length > 0 && !delta.includes('redacted_tool_calls_begin') && !delta.includes('<|redacted_tool_call')) {
-                  onEvent({
-                    type: 'text',
-                    data: { delta },
-                  });
+                if (delta) {
+                  if (iterations > 1 && fullContent.trim().length > 0 && currentContent.length === 0 && !fullContent.endsWith('\n\n')) {
+                    const newlineDelta = '\n\n' + delta;
+                    currentContent += newlineDelta;
+                    fullContent += newlineDelta;
+                    if (!newlineDelta.includes('redacted_tool_calls_begin') && !newlineDelta.includes('<|redacted_tool_call')) {
+                      onEvent({
+                        type: 'text',
+                        data: { delta: newlineDelta },
+                      });
+                    }
+                  } else {
+                    currentContent += delta;
+                    fullContent += delta;
+                    if (delta.length > 0 && !delta.includes('redacted_tool_calls_begin') && !delta.includes('<|redacted_tool_call')) {
+                      onEvent({
+                        type: 'text',
+                        data: { delta },
+                      });
+                    }
+                  }
                 }
               }
             }
@@ -936,7 +949,11 @@ export class LLMService {
             
             const fullDelta = this.reduceContentToString(aggregateResponse?.content);
             if (fullDelta) {
-              await this.streamChunkedContent(fullDelta, abortSignal, (chunk) => {
+              let contentToStream = fullDelta;
+              if (iterations > 1 && fullContent.trim().length > 0 && currentContent.length === 0 && !fullContent.endsWith('\n\n')) {
+                contentToStream = '\n\n' + fullDelta;
+              }
+              await this.streamChunkedContent(contentToStream, abortSignal, (chunk) => {
                 currentContent += chunk;
                 fullContent += chunk;
                 onEvent({
@@ -1106,9 +1123,13 @@ export class LLMService {
             const finalContent = this.reduceContentToString(aggregateResponse?.content) || '';
             if (finalContent) {
               const previousFullContentLength = fullContent.length - currentContent.length;
-              const expectedFullContent = fullContent.substring(0, previousFullContentLength) + finalContent;
+              let expectedFullContent = fullContent.substring(0, previousFullContentLength) + finalContent;
               if (expectedFullContent.length > fullContent.length) {
-                const newContent = expectedFullContent.substring(fullContent.length);
+                let newContent = expectedFullContent.substring(fullContent.length);
+                if (newContent && iterations > 1 && fullContent.trim().length > 0 && !fullContent.endsWith('\n\n')) {
+                  newContent = '\n\n' + newContent;
+                  expectedFullContent = fullContent + newContent;
+                }
                 if (newContent) {
                   fullContent = expectedFullContent;
                   await this.streamChunkedContent(newContent, abortSignal, (chunk) => {
