@@ -78,6 +78,8 @@ Response format:
       inversePropertyName?: string; 
       cascade?: string; 
     }>;
+  };
+}
 
 **Important Field Definitions:**
 
@@ -95,10 +97,6 @@ Response format:
 **Relation-level fields:**
 - isNullable (boolean): If true, the foreign key column can be NULL (relation is optional). If false, the foreign key is REQUIRED (relation is mandatory).
 - type: Relation type - "many-to-one" (many records in this table reference one record in target), "one-to-many" (one record in this table has many in target), "one-to-one" (one-to-one relationship), "many-to-many" (many-to-many via junction table).
-    data?: any | null; 
-  };
-  _errors?: string[];
-}
 
 CRITICAL - Relations Format for Create/Update:
 - When creating or updating records with relations, you MUST use propertyName from relations array
