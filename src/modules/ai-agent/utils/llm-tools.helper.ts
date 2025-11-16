@@ -8,133 +8,7 @@ interface ToolDefinition {
   };
 }
 
-export const TOOL_BINDS_TOOL: ToolDefinition = {
-  name: 'tool_binds',
-  description: `Purpose → select which tools are needed for the current request.
-
-Use this tool FIRST to determine which tools should be available for this conversation turn.
-
-**CRITICAL - Complete Tool Selection:**
-- You MUST include ALL tools that might be needed for the request, even if they seem optional
-- If the LLM might need a tool (e.g., get_fields for field validation, get_table_details for schema check), include it in the toolNames array
-- It's better to bind a few extra tools than to miss a required tool
-- If you're uncertain, include the tool - unused tools don't cause problems, but missing tools cause errors
-
-**Common mistakes to avoid:**
-- Missing get_fields when LLM might need to check field names
-- Missing get_table_details when LLM might need schema information
-- Missing get_hint when creating/updating tables (always include for schema operations)
-- Only binding one tool when multiple might be needed (e.g., get_table_details + create_record for create operations)
-
-Inputs:
-- toolNames (required): array of tool names to bind for this request
-
-Available tools:
-- list_tables: Get list of all tables
-- get_table_details: Get full schema and optionally table data
-- get_fields: Get field list for reads (include if LLM might need to check field names)
-- find_records: Find/query records in a table
-- count_records: Count records in a table (with or without filter)
-- create_record: Create a single record in a table
-- update_record: Update a single record by ID
-- delete_record: Delete a single record by ID
-- batch_create_records: Create multiple records (2+ records)
-- batch_update_records: Update multiple records (2+ records)
-- batch_delete_records: Delete multiple records (2+ records)
-- create_table: Create new table schema
-- update_table: Update existing table schema
-- delete_table: Delete/drop table
-- get_hint: Get comprehensive guidance when uncertain
-
-Examples:
-- Simple greeting: {"toolNames": []}
-- Need guidance: {"toolNames": ["get_hint"]}
-
-**CRUD Operations:**
-- Find/view records: {"toolNames": ["find_records"]}
-- Count records: {"toolNames": ["count_records"]}
-- Find with schema check: {"toolNames": ["get_table_details", "find_records"]}
-- Create single record: {"toolNames": ["get_table_details", "create_record"]}
-- Update single record: {"toolNames": ["get_table_details", "update_record"]}
-- Delete single record: {"toolNames": ["delete_record"]}
-- Batch create (2+ records): {"toolNames": ["get_table_details", "batch_create_records"]}
-- Batch update (2+ records): {"toolNames": ["get_table_details", "batch_update_records"]}
-- Batch delete (2+ records): {"toolNames": ["batch_delete_records"]}
-
-**Schema Operations:**
-- Create table: {"toolNames": ["create_table", "get_hint"]}
-- Update table: {"toolNames": ["update_table", "get_hint"]}
-- Delete table: {"toolNames": ["find_records", "delete_table"]}
-- View full schema: {"toolNames": ["get_table_details"]}
-- Field names only: {"toolNames": ["get_fields"]}
-- When uncertain about fields: {"toolNames": ["get_fields", "find_records"]}
-
-**Table Discovery:**
-- List all tables (metadata list, no filter): {"toolNames": ["list_tables"]}
-- Filter tables (with condition): {"toolNames": ["find_records"]}
-- Count records in specific table ("how many X", "có bao nhiêu X"): {"toolNames": ["count_records"]}
-- Query records in table: {"toolNames": ["find_records"]}
-`,
-  parameters: {
-    type: 'object',
-    properties: {
-      toolNames: {
-        type: 'array',
-        items: {
-          type: 'string',
-                 enum: [
-                   'list_tables',
-                   'get_table_details',
-                   'get_fields',
-                   'find_records',
-                   'count_records',
-                   'create_record',
-                   'update_record',
-                   'delete_record',
-                   'batch_create_records',
-                   'batch_update_records',
-                   'batch_delete_records',
-                   'create_table',
-                   'update_table',
-                   'delete_table',
-                   'get_hint',
-                 ],
-        },
-        description: 'Array of tool names to bind for this request. Use empty array [] if no tools are needed.',
-      },
-    },
-    required: ['toolNames'],
-  },
-};
-
 export const COMMON_TOOLS: ToolDefinition[] = [
-  {
-    name: 'list_tables',
-    description: `Purpose → refresh the current list of tables with short descriptions.
-
-Use when:
-- Unsure about the exact table the user means
-- The request is literally "which tables do we have?"
-
-Skip when:
-- The system prompt already gives the table you need
-
-Inputs: {}
-
-Returns:
-{
-  tables: Array<{name: string; description?: string; isSingleRecord?: boolean}>;
-  tablesList: string[];
-}
-
-**Important Field Definitions:**
-- isSingleRecord (boolean): If true, this table is designed to store only ONE record (singleton pattern). Examples: system settings, global configuration. If false or missing, table can store multiple records.
-- isSystem (boolean, in table_definition): If true, this is a system table (e.g., table_definition, column_definition, relation_definition). System tables are critical for system operation and should NOT be deleted or heavily modified. If false, this is a user-created table that can be safely deleted.`,
-    parameters: {
-      type: 'object',
-      properties: {},
-    },
-  },
   {
     name: 'get_table_details',
     description: `Purpose → load the full schema (columns, relations, indexes, constraints), table ID, AND optionally table data for one or multiple tables.
@@ -146,10 +20,19 @@ CRITICAL - Call ONCE per table:
 - If you already called get_table_details for "product", do NOT call it again - reuse the previous result
 - This tool returns LARGE amounts of data - calling it multiple times wastes tokens
 
+CRITICAL - NEVER Query All Tables, ALWAYS Filter First:
+- **NEVER call get_table_details for all tables** - ALWAYS filter first using find_records
+- If user asks for "non-system tables" or "user tables" → FIRST call find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0}) → filter tables with isSystem=false → call get_table_details ONLY for filtered tables
+- If user asks for "all tables" → STILL filter first: call find_records({"table":"table_definition","fields":"name,isSystem","limit":0}) → decide which tables are relevant → call get_table_details only for relevant subset
+- **NEVER pass all tables to get_table_details** - this returns large amounts of data (50KB+) and wastes tokens
+- Example workflow: User says "show me non-system tables" → find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0}) → filter tables with isSystem=false (e.g., 3 tables) → call get_table_details({"tableName":["table1","table2","table3"]})
+- This tool returns FULL schema (columns, relations, indexes) for each table - querying many tables can return 50KB+ of data
+- **Rule of thumb**: If you need to query more than 5 tables, reconsider - maybe you can filter more specifically
+
 Use when:
 - Preparing create/update payloads that must match schema exactly (call ONCE, then reuse)
 - Investigating relation structure or constraints (call ONCE, then reuse)
-- Need to compare multiple tables' schemas (call once with array of all table names)
+- Need to compare multiple tables' schemas (call once with array of all table names, but filter first if user specified criteria)
 - Need to check if tables have relations (call ONCE, then reuse)
 - Need to get table ID (e.g., for relations, updates) - the metadata includes the table ID field
 - Need to get actual table data by ID or name - set getData=true AND provide either id or name parameter (both must be arrays). CRITICAL: If getData=true but no id/name provided, the tool will fail.
@@ -158,6 +41,7 @@ Use when:
 Skip when:
 - You only need field names → prefer get_fields
 - You already called get_table_details for this table earlier in this response - reuse the previous result
+- User asks for "non-system tables" but you haven't filtered yet → call find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0}) first to filter
 
 Inputs:
 - tableName (required) → array of table names (case-sensitive). For single table, use array with 1 element: ["user_definition"]
@@ -311,7 +195,12 @@ Example request:
     name: 'get_hint',
     description: `Purpose → General guidance for system operations. Use for general workflows, not tool-specific rules.
 
-CRITICAL - Call ONCE per tool loop iteration:
+CRITICAL - Check System Prompt First:
+- BEFORE calling this tool, check if your system prompt contains a "RELEVANT WORKFLOWS & RULES" section
+- If "RELEVANT WORKFLOWS & RULES" section exists in your system prompt, DO NOT call this tool - all necessary guidance is already provided
+- Only call this tool if you do NOT see "RELEVANT WORKFLOWS & RULES" in your system prompt and you need additional guidance
+
+CRITICAL - Call ONCE per tool loop iteration (only if needed):
 - Call get_hint ONLY ONCE per tool loop iteration, even if you need multiple categories
 - Use the category array parameter to get multiple categories in ONE call: {"category":["table_operations","error_handling"]}
 - NEVER call get_hint multiple times in the same response or in the same tool loop iteration - this wastes tokens and causes infinite loops
@@ -320,10 +209,10 @@ CRITICAL - Call ONCE per tool loop iteration:
 - If you find yourself wanting to call get_hint again after already calling it, STOP - you already have the information you need, use it
 
 Use when:
-- Need general guidance about system operations (table operations, database type, error handling)
-- Unsure about table discovery or complex workflows
+- System prompt does NOT contain "RELEVANT WORKFLOWS & RULES" section AND you need general guidance about system operations
+- Unsure about table discovery or complex workflows and hints are not already provided
 Available categories:
-- table_operations → Table creation/update operations (create_table, update_table tools)
+- table_operations → Table creation/update operations (create_tables, update_tables tools)
 - field_optimization → General field selection and query optimization (NOT tool-specific)
 - database_type → Database-specific context
 - error_handling → General error handling protocols
@@ -368,17 +257,11 @@ Returns:
     },
   },
   {
-    name: 'create_table',
-    description: `Purpose → Create a new table.
-
-CRITICAL - ONE Table Per Response:
-- Call create_table ONLY ONCE per response
-- If you need to create multiple tables, call create_table ONE BY ONE in separate responses
-- Wait for the result of the first create_table call before calling the next one
-- NEVER call create_table multiple times in the same response (e.g., creating 5 tables at once) - this causes errors and violates the one-tool-per-response rule
+    name: 'create_tables',
+    description: `Purpose → Create one or multiple tables. Processes tables sequentially internally to avoid deadlocks.
 
 Create with Relations:
-- Include relations in the initial create_table call. Do NOT create table first then update with relations
+- Include relations in the initial create_tables call. Do NOT create table first then update with relations
 - Include all relations in data.relations array from the start - this saves tool calls and time
 - CRITICAL: Do NOT create FK columns manually - the system auto-generates them from relations
 - For M2O/O2O relations: Create target tables FIRST, then create source tables with relations
@@ -390,6 +273,9 @@ System Table Safety:
 - createdAt/updatedAt are auto-generated; do not include in columns array
 
 Inputs:
+- tables (required): Array of table definition objects. For single table, use array with 1 element.
+
+Each table object:
 - name (required): Table name (snake_case, lowercase)
 - description (optional): Table description
 - columns (required): Array of column definition objects. MUST include id column with isPrimary=true. CRITICAL: For SQL databases, use type="int" (PREFERRED). For MongoDB, use type="uuid" (REQUIRED). CRITICAL: Do NOT include createdAt/updatedAt. Do NOT include FK columns
@@ -414,7 +300,7 @@ Column Schema:
 Example columns:
 [{"name":"id","type":"int","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar","isNullable":false},{"name":"email","type":"varchar","isNullable":false,"isUnique":true}]
 
-- relations (optional): Array of relation definition objects. CRITICAL: Include relations here, not in separate update_table call. Do NOT include FK columns in columns array
+- relations (optional): Array of relation definition objects. CRITICAL: Include relations here, not in separate update_tables call. Do NOT include FK columns in columns array
 
 Relation Schema:
 {
@@ -438,75 +324,69 @@ Example relations:
 Output:
 {
   success: boolean;
-  result?: object;
-  errors?: Array<{step: string; error: string; retryable: boolean}>;
-  stopReason?: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; tableName: string; tableId?: number; error?: string; message?: string}>;
+  errors?: Array<{index: number; tableName: string; error: string; message: string}>;
+  reloadAdminUI: boolean;
+  summary: string;
+  message: string;
 }
 
-For detailed examples and validation rules, call get_hint(category="table_operations") ONCE, then proceed`,
+Example for single table:
+create_tables({"tables":[{"name":"categories","columns":[{"name":"id","type":"int","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar"}]}]})
+
+Example for multiple tables:
+create_tables({
+  "tables": [
+    {"name": "categories", "columns": [{"name": "id", "type": "int", "isPrimary": true, "isGenerated": true}, {"name": "name", "type": "varchar"}]},
+    {"name": "products", "columns": [{"name": "id", "type": "int", "isPrimary": true, "isGenerated": true}, {"name": "name", "type": "varchar"}]}
+  ]
+})
+
+Detailed workflows and validation rules are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
-        name: {
-          type: 'string',
-        },
-        description: {
-          type: 'string',
-        },
-        columns: {
+        tables: {
           type: 'array',
           items: {
             type: 'object',
-          },
-        },
-        relations: {
-          type: 'array',
-          items: {
-            type: 'object',
-          },
-        },
-        uniques: {
-          type: 'array',
-          items: {
-            type: 'array',
-            items: {
-              type: 'string',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string' },
+              columns: { type: 'array', items: { type: 'object' } },
+              relations: { type: 'array', items: { type: 'object' } },
+              uniques: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+              indexes: { type: 'array', items: { type: 'object' } },
             },
-          },
-        },
-        indexes: {
-          type: 'array',
-          items: {
-            type: 'object',
+            required: ['name', 'columns'],
           },
         },
       },
-      required: ['name', 'columns'],
+      required: ['tables'],
     },
   },
   {
-    name: 'update_table',
-    description: `Purpose → Update an existing table.
+    name: 'update_tables',
+    description: `Purpose → Update one or multiple existing tables. Processes tables sequentially internally to avoid deadlocks.
 
 System Table Safety:
 - Do not remove/edit built-in columns/relations in system tables (*_definition tables)
 - Only add new columns/relations when extending system tables
 - createdAt/updatedAt are auto-generated; do not include in columns array
 
-Example:
-update_table({
-  "tableName": "product",
-  "columns": [{"name":"stock","type":"int"}],
-  "relations": [{"propertyName":"supplier","type":"many-to-one","targetTable":{"id":2}}]
-})
-
 Inputs:
+- tables (required): Array of table update objects. For single table, use array with 1 element.
+
+Each table object:
 - tableName (required): Table name to update (must exist)
 - tableId (optional): Table ID for faster lookup
 - description (optional): New table description
 - columns (optional): Array of column definition objects to add/update. Merged by name. CRITICAL: Do NOT include createdAt/updatedAt. Do NOT include FK columns
 
-Column Schema (same as create_table):
+Column Schema (same as create_tables):
 {
   name: string; 
   type: "int" | "varchar" | "boolean" | "text" | "date" | "float" | "simple-json" | "enum" | "uuid"; 
@@ -525,7 +405,7 @@ Column Schema (same as create_table):
 
 - relations (optional): Array of relation definition objects to add/update. Merged by propertyName
 
-Relation Schema (same as create_table):
+Relation Schema (same as create_tables):
 {
   propertyName: string; 
   type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many"; 
@@ -544,97 +424,112 @@ Relation Schema (same as create_table):
 Output:
 {
   success: boolean;
-  result?: object;
-  errors?: Array<{step: string; error: string; retryable: boolean}>;
-  stopReason?: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; tableName: string; tableId?: number; updated?: string; error?: string; message?: string}>;
+  errors?: Array<{index: number; tableName?: string; tableId?: number; error: string; message: string}>;
+  reloadAdminUI: boolean;
+  summary: string;
+  message: string;
 }
 
-For detailed examples and workflows, call get_hint(category="table_operations")`,
+Example for single table:
+update_tables({
+  "tables": [{
+    "tableName": "product",
+    "columns": [{"name":"stock","type":"int"}],
+    "relations": [{"propertyName":"supplier","type":"many-to-one","targetTable":{"id":2}}]
+  }]
+})
+
+Example for multiple tables:
+update_tables({
+  "tables": [
+    {"tableName": "categories", "description": "Updated description"},
+    {"tableName": "products", "columns": [{"name": "price", "type": "float"}]}
+  ]
+})
+
+Detailed workflows are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
-        tableName: {
-          type: 'string',
-        },
-        tableId: {
-          type: 'number',
-        },
-        description: {
-          type: 'string',
-        },
-        columns: {
+        tables: {
           type: 'array',
           items: {
             type: 'object',
-          },
-        },
-        relations: {
-          type: 'array',
-          items: {
-            type: 'object',
-          },
-        },
-        uniques: {
-          type: 'array',
-          items: {
-            type: 'array',
-            items: {
-              type: 'string',
+            properties: {
+              tableId: { type: 'number' },
+              tableName: { type: 'string' },
+              description: { type: 'string' },
+              columns: { type: 'array', items: { type: 'object' } },
+              relations: { type: 'array', items: { type: 'object' } },
+              uniques: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+              indexes: { type: 'array', items: { type: 'object' } },
             },
-          },
-        },
-        indexes: {
-          type: 'array',
-          items: {
-            type: 'object',
+            required: ['tableName'],
           },
         },
       },
-      required: ['tableName'],
+      required: ['tables'],
     },
   },
   {
-    name: 'delete_table',
-    description: `Purpose → Delete a table by its ID. This tool permanently removes the table structure and all its data.
+    name: 'delete_tables',
+    description: `Purpose → Delete one or multiple tables by their IDs. This tool permanently removes the table structure and all its data. Processes tables sequentially internally.
 
-CRITICAL - Find Table ID First:
-- This tool ONLY accepts table ID (number), NOT table name
-- BEFORE calling this tool, you MUST find the table ID first using one of these methods:
+CRITICAL - Find Table IDs First:
+- This tool ONLY accepts table IDs (array of numbers), NOT table names
+- BEFORE calling this tool, you MUST find the table IDs first using one of these methods:
   1. Using find_records: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
   2. Using get_table_details: {"tableName":["table_name"],"getData":false} (check the id field in result)
-- Extract the id (number) from the result and use it in this tool
-- NEVER use table name as id - this tool only accepts numeric id
+- Extract the id(s) (number) from the result and use them in this tool
+- NEVER use table name as id - this tool only accepts numeric ids
 
-Workflow:
+Workflow for single table:
 1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
 2. Get id from result (e.g., id: 123)
-3. Delete table: delete_table({"id":123})
+3. Delete table: delete_tables({"ids":[123]})
+
+Workflow for multiple tables:
+1. Find all table IDs: find_records({"table":"table_definition","where":{"name":{"_in":["table1","table2"]}},"fields":"id,name","limit":0})
+2. Extract ids from result (e.g., [123, 124])
+3. Delete tables: delete_tables({"ids":[123,124]})
 
 Example:
 Step 1: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"id,name","limit":1})
-Step 2: delete_table({"id":123}) ← Use the id from step 1
+Step 2: delete_tables({"ids":[123]}) ← Use the id from step 1 (single table: array with 1 element)
+
+For multiple tables:
+Step 1: find_records({"table":"table_definition","where":{"name":{"_in":["categories","products"]}},"fields":"id,name","limit":0})
+Step 2: delete_tables({"ids":[123,124]}) ← Use all ids from step 1
 
 Inputs:
-- id (required): Table ID (number) from table_definition. Must be found first using find_records or get_table_details.
+- ids (required): Array of table IDs (numbers) from table_definition. Must be found first using find_records or get_table_details. For single table, use array with 1 element: [123].
 
 Output:
 {
   success: boolean;
-  id: number;
-  name: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; id: number; name?: string; error?: string; message?: string}>;
+  errors?: Array<{index: number; id: number; error: string; message: string}>;
+  summary: string;
   message: string;
-}
-
-For multiple tables: Delete them ONE BY ONE sequentially (not in parallel) to avoid deadlocks.`,
+  reloadAdminUI: boolean;
+}`,
     parameters: {
       type: 'object',
       properties: {
-        id: {
-          type: 'number',
-          description: 'Table ID (number) from table_definition. Must be found first using find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}) or get_table_details.',
+        ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Array of table IDs (numbers) from table_definition. Must be found first using find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}) or get_table_details. For single table, use array with 1 element: [123].',
         },
       },
-      required: ['id'],
+      required: ['ids'],
     },
   },
   {
@@ -654,9 +549,9 @@ CRITICAL - Task Conflict Detection:
 - If new task is continuation of existing task, update existing task instead of creating new one
 
 Task types:
-- create_table: Creating new tables
-- update_table: Updating existing tables
-- delete_table: Deleting tables
+- create_tables: Creating new tables
+- update_tables: Updating existing tables
+- delete_tables: Deleting tables
 - custom: Other custom tasks
 
 Task status flow:
@@ -664,7 +559,7 @@ Task status flow:
 
 Inputs:
 - conversationId (required): Current conversation ID
-- type (required): Task type (create_table|update_table|delete_table|custom)
+- type (required): Task type (create_tables|update_tables|delete_tables|custom)
 - status (required): Task status (pending|in_progress|completed|cancelled|failed)
 - data (optional): Task-specific data (e.g., table names, operations)
 - result (optional): Task result when completed
@@ -677,7 +572,7 @@ Returns:
   task: {
     id: number | string;
     conversationId: number | string;
-    type: "create_table" | "update_table" | "delete_table" | "custom";
+    type: "create_tables" | "update_tables" | "delete_tables" | "custom";
     status: "pending" | "in_progress" | "completed" | "cancelled" | "failed";
     data?: any;
     result?: any;
@@ -695,7 +590,7 @@ Returns:
         },
         type: {
           type: 'string',
-          enum: ['create_table', 'update_table', 'delete_table', 'custom'],
+          enum: ['create_tables', 'update_tables', 'delete_tables', 'custom'],
         },
         status: {
           type: 'string',
@@ -722,6 +617,16 @@ Returns:
     name: 'find_records',
     description: `Purpose → Find/query records in a table.
 
+CRITICAL - NEVER Select All, ALWAYS Filter and Specify Fields:
+- **NEVER use "*" or omit fields parameter** - ALWAYS specify minimal fields needed (e.g., "id", "id,name", "id,name,email")
+- **NEVER call without where/filter** - ALWAYS specify conditions to limit results (e.g., where={"isSystem":{"_eq":false}}, where={"price":{"_gt":100}})
+- **NEVER query all records without filter** - ALWAYS use where parameter to filter results
+- Examples:
+  * WRONG: find_records({"table":"table_definition","fields":"*"}) → Returns all fields, wastes tokens
+  * WRONG: find_records({"table":"product"}) → No filter, no fields, returns all products with all fields
+  * CORRECT: find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id,name","limit":0})
+  * CORRECT: find_records({"table":"product","where":{"price":{"_gt":100}},"fields":"id,name,price","limit":10})
+
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
 CRITICAL - Field Names Check:
@@ -730,14 +635,14 @@ CRITICAL - Field Names Check:
 - Use get_fields for lightweight field list, or get_table_details for full schema
 
 Basic examples:
-- Find records: find_records({"table":"order","fields":"id,total","limit":10})
+- Find records: find_records({"table":"order","where":{"status":{"_eq":"pending"}},"fields":"id,total","limit":10})
 - Find with filter: find_records({"table":"product","where":{"price":{"_gt":100}},"fields":"id,name,price","limit":10})
 - Find single record: find_records({"table":"customer","where":{"id":{"_eq":1}},"fields":"id,name,email","limit":1})
 
 Metadata tables (*_definition) can skip permission:
-- find_records({"table":"table_definition","skipPermissionCheck":true})
+- find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id,name","skipPermissionCheck":true,"limit":0})
 
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
@@ -753,7 +658,7 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
         fields: {
           type: 'string',
           description:
-            'Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: Specify ONLY needed fields to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
+            'REQUIRED. Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: NEVER use "*" or omit fields parameter - this returns all fields and wastes tokens. ALWAYS specify minimal fields needed.',
         },
         limit: {
           type: 'number',
@@ -772,30 +677,38 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
           default: false,
         },
       },
-      required: ['table'],
+      required: ['table', 'fields'],
     },
   },
   {
     name: 'count_records',
     description: `Purpose → Count records in a table (with or without filter).
 
+CRITICAL - NEVER Select All, ALWAYS Specify Fields:
+- **NEVER use "*" or omit fields parameter** - ALWAYS specify minimal fields (e.g., "id")
+- **ALWAYS use where parameter when possible** - Even for "count all", prefer to add a filter if user specified criteria
+- Examples:
+  * WRONG: count_records({"table":"table_definition","meta":"totalCount"}) → No fields specified
+  * CORRECT: count_records({"table":"table_definition","fields":"id","meta":"totalCount"})
+  * CORRECT: count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id","meta":"filterCount"})
+
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
 CRITICAL - COUNT Queries:
 - To count TOTAL number of records in a table (no filter):
-  * Use: where=null (or omit), meta="totalCount"
+  * Use: where=null (or omit), meta="totalCount", fields="id"
   * Read the totalCount value from the response metadata
 - To count records WITH a filter (e.g., "how many tables have isSystem=true?"):
-  * Use: where={filter conditions}, meta="filterCount"
+  * Use: where={filter conditions}, meta="filterCount", fields="id"
   * Read the filterCount value from the response metadata
 - NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
 
 Basic examples:
-- Count all records: count_records({"table":"product","meta":"totalCount"})
-- Count with filter: count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"meta":"filterCount"})
+- Count all records: count_records({"table":"product","fields":"id","meta":"totalCount"})
+- Count with filter: count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id","meta":"filterCount"})
 
 Metadata tables (*_definition) can skip permission:
-- count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"meta":"filterCount","skipPermissionCheck":true})
+- count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id","meta":"filterCount","skipPermissionCheck":true})
 
 **Important Field Definitions for Metadata Tables:**
 - isSystem (boolean, in table_definition): If true, this is a system table (e.g., table_definition, column_definition, relation_definition, route_definition). System tables are critical for system operation and should NOT be deleted or heavily modified. If false, this is a user-created table that can be safely deleted. Use this field to filter: where={"isSystem":{"_eq":false}} to find only user-created tables.
@@ -803,7 +716,7 @@ Metadata tables (*_definition) can skip permission:
 - isPrimary (boolean, in column_definition): If true, this column is the primary key. Each table MUST have exactly one column with isPrimary=true.
 - isGenerated (boolean, in column_definition): If true, this column value is auto-generated by the database. You should NOT provide values for generated columns when creating records.
 
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
@@ -815,6 +728,11 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
           type: 'object',
           description:
             'Optional filter conditions. Omit or set to null to count all records. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
+        },
+        fields: {
+          type: 'string',
+          description:
+            'REQUIRED. Fields to return. Use minimal fields like "id" - do NOT use "*" or omit fields.',
         },
         meta: {
           type: 'string',
@@ -829,12 +747,12 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
           default: false,
         },
       },
-      required: ['table', 'meta'],
+      required: ['table', 'meta', 'fields'],
     },
   },
   {
-    name: 'create_record',
-    description: `Purpose → Create a single record in a table.
+    name: 'create_records',
+    description: `Purpose → Create one or multiple records in a table. Processes records sequentially internally.
 
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
@@ -845,7 +763,7 @@ CRITICAL - Schema Check Required:
   * Column names match exactly (snake_case vs camelCase)
   * Relations format is correct (propertyName, not FK column names)
   * Data types match column types
-- Workflow: get_table_details → analyze schema → prepare data → create_record
+- Workflow: get_table_details → analyze schema → prepare data → create_records
 - DO NOT skip schema check - missing required fields will cause errors
 
 CRITICAL - Check Unique Constraints Before Create:
@@ -853,7 +771,7 @@ CRITICAL - Check Unique Constraints Before Create:
 - For tables with unique constraints (e.g., name, email, slug), check existence FIRST using find_records
 - Workflow: get_table_details (to identify unique columns) → find_records (to check existence) → create only if not exists
 - Example: Before creating category with name="Electronics", check: find_records({"table":"category","where":{"name":{"_eq":"Electronics"}},"fields":"id","limit":1})
-- If record exists, skip creation or use update_record instead - duplicate unique values will cause errors
+- If record exists, skip creation or use update_records instead - duplicate unique values will cause errors
 - This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
 
 CRITICAL - Relations Format:
@@ -866,205 +784,31 @@ CRITICAL - Relations Format:
 CRITICAL - DO NOT Include ID in Create Operations:
 - NEVER include "id" field in data
 - Including id in create operations will cause errors
-- Example CORRECT: create_record({"table":"product","data":{"name":"Product 1","price":100},"fields":"id"})
-- Example WRONG: create_record({"table":"product","data":{"id":123,"name":"Product 1","price":100}})
 
-Critical rules:
-1. Execute ONE operation at a time (sequential, not parallel)
-2. ALWAYS call get_table_details FIRST to check schema
-3. ALWAYS check unique constraints before create
+Inputs:
+- table (required): Name of the table to create records in
+- dataArray (required): Array of data objects. For single record, use array with 1 element. CRITICAL: DO NOT include "id" field in any data object.
+- fields (optional): Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens.
 
-Basic examples:
-- Create: create_record({"table":"product","data":{"name":"Product 1","price":100},"fields":"id"})
+Output:
+{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; index: number; id?: number; error?: string; message?: string}>;
+  errors?: Array<{index: number; error: string; message: string; data?: any}>;
+  summary: string;
+  message: string;
+}
 
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
-    parameters: {
-      type: 'object',
-      properties: {
-        table: {
-          type: 'string',
-          description: 'Name of the table to create record in.',
-        },
-        data: {
-          type: 'object',
-          description:
-            'Data for the new record. CRITICAL: DO NOT include "id" field. Including id will cause errors.',
-        },
-        fields: {
-          type: 'string',
-          description:
-            'Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
-        },
-      },
-      required: ['table', 'data'],
-    },
-  },
-  {
-    name: 'update_record',
-    description: `Purpose → Update a single record by ID.
+Example for single record:
+create_records({"table":"product","dataArray":[{"name":"Product 1","price":100}],"fields":"id"})
 
-Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
+Example for multiple records:
+create_records({"table":"product","dataArray":[{"name":"Product 1","price":100},{"name":"Product 2","price":200}],"fields":"id"})
 
-CRITICAL - Schema Check Required:
-- BEFORE update operations: You MUST call get_table_details FIRST to check the table schema
-- Schema check is MANDATORY to ensure:
-  * Column names match exactly (snake_case vs camelCase)
-  * Relations format is correct (propertyName, not FK column names)
-  * Data types match column types
-- Workflow: get_table_details → analyze schema → prepare data → update_record
-- DO NOT skip schema check - invalid field names or types will cause errors
-
-CRITICAL - Check Record Exists Before Update:
-- BEFORE update operations: You MUST check if the record exists using find_records
-- Workflow: find_records (to verify record exists) → update_record
-- Example: Before updating customer with id=1, check: find_records({"table":"customer","where":{"id":{"_eq":1}},"fields":"id","limit":1})
-- If record does not exist, skip update or report error
-
-CRITICAL - Relations Format:
-- For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
-- Format: {"propertyName": <id_value>} where propertyName is from relations[].propertyName and id_value is a number or string
-- Example: If get_table_details shows relation with propertyName="customer", use {"customer": 1} NOT {"customer_id": 1} or {"customerId": 1}
-- The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
-- Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
-
-Critical rules:
-1. Execute ONE operation at a time (sequential, not parallel)
-2. ALWAYS call get_table_details FIRST to check schema
-3. ALWAYS check record exists before update
-
-Basic examples:
-- Update: update_record({"table":"customer","id":1,"data":{"name":"New Name"},"fields":"id"})
-
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
-    parameters: {
-          type: 'object',
-      properties: {
-        table: {
-          type: 'string',
-          description: 'Name of the table to update record in.',
-        },
-        id: {
-          oneOf: [{ type: 'string' }, { type: 'number' }],
-          description: 'ID of the record to update.',
-        },
-        data: {
-          type: 'object',
-          description: 'Data to update. Only include fields that need to be changed.',
-        },
-        fields: {
-          type: 'string',
-          description:
-            'Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
-        },
-      },
-      required: ['table', 'id', 'data'],
-    },
-  },
-  {
-    name: 'delete_record',
-    description: `Purpose → Delete a single record by ID.
-
-Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
-
-CRITICAL - Check Record Exists Before Delete:
-- BEFORE delete operations: You MUST check if the record exists using find_records
-- Workflow: find_records (to verify record exists) → delete_record
-- Example: Before deleting order with id=1, check: find_records({"table":"order","where":{"id":{"_eq":1}},"fields":"id","limit":1})
-- If record does not exist, skip delete or report error
-
-CRITICAL - Deleting Tables (NOT Data):
-- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_table tool:
-  1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
-  2. Get the id (number) from the result
-  3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})
-- NEVER use delete_record to delete tables - use delete_table tool instead
-- NEVER use delete_record on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
-- NEVER use table name as id value - delete_table only accepts numeric id
-- Example CORRECT for deleting table: 
-  Step 1: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"id,name","limit":1})
-  Step 2: delete_table({"id":123}) ← Use the id from step 1
-- Example WRONG: delete_record({"table":"categories","id":"categories"}) ← This is INCORRECT
-
-Critical rules:
-1. Execute ONE operation at a time (sequential, not parallel)
-2. ALWAYS check record exists before delete
-
-Basic examples:
-- Delete: delete_record({"table":"order_item","id":1})
-
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
-    parameters: {
-      type: 'object',
-      properties: {
-        table: {
-          type: 'string',
-          description: 'Name of the table to delete record from.',
-        },
-        id: {
-          oneOf: [{ type: 'string' }, { type: 'number' }],
-          description: 'ID of the record to delete.',
-        },
-      },
-      required: ['table', 'id'],
-    },
-  },
-  {
-    name: 'batch_create_records',
-    description: `Purpose → Create multiple records in a table (2+ records).
-
-Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
-
-CRITICAL - When to Use:
-- Use for 2+ records to create
-- When find_records returns multiple records that need to be created, use this tool
-
-CRITICAL - Metadata Tables:
-- Always process metadata tables (table_definition/column_definition/relation_definition) sequentially, one at a time
-- NEVER use batch operations on metadata tables - process them one by one
-
-CRITICAL - Schema Check Required:
-- BEFORE batch_create operations: You MUST call get_table_details FIRST to check the table schema
-- Schema check is MANDATORY to ensure:
-  * All required fields (not-null, non-generated) are included in data
-  * Column names match exactly (snake_case vs camelCase)
-  * Relations format is correct (propertyName, not FK column names)
-  * Data types match column types
-- Workflow: get_table_details → analyze schema → prepare data → batch_create_records
-- DO NOT skip schema check - missing required fields will cause errors
-
-CRITICAL - Check Unique Constraints Before Batch Create:
-- BEFORE batch_create operations: You MUST check if records with unique field values already exist
-- For tables with unique constraints (e.g., name, email, slug), check existence FIRST using find_records or get_table_details with getData=true
-- Workflow: get_table_details (to identify unique columns) → check existing records (find_records or get_table_details with getData=true) → filter out existing records → batch_create only new records
-- Example: Before batch creating categories, check existing: find_records({"table":"category","fields":"id,name","limit":0}) or get_table_details({"tableName":["category"],"getData":true})
-- Filter dataArray to exclude records that already exist (compare unique field values)
-- If all records exist, skip batch_create - duplicate unique values will cause errors
-- This applies to ALL unique constraints: single-column (name) and multi-column (email+username)
-
-CRITICAL - Relations Format:
-- For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
-- Format: {"propertyName": <id_value>} where propertyName is from relations[].propertyName and id_value is a number or string
-- Example: If get_table_details shows relation with propertyName="customer", use {"customer": 1} NOT {"customer_id": 1} or {"customerId": 1}
-- The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
-- Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
-
-CRITICAL - DO NOT Include ID in Batch Create:
-- NEVER include "id" field in any data object
-- Including id in batch_create will cause errors
-- Example CORRECT: batch_create_records({"table":"product","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
-- Example WRONG: batch_create_records({"table":"product","dataArray":[{"id":1,"name":"P1"}],"fields":"id"})
-
-CRITICAL - Fields Parameter is MANDATORY:
-- ALWAYS specify fields parameter to reduce response size
-- Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields
-
-Basic examples:
-- Batch Create: batch_create_records({"table":"product","dataArray":[{"name":"P1","price":100},{"name":"P2","price":200}],"fields":"id"})
-
-Metadata tables (*_definition) can skip permission:
-- batch_create_records({"table":"table_definition","dataArray":[...],"skipPermissionCheck":true,"fields":"id"})
-
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
@@ -1077,51 +821,37 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
           items: {
             type: 'object',
           },
-          description: 'Array of data objects. Each object represents one record to create. REQUIRED. CRITICAL: DO NOT include "id" field in any object. Example: [{"name":"P1","price":100},{"name":"P2","price":200}].',
+          description: 'Array of data objects for new records. CRITICAL: DO NOT include "id" field in any data object.',
         },
         fields: {
           type: 'string',
           description:
-            'REQUIRED. Fields to return. Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields.',
-        },
-        skipPermissionCheck: {
-          type: 'boolean',
-          description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
-          default: false,
+            'Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
         },
       },
-      required: ['table', 'dataArray', 'fields'],
+      required: ['table', 'dataArray'],
     },
   },
   {
-    name: 'batch_update_records',
-    description: `Purpose → Update multiple records in a table (2+ records).
+    name: 'update_records',
+    description: `Purpose → Update one or multiple records by ID. Processes records sequentially internally.
 
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
-CRITICAL - When to Use:
-- Use for 2+ records to update
-- When find_records returns multiple records that need to be updated, collect ALL IDs and use this tool
-
-CRITICAL - Metadata Tables:
-- Always process metadata tables (table_definition/column_definition/relation_definition) sequentially, one at a time
-- NEVER use batch operations on metadata tables - process them one by one
-
 CRITICAL - Schema Check Required:
-- BEFORE batch_update operations: You MUST call get_table_details FIRST to check the table schema
+- BEFORE update operations: You MUST call get_table_details FIRST to check the table schema
 - Schema check is MANDATORY to ensure:
   * Column names match exactly (snake_case vs camelCase)
   * Relations format is correct (propertyName, not FK column names)
   * Data types match column types
-- Workflow: get_table_details → analyze schema → prepare data → batch_update_records
+- Workflow: get_table_details → analyze schema → prepare data → update_records
 - DO NOT skip schema check - invalid field names or types will cause errors
 
-CRITICAL - Check Records Exist Before Batch Update:
-- BEFORE batch_update operations: You MUST check if the records exist using find_records
-- Workflow: find_records (to verify records exist) → batch_update_records
-- Example: Before batch updating customers, check: find_records({"table":"customer","where":{"id":{"_in":[1,2,3]}},"fields":"id","limit":0})
-- If any record does not exist, skip that record or report error
+CRITICAL - Check Record Exists Before Update:
+- BEFORE update operations: You MUST check if the record exists using find_records
+- Workflow: find_records (to verify record exists) → update_records
+- Example: Before updating customer with id=1, check: find_records({"table":"customer","where":{"id":{"_eq":1}},"fields":"id","limit":1})
+- If record does not exist, skip update or report error
 
 CRITICAL - Relations Format:
 - For relations (many-to-one, one-to-one): Use propertyName from get_table_details result.relations[] with the ID value directly
@@ -1130,17 +860,30 @@ CRITICAL - Relations Format:
 - The system automatically converts propertyName to the correct FK column - you MUST use propertyName, never FK column names
 - Check get_table_details result.relations[] to see available propertyName values and their foreignKeyColumn (for reference only, do not use foreignKeyColumn directly)
 
-CRITICAL - Fields Parameter is MANDATORY:
-- ALWAYS specify fields parameter to reduce response size
-- Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields
+Inputs:
+- table (required): Name of the table to update records in
+- updates (required): Array of update objects. For single record, use array with 1 element. Each object: {id: number|string, data: object}
+- fields (optional): Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens.
 
-Basic examples:
-- Batch Update: batch_update_records({"table":"customer","updates":[{"id":1,"data":{"name":"New Name 1"}},{"id":2,"data":{"name":"New Name 2"}}],"fields":"id"})
+Output:
+{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; index: number; id?: number|string; error?: string; message?: string}>;
+  errors?: Array<{index: number; id?: number|string; error: string; message: string}>;
+  summary: string;
+  message: string;
+}
 
-Metadata tables (*_definition) can skip permission:
-- batch_update_records({"table":"table_definition","updates":[...],"skipPermissionCheck":true,"fields":"id"})
+Example for single record:
+update_records({"table":"customer","updates":[{"id":1,"data":{"name":"New Name"}}],"fields":"id"})
 
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+Example for multiple records:
+update_records({"table":"customer","updates":[{"id":1,"data":{"name":"New Name 1"}},{"id":2,"data":{"name":"New Name 2"}}],"fields":"id"})
+
+Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
@@ -1154,7 +897,7 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
             type: 'object',
             properties: {
               id: {
-                type: ['string', 'number'],
+                oneOf: [{ type: 'string' }, { type: 'number' }],
               },
               data: {
                 type: 'object',
@@ -1162,55 +905,65 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
             },
             required: ['id', 'data'],
           },
-          description:
-            'Array of update objects. Each object must have {id: string|number, data: object}. REQUIRED.',
+          description: 'Array of update objects. Each object: {id: number|string, data: object}',
         },
         fields: {
           type: 'string',
           description:
-            'REQUIRED. Fields to return. Use minimal fields like "id" or "id,name" - do NOT use "*" or omit fields.',
-        },
-        skipPermissionCheck: {
-          type: 'boolean',
-          description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
-          default: false,
+            'Fields to return. ALWAYS specify minimal fields (e.g., "id" or "id,name") to save tokens. Do NOT use "*" or omit fields parameter - this returns all fields and wastes tokens.',
         },
       },
-      required: ['table', 'updates', 'fields'],
+      required: ['table', 'updates'],
     },
   },
   {
-    name: 'batch_delete_records',
-    description: `Purpose → Delete multiple records in a table (2+ records).
+    name: 'delete_records',
+    description: `Purpose → Delete one or multiple records by ID. Processes records sequentially internally.
 
 Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
 
-CRITICAL - When to Use:
-- Use for 2+ records to delete
-- When find_records returns multiple records that need to be deleted, collect ALL IDs and use this tool
-
-CRITICAL - Check Records Exist Before Batch Delete:
-- BEFORE batch_delete operations: You MUST check if the records exist using find_records
-- Workflow: find_records (to verify records exist) → batch_delete_records
-- Example: Before batch deleting orders, check: find_records({"table":"order","where":{"id":{"_in":[1,2,3]}},"fields":"id","limit":0})
-- If any record does not exist, skip that record or report error
+CRITICAL - Check Record Exists Before Delete:
+- BEFORE delete operations: You MUST check if the record exists using find_records
+- Workflow: find_records (to verify record exists) → delete_records
+- Example: Before deleting order with id=1, check: find_records({"table":"order","where":{"id":{"_eq":1}},"fields":"id","limit":1})
+- If record does not exist, skip delete or report error
 
 CRITICAL - Deleting Tables (NOT Data):
-- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_table tool:
+- To DELETE/DROP/REMOVE a TABLE (not data records), you MUST use the delete_tables tool:
   1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1})
   2. Get the id (number) from the result
-  3. Delete the table using delete_table tool: delete_table({"id":<id_from_step_1>})
-- NEVER use batch_delete_records to delete tables - use delete_table tool instead
-- NEVER use batch_delete_records on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
+  3. Delete the table using delete_tables tool: delete_tables({"ids":[<id_from_step_1>]})
+- NEVER use delete_records to delete tables - use delete_tables tool instead
+- NEVER use delete_records on data tables (categories, products, etc.) to delete tables - this only deletes data records, not the table itself
+- NEVER use table name as id value - delete_tables only accepts numeric ids in array
+- Example CORRECT for deleting table: 
+  Step 1: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"id,name","limit":1})
+  Step 2: delete_tables({"ids":[123]}) ← Use the id from step 1 (single table: array with 1 element)
+- Example WRONG: delete_records({"table":"categories","ids":["categories"]}) ← This is INCORRECT
 
-Basic examples:
-- Batch Delete: batch_delete_records({"table":"order_item","ids":[1,2,3]})
+Inputs:
+- table (required): Name of the table to delete records from
+- ids (required): Array of record IDs. For single record, use array with 1 element.
 
-Metadata tables (*_definition) can skip permission:
-- batch_delete_records({"table":"table_definition","ids":[1,2,3],"skipPermissionCheck":true})
+Output:
+{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{success: boolean; index: number; id?: number|string; error?: string; message?: string}>;
+  errors?: Array<{index: number; id?: number|string; error: string; message: string}>;
+  summary: string;
+  message: string;
+}
 
-For detailed workflows and best practices, call get_hint(category=["table_operations", "field_optimization"])`,
+Example for single record:
+delete_records({"table":"order_item","ids":[1]})
+
+Example for multiple records:
+delete_records({"table":"order_item","ids":[1,2,3]})
+
+Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
       type: 'object',
       properties: {
@@ -1221,15 +974,9 @@ For detailed workflows and best practices, call get_hint(category=["table_operat
         ids: {
           type: 'array',
           items: {
-            type: ['string', 'number'],
+            oneOf: [{ type: 'string' }, { type: 'number' }],
           },
-          description: 'Array of IDs to delete. REQUIRED.',
-        },
-        skipPermissionCheck: {
-          type: 'boolean',
-          description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
-          default: false,
+          description: 'Array of record IDs to delete.',
         },
       },
       required: ['table', 'ids'],

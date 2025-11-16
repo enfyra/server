@@ -442,11 +442,6 @@ export class SqlTableHandlerService {
             if (!rel.targetTableName) {
               throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${body.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found. Please verify the target table ID is correct.`);
             }
-
-            const systemTables = ['table_definition', 'column_definition', 'relation_definition', 'route_definition'];
-            if (systemTables.includes(rel.targetTableName)) {
-              throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${body.name}' cannot target system table '${rel.targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
-            }
           }
         }
       }
@@ -1054,11 +1049,6 @@ export class SqlTableHandlerService {
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
         if (!rel.targetTableName) {
           throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found.`);
-        }
-
-        const systemTables = ['table_definition', 'column_definition', 'relation_definition', 'route_definition'];
-        if (systemTables.includes(rel.targetTableName)) {
-          throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' cannot target system table '${rel.targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
         }
 
         rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);

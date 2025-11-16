@@ -8,8 +8,8 @@ export interface UpdateTaskExecutorDependencies {
 
 export async function executeUpdateTask(
   args: {
-    conversationId: string | number;
-    type: 'create_table' | 'update_table' | 'delete_table' | 'custom';
+    conversationId?: string | number;
+    type: 'create_tables' | 'update_tables' | 'delete_tables' | 'custom';
     status: 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'failed';
     data?: any;
     result?: any;
@@ -23,14 +23,30 @@ export async function executeUpdateTask(
   const { conversationService } = deps;
 
   try {
-    const { conversationId, type, status, data, result, error, priority } = args;
+    let { conversationId, type, status, data, result, error, priority } = args;
+    
+    if (!conversationId || (typeof conversationId === 'string' && !/^\d+$/.test(conversationId))) {
+      conversationId = context.$params?.conversationId;
+    }
+    
+    if (!conversationId) {
+      return {
+        error: true,
+        errorCode: 'CONVERSATION_ID_REQUIRED',
+        message: 'conversationId is required. It should be provided in the tool arguments or available in the context.',
+      };
+    }
+    
+    const conversationIdNum = typeof conversationId === 'string' && /^\d+$/.test(conversationId) 
+      ? parseInt(conversationId, 10) 
+      : conversationId;
 
-    const conversation = await conversationService.getConversation({ id: conversationId });
+    const conversation = await conversationService.getConversation({ id: conversationIdNum });
     if (!conversation) {
       return {
         error: true,
         errorCode: 'CONVERSATION_NOT_FOUND',
-        message: `Conversation with ID ${conversationId} not found`,
+        message: `Conversation with ID ${conversationIdNum} not found`,
       };
     }
 
@@ -63,7 +79,7 @@ export async function executeUpdateTask(
     }
 
     await conversationService.updateConversation({
-      id: conversationId,
+      id: conversationIdNum,
       data: { task },
     });
 

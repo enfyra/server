@@ -331,7 +331,7 @@ export class ConversationService {
   async createMessage(params: {
     data: IMessageCreate;
     userId?: string | number;
-    context?: { userMessage?: string; boundTools?: string[]; provider?: string };
+    context?: { userMessage?: string; boundTools?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } };
   }): Promise<IMessage> {
     const { data, userId, context } = params;
 
@@ -445,7 +445,7 @@ export class ConversationService {
     };
   }
 
-  private async mapMessage(data: any, context?: { userMessage?: string; boundTools?: string[]; provider?: string }, debug: boolean = false): Promise<IMessage> {
+  private async mapMessage(data: any, context?: { userMessage?: string; boundTools?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } }, debug: boolean = false): Promise<IMessage> {
     let toolCalls = null;
     let toolResults = null;
 
@@ -526,14 +526,55 @@ export class ConversationService {
 
       const toolCallsDetails = Array.isArray(mapped.toolCalls) ? mapped.toolCalls.map((tc: any) => {
         const name = tc.function?.name || tc.name;
-        let argsStr = typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {});
+        let args: any = tc.function?.arguments || tc.args || tc.arguments || {};
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch {
+            args = {};
+          }
+        }
+        const argsStr = JSON.stringify(args);
         return {
           name,
           id: tc.id,
-          params: argsStr.length > 1000 ? argsStr.substring(0, 1000) + '...' : argsStr,
+          params: argsStr.length > 500 ? argsStr.substring(0, 500) + '...' : argsStr,
           paramsLength: argsStr.length,
         };
       }) : null;
+
+      const usedTools = toolCallsDetails ? Array.from(new Set(toolCallsDetails.map((tc: any) => tc.name))) : [];
+      const availableTools = context?.boundTools || [];
+      
+      const toolResultsSummary = toolResults ? (() => {
+        const resultsStr = JSON.stringify(toolResults);
+        if (resultsStr.length > 2000) {
+          const summary: any = {
+            totalLength: resultsStr.length,
+            count: Array.isArray(toolResults) ? toolResults.length : 1,
+            truncated: true,
+            preview: resultsStr.substring(0, 500) + '...',
+          };
+          if (Array.isArray(toolResults)) {
+            summary.items = toolResults.map((tr: any, idx: number) => {
+              const trStr = JSON.stringify(tr);
+              return {
+                index: idx,
+                toolCallId: tr.toolCallId,
+                resultLength: trStr.length,
+                hasError: !!tr.result?.error,
+                preview: trStr.substring(0, 200) + (trStr.length > 200 ? '...' : ''),
+              };
+            });
+          }
+          return summary;
+        }
+        return {
+          totalLength: resultsStr.length,
+          count: Array.isArray(toolResults) ? toolResults.length : 1,
+          truncated: false,
+        };
+      })() : null;
 
       const agentResponse = typeof mapped.content === 'string' ? mapped.content : JSON.stringify(mapped.content || '');
       
@@ -542,13 +583,18 @@ export class ConversationService {
         conversationId: mapped.conversationId,
         sequence: mapped.sequence,
         provider: context?.provider || null,
-        userMessage: userMessage?.substring(0, 500) || null,
+        userMessage: userMessage?.substring(0, 200) || null,
         userMessageLength: userMessage?.length || 0,
-        agentResponse: agentResponse.substring(0, 500),
+        agentResponse: agentResponse.substring(0, 300),
         agentResponseLength: agentResponse.length,
+        tokenUsage: context?.tokenUsage || null,
         toolCallsCount: toolCallsDetails?.length || 0,
         toolCalls: toolCallsDetails,
-        boundTools: context?.boundTools || null,
+        toolResultsCount: toolResults?.length || 0,
+        toolResultsSummary,
+        availableTools: availableTools.length > 0 ? availableTools : null,
+        usedTools: usedTools.length > 0 ? usedTools : null,
+        toolsEfficiency: availableTools.length > 0 ? `${usedTools.length}/${availableTools.length} tools used` : null,
         createdAt: mapped.createdAt,
       }, null, 2)}`);
     }

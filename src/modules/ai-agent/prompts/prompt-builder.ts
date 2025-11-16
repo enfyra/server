@@ -67,6 +67,7 @@ export interface BuildSystemPromptParams {
     error?: string;
     result?: any;
   };
+  hintContent?: string;
 }
 
 export function buildSystemPrompt(params: BuildSystemPromptParams): string {
@@ -79,6 +80,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     latestUserMessage,
     conversationSummary,
     task,
+    hintContent,
   } = params;
 
   const normalizedProvider = (provider || 'OpenAI') as Provider;
@@ -116,7 +118,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     const userMessagePreview = latestUserMessage.length > 200 
       ? latestUserMessage.substring(0, 200) + '...' 
       : latestUserMessage;
-    prompt += `\n\n**Current User Message (for language reference):**\n"${userMessagePreview}"\n\nIMPORTANT: Respond in the EXACT SAME language as this user message. If it's Vietnamese, respond in Vietnamese. If it's English, respond in English. Match the language exactly.`;
+    prompt += `\n\n**Current User Message (for language reference):**\n"${userMessagePreview}"\n\nIMPORTANT: Respond in the EXACT SAME language as this user message. Match the language exactly.`;
   }
   
   if (conversationSummary) {
@@ -126,6 +128,10 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   if (task) {
     const taskInfo = `\n\n**Current Active Task:**\n- Type: ${task.type}\n- Status: ${task.status}\n- Priority: ${task.priority || 0}${task.data ? `\n- Data: ${JSON.stringify(task.data)}` : ''}${task.error ? `\n- Error: ${task.error}` : ''}${task.result ? `\n- Result: ${JSON.stringify(task.result)}` : ''}`;
     prompt += taskInfo;
+  }
+  
+  if (hintContent && hintContent.length > 0) {
+    prompt += `\n\n**RELEVANT WORKFLOWS & RULES:**\n\n${hintContent}\n\n**CRITICAL - Hints Already Provided:**\n- The workflows and rules above have been automatically injected into this prompt based on your selected categories.\n- DO NOT call get_hint tool - all necessary guidance is already in the "RELEVANT WORKFLOWS & RULES" section above.\n- Use the information provided above directly - it contains all the step-by-step workflows and tool usage instructions you need.`;
   }
   
   return prompt;

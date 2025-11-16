@@ -8,18 +8,17 @@ export interface GetHintExecutorDependencies {
   queryBuilder: QueryBuilderService;
 }
 
-export async function executeGetHint(
-  args: { category?: string | string[] },
-  context: TDynamicContext,
-  deps: GetHintExecutorDependencies,
-): Promise<any> {
-  logger.debug(`[get_hint] Called with category=${JSON.stringify(args.category)}`);
-  const { queryBuilder } = deps;
-  const dbType = queryBuilder.getDbType();
-  const isMongoDB = dbType === 'mongodb';
-  const idFieldName = isMongoDB ? '_id' : 'id';
+export interface HintContent {
+  category: string;
+  title: string;
+  content: string;
+  tools?: string[];
+}
 
-  const allHints = [];
+export function buildHintContent(dbType: string, idFieldName: string, categories?: string[]): HintContent[] {
+  const isMongoDB = dbType === 'mongodb';
+
+  const allHints: HintContent[] = [];
 
   const dbTypeContent = `Database context:
 - Engine: ${dbType}
@@ -29,10 +28,11 @@ export async function executeGetHint(
 - CRITICAL: For MongoDB, you MUST use type="uuid" for _id column
 - Relation payload → {${isMongoDB ? '"_id"' : '"id"'}: value}`;
 
-  const dbTypeHint = {
+  const dbTypeHint: HintContent = {
     category: 'database_type',
     title: 'Database Type Information',
     content: dbTypeContent,
+    tools: [],
   };
 
   const fieldOptContent = `**Field Selection & Query Optimization**
@@ -99,79 +99,191 @@ export async function executeGetHint(
 ✅ Get order with customer name: {"table":"order","operation":"find","fields":"${idFieldName},total,customer.name","where":{"customer":{"name":{"_eq":"John"}}}}
 ✅ Multi-level: {"table":"route_definition","operation":"find","fields":"${idFieldName},path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
 
-  const fieldOptHint = {
+  const fieldOptHint: HintContent = {
     category: 'field_optimization',
     title: 'Field & Query Optimization',
     content: fieldOptContent,
+    tools: ['get_table_details', 'get_fields', 'find_records', 'count_records'],
   };
 
-  const tableOpsContent = `**Table Operations - Step by Step Examples**
+  const tableSchemaOpsContent = `**Table Schema Operations (Create & Update) - Complete Workflow**
 
-**Creating Tables:**
-1. Check if table exists: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
-2. If not exists, create table:
-   ✅ CORRECT Example:
-   create_table({
-     "name": "products",
-     "description": "Product catalog",
-     "columns": [
-       {"name": "${idFieldName}", "type": "${isMongoDB ? 'uuid' : 'int'}", "isPrimary": true, "isGenerated": true},
-       {"name": "name", "type": "varchar", "isNullable": false},
-       {"name": "price", "type": "float", "isNullable": false}
-     ]
-   })
-   
-   ❌ WRONG:
-   - Missing ${idFieldName} column
-   - Including createdAt/updatedAt (auto-generated)
-   - Including FK columns (use relations instead)
+**WORKFLOW FOR CREATING TABLES WITHOUT RELATIONS:**
+Step 1: Check if table exists
+find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 
-**Updating Tables:**
-✅ Example - Add new column:
-update_table({
-  "tableName": "products",
-  "columns": [{"name": "stock", "type": "int", "isNullable": true, "default": 0}]
-})
-
-✅ Example - Add relation:
-1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
-2. Add relation: update_table({
-  "tableName": "products",
-  "relations": [{
-    "propertyName": "category",
-    "type": "many-to-one",
-    "targetTable": {"id": 19}
+Step 2: If not exists, create table
+✅ CORRECT Example:
+create_tables({
+  "tables": [{
+    "name": "products",
+    "description": "Product catalog",
+    "columns": [
+      {"name": "${idFieldName}", "type": "${isMongoDB ? 'uuid' : 'int'}", "isPrimary": true, "isGenerated": true},
+      {"name": "name", "type": "varchar", "isNullable": false},
+      {"name": "price", "type": "float", "isNullable": false}
+    ]
   }]
 })
 
-**Deleting Tables (NOT Data):**
-✅ CORRECT Workflow:
-1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
-2. Delete table: delete_table({"id": 19})
-
 ❌ WRONG:
-- delete_record({"table":"products","id":1}) → This deletes DATA, not the table structure
-- delete_table({"id": "products"}) → Must use numeric ID, not table name
+- Missing ${idFieldName} column
+- Including createdAt/updatedAt (auto-generated)
+- Including FK columns (use relations instead)
 
-**Batch Operations:**
-✅ For data tables (2+ records):
-- batch_create: batch_create_records({"table":"product","dataArray":[{"name":"P1"},{"name":"P2"}],"fields":"${idFieldName}"})
-- batch_update: batch_update_records({"table":"product","updates":[{"id":1,"data":{"price":100}}],"fields":"${idFieldName}"})
-- batch_delete: batch_delete_records({"table":"product","ids":[1,2,3]})
+**WORKFLOW FOR CREATING TABLES WITH RELATIONS (CRITICAL - FOLLOW EXACTLY):**
+Step 1: Check if main table exists
+find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 
-❌ For metadata tables (table_definition):
-- NEVER use batch operations
-- Delete ONE BY ONE sequentially to avoid deadlocks`;
+Step 2: For EACH relation, find target table ID FIRST (MANDATORY)
+✅ Example: Creating "products" table with relation to "categories"
+1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName},name","limit":1})
+2. Verify result: Check that result.data[0].${idFieldName} exists and is a valid number
+3. Use the ID from result: targetTable: {"id": result.data[0].${idFieldName}}
 
-  const tableOpsHint = {
-    category: 'table_operations',
-    title: 'Table Creation & Management',
-    content: tableOpsContent,
+Step 3: Create table with relations
+✅ CORRECT Example:
+create_tables({
+  "tables": [{
+    "name": "products",
+    "columns": [
+      {"name": "${idFieldName}", "type": "${isMongoDB ? 'uuid' : 'int'}", "isPrimary": true, "isGenerated": true},
+      {"name": "name", "type": "varchar", "isNullable": false}
+    ],
+    "relations": [{
+      "propertyName": "category",
+      "type": "many-to-one",
+      "targetTable": {"id": 19}
+    }]
+  }]
+})
+
+❌ CRITICAL ERRORS TO AVOID:
+- Using hardcoded ID without verification → Always use find_records to get actual ID
+- Not finding target table ID first → Always use find_records to get actual ID
+- Using target table name instead of ID → Must use {"id": number}
+- Creating table with relation before target table exists → Create target table FIRST
+
+**WORKFLOW FOR MULTI-TABLE CREATION WITH RELATIONS:**
+Step 1: Create all base tables FIRST (without relations)
+create_tables({
+  "tables": [
+    {"name": "categories", "columns": [...]},
+    {"name": "instructors", "columns": [...]}
+  ]
+})
+
+Step 2: Find IDs of created tables
+find_records({"table":"table_definition","where":{"name":{"_in":["categories","instructors"]}},"fields":"${idFieldName},name","limit":0})
+
+Step 3: Create dependent tables with relations using IDs from Step 2
+create_tables({
+  "tables": [{
+    "name": "courses",
+    "columns": [...],
+    "relations": [
+      {"propertyName": "category", "type": "many-to-one", "targetTable": {"id": <ID from categories>}},
+      {"propertyName": "instructor", "type": "many-to-one", "targetTable": {"id": <ID from instructors>}}
+    ]
+  }]
+})
+
+**WORKFLOW FOR UPDATING TABLES:**
+Step 1: Find table (if needed)
+find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+
+Step 2: Update table schema
+✅ Add new column:
+update_tables({
+  "tables": [{
+    "tableName": "products",
+    "columns": [{"name": "stock", "type": "int", "isNullable": true, "default": 0}]
+  }]
+})
+
+✅ Add relation (MUST find target table ID first):
+1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
+2. Verify ID is valid (exists in result)
+3. Add relation: update_tables({
+  "tables": [{
+    "tableName": "products",
+    "relations": [{
+      "propertyName": "category",
+      "type": "many-to-one",
+      "targetTable": {"id": <ID from find_records result>}
+    }]
+  }]
+})
+
+**MULTIPLE TABLES:**
+✅ For multiple tables without relations:
+create_tables({
+  "tables": [
+    {"name": "products", "columns": [...]},
+    {"name": "categories", "columns": [...]}
+  ]
+})
+
+update_tables({
+  "tables": [
+    {"tableName": "products", "columns": [...]},
+    {"tableName": "categories", "columns": [...]}
+  ]
+})
+
+**CRITICAL RULES:**
+- Always check table existence before create
+- Always include ${idFieldName} column with correct type
+- Never include createdAt/updatedAt (auto-generated)
+- Use relations array for foreign keys, not FK columns
+- For relations: ALWAYS find target table ID first using find_records
+- Never use hardcoded IDs without verification
+- Create target tables BEFORE creating tables that reference them
+- Batch tools process sequentially internally`;
+
+  const tableSchemaOpsHint: HintContent = {
+    category: 'table_schema_operations',
+    title: 'Table Schema Operations (Create & Update)',
+    content: tableSchemaOpsContent,
+    tools: ['find_records', 'create_tables', 'update_tables'],
   };
 
-  const dynamicRepoContent = `**CRUD Operations - Complete Workflows with Examples**
+  const tableDeletionContent = `**Table Deletion - Complete Workflow**
 
-**CREATE Workflow:**
+**WORKFLOW FOR DELETING TABLES:**
+Step 1: Find table ID
+find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+
+Step 2: Delete table(s)
+delete_tables({"ids": [19]})
+
+**MULTIPLE TABLES:**
+✅ For multiple tables:
+1. Find all table IDs: find_records({"table":"table_definition","where":{"name":{"_in":["products","categories"]}},"fields":"${idFieldName},name","limit":0})
+2. Delete all: delete_tables({"ids": [19, 20]})
+
+**CRITICAL RULES:**
+- ALWAYS find table ID first (cannot use table name)
+- Use delete_tables for table structure, NOT delete_records (which deletes data)
+- Tool processes tables sequentially internally (one by one)
+- For single table, use array with 1 element: delete_tables({"ids":[123]})
+- NEVER use delete_records for table_definition table
+
+**COMMON MISTAKES:**
+❌ delete_records({"table":"products","ids":[1]}) → This deletes DATA, not table structure
+❌ delete_tables({"ids": ["products"]}) → Must use numeric IDs, not table names
+❌ Using delete_records for tables → Wrong tool, use delete_tables`;
+
+  const tableDeletionHint: HintContent = {
+    category: 'table_deletion',
+    title: 'Table Deletion Operations',
+    content: tableDeletionContent,
+    tools: ['find_records', 'delete_tables'],
+  };
+
+  const crudWriteOpsContent = `**CRUD Write Operations (Create & Update Records) - Complete Workflow**
+
+**WORKFLOW FOR CREATING RECORDS:**
 Step 1: Get schema
 get_table_details({"tableName": ["product"]})
 
@@ -186,13 +298,13 @@ Step 3: Prepare data with ALL required fields
 }
 
 Step 4: Create record
-create_record({
+create_records({
   "table": "product",
-  "data": {"name": "Laptop", "price": 999.99, "category": 19},
+  "dataArray": [{"name": "Laptop", "price": 999.99, "category": 19}],
   "fields": "${idFieldName}"
 })
 
-**UPDATE Workflow:**
+**WORKFLOW FOR UPDATING RECORDS:**
 Step 1: Get schema
 get_table_details({"tableName": ["product"]})
 
@@ -200,35 +312,95 @@ Step 2: Check if record exists
 find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
 
 Step 3: Update
-update_record({
+update_records({
   "table": "product",
-  "id": 1,
-  "data": {"price": 899.99},
+  "updates": [{"id": 1, "data": {"price": 899.99}}],
   "fields": "${idFieldName}"
 })
 
-**DELETE Workflow (for DATA records):**
-Step 1: Verify exists
-find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
-
-Step 2: Delete
-delete_record({
+**MULTIPLE RECORDS:**
+✅ For multiple records:
+create_records({
   "table": "product",
-  "id": 1
+  "dataArray": [
+    {"name": "Laptop", "price": 999.99},
+    {"name": "Mouse", "price": 29.99}
+  ],
+  "fields": "${idFieldName}"
 })
 
-**CRITICAL - Deleting TABLES (not data):**
-❌ WRONG: delete_record({"table":"products","id":1}) → This deletes DATA, not table
+update_records({
+  "table": "product",
+  "updates": [
+    {"id": 1, "data": {"price": 899.99}},
+    {"id": 2, "data": {"price": 24.99}}
+  ],
+  "fields": "${idFieldName}"
+})
 
-✅ CORRECT:
-1. Find table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
-2. Delete table: delete_table({"id": 19})
+**CRITICAL RULES:**
+- ALWAYS call get_table_details FIRST to check required fields
+- ALWAYS check unique constraints before create
+- Use propertyName from relations (e.g., "category": 19), NOT FK columns
+- Never include ${idFieldName} in create data (auto-generated)
+- Batch tools process sequentially internally and report detailed results`;
 
-**FIND Workflow:**
-Step 1: Get field names (if needed)
-get_fields({"tableName": "product"})
+  const crudWriteOpsHint: HintContent = {
+    category: 'crud_write_operations',
+    title: 'CRUD Write Operations (Create & Update Records)',
+    content: crudWriteOpsContent,
+    tools: ['get_table_details', 'find_records', 'create_records', 'update_records'],
+  };
 
-Step 2: Query
+  const crudDeleteOpsContent = `**CRUD Delete Operations - Complete Workflow**
+
+**WORKFLOW FOR DELETING RECORDS:**
+Step 1: Verify record exists
+find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
+
+Step 2: Delete record
+delete_records({
+  "table": "product",
+  "ids": [1]
+})
+
+**BATCH DELETION (2+ records):**
+✅ For multiple records:
+delete_records({
+  "table": "product",
+  "ids": [1, 2, 3]
+})
+
+**CRITICAL RULES:**
+- ALWAYS verify record exists before delete
+- Use delete_records for DATA records, NOT for table structure
+- For table deletion, use delete_tables tool instead
+- Batch tool processes sequentially and reports detailed results
+
+**COMMON MISTAKES:**
+❌ Using delete_records to delete tables → Wrong! Use delete_tables
+❌ Not verifying existence → May cause errors
+❌ Using delete_records for table_definition → Wrong! Use delete_tables`;
+
+  const crudDeleteOpsHint: HintContent = {
+    category: 'crud_delete_operations',
+    title: 'CRUD Delete Operations',
+    content: crudDeleteOpsContent,
+    tools: ['find_records', 'delete_records'],
+  };
+
+  const crudQueryOpsContent = `**CRUD Query Operations (Find & Count) - Complete Workflow**
+
+**WORKFLOW FOR FINDING RECORDS:**
+Step 1: Get table schema to know available fields (MANDATORY - NEVER guess fields)
+get_table_details({"tableName": ["product"]})
+
+Step 2: Extract field names from schema result
+- Use only field names that exist in result.columns[].name
+- NEVER guess or invent field names
+- If you need specific fields, check they exist in schema first
+
+Step 3: Query records with verified fields
 find_records({
   "table": "product",
   "fields": "${idFieldName},name,price",
@@ -237,52 +409,107 @@ find_records({
   "sort": "-price"
 })
 
-**Common Mistakes:**
-❌ Missing schema check before create/update → constraint errors
-❌ Not checking unique constraints → duplicate key errors
-❌ Using FK column names instead of propertyName → errors
-❌ Including id in create operations → errors
-❌ Using delete_record to delete tables → wrong tool
+**WORKFLOW FOR COUNTING RECORDS:**
+Step 1: Count total records
+count_records({
+  "table": "product",
+  "fields": "${idFieldName}",
+  "meta": "totalCount"
+})
+→ Read totalCount from response metadata
 
-**Best Practices:**
-✅ Always call get_table_details FIRST for create/update
-✅ Always check unique constraints before create
-✅ Use propertyName from relations array, not FK columns
-✅ Specify minimal fields parameter to save tokens
-✅ Execute ONE operation at a time (sequential)`;
+Step 2: Count with filter
+count_records({
+  "table": "product",
+  "fields": "${idFieldName}",
+  "where": {"price": {"_gt": 100}},
+  "meta": "filterCount"
+})
+→ Read filterCount from response metadata
 
-  const dynamicRepoHint = {
-    category: 'crud_operations',
-    title: 'CRUD Operations Complete Workflows',
-    content: dynamicRepoContent,
+**ADVANCED QUERIES:**
+✅ With relations:
+find_records({
+  "table": "order",
+  "fields": "${idFieldName},total,customer.name",
+  "where": {"customer": {"name": {"_eq": "John"}}}
+})
+
+✅ Multiple filters with _in operator:
+find_records({
+  "table": "table_definition",
+  "where": {"name": {"_in": ["products", "categories"]}},
+  "fields": "${idFieldName},name",
+  "limit": 0
+})
+
+**CRITICAL RULES:**
+- ALWAYS get table schema first using get_table_details before find_records
+- NEVER guess field names - always verify they exist in schema.columns[].name
+- Always specify fields parameter (minimal fields to save tokens)
+- Use limit=0 to fetch ALL records
+- Use _in operator for multiple values (more efficient than multiple calls)
+- If you don't know the fields, call get_table_details first, then use fields from result
+- Read metadata.totalCount or metadata.filterCount for count results`;
+
+  const crudQueryOpsHint: HintContent = {
+    category: 'crud_query_operations',
+    title: 'CRUD Query Operations (Find & Count)',
+    content: crudQueryOpsContent,
+    tools: ['get_table_details', 'get_fields', 'find_records', 'count_records'],
   };
 
-  const complexWorkflowsContent = `**Complex Workflows - Step by Step**
+  const systemWorkflowsContent = `**System Workflows (Multi-Step Operations) - Complete Workflow**
 
-**Recreate Tables with Relations:**
-1. Find existing tables: find_records({"table":"table_definition","where":{"name":{"_in":["post","category"]}},"fields":"${idFieldName},name","limit":0})
-2. Delete ONE BY ONE (not batch): 
-   - delete_table({"id": 1})
-   - delete_table({"id": 2})
-3. Create new tables: create_table({...})
-4. Find new IDs and add relations: update_table({"tableName": "post", "relations": [...]})
+**WORKFLOW FOR MULTI-STEP OPERATIONS:**
+Step 1: Create task
+update_task({
+  "conversationId": <conversationId>,
+  "type": "create_table",
+  "status": "in_progress",
+  "data": {"tableNames": ["products", "categories"]}
+})
 
-**Common Mistakes:**
-❌ Creating tables without ${idFieldName} column
-❌ Including createdAt/updatedAt in columns
-❌ Including FK columns in columns array
-❌ Using batch_delete for table deletion
-❌ Multiple find calls instead of _in filter
+Step 2: Execute operations sequentially
+- Create tables: create_tables({...})
+- Add data: create_records({...})
+- Update relations: update_tables({...})
 
-**Efficiency Tips:**
-✅ Use _in filter for multiple tables
-✅ Use create_table/update_table tools (auto-validation)
-✅ Use batch operations for data tables only`;
+Step 3: Update task status
+update_task({
+  "conversationId": <conversationId>,
+  "type": "create_table",
+  "status": "completed",
+  "result": {...}
+})
 
-  const complexWorkflowsHint = {
-    category: 'complex_workflows',
-    title: 'Complex Task Workflows',
-    content: complexWorkflowsContent,
+**WORKFLOW FOR SYSTEM SETUP:**
+Example: "Create backend system with 5 tables and add data"
+
+1. Create task: update_task({type: "create_tables", status: "in_progress"})
+2. Create tables: create_tables({tables: [...]})
+3. Get table details: get_table_details({"tableName": [...]})
+4. Add sample data: create_records({...})
+5. Update task: update_task({status: "completed"})
+
+**CRITICAL RULES:**
+- ALWAYS create task FIRST for multi-step operations
+- Update task status as you progress
+- Execute operations sequentially (one at a time)
+- Continue automatically without stopping
+- If error occurs, update task with status="failed" and error message
+
+**TASK MANAGEMENT:**
+- Start: update_task({status: "in_progress", data: {...}})
+- Progress: update_task({status: "in_progress", data: {...updatedData}})
+- Complete: update_task({status: "completed", result: {...}})
+- Failed: update_task({status: "failed", error: "..."})`;
+
+  const systemWorkflowsHint: HintContent = {
+    category: 'system_workflows',
+    title: 'System Workflows (Multi-Step Operations)',
+    content: systemWorkflowsContent,
+    tools: ['update_task', 'create_tables', 'update_tables', 'delete_tables', 'get_table_details', 'create_records', 'update_records'],
   };
 
   const errorContent = `CRITICAL - Sequential Execution (PREVENTS ERRORS):
@@ -290,7 +517,7 @@ find_records({
 - Do NOT call multiple tools simultaneously in a single response
 - Execute first tool → wait for result → analyze → proceed to next
 - If you call multiple tools at once and one fails, you'll have to retry all, causing duplicates and wasted tokens
-- Example workflow: find_records → wait → delete_record → wait → continue
+- Example workflow: find_records → wait → delete_records → wait → continue
 - This prevents errors, duplicate operations, and ensures proper error handling
 
 Error handling:
@@ -300,39 +527,117 @@ Error handling:
 - If you encounter errors after calling multiple tools at once, execute them sequentially instead
 - Permission errors: When errorCode="PERMISSION_DENIED", inform user clearly and do NOT retry`;
 
-  const errorHint = {
+  const errorHint: HintContent = {
     category: 'error_handling',
     title: 'Error Handling Protocol',
     content: errorContent,
+    tools: [],
   };
 
-  const discoveryContent = `Table discovery:
-- Never guess table names from user phrasing
-- Use get_metadata to list tables and pick the closest match
-- Need structure? call get_table_details
-- Need multiple table structures? Use get_table_details with array: {"tableName": ["table1", "table2"]}
+  const metadataOpsContent = `**Metadata Operations (Table Discovery & Schema) - Complete Workflow**
 
-Examples:
-- "route" → get_metadata → choose "route_definition"
-- "users" → get_metadata → choose "user_definition"
-- Need schemas for post, category, and user → get_table_details with {"tableName": ["post", "category", "user_definition"]}`;
+**WORKFLOW FOR LISTING TABLES:**
+Step 1: List all tables
+find_records({"table":"table_definition","fields":"name,isSystem","limit":0})
+→ Returns array of table names with isSystem field
 
-  const discoveryHint = {
-    category: 'table_discovery',
-    title: 'Table Discovery Rules',
-    content: discoveryContent,
+Step 2: Filter non-system tables
+find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0})
+→ Returns only user-created tables
+
+**WORKFLOW FOR GETTING TABLE DETAILS:**
+Step 1: Get single table schema
+get_table_details({"tableName": "product"})
+
+Step 2: Get multiple table schemas (efficient)
+get_table_details({"tableName": ["product", "category", "order"]})
+
+**WORKFLOW FOR GETTING FIELD NAMES:**
+Step 1: Get field list
+get_fields({"tableName": "product"})
+→ Returns array of field names only
+
+**CRITICAL RULES:**
+- NEVER guess table names from user phrasing
+- ALWAYS use find_records with table_definition to discover available tables
+- Use get_table_details with array for multiple tables (ONE call instead of multiple)
+- Use get_fields when you only need field names (lighter than get_table_details)
+
+**EXAMPLES:**
+- User says "route" → find_records({"table":"table_definition","fields":"name","where":{"name":{"_like":"%route%"}},"limit":0}) → choose "route_definition"
+- User says "users" → find_records({"table":"table_definition","fields":"name","where":{"name":{"_like":"%user%"}},"limit":0}) → choose "user_definition"
+- Need schemas for post, category, user → get_table_details({"tableName": ["post", "category", "user_definition"]})`;
+
+  const metadataOpsHint: HintContent = {
+    category: 'metadata_operations',
+    title: 'Metadata Operations (Table Discovery & Schema)',
+    content: metadataOpsContent,
+    tools: ['find_records', 'get_table_details', 'get_fields'],
   };
 
-  allHints.push(dbTypeHint, fieldOptHint, tableOpsHint, errorHint, discoveryHint, complexWorkflowsHint, dynamicRepoHint);
+  allHints.push(
+    dbTypeHint,
+    fieldOptHint,
+    tableSchemaOpsHint,
+    tableDeletionHint,
+    crudWriteOpsHint,
+    crudDeleteOpsHint,
+    crudQueryOpsHint,
+    metadataOpsHint,
+    systemWorkflowsHint,
+    errorHint
+  );
 
   let filteredHints = allHints;
-  if (args.category) {
-    const categories = Array.isArray(args.category) ? args.category : [args.category];
+  if (categories && categories.length > 0) {
     filteredHints = allHints.filter(h => categories.includes(h.category));
-    logger.debug(`[get_hint] Filtered to ${filteredHints.length} hints for categories: ${categories.join(', ')}`);
-  } else {
-    logger.debug(`[get_hint] Returning all ${allHints.length} hints`);
   }
+
+  return filteredHints;
+}
+
+export function getHintContentString(hints: HintContent[]): string {
+  if (hints.length === 0) {
+    return '';
+  }
+
+  return hints.map(hint => {
+    let content = `**${hint.title}**\n\n${hint.content}`;
+    if (hint.tools && hint.tools.length > 0) {
+      content += `\n\n**Required Tools:** ${hint.tools.join(', ')}`;
+    }
+    return content;
+  }).join('\n\n---\n\n');
+}
+
+export function getHintTools(hints: HintContent[]): string[] {
+  const toolsSet = new Set<string>();
+  hints.forEach(hint => {
+    if (hint.tools) {
+      hint.tools.forEach(tool => {
+        if (tool !== 'get_hint') {
+          toolsSet.add(tool);
+        }
+      });
+    }
+  });
+  return Array.from(toolsSet);
+}
+
+export async function executeGetHint(
+  args: { category?: string | string[] },
+  context: TDynamicContext,
+  deps: GetHintExecutorDependencies,
+): Promise<any> {
+  const { queryBuilder } = deps;
+  const dbType = queryBuilder.getDbType();
+  const isMongoDB = dbType === 'mongodb';
+  const idFieldName = isMongoDB ? '_id' : 'id';
+
+  const categories = args.category ? (Array.isArray(args.category) ? args.category : [args.category]) : undefined;
+  const allHints = buildHintContent(dbType, idFieldName);
+  const filteredHints = categories ? allHints.filter(h => categories.includes(h.category)) : allHints;
+
 
   return {
     dbType,
@@ -340,7 +645,18 @@ Examples:
     idField: idFieldName,
     hints: filteredHints,
     count: filteredHints.length,
-    availableCategories: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows', 'crud_operations'],
+    availableCategories: [
+      'database_type',
+      'field_optimization',
+      'table_schema_operations',
+      'table_deletion',
+      'crud_write_operations',
+      'crud_delete_operations',
+      'crud_query_operations',
+      'metadata_operations',
+      'system_workflows',
+      'error_handling'
+    ],
   };
 }
 

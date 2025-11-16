@@ -12,13 +12,12 @@ import { SwaggerService } from '../../../infrastructure/swagger/services/swagger
 import { GraphqlService } from '../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { ConversationService } from '../services/conversation.service';
-import { executeListTables } from './executors/list-tables.executor';
 import { executeGetTableDetails } from './executors/get-table-details.executor';
 import { executeGetFields } from './executors/get-fields.executor';
 import { executeGetHint } from './executors/get-hint.executor';
-import { executeCreateTable } from './executors/create-table.executor';
-import { executeUpdateTable } from './executors/update-table.executor';
-import { executeDeleteTable } from './executors/delete-table.executor';
+import { executeCreateTables } from './executors/create-tables.executor';
+import { executeUpdateTables } from './executors/update-tables.executor';
+import { executeDeleteTables } from './executors/delete-tables.executor';
 import { executeUpdateTask } from './executors/update-task.executor';
 import { executeDynamicRepository } from './executors/dynamic-repository.executor';
 import { executeBatchDynamicRepository } from './executors/batch-dynamic-repository.executor';
@@ -69,10 +68,6 @@ export class ToolExecutor {
     }
 
     switch (name) {
-      case 'list_tables':
-        return await executeListTables({
-          metadataCacheService: this.metadataCacheService,
-        });
       case 'get_table_details':
         return await executeGetTableDetails(args, context, {
           metadataCacheService: this.metadataCacheService,
@@ -95,8 +90,8 @@ export class ToolExecutor {
         return await executeGetHint(args, context, {
           queryBuilder: this.queryBuilder,
         });
-      case 'create_table':
-        return await executeCreateTable(args, context, abortSignal, {
+      case 'create_tables':
+        return await executeCreateTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -109,8 +104,8 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
-      case 'update_table':
-        return await executeUpdateTable(args, context, abortSignal, {
+      case 'update_tables':
+        return await executeUpdateTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -123,8 +118,8 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
-      case 'delete_table':
-        return await executeDeleteTable(args, context, abortSignal, {
+      case 'delete_tables':
+        return await executeDeleteTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -137,6 +132,9 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
+
+
+
       case 'update_task':
         return await executeUpdateTask(args, context, {
           conversationService: this.conversationService,
@@ -179,66 +177,13 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
-      case 'create_record':
-        return await executeDynamicRepository(
-          { ...args, operation: 'create' },
-          context,
-          abortSignal,
-          {
-            metadataCacheService: this.metadataCacheService,
-            queryBuilder: this.queryBuilder,
-            tableHandlerService: this.tableHandlerService,
-            queryEngine: this.queryEngine,
-            routeCacheService: this.routeCacheService,
-            storageConfigCacheService: this.storageConfigCacheService,
-            aiConfigCacheService: this.aiConfigCacheService,
-            systemProtectionService: this.systemProtectionService,
-            tableValidationService: this.tableValidationService,
-            swaggerService: this.swaggerService,
-            graphqlService: this.graphqlService,
-          },
-        );
-      case 'update_record':
-        return await executeDynamicRepository(
-          { ...args, operation: 'update' },
-          context,
-          abortSignal,
-          {
-            metadataCacheService: this.metadataCacheService,
-            queryBuilder: this.queryBuilder,
-            tableHandlerService: this.tableHandlerService,
-            queryEngine: this.queryEngine,
-            routeCacheService: this.routeCacheService,
-            storageConfigCacheService: this.storageConfigCacheService,
-            aiConfigCacheService: this.aiConfigCacheService,
-            systemProtectionService: this.systemProtectionService,
-            tableValidationService: this.tableValidationService,
-            swaggerService: this.swaggerService,
-            graphqlService: this.graphqlService,
-          },
-        );
-      case 'delete_record':
-        return await executeDynamicRepository(
-          { ...args, operation: 'delete' },
-          context,
-          abortSignal,
-          {
-            metadataCacheService: this.metadataCacheService,
-            queryBuilder: this.queryBuilder,
-            tableHandlerService: this.tableHandlerService,
-            queryEngine: this.queryEngine,
-            routeCacheService: this.routeCacheService,
-            storageConfigCacheService: this.storageConfigCacheService,
-            aiConfigCacheService: this.aiConfigCacheService,
-            systemProtectionService: this.systemProtectionService,
-            tableValidationService: this.tableValidationService,
-            swaggerService: this.swaggerService,
-            graphqlService: this.graphqlService,
-          },
-        );
-      case 'batch_create_records':
+      case 'create_records':
         return await executeBatchDynamicRepository(
-          { ...args, operation: 'batch_create' },
+          { 
+            ...args, 
+            operation: 'batch_create',
+            dataArray: Array.isArray(args.dataArray) ? args.dataArray : [args.data || args.dataArray],
+          },
           context,
           abortSignal,
           {
@@ -255,9 +200,13 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
-      case 'batch_update_records':
+      case 'update_records':
         return await executeBatchDynamicRepository(
-          { ...args, operation: 'batch_update' },
+          { 
+            ...args, 
+            operation: 'batch_update',
+            updates: Array.isArray(args.updates) ? args.updates : (args.id ? [{ id: args.id, data: args.data }] : []),
+          },
           context,
           abortSignal,
           {
@@ -274,9 +223,13 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
-      case 'batch_delete_records':
+      case 'delete_records':
         return await executeBatchDynamicRepository(
-          { ...args, operation: 'batch_delete' },
+          { 
+            ...args, 
+            operation: 'batch_delete',
+            ids: Array.isArray(args.ids) ? args.ids : (args.id ? [args.id] : []),
+          },
           context,
           abortSignal,
           {

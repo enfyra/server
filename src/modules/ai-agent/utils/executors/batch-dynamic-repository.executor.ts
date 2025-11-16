@@ -50,17 +50,7 @@ export async function executeBatchDynamicRepository(
   abortSignal: AbortSignal | undefined,
   deps: BatchDynamicRepositoryExecutorDependencies,
 ): Promise<any> {
-  logger.debug(`[batch_dynamic_repository] Called with operation=${args.operation}, table=${args.table}`, {
-    operation: args.operation,
-    table: args.table,
-    hasDataArray: !!args.dataArray,
-    hasUpdates: !!args.updates,
-    hasIds: !!args.ids,
-    fields: args.fields,
-  });
-
   if (abortSignal?.aborted) {
-    logger.debug(`[batch_dynamic_repository] Request aborted`);
     return {
       error: true,
       errorCode: 'REQUEST_ABORTED',
@@ -103,7 +93,6 @@ export async function executeBatchDynamicRepository(
     ['batch_create', 'batch_update', 'batch_delete'].includes(args.operation);
 
   if (needsPermissionCheck) {
-    logger.debug(`[batch_dynamic_repository] Checking permission for ${args.operation} on ${args.table}`);
     const permissionCache: Map<string, any> =
       ((context as any).__permissionCache as Map<string, any>) ||
       (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);
@@ -120,9 +109,7 @@ export async function executeBatchDynamicRepository(
           context,
           deps,
         );
-        logger.debug(`[batch_dynamic_repository] Permission check result: allowed=${permissionResult?.allowed}, reason=${permissionResult?.reason || 'N/A'}`);
         if (!permissionResult?.allowed) {
-          logger.debug(`[batch_dynamic_repository] Permission denied for ${operation} on ${args.table}`);
           return {
             error: true,
             errorCode: 'PERMISSION_DENIED',
@@ -136,9 +123,7 @@ export async function executeBatchDynamicRepository(
       }
     } else {
       const permissionResult = permissionCache.get(cacheKey);
-      logger.debug(`[batch_dynamic_repository] Using cached permission: allowed=${permissionResult?.allowed}`);
       if (!permissionResult?.allowed) {
-        logger.debug(`[batch_dynamic_repository] Cached permission denied for ${operation} on ${args.table}`);
         return {
           error: true,
           errorCode: 'PERMISSION_DENIED',
@@ -159,7 +144,10 @@ export async function executeBatchDynamicRepository(
       throw new Error(`Invalid operation: "${args.operation}". Valid operations are: ${validOperations.join(', ')}. For finding records, use find_records tool instead.`);
     }
 
+    const results: any[] = [];
+    const errors: any[] = [];
     let result: any;
+
     switch (args.operation) {
       case 'batch_create':
         if (!args.dataArray || !Array.isArray(args.dataArray)) {
@@ -169,32 +157,176 @@ export async function executeBatchDynamicRepository(
         if (itemsWithId.length > 0) {
           throw new Error(`CRITICAL: Do NOT include "id" field in batch_create operations. The database will automatically generate the id. Found "id" field in ${itemsWithId.length} item(s). Remove "id" from all data objects and try again.`);
         }
-        logger.debug(`[batch_dynamic_repository] Executing batch_create on ${args.table}`, { count: args.dataArray.length, fields: safeFields });
-        result = await Promise.all(
-          args.dataArray.map(data => repo.create({ data, fields: safeFields }))
-        );
-        logger.debug(`[batch_dynamic_repository] Batch_create result: ${result.length} records created`);
-        return result;
+        
+        for (let i = 0; i < args.dataArray.length; i++) {
+          const data = args.dataArray[i];
+          if (abortSignal?.aborted) {
+            break;
+          }
+          try {
+            const createResult = await repo.create({ data, fields: safeFields });
+            const createdId = createResult?.data?.[0]?.id || createResult?.id || 'unknown';
+            results.push({
+              success: true,
+              index: i,
+              id: createdId,
+              data: createResult?.data?.[0] || createResult,
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            logger.error(`[batch_dynamic_repository] Error creating record ${i + 1}/${args.dataArray.length}: ${errorMsg}`);
+            errors.push({
+              index: i,
+              error: 'CREATE_FAILED',
+              message: errorMsg,
+              data: data,
+            });
+            results.push({
+              success: false,
+              index: i,
+              error: 'CREATE_FAILED',
+              message: errorMsg,
+            });
+          }
+        }
+        
+        const successCount = results.filter(r => r.success).length;
+        const failureCount = results.filter(r => !r.success).length;
+        
+        const succeededItems = results.filter(r => r.success).map(r => `ID ${r.id}`).join(', ');
+        const failedItems = results.filter(r => !r.success).map((r, idx) => `Item ${r.index + 1}`).join(', ');
+        
+        return {
+          success: failureCount === 0,
+          total: args.dataArray.length,
+          succeeded: successCount,
+          failed: failureCount,
+          results,
+          errors: errors.length > 0 ? errors : undefined,
+          summary: failureCount === 0
+            ? `Successfully created ${successCount} record(s) in table "${args.table}". Created IDs: ${succeededItems}.`
+            : `Created ${successCount} record(s), ${failureCount} failed in table "${args.table}". ${succeededItems ? `Succeeded: ${succeededItems}. ` : ''}${failedItems ? `Failed: ${failedItems}.` : ''}`,
+          message: failureCount === 0
+            ? `✅ Successfully created ${successCount} record(s) in table "${args.table}".\n\n📋 Created IDs: ${succeededItems}`
+            : `⚠️ Created ${successCount} record(s), ${failureCount} failed in table "${args.table}".\n\n${succeededItems ? `✅ Succeeded (${successCount}): ${succeededItems}\n\n` : ''}${failedItems ? `❌ Failed (${failureCount}): ${failedItems}\n\nCheck errors array for details.` : ''}`,
+        };
+
       case 'batch_update':
         if (!args.updates || !Array.isArray(args.updates)) {
           throw new Error('updates (array of {id, data}) is required for batch_update operation');
         }
-        logger.debug(`[batch_dynamic_repository] Executing batch_update on ${args.table}`, { count: args.updates.length, fields: safeFields });
-        result = await Promise.all(
-          args.updates.map(update => repo.update({ id: update.id, data: update.data, fields: safeFields }))
-        );
-        logger.debug(`[batch_dynamic_repository] Batch_update result: ${result.length} records updated`);
-        return result;
+        
+        for (let i = 0; i < args.updates.length; i++) {
+          const update = args.updates[i];
+          if (abortSignal?.aborted) {
+            break;
+          }
+          try {
+            const updateResult = await repo.update({ id: update.id, data: update.data, fields: safeFields });
+            results.push({
+              success: true,
+              index: i,
+              id: update.id,
+              data: updateResult?.data?.[0] || updateResult,
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            logger.error(`[batch_dynamic_repository] Error updating record ${i + 1}/${args.updates.length} (ID: ${update.id}): ${errorMsg}`);
+            errors.push({
+              index: i,
+              id: update.id,
+              error: 'UPDATE_FAILED',
+              message: errorMsg,
+              data: update.data,
+            });
+            results.push({
+              success: false,
+              index: i,
+              id: update.id,
+              error: 'UPDATE_FAILED',
+              message: errorMsg,
+            });
+          }
+        }
+        
+        const updateSuccessCount = results.filter(r => r.success).length;
+        const updateFailureCount = results.filter(r => !r.success).length;
+        
+        const succeededUpdateIds = results.filter(r => r.success).map(r => `ID ${r.id}`).join(', ');
+        const failedUpdateIds = results.filter(r => !r.success).map(r => `ID ${r.id}`).join(', ');
+        
+        return {
+          success: updateFailureCount === 0,
+          total: args.updates.length,
+          succeeded: updateSuccessCount,
+          failed: updateFailureCount,
+          results,
+          errors: errors.length > 0 ? errors : undefined,
+          summary: updateFailureCount === 0
+            ? `Successfully updated ${updateSuccessCount} record(s) in table "${args.table}". Updated IDs: ${succeededUpdateIds}.`
+            : `Updated ${updateSuccessCount} record(s), ${updateFailureCount} failed in table "${args.table}". ${succeededUpdateIds ? `Succeeded: ${succeededUpdateIds}. ` : ''}${failedUpdateIds ? `Failed: ${failedUpdateIds}.` : ''}`,
+          message: updateFailureCount === 0
+            ? `✅ Successfully updated ${updateSuccessCount} record(s) in table "${args.table}".\n\n📋 Updated IDs: ${succeededUpdateIds}`
+            : `⚠️ Updated ${updateSuccessCount} record(s), ${updateFailureCount} failed in table "${args.table}".\n\n${succeededUpdateIds ? `✅ Succeeded (${updateSuccessCount}): ${succeededUpdateIds}\n\n` : ''}${failedUpdateIds ? `❌ Failed (${updateFailureCount}): ${failedUpdateIds}\n\nCheck errors array for details.` : ''}`,
+        };
+
       case 'batch_delete':
         if (!args.ids || !Array.isArray(args.ids)) {
           throw new Error('ids (array) is required for batch_delete operation');
         }
-        logger.debug(`[batch_dynamic_repository] Executing batch_delete on ${args.table}`, { count: args.ids.length });
-        result = await Promise.all(
-          args.ids.map(id => repo.delete({ id }))
-        );
-        logger.debug(`[batch_dynamic_repository] Batch_delete result: ${result.length} records deleted`);
-        return result;
+        
+        for (let i = 0; i < args.ids.length; i++) {
+          const id = args.ids[i];
+          if (abortSignal?.aborted) {
+            break;
+          }
+          try {
+            await repo.delete({ id });
+            results.push({
+              success: true,
+              index: i,
+              id: id,
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            logger.error(`[batch_dynamic_repository] Error deleting record ${i + 1}/${args.ids.length} (ID: ${id}): ${errorMsg}`);
+            errors.push({
+              index: i,
+              id: id,
+              error: 'DELETE_FAILED',
+              message: errorMsg,
+            });
+            results.push({
+              success: false,
+              index: i,
+              id: id,
+              error: 'DELETE_FAILED',
+              message: errorMsg,
+            });
+          }
+        }
+        
+        const deleteSuccessCount = results.filter(r => r.success).length;
+        const deleteFailureCount = results.filter(r => !r.success).length;
+        
+        const succeededDeleteIds = results.filter(r => r.success).map(r => `ID ${r.id}`).join(', ');
+        const failedDeleteIds = results.filter(r => !r.success).map(r => `ID ${r.id}`).join(', ');
+        
+        return {
+          success: deleteFailureCount === 0,
+          total: args.ids.length,
+          succeeded: deleteSuccessCount,
+          failed: deleteFailureCount,
+          results,
+          errors: errors.length > 0 ? errors : undefined,
+          summary: deleteFailureCount === 0
+            ? `Successfully deleted ${deleteSuccessCount} record(s) from table "${args.table}". Deleted IDs: ${succeededDeleteIds}.`
+            : `Deleted ${deleteSuccessCount} record(s), ${deleteFailureCount} failed from table "${args.table}". ${succeededDeleteIds ? `Succeeded: ${succeededDeleteIds}. ` : ''}${failedDeleteIds ? `Failed: ${failedDeleteIds}.` : ''}`,
+          message: deleteFailureCount === 0
+            ? `✅ Successfully deleted ${deleteSuccessCount} record(s) from table "${args.table}".\n\n📋 Deleted IDs: ${succeededDeleteIds}`
+            : `⚠️ Deleted ${deleteSuccessCount} record(s), ${deleteFailureCount} failed from table "${args.table}".\n\n${succeededDeleteIds ? `✅ Succeeded (${deleteSuccessCount}): ${succeededDeleteIds}\n\n` : ''}${failedDeleteIds ? `❌ Failed (${deleteFailureCount}): ${failedDeleteIds}\n\nCheck errors array for details.` : ''}`,
+        };
+
       default:
         throw new Error(`Unknown batch operation: ${args.operation}`);
     }

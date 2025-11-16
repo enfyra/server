@@ -11,7 +11,8 @@ export interface StreamToolCallEvent {
   data: {
     id: string;
     name: string;
-    arguments: any;
+    arguments?: any;
+    status: 'pending' | 'success' | 'error';
   };
 }
 
