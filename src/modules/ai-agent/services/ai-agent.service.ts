@@ -602,15 +602,19 @@ export class AiAgentService implements OnModuleInit {
         conversationSummary: conversation.summary,
       });
       
-      let selectedToolNames = evaluateResult.toolNames || [];
       const hintCategories = evaluateResult.categories || [];
-
-
-
-      if (selectedToolNames && selectedToolNames.length > 0) {
-        selectedToolNames = selectedToolNames.filter(name => name !== 'get_hint');
+      
+      let selectedToolNames: string[] = [];
+      if (hintCategories && hintCategories.length > 0) {
+        const { buildHintContent, getHintTools } = require('../utils/executors/get-hint.executor');
+        const dbType = this.queryBuilder.getDbType();
+        const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
+        
+        const hints = buildHintContent(dbType, idFieldName, hintCategories);
+        selectedToolNames = getHintTools(hints);
+        selectedToolNames = selectedToolNames.filter(tool => tool !== 'get_hint');
+        selectedToolNames = Array.from(new Set(selectedToolNames));
       }
-
 
       if (selectedToolNames && selectedToolNames.length > 0) {
         const hasFindRecords = selectedToolNames.includes('find_records');

@@ -37,6 +37,7 @@ export async function executeGetTableDetails(
     id?: (string | number)[];
     name?: string[];
     getData?: boolean;
+    fields?: string[];
   },
   context: TDynamicContext | undefined,
   deps: GetTableDetailsExecutorDependencies,
@@ -100,7 +101,17 @@ export async function executeGetTableDetails(
       throw new Error(`Table ${tableName} not found`);
     }
 
-    const result: any = optimizeMetadataForLLM(metadata);
+    let result: any = optimizeMetadataForLLM(metadata);
+
+    if (args.fields && Array.isArray(args.fields) && args.fields.length > 0) {
+      const filteredResult: any = {};
+      for (const field of args.fields) {
+        if (result[field] !== undefined) {
+          filteredResult[field] = result[field];
+        }
+      }
+      result = filteredResult;
+    }
 
     if (shouldGetData && context) {
       try {
@@ -180,7 +191,19 @@ export async function executeGetTableDetails(
           hasIndexes: !!optimized.indexes && optimized.indexes.length > 0,
         };
       } else {
-        result[tableName] = optimizeMetadataForLLM(metadata);
+        let optimized = optimizeMetadataForLLM(metadata);
+        
+        if (args.fields && Array.isArray(args.fields) && args.fields.length > 0) {
+          const filteredResult: any = {};
+          for (const field of args.fields) {
+            if (optimized[field] !== undefined) {
+              filteredResult[field] = optimized[field];
+            }
+          }
+          result[tableName] = filteredResult;
+        } else {
+          result[tableName] = optimized;
+        }
       }
 
       if (shouldGetData && context) {

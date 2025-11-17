@@ -333,6 +333,37 @@ export async function executeDynamicRepository(
       };
     }
 
+    const isColumnNotExistError =
+      errorMessage.includes('column') &&
+      (errorMessage.includes('does not exist') ||
+        errorMessage.includes('Invalid column in query'));
+
+    if (isColumnNotExistError) {
+      const columnMatch = errorMessage.match(/column "([^"]+)"|column ([^\s]+) does not exist/i);
+      const columnName = columnMatch ? (columnMatch[1] || columnMatch[2]) : 'unknown';
+      const tableMatch = errorMessage.match(/from "([^"]+)"|table "([^"]+)"/i);
+      const tableName = tableMatch ? (tableMatch[1] || tableMatch[2]) : args.table;
+
+      const usedInWhere = args.where ? JSON.stringify(args.where) : '';
+      const usedInFields = args.fields || '';
+
+      return {
+        error: true,
+        errorType: 'INVALID_INPUT',
+        errorCode: 'COLUMN_DOES_NOT_EXIST',
+        message: errorMessage,
+        userMessage: `❌ **Column Does Not Exist**: Column "${columnName}" does not exist in table "${tableName}".\n\n📋 **CRITICAL ERROR - You skipped schema validation!**\n\n🔧 **MANDATORY FIX - Follow these steps:**\n1. **STOP** - Do NOT retry the same query\n2. Call get_table_details FIRST: get_table_details({"tableName": ["${tableName}"]})\n3. **WAIT** for the result - DO NOT proceed until you have the schema\n4. Check result.columns[].name to see ALL available column names\n5. Check result.relations[].propertyName to see available relation properties\n6. Use ONLY field names that exist in result.columns[].name\n7. If you need "${columnName}", check if it exists as:\n   - A column in result.columns[].name\n   - A relation property in result.relations[].propertyName\n   - A field in a related table (check relations)\n8. Retry query with verified fields ONLY\n\n⚠️ **What you did wrong:**\n- You used field "${columnName}" without checking if it exists in the schema\n- You skipped the get_table_details step\n- You guessed the field name instead of verifying it\n\n💡 **Remember:** ALWAYS call get_table_details BEFORE any query operation. NEVER guess field names.`,
+        suggestion: `Call get_table_details({"tableName": ["${tableName}"]}) FIRST, wait for result, then use ONLY fields from result.columns[].name. If "${columnName}" doesn't exist, check relations or related tables.`,
+        details: {
+          ...details,
+          invalidColumn: columnName,
+          table: tableName,
+          usedInWhere,
+          usedInFields,
+        },
+      };
+    }
+
     const isConstraintError =
       (args.operation === 'create' || args.operation === 'update') &&
       (errorMessage.includes('null value in column') ||

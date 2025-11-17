@@ -49,6 +49,23 @@ Inputs:
 - getData (optional) true to fetch actual table data. CRITICAL: If getData=true, you MUST provide either id or name parameter. If you only need schema metadata (columns, relations, etc.), omit getData parameter.
 - id (optional) array of table record IDs to fetch. REQUIRED if getData=true. Array length must match tableName length. For single value, use array with 1 element: [123]
 - name (optional) array of table record names to fetch. REQUIRED if getData=true (and id is not provided). Array length must match tableName length. For single value, use array with 1 element: ["table_name"]. Searches by name column
+- fields (optional) array of root-level field names to include. Available root-level fields:
+  * "name" - table name
+  * "description" - table description
+  * "isSingleRecord" - whether table stores only one record
+  * "id" - table ID
+  * "isSystem" - whether this is a system table
+  * "uniques" - unique constraints array
+  * "indexes" - indexes array
+  * "columns" - columns array (all columns)
+  * "columnCount" - number of columns
+  * "relations" - relations array (all relations)
+  * If provided, only these fields will be returned - saves tokens
+  * If omitted, all fields are returned
+- CRITICAL: To get ONLY columns (no relations), use: {"fields": ["columns"]}
+- CRITICAL: To get ONLY relations (no columns), use: {"fields": ["relations"]}
+- CRITICAL: To get specific fields, use: {"fields": ["isSystem", "columns"]}
+- CRITICAL: Only include relations if you need to query/filter by relations. If you only need columns for WHERE clause, use {"fields": ["columns"]} to save tokens.
 
 Response format:
 {
@@ -119,7 +136,12 @@ Single table + data by name: {"tableName":["user_definition"],"getData":true,"na
 Multiple tables: {"tableName":["product","category","order","order_item","customer"]}
 Multiple tables + data: {"tableName":["product","category"],"getData":true,"id":[1,2]}
 Multiple tables + data by name: {"tableName":["product","category"],"getData":true,"name":["laptop","electronics"]}
-With force refresh: {"tableName":["product","category"],"forceRefresh":true}`,
+With force refresh: {"tableName":["product","category"],"forceRefresh":true}
+Only columns (no relations): {"tableName":["route_definition"],"fields":["columns"]}
+Only relations (no columns): {"tableName":["route_definition"],"fields":["relations"]}
+With specific fields: {"tableName":["route_definition"],"fields":["isSystem","columns"]}
+With columns and relations: {"tableName":["route_definition"],"fields":["columns","relations"]}
+All fields (default): {"tableName":["route_definition"]}`,
     parameters: {
       type: 'object',
       properties: {
@@ -151,6 +173,11 @@ With force refresh: {"tableName":["product","category"],"forceRefresh":true}`,
           type: 'array',
           items: { type: 'string' },
           description: 'REQUIRED if getData=true (and id is not provided). Array of table record names to fetch. Array length must match tableName length. Each name corresponds to the table at the same index. For single value, use array with 1 element: ["table_name"]. Searches by name column (exact match).',
+        },
+        fields: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional. Array of root-level field names to include. Available fields: "name", "description", "isSingleRecord", "id", "isSystem", "uniques", "indexes", "columns", "columnCount", "relations". If provided, only these fields returned - saves tokens. If omitted, all fields returned. Examples: ["columns"] for only columns, ["relations"] for only relations, ["isSystem", "columns"] for specific fields.',
         },
       },
       required: ['tableName'],

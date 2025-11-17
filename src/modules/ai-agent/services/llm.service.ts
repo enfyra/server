@@ -333,10 +333,8 @@ export class LLMService {
     }
 
     try {
-      const { buildHintContent, getHintTools } = require('../utils/executors/get-hint.executor');
       const queryBuilder = this.queryBuilder;
       const dbType = queryBuilder.getDbType();
-      const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
       debugInfo.dbType = dbType;
 
       const systemPrompt = buildEvaluateNeedsToolsPrompt(provider);
@@ -393,24 +391,12 @@ export class LLMService {
         return { toolNames: [], categories: [] };
       }
 
-      const finalHints = buildHintContent(dbType, idFieldName, selectedCategories);
-      let finalTools = getHintTools(finalHints);
-      
-      finalTools = finalTools.filter(tool => tool !== 'get_hint');
-      
-      const uniqueFinalTools = Array.from(new Set(finalTools));
-      if (uniqueFinalTools.length < finalTools.length) {
-        finalTools = uniqueFinalTools;
-      }
-
       debugInfo.finalResult = {
         categories: selectedCategories,
-        tools: finalTools,
-        hintsCount: finalHints.length,
         tokenUsage: tokenUsage || undefined,
       };
 
-      return { toolNames: finalTools, categories: selectedCategories };
+      return { toolNames: [], categories: selectedCategories };
     } catch (error) {
       debugInfo.errors.push(`ERROR: ${error instanceof Error ? error.message : String(error)}`);
       debugInfo.stackTrace = error instanceof Error ? error.stack : 'N/A';
@@ -425,7 +411,7 @@ export class LLMService {
     conversationId?: string | number;
     selectedToolNames?: string[];
   }): Promise<LLMResponse> {
-    const { messages, configId, user, conversationId, selectedToolNames } = params;
+    const { messages, configId, user, conversationId, selectedToolNames = [] } = params;
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -471,6 +457,8 @@ export class LLMService {
 
         conversationMessages.push(result);
 
+        const validToolNames = new Set(selectedToolNames);
+        
         for (const tc of toolCalls) {
           const toolName = tc.function?.name || tc.name;
           const toolArgs = tc.function?.arguments || tc.arguments;
@@ -483,6 +471,33 @@ export class LLMService {
 
           if (!toolId) {
             this.logger.error(`[LLM Chat] Tool ID is missing for ${toolName}. Full tool call: ${JSON.stringify(tc)}`);
+            continue;
+          }
+
+          if (selectedToolNames.length > 0 && !validToolNames.has(toolName)) {
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const errorMsg = `Tool "${toolName}" is not available. Available tools: ${selectedToolNames.join(', ')}. You can ONLY call tools that are provided in your system prompt.`;
+            this.logger.error(`[LLM Chat] ${errorMsg}`);
+            conversationMessages.push(
+              new ToolMessage({
+                content: JSON.stringify({
+                  error: true,
+                  errorCode: 'TOOL_NOT_AVAILABLE',
+                  message: errorMsg,
+                  availableTools: selectedToolNames,
+                }),
+                tool_call_id: toolId,
+              })
+            );
+            allToolResults.push({
+              toolCallId: toolId,
+              result: {
+                error: true,
+                errorCode: 'TOOL_NOT_AVAILABLE',
+                message: errorMsg,
+                availableTools: selectedToolNames,
+              },
+            });
             continue;
           }
 
@@ -1182,6 +1197,7 @@ export class LLMService {
 
         const validToolCalls: any[] = [];
         const toolCallIdMap = new Map<string, any>();
+        const validToolNames = new Set(selectedToolNames || []);
 
         for (const tc of currentToolCalls) {
           if (abortSignal?.aborted) {
@@ -1190,6 +1206,44 @@ export class LLMService {
           const toolName = tc.function?.name || tc.name;
           if (!toolName) {
             this.logger.error(`[LLM Stream] Tool name is undefined. Full tool call: ${JSON.stringify(tc)}`);
+            continue;
+          }
+
+          if (selectedToolNames && selectedToolNames.length > 0 && !validToolNames.has(toolName)) {
+            const ToolMessage = require('@langchain/core/messages').ToolMessage;
+            const toolCallId = tc.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const errorMsg = `Tool "${toolName}" is not available. Available tools: ${selectedToolNames.join(', ')}. You can ONLY call tools that are provided in your system prompt.`;
+            this.logger.error(`[LLM Stream] ${errorMsg}`);
+            
+            const errorResult = {
+              error: true,
+              errorCode: 'TOOL_NOT_AVAILABLE',
+              message: errorMsg,
+              availableTools: selectedToolNames,
+            };
+            
+            conversationMessages.push(
+              new ToolMessage({
+                content: JSON.stringify(errorResult),
+                tool_call_id: toolCallId,
+              })
+            );
+            
+            allToolResults.push({
+              toolCallId,
+              result: errorResult,
+            });
+            
+            onEvent({
+              type: 'tool_call',
+              data: {
+                id: toolCallId,
+                name: toolName,
+                arguments: {},
+                status: 'error',
+              },
+            });
+            
             continue;
           }
 

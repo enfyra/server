@@ -37,16 +37,36 @@ export function buildHintContent(dbType: string, idFieldName: string, categories
 
   const fieldOptContent = `**Field Selection & Query Optimization**
 
+**MANDATORY WORKFLOW - Field Validation Before Query:**
+Step 1: ALWAYS call get_table_details FIRST before ANY query
+get_table_details({"tableName": ["product"]})
+→ WAIT for result - DO NOT proceed until you have the schema
+
+Step 2: Extract field names from schema
+- Look at result.columns[].name to see ALL available column names
+- Look at result.relations[].propertyName to see available relation properties
+- Use ONLY field names that exist in result.columns[].name
+- For relations, use propertyName from result.relations[].propertyName
+
+Step 3: Use verified fields ONLY in your query
+- Use ONLY fields you verified exist in Step 2
+- NEVER guess or invent field names
+
 **Basic Rules:**
-- Always call get_fields or get_table_details BEFORE querying to know available fields
+- **MANDATORY**: ALWAYS call get_table_details BEFORE querying to know available fields
+- **MANDATORY**: WAIT for get_table_details result before proceeding
+- **FORBIDDEN**: NEVER guess field names - always verify they exist in schema
 - get_table_details supports single or multiple tables: {"tableName": "post"} or {"tableName": ["post", "category"]}
 - For multiple tables, use array format to get all schemas in ONE call: {"tableName": ["table1", "table2", "table3"]}
 
 **Field Parameter Examples:**
-✅ CORRECT - Read operations:
+✅ CORRECT - Read operations (after verifying fields in schema):
+Step 1: get_table_details({"tableName": ["product"]}) → WAIT
+Step 2: Verify "name", "price" exist in result.columns[].name
+Step 3: Query with verified fields:
 - List with names: {"fields": "${idFieldName},name", "limit": 10}
 - Count records: {"fields": "${idFieldName}", "limit": 1, "meta": "totalCount"}
-- With relations: {"fields": "${idFieldName},name,category.name"}
+- With relations: {"fields": "${idFieldName},name,category.name"} (verify "category" exists in result.relations[].propertyName)
 - Multiple relations: {"fields": "${idFieldName},order.customer.name,order.items.product.name"}
 
 ✅ CORRECT - Write operations (ALWAYS specify minimal fields):
@@ -56,6 +76,7 @@ export function buildHintContent(dbType: string, idFieldName: string, categories
 ❌ WRONG:
 - {"fields": "*"} → wastes tokens
 - Omitting fields parameter → returns all fields, wastes tokens
+- Using field names without checking schema first → will cause "column does not exist" errors
 
 **Limit Parameter:**
 - limit=0: Fetch ALL records (use when user wants "all records")
@@ -410,16 +431,20 @@ delete_records({
 
   const crudQueryOpsContent = `**CRUD Query Operations (Find & Count) - Complete Workflow**
 
-**WORKFLOW FOR FINDING RECORDS:**
-Step 1: Get table schema to know available fields (MANDATORY - NEVER guess fields)
+**WORKFLOW FOR FINDING RECORDS (WHEN TABLE NAME IS KNOWN):**
+Step 1: Get table schema FIRST (MANDATORY - DO NOT SKIP THIS STEP)
 get_table_details({"tableName": ["product"]})
+→ WAIT for result, DO NOT proceed until you have the schema
 
 Step 2: Extract field names from schema result
-- Use only field names that exist in result.columns[].name
+- Look at result.columns[].name to see ALL available column names
+- Look at result.relations[].propertyName to see available relation properties
+- Use ONLY field names that exist in schema.columns[].name
+- For relations, use propertyName from result.relations[].propertyName
 - NEVER guess or invent field names
-- If you need specific fields, check they exist in schema first
+- NEVER use field names you haven't verified in the schema
 
-Step 3: Query records with verified fields
+Step 3: Query records with verified fields ONLY
 find_records({
   "table": "product",
   "fields": "${idFieldName},name,price",
@@ -427,9 +452,14 @@ find_records({
   "limit": 10,
   "sort": "-price"
 })
+→ Use ONLY fields that you verified exist in Step 2
 
 **WORKFLOW FOR COUNTING RECORDS:**
-Step 1: Count total records
+Step 1: Get table schema FIRST (MANDATORY)
+get_table_details({"tableName": ["product"]})
+→ Verify ${idFieldName} field exists in schema
+
+Step 2: Count total records
 count_records({
   "table": "product",
   "fields": "${idFieldName}",
@@ -437,7 +467,7 @@ count_records({
 })
 → Read totalCount from response metadata
 
-Step 2: Count with filter
+Step 3: Count with filter (verify filter fields exist in schema first)
 count_records({
   "table": "product",
   "fields": "${idFieldName}",
@@ -445,9 +475,13 @@ count_records({
   "meta": "filterCount"
 })
 → Read filterCount from response metadata
+→ Use ONLY fields in "where" that exist in schema.columns[].name
 
 **ADVANCED QUERIES:**
-✅ With relations:
+✅ With relations (verify relation propertyName exists in schema first):
+Step 1: get_table_details({"tableName": ["order"]})
+Step 2: Check result.relations[].propertyName to find "customer" relation
+Step 3: Query with verified relation:
 find_records({
   "table": "order",
   "fields": "${idFieldName},total,customer.name",
@@ -455,6 +489,9 @@ find_records({
 })
 
 ✅ Multiple filters with _in operator:
+Step 1: get_table_details({"tableName": ["table_definition"]})
+Step 2: Verify "name" field exists in schema
+Step 3: Query:
 find_records({
   "table": "table_definition",
   "where": {"name": {"_in": ["products", "categories"]}},
@@ -462,14 +499,32 @@ find_records({
   "limit": 0
 })
 
-**CRITICAL RULES:**
-- ALWAYS get table schema first using get_table_details before find_records
-- NEVER guess field names - always verify they exist in schema.columns[].name
-- Always specify fields parameter (minimal fields to save tokens)
-- Use limit=0 to fetch ALL records
-- Use _in operator for multiple values (more efficient than multiple calls)
-- If you don't know the fields, call get_table_details first, then use fields from result
-- Read metadata.totalCount or metadata.filterCount for count results`;
+**QUERY OPERATORS (for where parameter in find_records and count_records):**
+Comparison: _eq (equals), _neq (not equals), _gt (greater than), _gte (greater than or equal), _lt (less than), _lte (less than or equal)
+String: _contains (contains substring, case-insensitive, accent-insensitive), _starts_with (starts with substring, case-insensitive, accent-insensitive), _ends_with (ends with substring, case-insensitive, accent-insensitive), _like (SQL LIKE pattern matching, case-sensitive, supports % and _ wildcards)
+Array: _in (value is in array), _not_in (value is not in array)
+Range: _between (value is between two values, inclusive, requires array with exactly 2 elements [min, max])
+Null: _is_null (field is NULL), _is_not_null (field is not NULL)
+Logical: _and (all conditions must be true), _or (at least one condition must be true), _not (condition must be false)
+
+Example with nested _and, _or and multiple operators:
+find_records({
+  "table": "product",
+  "where": {
+    "_and": [
+      {"price": {"_gte": 100, "_lte": 500}},
+      {"_or": [
+        {"name": {"_contains": "laptop"}},
+        {"name": {"_contains": "computer"}}
+      ]},
+      {"status": {"_in": ["active", "pending"]}}
+    ]
+  },
+  "fields": "id,name,price",
+  "limit": 10
+})
+
+**COMMON MISTAKE:** ❌ Skipping schema check step (guessing field names) before querying → causes "column does not exist" errors`;
 
   const crudQueryOpsHint: HintContent = {
     category: 'crud_query_operations',
@@ -566,7 +621,7 @@ find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSy
 
 **WORKFLOW FOR GETTING TABLE DETAILS:**
 Step 1: Get single table schema
-get_table_details({"tableName": "product"})
+get_table_details({"tableName": ["product"]})
 
 Step 2: Get multiple table schemas (efficient)
 get_table_details({"tableName": ["product", "category", "order"]})
@@ -577,15 +632,48 @@ get_fields({"tableName": "product"})
 → Returns array of field names only
 
 **CRITICAL RULES:**
-- NEVER guess table names from user phrasing
-- ALWAYS use find_records with table_definition to discover available tables
 - Use get_table_details with array for multiple tables (ONE call instead of multiple)
 - Use get_fields when you only need field names (lighter than get_table_details)
 
 **EXAMPLES:**
-- User says "route" → find_records({"table":"table_definition","fields":"name","where":{"name":{"_like":"%route%"}},"limit":0}) → choose "route_definition"
-- User says "users" → find_records({"table":"table_definition","fields":"name","where":{"name":{"_like":"%user%"}},"limit":0}) → choose "user_definition"
 - Need schemas for post, category, user → get_table_details({"tableName": ["post", "category", "user_definition"]})`;
+
+  const naturalLanguageDiscoveryContent = `**Natural Language Table Name Discovery - Complete Workflow**
+
+**WORKFLOW FOR NATURAL LANGUAGE QUERIES (GUESSING TABLE NAMES):**
+When user asks about resources in natural language (e.g., "show me routes", "list users", "what products are available", "which routes have method post", "what routes exist in the system"), you MUST follow these steps STRICTLY:
+
+**Step 1: Get ALL table names first (MANDATORY - ALWAYS do this first)**
+find_records({"table":"table_definition","fields":"name","limit":0})
+→ WAIT for result
+→ This returns ALL table names in the system (e.g., ["route_definition", "user_definition", "product", "category"])
+
+**Step 2: Guess table name from user query**
+- User says "routes" or "route" → Look for table name containing "route" → "route_definition"
+- User says "users" or "user" → Look for table name containing "user" → "user_definition" or "users"
+- User says "products" or "product" → Look for table name containing "product" → "product" or "products"
+- Match user's natural language term to table names from Step 1
+- Common patterns: plural/singular forms, with/without "_definition" suffix
+
+**Step 3: Get table schema for guessed table(s) (MANDATORY - DO NOT SKIP)**
+get_table_details({"tableName": ["route_definition"]})
+→ WAIT for result - DO NOT proceed until you have the schema
+→ This returns full schema including columns, relations, and metadata
+
+**After Step 3: Now you have the schema, read the helper for find_records/count_records tools to know how to query**
+- The schema shows you available columns (result.columns[].name) and relations (result.relations[].propertyName)
+- Use the helper documentation for find_records/count_records to construct your query
+- Use ONLY field names that exist in result.columns[].name
+- For relations, use propertyName from result.relations[].propertyName
+
+**COMMON MISTAKE:** ❌ Skipping schema check step (guessing field names) before querying → causes "column does not exist" errors`;
+
+  const naturalLanguageDiscoveryHint: HintContent = {
+    category: 'natural_language_discovery',
+    title: 'Natural Language Table Name Discovery',
+    content: naturalLanguageDiscoveryContent,
+    tools: ['find_records', 'get_table_details'],
+  };
 
   const metadataOpsHint: HintContent = {
     category: 'metadata_operations',
@@ -603,6 +691,7 @@ get_fields({"tableName": "product"})
     crudDeleteOpsHint,
     crudQueryOpsHint,
     metadataOpsHint,
+    naturalLanguageDiscoveryHint,
     systemWorkflowsHint,
     errorHint
   );
@@ -673,6 +762,7 @@ export async function executeGetHint(
       'crud_delete_operations',
       'crud_query_operations',
       'metadata_operations',
+      'natural_language_discovery',
       'system_workflows',
       'error_handling'
     ],
