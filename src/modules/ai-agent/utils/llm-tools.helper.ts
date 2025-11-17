@@ -289,7 +289,6 @@ Inputs:
 - tables (required): Array of table definition objects. For single table, use array with 1 element.
 
 Each table object:
-- name (required): Table name (snake_case, lowercase)
 - description (optional): Table description
 - columns (required): Array of column definition objects. MUST include id column with isPrimary=true. For SQL databases, use type="int". For MongoDB, use type="uuid". Do NOT include createdAt/updatedAt (auto-generated). Do NOT include FK columns (use relations instead).
 

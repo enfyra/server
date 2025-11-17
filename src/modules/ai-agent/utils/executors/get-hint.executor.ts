@@ -138,6 +138,7 @@ create_tables({
 
 **WORKFLOW FOR CREATING TABLES WITH RELATIONS (CRITICAL - FOLLOW EXACTLY):**
 Step 1: Check if main table exists
+identify table name (snake_case, lowercase, not start with "_")
 find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 
 Step 2: For EACH relation, find target table ID FIRST (MANDATORY)
@@ -542,6 +543,7 @@ Example: "Create backend system with 5 tables and add data"
 - Execute operations sequentially (one at a time)
 - Continue automatically without stopping
 - If error occurs, update task with status="failed" and error message
+- Table name must be snake_case, lowercase and not start with "_"
 
 **TASK MANAGEMENT:**
 - Start: update_task({status: "in_progress", data: {...}})
