@@ -200,6 +200,10 @@ export class TableCreationWorkflow {
         errors.push({ step: 'validateTableData', error: 'Table name must be snake_case (a-z, 0-9, _)', retryable: false });
       }
 
+      if (state.tableData.name.startsWith('_')) {
+        errors.push({ step: 'validateTableData', error: 'Table name cannot start with an underscore (_)', retryable: false });
+      }
+
       if (!state.tableData.columns || state.tableData.columns.length === 0) {
         errors.push({ step: 'validateTableData', error: 'Table must have at least one column', retryable: false });
       }

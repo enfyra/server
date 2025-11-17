@@ -215,6 +215,9 @@ export class SqlTableHandlerService {
     const knex = this.queryBuilder.getKnex();
     let trx;
 
+    let schemaCreated = false;
+    let createdMetadataSnapshot: any = null;
+
     try {
       trx = await knex.transaction();
 
@@ -447,12 +450,9 @@ export class SqlTableHandlerService {
       }
 
       this.logger.log(`Calling SqlSchemaMigrationService.createTable()...`);
-      try {
-        await this.schemaMigrationService.createTable(fullMetadata);
-      } catch (migrationError) {
-        this.logger.error(`Physical schema migration failed: ${migrationError.message}`);
-        throw migrationError;
-      }
+      await this.schemaMigrationService.createTable(fullMetadata);
+      schemaCreated = true;
+      createdMetadataSnapshot = fullMetadata;
 
       this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
@@ -473,15 +473,24 @@ export class SqlTableHandlerService {
         }
       }
 
+      if (schemaCreated) {
+        try {
+          await this.schemaMigrationService.dropTable(body.name, createdMetadataSnapshot?.relations || body.relations || []);
+          this.logger.warn(`Rolled back physical table ${body.name} after failure`);
+        } catch (dropError) {
+          this.logger.error(`Failed to rollback physical table ${body.name}: ${dropError.message}`);
+        }
+      }
+
       this.loggingService.error('Table creation failed', {
         context: 'createTable',
-        error: error.message,
-        stack: error.stack,
+        error: (error as Error)?.message,
+        stack: (error as Error)?.stack,
         tableName: body?.name,
       });
 
       throw new DatabaseException(
-        `Failed to create table: ${error.message}`,
+        `Failed to create table: ${(error as Error)?.message}`,
         {
           tableName: body?.name,
           operation: 'create',
@@ -506,7 +515,7 @@ export class SqlTableHandlerService {
 
     const knex = this.queryBuilder.getKnex();
 
-      try {
+    try {
       const { oldMetadata, newMetadata, result } = await knex.transaction(async (trx) => {
         const exists = await trx('table_definition')
           .where({ id })
@@ -543,6 +552,7 @@ export class SqlTableHandlerService {
           await this.validateNoDuplicateInverseRelation(trx, Number(id), exists.name, body.relations, targetTablesMap);
         }
 
+        const previousTableName = exists.name;
         await trx('table_definition')
           .where({ id })
           .update({
@@ -633,7 +643,18 @@ export class SqlTableHandlerService {
         
         for (const rel of body.relations) {
           const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
-          
+
+          // ✅ VALIDATION: Prevent relation type changes (only allow rename)
+          if (rel.id) {
+            const existingRel = await trx('relation_definition').where({ id: rel.id }).first();
+            if (existingRel && existingRel.type !== rel.type) {
+              throw new Error(
+                `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. ` +
+                `Please delete the old relation and create a new one.`
+              );
+            }
+          }
+
           const relationData: any = {
             propertyName: rel.propertyName,
             type: rel.type,
@@ -721,7 +742,16 @@ export class SqlTableHandlerService {
 
         if (oldMetadata && newMetadata) {
         this.logger.log(`Executing DDL statements outside transaction...`);
-        await this.schemaMigrationService.updateTable(result.name, oldMetadata, newMetadata);
+
+        // ✅ FIX: Reload fullMetadata từ DB sau khi transaction commit để lấy IDs mới của relations/columns
+        const knex = this.queryBuilder.getKnex();
+        const updatedFullMetadata = await this.getFullTableMetadataInTransaction(knex, result.id);
+
+        if (!updatedFullMetadata) {
+          throw new Error(`Failed to reload metadata after transaction for table ${result.name}`);
+        }
+
+        await this.schemaMigrationService.updateTable(result.name, oldMetadata, updatedFullMetadata);
         }
 
       this.logger.log(`Table updated: ${result.name} (metadata + physical schema)`);
