@@ -1091,12 +1091,14 @@ export class AiAgentService implements OnModuleInit {
 
     const systemPrompt = await this.buildSystemPrompt({ conversation, config, user, latestUserMessage, needsTools, hintCategories, selectedToolNames });
     
-    const llmMessages: LLMMessage[] = [
-      {
+    const llmMessages: LLMMessage[] = [];
+
+    if (systemPrompt && systemPrompt.trim().length > 0) {
+      llmMessages.push({
         role: 'system',
         content: systemPrompt,
-      },
-    ];
+      });
+    }
 
     let lastPushedRole: 'user' | 'assistant' | null = null;
     let skippedCount = 0;

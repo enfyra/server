@@ -60,7 +60,7 @@ Step 3: Use verified fields ONLY in your query
 - For multiple tables, use array format to get all schemas in ONE call: {"tableName": ["table1", "table2", "table3"]}
 
 **Field Parameter Examples:**
-✅ CORRECT - Read operations (after verifying fields in schema):
+Read operations (after verifying fields in schema):
 Step 1: get_table_details({"tableName": ["product"]}) → WAIT
 Step 2: Verify "name", "price" exist in result.columns[].name
 Step 3: Query with verified fields:
@@ -69,14 +69,9 @@ Step 3: Query with verified fields:
 - With relations: {"fields": "${idFieldName},name,category.name"} (verify "category" exists in result.relations[].propertyName)
 - Multiple relations: {"fields": "${idFieldName},order.customer.name,order.items.product.name"}
 
-✅ CORRECT - Write operations (ALWAYS specify minimal fields):
+Write operations (always specify minimal fields):
 - After create: {"fields": "${idFieldName}"}
 - After update: {"fields": "${idFieldName},name"}
-
-❌ WRONG:
-- {"fields": "*"} → wastes tokens
-- Omitting fields parameter → returns all fields, wastes tokens
-- Using field names without checking schema first → will cause "column does not exist" errors
 
 **Limit Parameter:**
 - limit=0: Fetch ALL records (use when user wants "all records")
@@ -85,10 +80,10 @@ Step 3: Query with verified fields:
 - IMPORTANT: If you call find with limit=10 and get results, DO NOT call again with limit=20 - reuse result or use limit=0 from start
 
 **COUNT Query Examples:**
-✅ Count total records: count_records({"table":"product","fields":"${idFieldName}","meta":"totalCount"})
+Count total records: count_records({"table":"product","fields":"${idFieldName}","meta":"totalCount"})
 → Read totalCount from response metadata
 
-✅ Count with filter: count_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"meta":"filterCount"})
+Count with filter: count_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"meta":"filterCount"})
 → Read filterCount from response metadata
 
 **CRITICAL - Schema Check Before Create/Update:**
@@ -106,19 +101,14 @@ Step 3: Query with verified fields:
 4. For batch_create: Check all records first, filter out existing ones
 
 **Relations Format Examples:**
-✅ CORRECT:
 - {"category": 19} (simple ID - preferred)
 - {"category": {"id": 19}} (object format - also works)
 - {"customer": 1, "category": 19} (multiple relations)
-
-❌ WRONG:
-- {"category_id": 19} → Use propertyName, not FK column
-- {"categoryId": 19} → Use propertyName, not camelCase
-- {"category": {"name": "Electronics"}} → Use ID, not name
+- Always use relation propertyName, not FK columns or camelCase variants, and always reference related records by ID
 
 **Nested Query Examples:**
-✅ Get order with customer name: {"table":"order","operation":"find","fields":"${idFieldName},total,customer.name","where":{"customer":{"name":{"_eq":"John"}}}}
-✅ Multi-level: {"table":"route_definition","operation":"find","fields":"${idFieldName},path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
+- {"table":"order","operation":"find","fields":"${idFieldName},total,customer.name","where":{"customer":{"name":{"_eq":"John"}}}}
+- {"table":"route_definition","operation":"find","fields":"${idFieldName},path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
 
   const fieldOptHint: HintContent = {
     category: 'field_optimization',
@@ -134,7 +124,6 @@ Step 1: Check if table exists
 find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 
 Step 2: If not exists, create table
-✅ CORRECT Example:
 create_tables({
   "tables": [{
     "name": "products",
@@ -147,30 +136,16 @@ create_tables({
   }]
 })
 
-❌ WRONG - COMMON ERRORS:
-- Missing ${idFieldName} column
-- Including createdAt/updatedAt columns (CRITICAL ERROR - these are auto-generated, validation will fail)
-- Including FK columns (use relations instead)
-- Example of WRONG columns array:
-  [
-    {"name": "id", "type": "int", "isPrimary": true, "isGenerated": true},
-    {"name": "name", "type": "varchar"},
-    {"name": "createdAt", "type": "datetime"},  ← WRONG! DO NOT INCLUDE
-    {"name": "updatedAt", "type": "datetime"}   ← WRONG! DO NOT INCLUDE
-  ]
-
 **WORKFLOW FOR CREATING TABLES WITH RELATIONS (CRITICAL - FOLLOW EXACTLY):**
 Step 1: Check if main table exists
 find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 
 Step 2: For EACH relation, find target table ID FIRST (MANDATORY)
-✅ Example: Creating "products" table with relation to "categories"
 1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName},name","limit":1})
 2. Verify result: Check that result.data[0].${idFieldName} exists and is a valid number
 3. Use the ID from result: targetTable: {"id": result.data[0].${idFieldName}}
 
 Step 3: Create table with relations
-✅ CORRECT Example:
 create_tables({
   "tables": [{
     "name": "products",
@@ -186,7 +161,7 @@ create_tables({
   }]
 })
 
-❌ CRITICAL ERRORS TO AVOID:
+Critical errors to avoid:
 - Using hardcoded ID without verification → Always use find_records to get actual ID
 - Not finding target table ID first → Always use find_records to get actual ID
 - Using target table name instead of ID → Must use {"id": number}
@@ -221,7 +196,6 @@ Step 1: Find table (if needed)
 find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
 
 Step 2: Update table schema
-✅ Add new column:
 update_tables({
   "tables": [{
     "tableName": "products",
@@ -229,7 +203,7 @@ update_tables({
   }]
 })
 
-✅ Add relation (MUST find target table ID first):
+Add relation (MUST find target table ID first):
 1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
 2. Verify ID is valid (exists in result)
 3. Add relation: update_tables({
@@ -244,7 +218,6 @@ update_tables({
 })
 
 **MULTIPLE TABLES:**
-✅ For multiple tables without relations:
 create_tables({
   "tables": [
     {"name": "products", "columns": [...]},
@@ -290,7 +263,6 @@ Step 2: Delete table(s)
 delete_tables({"ids": [19]})
 
 **MULTIPLE TABLES:**
-✅ For multiple tables:
 1. Find all table IDs: find_records({"table":"table_definition","where":{"name":{"_in":["products","categories"]}},"fields":"${idFieldName},name","limit":0})
 2. Delete all: delete_tables({"ids": [19, 20]})
 
@@ -301,10 +273,10 @@ delete_tables({"ids": [19]})
 - For single table, use array with 1 element: delete_tables({"ids":[123]})
 - NEVER use delete_records for table_definition table
 
-**COMMON MISTAKES:**
-❌ delete_records({"table":"products","ids":[1]}) → This deletes DATA, not table structure
-❌ delete_tables({"ids": ["products"]}) → Must use numeric IDs, not table names
-❌ Using delete_records for tables → Wrong tool, use delete_tables`;
+**Common mistakes to avoid:**
+- delete_records deletes data and should not be used for table structure
+- delete_tables requires numeric IDs, not table names
+- Never target table_definition with delete_records`;
 
   const tableDeletionHint: HintContent = {
     category: 'table_deletion',
@@ -355,7 +327,6 @@ update_records({
 })
 
 **MULTIPLE RECORDS:**
-✅ For multiple records:
 create_records({
   "table": "product",
   "dataArray": [
@@ -405,7 +376,6 @@ delete_records({
 })
 
 **BATCH DELETION (2+ records):**
-✅ For multiple records:
 delete_records({
   "table": "product",
   "ids": [1, 2, 3]
@@ -417,10 +387,10 @@ delete_records({
 - For table deletion, use delete_tables tool instead
 - Batch tool processes sequentially and reports detailed results
 
-**COMMON MISTAKES:**
-❌ Using delete_records to delete tables → Wrong! Use delete_tables
-❌ Not verifying existence → May cause errors
-❌ Using delete_records for table_definition → Wrong! Use delete_tables`;
+**Common mistakes to avoid:**
+- Use delete_tables for schema changes; delete_records only removes data
+- Always verify record existence before deletion
+- Never run delete_records on table_definition`;
 
   const crudDeleteOpsHint: HintContent = {
     category: 'crud_delete_operations',
@@ -478,7 +448,7 @@ count_records({
 → Use ONLY fields in "where" that exist in schema.columns[].name
 
 **ADVANCED QUERIES:**
-✅ With relations (verify relation propertyName exists in schema first):
+With relations (verify relation propertyName exists in schema first):
 Step 1: get_table_details({"tableName": ["order"]})
 Step 2: Check result.relations[].propertyName to find "customer" relation
 Step 3: Query with verified relation:
@@ -488,7 +458,7 @@ find_records({
   "where": {"customer": {"name": {"_eq": "John"}}}
 })
 
-✅ Multiple filters with _in operator:
+Multiple filters with _in operator:
 Step 1: get_table_details({"tableName": ["table_definition"]})
 Step 2: Verify "name" field exists in schema
 Step 3: Query:
@@ -524,7 +494,7 @@ find_records({
   "limit": 10
 })
 
-**COMMON MISTAKE:** ❌ Skipping schema check step (guessing field names) before querying → causes "column does not exist" errors`;
+Always run get_table_details first; skipping the schema check causes "column does not exist" errors`;
 
   const crudQueryOpsHint: HintContent = {
     category: 'crud_query_operations',
@@ -666,7 +636,7 @@ get_table_details({"tableName": ["route_definition"]})
 - Use ONLY field names that exist in result.columns[].name
 - For relations, use propertyName from result.relations[].propertyName
 
-**COMMON MISTAKE:** ❌ Skipping schema check step (guessing field names) before querying → causes "column does not exist" errors`;
+Always run get_table_details first; skipping the schema check causes "column does not exist" errors`;
 
   const naturalLanguageDiscoveryHint: HintContent = {
     category: 'natural_language_discovery',

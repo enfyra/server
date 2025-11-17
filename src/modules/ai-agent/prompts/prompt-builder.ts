@@ -83,6 +83,10 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     hintContent,
   } = params;
 
+  if (!needsTools) {
+    return '';
+  }
+
   const normalizedProvider = (provider || 'OpenAI') as Provider;
   const providerPrompts = PROVIDER_PROMPTS[normalizedProvider] || PROVIDER_PROMPTS.OpenAI;
   
