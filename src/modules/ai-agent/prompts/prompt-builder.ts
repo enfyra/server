@@ -84,7 +84,20 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   } = params;
 
   if (!needsTools) {
-    return '';
+    let prompt = `You are the Enfyra AI assistant. Your primary mission is to manage CMS data by creating tables, inserting records, updating information, and running database queries .`;
+
+    if (latestUserMessage) {
+      const userMessagePreview = latestUserMessage.length > 200
+        ? latestUserMessage.substring(0, 200) + '...'
+        : latestUserMessage;
+      prompt += `\n\n**Current User Message (for language reference):**\n"${userMessagePreview}"\n\nIMPORTANT: Respond in the EXACT SAME language as this user message. Match the language exactly.`;
+    }
+
+    if (conversationSummary) {
+      prompt += `\n\n[Previous conversation summary]: ${conversationSummary}`;
+    }
+
+    return prompt;
   }
 
   const normalizedProvider = (provider || 'OpenAI') as Provider;
