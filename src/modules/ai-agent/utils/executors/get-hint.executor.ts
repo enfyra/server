@@ -499,6 +499,31 @@ find_records({
   "limit": 0
 })
 
+**QUERY OPERATORS (for where parameter in find_records and count_records):**
+Comparison: _eq (equals), _neq (not equals), _gt (greater than), _gte (greater than or equal), _lt (less than), _lte (less than or equal)
+String: _contains (contains substring, case-insensitive, accent-insensitive), _starts_with (starts with substring, case-insensitive, accent-insensitive), _ends_with (ends with substring, case-insensitive, accent-insensitive), _like (SQL LIKE pattern matching, case-sensitive, supports % and _ wildcards)
+Array: _in (value is in array), _not_in (value is not in array)
+Range: _between (value is between two values, inclusive, requires array with exactly 2 elements [min, max])
+Null: _is_null (field is NULL), _is_not_null (field is not NULL)
+Logical: _and (all conditions must be true), _or (at least one condition must be true), _not (condition must be false)
+
+Example with nested _and, _or and multiple operators:
+find_records({
+  "table": "product",
+  "where": {
+    "_and": [
+      {"price": {"_gte": 100, "_lte": 500}},
+      {"_or": [
+        {"name": {"_contains": "laptop"}},
+        {"name": {"_contains": "computer"}}
+      ]},
+      {"status": {"_in": ["active", "pending"]}}
+    ]
+  },
+  "fields": "id,name,price",
+  "limit": 10
+})
+
 **COMMON MISTAKE:** ❌ Skipping schema check step (guessing field names) before querying → causes "column does not exist" errors`;
 
   const crudQueryOpsHint: HintContent = {
