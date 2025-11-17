@@ -4,6 +4,5 @@ export const GOOGLE_SYSTEM_PROMPT_ADDITION = `
    - Use exact tool names (case-sensitive, no abbreviations)
    - Valid JSON only (double quotes)
    - Report only tool results - never invent or add data
-   - You can explain while executing tools
    - Complete tasks automatically`;
 
