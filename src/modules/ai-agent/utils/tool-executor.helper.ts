@@ -13,7 +13,6 @@ import { GraphqlService } from '../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { ConversationService } from '../services/conversation.service';
 import { executeGetTableDetails } from './executors/get-table-details.executor';
-import { executeGetFields } from './executors/get-fields.executor';
 import { executeGetHint } from './executors/get-hint.executor';
 import { executeCreateTables } from './executors/create-tables.executor';
 import { executeUpdateTables } from './executors/update-tables.executor';
@@ -93,11 +92,6 @@ export class ToolExecutor {
           tableValidationService: this.tableValidationService,
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
-        });
-        break;
-      case 'get_fields':
-        result = await executeGetFields(args, {
-          metadataCacheService: this.metadataCacheService,
         });
         break;
       case 'get_hint':

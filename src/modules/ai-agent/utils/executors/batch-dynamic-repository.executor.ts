@@ -18,23 +18,10 @@ import {
   formatEscalationMessage,
   getRecoveryStrategy,
 } from '../error-recovery.helper';
-import { executeCheckPermission, CheckPermissionExecutorDependencies } from './check-permission.executor';
+import { executeCheckPermission } from './check-permission.executor';
+import { BatchDynamicRepositoryExecutorDependencies } from '../types';
 
 const logger = new Logger('BatchDynamicRepositoryExecutor');
-
-export interface BatchDynamicRepositoryExecutorDependencies extends CheckPermissionExecutorDependencies {
-  metadataCacheService: MetadataCacheService;
-  queryBuilder: QueryBuilderService;
-  tableHandlerService: TableHandlerService;
-  queryEngine: QueryEngine;
-  routeCacheService: RouteCacheService;
-  storageConfigCacheService: StorageConfigCacheService;
-  aiConfigCacheService: AiConfigCacheService;
-  systemProtectionService: SystemProtectionService;
-  tableValidationService: TableValidationService;
-  swaggerService: SwaggerService;
-  graphqlService: GraphqlService;
-}
 
 export async function executeBatchDynamicRepository(
   args: {

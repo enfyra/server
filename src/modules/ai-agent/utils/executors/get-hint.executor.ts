@@ -1,19 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+import { GetHintExecutorDependencies, HintContent } from '../types';
 
 const logger = new Logger('GetHintExecutor');
-
-export interface GetHintExecutorDependencies {
-  queryBuilder: QueryBuilderService;
-}
-
-export interface HintContent {
-  category: string;
-  title: string;
-  content: string;
-  tools?: string[];
-}
 
 export function buildHintContent(dbType: string, idFieldName: string, categories?: string[]): HintContent[] {
   const isMongoDB = dbType === 'mongodb';
@@ -55,7 +45,7 @@ export function buildHintContent(dbType: string, idFieldName: string, categories
     category: 'field_optimization',
     title: 'Field & Query Optimization',
     content: fieldOptContent,
-    tools: ['get_table_details', 'get_fields', 'find_records'],
+    tools: ['get_table_details', 'find_records'],
   };
 
   const tableSchemaOpsContent = `**Table Schema Operations**
@@ -177,7 +167,7 @@ find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"
     category: 'crud_query_operations',
     title: 'CRUD Query Operations (Find & Count)',
     content: crudQueryOpsContent,
-    tools: ['get_table_details', 'get_fields', 'find_records'],
+    tools: ['get_table_details', 'find_records'],
   };
 
   const systemWorkflowsContent = `**System Workflows (Multi-Step)**
@@ -230,8 +220,7 @@ Error handling:
 
 **Get Schema:**
 - Single: get_table_details({"tableName":["product"]})
-- Multiple (efficient): get_table_details({"tableName":["product","category","order"]})
-- Fields only: get_fields({"tableName":"product"})`;
+- Multiple (efficient): get_table_details({"tableName":["product","category","order"]})`;
 
   const naturalLanguageDiscoveryContent = `**Natural Language Table Name Discovery**
 
@@ -243,11 +232,9 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
 
 **Step 3: Field discovery - STRICT LIMIT**
 **A) Finding specific field:**
-- Check columns: get_table_details({"tableName":["courses"],"fields":["columns"]}) → FOUND: use it, NOT FOUND: go to B
-- Check relations: get_table_details({"tableName":["courses"],"fields":["relations"]}) → FOUND: go to C, NOT FOUND: **STOP**
-- Get related schema: get_table_details({"tableName":["categories"],"fields":["columns"]}) → construct filter
-
-**B) Full schema:** get_table_details({"tableName":["courses"]})
+- Get full schema: get_table_details({"tableName":["courses"]}) → Check columns.data and relations.data
+- If field NOT FOUND in columns → Check relations.data → If NOT FOUND: **STOP**
+- Get related schema: get_table_details({"tableName":["categories"]}) → construct filter
 
 **CRITICAL - STOP CONDITIONS:**
 - After checking columns + relations (2 calls) → If NOT FOUND → **STOP IMMEDIATELY**
@@ -266,7 +253,7 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
     category: 'metadata_operations',
     title: 'Metadata Operations (Table Discovery & Schema)',
     content: metadataOpsContent,
-    tools: ['find_records', 'get_table_details', 'get_fields'],
+    tools: ['find_records', 'get_table_details'],
   };
 
   allHints.push(
