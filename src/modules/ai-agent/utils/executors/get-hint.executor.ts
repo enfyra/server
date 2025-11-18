@@ -80,10 +80,10 @@ Write operations (always specify minimal fields):
 - IMPORTANT: If you call find with limit=10 and get results, DO NOT call again with limit=20 - reuse result or use limit=0 from start
 
 **COUNT Query Examples:**
-Count total records: count_records({"table":"product","fields":"${idFieldName}","meta":"totalCount"})
+Count total records: find_records({"table":"product","fields":"${idFieldName}","limit":1,"meta":"totalCount"})
 → Read totalCount from response metadata
 
-Count with filter: count_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"meta":"filterCount"})
+Count with filter: find_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"limit":1,"meta":"filterCount"})
 → Read filterCount from response metadata
 
 **CRITICAL - Schema Check Before Create/Update:**
@@ -114,7 +114,7 @@ Count with filter: count_records({"table":"product","fields":"${idFieldName}","w
     category: 'field_optimization',
     title: 'Field & Query Optimization',
     content: fieldOptContent,
-    tools: ['get_table_details', 'get_fields', 'find_records', 'count_records'],
+    tools: ['get_table_details', 'get_fields', 'find_records'],
   };
 
   const tableSchemaOpsContent = `**Table Schema Operations (Create & Update) - Complete Workflow**
@@ -450,18 +450,20 @@ get_table_details({"tableName": ["product"]})
 → Verify ${idFieldName} field exists in schema
 
 Step 2: Count total records
-count_records({
+find_records({
   "table": "product",
   "fields": "${idFieldName}",
+  "limit": 1,
   "meta": "totalCount"
 })
 → Read totalCount from response metadata
 
 Step 3: Count with filter (verify filter fields exist in schema first)
-count_records({
+find_records({
   "table": "product",
   "fields": "${idFieldName}",
   "where": {"price": {"_gt": 100}},
+  "limit": 1,
   "meta": "filterCount"
 })
 → Read filterCount from response metadata
@@ -489,7 +491,7 @@ find_records({
   "limit": 0
 })
 
-**QUERY OPERATORS (for where parameter in find_records and count_records):**
+**QUERY OPERATORS (for where parameter in find_records):**
 Comparison: _eq (equals), _neq (not equals), _gt (greater than), _gte (greater than or equal), _lt (less than), _lte (less than or equal)
 String: _contains (contains substring, case-insensitive, accent-insensitive), _starts_with (starts with substring, case-insensitive, accent-insensitive), _ends_with (ends with substring, case-insensitive, accent-insensitive), _like (SQL LIKE pattern matching, case-sensitive, supports % and _ wildcards)
 Array: _in (value is in array), _not_in (value is not in array)
@@ -520,7 +522,7 @@ Always run get_table_details first; skipping the schema check causes "column doe
     category: 'crud_query_operations',
     title: 'CRUD Query Operations (Find & Count)',
     content: crudQueryOpsContent,
-    tools: ['get_table_details', 'get_fields', 'find_records', 'count_records'],
+    tools: ['get_table_details', 'get_fields', 'find_records'],
   };
 
   const systemWorkflowsContent = `**System Workflows (Multi-Step Operations) - Complete Workflow**
@@ -646,16 +648,50 @@ find_records({"table":"table_definition","fields":"name","limit":0})
 - Match user's natural language term to table names from Step 1
 - Common patterns: plural/singular forms, with/without "_definition" suffix
 
-**Step 3: Get table schema for guessed table(s) (MANDATORY - DO NOT SKIP)**
+**Step 3: Get table schema - Smart field discovery (MANDATORY - DO NOT SKIP)**
+
+**Option A - If you need to FIND a specific field (e.g., user asks "routes with publishedMethods = GET"):**
+→ Use smart discovery to save tokens:
+
+Step 3a: Check columns FIRST (most fields are columns)
+get_table_details({"tableName": ["route_definition"], "fields": ["columns"]})
+→ Search for the field in result.columns[].name
+→ If FOUND: Use it in your query
+→ If NOT FOUND: Proceed to Step 3b
+
+Step 3b: Check relations (if not found in columns)
+get_table_details({"tableName": ["route_definition"], "fields": ["relations"]})
+→ Search for the field in result.relations[].propertyName
+→ If FOUND: This is a relation! Proceed to Step 3c
+→ If NOT FOUND: Field does not exist, inform user
+
+Step 3c: Get schema of related table (MANDATORY when filtering by relation)
+→ Extract targetTableName from the relation found in Step 3b
+→ Example: If relation is {propertyName: "publishedMethods", targetTableName: "method_definition", type: "many-to-many"}
+→ Call: get_table_details({"tableName": ["method_definition"], "fields": ["columns"]})
+→ Now you know what fields exist in the related table for filtering
+→ Example: method_definition has columns [id, method, description] → you can filter by: where: {"publishedMethods": {"method": {"_eq": "GET"}}}
+→ NEVER guess field names in related tables - ALWAYS check schema first
+
+**Option B - If you need FULL schema (creating/updating records, complex queries):**
 get_table_details({"tableName": ["route_definition"]})
-→ WAIT for result - DO NOT proceed until you have the schema
 → This returns full schema including columns, relations, and metadata
 
-**After Step 3: Now you have the schema, read the helper for find_records/count_records tools to know how to query**
-- The schema shows you available columns (result.columns[].name) and relations (result.relations[].propertyName)
-- Use the helper documentation for find_records/count_records to construct your query
-- Use ONLY field names that exist in result.columns[].name
-- For relations, use propertyName from result.relations[].propertyName
+**After Step 3: Now you have the schema, construct your query**
+- Columns are in result.columns[].name → use directly in where clause
+- Relations are in result.relations[].propertyName → use with nested object syntax
+- **CRITICAL - Filtering by relations**: You MUST have the related table schema (from Step 3c)
+  * Example: {"publishedMethods": {"name": {"_eq": "GET"}}} requires knowing "name" exists in method_definition
+  * Without related table schema, you cannot construct valid relation filters
+- Use the helper documentation for find_records to construct your query (use meta parameter for counting)
+- Use ONLY field names that exist in columns or relations
+
+**CRITICAL - Field Not Found Workflow:**
+- If field not found in columns, CHECK relations before giving up
+- If field IS a relation, CHECK related table schema before filtering (Step 3c)
+- If field not found in both columns AND relations, inform user that field does not exist
+- DO NOT assume field exists without checking schema
+- DO NOT guess field names in related tables without checking their schema
 
 Always run get_table_details first; skipping the schema check causes "column does not exist" errors`;
 

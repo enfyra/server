@@ -1472,23 +1472,6 @@ export class AiAgentService implements OnModuleInit {
       return `[${name}] ${table}${metaInfo}${dataInfo}`;
     }
 
-    if (name === 'count_records') {
-      const table = toolArgs?.table || 'unknown';
-
-      if (result?.error) {
-        if (result.errorCode === 'PERMISSION_DENIED') {
-          const reason = result.reason || result.message || 'unknown';
-          return `[count_records] ${table} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to count records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
-        }
-        const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
-        const errorMessage = this.truncateString(message, 500);
-        const errorCode = result.errorCode ? ` (${result.errorCode})` : '';
-        return `[count_records] ${table} -> ERROR${errorCode}: ${errorMessage}`;
-      }
-
-      const count = result?.totalCount !== undefined ? result.totalCount : (result?.filterCount !== undefined ? result.filterCount : (result?.count !== undefined ? result.count : 'unknown'));
-      return `[count_records] ${table} -> Count: ${count}`;
-    }
 
     if (name === 'create_records') {
       const table = toolArgs?.table || 'unknown';

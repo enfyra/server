@@ -309,22 +309,6 @@ export class LLMService {
       finalResult: null,
       errors: [],
     };
-    const logEvaluateDebug = () => {
-      this.logger.debug({
-        layer: 'evaluateNeedsTools',
-        provider: debugInfo.provider,
-        dbType: debugInfo.dbType,
-        userMessage: debugInfo.userMessage,
-        finalResult: debugInfo.finalResult,
-        errors: debugInfo.errors,
-        tokenUsage: debugInfo.tokenUsage || null,
-        responsePreview: debugInfo.responseContent || null,
-        rawType: debugInfo.rawType || null,
-        rawPreview: debugInfo.rawValue || null,
-        jsonParseRaw: debugInfo.jsonParseRaw || null,
-        extractedJsonPreview: debugInfo.extractedJson || null,
-      });
-    };
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -345,7 +329,6 @@ export class LLMService {
       debugInfo.reason = isGreeting ? 'greeting' : (isCapabilityQuestion ? 'capability_question' : 'casual_message');
       debugInfo.finalResult = { toolNames: [], categories: [] };
       debugInfo.tokenUsage = { inputTokens: 0, outputTokens: 0 };
-      logEvaluateDebug();
       return { toolNames: [], categories: [] };
     }
 
@@ -471,8 +454,7 @@ export class LLMService {
         debugInfo.errors.push(`Failed to parse JSON: ${responseContent.substring(0, 200)}`);
         debugInfo.responseContent = responseContent.substring(0, 500);
         debugInfo.jsonParseRaw = responseContent;
-        logEvaluateDebug();
-        return { toolNames: [], categories: [] };
+          return { toolNames: [], categories: [] };
       }
 
       if (parsedContent.categories !== undefined) {
@@ -483,20 +465,17 @@ export class LLMService {
 
       if (selectedCategories.length === 0) {
         debugInfo.finalResult = { toolNames: [], categories: [] };
-        logEvaluateDebug();
-        return { toolNames: [], categories: [] };
+          return { toolNames: [], categories: [] };
       }
 
       debugInfo.finalResult = {
         categories: selectedCategories,
         tokenUsage: tokenUsage || undefined,
       };
-      logEvaluateDebug();
       return { toolNames: [], categories: selectedCategories };
     } catch (error) {
       debugInfo.errors.push(`ERROR: ${error instanceof Error ? error.message : String(error)}`);
       debugInfo.stackTrace = error instanceof Error ? error.stack : 'N/A';
-      logEvaluateDebug();
       return { toolNames: [] };
     }
   }
@@ -539,22 +518,8 @@ export class LLMService {
           invokeOptions.cache_control = { type: 'ephemeral' };
         }
         const result: any = await llmWithTools.invoke(conversationMessages, invokeOptions);
-        this.logger.debug('[LLMService-chat] iteration result', {
-          provider: config.provider,
-          conversationId,
-          iteration: iterations + 1,
-          hasToolCalls: !!(result.tool_calls || result.additional_kwargs?.tool_calls),
-          toolCallsCount: (result.tool_calls || result.additional_kwargs?.tool_calls || []).length,
-        });
 
         const toolCalls = result.tool_calls || result.additional_kwargs?.tool_calls || [];
-        this.logger.debug('[LLMService-chat] iteration result', {
-          provider: config.provider,
-          conversationId,
-          iteration: iterations + 1,
-          toolCallsCount: toolCalls.length,
-          hasToolCalls: toolCalls.length > 0,
-        });
 
         if (toolCalls.length === 0) {
           this.reportTokenUsage('chat', result);
@@ -641,30 +606,7 @@ export class LLMService {
               parsedArgs = {};
             }
 
-            this.logger.debug('[LLMService-chat] executing tool', {
-              provider: config.provider,
-              conversationId,
-              toolName,
-              toolCallId: toolId,
-            });
-
             const toolResult = await tool.func(parsedArgs);
-
-            const resultPreview = (() => {
-              try {
-                return JSON.stringify(toolResult).substring(0, 500);
-              } catch {
-                return String(toolResult || '').substring(0, 500);
-              }
-            })();
-            this.logger.debug('[LLMService-chat] tool result', {
-              provider: config.provider,
-              conversationId,
-              toolName,
-              toolCallId: toolId,
-              hasError: !!toolResult?.error,
-              resultPreview,
-            });
             const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
             allToolResults.push({
               toolCallId: toolId,
@@ -1025,13 +967,6 @@ export class LLMService {
                     arguments: argsString && argsString !== '{}' ? argsString : undefined,
                   },
                 };
-              });
-              this.logger.debug('[LLMService-chatStream] current tool calls extracted', {
-                provider,
-                conversationId,
-                iteration: iterations,
-                toolCallsCount: currentToolCalls.length,
-                ids: currentToolCalls.map((tc) => tc.id).filter(Boolean),
               });
             } else if (allChunks.length > 0) {
               for (let i = allChunks.length - 1; i >= 0; i--) {
@@ -1710,34 +1645,11 @@ export class LLMService {
                 return String(parsedArgs || '').substring(0, 500);
               }
             })();
-            this.logger.debug('[LLMService-chatStream] executing tool', {
-              provider: config.provider,
-              conversationId,
-              toolName,
-              toolCallId: toolId,
-              argsPreview,
-            });
             const toolResult = await tool.func(parsedArgs);
 
             if (abortSignal?.aborted) {
               throw new Error('Request aborted by client');
             }
-
-            const resultPreview = (() => {
-              try {
-                return JSON.stringify(toolResult).substring(0, 500);
-              } catch {
-                return String(toolResult || '').substring(0, 500);
-              }
-            })();
-            this.logger.debug('[LLMService-chatStream] tool result', {
-              provider: config.provider,
-              conversationId,
-              toolName,
-              toolCallId: toolId,
-              hasError: !!toolResult?.error,
-              resultPreview,
-            });
             const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
 
             executedToolCalls.set(toolCallKey, { toolId, result: resultObj });
