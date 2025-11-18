@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MongoSchemaMigrationService } from '../../../infrastructure/mongo/services/mongo-schema-migration.service';
 import { MongoService } from '../../../infrastructure/mongo/services/mongo.service';
+import { MongoSchemaMigrationLockService } from '../../../infrastructure/mongo/services/mongo-schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -28,6 +29,7 @@ export class MongoTableHandlerService {
     private queryBuilder: QueryBuilderService,
     private schemaMigrationService: MongoSchemaMigrationService,
     private mongoService: MongoService,
+    private schemaMigrationLockService: MongoSchemaMigrationLockService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
   ) {}
@@ -263,6 +265,7 @@ export class MongoTableHandlerService {
   }
 
   async createTable(body: CreateTableDto) {
+    return await this.runWithSchemaLock(`mongo:create:${body?.name || 'unknown'}`, async () => {
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
         tableName: body?.name,
@@ -505,9 +508,11 @@ export class MongoTableHandlerService {
         },
       );
     }
+    });
   }
 
   async updateTable(id: any, body: CreateTableDto) {
+    return await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -754,9 +759,11 @@ export class MongoTableHandlerService {
         },
       );
     }
+    });
   }
 
   async delete(id: string | number) {
+    return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
     try {
       const { ObjectId } = require('mongodb');
       const tableId = typeof id === 'string' ? new ObjectId(id) : id;
@@ -827,6 +834,7 @@ export class MongoTableHandlerService {
         },
       );
     }
+    });
   }
 
   /**
@@ -886,6 +894,14 @@ export class MongoTableHandlerService {
     });
 
     return table;
+  }
+  private async runWithSchemaLock<T>(context: string, handler: () => Promise<T>): Promise<T> {
+    const lock = await this.schemaMigrationLockService.acquire(context);
+    try {
+      return await handler();
+    } finally {
+      await this.schemaMigrationLockService.release(lock);
+    }
   }
 }
 
