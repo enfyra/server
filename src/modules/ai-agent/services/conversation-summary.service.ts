@@ -109,28 +109,27 @@ export class ConversationSummaryService {
       ? `Previous summary:\n${conversation.summary}\n\n`
       : '';
 
-    const summaryPrompt = `Summarize the following conversation for Enfyra AI agent context. Be thorough but structured (10-15 sentences or structured format). CRITICAL: Preserve all technical details needed for continuation.
+    const summaryPrompt = `Summarize this conversation for Enfyra AI agent. Be concise but complete. Preserve ALL technical details needed for continuation.
 
-Focus on:
-1. User's goals and workflow progress (what they're trying to accomplish)
-2. Tables created/modified/deleted (include table NAMES and IDs if available)
-3. Relations created (include source/target tables, property names, types)
-4. Data operations (create/update/delete records, batch operations)
-5. Errors encountered and how they were resolved
-6. Current database schema state (which tables exist, their relations)
-7. Important IDs discovered (table IDs, record IDs) - these are CRITICAL for relations
-8. Permission checks and access patterns
-9. Any pending work or incomplete operations
+CRITICAL: Include:
+- User goals & current progress
+- Tables created/modified/deleted (names + IDs)
+- Relations created (source→target, property names, types)
+- Data operations (create/update/delete, batch counts)
+- Errors & resolutions
+- Important IDs (table IDs, record IDs - CRITICAL for relations)
+- Pending/incomplete work
 
-Format: Use structured sections if helpful (e.g., "Tables Created:", "Relations Setup:", "Errors Fixed:"). Preserve specific table names, IDs, and relation structures. This summary will be injected into the system prompt for continuation, so it must contain all context needed to resume work without losing information.
+Format: Use compact structured format. Example:
+"User creating backend system. Created: users(id:1), posts(id:2). Relations: posts.user→users.id. Errors: FK constraint fixed by creating users first. Pending: add sample data."
 
-${previousContext}Full conversation history to summarize:
+${previousContext}Conversation to summarize:
 ${messagesText}`;
 
     const summaryMessages: LLMMessage[] = [
       {
         role: 'system',
-        content: 'You are a conversation summarizer for Enfyra AI agent. Create structured, thorough summaries (10-15 sentences or structured format) that preserve ALL technical details: table names/IDs, relation structures, errors and solutions, workflow progress, and database state. This summary will be used to continue conversations, so completeness is critical. Use structured sections if helpful.',
+        content: 'You are a conversation summarizer for Enfyra AI agent. Create concise, structured summaries that preserve ALL critical technical details: table names/IDs, relations, errors/solutions, workflow progress, and important IDs. Use compact format to minimize tokens while maintaining completeness. This summary will be injected into system prompts, so be efficient but thorough.',
       },
       {
         role: 'user',
@@ -142,7 +141,7 @@ ${messagesText}`;
       const summaryResponse = await this.llmService.chatSimple({ messages: summaryMessages, configId });
       let summary = summaryResponse.content || '';
 
-      const maxSummaryLen = 2000;
+      const maxSummaryLen = 3000;
       if (summary.length > maxSummaryLen) {
         summary = summary.slice(0, maxSummaryLen) + '...';
       }
