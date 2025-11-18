@@ -37,78 +37,19 @@ export function buildHintContent(dbType: string, idFieldName: string, categories
 
   const fieldOptContent = `**Field Selection & Query Optimization**
 
-**MANDATORY WORKFLOW - Field Validation Before Query:**
-Step 1: ALWAYS call get_table_details FIRST before ANY query
-get_table_details({"tableName": ["product"]})
-→ WAIT for result - DO NOT proceed until you have the schema
+**MANDATORY Workflow:**
+1. get_table_details({"tableName":["product"]}) → WAIT for schema
+2. Extract fields from result.columns[].name and result.relations[].propertyName
+3. Use ONLY verified fields - NEVER guess
 
-Step 2: Extract field names from schema
-- Look at result.columns[].name to see ALL available column names
-- Look at result.relations[].propertyName to see available relation properties
-- Use ONLY field names that exist in result.columns[].name
-- For relations, use propertyName from result.relations[].propertyName
+**If field NOT FOUND:**
+- Check columns → NOT FOUND → check relations → NOT FOUND → **STOP**
+- Do NOT retry or guess - inform user field doesn't exist
 
-Step 3: Use verified fields ONLY in your query
-- Use ONLY fields you verified exist in Step 2
-- NEVER guess or invent field names
-
-**Basic Rules:**
-- **MANDATORY**: ALWAYS call get_table_details BEFORE querying to know available fields
-- **MANDATORY**: WAIT for get_table_details result before proceeding
-- **FORBIDDEN**: NEVER guess field names - always verify they exist in schema
-- get_table_details supports single or multiple tables: {"tableName": "post"} or {"tableName": ["post", "category"]}
-- For multiple tables, use array format to get all schemas in ONE call: {"tableName": ["table1", "table2", "table3"]}
-
-**Field Parameter Examples:**
-Read operations (after verifying fields in schema):
-Step 1: get_table_details({"tableName": ["product"]}) → WAIT
-Step 2: Verify "name", "price" exist in result.columns[].name
-Step 3: Query with verified fields:
-- List with names: {"fields": "${idFieldName},name", "limit": 10}
-- Count records: {"fields": "${idFieldName}", "limit": 1, "meta": "totalCount"}
-- With relations: {"fields": "${idFieldName},name,category.name"} (verify "category" exists in result.relations[].propertyName)
-- Multiple relations: {"fields": "${idFieldName},order.customer.name,order.items.product.name"}
-
-Write operations (always specify minimal fields):
-- After create: {"fields": "${idFieldName}"}
-- After update: {"fields": "${idFieldName},name"}
-
-**Limit Parameter:**
-- limit=0: Fetch ALL records (use when user wants "all records")
-- limit>0: Fetch specified number (default: 10)
-- For COUNT: limit=1 with meta="totalCount" (no filter) or meta="filterCount" (with filter)
-- IMPORTANT: If you call find with limit=10 and get results, DO NOT call again with limit=20 - reuse result or use limit=0 from start
-
-**COUNT Query Examples:**
-Count total records: find_records({"table":"product","fields":"${idFieldName}","limit":1,"meta":"totalCount"})
-→ Read totalCount from response metadata
-
-Count with filter: find_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"limit":1,"meta":"filterCount"})
-→ Read filterCount from response metadata
-
-**CRITICAL - Schema Check Before Create/Update:**
-1. Call get_table_details FIRST: get_table_details({"tableName":["product"]})
-2. Check required fields: Look for isNullable=false AND no default value
-3. Common required: id (auto), createdAt/updatedAt (auto), but ALWAYS check for others (slug, stock, etc.)
-4. Prepare data with ALL required fields
-5. If you get constraint errors → call get_table_details again to see all required fields
-
-**CRITICAL - Check Unique Constraints Before Create:**
-1. Call get_table_details to see which columns have isUnique=true
-2. For unique fields (name, email, slug), check existence FIRST:
-   Example: find_records({"table":"category","where":{"name":{"_eq":"Electronics"}},"fields":"${idFieldName}","limit":1})
-3. If record exists → skip creation or use update instead
-4. For batch_create: Check all records first, filter out existing ones
-
-**Relations Format Examples:**
-- {"category": 19} (simple ID - preferred)
-- {"category": {"id": 19}} (object format - also works)
-- {"customer": 1, "category": 19} (multiple relations)
-- Always use relation propertyName, not FK columns or camelCase variants, and always reference related records by ID
-
-**Nested Query Examples:**
-- {"table":"order","operation":"find","fields":"${idFieldName},total,customer.name","where":{"customer":{"name":{"_eq":"John"}}}}
-- {"table":"route_definition","operation":"find","fields":"${idFieldName},path,roles.name","where":{"roles":{"name":{"_eq":"Admin"}}}}`;
+**Key Rules:**
+- Specify minimal fields: "id,name" NOT "*"
+- limit=0: all records, limit>0: specified, limit=1 + meta: count
+- Relations: {"category":{"id":19}}`;
 
   const fieldOptHint: HintContent = {
     category: 'field_optimization',
@@ -117,135 +58,31 @@ Count with filter: find_records({"table":"product","fields":"${idFieldName}","wh
     tools: ['get_table_details', 'get_fields', 'find_records'],
   };
 
-  const tableSchemaOpsContent = `**Table Schema Operations (Create & Update) - Complete Workflow**
+  const tableSchemaOpsContent = `**Table Schema Operations**
 
-**WORKFLOW FOR CREATING TABLES WITHOUT RELATIONS:**
-Step 1: Check if table exists
-find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+**CREATE Tables:**
+Structure: create_tables({"tables":[{"name":"products","columns":[{"name":"${idFieldName}","type":"${isMongoDB ? 'uuid' : 'int'}","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar"}]}]})
 
-Step 2: If not exists, create table
-create_tables({
-  "tables": [{
-    "name": "products",
-    "description": "Product catalog",
-    "columns": [
-      {"name": "${idFieldName}", "type": "${isMongoDB ? 'uuid' : 'int'}", "isPrimary": true, "isGenerated": true},
-      {"name": "name", "type": "varchar", "isNullable": false},
-      {"name": "price", "type": "float", "isNullable": false}
-    ]
-  }]
-})
+**With Relations** (CRITICAL):
+1. Find target table ID FIRST: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}"})
+2. Use ID in relation: {"propertyName":"category","type":"many-to-one","targetTable":{"id":19}}
+3. NEVER use table name or hardcoded ID without verification
 
-**WORKFLOW FOR CREATING TABLES WITH RELATIONS (CRITICAL - FOLLOW EXACTLY):**
-Step 1: Check if main table exists
-identify table name (snake_case, lowercase, not start with "_")
-find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+**Multi-table with Relations:**
+1. Create base tables first (no relations)
+2. Find their IDs: find_records({"table":"table_definition","where":{"name":{"_in":["categories","instructors"]}}})
+3. Create dependent tables with relations using IDs from step 2
 
-Step 2: For EACH relation, find target table ID FIRST (MANDATORY)
-1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName},name","limit":1})
-2. Verify result: Check that result.data[0].${idFieldName} exists and is a valid number
-3. Use the ID from result: targetTable: {"id": result.data[0].${idFieldName}}
+**UPDATE Tables:**
+update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","type":"int"}]}]})
 
-Step 3: Create table with relations
-create_tables({
-  "tables": [{
-    "name": "products",
-    "columns": [
-      {"name": "${idFieldName}", "type": "${isMongoDB ? 'uuid' : 'int'}", "isPrimary": true, "isGenerated": true},
-      {"name": "name", "type": "varchar", "isNullable": false}
-    ],
-    "relations": [{
-      "propertyName": "category",
-      "type": "many-to-one",
-      "targetTable": {"id": 19}
-    }]
-  }]
-})
+Add relation: Find target ID first, then update_tables with relations array
 
-Critical errors to avoid:
-- Using hardcoded ID without verification → Always use find_records to get actual ID
-- Not finding target table ID first → Always use find_records to get actual ID
-- Using target table name instead of ID → Must use {"id": number}
-- Creating table with relation before target table exists → Create target table FIRST
-
-**WORKFLOW FOR MULTI-TABLE CREATION WITH RELATIONS:**
-Step 1: Create all base tables FIRST (without relations)
-create_tables({
-  "tables": [
-    {"name": "categories", "columns": [...]},
-    {"name": "instructors", "columns": [...]}
-  ]
-})
-
-Step 2: Find IDs of created tables
-find_records({"table":"table_definition","where":{"name":{"_in":["categories","instructors"]}},"fields":"${idFieldName},name","limit":0})
-
-Step 3: Create dependent tables with relations using IDs from Step 2
-create_tables({
-  "tables": [{
-    "name": "courses",
-    "columns": [...],
-    "relations": [
-      {"propertyName": "category", "type": "many-to-one", "targetTable": {"id": <ID from categories>}},
-      {"propertyName": "instructor", "type": "many-to-one", "targetTable": {"id": <ID from instructors>}}
-    ]
-  }]
-})
-
-**WORKFLOW FOR UPDATING TABLES:**
-Step 1: Find table (if needed)
-find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
-
-Step 2: Update table schema
-update_tables({
-  "tables": [{
-    "tableName": "products",
-    "columns": [{"name": "stock", "type": "int", "isNullable": true, "default": 0}]
-  }]
-})
-
-Add relation (MUST find target table ID first):
-1. Find target table ID: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}","limit":1})
-2. Verify ID is valid (exists in result)
-3. Add relation: update_tables({
-  "tables": [{
-    "tableName": "products",
-    "relations": [{
-      "propertyName": "category",
-      "type": "many-to-one",
-      "targetTable": {"id": <ID from find_records result>}
-    }]
-  }]
-})
-
-**MULTIPLE TABLES:**
-create_tables({
-  "tables": [
-    {"name": "products", "columns": [...]},
-    {"name": "categories", "columns": [...]}
-  ]
-})
-
-update_tables({
-  "tables": [
-    {"tableName": "products", "columns": [...]},
-    {"tableName": "categories", "columns": [...]}
-  ]
-})
-
-**CRITICAL RULES:**
-- Always check table existence before create
-- Always include ${idFieldName} column with correct type
-- **CRITICAL - NEVER include createdAt/updatedAt columns:**
-  * createdAt and updatedAt are ALWAYS auto-generated by the system
-  * DO NOT include them in the columns array - this will cause validation errors
-  * If you see these fields in schema, IGNORE them when creating/updating tables
-  * Example: If schema shows "createdAt" and "updatedAt", do NOT add them to columns
-- Use relations array for foreign keys, not FK columns
-- For relations: ALWAYS find target table ID first using find_records
-- Never use hardcoded IDs without verification
-- Create target tables BEFORE creating tables that reference them
-- Batch tools process sequentially internally`;
+**CRITICAL:**
+- Table name: snake_case, lowercase, not start with "_"
+- NEVER include createdAt/updatedAt (auto-generated)
+- ALWAYS find target table ID before creating relations
+- Use relations array, NOT FK columns`;
 
   const tableSchemaOpsHint: HintContent = {
     category: 'table_schema_operations',
@@ -254,30 +91,17 @@ update_tables({
     tools: ['find_records', 'create_tables', 'update_tables'],
   };
 
-  const tableDeletionContent = `**Table Deletion - Complete Workflow**
+  const tableDeletionContent = `**Table Deletion**
 
-**WORKFLOW FOR DELETING TABLES:**
-Step 1: Find table ID
-find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName},name","limit":1})
+**Workflow:**
+1. Find ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName}"})
+2. Delete: delete_tables({"ids":[19]})
+Multiple: find_records with name._in, then delete_tables({"ids":[19,20]})
 
-Step 2: Delete table(s)
-delete_tables({"ids": [19]})
-
-**MULTIPLE TABLES:**
-1. Find all table IDs: find_records({"table":"table_definition","where":{"name":{"_in":["products","categories"]}},"fields":"${idFieldName},name","limit":0})
-2. Delete all: delete_tables({"ids": [19, 20]})
-
-**CRITICAL RULES:**
-- ALWAYS find table ID first (cannot use table name)
-- Use delete_tables for table structure, NOT delete_records (which deletes data)
-- Tool processes tables sequentially internally (one by one)
-- For single table, use array with 1 element: delete_tables({"ids":[123]})
-- NEVER use delete_records for table_definition table
-
-**Common mistakes to avoid:**
-- delete_records deletes data and should not be used for table structure
-- delete_tables requires numeric IDs, not table names
-- Never target table_definition with delete_records`;
+**CRITICAL:**
+- delete_tables = table structure, delete_records = data
+- ALWAYS find ID first (cannot use table name)
+- NEVER use delete_records on table_definition`;
 
   const tableDeletionHint: HintContent = {
     category: 'table_deletion',
@@ -286,95 +110,23 @@ delete_tables({"ids": [19]})
     tools: ['find_records', 'delete_tables'],
   };
 
-  const crudWriteOpsContent = `**CRUD Write Operations (Create & Update Records) - Complete Workflow**
+  const crudWriteOpsContent = `**CRUD Write Operations**
 
-**WORKFLOW FOR CREATING RECORDS:**
-Step 1: Get schema (REQUIRED - ALWAYS call first)
-get_table_details({"tableName": ["product"]})
+**CREATE Records - Workflow:**
+1. get_table_details({"tableName":["product"]}) → Check required fields & relations
+2. If required relations exist (isNullable=false): Query related table for valid IDs
+   find_records({"table":"categories","fields":"${idFieldName},name","limit":10})
+3. Check unique constraints: find_records with where clause
+4. Create: create_records({"table":"product","dataArray":[{"name":"Laptop","price":999.99,"category":{"id":19}}],"fields":"${idFieldName}"})
 
-Step 2: Check schema.relations array for required relations (CRITICAL)
-- If schema has relations with isNullable=false → relation is REQUIRED
-- For many-to-one or one-to-one relations → you MUST provide a reference ID
-- Example: If schema shows {"propertyName": "category", "type": "many-to-one", "targetTableName": "categories", "isNullable": false}
-  → You MUST query categories table first to get a valid category ID
+**UPDATE Records:**
+1. Check exists: find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}}})
+2. Update: update_records({"table":"product","updates":[{"id":1,"data":{"price":899.99}}],"fields":"${idFieldName}"})
 
-Step 3: Query related tables FIRST (if relations exist)
-- For each required relation, find valid reference IDs:
-find_records({"table":"categories","where":{},"fields":"${idFieldName},name","limit":10})
-- Choose appropriate ID from results
-- Example result: [{"id": 19, "name": "Electronics"}] → use id: 19
-
-Step 4: Check unique constraints (if any)
-find_records({"table":"product","where":{"name":{"_eq":"Laptop"}},"fields":"${idFieldName}","limit":1})
-
-Step 5: Prepare data with ALL required fields (EXCLUDE auto-generated fields)
-- DO NOT include ${idFieldName} (auto-generated)
-- DO NOT include createdAt (auto-generated)
-- DO NOT include updatedAt (auto-generated)
-- Only include user-defined fields from schema
-- For relations: use {"propertyName": {"id": reference_id}} format
-{
-  "name": "Laptop",
-  "price": 999.99,
-  "category": {"id": 19}
-}
-
-Step 6: Create record
-create_records({
-  "table": "product",
-  "dataArray": [{"name": "Laptop", "price": 999.99, "category": {"id": 19}}],
-  "fields": "${idFieldName}"
-})
-
-**WORKFLOW FOR UPDATING RECORDS:**
-Step 1: Get schema
-get_table_details({"tableName": ["product"]})
-
-Step 2: Check if record exists
-find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
-
-Step 3: Update
-update_records({
-  "table": "product",
-  "updates": [{"id": 1, "data": {"price": 899.99}}],
-  "fields": "${idFieldName}"
-})
-
-**MULTIPLE RECORDS:**
-create_records({
-  "table": "product",
-  "dataArray": [
-    {"name": "Laptop", "price": 999.99},
-    {"name": "Mouse", "price": 29.99}
-  ],
-  "fields": "${idFieldName}"
-})
-
-update_records({
-  "table": "product",
-  "updates": [
-    {"id": 1, "data": {"price": 899.99}},
-    {"id": 2, "data": {"price": 24.99}}
-  ],
-  "fields": "${idFieldName}"
-})
-
-**CRITICAL RULES:**
-- ALWAYS call get_table_details FIRST to check required fields AND relations
-- **CRITICAL - Check relations array for required relations (isNullable=false):**
-  * If table has many-to-one or one-to-one relations with isNullable=false
-  * You MUST query the related table FIRST to get valid reference IDs
-  * NEVER hardcode or guess IDs - always query to get actual IDs
-  * Format: {"propertyName": {"id": actual_id_from_query}}
-  * Example: {"category": {"id": 19}} NOT {"category": 19} or {"categoryId": 19}
-- ALWAYS check unique constraints before create
-- Use propertyName from relations (e.g., "category": {"id": 19}), NOT FK columns
-- **CRITICAL - NEVER include auto-generated fields in create/update data:**
-  * DO NOT include ${idFieldName} (auto-generated)
-  * DO NOT include createdAt (auto-generated)
-  * DO NOT include updatedAt (auto-generated)
-  * These fields are managed by the system - including them will cause validation errors
-- Batch tools process sequentially internally and report detailed results`;
+**CRITICAL:**
+- NEVER include ${idFieldName}, createdAt, updatedAt (auto-generated)
+- For relations: Use {"propertyName":{"id":19}}, NOT FK columns
+- ALWAYS query related tables for valid IDs - NEVER hardcode`;
 
   const crudWriteOpsHint: HintContent = {
     category: 'crud_write_operations',
@@ -383,34 +135,16 @@ update_records({
     tools: ['get_table_details', 'find_records', 'create_records', 'update_records'],
   };
 
-  const crudDeleteOpsContent = `**CRUD Delete Operations - Complete Workflow**
+  const crudDeleteOpsContent = `**CRUD Delete Operations**
 
-**WORKFLOW FOR DELETING RECORDS:**
-Step 1: Verify record exists
-find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}","limit":1})
+**Workflow:**
+1. Verify exists: find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}"})
+2. Delete: delete_records({"table":"product","ids":[1]})
+Batch: delete_records({"table":"product","ids":[1,2,3]})
 
-Step 2: Delete record
-delete_records({
-  "table": "product",
-  "ids": [1]
-})
-
-**BATCH DELETION (2+ records):**
-delete_records({
-  "table": "product",
-  "ids": [1, 2, 3]
-})
-
-**CRITICAL RULES:**
-- ALWAYS verify record exists before delete
-- Use delete_records for DATA records, NOT for table structure
-- For table deletion, use delete_tables tool instead
-- Batch tool processes sequentially and reports detailed results
-
-**Common mistakes to avoid:**
-- Use delete_tables for schema changes; delete_records only removes data
-- Always verify record existence before deletion
-- Never run delete_records on table_definition`;
+**CRITICAL:**
+- delete_records = data, delete_tables = structure
+- ALWAYS verify before delete`;
 
   const crudDeleteOpsHint: HintContent = {
     category: 'crud_delete_operations',
@@ -419,104 +153,25 @@ delete_records({
     tools: ['find_records', 'delete_records'],
   };
 
-  const crudQueryOpsContent = `**CRUD Query Operations (Find & Count) - Complete Workflow**
+  const crudQueryOpsContent = `**CRUD Query Operations**
 
-**WORKFLOW FOR FINDING RECORDS (WHEN TABLE NAME IS KNOWN):**
-Step 1: Get table schema FIRST (MANDATORY - DO NOT SKIP THIS STEP)
-get_table_details({"tableName": ["product"]})
-→ WAIT for result, DO NOT proceed until you have the schema
+**MANDATORY Workflow:**
+1. get_table_details({"tableName":["product"]}) → WAIT for result
+2. Extract fields from result.columns[].name and result.relations[].propertyName
+3. Use ONLY verified fields in query - NEVER guess field names
 
-Step 2: Extract field names from schema result
-- Look at result.columns[].name to see ALL available column names
-- Look at result.relations[].propertyName to see available relation properties
-- Use ONLY field names that exist in schema.columns[].name
-- For relations, use propertyName from result.relations[].propertyName
-- NEVER guess or invent field names
-- NEVER use field names you haven't verified in the schema
+**Find Records:**
+find_records({"table":"product","fields":"${idFieldName},name,price","where":{"price":{"_gt":100}},"limit":10,"sort":"-price"})
 
-Step 3: Query records with verified fields ONLY
-find_records({
-  "table": "product",
-  "fields": "${idFieldName},name,price",
-  "where": {"price": {"_gt": 100}},
-  "limit": 10,
-  "sort": "-price"
-})
-→ Use ONLY fields that you verified exist in Step 2
+**Count Records:**
+- Total: find_records({"table":"product","fields":"${idFieldName}","limit":1,"meta":"totalCount"})
+- With filter: find_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"limit":1,"meta":"filterCount"})
+Read count from response metadata
 
-**WORKFLOW FOR COUNTING RECORDS:**
-Step 1: Get table schema FIRST (MANDATORY)
-get_table_details({"tableName": ["product"]})
-→ Verify ${idFieldName} field exists in schema
+**Relations:**
+find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"customer":{"name":{"_eq":"John"}}}})
 
-Step 2: Count total records
-find_records({
-  "table": "product",
-  "fields": "${idFieldName}",
-  "limit": 1,
-  "meta": "totalCount"
-})
-→ Read totalCount from response metadata
-
-Step 3: Count with filter (verify filter fields exist in schema first)
-find_records({
-  "table": "product",
-  "fields": "${idFieldName}",
-  "where": {"price": {"_gt": 100}},
-  "limit": 1,
-  "meta": "filterCount"
-})
-→ Read filterCount from response metadata
-→ Use ONLY fields in "where" that exist in schema.columns[].name
-
-**ADVANCED QUERIES:**
-With relations (verify relation propertyName exists in schema first):
-Step 1: get_table_details({"tableName": ["order"]})
-Step 2: Check result.relations[].propertyName to find "customer" relation
-Step 3: Query with verified relation:
-find_records({
-  "table": "order",
-  "fields": "${idFieldName},total,customer.name",
-  "where": {"customer": {"name": {"_eq": "John"}}}
-})
-
-Multiple filters with _in operator:
-Step 1: get_table_details({"tableName": ["table_definition"]})
-Step 2: Verify "name" field exists in schema
-Step 3: Query:
-find_records({
-  "table": "table_definition",
-  "where": {"name": {"_in": ["products", "categories"]}},
-  "fields": "${idFieldName},name",
-  "limit": 0
-})
-
-**QUERY OPERATORS (for where parameter in find_records):**
-Comparison: _eq (equals), _neq (not equals), _gt (greater than), _gte (greater than or equal), _lt (less than), _lte (less than or equal)
-String: _contains (contains substring, case-insensitive, accent-insensitive), _starts_with (starts with substring, case-insensitive, accent-insensitive), _ends_with (ends with substring, case-insensitive, accent-insensitive), _like (SQL LIKE pattern matching, case-sensitive, supports % and _ wildcards)
-Array: _in (value is in array), _not_in (value is not in array)
-Range: _between (value is between two values, inclusive, requires array with exactly 2 elements [min, max])
-Null: _is_null (field is NULL), _is_not_null (field is not NULL)
-Logical: _and (all conditions must be true), _or (at least one condition must be true), _not (condition must be false)
-
-Example with nested _and, _or and multiple operators:
-find_records({
-  "table": "product",
-  "where": {
-    "_and": [
-      {"price": {"_gte": 100, "_lte": 500}},
-      {"_or": [
-        {"name": {"_contains": "laptop"}},
-        {"name": {"_contains": "computer"}}
-      ]},
-      {"status": {"_in": ["active", "pending"]}}
-    ]
-  },
-  "fields": "id,name,price",
-  "limit": 10
-})
-
-Always run get_table_details first; skipping the schema check causes "column does not exist" errors`;
+**Operators:** _eq, _neq, _gt, _gte, _lt, _lte, _contains, _in, _between, _is_null, _and, _or`;
 
   const crudQueryOpsHint: HintContent = {
     category: 'crud_query_operations',
@@ -525,52 +180,18 @@ Always run get_table_details first; skipping the schema check causes "column doe
     tools: ['get_table_details', 'get_fields', 'find_records'],
   };
 
-  const systemWorkflowsContent = `**System Workflows (Multi-Step Operations) - Complete Workflow**
+  const systemWorkflowsContent = `**System Workflows (Multi-Step)**
 
-**WORKFLOW FOR MULTI-STEP OPERATIONS:**
-Step 1: Create task
-update_task({
-  "conversationId": <conversationId>,
-  "type": "create_table",
-  "status": "in_progress",
-  "data": {"tableNames": ["products", "categories"]}
-})
+**Workflow:**
+1. Start: update_task({"conversationId":<id>,"type":"create_table","status":"in_progress","data":{...}})
+2. Execute: create_tables, create_records, update_tables (sequentially)
+3. Complete: update_task({"conversationId":<id>,"status":"completed","result":{...}})
+4. On error: update_task({"status":"failed","error":"..."})
 
-Step 2: Execute operations sequentially
-- Create tables: create_tables({...})
-- Add data: create_records({...})
-- Update relations: update_tables({...})
-
-Step 3: Update task status
-update_task({
-  "conversationId": <conversationId>,
-  "type": "create_table",
-  "status": "completed",
-  "result": {...}
-})
-
-**WORKFLOW FOR SYSTEM SETUP:**
-Example: "Create backend system with 5 tables and add data"
-
-1. Create task: update_task({type: "create_tables", status: "in_progress"})
-2. Create tables: create_tables({tables: [...]})
-3. Get table details: get_table_details({"tableName": [...]})
-4. Add sample data: create_records({...})
-5. Update task: update_task({status: "completed"})
-
-**CRITICAL RULES:**
-- ALWAYS create task FIRST for multi-step operations
-- Update task status as you progress
-- Execute operations sequentially (one at a time)
-- Continue automatically without stopping
-- If error occurs, update task with status="failed" and error message
-- Table name must be snake_case, lowercase and not start with "_"
-
-**TASK MANAGEMENT:**
-- Start: update_task({status: "in_progress", data: {...}})
-- Progress: update_task({status: "in_progress", data: {...updatedData}})
-- Complete: update_task({status: "completed", result: {...}})
-- Failed: update_task({status: "failed", error: "..."})`;
+**Rules:**
+- ALWAYS create task first for multi-step operations
+- Execute sequentially (one at a time)
+- Continue automatically without stopping`;
 
   const systemWorkflowsHint: HintContent = {
     category: 'system_workflows',
@@ -581,18 +202,18 @@ Example: "Create backend system with 5 tables and add data"
 
   const errorContent = `CRITICAL - Sequential Execution (PREVENTS ERRORS):
 - ALWAYS execute tools ONE AT A TIME, step by step
-- Do NOT call multiple tools simultaneously in a single response
-- Execute first tool → wait for result → analyze → proceed to next
-- If you call multiple tools at once and one fails, you'll have to retry all, causing duplicates and wasted tokens
-- Example workflow: find_records → wait → delete_records → wait → continue
-- This prevents errors, duplicate operations, and ensures proper error handling
+- Do NOT call multiple tools simultaneously
+- Execute → wait → analyze → proceed
 
 Error handling:
-- If tool returns error=true → stop workflow and report error to user
-- Tools have automatic retry logic - let them handle retries
-- Report exact error message from tool result to user
-- If you encounter errors after calling multiple tools at once, execute them sequentially instead
-- Permission errors: When errorCode="PERMISSION_DENIED", inform user clearly and do NOT retry`;
+- If tool returns error=true → STOP and report to user
+- Permission errors: errorCode="PERMISSION_DENIED" → inform user, do NOT retry
+
+**CRITICAL - Field Not Found → STOP:**
+- If field not in columns AND not in relations → **STOP IMMEDIATELY**
+- Do NOT retry with different table names unless explicitly different
+- Do NOT try alternative field names or guesses
+- Inform user: "Field '[name]' not found in table '[table]'. Available: [list]"`;
 
   const errorHint: HintContent = {
     category: 'error_handling',
@@ -601,99 +222,38 @@ Error handling:
     tools: [],
   };
 
-  const metadataOpsContent = `**Metadata Operations (Table Discovery & Schema) - Complete Workflow**
+  const metadataOpsContent = `**Metadata Operations**
 
-**WORKFLOW FOR LISTING TABLES:**
-Step 1: List all tables
-find_records({"table":"table_definition","fields":"name,isSystem","limit":0})
-→ Returns array of table names with isSystem field
+**List Tables:**
+- All: find_records({"table":"table_definition","fields":"name,isSystem","limit":0})
+- User tables only: find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"name","limit":0})
 
-Step 2: Filter non-system tables
-find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0})
-→ Returns only user-created tables
+**Get Schema:**
+- Single: get_table_details({"tableName":["product"]})
+- Multiple (efficient): get_table_details({"tableName":["product","category","order"]})
+- Fields only: get_fields({"tableName":"product"})`;
 
-**WORKFLOW FOR GETTING TABLE DETAILS:**
-Step 1: Get single table schema
-get_table_details({"tableName": ["product"]})
+  const naturalLanguageDiscoveryContent = `**Natural Language Table Name Discovery**
 
-Step 2: Get multiple table schemas (efficient)
-get_table_details({"tableName": ["product", "category", "order"]})
+**Step 1: Get ALL table names**
+find_records({"table":"table_definition","fields":"name","limit":0}) → WAIT
 
-**WORKFLOW FOR GETTING FIELD NAMES:**
-Step 1: Get field list
-get_fields({"tableName": "product"})
-→ Returns array of field names only
+**Step 2: Match table name**
+Match user term to table names (e.g., "courses" → "courses", "danh mục" → "categories")
 
-**CRITICAL RULES:**
-- Use get_table_details with array for multiple tables (ONE call instead of multiple)
-- Use get_fields when you only need field names (lighter than get_table_details)
+**Step 3: Field discovery - STRICT LIMIT**
+**A) Finding specific field:**
+- Check columns: get_table_details({"tableName":["courses"],"fields":["columns"]}) → FOUND: use it, NOT FOUND: go to B
+- Check relations: get_table_details({"tableName":["courses"],"fields":["relations"]}) → FOUND: go to C, NOT FOUND: **STOP**
+- Get related schema: get_table_details({"tableName":["categories"],"fields":["columns"]}) → construct filter
 
-**EXAMPLES:**
-- Need schemas for post, category, user → get_table_details({"tableName": ["post", "category", "user_definition"]})`;
+**B) Full schema:** get_table_details({"tableName":["courses"]})
 
-  const naturalLanguageDiscoveryContent = `**Natural Language Table Name Discovery - Complete Workflow**
-
-**WORKFLOW FOR NATURAL LANGUAGE QUERIES (GUESSING TABLE NAMES):**
-When user asks about resources in natural language (e.g., "show me routes", "list users", "what products are available", "which routes have method post", "what routes exist in the system"), you MUST follow these steps STRICTLY:
-
-**Step 1: Get ALL table names first (MANDATORY - ALWAYS do this first)**
-find_records({"table":"table_definition","fields":"name","limit":0})
-→ WAIT for result
-→ This returns ALL table names in the system (e.g., ["route_definition", "user_definition", "product", "category"])
-
-**Step 2: Guess table name from user query**
-- User says "routes" or "route" → Look for table name containing "route" → "route_definition"
-- User says "users" or "user" → Look for table name containing "user" → "user_definition" or "users"
-- User says "products" or "product" → Look for table name containing "product" → "product" or "products"
-- Match user's natural language term to table names from Step 1
-- Common patterns: plural/singular forms, with/without "_definition" suffix
-
-**Step 3: Get table schema - Smart field discovery (MANDATORY - DO NOT SKIP)**
-
-**Option A - If you need to FIND a specific field (e.g., user asks "routes with publishedMethods = GET"):**
-→ Use smart discovery to save tokens:
-
-Step 3a: Check columns FIRST (most fields are columns)
-get_table_details({"tableName": ["route_definition"], "fields": ["columns"]})
-→ Search for the field in result.columns[].name
-→ If FOUND: Use it in your query
-→ If NOT FOUND: Proceed to Step 3b
-
-Step 3b: Check relations (if not found in columns)
-get_table_details({"tableName": ["route_definition"], "fields": ["relations"]})
-→ Search for the field in result.relations[].propertyName
-→ If FOUND: This is a relation! Proceed to Step 3c
-→ If NOT FOUND: Field does not exist, inform user
-
-Step 3c: Get schema of related table (MANDATORY when filtering by relation)
-→ Extract targetTableName from the relation found in Step 3b
-→ Example: If relation is {propertyName: "publishedMethods", targetTableName: "method_definition", type: "many-to-many"}
-→ Call: get_table_details({"tableName": ["method_definition"], "fields": ["columns"]})
-→ Now you know what fields exist in the related table for filtering
-→ Example: method_definition has columns [id, method, description] → you can filter by: where: {"publishedMethods": {"method": {"_eq": "GET"}}}
-→ NEVER guess field names in related tables - ALWAYS check schema first
-
-**Option B - If you need FULL schema (creating/updating records, complex queries):**
-get_table_details({"tableName": ["route_definition"]})
-→ This returns full schema including columns, relations, and metadata
-
-**After Step 3: Now you have the schema, construct your query**
-- Columns are in result.columns[].name → use directly in where clause
-- Relations are in result.relations[].propertyName → use with nested object syntax
-- **CRITICAL - Filtering by relations**: You MUST have the related table schema (from Step 3c)
-  * Example: {"publishedMethods": {"name": {"_eq": "GET"}}} requires knowing "name" exists in method_definition
-  * Without related table schema, you cannot construct valid relation filters
-- Use the helper documentation for find_records to construct your query (use meta parameter for counting)
-- Use ONLY field names that exist in columns or relations
-
-**CRITICAL - Field Not Found Workflow:**
-- If field not found in columns, CHECK relations before giving up
-- If field IS a relation, CHECK related table schema before filtering (Step 3c)
-- If field not found in both columns AND relations, inform user that field does not exist
-- DO NOT assume field exists without checking schema
-- DO NOT guess field names in related tables without checking their schema
-
-Always run get_table_details first; skipping the schema check causes "column does not exist" errors`;
+**CRITICAL - STOP CONDITIONS:**
+- After checking columns + relations (2 calls) → If NOT FOUND → **STOP IMMEDIATELY**
+- If you tried 2 different tables → **STOP IMMEDIATELY**
+- **MAX 4 tool calls total** - if exceeded → inform user and STOP
+- NEVER retry same check - results won't change`;
 
   const naturalLanguageDiscoveryHint: HintContent = {
     category: 'natural_language_discovery',

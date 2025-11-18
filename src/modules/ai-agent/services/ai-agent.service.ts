@@ -220,9 +220,52 @@ export class AiAgentService implements OnModuleInit {
       }
     }
 
-    const llmMessages = await this.buildLLMMessages({ conversation, messages, config, user, needsTools: true });
+    const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || request.message;
+    const userMessageStr = typeof latestUserMessage === 'string' ? latestUserMessage : JSON.stringify(latestUserMessage);
 
-    const llmResponse = await this.llmService.chat({ messages: llmMessages, configId, user, conversationId: conversation.id });
+    const evaluateResult = await this.llmService.evaluateNeedsTools({
+      userMessage: userMessageStr,
+      configId,
+      conversationHistory: messages,
+      conversationSummary: conversation.summary,
+    });
+
+    const hintCategories = evaluateResult.categories || [];
+
+    let selectedToolNames: string[] = [];
+    if (hintCategories && hintCategories.length > 0) {
+      const { buildHintContent, getHintTools } = require('../utils/executors/get-hint.executor');
+      const dbType = this.queryBuilder.getDbType();
+      const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
+
+      const hints = buildHintContent(dbType, idFieldName, hintCategories);
+      selectedToolNames = getHintTools(hints);
+      selectedToolNames = selectedToolNames.filter(tool => tool !== 'get_hint');
+      selectedToolNames = Array.from(new Set(selectedToolNames));
+    }
+
+    if (selectedToolNames && selectedToolNames.length > 0) {
+      const hasFindRecords = selectedToolNames.includes('find_records');
+      const hasCreateRecord = selectedToolNames.includes('create_records');
+      const hasUpdateRecord = selectedToolNames.includes('update_records');
+      const hasGetTableDetails = selectedToolNames.includes('get_table_details');
+
+      if ((hasCreateRecord || hasUpdateRecord || selectedToolNames.includes('delete_records')) && !hasFindRecords) {
+        selectedToolNames = [...selectedToolNames, 'find_records'];
+      }
+
+      if ((hasCreateRecord || hasUpdateRecord) && !hasGetTableDetails) {
+        selectedToolNames = [...selectedToolNames, 'get_table_details'];
+      }
+      if (hasFindRecords && !hasGetTableDetails) {
+        selectedToolNames = [...selectedToolNames, 'get_table_details'];
+      }
+    }
+
+    const needsTools = selectedToolNames && selectedToolNames.length > 0;
+    const llmMessages = await this.buildLLMMessages({ conversation, messages, config, user, needsTools, hintCategories, selectedToolNames });
+
+    const llmResponse = await this.llmService.chat({ messages: llmMessages, configId, user, conversationId: conversation.id, selectedToolNames });
 
     const assistantSequence = lastSequence + 2;
     const summarizedToolResults = llmResponse.toolResults && llmResponse.toolResults.length > 0
