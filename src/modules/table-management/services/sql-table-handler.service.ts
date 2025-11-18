@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
+import { SchemaMigrationLockService } from '../../../infrastructure/knex/services/schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -23,6 +24,7 @@ export class SqlTableHandlerService {
     private schemaMigrationService: SqlSchemaMigrationService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
+    private schemaMigrationLockService: SchemaMigrationLockService,
   ) {}
 
   private validateRelations(relations: any[]) {
@@ -197,6 +199,10 @@ export class SqlTableHandlerService {
   }
 
   async createTable(body: CreateTableDto) {
+    return await this.runWithSchemaLock(`table:create:${body?.name || 'unknown'}`, () => this.createTableInternal(body));
+  }
+
+  private async createTableInternal(body: CreateTableDto) {
     this.logger.log(`CREATE TABLE: ${body?.name} (${body.columns?.length || 0} columns, ${body.relations?.length || 0} relations)`);
 
     if (/[A-Z]/.test(body?.name)) {
@@ -500,6 +506,10 @@ export class SqlTableHandlerService {
   }
 
   async updateTable(id: string | number, body: CreateTableDto) {
+    return await this.runWithSchemaLock(`table:update:${id}`, () => this.updateTableInternal(id, body));
+  }
+
+  private async updateTableInternal(id: string | number, body: CreateTableDto) {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -777,6 +787,10 @@ export class SqlTableHandlerService {
   }
 
   async delete(id: string | number) {
+    return await this.runWithSchemaLock(`table:delete:${id}`, () => this.deleteTableInternal(id));
+  }
+
+  private async deleteTableInternal(id: string | number) {
     const knex = this.queryBuilder.getKnex();
 
     return await knex.transaction(async (trx) => {
@@ -1016,6 +1030,15 @@ export class SqlTableHandlerService {
         );
       }
     });
+  }
+
+  private async runWithSchemaLock<T>(context: string, handler: () => Promise<T>): Promise<T> {
+    const lock = await this.schemaMigrationLockService.acquire(context);
+    try {
+      return await handler();
+    } finally {
+      await this.schemaMigrationLockService.release(lock);
+    }
   }
 
   private async getFullTableMetadataInTransaction(trx: any, tableId: string | number): Promise<any> {
