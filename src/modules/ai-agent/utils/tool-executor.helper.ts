@@ -63,13 +63,40 @@ export class ToolExecutor {
 
     try {
       args = JSON.parse(argsStr);
-    } catch (e) {
+    } catch (e: any) {
+      this.logger.error(
+        `[ToolExecutor] Failed to parse args for ${name}`,
+        {
+          toolCallId: toolCall.id,
+          toolName: name,
+          rawArgs: argsStr?.substring(0, 500) || '',
+          error: e?.message || String(e),
+        },
+      );
       throw new Error(`Invalid tool arguments: ${argsStr}`);
     }
 
+    const incomingPayload = {
+      layer: 'tool_executor',
+      direction: 'request',
+      toolCallId: toolCall.id,
+      toolName: name,
+      contextUser: context.$user?.id || null,
+      argsPreview: (() => {
+        try {
+          return JSON.stringify(args).substring(0, 500);
+        } catch {
+          return String(argsStr || '').substring(0, 500);
+        }
+      })(),
+    };
+    this.logger.debug(`[ToolExecutor] ${JSON.stringify(incomingPayload)}`);
+
+    let result: any;
+
     switch (name) {
       case 'get_table_details':
-        return await executeGetTableDetails(args, context, {
+        result = await executeGetTableDetails(args, context, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -82,16 +109,19 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
+        break;
       case 'get_fields':
-        return await executeGetFields(args, {
+        result = await executeGetFields(args, {
           metadataCacheService: this.metadataCacheService,
         });
+        break;
       case 'get_hint':
-        return await executeGetHint(args, context, {
+        result = await executeGetHint(args, context, {
           queryBuilder: this.queryBuilder,
         });
+        break;
       case 'create_tables':
-        return await executeCreateTables(args, context, abortSignal, {
+        result = await executeCreateTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -104,8 +134,9 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
+        break;
       case 'update_tables':
-        return await executeUpdateTables(args, context, abortSignal, {
+        result = await executeUpdateTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -118,8 +149,9 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
+        break;
       case 'delete_tables':
-        return await executeDeleteTables(args, context, abortSignal, {
+        result = await executeDeleteTables(args, context, abortSignal, {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
@@ -132,15 +164,17 @@ export class ToolExecutor {
           swaggerService: this.swaggerService,
           graphqlService: this.graphqlService,
         });
+        break;
 
 
 
       case 'update_task':
-        return await executeUpdateTask(args, context, {
+        result = await executeUpdateTask(args, context, {
           conversationService: this.conversationService,
         });
+        break;
       case 'find_records':
-        return await executeDynamicRepository(
+        result = await executeDynamicRepository(
           { ...args, operation: 'find' },
           context,
           abortSignal,
@@ -158,8 +192,9 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
+        break;
       case 'count_records':
-        return await executeDynamicRepository(
+        result = await executeDynamicRepository(
           { ...args, operation: 'find', limit: 1, fields: args.fields || 'id', meta: args.meta },
           context,
           abortSignal,
@@ -177,10 +212,11 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
+        break;
       case 'create_records':
-        return await executeBatchDynamicRepository(
-          { 
-            ...args, 
+        result = await executeBatchDynamicRepository(
+          {
+            ...args,
             operation: 'batch_create',
             dataArray: Array.isArray(args.dataArray) ? args.dataArray : [args.data || args.dataArray],
           },
@@ -200,10 +236,11 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
+        break;
       case 'update_records':
-        return await executeBatchDynamicRepository(
-          { 
-            ...args, 
+        result = await executeBatchDynamicRepository(
+          {
+            ...args,
             operation: 'batch_update',
             updates: Array.isArray(args.updates) ? args.updates : (args.id ? [{ id: args.id, data: args.data }] : []),
           },
@@ -223,10 +260,11 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
+        break;
       case 'delete_records':
-        return await executeBatchDynamicRepository(
-          { 
-            ...args, 
+        result = await executeBatchDynamicRepository(
+          {
+            ...args,
             operation: 'batch_delete',
             ids: Array.isArray(args.ids) ? args.ids : (args.id ? [args.id] : []),
           },
@@ -246,8 +284,28 @@ export class ToolExecutor {
             graphqlService: this.graphqlService,
           },
         );
+        break;
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
+
+    const outgoingPayload = {
+      layer: 'tool_executor',
+      direction: 'response',
+      toolCallId: toolCall.id,
+      toolName: name,
+      success: !result?.error,
+      errorCode: result?.errorCode || null,
+      resultPreview: (() => {
+        try {
+          return JSON.stringify(result).substring(0, 500);
+        } catch {
+          return String(result || '').substring(0, 500);
+        }
+      })(),
+    };
+    this.logger.debug(`[ToolExecutor] ${JSON.stringify(outgoingPayload)}`);
+
+    return result;
   }
 }

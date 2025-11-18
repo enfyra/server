@@ -309,6 +309,22 @@ export class LLMService {
       finalResult: null,
       errors: [],
     };
+    const logEvaluateDebug = () => {
+      this.logger.debug({
+        layer: 'evaluateNeedsTools',
+        provider: debugInfo.provider,
+        dbType: debugInfo.dbType,
+        userMessage: debugInfo.userMessage,
+        finalResult: debugInfo.finalResult,
+        errors: debugInfo.errors,
+        tokenUsage: debugInfo.tokenUsage || null,
+        responsePreview: debugInfo.responseContent || null,
+        rawType: debugInfo.rawType || null,
+        rawPreview: debugInfo.rawValue || null,
+        jsonParseRaw: debugInfo.jsonParseRaw || null,
+        extractedJsonPreview: debugInfo.extractedJson || null,
+      });
+    };
 
     const config = await this.aiConfigCacheService.getConfigById(configId);
     if (!config || !config.isEnabled) {
@@ -329,6 +345,7 @@ export class LLMService {
       debugInfo.reason = isGreeting ? 'greeting' : (isCapabilityQuestion ? 'capability_question' : 'casual_message');
       debugInfo.finalResult = { toolNames: [], categories: [] };
       debugInfo.tokenUsage = { inputTokens: 0, outputTokens: 0 };
+      logEvaluateDebug();
       return { toolNames: [], categories: [] };
     }
 
@@ -365,29 +382,108 @@ export class LLMService {
       messages.push(new HumanMessage(userMessage));
 
       const response = await llm.invoke(messages);
-      const responseContent = typeof response?.content === 'string' ? response.content : JSON.stringify(response?.content || '');
+      if (Array.isArray(response?.content)) {
+        debugInfo.rawType = 'array';
+        debugInfo.rawValue = JSON.stringify(response.content.slice(0, 2));
+      } else if (response?.content !== undefined) {
+        debugInfo.rawType = typeof response.content;
+        debugInfo.rawValue = typeof response.content === 'string'
+          ? response.content.substring(0, 500)
+          : JSON.stringify(response.content);
+      }
+      const rawContent = response?.content;
+      let responseContent: string;
+      if (Array.isArray(rawContent)) {
+        const textBlocks = rawContent
+          .map((block: any) => {
+            if (typeof block === 'string') {
+              return block.trim();
+            }
+            if (block && typeof block.text === 'string') {
+              return block.text.trim();
+            }
+            return '';
+          })
+          .filter((text: string) => text.length > 0);
+        responseContent = textBlocks.join('\n');
+      } else if (typeof rawContent === 'string') {
+        responseContent = rawContent;
+      } else {
+        responseContent = JSON.stringify(rawContent || '');
+      }
+      responseContent = responseContent.trim();
+      if (/^json\s*/i.test(responseContent)) {
+        responseContent = responseContent.replace(/^json\s*/i, '');
+      }
       
+      debugInfo.responseContent = responseContent.substring(0, 500);
       const tokenUsage = this.extractTokenUsage(response);
       if (tokenUsage) {
         debugInfo.tokenUsage = tokenUsage;
       }
 
-      let selectedCategories: string[] = [];
-      try {
-        const parsed = JSON.parse(responseContent);
-        if (parsed.categories !== undefined) {
-          selectedCategories = Array.isArray(parsed.categories) ? parsed.categories : [];
-        } else {
-          debugInfo.errors.push('Response does not contain categories field');
+      const extractJsonBlock = (input: string): string | null => {
+        if (!input) {
+          return null;
         }
+        const fenceMatch = input.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fenceMatch && fenceMatch[1]) {
+          return fenceMatch[1].trim();
+        }
+        const startIndex = input.indexOf('{"categories"');
+        if (startIndex === -1) {
+          return null;
+        }
+        let depth = 0;
+        for (let i = startIndex; i < input.length; i++) {
+          const char = input[i];
+          if (char === '{') {
+            depth += 1;
+          } else if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+              return input.substring(startIndex, i + 1).trim();
+            }
+          }
+        }
+        return null;
+      };
+
+      let selectedCategories: string[] = [];
+      let parsedContent: any = null;
+      try {
+        parsedContent = JSON.parse(responseContent);
       } catch (e) {
+        const extractedJson = extractJsonBlock(responseContent);
+        if (extractedJson) {
+          debugInfo.extractedJson = extractedJson.substring(0, 500);
+          try {
+            parsedContent = JSON.parse(extractedJson);
+            responseContent = extractedJson;
+            debugInfo.responseContent = responseContent.substring(0, 500);
+          } catch (inner) {
+            debugInfo.errors.push(`Failed to parse extracted JSON: ${extractedJson.substring(0, 200)}`);
+          }
+        }
+      }
+
+      if (!parsedContent) {
         debugInfo.errors.push(`Failed to parse JSON: ${responseContent.substring(0, 200)}`);
         debugInfo.responseContent = responseContent.substring(0, 500);
+        debugInfo.jsonParseRaw = responseContent;
+        logEvaluateDebug();
         return { toolNames: [], categories: [] };
+      }
+
+      if (parsedContent.categories !== undefined) {
+        selectedCategories = Array.isArray(parsedContent.categories) ? parsedContent.categories : [];
+      } else {
+        debugInfo.errors.push('Response does not contain categories field');
       }
 
       if (selectedCategories.length === 0) {
         debugInfo.finalResult = { toolNames: [], categories: [] };
+        logEvaluateDebug();
         return { toolNames: [], categories: [] };
       }
 
@@ -395,11 +491,12 @@ export class LLMService {
         categories: selectedCategories,
         tokenUsage: tokenUsage || undefined,
       };
-
+      logEvaluateDebug();
       return { toolNames: [], categories: selectedCategories };
     } catch (error) {
       debugInfo.errors.push(`ERROR: ${error instanceof Error ? error.message : String(error)}`);
       debugInfo.stackTrace = error instanceof Error ? error.stack : 'N/A';
+      logEvaluateDebug();
       return { toolNames: [] };
     }
   }
@@ -442,8 +539,22 @@ export class LLMService {
           invokeOptions.cache_control = { type: 'ephemeral' };
         }
         const result: any = await llmWithTools.invoke(conversationMessages, invokeOptions);
+        this.logger.debug('[LLMService-chat] iteration result', {
+          provider: config.provider,
+          conversationId,
+          iteration: iterations + 1,
+          hasToolCalls: !!(result.tool_calls || result.additional_kwargs?.tool_calls),
+          toolCallsCount: (result.tool_calls || result.additional_kwargs?.tool_calls || []).length,
+        });
 
         const toolCalls = result.tool_calls || result.additional_kwargs?.tool_calls || [];
+        this.logger.debug('[LLMService-chat] iteration result', {
+          provider: config.provider,
+          conversationId,
+          iteration: iterations + 1,
+          toolCallsCount: toolCalls.length,
+          hasToolCalls: toolCalls.length > 0,
+        });
 
         if (toolCalls.length === 0) {
           this.reportTokenUsage('chat', result);
@@ -530,8 +641,30 @@ export class LLMService {
               parsedArgs = {};
             }
 
+            this.logger.debug('[LLMService-chat] executing tool', {
+              provider: config.provider,
+              conversationId,
+              toolName,
+              toolCallId: toolId,
+            });
+
             const toolResult = await tool.func(parsedArgs);
 
+            const resultPreview = (() => {
+              try {
+                return JSON.stringify(toolResult).substring(0, 500);
+              } catch {
+                return String(toolResult || '').substring(0, 500);
+              }
+            })();
+            this.logger.debug('[LLMService-chat] tool result', {
+              provider: config.provider,
+              conversationId,
+              toolName,
+              toolCallId: toolId,
+              hasError: !!toolResult?.error,
+              resultPreview,
+            });
             const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
             allToolResults.push({
               toolCallId: toolId,
@@ -552,8 +685,23 @@ export class LLMService {
               );
             }
           } catch (error: any) {
-            this.logger.error(`Tool execution failed: ${toolName}`, error);
-
+            this.logger.error('[LLMService-chat] tool execution failed', {
+              provider: config.provider,
+              conversationId,
+              toolName,
+              toolCallId: toolId,
+              message: error?.message || String(error),
+            });
+            const errorPayload = {
+              layer: 'llm_tool',
+              provider: config.provider,
+              conversationId: conversationId || null,
+              toolCallId: toolId,
+              toolName,
+              stage: 'error',
+              message: error?.message || String(error),
+            };
+            this.logger.error(`[LLMTool] ${JSON.stringify(errorPayload)}`);
             const errorResult = { error: error.message || String(error) };
             allToolResults.push({
               toolCallId: toolId,
@@ -630,9 +778,12 @@ export class LLMService {
 
       const executedToolCalls = new Map<string, { toolId: string; result: any }>();
       let iterations = 0;
-      const maxIterations = config.maxToolIterations || 15;
+      const maxIterations = config.maxToolIterations || 50; // Increased default
       let accumulatedTokenUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
       const cacheKey = conversationId ? `conv_${conversationId}` : undefined;
+
+      // Detect infinite loops - track repeated failed tool calls
+      const failedToolCalls = new Map<string, number>(); // toolName:args -> count
 
       while (iterations < maxIterations) {
         iterations++;
@@ -689,7 +840,20 @@ export class LLMService {
               const chunkToolCalls = this.getToolCallsFromResponse(chunk);
               if (chunkToolCalls.length > 0) {
                 for (const tc of chunkToolCalls) {
-                  const index = tc.index !== undefined ? tc.index : (aggregatedToolCalls.size);
+                  // If chunk has no ID/name but has args, it's a continuation of the previous tool call
+                  // This happens with Anthropic streaming where tool header and args come in separate chunks
+                  const chunkToolId = tc.id;
+                  const chunkToolName = tc.function?.name || tc.name;
+
+                  let index: number;
+                  if (!chunkToolId && !chunkToolName && aggregatedToolCalls.size > 0) {
+                    // No ID/name means this is args continuation for the last tool call
+                    index = aggregatedToolCalls.size - 1;
+                  } else {
+                    // Normal case: use provided index or calculate new one
+                    index = tc.index !== undefined ? tc.index : (aggregatedToolCalls.size);
+                  }
+
                   const existing = aggregatedToolCalls.get(index) || {};
                   
                   let chunkArgs = tc.args || tc.function?.arguments || '';
@@ -811,7 +975,9 @@ export class LLMService {
               const uniqueToolCalls = new Map<string, any>();
               for (const tc of aggregatedToolCalls.values()) {
                 const toolId = tc.id;
-                if (!toolId) continue;
+                if (!toolId) {
+                  continue;
+                }
                 
                 const existing = uniqueToolCalls.get(toolId);
                 if (existing) {
@@ -825,7 +991,7 @@ export class LLMService {
                   uniqueToolCalls.set(toolId, tc);
                 }
               }
-              
+
               currentToolCalls = Array.from(uniqueToolCalls.values()).map((tc) => {
                 const argsString = tc.args || tc.function?.arguments || '';
                 const toolName = tc.function?.name || tc.name || 'unknown';
@@ -859,6 +1025,13 @@ export class LLMService {
                     arguments: argsString && argsString !== '{}' ? argsString : undefined,
                   },
                 };
+              });
+              this.logger.debug('[LLMService-chatStream] current tool calls extracted', {
+                provider,
+                conversationId,
+                iteration: iterations,
+                toolCallsCount: currentToolCalls.length,
+                ids: currentToolCalls.map((tc) => tc.id).filter(Boolean),
               });
             } else if (allChunks.length > 0) {
               for (let i = allChunks.length - 1; i >= 0; i--) {
@@ -1268,7 +1441,7 @@ export class LLMService {
           }
 
           const hasValidArgs = Object.keys(toolCallArgs).length > 0;
-          const toolsWithoutArgs = ['list_tables'];
+          const toolsWithoutArgs = ['list_tables', 'get_table_details', 'get_hint'];
           const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
           
           
@@ -1342,8 +1515,6 @@ export class LLMService {
 
         for (const [toolCallId, { tc, toolName, toolArgs, parsedArgs }] of toolCallIdMap) {
           const toolId = toolCallId;
-
-
 
           let normalizedArgs: string;
           
@@ -1477,12 +1648,26 @@ export class LLMService {
                 }
               } else {
 
-                const availableTools = tools.map((t: any) => t.name).join(', ');
+                const availableToolsList = tools.map((t: any) => t.name);
+                this.logger.warn('[LLMService-chatStream] tool not available for conversation', {
+                  provider: config.provider,
+                  conversationId,
+                  requestedTool: toolName,
+                  availableTools: availableToolsList,
+                  selectedToolNames: currentSelectedToolNames,
+                });
+                this.logger.warn('[LLMService-chatStream] tool not in current tool list', {
+                  provider: config.provider,
+                  conversationId,
+                  requestedTool: toolName,
+                  availableTools: availableToolsList,
+                  selectedToolNames: currentSelectedToolNames,
+                });
                 const errorResult = {
                   error: true,
                   errorCode: 'TOOL_NOT_FOUND',
-                  message: `Tool "${toolName}" is not available in this conversation. Available tools: ${availableTools || 'none'}. Please use one of the available tools instead.`,
-                  suggestion: `Use one of these available tools: ${availableTools || 'none'}. If you need ${toolName}, it was not selected for this conversation turn.`,
+                  message: `Tool "${toolName}" is not available in this conversation. Available tools: ${availableToolsList.join(', ') || 'none'}. Please use one of the available tools instead.`,
+                  suggestion: `Use one of these available tools: ${availableToolsList.join(', ') || 'none'}. If you need ${toolName}, it was not selected for this conversation turn.`,
                 };
                 allToolResults.push({
                   toolCallId: toolId,
@@ -1511,12 +1696,48 @@ export class LLMService {
               throw new Error('Request aborted by client');
             }
 
+            const toolLogBase = {
+              layer: 'llm_tool',
+              provider: config.provider,
+              conversationId: conversationId || null,
+              toolCallId: toolId,
+              toolName,
+            };
+            const argsPreview = (() => {
+              try {
+                return JSON.stringify(parsedArgs).substring(0, 500);
+              } catch {
+                return String(parsedArgs || '').substring(0, 500);
+              }
+            })();
+            this.logger.debug('[LLMService-chatStream] executing tool', {
+              provider: config.provider,
+              conversationId,
+              toolName,
+              toolCallId: toolId,
+              argsPreview,
+            });
             const toolResult = await tool.func(parsedArgs);
 
             if (abortSignal?.aborted) {
               throw new Error('Request aborted by client');
             }
 
+            const resultPreview = (() => {
+              try {
+                return JSON.stringify(toolResult).substring(0, 500);
+              } catch {
+                return String(toolResult || '').substring(0, 500);
+              }
+            })();
+            this.logger.debug('[LLMService-chatStream] tool result', {
+              provider: config.provider,
+              conversationId,
+              toolName,
+              toolCallId: toolId,
+              hasError: !!toolResult?.error,
+              resultPreview,
+            });
             const resultObj = typeof toolResult === 'string' ? JSON.parse(toolResult) : toolResult;
 
             executedToolCalls.set(toolCallKey, { toolId, result: resultObj });
@@ -1525,6 +1746,31 @@ export class LLMService {
               toolCallId: toolId,
               result: resultObj,
             });
+
+            // Track failed tool calls to detect infinite loops
+            if (resultObj?.error) {
+              const failKey = `${toolName}:${normalizedArgs}`;
+              const failCount = (failedToolCalls.get(failKey) || 0) + 1;
+              failedToolCalls.set(failKey, failCount);
+
+              // If same tool with same args fails 3 times, stop to prevent infinite loop
+              if (failCount >= 3) {
+                this.logger.error('[LLMService-chatStream] infinite loop detected', {
+                  provider: config.provider,
+                  conversationId,
+                  toolName,
+                  failCount,
+                  message: 'Same tool call failed 3 times with same arguments',
+                });
+
+                return {
+                  content: `Error: Unable to complete the task. The AI agent tried calling "${toolName}" ${failCount} times with the same arguments but it kept failing. Last error: ${resultObj.message || 'Unknown error'}. Please try rephrasing your question or contact support.`,
+                  toolCalls: allToolCalls,
+                  toolResults: allToolResults,
+                  toolLoops: iterations,
+                };
+              }
+            }
 
             onEvent({
               type: 'tool_call',
@@ -1550,8 +1796,23 @@ export class LLMService {
             }
 
           } catch (error: any) {
-            this.logger.error(`Tool failed: ${toolName}`, error);
-
+            this.logger.error('[LLMService-chatStream] tool execution failed', {
+              provider: config.provider,
+              conversationId,
+              toolName,
+              toolCallId: toolId,
+              message: error?.message || String(error),
+            });
+            const errorPayload = {
+              layer: 'llm_tool',
+              provider: config.provider,
+              conversationId: conversationId || null,
+              toolCallId: toolId,
+              toolName,
+              stage: 'error',
+              message: error?.message || String(error),
+            };
+            this.logger.error(`[LLMTool] ${JSON.stringify(errorPayload)}`);
             const errorResult = { error: error.message || String(error) };
             allToolResults.push({
               toolCallId: toolId,

@@ -62,6 +62,33 @@ export async function executeDynamicRepository(
     };
   }
 
+  if (typeof args.table === 'string') {
+    args.table = args.table.trim();
+  }
+
+  if (!args.table) {
+    logger.debug(JSON.stringify({
+      layer: 'dynamic_repository',
+      stage: 'validation',
+      error: 'MISSING_TABLE',
+      operation: args.operation,
+      argsPreview: (() => {
+        const clone = { ...args };
+        if (clone.data) {
+          clone.data = '[omitted]';
+        }
+        return clone;
+      })(),
+    }));
+    return {
+      error: true,
+      errorCode: 'MISSING_TABLE',
+      message: 'Table parameter is required for this operation',
+      userMessage: `❌ **Missing Table Information**: You must specify the target table before calling this tool.\n\n📋 **Next Steps**:\n1. Identify the table name using get_table_details or find_records on table_definition\n2. Retry this tool with a valid table parameter (example: {"table":"table_definition","where":{...}})\n\n💡 **Tip**: Always fetch table metadata first when the user has not provided the exact table name.`,
+      suggestion: 'Find the table name or ID first (get_table_details or find_records on table_definition), then call this tool with the table parameter.',
+    };
+  }
+
   if (args.table === 'table_definition' && (args.operation === 'create' || args.operation === 'update')) {
     return {
       error: true,

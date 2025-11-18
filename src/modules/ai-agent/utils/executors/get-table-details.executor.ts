@@ -61,14 +61,26 @@ export async function executeGetTableDetails(
     await metadataCacheService.reload();
   }
 
-  if (!Array.isArray(args.tableName)) {
-    throw new Error('tableName must be an array. For single table, use array with 1 element: ["table_name"]');
+  if (!args.tableName || !Array.isArray(args.tableName)) {
+    return {
+      error: true,
+      errorCode: 'MISSING_TABLE_NAME',
+      message: 'tableName parameter is required and must be an array of table names.',
+      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","where":{"name":{"_icontains":"route"}},"skipPermissionCheck":true,"limit":5}). Then use the returned table names in get_table_details({"tableName":["route_definition"]}).',
+      example: 'get_table_details({"tableName":["route_definition","user_definition"]})',
+    };
   }
 
   const tableNames = args.tableName;
 
   if (tableNames.length === 0) {
-    throw new Error('At least one table name is required');
+    return {
+      error: true,
+      errorCode: 'EMPTY_TABLE_NAME',
+      message: 'At least one table name is required in the tableName array.',
+      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","skipPermissionCheck":true,"limit":10}). Then use the returned table names.',
+      example: 'get_table_details({"tableName":["route_definition"]})',
+    };
   }
 
 
