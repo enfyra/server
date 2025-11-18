@@ -526,14 +526,25 @@ export class ConversationService {
 
       const toolCallsDetails = Array.isArray(mapped.toolCalls) ? mapped.toolCalls.map((tc: any) => {
         const name = tc.function?.name || tc.name;
-        let args: any = tc.function?.arguments || tc.args || tc.arguments || {};
+
+        // Extract args - handle both string (from LLM) and object (from DB JSONB)
+        let args: any = tc.function?.arguments || tc.args || tc.arguments;
+
+        // If no args found at all, default to empty object
+        if (args === undefined || args === null) {
+          args = {};
+        }
+
+        // If args is a string, parse it
         if (typeof args === 'string') {
           try {
             args = JSON.parse(args);
-          } catch {
-            args = {};
+          } catch (e: any) {
+            // If parse fails, keep as string for debugging
+            args = { _raw: args.substring(0, 200), _parseError: e.message };
           }
         }
+
         const argsStr = JSON.stringify(args);
         return {
           name,
