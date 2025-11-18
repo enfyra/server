@@ -13,22 +13,9 @@ import { SwaggerService } from '../../../../infrastructure/swagger/services/swag
 import { GraphqlService } from '../../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 import { formatMetadataCompact } from '../compact-format.helper';
+import { GetTableDetailsExecutorDependencies } from '../types';
 
 const logger = new Logger('GetTableDetailsExecutor');
-
-export interface GetTableDetailsExecutorDependencies {
-  metadataCacheService: MetadataCacheService;
-  queryBuilder: QueryBuilderService;
-  tableHandlerService: TableHandlerService;
-  queryEngine: QueryEngine;
-  routeCacheService: RouteCacheService;
-  storageConfigCacheService: StorageConfigCacheService;
-  aiConfigCacheService: AiConfigCacheService;
-  systemProtectionService: SystemProtectionService;
-  tableValidationService: TableValidationService;
-  swaggerService: SwaggerService;
-  graphqlService: GraphqlService;
-}
 
 export async function executeGetTableDetails(
   args: {
@@ -92,7 +79,6 @@ export async function executeGetTableDetails(
 
   const result: Record<string, any> = {};
   const errors: string[] = [];
-  const isBulkQuery = tableNames.length > 5;
 
   for (let i = 0; i < tableNames.length; i++) {
     const tableName = tableNames[i];
@@ -104,55 +90,6 @@ export async function executeGetTableDetails(
       }
       
       result[tableName] = formatMetadataCompact(metadata);
-
-      if (shouldGetData && context) {
-        try {
-          const repo = new DynamicRepository({
-            context,
-            tableName,
-            queryBuilder,
-            tableHandlerService,
-            queryEngine,
-            routeCacheService,
-            storageConfigCacheService,
-            aiConfigCacheService,
-            metadataCacheService,
-            systemProtectionService,
-            tableValidationService,
-            bootstrapScriptService: undefined,
-            redisPubSubService: undefined,
-            swaggerService,
-            graphqlService,
-          });
-
-          await repo.init();
-
-          let where: any = {};
-
-          const id = args.id ? args.id[i] : undefined;
-          const name = args.name ? args.name[i] : undefined;
-          
-          if (id !== undefined) {
-            where.id = { _eq: id };
-          } else if (name !== undefined) {
-            where.name = { _eq: name };
-          }
-
-          const dataResult = await repo.find({
-            where,
-            fields: '*',
-            limit: 1,
-          });
-
-          if (dataResult?.data && dataResult.data.length > 0) {
-            result[tableName].data = dataResult.data[0];
-          } else {
-            result[tableName].data = null;
-          }
-        } catch (error: any) {
-          result[tableName].dataError = error.message;
-        }
-      }
     } catch (error: any) {
       errors.push(`Error loading ${tableName}: ${error.message}`);
     }

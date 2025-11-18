@@ -2,9 +2,7 @@ import { Logger } from '@nestjs/common';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 import { ConversationService } from '../../services/conversation.service';
 
-export interface UpdateTaskExecutorDependencies {
-  conversationService: ConversationService;
-}
+import { UpdateTaskExecutorDependencies } from '../types';
 
 export async function executeUpdateTask(
   args: {

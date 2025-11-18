@@ -1,7 +1,8 @@
 import { Injectable, Logger, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { Response } from 'express';
 import { ConversationService } from './conversation.service';
-import { LLMService, LLMMessage } from './llm.service';
+import { LLMService } from './llm.service';
+import { LLMMessage } from '../utils/types';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { AiConfigCacheService } from '../../../infrastructure/cache/services/ai-config-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
@@ -1639,12 +1640,6 @@ export class AiAgentService implements OnModuleInit {
       return `[get_hint] category=${category} -> ${hintsCount} hint(s)\n\n${hintsContent}`;
     }
 
-    if (name === 'get_fields') {
-      const table = toolArgs?.tableName || 'unknown';
-      const fields = Array.isArray(result?.fields) ? result.fields : [];
-      const sample = fields.slice(0, 5).join(', ');
-      return `[get_fields] table=${table} -> ${fields.length} field(s) sample=[${sample}]`;
-    }
 
     const serialized = this.truncateString(JSON.stringify(result), 200);
     return `[${name}] result=${serialized}`;

@@ -2,10 +2,7 @@ import { QueryBuilderService } from '../../../../infrastructure/query-builder/qu
 import { RouteCacheService } from '../../../../infrastructure/cache/services/route-cache.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 
-export interface CheckPermissionExecutorDependencies {
-  queryBuilder: QueryBuilderService;
-  routeCacheService: RouteCacheService;
-}
+import { CheckPermissionExecutorDependencies } from '../types';
 
 export async function executeCheckPermission(
   args: {

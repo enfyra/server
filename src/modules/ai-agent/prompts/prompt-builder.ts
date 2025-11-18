@@ -4,6 +4,7 @@ import { DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT, DEEPSEEK_SYSTEM_PROMPT_ADDITION }
 import { OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT, OPENAI_SYSTEM_PROMPT_ADDITION } from './providers/openai.prompts';
 import { ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT, ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
 import { GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT, GOOGLE_SYSTEM_PROMPT_ADDITION } from './providers/google.prompts';
+import { BuildSystemPromptParams } from '../utils/types';
 
 type Provider = 'OpenAI' | 'DeepSeek' | 'Anthropic' | 'Google';
 
@@ -43,31 +44,6 @@ export function buildEvaluateNeedsToolsPrompt(provider: string): string {
   }
   
   return basePrompt;
-}
-
-export interface BuildSystemPromptParams {
-  provider: string;
-  needsTools?: boolean;
-  tablesList?: string;
-  user?: {
-    id?: string | number;
-    _id?: string | number;
-    email?: string;
-    roles?: any;
-    isRootAdmin?: boolean;
-  };
-  dbType?: 'postgres' | 'mysql' | 'mongodb' | 'sqlite';
-  latestUserMessage?: string;
-  conversationSummary?: string;
-  task?: {
-    type?: string;
-    status?: string;
-    priority?: number;
-    data?: any;
-    error?: string;
-    result?: any;
-  };
-  hintContent?: string;
 }
 
 export function buildSystemPrompt(params: BuildSystemPromptParams): string {

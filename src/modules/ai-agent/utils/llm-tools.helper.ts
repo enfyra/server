@@ -11,9 +11,9 @@ interface ToolDefinition {
 export const COMMON_TOOLS: ToolDefinition[] = [
   {
     name: 'get_table_details',
-    description: `Purpose → load the full schema (columns, relations, indexes, constraints), table ID, AND optionally table data for one or multiple tables.
+    description: `Purpose → load the full schema (columns, relations, indexes, constraints, table ID) for one or multiple tables.
 
-CRITICAL - Call ONCE per table, reuse schema for subsequent operations. Returns LARGE data - calling multiple times wastes tokens.
+CRITICAL - Call ONCE per table, reuse schema for subsequent operations.
 
 CRITICAL - NEVER query all tables. ALWAYS filter first using find_records on table_definition, then call get_table_details only for filtered subset. Max 5 tables per call.
 
@@ -23,37 +23,14 @@ Use when:
 - Need to compare multiple tables' schemas (call once with array of all table names, but filter first if user specified criteria)
 - Need to check if tables have relations (call ONCE, then reuse)
 - Need to get table ID (e.g., for relations, updates) - the metadata includes the table ID field
-- Need to get actual table data by ID or name - set getData=true AND provide either id or name parameter (both must be arrays). CRITICAL: If getData=true but no id/name provided, the tool will fail.
-- CRITICAL: When you need table ID or table data, use this tool instead of querying table_definition with find_records
 
 Skip when:
-- You only need field names → prefer get_fields
 - You already called get_table_details for this table earlier in this response - reuse the previous result
 - User asks for "non-system tables" but you haven't filtered yet → call find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0}) first to filter
 
 Inputs:
 - tableName (required) → array of table names (case-sensitive). For single table, use array with 1 element: ["user_definition"]
 - forceRefresh (optional) true to reload metadata
-- getData (optional) true to fetch actual table data. CRITICAL: If getData=true, you MUST provide either id or name parameter. If you only need schema metadata (columns, relations, etc.), omit getData parameter.
-- id (optional) array of table record IDs to fetch. REQUIRED if getData=true. Array length must match tableName length. For single value, use array with 1 element: [123]
-- name (optional) array of table record names to fetch. REQUIRED if getData=true (and id is not provided). Array length must match tableName length. For single value, use array with 1 element: ["table_name"]. Searches by name column
-- fields (optional) array of root-level field names to include. Available root-level fields:
-  * "name" - table name
-  * "description" - table description
-  * "isSingleRecord" - whether table stores only one record
-  * "id" - table ID
-  * "isSystem" - whether this is a system table
-  * "uniques" - unique constraints array
-  * "indexes" - indexes array
-  * "columns" - columns array (all columns)
-  * "columnCount" - number of columns
-  * "relations" - relations array (all relations)
-  * If provided, only these fields will be returned - saves tokens
-  * If omitted, all fields are returned
-- CRITICAL: To get ONLY columns (no relations), use: {"fields": ["columns"]}
-- CRITICAL: To get ONLY relations (no columns), use: {"fields": ["relations"]}
-- CRITICAL: To get specific fields, use: {"fields": ["isSystem", "columns"]}
-- CRITICAL: Only include relations if you need to query/filter by relations. If you only need columns for WHERE clause, use {"fields": ["columns"]} to save tokens.
 
 Response format:
 {
@@ -62,29 +39,33 @@ Response format:
     description?: string;
     isSingleRecord?: boolean;
     id?: number;
-    columns: Array<{
-      name: string;
-      type: string; 
-      isNullable: boolean;
-      isPrimary: boolean;
-      isGenerated?: boolean; 
-      defaultValue?: any;
-      isUnique?: boolean;
-      description?: string;
-      options?: Record<string, any>; 
-    }>;
-    relations: Array<{
-      propertyName: string; 
-      type: "one-to-one" | "one-to-many" | "many-to-one" | "many-to-many";
-      targetTableName: string; 
-      foreignKeyColumn?: string; 
-      description?: string;
-      isNullable: boolean;
-      inversePropertyName?: string; 
-      cascade?: string; 
-    }>;
+    isSystem?: boolean;
+    uniques?: any[];
+    indexes?: any[];
+    columns: {
+      fields: ["name", "type", "isNullable", "isPrimary", "isGenerated", "defaultValue", "options", "description"];
+      data: [
+        ["id", "int", false, true, true, null, null, null],
+        ["name", "varchar", false, false, false, null, null, "Product name"],
+        ...
+      ]
+    };
+    relations: {
+      fields: ["propertyName", "type", "targetTableName", "isNullable", "inversePropertyName", "foreignKeyColumn", "description"];
+      data: [
+        ["category", "many-to-one", "categories", true, null, "categoryId", null],
+        ...
+      ]
+    };
   };
 }
+
+**How to parse compact format:**
+- columns.data[i][j] = value of columns.fields[j] for column i
+- Example: columns.data[0][0] = "id" (name), columns.data[0][1] = "int" (type)
+- relations.data[i][j] = value of relations.fields[j] for relation i
+- Example: relations.data[0][0] = "category" (propertyName), relations.data[0][2] = "categories" (targetTableName)
+- Use fields array to map indices: fields[0]=name, fields[1]=type, etc.
 
 **Important Field Definitions:**
 
@@ -119,10 +100,7 @@ CRITICAL: Always check relations array to see available propertyName values befo
 
 Examples:
 Single: {"tableName":["user_definition"]}
-Multiple: {"tableName":["product","category","order"]}
-With data: {"tableName":["user_definition"],"getData":true,"id":[123]}
-Only columns: {"tableName":["route_definition"],"fields":["columns"]}
-Columns + relations: {"tableName":["route_definition"],"fields":["columns","relations"]}`,
+Multiple: {"tableName":["product","category","order"]}`,
     parameters: {
       type: 'object',
       properties: {
@@ -137,61 +115,6 @@ Columns + relations: {"tableName":["route_definition"],"fields":["columns","rela
           type: 'boolean',
           description: 'Optional. Set to true to reload metadata from database. Default: false.',
           default: false,
-        },
-        getData: {
-          type: 'boolean',
-          description: 'Optional. Set to true to fetch actual table data. CRITICAL: If getData=true, you MUST provide either id or name parameter. If you only need schema metadata (columns, relations, etc.), omit this parameter or set to false. Default: false.',
-          default: false,
-        },
-        id: {
-          type: 'array',
-          items: {
-            oneOf: [{ type: 'string' }, { type: 'number' }],
-          },
-          description: 'REQUIRED if getData=true (and name is not provided). Array of table record IDs to fetch. Array length must match tableName length. Each ID corresponds to the table at the same index. For single value, use array with 1 element: [123]',
-        },
-        name: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'REQUIRED if getData=true (and id is not provided). Array of table record names to fetch. Array length must match tableName length. Each name corresponds to the table at the same index. For single value, use array with 1 element: ["table_name"]. Searches by name column (exact match).',
-        },
-        fields: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Optional. Array of root-level field names to include. Available fields: "name", "description", "isSingleRecord", "id", "isSystem", "uniques", "indexes", "columns", "columnCount", "relations". If provided, only these fields returned - saves tokens. If omitted, all fields returned. Examples: ["columns"] for only columns, ["relations"] for only relations, ["isSystem", "columns"] for specific fields.',
-        },
-      },
-      required: ['tableName'],
-    },
-  },
-  {
-    name: 'get_fields',
-    description: `Purpose → list valid field names for a table (lightweight).
-
-Use when:
-- Before find_records to avoid invalid field selections
-- You know the table but forgot exact column names
-
-Skip when:
-- You need types, relations, or constraints → use get_table_details
-
-Inputs:
-- tableName (required)
-
-Response:
-{
-  table: string;
-  fields: string[];
-}
-
-Example request:
-{"tableName":"post"}`,
-    parameters: {
-      type: 'object',
-      properties: {
-        tableName: {
-          type: 'string',
-          description: 'Name of the table to get field names for. Examples: "user_definition", "post", "route_definition"',
         },
       },
       required: ['tableName'],
@@ -533,7 +456,7 @@ CRITICAL - NEVER Select All, ALWAYS Filter and Specify Fields:
 Permission: Auto-checked for business tables. Fails with clear error if denied.
 
 CRITICAL - Field Names Check:
-- BEFORE using fields parameter: You MUST call get_table_details or get_fields FIRST to verify field names
+- BEFORE using fields parameter: You MUST call get_table_details FIRST to verify field names
 - Field names must match exactly (snake_case vs camelCase)
 
 CRITICAL - COUNT Queries (Counting Records):
@@ -562,7 +485,7 @@ Detailed workflows, filtering strategies, and best practices are provided in the
         fields: {
           type: 'string',
           description:
-            'REQUIRED. Fields to return. Use get_fields for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: NEVER use "*" or omit fields parameter - this returns all fields and wastes tokens. ALWAYS specify minimal fields needed.',
+            'REQUIRED. Fields to return. Use get_table_details for available fields, then specify ONLY needed fields (e.g., "id" for count, "id,name" for list). Supports wildcards like "columns.*", "relations.*". CRITICAL: NEVER use "*" or omit fields parameter - this returns all fields and wastes tokens. ALWAYS specify minimal fields needed.',
         },
         limit: {
           type: 'number',

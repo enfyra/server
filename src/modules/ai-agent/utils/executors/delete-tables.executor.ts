@@ -11,24 +11,11 @@ import { TableValidationService } from '../../../dynamic-api/services/table-vali
 import { SwaggerService } from '../../../../infrastructure/swagger/services/swagger.service';
 import { GraphqlService } from '../../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
-import { executeCheckPermission, CheckPermissionExecutorDependencies } from './check-permission.executor';
+import { executeCheckPermission } from './check-permission.executor';
 import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
+import { DeleteTablesExecutorDependencies } from '../types';
 
 const logger = new Logger('DeleteTablesExecutor');
-
-export interface DeleteTablesExecutorDependencies extends CheckPermissionExecutorDependencies {
-  metadataCacheService: MetadataCacheService;
-  queryBuilder: QueryBuilderService;
-  tableHandlerService: TableHandlerService;
-  queryEngine: QueryEngine;
-  routeCacheService: RouteCacheService;
-  storageConfigCacheService: StorageConfigCacheService;
-  aiConfigCacheService: AiConfigCacheService;
-  systemProtectionService: SystemProtectionService;
-  tableValidationService: TableValidationService;
-  swaggerService: SwaggerService;
-  graphqlService: GraphqlService;
-}
 
 async function executeDeleteSingleTable(
   id: number,

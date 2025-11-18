@@ -12,23 +12,10 @@ import { SwaggerService } from '../../../../infrastructure/swagger/services/swag
 import { GraphqlService } from '../../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 import { TableCreationWorkflow } from '../table-creation-workflow';
-import { executeCheckPermission, CheckPermissionExecutorDependencies } from './check-permission.executor';
+import { executeCheckPermission } from './check-permission.executor';
+import { CreateTablesExecutorDependencies } from '../types';
 
 const logger = new Logger('CreateTablesExecutor');
-
-export interface CreateTablesExecutorDependencies extends CheckPermissionExecutorDependencies {
-  metadataCacheService: MetadataCacheService;
-  queryBuilder: QueryBuilderService;
-  tableHandlerService: TableHandlerService;
-  queryEngine: QueryEngine;
-  routeCacheService: RouteCacheService;
-  storageConfigCacheService: StorageConfigCacheService;
-  aiConfigCacheService: AiConfigCacheService;
-  systemProtectionService: SystemProtectionService;
-  tableValidationService: TableValidationService;
-  swaggerService: SwaggerService;
-  graphqlService: GraphqlService;
-}
 
 async function executeCreateSingleTable(
   table: {
