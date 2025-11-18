@@ -633,6 +633,9 @@ export class AiAgentService implements OnModuleInit {
         if ((hasCreateRecord || hasUpdateRecord) && !hasGetTableDetails) {
           selectedToolNames = [...selectedToolNames, 'get_table_details'];
         }
+        if (hasFindRecords && !hasGetTableDetails) {
+          selectedToolNames = [...selectedToolNames, 'get_table_details'];
+        }
       }
 
       const needsTools = selectedToolNames && selectedToolNames.length > 0;
@@ -1312,11 +1315,6 @@ export class AiAgentService implements OnModuleInit {
         continue;
       }
     }
-
-    const toolResultsCount = llmMessages.filter(m => m.role === 'tool').length;
-    const historyUserCount = llmMessages.filter(m => m.role === 'user').length;
-    const historyAssistantCount = llmMessages.filter(m => m.role === 'assistant').length;
-    const historyToolCount = llmMessages.filter(m => m.role === 'tool').length;
 
     return llmMessages;
   }

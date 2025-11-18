@@ -289,27 +289,40 @@ delete_tables({"ids": [19]})
   const crudWriteOpsContent = `**CRUD Write Operations (Create & Update Records) - Complete Workflow**
 
 **WORKFLOW FOR CREATING RECORDS:**
-Step 1: Get schema
+Step 1: Get schema (REQUIRED - ALWAYS call first)
 get_table_details({"tableName": ["product"]})
 
-Step 2: Check unique constraints (if any)
+Step 2: Check schema.relations array for required relations (CRITICAL)
+- If schema has relations with isNullable=false → relation is REQUIRED
+- For many-to-one or one-to-one relations → you MUST provide a reference ID
+- Example: If schema shows {"propertyName": "category", "type": "many-to-one", "targetTableName": "categories", "isNullable": false}
+  → You MUST query categories table first to get a valid category ID
+
+Step 3: Query related tables FIRST (if relations exist)
+- For each required relation, find valid reference IDs:
+find_records({"table":"categories","where":{},"fields":"${idFieldName},name","limit":10})
+- Choose appropriate ID from results
+- Example result: [{"id": 19, "name": "Electronics"}] → use id: 19
+
+Step 4: Check unique constraints (if any)
 find_records({"table":"product","where":{"name":{"_eq":"Laptop"}},"fields":"${idFieldName}","limit":1})
 
-Step 3: Prepare data with ALL required fields (EXCLUDE auto-generated fields)
+Step 5: Prepare data with ALL required fields (EXCLUDE auto-generated fields)
 - DO NOT include ${idFieldName} (auto-generated)
 - DO NOT include createdAt (auto-generated)
 - DO NOT include updatedAt (auto-generated)
 - Only include user-defined fields from schema
+- For relations: use {"propertyName": {"id": reference_id}} format
 {
   "name": "Laptop",
   "price": 999.99,
-  "category": 19
+  "category": {"id": 19}
 }
 
-Step 4: Create record
+Step 6: Create record
 create_records({
   "table": "product",
-  "dataArray": [{"name": "Laptop", "price": 999.99, "category": 19}],
+  "dataArray": [{"name": "Laptop", "price": 999.99, "category": {"id": 19}}],
   "fields": "${idFieldName}"
 })
 
@@ -347,9 +360,15 @@ update_records({
 })
 
 **CRITICAL RULES:**
-- ALWAYS call get_table_details FIRST to check required fields
+- ALWAYS call get_table_details FIRST to check required fields AND relations
+- **CRITICAL - Check relations array for required relations (isNullable=false):**
+  * If table has many-to-one or one-to-one relations with isNullable=false
+  * You MUST query the related table FIRST to get valid reference IDs
+  * NEVER hardcode or guess IDs - always query to get actual IDs
+  * Format: {"propertyName": {"id": actual_id_from_query}}
+  * Example: {"category": {"id": 19}} NOT {"category": 19} or {"categoryId": 19}
 - ALWAYS check unique constraints before create
-- Use propertyName from relations (e.g., "category": 19), NOT FK columns
+- Use propertyName from relations (e.g., "category": {"id": 19}), NOT FK columns
 - **CRITICAL - NEVER include auto-generated fields in create/update data:**
   * DO NOT include ${idFieldName} (auto-generated)
   * DO NOT include createdAt (auto-generated)
