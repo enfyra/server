@@ -76,21 +76,6 @@ export class ToolExecutor {
       throw new Error(`Invalid tool arguments: ${argsStr}`);
     }
 
-    const incomingPayload = {
-      layer: 'tool_executor',
-      direction: 'request',
-      toolCallId: toolCall.id,
-      toolName: name,
-      contextUser: context.$user?.id || null,
-      argsPreview: (() => {
-        try {
-          return JSON.stringify(args).substring(0, 500);
-        } catch {
-          return String(argsStr || '').substring(0, 500);
-        }
-      })(),
-    };
-    this.logger.debug(`[ToolExecutor] ${JSON.stringify(incomingPayload)}`);
 
     let result: any;
 
@@ -193,26 +178,6 @@ export class ToolExecutor {
           },
         );
         break;
-      case 'count_records':
-        result = await executeDynamicRepository(
-          { ...args, operation: 'find', limit: 1, fields: args.fields || 'id', meta: args.meta },
-          context,
-          abortSignal,
-          {
-            metadataCacheService: this.metadataCacheService,
-            queryBuilder: this.queryBuilder,
-            tableHandlerService: this.tableHandlerService,
-            queryEngine: this.queryEngine,
-            routeCacheService: this.routeCacheService,
-            storageConfigCacheService: this.storageConfigCacheService,
-            aiConfigCacheService: this.aiConfigCacheService,
-            systemProtectionService: this.systemProtectionService,
-            tableValidationService: this.tableValidationService,
-            swaggerService: this.swaggerService,
-            graphqlService: this.graphqlService,
-          },
-        );
-        break;
       case 'create_records':
         result = await executeBatchDynamicRepository(
           {
@@ -289,22 +254,6 @@ export class ToolExecutor {
         throw new Error(`Unknown tool: ${name}`);
     }
 
-    const outgoingPayload = {
-      layer: 'tool_executor',
-      direction: 'response',
-      toolCallId: toolCall.id,
-      toolName: name,
-      success: !result?.error,
-      errorCode: result?.errorCode || null,
-      resultPreview: (() => {
-        try {
-          return JSON.stringify(result).substring(0, 500);
-        } catch {
-          return String(result || '').substring(0, 500);
-        }
-      })(),
-    };
-    this.logger.debug(`[ToolExecutor] ${JSON.stringify(outgoingPayload)}`);
 
     return result;
   }

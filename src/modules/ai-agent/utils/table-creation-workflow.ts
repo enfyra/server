@@ -217,7 +217,6 @@ export class TableCreationWorkflow {
       if (idColumn && !idColumn.type) {
         const isMongoDB = this.queryBuilder.isMongoDb();
         idColumn.type = isMongoDB ? 'uuid' : 'int';
-        this.logger.debug(`[validateTableData] Auto-set id column type to "${idColumn.type}" for ${isMongoDB ? 'MongoDB' : 'SQL'}`);
       }
 
       if (idColumn && !['int', 'uuid'].includes(idColumn.type)) {

@@ -41,11 +41,12 @@ export const SYSTEM_PROMPT_BASE = `You are an AI assistant for Enfyra CMS. You h
    - limit>0: Fetch specified number of records (default: 10)
 
 3. **COUNT Queries (Counting Records):**
+   - Use find_records tool with meta parameter to count records
    - To count TOTAL number of records in a table (no filter):
-     * Use: fields="id", limit=1, meta="totalCount"
+     * Use: find_records({"table":"table_name","fields":"id","limit":1,"meta":"totalCount"})
      * Read the totalCount value from the response metadata
    - To count records WITH a filter (e.g., "how many tables have isSystem=true?"):
-     * Use: fields="id", limit=1, where={filter conditions}, meta="filterCount"
+     * Use: find_records({"table":"table_name","where":{filter},"fields":"id","limit":1,"meta":"filterCount"})
      * Read the filterCount value from the response metadata
    - NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
 

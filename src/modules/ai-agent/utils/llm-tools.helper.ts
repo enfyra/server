@@ -581,7 +581,7 @@ Returns:
   },
   {
     name: 'find_records',
-    description: `Purpose → Find/query records in a table.
+    description: `Purpose → Find/query records in a table, or count records using meta parameter.
 
 CRITICAL - NEVER Select All, ALWAYS Filter and Specify Fields:
 - NEVER use "*" or omit fields parameter - ALWAYS specify minimal fields needed (e.g., "id", "id,name")
@@ -594,9 +594,17 @@ CRITICAL - Field Names Check:
 - BEFORE using fields parameter: You MUST call get_table_details or get_fields FIRST to verify field names
 - Field names must match exactly (snake_case vs camelCase)
 
+CRITICAL - COUNT Queries (Counting Records):
+- To count TOTAL number of records: fields="id", limit=1, meta="totalCount" (omit where or set to null)
+- To count records WITH a filter: fields="id", limit=1, where={filter conditions}, meta="filterCount"
+- Read the totalCount or filterCount value from the response metadata
+- NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
+
 Basic examples:
-- find_records({"table":"product","where":{"price":{"_gt":100}},"fields":"id,name,price","limit":10})
-- find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id,name","skipPermissionCheck":true,"limit":0})
+- Find records: find_records({"table":"product","where":{"price":{"_gt":100}},"fields":"id,name,price","limit":10})
+- Find all non-system tables: find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id,name","skipPermissionCheck":true,"limit":0})
+- Count all records: find_records({"table":"product","fields":"id","limit":1,"meta":"totalCount"})
+- Count with filter: find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id","limit":1,"meta":"filterCount","skipPermissionCheck":true})
 
 Detailed workflows, filtering strategies, and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
     parameters: {
@@ -619,12 +627,18 @@ Detailed workflows, filtering strategies, and best practices are provided in the
         limit: {
           type: 'number',
           description:
-            'Max records to return. 0 = no limit (fetch all), > 0 = specified number. Default: 10.',
+            'Max records to return. 0 = no limit (fetch all), > 0 = specified number. Default: 10. For counting, use limit=1 with meta parameter.',
         },
         sort: {
           type: 'string',
           description:
             'Sort field(s). Format: "fieldName" (ascending) or "-fieldName" (descending). Multi-field: comma-separated, e.g., "name,-createdAt". Examples: "createdAt", "-createdAt", "name,-price". Default: "id".',
+        },
+        meta: {
+          type: 'string',
+          enum: ['totalCount', 'filterCount'],
+          description:
+            'Optional. For counting records: "totalCount" to count all records (no filter), "filterCount" to count records matching filter. MUST use with limit=1 and fields="id". The count will be returned in response metadata.',
         },
         skipPermissionCheck: {
           type: 'boolean',
@@ -634,66 +648,6 @@ Detailed workflows, filtering strategies, and best practices are provided in the
         },
       },
       required: ['table', 'fields'],
-    },
-  },
-  {
-    name: 'count_records',
-    description: `Purpose → Count records in a table (with or without filter).
-
-CRITICAL - NEVER Select All, ALWAYS Specify Fields:
-- NEVER use "*" or omit fields parameter - ALWAYS specify minimal fields (e.g., "id")
-- ALWAYS use where parameter when possible - Even for "count all", prefer to add a filter if user specified criteria
-
-Permission: Checked automatically for business tables. Operation will fail with clear error if permission is denied.
-
-CRITICAL - COUNT Queries:
-- To count TOTAL number of records: where=null (or omit), meta="totalCount", fields="id"
-- To count records WITH a filter: where={filter conditions}, meta="filterCount", fields="id"
-- Read the totalCount or filterCount value from the response metadata
-- NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
-
-Basic examples:
-- Count all: count_records({"table":"product","fields":"id","meta":"totalCount"})
-- Count with filter: count_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"id","meta":"filterCount"})
-
-**Important Field Definitions for Metadata Tables:**
-- isSystem (boolean, in table_definition): If true, this is a system table. If false, this is a user-created table. Use where={"isSystem":{"_eq":false}} to find only user-created tables.
-- isNullable (boolean, in column_definition): If true, this column can contain NULL values. If false, this column is REQUIRED.
-- isPrimary (boolean, in column_definition): If true, this column is the primary key. Each table MUST have exactly one column with isPrimary=true.
-- isGenerated (boolean, in column_definition): If true, this column value is auto-generated by the database. You should NOT provide values for generated columns when creating records.
-
-Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
-    parameters: {
-      type: 'object',
-      properties: {
-        table: {
-          type: 'string',
-          description: 'Name of the table to count records in.',
-        },
-        where: {
-          type: 'object',
-          description:
-            'Optional filter conditions. Omit or set to null to count all records. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
-        },
-        fields: {
-          type: 'string',
-          description:
-            'REQUIRED. Fields to return. Use minimal fields like "id" - do NOT use "*" or omit fields.',
-        },
-        meta: {
-          type: 'string',
-          enum: ['totalCount', 'filterCount'],
-          description:
-            'REQUIRED. "totalCount" for counting all records (no filter), "filterCount" for counting records matching filter conditions.',
-        },
-        skipPermissionCheck: {
-          type: 'boolean',
-          description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
-          default: false,
-        },
-      },
-      required: ['table', 'meta', 'fields'],
     },
   },
   {
