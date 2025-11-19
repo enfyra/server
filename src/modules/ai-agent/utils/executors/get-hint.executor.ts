@@ -256,6 +256,42 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
     tools: ['find_records', 'get_table_details'],
   };
 
+  const routesEndpointsContent = `**Routes & Endpoints Discovery**
+
+**CRITICAL - NEVER invent routes. ALWAYS query route_definition table first.**
+
+**IMPORTANT - Routes Can Be Customized:**
+- Routes paths can be CUSTOMIZED by users - they are NOT always "/table_name"
+- Default path format: "/table_name" (e.g., "/products", "/users")
+- But users can change paths to anything (e.g., "/api/v1/products", "/custom-path")
+- You MUST query route_definition to find the ACTUAL path - NEVER assume
+
+**Find Available Routes:**
+1. Query all enabled routes: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true}},"fields":"path,mainTable.name","limit":0})
+2. Filter by table: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"mainTable.name":{"_eq":"products"}},"fields":"path","limit":0})
+3. Search by path: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"path":{"_icontains":"product"}},"fields":"path,mainTable.name","limit":10})
+
+**Get Route Details:**
+- Get full schema: get_table_details({"tableName":["route_definition"]})
+- Query specific route: find_records({"table":"route_definition","where":{"path":{"_eq":"/products"},"isEnabled":{"_eq":true}},"fields":"path,mainTable.name,publishedMethods.method","limit":1})
+
+**CRITICAL Rules:**
+- NEVER guess or invent route paths - ALWAYS query route_definition first
+- Only routes with isEnabled=true are active
+- Route paths are CUSTOMIZABLE - may not match table name
+- Use find_records to discover actual routes before suggesting test URLs
+- **If route not found in route_definition:**
+  * Inform user: "Route not found in route_definition table"
+  * **MUST tell user**: "If you have customized the route path, it may not be discoverable by table name. Please check your route_definition table or provide the custom path."
+  * Do NOT suggest paths that don't exist in route_definition`;
+
+  const routesEndpointsHint: HintContent = {
+    category: 'routes_endpoints',
+    title: 'Routes & Endpoints Discovery',
+    content: routesEndpointsContent,
+    tools: ['find_records', 'get_table_details'],
+  };
+
   allHints.push(
     dbTypeHint,
     fieldOptHint,
@@ -267,7 +303,8 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
     metadataOpsHint,
     naturalLanguageDiscoveryHint,
     systemWorkflowsHint,
-    errorHint
+    errorHint,
+    routesEndpointsHint
   );
 
   let filteredHints = allHints;
@@ -338,7 +375,8 @@ export async function executeGetHint(
       'metadata_operations',
       'natural_language_discovery',
       'system_workflows',
-      'error_handling'
+      'error_handling',
+      'routes_endpoints'
     ],
   };
 }
