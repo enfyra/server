@@ -3,6 +3,15 @@ import { CommonService } from '../../../shared/common/services/common.service';
 import { DefaultDataService } from './default-data.service';
 import { CoreInitService } from './core-init.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const initJson = JSON.parse(
+  fs.readFileSync(
+    path.join(process.cwd(), 'src/core/bootstrap/data/init.json'),
+    'utf8',
+  ),
+);
 
 @Injectable()
 export class BootstrapService implements OnModuleInit {
@@ -10,11 +19,9 @@ export class BootstrapService implements OnModuleInit {
 
   constructor(
     private readonly commonService: CommonService,
-    // private readonly schemaStateService: SchemaStateService,
     private readonly defaultDataService: DefaultDataService,
     private readonly coreInitService: CoreInitService,
     private readonly queryBuilder: QueryBuilderService,
-    // private readonly cacheService: CacheService,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -44,7 +51,6 @@ export class BootstrapService implements OnModuleInit {
       return;
     }
 
-    // Find first setting record
     const isMongoDB = this.queryBuilder.isMongoDb();
     const sortField = isMongoDB ? '_id' : 'id';
     const settingsResult = await this.queryBuilder.select({
@@ -57,12 +63,10 @@ export class BootstrapService implements OnModuleInit {
     if (!setting || !setting.isInit) {
       this.logger.log('First time initialization...');
 
-      // Create metadata (needed for both SQL and MongoDB to track schema)
       await this.coreInitService.createInitMetadata();
 
       await this.defaultDataService.insertAllDefaultRecords();
 
-      // Re-fetch setting after default data insertion
       const settings2Result = await this.queryBuilder.select({
         tableName: 'setting_definition',
         sort: [sortField],
@@ -75,7 +79,6 @@ export class BootstrapService implements OnModuleInit {
         throw new Error('Setting record not found. DefaultDataService may have failed.');
       }
 
-      // Update isInit flag
       const settingId = setting._id || setting.id;
       const idField = isMongoDB ? '_id' : 'id';
       await this.queryBuilder.update({
@@ -87,6 +90,27 @@ export class BootstrapService implements OnModuleInit {
       this.logger.log('Initialization successful');
     } else {
       this.logger.log('System already initialized, skipping data sync');
+      
+      await this.ensureCriticalRecords();
+    }
+  }
+
+  private async ensureCriticalRecords(): Promise<void> {
+    this.logger.log('Checking critical default records...');
+    
+    try {
+      const aiConfigResult = await this.queryBuilder.select({
+        tableName: 'ai_config_definition',
+        limit: 1,
+      });
+      
+      if (!aiConfigResult.data || aiConfigResult.data.length === 0) {
+        this.logger.log('No ai_config_definition records found, creating default...');
+        const result = await this.defaultDataService.insertTableRecords('ai_config_definition');
+        this.logger.log(`ai_config_definition: ${result.created} created, ${result.skipped} skipped`);
+      }
+    } catch (error) {
+      this.logger.warn(`Error checking critical records: ${error.message}`);
     }
   }
 }

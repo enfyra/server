@@ -31,6 +31,164 @@ export class SqlSchemaMigrationService {
     private readonly queryBuilderService: QueryBuilderService,
   ) {}
 
+  private async getPrimaryKeyType(targetTableName: string): Promise<'uuid' | 'varchar' | 'integer'> {
+    try {
+      // First, check the ACTUAL database column type (not metadata)
+      // This is critical for junction tables to match FK types correctly
+      const knex = this.knexService.getKnex();
+      const dbType = this.queryBuilderService.getDatabaseType();
+
+      if (dbType === 'postgres') {
+        const result = await knex.raw(`
+          SELECT data_type, udt_name, character_maximum_length
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = ?
+            AND column_name = 'id'
+        `, [targetTableName]);
+
+        if (result.rows && result.rows.length > 0) {
+          const colType = result.rows[0].data_type?.toLowerCase() || '';
+          const udtName = result.rows[0].udt_name?.toLowerCase() || '';
+
+          // Check if it's a real UUID type
+          if (udtName === 'uuid' || colType === 'uuid') {
+            return 'uuid';
+          }
+
+          // If it's varchar/char, return varchar type
+          // Even if metadata says uuid, actual DB type takes precedence
+          if (colType === 'character varying' || colType === 'varchar' || colType === 'character') {
+            return 'varchar';
+          }
+
+          // Integer types
+          if (colType === 'integer' || colType === 'bigint' || colType === 'serial' || colType === 'bigserial') {
+            return 'integer';
+          }
+        }
+      } else if (dbType === 'mysql') {
+        const result = await knex.raw(`
+          SELECT DATA_TYPE, COLUMN_TYPE
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = 'id'
+        `, [targetTableName]);
+
+        if (result[0] && result[0].length > 0) {
+          const colType = result[0][0].DATA_TYPE?.toLowerCase() || '';
+
+          if (colType === 'varchar' || colType === 'char') {
+            return 'varchar';
+          }
+
+          if (colType === 'int' || colType === 'bigint' || colType === 'integer') {
+            return 'integer';
+          }
+        }
+      }
+
+      // Fallback to metadata if DB query fails
+      const targetMetadata = await this.metadataCacheService.lookupTableByName(targetTableName);
+      if (!targetMetadata) {
+        this.logger.warn(`Could not find metadata for table ${targetTableName}, defaulting to integer`);
+        return 'integer';
+      }
+
+      const pkColumn = targetMetadata.columns.find(c => c.isPrimary);
+      if (!pkColumn) {
+        this.logger.warn(`No primary key found in table ${targetTableName}, defaulting to integer`);
+        return 'integer';
+      }
+
+      const type = pkColumn.type?.toLowerCase() || '';
+
+      // Check if metadata type is uuid
+      if (type === 'uuid' || type === 'uuidv4' || type.includes('uuid')) {
+        return 'uuid';
+      }
+
+      // Check if metadata type is string/varchar
+      if (type === 'string' || type === 'varchar' || type === 'char') {
+        return 'varchar';
+      }
+
+      return 'integer';
+    } catch (error) {
+      this.logger.warn(`Error getting primary key type for ${targetTableName}: ${error.message}, defaulting to integer`);
+      return 'integer';
+    }
+  }
+
+  /**
+   * Helper: Check if error is a deadlock error
+   */
+  private isDeadlockError(error: any): boolean {
+    const errorCode = error?.code || error?.errno || '';
+    const errorMessage = error?.message || '';
+    const sqlState = error?.sqlState || '';
+
+    return (
+      errorCode === '40P01' ||
+      errorCode === '40001' ||
+      sqlState === '40P01' ||
+      sqlState === '40001' ||
+      errorCode === '1213' ||
+      errorCode === '1205' ||
+      errorCode === 1213 ||
+      errorCode === 1205 ||
+      errorMessage.toLowerCase().includes('deadlock') ||
+      errorMessage.toLowerCase().includes('lock wait timeout') ||
+      errorMessage.toLowerCase().includes('try restarting transaction')
+    );
+  }
+
+  /**
+   * Helper: Set lock timeout for database
+   */
+  private async setLockTimeout(knex: any, dbType: string, timeoutSeconds: number = 5): Promise<void> {
+    if (dbType === 'postgres') {
+      await knex.raw(`SET LOCAL lock_timeout = '${timeoutSeconds}s'`);
+    } else if (dbType === 'mysql') {
+      await knex.raw(`SET SESSION innodb_lock_wait_timeout = ${timeoutSeconds}`);
+    }
+    // SQLite: no-op (doesn't support lock timeout)
+  }
+
+  /**
+   * Helper: Create FK column based on PK type
+   */
+  private createFKColumn(
+    table: any,
+    columnName: string,
+    pkType: 'uuid' | 'varchar' | 'integer',
+    dbType: string
+  ): any {
+    if (pkType === 'uuid') {
+      if (dbType === 'postgres') {
+        return table.uuid(columnName);
+      } else {
+        return table.string(columnName, 36);
+      }
+    } else if (pkType === 'varchar') {
+      return table.string(columnName, 36);
+    } else {
+      return table.integer(columnName).unsigned();
+    }
+  }
+
+  /**
+   * Helper: Apply nullable/notNullable to column
+   */
+  private applyNullability(column: any, isNullable: boolean | number | undefined): any {
+    if (isNullable === false || isNullable === 0) {
+      return column.notNullable();
+    } else {
+      return column.nullable();
+    }
+  }
+
   async createTable(tableMetadata: any): Promise<void> {
     const knex = this.knexService.getKnex();
     const tableName = tableMetadata.name;
@@ -42,7 +200,20 @@ export class SqlSchemaMigrationService {
 
     this.logger.log(`Creating table: ${tableName}`);
 
-    await knex.schema.createTable(tableName, (table) => {
+    try {
+      const targetPkTypes = new Map<string, 'uuid' | 'varchar' | 'integer'>();
+      if (tableMetadata.relations) {
+        for (const rel of tableMetadata.relations) {
+          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+            const targetTableName = rel.targetTableName || rel.targetTable;
+            if (targetTableName && !targetPkTypes.has(targetTableName)) {
+              targetPkTypes.set(targetTableName, await this.getPrimaryKeyType(targetTableName));
+            }
+          }
+        }
+      }
+
+      await knex.schema.createTable(tableName, (table) => {
 
       for (const col of tableMetadata.columns || []) {
         addColumnToTable(table, col);
@@ -69,21 +240,22 @@ export class SqlSchemaMigrationService {
             throw new Error(`Relation '${rel.propertyName}' must have targetTableName or targetTable`);
           }
 
+          const systemTables = ['table_definition', 'column_definition', 'relation_definition', 'route_definition'];
+          if (systemTables.includes(targetTableName)) {
+            throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${tableMetadata.name}' cannot target system table '${targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
+          }
+
           const fkColumn = `${rel.propertyName}Id`;
 
           this.logger.log(`CREATE TABLE: Creating FK column ${fkColumn} for relation ${rel.propertyName} (target: ${targetTableName})`);
-          this.logger.log(`DEBUG: rel.isNullable = ${rel.isNullable}, type: ${typeof rel.isNullable}`);
 
-          const fkCol = table.integer(fkColumn).unsigned();
+          const targetPkType = targetPkTypes.get(targetTableName) || 'integer';
+          const dbType = this.queryBuilderService.getDatabaseType();
+          const fkCol = this.createFKColumn(table, fkColumn, targetPkType, dbType);
+          this.applyNullability(fkCol, rel.isNullable);
 
-          // isNullable can be 0/1 (number) or true/false (boolean)
-          if (rel.isNullable === false || rel.isNullable === 0) {
-            this.logger.log(`  Setting FK column as NOT NULL`);
-            fkCol.notNullable();
-          } else {
-            this.logger.log(`  Setting FK column as NULLABLE (isNullable=${rel.isNullable})`);
-            fkCol.nullable();
-          }
+          const nullabilityStatus = (rel.isNullable === false || rel.isNullable === 0) ? 'NOT NULL' : 'NULLABLE';
+          this.logger.log(`  Setting FK column as ${nullabilityStatus}`);
           
 
           table.index([fkColumn]);
@@ -105,20 +277,22 @@ export class SqlSchemaMigrationService {
         }
       }
 
+      // Auto-index for system timestamp columns
       table.index(['createdAt']);
       table.index(['updatedAt']);
-      table.index(['createdAt', 'updatedAt']);
 
-      const timestampFields = (tableMetadata.columns || []).filter(col =>
-        col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+      // Auto-index for user-defined timestamp columns (excluding system columns to avoid duplicates)
+      const timestampFields = (tableMetadata.columns || []).filter((col: any) =>
+        (col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date') &&
+        !['createdAt', 'updatedAt'].includes(col.name)
       );
 
       for (const field of timestampFields) {
         table.index([field.name]);
       }
-    });
+      });
 
-    for (const rel of tableMetadata.relations || []) {
+      for (const rel of tableMetadata.relations || []) {
       if (!['many-to-one', 'one-to-one'].includes(rel.type)) continue;
 
       const targetTable = rel.targetTableName || rel.targetTable;
@@ -128,17 +302,75 @@ export class SqlSchemaMigrationService {
         continue;
       }
 
+      if (typeof targetTable !== 'string' || targetTable.trim() === '') {
+        this.logger.error(`Invalid targetTableName for relation ${rel.propertyName}: ${targetTable}. Skipping FK constraint.`);
+        continue;
+      }
+
       const fkColumn = `${rel.propertyName}Id`;
 
       this.logger.log(`CREATE TABLE: Creating FK constraint ${fkColumn} -> ${targetTable} for relation ${rel.propertyName}`);
 
+      const targetTableExists = await knex.schema.hasTable(targetTable);
+      if (!targetTableExists) {
+        this.logger.error(`Skipping FK constraint ${fkColumn} -> ${targetTable}: target table does not exist. This may indicate invalid relation metadata.`);
+        continue;
+      }
+
+      const maxRetries = 3;
       try {
-        await knex.schema.alterTable(tableName, (table) => {
-          const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
-          table.foreign(fkColumn).references('id').inTable(targetTable).onDelete(onDelete).onUpdate('CASCADE');
-        });
-      } catch (error) {
-        this.logger.warn(`Failed to add FK constraint ${fkColumn} -> ${targetTable}: ${error.message}`);
+        let lastError: any = null;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+              this.logger.log(`Retrying FK constraint creation (attempt ${attempt + 1}/${maxRetries}) after ${backoffMs}ms backoff...`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+            }
+
+            const dbType = this.queryBuilderService.getDatabaseType();
+            await this.setLockTimeout(knex, dbType, 5);
+
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('FK constraint creation timeout after 10 seconds')), 10000);
+            });
+
+            const createFkPromise = knex.schema.alterTable(tableName, (table) => {
+              const onDelete = rel.isNullable === false ? 'RESTRICT' : 'SET NULL';
+              table.foreign(fkColumn).references('id').inTable(targetTable).onDelete(onDelete).onUpdate('CASCADE');
+            });
+
+            await Promise.race([createFkPromise, timeoutPromise]);
+            this.logger.log(`CREATE TABLE: FK constraint ${fkColumn} -> ${targetTable} created successfully`);
+            lastError = null;
+            break;
+          } catch (attemptError: any) {
+            lastError = attemptError;
+
+            if (this.isDeadlockError(attemptError) && attempt < maxRetries - 1) {
+              this.logger.warn(`Deadlock detected on FK constraint ${fkColumn} -> ${targetTable} (attempt ${attempt + 1}/${maxRetries}). Retrying...`);
+              continue;
+            }
+
+            if (attempt === maxRetries - 1) {
+              throw attemptError;
+            }
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
+        }
+      } catch (error: any) {
+        const errorMessage = error?.message || '';
+
+        if (this.isDeadlockError(error)) {
+          this.logger.error(`Deadlock occurred while creating FK constraint ${fkColumn} -> ${targetTable} after ${maxRetries} attempts: ${errorMessage}`);
+        } else {
+          this.logger.error(`Failed to add FK constraint ${fkColumn} -> ${targetTable}: ${errorMessage}`);
+        }
+        throw error;
       }
     }
 
@@ -163,29 +395,65 @@ export class SqlSchemaMigrationService {
 
         this.logger.log(`CREATE TABLE: Creating O2M FK column ${fkColumn} in target table ${targetTable} for relation ${rel.propertyName}`);
 
-        try {
+        const sourcePkType = await this.getPrimaryKeyType(sourceTable);
+        const dbType = this.queryBuilderService.getDatabaseType();
+        const maxRetries = 3;
+        let lastError: any = null;
 
-          await knex.schema.alterTable(targetTable, (table) => {
-            const fkCol = table.integer(fkColumn).unsigned();
-            // isNullable can be 0/1 (number) or true/false (boolean)
-            if (rel.isNullable === false || rel.isNullable === 0) {
-              fkCol.notNullable();
-            } else {
-              fkCol.nullable();
+        // ✅ Option 1: Combine column + index + FK constraint into 1 ALTER TABLE with retry logic
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+              this.logger.log(`Retrying O2M FK creation (attempt ${attempt + 1}/${maxRetries}) after ${backoffMs}ms backoff...`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
             }
 
-            table.index([fkColumn]);
-          });
+            await this.setLockTimeout(knex, dbType, 5);
 
+            // Combine column + index + FK constraint in single ALTER TABLE
+            await knex.schema.alterTable(targetTable, (table) => {
+              // Create FK column
+              const fkCol = this.createFKColumn(table, fkColumn, sourcePkType, dbType);
+              this.applyNullability(fkCol, rel.isNullable);
 
-          await knex.schema.alterTable(targetTable, (table) => {
-            const onDelete = (rel.isNullable === false || rel.isNullable === 0) ? 'RESTRICT' : 'SET NULL';
-            table.foreign(fkColumn).references('id').inTable(sourceTable).onDelete(onDelete).onUpdate('CASCADE');
-          });
-          
-          this.logger.log(`Created O2M FK column ${fkColumn} in ${targetTable}`);
-        } catch (error) {
-          this.logger.warn(`Failed to add O2M FK column ${fkColumn} to ${targetTable}: ${error.message}`);
+              // Add index
+              table.index([fkColumn]);
+
+              // Add FK constraint
+              const onDelete = (rel.isNullable === false || rel.isNullable === 0) ? 'RESTRICT' : 'SET NULL';
+              table.foreign(fkColumn)
+                .references('id')
+                .inTable(sourceTable)
+                .onDelete(onDelete)
+                .onUpdate('CASCADE');
+            });
+
+            this.logger.log(`Created O2M FK column ${fkColumn} in ${targetTable}`);
+            lastError = null;
+            break; // Success
+          } catch (attemptError: any) {
+            lastError = attemptError;
+
+            if (this.isDeadlockError(attemptError) && attempt < maxRetries - 1) {
+              this.logger.warn(`Deadlock detected on O2M FK ${fkColumn} in ${targetTable} (attempt ${attempt + 1}/${maxRetries}). Retrying...`);
+              continue;
+            }
+
+            if (attempt === maxRetries - 1) {
+              const errorMessage = attemptError?.message || '';
+              if (this.isDeadlockError(attemptError)) {
+                this.logger.error(`Deadlock occurred while creating O2M FK ${fkColumn} in ${targetTable} after ${maxRetries} attempts: ${errorMessage}`);
+              } else {
+                this.logger.error(`Failed to add O2M FK column ${fkColumn} to ${targetTable}: ${errorMessage}`);
+              }
+              throw attemptError;
+            }
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
         }
       }
     }
@@ -220,52 +488,44 @@ export class SqlSchemaMigrationService {
         this.logger.log(`   Source: ${sourceTable}.id → ${junctionSourceColumn}`);
         this.logger.log(`   Target: ${targetTable}.id → ${junctionTargetColumn}`);
 
-        const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
-        const qt = (id: string) => {
-          if (dbType === 'mysql') return `\`${id}\``;
-          return `"${id}"`;
-        };
+        const sourcePkType = await this.getPrimaryKeyType(sourceTable);
+        const targetPkType = await this.getPrimaryKeyType(targetTable);
 
-        // Generate database-specific CREATE TABLE syntax
-        let createJunctionSQL: string;
-        if (dbType === 'postgres') {
-          createJunctionSQL = `
-            CREATE TABLE ${qt(junctionTableName)} (
-              ${qt('id')} SERIAL PRIMARY KEY,
-              ${qt(junctionSourceColumn)} INTEGER NOT NULL,
-              ${qt(junctionTargetColumn)} INTEGER NOT NULL,
-              FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-              UNIQUE (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
-            )
-          `.trim().replace(/\s+/g, ' ');
-        } else if (dbType === 'sqlite') {
-          createJunctionSQL = `
-            CREATE TABLE ${qt(junctionTableName)} (
-              ${qt('id')} INTEGER PRIMARY KEY AUTOINCREMENT,
-              ${qt(junctionSourceColumn)} INTEGER NOT NULL,
-              ${qt(junctionTargetColumn)} INTEGER NOT NULL,
-              FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-              UNIQUE (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
-            )
-          `.trim().replace(/\s+/g, ' ');
-        } else {
-          // MySQL
-          createJunctionSQL = `
-            CREATE TABLE ${qt(junctionTableName)} (
-              ${qt('id')} INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-              ${qt(junctionSourceColumn)} INT UNSIGNED NOT NULL,
-              ${qt(junctionTargetColumn)} INT UNSIGNED NOT NULL,
-              FOREIGN KEY (${qt(junctionSourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY (${qt(junctionTargetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-              UNIQUE KEY ${qt(`unique_${junctionSourceColumn}_${junctionTargetColumn}`)} (${qt(junctionSourceColumn)}, ${qt(junctionTargetColumn)})
-            )
-          `.trim().replace(/\s+/g, ' ');
-        }
+        this.logger.log(`   Source PK type: ${sourcePkType}, Target PK type: ${targetPkType}`);
 
+        const dbType = this.queryBuilderService.getDatabaseType();
+
+        // ✅ Use Knex schema builder instead of raw SQL for better portability
         try {
-          await knex.raw(createJunctionSQL);
+          await knex.schema.createTable(junctionTableName, (table) => {
+            // Primary key - auto-increment ID
+            table.increments('id').primary();
+
+            // Source FK column
+            const sourceCol = this.createFKColumn(table, junctionSourceColumn, sourcePkType, dbType);
+            sourceCol.notNullable();
+
+            // Target FK column
+            const targetCol = this.createFKColumn(table, junctionTargetColumn, targetPkType, dbType);
+            targetCol.notNullable();
+
+            // Foreign key constraints
+            table.foreign(junctionSourceColumn)
+              .references('id')
+              .inTable(sourceTable)
+              .onDelete('CASCADE')
+              .onUpdate('CASCADE');
+
+            table.foreign(junctionTargetColumn)
+              .references('id')
+              .inTable(targetTable)
+              .onDelete('CASCADE')
+              .onUpdate('CASCADE');
+
+            // Unique constraint to prevent duplicate relations
+            table.unique([junctionSourceColumn, junctionTargetColumn]);
+          });
+
           this.logger.log(`Created junction table: ${junctionTableName}`);
         } catch (error) {
           this.logger.error(`Failed to create junction table ${junctionTableName}: ${error.message}`);
@@ -275,6 +535,10 @@ export class SqlSchemaMigrationService {
     }
 
     this.logger.log(`Created table: ${tableName} (with ${tableMetadata.relations?.filter((r: any) => r.type === 'many-to-many').length || 0} junction tables)`);
+    } catch (error) {
+      this.logger.error(`Failed to create table ${tableName}: ${error.message}`);
+      throw error;
+    }
   }
 
   async updateTable(
@@ -314,21 +578,17 @@ export class SqlSchemaMigrationService {
   }
 
   async compareMetadataWithActualSchema(tableName: string, metadata: any): Promise<void> {
-
     try {
       const cachedMetadata = await this.metadataCacheService.lookupTableByName(tableName);
-      
       if (!cachedMetadata) {
         return;
       }
 
-     
-
       const inputColNames = new Set(metadata.columns?.map((c: any) => c.name) || []);
       const cachedColNames = new Set(cachedMetadata.columns?.map((c: any) => c.name) || []);
 
-      const missingInCache = [...inputColNames].filter(name => !cachedColNames.has(name));
-      const extraInCache = [...cachedColNames].filter(name => !inputColNames.has(name));
+      const missingInCache = [...inputColNames].filter((name) => !cachedColNames.has(name));
+      const extraInCache = [...cachedColNames].filter((name) => !inputColNames.has(name));
 
       if (missingInCache.length > 0) {
         this.logger.warn(`  Columns in input but not in cache: ${missingInCache.join(', ')}`);
@@ -341,9 +601,8 @@ export class SqlSchemaMigrationService {
       if (missingInCache.length === 0 && extraInCache.length === 0) {
         this.logger.log(`  Column structure matches between input and cached metadata`);
       }
-
-    } catch (error) {
-      this.logger.error(`Failed to compare schema for ${tableName}:`, error.message);
+    } catch (error: any) {
+      this.logger.error(`Failed to compare schema for ${tableName}: ${error?.message || error}`);
     }
   }
 
@@ -384,13 +643,47 @@ export class SqlSchemaMigrationService {
   async dropTable(tableName: string, relations?: any[], trx?: any): Promise<void> {
     // Use transaction if provided, otherwise use knex
     const db = trx || this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
-    if (!(await db.schema.hasTable(tableName))) {
+    // Use raw SQL to check table existence (schema builder may not work correctly in transaction)
+    const qt = (id: string) => {
+      if (dbType === 'mysql') return `\`${id}\``;
+      return `"${id}"`;
+    };
+
+    let tableExists = false;
+    try {
+      if (dbType === 'postgres') {
+        const result = await db.raw(
+          `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?)`,
+          [tableName]
+        );
+        tableExists = result.rows[0]?.exists || false;
+      } else if (dbType === 'mysql') {
+        const result = await db.raw(
+          `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+          [tableName]
+        );
+        tableExists = result[0][0]?.count > 0;
+      } else {
+        // SQLite
+        const result = await db.raw(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+          [tableName]
+        );
+        tableExists = result.length > 0;
+      }
+    } catch (error) {
+      this.logger.error(`Error checking table existence: ${error.message}`);
+      tableExists = false;
+    }
+
+    if (!tableExists) {
       this.logger.warn(`Table ${tableName} does not exist, skipping drop`);
       return;
     }
 
-    this.logger.log(` Dropping table: ${tableName}`);
+    this.logger.log(`Dropping table: ${tableName}`);
 
     // If relations not provided, get from metadata
     let relationsToCheck = relations;
@@ -402,16 +695,18 @@ export class SqlSchemaMigrationService {
       }
     }
 
-    // Drop M2M junction tables first
+    // Drop M2M junction tables first (using raw SQL)
     if (relationsToCheck && relationsToCheck.length > 0) {
       const m2mRelations = relationsToCheck.filter((rel: any) => rel.type === 'many-to-many');
 
       for (const rel of m2mRelations) {
         if (rel.junctionTableName) {
-          const hasJunctionTable = await db.schema.hasTable(rel.junctionTableName);
-          if (hasJunctionTable) {
-            await db.schema.dropTable(rel.junctionTableName);
+          try {
+            // Use raw SQL instead of schema builder
+            await db.raw(`DROP TABLE IF EXISTS ${qt(rel.junctionTableName)}`);
             this.logger.log(`Dropped junction table: ${rel.junctionTableName}`);
+          } catch (error) {
+            this.logger.error(`Failed to drop junction table ${rel.junctionTableName}: ${error.message}`);
           }
         }
       }
@@ -421,15 +716,19 @@ export class SqlSchemaMigrationService {
     // NOTE: When called within a transaction (trx is provided), FK constraints are already
     // handled by SqlTableHandlerService.delete() to avoid transaction isolation issues
     if (!trx) {
-      const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
       await dropAllForeignKeysReferencingTable(db, tableName, dbType);
     } else {
       this.logger.log(`Skipping FK constraint check (already handled in transaction)`);
     }
 
-    // Drop the table itself
-    await db.schema.dropTableIfExists(tableName);
-    this.logger.log(`Dropped table: ${tableName}`);
+    // Drop the table itself using raw SQL (schema builder may not work correctly in transaction)
+    try {
+      await db.raw(`DROP TABLE IF EXISTS ${qt(tableName)}`);
+      this.logger.log(`Dropped table: ${tableName}`);
+    } catch (error) {
+      this.logger.error(`Failed to drop table ${tableName}: ${error.message}`);
+      throw error;
+    }
   }
 
 
@@ -483,7 +782,8 @@ export class SqlSchemaMigrationService {
       diff,
       newMetadata.name,
       oldMetadata.columns || [],
-      newMetadata.columns || []
+      newMetadata.columns || [],
+      this.metadataCacheService
     );
 
     this.analyzeConstraintChanges(oldMetadata, newMetadata, diff);
@@ -593,7 +893,7 @@ export class SqlSchemaMigrationService {
     const dbType = this.queryBuilderService.getDatabaseType() as 'mysql' | 'postgres' | 'sqlite';
 
     // Step 1: Generate SQL statements array
-    const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType);
+    const sqlStatements = await generateSQLFromDiff(knex, tableName, diff, dbType, this.metadataCacheService);
     this.logger.debug('Generated SQL Statements:', sqlStatements);
 
     // Step 2: Generate batch SQL (single string)

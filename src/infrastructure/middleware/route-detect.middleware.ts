@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
@@ -7,8 +7,10 @@ import { TDynamicContext } from '../../shared/interfaces/dynamic-context.interfa
 import { QueryEngine } from '../query-engine/services/query-engine.service';
 import { RouteCacheService } from '../cache/services/route-cache.service';
 import { StorageConfigCacheService } from '../cache/services/storage-config-cache.service';
+import { AiConfigCacheService } from '../cache/services/ai-config-cache.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
+import { TableValidationService } from '../../modules/dynamic-api/services/table-validation.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
@@ -19,6 +21,8 @@ import { UploadFileHelper } from '../helpers/upload-file.helper';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(RouteDetectMiddleware.name);
+
   constructor(
     private queryBuilder: QueryBuilderService,
     private jwtService: JwtService,
@@ -26,8 +30,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private tableHandlerService: TableHandlerService,
     private routeCacheService: RouteCacheService,
     private storageConfigCacheService: StorageConfigCacheService,
+    private aiConfigCacheService: AiConfigCacheService,
     private metadataCacheService: MetadataCacheService,
     private systemProtectionService: SystemProtectionService,
+    private tableValidationService: TableValidationService,
     private cacheService: CacheService,
     private bcryptService: BcryptService,
     private swaggerService: SwaggerService,
@@ -116,8 +122,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
             queryEngine: this.queryEngine,
             routeCacheService: this.routeCacheService,
             storageConfigCacheService: this.storageConfigCacheService,
+            aiConfigCacheService: this.aiConfigCacheService,
             metadataCacheService: this.metadataCacheService,
             systemProtectionService: this.systemProtectionService,
+            tableValidationService: this.tableValidationService,
             bootstrapScriptService: undefined,
             swaggerService: this.swaggerService,
             graphqlService: this.graphqlService,
@@ -142,7 +150,13 @@ export class RouteDetectMiddleware implements NestMiddleware {
         context.$repos.main = context.$repos[mainTableName];
       }
 
-      context.$helpers.$uploadFile = this.uploadFileHelper.createUploadFileHelper(context);
+      try {
+        context.$helpers.$uploadFile = this.uploadFileHelper.createUploadFileHelper(context);
+        context.$helpers.$updateFile = this.uploadFileHelper.createUpdateFileHelper(context);
+        context.$helpers.$deleteFile = this.uploadFileHelper.createDeleteFileHelper(context);
+      } catch (error) {
+        this.logger.warn('Failed to initialize file helpers:', error);
+      }
       
       const { route, params } = matchedRoute;
 

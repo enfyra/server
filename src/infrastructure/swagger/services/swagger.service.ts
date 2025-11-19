@@ -88,7 +88,7 @@ export class SwaggerService implements OnApplicationBootstrap {
       },
       servers: [
         {
-          url: process.env.BACKEND_URL || 'http://localhost:1105',
+          url: process.env.BACKEND_URL,
           description: 'Enfyra Backend Server',
         },
       ],

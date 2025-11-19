@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MongoSchemaMigrationService } from '../../../infrastructure/mongo/services/mongo-schema-migration.service';
 import { MongoService } from '../../../infrastructure/mongo/services/mongo.service';
+import { MongoSchemaMigrationLockService } from '../../../infrastructure/mongo/services/mongo-schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../../../core/exceptions/custom-exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
+import { CreateTableDto } from '../dto/create-table.dto';
 
 /**
  * MongoTableHandlerService - Manages MongoDB collection metadata and validation
@@ -27,6 +29,7 @@ export class MongoTableHandlerService {
     private queryBuilder: QueryBuilderService,
     private schemaMigrationService: MongoSchemaMigrationService,
     private mongoService: MongoService,
+    private schemaMigrationLockService: MongoSchemaMigrationLockService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
   ) {}
@@ -40,6 +43,127 @@ export class MongoTableHandlerService {
             relationName: relation.propertyName,
             relationType: relation.type,
             missingField: 'inversePropertyName',
+          },
+        );
+      }
+    }
+  }
+
+  private async validateNoDuplicateInverseRelation(
+    sourceTableId: any,
+    sourceTableName: string,
+    newRelations: any[],
+  ): Promise<void> {
+    const { ObjectId } = require('mongodb');
+    const querySourceId = typeof sourceTableId === 'string' ? new ObjectId(sourceTableId) : sourceTableId;
+
+    for (const rel of newRelations || []) {
+      let targetTableId: any;
+      if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
+        targetTableId = typeof rel.targetTable._id === 'string' ? new ObjectId(rel.targetTable._id) : rel.targetTable._id;
+      } else if (typeof rel.targetTable === 'object' && rel.targetTable.id) {
+        targetTableId = typeof rel.targetTable.id === 'string' ? new ObjectId(rel.targetTable.id) : rel.targetTable.id;
+      } else if (typeof rel.targetTable === 'string') {
+        const targetTableRecord = await this.queryBuilder.findOneWhere('table_definition', { name: rel.targetTable });
+        if (targetTableRecord) {
+          targetTableId = typeof targetTableRecord._id === 'string' ? new ObjectId(targetTableRecord._id) : targetTableRecord._id;
+        } else {
+          continue;
+        }
+      } else {
+        continue;
+      }
+
+      if (!targetTableId) continue;
+
+      let targetTableName: string;
+      const targetTableRecord = await this.queryBuilder.findOneWhere('table_definition', { _id: targetTableId });
+      if (targetTableRecord) {
+        targetTableName = targetTableRecord.name;
+      } else {
+        continue;
+      }
+
+      let inverseExists = false;
+      let inverseRelationInfo = null;
+
+      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
+        const targetRelations = await this.queryBuilder.findWhere('relation_definition', {
+          sourceTable: targetTableId,
+          targetTable: querySourceId,
+        });
+
+        const matchingRelation = targetRelations.find((tr: any) => {
+          if (rel.inversePropertyName) {
+            return tr.propertyName === rel.inversePropertyName || tr.inversePropertyName === rel.propertyName;
+          } else {
+            return tr.inversePropertyName === rel.propertyName;
+          }
+        });
+
+        if (matchingRelation) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: matchingRelation.propertyName,
+            type: matchingRelation.type,
+          };
+        }
+      } else if (rel.type === 'one-to-many') {
+        if (!rel.inversePropertyName) continue;
+
+        const targetRelations = await this.queryBuilder.findWhere('relation_definition', {
+          sourceTable: targetTableId,
+          targetTable: querySourceId,
+          propertyName: rel.inversePropertyName,
+        });
+
+        const matchingRelation = targetRelations.find((tr: any) => 
+          ['many-to-one', 'one-to-one'].includes(tr.type)
+        );
+
+        if (matchingRelation) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: matchingRelation.propertyName,
+            type: matchingRelation.type,
+          };
+        }
+      } else if (rel.type === 'many-to-many') {
+        if (!rel.inversePropertyName) continue;
+
+        const targetRelations = await this.queryBuilder.findWhere('relation_definition', {
+          sourceTable: targetTableId,
+          targetTable: querySourceId,
+          propertyName: rel.inversePropertyName,
+          type: 'many-to-many',
+        });
+
+        if (targetRelations.length > 0) {
+          inverseExists = true;
+          inverseRelationInfo = {
+            table: targetTableName,
+            propertyName: targetRelations[0].propertyName,
+            type: targetRelations[0].type,
+          };
+        }
+      }
+
+      if (inverseExists && inverseRelationInfo) {
+        throw new ValidationException(
+          `Cannot create relation '${rel.propertyName}' (${rel.type}) from '${sourceTableName}' to '${targetTableName}': ` +
+          `The inverse relation already exists on target table '${targetTableName}' as '${inverseRelationInfo.propertyName}' (${inverseRelationInfo.type}). ` +
+          `Relations should be created on ONLY ONE side. System automatically handles the inverse relation. ` +
+          `Please remove the relation from '${targetTableName}' or update it instead of creating a duplicate.`,
+          {
+            sourceTable: sourceTableName,
+            targetTable: targetTableName,
+            relationName: rel.propertyName,
+            relationType: rel.type,
+            existingInverseTable: targetTableName,
+            existingInverseRelation: inverseRelationInfo.propertyName,
+            existingInverseType: inverseRelationInfo.type,
           },
         );
       }
@@ -140,7 +264,8 @@ export class MongoTableHandlerService {
     this.logger.log('✨ All relation fields dropped. Will be recreated by runtime logic.');
   }
 
-  async createTable(body: any) {
+  async createTable(body: CreateTableDto) {
+    return await this.runWithSchemaLock(`mongo:create:${body?.name || 'unknown'}`, async () => {
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
         tableName: body?.name,
@@ -155,11 +280,18 @@ export class MongoTableHandlerService {
     this.validateRelations(body.relations);
 
     try {
-      // Check if collection already exists
       const db = this.queryBuilder.getMongoDb();
-      const collections = await db.listCollections({ name: body.name }).toArray();
       
-      if (collections.length > 0) {
+      // Check metadata and physical collection SEPARATELY
+      const collections = await db.listCollections({ name: body.name }).toArray();
+      const hasCollection = collections.length > 0;
+      
+      const existing = await this.queryBuilder.findOneWhere('table_definition', {
+        name: body.name,
+      });
+
+      // If metadata exists, throw error (normal case)
+      if (existing) {
         throw new DuplicateResourceException(
           'table_definition',
           'name',
@@ -167,17 +299,19 @@ export class MongoTableHandlerService {
         );
       }
 
-      // Check if metadata already exists
-      const existing = await this.queryBuilder.findOneWhere('table_definition', {
-        name: body.name,
-      });
-
-      if (existing) {
-        throw new DuplicateResourceException(
-          'table_definition',
-          'name',
-          body.name
-        );
+      // If physical collection exists but no metadata (mismatch) -> drop physical collection first
+      if (hasCollection && !existing) {
+        this.logger.warn(`Mismatch detected: Physical collection "${body.name}" exists but no metadata found. Dropping physical collection...`);
+        try {
+          await db.collection(body.name).drop();
+          this.logger.log(`Physical collection "${body.name}" dropped successfully`);
+        } catch (dropError) {
+          this.logger.error(`Failed to drop physical collection "${body.name}": ${dropError.message}`);
+          throw new DatabaseException(
+            `Failed to drop existing physical collection "${body.name}": ${dropError.message}`,
+            { collectionName: body.name, operation: 'drop_existing_collection' }
+          );
+        }
       }
 
       // MongoDB: primary key must be named "_id", not "id"
@@ -374,9 +508,11 @@ export class MongoTableHandlerService {
         },
       );
     }
+    });
   }
 
-  async updateTable(id: any, body: any) {
+  async updateTable(id: any, body: CreateTableDto) {
+    return await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -412,6 +548,10 @@ export class MongoTableHandlerService {
       }
 
       validateUniquePropertyNames(body.columns || [], body.relations || []);
+
+      if (body.relations && body.relations.length > 0) {
+        await this.validateNoDuplicateInverseRelation(queryId, exists.name, body.relations);
+      }
 
       // Update table metadata (only update fields that are present in body)
       const updateData: any = {};
@@ -619,9 +759,11 @@ export class MongoTableHandlerService {
         },
       );
     }
+    });
   }
 
   async delete(id: string | number) {
+    return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
     try {
       const { ObjectId } = require('mongodb');
       const tableId = typeof id === 'string' ? new ObjectId(id) : id;
@@ -692,6 +834,7 @@ export class MongoTableHandlerService {
         },
       );
     }
+    });
   }
 
   /**
@@ -751,6 +894,14 @@ export class MongoTableHandlerService {
     });
 
     return table;
+  }
+  private async runWithSchemaLock<T>(context: string, handler: () => Promise<T>): Promise<T> {
+    const lock = await this.schemaMigrationLockService.acquire(context);
+    try {
+      return await handler();
+    } finally {
+      await this.schemaMigrationLockService.release(lock);
+    }
   }
 }
 

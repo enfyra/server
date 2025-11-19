@@ -5,8 +5,7 @@ import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Import processors
-import { BaseTableProcessor } from '../processors/base-table-processor';
+import { BaseTableProcessor, UpsertResult } from '../processors/base-table-processor';
 import { UserDefinitionProcessor } from '../processors/user-definition.processor';
 import { MenuDefinitionProcessor } from '../processors/menu-definition.processor';
 import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
@@ -18,6 +17,7 @@ import { ExtensionDefinitionProcessor } from '../processors/extension-definition
 import { FolderDefinitionProcessor } from '../processors/folder-definition.processor';
 import { BootstrapScriptDefinitionProcessor } from '../processors/bootstrap-script-definition.processor';
 import { RoutePermissionDefinitionProcessor } from '../processors/route-permission-definition.processor';
+import { AiConfigDefinitionProcessor } from '../processors/ai-config-definition.processor';
 import { GenericTableProcessor } from '../processors/generic-table.processor';
 
 const initJson = JSON.parse(
@@ -48,6 +48,7 @@ export class DefaultDataService {
     private readonly folderProcessor: FolderDefinitionProcessor,
     private readonly bootstrapScriptProcessor: BootstrapScriptDefinitionProcessor,
     private readonly routePermissionProcessor: RoutePermissionDefinitionProcessor,
+    private readonly aiConfigProcessor: AiConfigDefinitionProcessor,
   ) {
     this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
     this.initializeProcessors();
@@ -64,6 +65,7 @@ export class DefaultDataService {
     this.processors.set('extension_definition', this.extensionProcessor);
     this.processors.set('folder_definition', this.folderProcessor);
     this.processors.set('bootstrap_script_definition', this.bootstrapScriptProcessor);
+    this.processors.set('ai_config_definition', this.aiConfigProcessor);
     
     const allTables = Object.keys(initJson);
     const registeredTables = Array.from(this.processors.keys());
@@ -78,12 +80,10 @@ export class DefaultDataService {
   async insertAllDefaultRecords(): Promise<void> {
     this.logger.log('Starting default data upsert...');
     
-    // MongoDB: Direct JSON insert (simpler, no processors needed)
     if (this.dbType === 'mongodb') {
       return this.insertAllDefaultRecordsMongo();
     }
     
-    // SQL: Use processors for complex relations
     const qb = this.queryBuilder.getConnection();
     let totalCreated = 0;
     let totalSkipped = 0;
@@ -162,6 +162,33 @@ export class DefaultDataService {
     }
 
     this.logger.log(`🎉 MongoDB default data completed! Total: ${totalCreated} created, ${totalSkipped} skipped`);
+  }
+
+  async insertTableRecords(tableName: string): Promise<UpsertResult> {
+    const rawRecords = initJson[tableName];
+    if (!rawRecords) {
+      this.logger.warn(`No data found in init.json for '${tableName}'`);
+      return { created: 0, skipped: 0 };
+    }
+
+    const processor = this.processors.get(tableName);
+    if (!processor) {
+      this.logger.warn(`No processor found for '${tableName}'`);
+      return { created: 0, skipped: 0 };
+    }
+
+    const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
+    const isMongoDB = this.dbType === 'mongodb';
+
+    if (isMongoDB) {
+      const db = this.queryBuilder.getMongoDb();
+      return await processor.processMongo(records, db, tableName, { db });
+    } else {
+      const qb = this.queryBuilder.getConnection();
+      const dbType = this.queryBuilder.getDatabaseType();
+      const context = { knex: qb, tableName, dbType };
+      return await processor.processSql(records, qb, tableName, context);
+    }
   }
 
   private async insertAndGetId(

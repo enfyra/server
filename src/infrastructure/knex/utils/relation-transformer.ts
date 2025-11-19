@@ -18,7 +18,9 @@ export class RelationTransformer {
     const tableMeta = metadata.tables?.get?.(tableName) ||
                       metadata.tablesList?.find((t: any) => t.name === tableName);
 
-    if (!tableMeta || !tableMeta.relations) return data;
+    if (!tableMeta || !tableMeta.relations) {
+      return data;
+    }
 
     const transformed = { ...data };
     const manyToManyRelations: Array<{ relationName: string; ids: any[] }> = [];
@@ -44,6 +46,8 @@ export class RelationTransformer {
             transformed[fkColumn] = relValue.id;
           } else if (typeof relValue === 'number' || typeof relValue === 'string') {
             transformed[fkColumn] = relValue;
+          } else {
+            this.logger.warn(`[RelationTransformer] Unexpected relation value format for ${relName}: ${typeof relValue}, value: ${JSON.stringify(relValue)}`);
           }
 
           delete transformed[relName];

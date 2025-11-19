@@ -1,6 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { SqlTableHandlerService } from './sql-table-handler.service';
 import { MongoTableHandlerService } from './mongo-table-handler.service';
+import { CreateTableDto } from '../dto/create-table.dto';
 
 /**
  * TableHandlerService - Router for database-specific table management
@@ -27,11 +28,11 @@ export class TableHandlerService {
     return this.sqlTableHandler;
   }
 
-  async createTable(body: any) {
+  async createTable(body: CreateTableDto) {
     return this.getHandler().createTable(body);
   }
 
-  async updateTable(id: string | number, body: any) {
+  async updateTable(id: string | number, body: CreateTableDto) {
     return this.getHandler().updateTable(id, body);
   }
 

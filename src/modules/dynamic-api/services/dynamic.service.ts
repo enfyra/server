@@ -102,11 +102,11 @@ export class DynamicService {
   private getDefaultHandler(method: string): string {
     switch (method) {
       case 'DELETE':
-        return `return await $ctx.$repos.main.delete($ctx.$params.id);`;
+        return `return await $ctx.$repos.main.delete({ id: $ctx.$params.id });`;
       case 'POST':
-        return `return await $ctx.$repos.main.create($ctx.$body);`;
+        return `return await $ctx.$repos.main.create({ data: $ctx.$body });`;
       case 'PATCH':
-        return `return await $ctx.$repos.main.update($ctx.$params.id, $ctx.$body);`;
+        return `return await $ctx.$repos.main.update({ id: $ctx.$params.id, data: $ctx.$body });`;
       default:
         return `return await $ctx.$repos.main.find();`;
     }

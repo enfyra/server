@@ -83,15 +83,18 @@ export async function expandFieldsToJoinsAndSelect(
           if (fkCol) fkColumnsToOmit.add(fkCol);
         }
       }
+      const addedColumnNames = new Set<string>();
       for (const col of baseMeta.columns) {
         if (fkColumnsToOmit.has(col.name)) continue;
         select.push(`${tableName}.${col.name}`);
+        addedColumnNames.add(col.name);
       }
 
-      // Auto-add all relations with only 'id' field
+      // Auto-add all relations with only 'id' field (skip if column with same name exists)
       for (const rel of baseMeta.relations || []) {
-        if (!fieldsByRelation.has(rel.propertyName)) {
+        if (!fieldsByRelation.has(rel.propertyName) && !addedColumnNames.has(rel.propertyName)) {
           // Relation not explicitly requested, auto-add with id only
+          // Skip if there's a column with the same name (e.g., createdAt, updatedAt)
           fieldsByRelation.set(rel.propertyName, ['id']);
         }
       }
@@ -101,6 +104,14 @@ export async function expandFieldsToJoinsAndSelect(
 
     if (field.includes('.')) {
       // Simple column with dot notation (shouldn't happen, but handle it)
+      select.push(`${tableName}.${field}`);
+      continue;
+    }
+
+    // Check if field is a scalar column first (to avoid treating columns as relations)
+    const matchingColumn = baseMeta.columns?.find(c => c.name === field);
+    if (matchingColumn) {
+      // This is a scalar column
       select.push(`${tableName}.${field}`);
       continue;
     }
@@ -115,7 +126,7 @@ export async function expandFieldsToJoinsAndSelect(
       continue;
     }
 
-    // Regular scalar column
+    // Fallback: treat as regular scalar column (for system columns not in metadata)
     select.push(`${tableName}.${field}`);
   }
 
