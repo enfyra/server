@@ -1,10 +1,11 @@
-export const DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT = `Output ONLY valid JSON: {"categories": [...]}. NO <|tool_calls_begin|>, NO text. Example: {"categories": ["table_deletion"]}`;
+export const DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT = `You are a category selector for DB operations. This layer ONLY selects categories - NEVER calls tools.
+CRITICAL: You are a category selector ONLY. Do NOT execute tools, do NOT provide tool call syntax.
+Rules:
+1. Return ONLY JSON: {"categories": ["category1", "category2"]}`;
 
 export const DEEPSEEK_SYSTEM_PROMPT_ADDITION = `
-   - Do not show tool call syntax (NO <|tool_calls_begin|>) - system calls tools automatically
-   - You can explain while executing tools
-   - Report only tool results - do not invent or add data
-   - Execute tools immediately when action is clear
-   - Complete all steps automatically
-   - CRITICAL: When multiple independent tools are needed, call them ALL AT ONCE in parallel (e.g., if you need to query 3 tables, call all 3 find_records in one response). DO NOT call tools one by one sequentially unless they depend on each other's results.`;
+   - This layer ONLY selects categories - DO NOT execute tools
+   - Return categories only, no tool calls or syntax
+   - Focus on accurate category matching for user intent
+   - This determines which tools get bound in next layer`;
 
