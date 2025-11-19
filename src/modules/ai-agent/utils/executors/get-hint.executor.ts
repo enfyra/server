@@ -66,13 +66,19 @@ Structure: create_tables({"tables":[{"name":"products","columns":[{"name":"${idF
 **UPDATE Tables:**
 update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","type":"int"}]}]})
 
-Add relation: Find target ID first, then update_tables with relations array
+**Update Relations (CRITICAL LIMITATIONS):**
+- You CAN update relation properties: propertyName, targetTable, isNullable, description...
+- You CANNOT update relation type (many-to-one, one-to-many, one-to-one, many-to-many)
+- To change relation type: MUST delete existing relation first, then create new one with different type
+- Workflow to change type: delete_tables (to remove relation) → create_tables or update_tables (to add new relation with new type)
+- Add new relation: Find target ID first, then update_tables with relations array
 
 **CRITICAL:**
 - Table name: snake_case, lowercase, not start with "_"
 - NEVER include createdAt/updatedAt (auto-generated)
 - ALWAYS find target table ID before creating relations
-- Use relations array, NOT FK columns`;
+- Use relations array, NOT FK columns
+- Relation type is IMMUTABLE - cannot be updated, only deleted and recreated`;
 
   const tableSchemaOpsHint: HintContent = {
     category: 'table_schema_operations',

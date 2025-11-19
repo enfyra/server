@@ -278,6 +278,12 @@ Each table object:
 - columns (optional): Array of column definition objects to add/update. Merged by name. Schema same as create_tables.
 - relations (optional): Array of relation definition objects to add/update. Merged by propertyName. Schema same as create_tables.
 
+**CRITICAL - Relation Update Limitations:**
+- You CAN update relation properties: propertyName, targetTable, isNullable, description
+- You CANNOT update relation type (many-to-one, one-to-many, one-to-one, many-to-many)
+- Relation type is IMMUTABLE - to change type, you MUST delete the existing relation first, then create a new one
+- Workflow to change relation type: delete existing relation → create new relation with different type
+
 - uniques (optional): Array of unique constraints (replaces existing)
 - indexes (optional): Array of index definitions (replaces existing)
 
