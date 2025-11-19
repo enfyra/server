@@ -23,6 +23,7 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - crud_query_operations: Find/count records (when table name is known)
 - metadata_operations: List tables, get schema (when table name is known)
 - natural_language_discovery: User asks about resources in natural language (e.g., "show me routes", "list users", "which routes are published with method get") - need to guess table name first
+- routes_endpoints: User asks about routes, endpoints, API paths, test URLs, or how to test APIs
 - system_workflows: Multi-step, system creation
 
 **Selection (MINIMUM NECESSARY):**
@@ -35,6 +36,9 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "find/count records" (natural language, e.g., "show me routes", "list users") → ["natural_language_discovery", "crud_query_operations"]
 - "list tables/get schema" (table name known) → ["metadata_operations"]
 - "list tables/get schema" (natural language, e.g., "what routes exist") → ["natural_language_discovery", "metadata_operations"]
+- "routes/endpoints/API paths/test URLs" → ["routes_endpoints", "natural_language_discovery"]
+- "how to test API" → ["routes_endpoints"]
+- "what endpoints are available" → ["routes_endpoints", "natural_language_discovery"]
 - "create system/backend" → ["system_workflows", "table_schema_operations"]
 - "create system + add data" → ["system_workflows", "table_schema_operations", "crud_write_operations"]
 - CRITICAL: Only select what user explicitly needs. Do NOT add "crud_write_operations" unless user says "add data" or "insert records"
@@ -75,11 +79,14 @@ Examples:
 {"user": "Delete order with id 123", "output": {"categories": ["crud_delete_operations"]}}
 {"user": "Count products", "output": {"categories": ["crud_query_operations"]}}
 {"user": "Find all users", "output": {"categories": ["crud_query_operations"]}}
-{"user": "Show me routes", "output": {"categories": ["natural_language_discovery", "crud_query_operations"]}}
+{"user": "Show me routes", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "List users", "output": {"categories": ["natural_language_discovery", "crud_query_operations"]}}
 {"user": "What products are available", "output": {"categories": ["natural_language_discovery", "crud_query_operations"]}}
-{"user": "which routes are published with method get", "output": {"categories": ["natural_language_discovery", "crud_query_operations"]}}
-{"user": "what routes exist in the system", "output": {"categories": ["natural_language_discovery", "crud_query_operations"]}}
+{"user": "which routes are published with method get", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
+{"user": "what routes exist in the system", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
+{"user": "give me the endpoint to test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
+{"user": "what is the API path for products", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
+{"user": "how do I test the API", "output": {"categories": ["routes_endpoints"]}}
 {"user": "Create e-commerce system with 5 tables", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
 {"user": "Build backend and add sample data", "output": {"categories": ["system_workflows", "table_schema_operations", "crud_write_operations"]}}`;
 
