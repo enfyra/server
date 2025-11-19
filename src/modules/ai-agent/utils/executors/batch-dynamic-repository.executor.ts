@@ -31,7 +31,6 @@ export async function executeBatchDynamicRepository(
     dataArray?: any[];
     updates?: Array<{ id: string | number; data: any }>;
     ids?: Array<string | number>;
-    skipPermissionCheck?: boolean;
   },
   context: TDynamicContext,
   abortSignal: AbortSignal | undefined,

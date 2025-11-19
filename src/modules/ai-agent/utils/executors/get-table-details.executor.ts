@@ -49,7 +49,7 @@ export async function executeGetTableDetails(
       error: true,
       errorCode: 'MISSING_TABLE_NAME',
       message: 'tableName parameter is required and must be an array of table names.',
-      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","where":{"name":{"_icontains":"route"}},"skipPermissionCheck":true,"limit":5}). Then use the returned table names in get_table_details({"tableName":["route_definition"]}).',
+      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","where":{"name":{"_icontains":"route"}},"limit":5}). Then use the returned table names in get_table_details({"tableName":["route_definition"]}).',
       example: 'get_table_details({"tableName":["route_definition","user_definition"]})',
     };
   }
@@ -61,7 +61,7 @@ export async function executeGetTableDetails(
       error: true,
       errorCode: 'EMPTY_TABLE_NAME',
       message: 'At least one table name is required in the tableName array.',
-      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","skipPermissionCheck":true,"limit":10}). Then use the returned table names.',
+      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","limit":10}). Then use the returned table names.',
       example: 'get_table_details({"tableName":["route_definition"]})',
     };
   }

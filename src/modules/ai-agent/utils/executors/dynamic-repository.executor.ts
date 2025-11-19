@@ -1,16 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
-import { TableHandlerService } from '../../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
-import { RouteCacheService } from '../../../../infrastructure/cache/services/route-cache.service';
-import { StorageConfigCacheService } from '../../../../infrastructure/cache/services/storage-config-cache.service';
-import { AiConfigCacheService } from '../../../../infrastructure/cache/services/ai-config-cache.service';
-import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
-import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
-import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { SwaggerService } from '../../../../infrastructure/swagger/services/swagger.service';
-import { GraphqlService } from '../../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 import {
   formatErrorForUser,
@@ -34,8 +23,7 @@ export async function executeDynamicRepository(
     meta?: string;
     data?: any;
     id?: string | number;
-    skipPermissionCheck?: boolean;
-  },
+    },
   context: TDynamicContext,
   abortSignal: AbortSignal | undefined,
   deps: DynamicRepositoryExecutorDependencies,
@@ -129,7 +117,6 @@ export async function executeDynamicRepository(
 
   const isMetadataTable = args.table.endsWith('_definition');
   const needsPermissionCheck =
-    !args.skipPermissionCheck &&
     !isMetadataTable &&
     ['find', 'create', 'update', 'delete'].includes(args.operation);
 

@@ -509,12 +509,6 @@ Detailed workflows, filtering strategies, and best practices are provided in the
           description:
             'Optional. For counting records: "totalCount" to count all records (no filter), "filterCount" to count records matching filter. MUST use with limit=1 and fields="id". The count will be returned in response metadata.',
         },
-        skipPermissionCheck: {
-          type: 'boolean',
-          description:
-            'Optional. Set to true ONLY for metadata operations (*_definition tables). Default: false.',
-          default: false,
-        },
       },
       required: ['table', 'fields'],
     },
