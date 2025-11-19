@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { IConversation } from '../interfaces/conversation.interface';
 import { IMessage } from '../interfaces/message.interface';
 import { LLMMessage } from './types';
@@ -18,8 +19,9 @@ export async function buildLLMMessages(params: {
   selectedToolNames?: string[];
   metadataCacheService: MetadataCacheService;
   queryBuilder: QueryBuilderService;
+  configService: ConfigService;
 }): Promise<LLMMessage[]> {
-  const { conversation, messages, config, user, needsTools = true, hintCategories, selectedToolNames, metadataCacheService, queryBuilder } = params;
+  const { conversation, messages, config, user, needsTools = true, hintCategories, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
 
   const latestUserMessage = messages.length > 0
     ? messages[messages.length - 1]?.content
@@ -35,6 +37,7 @@ export async function buildLLMMessages(params: {
     selectedToolNames,
     metadataCacheService,
     queryBuilder,
+    configService,
   });
   
   const llmMessages: LLMMessage[] = [];

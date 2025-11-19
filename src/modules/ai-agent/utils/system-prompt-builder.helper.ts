@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config';
 import { IConversation } from '../interfaces/conversation.interface';
 import { buildSystemPrompt } from '../prompts/prompt-builder';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
@@ -13,8 +14,9 @@ export async function buildSystemPromptForLLM(params: {
   selectedToolNames?: string[];
   metadataCacheService: MetadataCacheService;
   queryBuilder: QueryBuilderService;
+  configService: ConfigService;
 }): Promise<string> {
-  const { conversation, user, latestUserMessage, needsTools = true, config, hintCategories, selectedToolNames, metadataCacheService, queryBuilder } = params;
+  const { conversation, user, latestUserMessage, needsTools = true, config, hintCategories, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
   const provider = config?.provider || 'OpenAI';
 
   let tablesList: string | undefined;
@@ -39,6 +41,8 @@ export async function buildSystemPromptForLLM(params: {
     hintContent = getHintContentString(hints);
   }
 
+  const baseApiUrl = configService.get<string>('BACKEND_URL');
+
   const systemPrompt = buildSystemPrompt({
     provider,
     needsTools,
@@ -49,6 +53,7 @@ export async function buildSystemPromptForLLM(params: {
     conversationSummary: conversation.summary,
     task: conversation.task,
     hintContent,
+    baseApiUrl,
   });
   
   return systemPrompt;

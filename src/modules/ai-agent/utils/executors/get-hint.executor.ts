@@ -280,6 +280,10 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
 - Only routes with isEnabled=true are active
 - Route paths are CUSTOMIZABLE - may not match table name
 - Use find_records to discover actual routes before suggesting test URLs
+- **When providing routes to users:**
+  * ALWAYS prefix route path with base API URL from system prompt
+  * Example: route path "/users" → provide full URL like "https://api.enfyra.io/users"
+  * NEVER provide just "/users" - always include full URL
 - **If route not found in route_definition:**
   * Inform user: "Route not found in route_definition table"
   * **MUST tell user**: "If you have customized the route path, it may not be discoverable by table name. Please check your route_definition table or provide the custom path."
