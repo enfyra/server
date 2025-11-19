@@ -14,6 +14,7 @@ export interface AiConfig {
   provider: string;
   apiKey?: string;
   model: string;
+  baseUrl?: string | null;
   isEnabled: boolean;
   maxConversationMessages: number;
   summaryThreshold: number;
@@ -104,7 +105,8 @@ export class AiConfigCacheService implements OnModuleInit, OnApplicationBootstra
       id: config.id,
       provider: config.provider,
       apiKey: config.apiKey,
-      model: config.model || 'gpt-4o-mini',
+      model: config.model,
+      baseUrl: config.baseUrl,
       isEnabled: config.isEnabled !== false,
       maxConversationMessages: config.maxConversationMessages || 10,
       summaryThreshold: config.summaryThreshold || 20,

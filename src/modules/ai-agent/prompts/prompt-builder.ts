@@ -5,8 +5,9 @@ import { OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT, OPENAI_SYSTEM_PROMPT_ADDITION } fro
 import { ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT, ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
 import { GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT, GOOGLE_SYSTEM_PROMPT_ADDITION } from './providers/google.prompts';
 import { BuildSystemPromptParams } from '../utils/types';
+import { GLM_EVALUATE_NEEDS_TOOLS_PROMPT, GLM_SYSTEM_PROMPT_ADDITION } from './providers/glm.prompts';
 
-type Provider = 'OpenAI' | 'DeepSeek' | 'Anthropic' | 'Google';
+type Provider = 'OpenAI' | 'DeepSeek' | 'Anthropic' | 'Google' | 'GLM';
 
 interface ProviderPrompts {
   evaluateNeedsTools: string;
@@ -29,6 +30,10 @@ const PROVIDER_PROMPTS: Record<Provider, ProviderPrompts> = {
   Google: {
     evaluateNeedsTools: GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: GOOGLE_SYSTEM_PROMPT_ADDITION,
+  },
+  GLM: {
+    evaluateNeedsTools: GLM_EVALUATE_NEEDS_TOOLS_PROMPT,
+    systemPromptAddition: GLM_SYSTEM_PROMPT_ADDITION,
   },
 };
 

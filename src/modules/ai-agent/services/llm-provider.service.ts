@@ -28,7 +28,7 @@ export class LLMProviderService {
       const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
       return new ChatGoogleGenerativeAI({
         apiKey: config.apiKey,
-        model: config.model?.trim() || 'gemini-2.0-flash-exp',
+        model: config.model?.trim(),
         temperature: 0.7,
         maxOutputTokens: 8192,
         streaming: true,
@@ -38,9 +38,25 @@ export class LLMProviderService {
     if (config.provider === 'DeepSeek') {
       return new ChatDeepSeek({
         apiKey: config.apiKey,
-        model: config.model?.trim() || 'deepseek-chat',
+        model: config.model?.trim(),
         timeout: config.llmTimeout || 30000,
         streaming: true,
+      });
+    }
+
+    if (config.provider === 'GLM') {
+      if (!config.apiKey) {
+        throw new BadRequestException('GLM provider requires an API key');
+      }
+      const baseUrl = (config.baseUrl || 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '');
+      return new ChatOpenAI({
+        apiKey: config.apiKey,
+        model: config.model?.trim(),
+        timeout: config.llmTimeout || 30000,
+        streaming: true,
+        configuration: {
+          baseURL: baseUrl,
+        },
       });
     }
 
