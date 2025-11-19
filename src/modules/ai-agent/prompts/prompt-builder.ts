@@ -57,6 +57,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     conversationSummary,
     task,
     hintContent,
+    baseApiUrl,
   } = params;
 
   if (!needsTools) {
@@ -125,6 +126,10 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   
   if (hintContent && hintContent.length > 0) {
     prompt += `\n\n**RELEVANT WORKFLOWS & RULES:**\n\n${hintContent}\n\n**CRITICAL - Hints Already Provided:**\n- The workflows and rules above have been automatically injected into this prompt based on your selected categories.\n- DO NOT call get_hint tool - all necessary guidance is already in the "RELEVANT WORKFLOWS & RULES" section above.\n- Use the information provided above directly - it contains all the step-by-step workflows and tool usage instructions you need.`;
+  }
+
+  if (baseApiUrl) {
+    prompt += `\n\n**API Base URL:**\n- Base API URL: ${baseApiUrl}\n- When providing routes or endpoints to users, ALWAYS prefix the route path with this base URL\n- Example: If route path is "/users", provide: "${baseApiUrl}/users"\n- Example: If route path is "/products", provide: "${baseApiUrl}/products"\n- NEVER provide just the route path without the base URL when user asks for API endpoint`;
   }
 
   return prompt;

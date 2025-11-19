@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { ConversationService } from './conversation.service';
 import { LLMService } from './llm.service';
@@ -26,6 +27,7 @@ export class AiAgentService {
     private readonly metadataCacheService: MetadataCacheService,
     private readonly aiConfigCacheService: AiConfigCacheService,
     private readonly queryBuilder: QueryBuilderService,
+    private readonly configService: ConfigService,
   ) {}
 
 
@@ -394,7 +396,7 @@ export class AiAgentService {
       }
 
       const needsTools = selectedToolNames && selectedToolNames.length > 0;
-      const llmMessages = await buildLLMMessages({ conversation, messages, config, user, needsTools, hintCategories, selectedToolNames, metadataCacheService: this.metadataCacheService, queryBuilder: this.queryBuilder });
+      const llmMessages = await buildLLMMessages({ conversation, messages, config, user, needsTools, hintCategories, selectedToolNames, metadataCacheService: this.metadataCacheService, queryBuilder: this.queryBuilder, configService: this.configService });
 
       let toolsDefSize = 0;
       if (selectedToolNames && selectedToolNames.length > 0) {
