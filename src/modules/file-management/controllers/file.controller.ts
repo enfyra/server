@@ -229,7 +229,7 @@ export class FileController {
       storageConfig?.id || null,
     );
 
-    const result = await fileRepo.delete(id);
+    const result = await fileRepo.delete({ id });
     return result;
   }
 }

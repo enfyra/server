@@ -210,8 +210,9 @@ export class DynamicRepository {
   async delete(opt: { id: string | number }) {
     try {
       const { id } = opt;
+      const idField = this.getIdField();
       
-      const existsResult = await this.find({ where: { id: { _eq: id } } });
+      const existsResult = await this.find({ where: { [idField]: { _eq: id } } });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
 

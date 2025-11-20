@@ -206,7 +206,7 @@ export class PackageController {
       });
 
       // Remove from database
-      const result = await packageRepo.delete(id);
+      const result = await packageRepo.delete({ id });
 
       // Reload package cache after deletion
       await this.packageCacheService.reload();
