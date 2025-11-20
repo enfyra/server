@@ -162,19 +162,21 @@ export class FileManagementService {
 
     try {
       const savedFile = await fileRepo.create({
-        filename: processedFile.filename,
-        mimetype: processedFile.mimetype,
-        type: processedFile.type,
-        filesize: processedFile.filesize,
-        location: processedFile.location,
-        description: processedFile.description || null,
-        folder: folderData,
-        uploaded_by: options.userId
-          ? this.createIdReference(options.userId)
-          : null,
-        storageConfig: processedFile.storage_config_id
-          ? this.createIdReference(processedFile.storage_config_id)
-          : null,
+        data: {
+          filename: processedFile.filename,
+          mimetype: processedFile.mimetype,
+          type: processedFile.type,
+          filesize: processedFile.filesize,
+          location: processedFile.location,
+          description: processedFile.description || null,
+          folder: folderData,
+          uploaded_by: options.userId
+            ? this.createIdReference(options.userId)
+            : null,
+          storageConfig: processedFile.storage_config_id
+            ? this.createIdReference(processedFile.storage_config_id)
+            : null,
+        },
       });
 
       return savedFile;

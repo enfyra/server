@@ -319,7 +319,7 @@ export class ConversationService {
 
       const messagesToDelete = result.data || [];
       for (const msg of messagesToDelete) {
-        await messageRepo.delete(msg.id);
+        await messageRepo.delete({ id: msg.id });
       }
 
       this.logger.log(`Updated conversation ${conversationId} and deleted ${messagesToDelete.length} old messages (before sequence ${beforeSequence})`);
