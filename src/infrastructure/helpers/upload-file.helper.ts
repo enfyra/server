@@ -240,7 +240,7 @@ export class UploadFileHelper {
           storageConfig?.id || null,
         );
 
-        return await fileRepo.delete(fileId);
+        return await fileRepo.delete({ id: fileId });
       } catch (error: any) {
         this.handleError(error, 'deleteFile');
       }
