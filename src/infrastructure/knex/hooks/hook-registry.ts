@@ -2,7 +2,6 @@ import { Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
-import { parseBooleanFields } from '../../query-builder/utils/sql/parse-boolean-fields';
 
 export type HookEvent = 'beforeInsert' | 'afterInsert' | 'beforeUpdate' | 'afterUpdate' | 'beforeDelete' | 'afterDelete' | 'beforeSelect' | 'afterSelect';
 
@@ -179,47 +178,10 @@ export class KnexHookRegistry {
       return this.autoParseJsonFields(result, { table: tableName });
     });
 
-    this.addHook('afterSelect', async (tableName, result) => {
-      const booleanFields = await this.getBooleanFieldsForTable(tableName);
-      return parseBooleanFields(result, booleanFields);
-    });
+    // Removed boolean parsing; handled at DB layer for MySQL via typeCast
 
     this.logger.log('🪝 Default hooks registered');
   }
 
-  private async getBooleanFieldsForTable(tableName: string): Promise<Set<string>> {
-    const booleanFields = new Set<string>();
-
-    const metadata = this.metadataCacheService.getDirectMetadata();
-    if (!metadata) return booleanFields;
-
-    const tableMetadata = await this.metadataCacheService.lookupTableByName(tableName);
-    if (!tableMetadata) return booleanFields;
-
-    if (tableMetadata.columns) {
-      for (const column of tableMetadata.columns) {
-        if (column.type === 'boolean') {
-          booleanFields.add(column.name);
-        }
-      }
-    }
-
-    if (tableMetadata.relations) {
-      for (const relation of tableMetadata.relations) {
-        const relatedTableName = relation.targetTableName || relation.targetTable;
-        if (relatedTableName) {
-          const relatedMetadata = await this.metadataCacheService.lookupTableByName(relatedTableName);
-          if (relatedMetadata?.columns) {
-            for (const column of relatedMetadata.columns) {
-              if (column.type === 'boolean') {
-                booleanFields.add(column.name);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return booleanFields;
-  }
+  // Removed: boolean field lookup for afterSelect parsing
 }

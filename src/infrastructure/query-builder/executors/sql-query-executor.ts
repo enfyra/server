@@ -1,4 +1,5 @@
 import { Knex } from 'knex';
+import { Logger } from '@nestjs/common';
 import {
   DatabaseType,
   QueryOptions,
@@ -8,6 +9,7 @@ import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-
 import { separateFilters, applyRelationFilters } from '../utils/sql/relation-filter.util';
 
 export class SqlQueryExecutor {
+  private readonly logger = new Logger(SqlQueryExecutor.name);
   private debugLog: any[] = [];
   private metadata: any;
 
@@ -175,13 +177,15 @@ export class SqlQueryExecutor {
               (tableName: string) => this.metadata?.tables?.get(tableName),
             );
           } else {
-            query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+            query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType, metadata);
           }
         } else {
-          query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+          const metadata = this.metadata?.tables?.get(queryOptions.table);
+          query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType, metadata);
         }
       } else {
-        query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType);
+        const metadata = this.metadata?.tables?.get(queryOptions.table);
+        query = buildWhereClause(query, originalFilter, queryOptions.table, this.dbType, metadata);
       }
     } else if (queryOptions.where && queryOptions.where.length > 0) {
       query = this.applyWhereToKnex(query, queryOptions.where, queryOptions.table);

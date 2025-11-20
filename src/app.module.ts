@@ -20,7 +20,6 @@ import { RouteCacheService } from './infrastructure/cache/services/route-cache.s
 import { PackageCacheService } from './infrastructure/cache/services/package-cache.service';
 import { SqlFunctionService } from './infrastructure/sql/services/sql-function.service';
 import { DynamicModule } from './modules/dynamic-api/dynamic.module';
-import { SystemProtectionService } from './modules/dynamic-api/services/system-protection.service';
 import { GraphqlModule } from './modules/graphql/graphql.module';
 import { MeModule } from './modules/me/me.module';
 import { TableModule } from './modules/table-management/table.module';
@@ -39,6 +38,7 @@ import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
 import { DatabaseSchemaService } from './infrastructure/knex/services/database-schema.service';
 import { AdminModule } from './modules/admin/admin.module';
+import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 
 @Global()
 @Module({
@@ -87,6 +87,7 @@ import { AdminModule } from './modules/admin/admin.module';
     MeModule,
     EnfyraSwaggerModule,
     AdminModule,
+    AiAgentModule,
     DynamicModule,
     HandlerExecutorModule,
     GraphqlModule,
@@ -97,7 +98,6 @@ import { AdminModule } from './modules/admin/admin.module';
     SqlFunctionService,
     RouteCacheService,
     PackageCacheService,
-    SystemProtectionService,
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -114,7 +114,6 @@ import { AdminModule } from './modules/admin/admin.module';
     RedisPubSubService,
     RouteCacheService,
     PackageCacheService,
-    SystemProtectionService,
     CacheModule,
     DatabaseSchemaService,
   ],

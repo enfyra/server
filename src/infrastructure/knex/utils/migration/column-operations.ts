@@ -12,13 +12,11 @@ export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void
       break;
 
     case 'int':
-      if (col.isPrimary && col.isGenerated) {
+      if (col.isPrimary) {
+        // Auto increment is default for int primary keys
         column = table.increments(col.name).unsigned();
       } else {
         column = table.integer(col.name);
-        if (col.isPrimary) {
-          column.primary().unsigned();
-        }
       }
       break;
 

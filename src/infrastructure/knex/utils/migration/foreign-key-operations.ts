@@ -101,11 +101,12 @@ export function generateForeignKeySQL(
   targetColumn: string = 'id',
   isNullable: boolean = true,
   dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql',
+  onDelete?: string,
 ): string {
   const qt = (id: string) => quoteIdentifier(id, dbType);
-  const onDelete = isNullable ? 'SET NULL' : 'RESTRICT';
+  const onDeleteAction = onDelete || (isNullable ? 'SET NULL' : 'RESTRICT');
   const fkName = `fk_${tableName}_${columnName}`;
-  return `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn)}) ON DELETE ${onDelete} ON UPDATE CASCADE`;
+  return `ALTER TABLE ${qt(tableName)} ADD CONSTRAINT ${qt(fkName)} FOREIGN KEY (${qt(columnName)}) REFERENCES ${qt(targetTable)} (${qt(targetColumn)}) ON DELETE ${onDeleteAction} ON UPDATE CASCADE`;
 }
 
 function getAllForeignKeyConstraintsReferencingTableQuery(

@@ -16,12 +16,18 @@ export class RelationIdDto {
   @IsNumber()
   @IsNotEmpty()
   id: number;
+
+  _id?: any;
+
+  name?: string;
 }
 
 export class CreateColumnDto {
   @IsOptional()
   @IsNumber()
   id?: number;
+
+  _id?: any;
 
   @IsString()
   description?: string;
@@ -83,12 +89,28 @@ export class CreateColumnDto {
   @IsOptional()
   @IsBoolean()
   isIndex?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSystem?: boolean;
+
+  @IsOptional()
+  defaultValue?: any;
+
+  @IsOptional()
+  options?: any;
+
+  @IsOptional()
+  @IsString()
+  placeholder?: string;
 }
 
 export class CreateRelationDto {
   @IsOptional()
   @IsNumber()
   id?: number;
+
+  _id?: any;
 
   @IsString()
   description?: string;
@@ -141,9 +163,30 @@ export class CreateRelationDto {
   @IsOptional()
   isNullable?: boolean;
 
+  @IsOptional()
+  @IsString()
+  @IsIn(['CASCADE', 'RESTRICT', 'SET NULL'])
+  onDelete?: 'CASCADE' | 'RESTRICT' | 'SET NULL';
+
   @IsBoolean()
   @IsOptional()
   isIndex?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSystem?: boolean;
+
+  @IsOptional()
+  @IsString()
+  junctionTableName?: string;
+
+  @IsOptional()
+  @IsString()
+  junctionSourceColumn?: string;
+
+  @IsOptional()
+  @IsString()
+  junctionTargetColumn?: string;
 }
 
 export class CreateIndexDto {
@@ -166,10 +209,22 @@ export class CreateTableDto {
   name: string;
 
   @IsOptional()
+  @IsString()
+  alias?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isSystem?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSingleRecord?: boolean;
+
+  @IsOptional()
   indexes?: CreateIndexDto[];
 
   @IsOptional()
-  uniques: CreateUniqueDto[];
+  uniques?: CreateUniqueDto[];
 
   @IsArray()
   @ValidateNested({ each: true })
@@ -177,6 +232,7 @@ export class CreateTableDto {
   @PrimaryKeyValidCheck()
   columns: CreateColumnDto[];
 
+  @IsOptional()
   @IsString()
   description?: string;
 

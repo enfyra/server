@@ -153,11 +153,11 @@ export class CoreInitMongoService {
       const def = defRaw as any;
       const { columns, relations, ...tableData } = def;
 
-      // Build record based on table_definition columns
       const record = this.buildRecordFromColumns(tableData, tableDef.columns);
 
-      // NOTE: columns and relations are inverse one-to-many - NOT stored
-      // They will be computed via $lookup based on metadata
+      if (tableName === 'setting_definition') {
+        record.isSingleRecord = true;
+      }
 
       return record;
     });

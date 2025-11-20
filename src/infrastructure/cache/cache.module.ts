@@ -4,10 +4,11 @@ import { RedisPubSubService } from './services/redis-pubsub.service';
 import { RouteCacheService } from './services/route-cache.service';
 import { MetadataCacheService } from './services/metadata-cache.service';
 import { StorageConfigCacheService } from './services/storage-config-cache.service';
+import { AiConfigCacheService } from './services/ai-config-cache.service';
 
 @Global()
 @Module({
-  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, StorageConfigCacheService],
-  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, StorageConfigCacheService],
+  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, StorageConfigCacheService, AiConfigCacheService],
+  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, StorageConfigCacheService, AiConfigCacheService],
 })
 export class CacheModule {}

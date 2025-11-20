@@ -121,16 +121,6 @@ export class PackageManagementService {
     version: string,
     flags: string,
   ): Promise<InstallationResult> {
-    // Check if we should skip actual npm install (workaround for npm issues)
-    const skipNpmInstall = process.env.SKIP_NPM_INSTALL === 'true';
-
-    if (skipNpmInstall) {
-      return {
-        version: version === 'latest' ? '1.0.0' : version,
-        description: `Package ${name} (npm install skipped due to environment issues)`
-      };
-    }
-
     const packageManager = this.getPackageManager();
     const packageSpec = version === 'latest' ? name : `${name}@${version}`;
 

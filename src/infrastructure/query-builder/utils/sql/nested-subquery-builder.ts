@@ -126,7 +126,7 @@ export async function buildNestedSubquery(
 
   const nextAlias = nestingLevel === 0 ? 'c' : `c${nestingLevel}`;
 
-  const parentRef = nestingLevel === 0 ? parentTable : parentAlias;
+  const parentRef = nestingLevel === 0 ? quoteIdentifier(parentTable, dbType) : parentAlias;
 
   if (relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse)) {
     const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
@@ -145,8 +145,15 @@ export async function buildNestedSubquery(
       if (relation.inversePropertyName) {
         fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
       } else {
+        const inverseRelation = targetMeta.relations?.find(
+          r => r.type === 'many-to-one' && r.targetTableName === parentTable
+        );
+        if (inverseRelation?.foreignKeyColumn) {
+          fkColumn = inverseRelation.foreignKeyColumn;
+      } else {
         console.warn(`[NESTED-SUBQUERY] O2M relation ${relationName} missing both foreignKeyColumn and inversePropertyName in metadata`);
         return null;
+        }
       }
     }
 

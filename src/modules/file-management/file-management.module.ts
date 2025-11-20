@@ -11,7 +11,6 @@ import { S3StorageService } from './storage/s3-storage.service';
 import { StorageFactoryService } from './storage/storage-factory.service';
 
 @Module({
-  imports: [],
   controllers: [AssetsController, FileController],
   providers: [
     FileManagementService,

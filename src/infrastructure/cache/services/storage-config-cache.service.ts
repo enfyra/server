@@ -125,19 +125,20 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
         const configs = await this.loadStorageConfigs();
         this.logger.log(`Loaded ${configs.length} storage configs in ${Date.now() - start}ms`);
 
-        this.storageConfigsCache = new Map();
+        const configsMap = new Map();
         for (const config of configs) {
           const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
           const id = config[idField];
-          this.storageConfigsCache.set(id, config);
+          configsMap.set(id, config);
           if (typeof id === 'number') {
-            this.storageConfigsCache.set(String(id), config);
+            configsMap.set(String(id), config);
           } else if (typeof id === 'string' && !isNaN(Number(id))) {
-            this.storageConfigsCache.set(Number(id), config);
+            configsMap.set(Number(id), config);
           }
         }
 
-        await this.publish(configs);
+        await this.publish(Array.from(configsMap.entries()));
+        this.storageConfigsCache = configsMap;
         this.cacheLoaded = true;
       } finally {
         await this.cacheService.release(STORAGE_CONFIG_RELOAD_LOCK_KEY, instanceId);
@@ -149,9 +150,8 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
     }
   }
 
-  private async publish(configs: any[]): Promise<void> {
+  private async publish(configsArray: Array<[string | number, any]>): Promise<void> {
     try {
-      const configsArray = Array.from(this.storageConfigsCache.entries());
       const payload = {
         instanceId: this.instanceService.getInstanceId(),
         configs: configsArray,

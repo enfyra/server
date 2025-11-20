@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Req,
+  Body,
 } from '@nestjs/common';
 import { FileManagementService } from '../services/file-management.service';
 import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
@@ -14,19 +15,18 @@ import {
   FileUploadException,
   FileNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
+import { UploadFileDto, UpdateFileDto } from '../dto/upload-file.dto';
 
 @Controller('file_definition')
 export class FileController {
   constructor(private fileManagementService: FileManagementService) {}
 
   @Post()
-  async uploadFile(@Req() req: RequestWithRouteData) {
+  async uploadFile(@Req() req: RequestWithRouteData, @Body() body: UploadFileDto) {
     const file = req.file;
     if (!file) {
       throw new FileUploadException('No file provided');
     }
-
-    const body = req.routeData?.context?.$body || {};
 
     const fileRepo =
       req.routeData?.context?.$repos?.main ||
@@ -46,8 +46,8 @@ export class FileController {
       {
         folder: body.folder,
         storageConfig: body.storageConfig,
-        title: body.title || file.originalname,
-        description: body.description || null,
+        title: file.originalname,
+        description: null,
         userId: req.user?.id,
       },
       fileRepo,
@@ -69,8 +69,7 @@ export class FileController {
   }
 
   @Patch(':id')
-  async updateFile(@Param('id') id: string, @Req() req: RequestWithRouteData) {
-    const body = req.routeData?.context?.$body || {};
+  async updateFile(@Param('id') id: string, @Req() req: RequestWithRouteData, @Body() body: UpdateFileDto) {
     const file = req.file;
 
     const fileRepo =
@@ -91,9 +90,9 @@ export class FileController {
     if (file) {
       try {
         let storageConfigId = currentFile.storageConfig?.id || null;
-        if (body.storageConfig) {
+        if (body.storageConfig !== undefined && body.storageConfig !== null) {
           storageConfigId = typeof body.storageConfig === 'object'
-            ? body.storageConfig.id
+            ? (body.storageConfig as any).id
             : body.storageConfig;
         }
 
@@ -115,8 +114,8 @@ export class FileController {
             mimetype: file.mimetype,
             filesize: file.size,
             storageConfig: this.fileManagementService.createIdReference(storageConfigId),
-            description: body.description || currentFile.description,
-            folder: currentFile.folder,
+            description: currentFile.description,
+            folder: body.folder ? (typeof body.folder === 'object' ? body.folder : { id: body.folder }) : currentFile.folder,
             uploaded_by: currentFile.uploaded_by,
             status: currentFile.status,
           };
@@ -132,8 +131,8 @@ export class FileController {
               buffer: file.buffer,
               size: file.size,
               folder: currentFile.folder,
-              title: body.title || file.originalname,
-              description: body.description || currentFile.description,
+              title: file.originalname,
+              description: currentFile.description,
             },
             storageConfigId,
           );
@@ -184,14 +183,22 @@ export class FileController {
       }
     }
 
-    if (body.folder && body.folder !== currentFile.folder) {
-      const newFolder =
-        typeof body.folder === 'object' ? body.folder : { id: body.folder };
-      body.folder = newFolder;
+    const updateData: any = {};
+    
+    if (body.folder) {
+      updateData.folder = typeof body.folder === 'object' ? body.folder : { id: body.folder };
+    }
+    
+    if (body.storageConfig) {
+      updateData.storageConfig = this.fileManagementService.createIdReference(body.storageConfig);
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return currentFile;
     }
 
     try {
-      const result = await fileRepo.update(id, body);
+      const result = await fileRepo.update(id, updateData);
       return result;
     } catch (error) {
       throw error;

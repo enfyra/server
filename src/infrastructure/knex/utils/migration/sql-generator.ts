@@ -3,11 +3,15 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
 
   switch (col.type) {
     case 'uuid':
+      if (dbType === 'postgres') {
+        definition = 'UUID';
+      } else {
       definition = 'VARCHAR(36)';
+      }
       break;
     case 'int':
-      if (col.isPrimary && col.isGenerated) {
-        // Auto-increment primary key
+      if (col.isPrimary) {
+        // Auto-increment is default for int primary keys
         if (dbType === 'postgres') {
           definition = 'SERIAL';
         } else if (dbType === 'sqlite') {
@@ -111,28 +115,48 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
       definition = 'VARCHAR(255)';
   }
 
-  if (col.isPrimary && !col.isGenerated) {
-    definition += ' PRIMARY KEY';
-  } else if (col.isPrimary && col.isGenerated && dbType === 'sqlite') {
-    // SQLite needs explicit PRIMARY KEY for INTEGER autoincrement
-    definition += ' PRIMARY KEY AUTOINCREMENT';
+  if (col.isPrimary) {
+    // For int type, auto increment is already handled above (SERIAL, AUTO_INCREMENT)
+    // For uuid type, add PRIMARY KEY constraint
+    if (col.type === 'uuid') {
+      definition += ' PRIMARY KEY';
+    } else if (col.type === 'int' && dbType === 'sqlite') {
+      // SQLite needs explicit PRIMARY KEY AUTOINCREMENT for integer primary keys
+      definition += ' PRIMARY KEY AUTOINCREMENT';
+    }
+    // For MySQL/PostgreSQL int primary key, AUTO_INCREMENT/SERIAL already implies PRIMARY KEY
   }
 
-  if (col.isNullable === false && !(col.isPrimary && col.isGenerated)) {
+  if (col.isNullable === false && !col.isPrimary) {
+    // Primary keys are implicitly NOT NULL
     definition += ' NOT NULL';
   }
 
   if (col.defaultValue !== null && col.defaultValue !== undefined) {
-    if (typeof col.defaultValue === 'string') {
-      definition += ` DEFAULT '${col.defaultValue}'`;
-    } else if (typeof col.defaultValue === 'boolean') {
-      if (dbType === 'sqlite') {
-        definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+    const isBooleanColumn = String(col.type).toLowerCase() === 'boolean';
+    let defaultVal = col.defaultValue;
+
+    // Normalize numeric/string 0/1 to boolean when column is boolean
+    if (isBooleanColumn) {
+      if (typeof defaultVal === 'number') {
+        defaultVal = defaultVal === 1;
+      } else if (typeof defaultVal === 'string') {
+        const trimmed = defaultVal.trim().toLowerCase();
+        if (trimmed === '1' || trimmed === 'true') defaultVal = true;
+        else if (trimmed === '0' || trimmed === 'false') defaultVal = false;
+      }
+    }
+
+    if (typeof defaultVal === 'string' && !isBooleanColumn) {
+      definition += ` DEFAULT '${defaultVal}'`;
+    } else if (typeof defaultVal === 'boolean') {
+      if (dbType === 'postgres') {
+        definition += ` DEFAULT ${defaultVal ? 'true' : 'false'}`;
       } else {
-        definition += ` DEFAULT ${col.defaultValue ? 1 : 0}`;
+        definition += ` DEFAULT ${defaultVal ? 1 : 0}`;
       }
     } else {
-      definition += ` DEFAULT ${col.defaultValue}`;
+      definition += ` DEFAULT ${defaultVal}`;
     }
   }
 
