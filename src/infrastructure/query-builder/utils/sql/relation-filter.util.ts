@@ -7,6 +7,47 @@ import { separateFilters } from '../shared/filter-separator.util';
 // Re-export for backwards compatibility
 export { separateFilters };
 
+function isUUIDColumn(columnName: string, metadata: TableMetadata | null | undefined): boolean {
+  if (!metadata) return false;
+  const column = metadata.columns.find(c => c.name === columnName);
+  if (!column) return false;
+  const type = column.type?.toLowerCase() || '';
+  return type === 'uuid' || type === 'uuidv4' || type.includes('uuid');
+}
+
+function normalizeBoolean(value: any): boolean | null {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return null;
+}
+
+function buildJoinCondition(
+  leftTable: string,
+  leftColumn: string,
+  rightTable: string,
+  rightColumn: string,
+  leftMetadata: TableMetadata | null | undefined,
+  rightMetadata: TableMetadata | null | undefined,
+  dbType: string,
+): string {
+  const leftIsUUID = isUUIDColumn(leftColumn, leftMetadata);
+  const rightIsUUID = isUUIDColumn(rightColumn, rightMetadata);
+  
+  const leftField = `${quoteIdentifier(leftTable, dbType)}.${quoteIdentifier(leftColumn, dbType)}`;
+  const rightField = `${quoteIdentifier(rightTable, dbType)}.${quoteIdentifier(rightColumn, dbType)}`;
+  
+  if (dbType === 'postgres') {
+    if (leftIsUUID && !rightIsUUID) {
+      return `${leftField} = ${rightField}::uuid`;
+    } else if (!leftIsUUID && rightIsUUID) {
+      return `${leftField}::uuid = ${rightField}`;
+    }
+  }
+  
+  return `${leftField} = ${rightField}`;
+}
+
+>>>>>>> Stashed changes
 export async function buildRelationSubquery(
   knex: Knex,
   tableName: string,
@@ -136,13 +177,15 @@ async function applyFiltersToSubquery(
           if (relation && relation.foreignKeyColumn) {
             const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
             const filterObj = nestedRelFilter as any;
-            if (filterObj.id?._is_null === true) {
+            const isNullValue = normalizeBoolean(filterObj.id?._is_null);
+            const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
+            if (isNullValue === true) {
               query.whereNull(fkColumn);
-            } else if (filterObj.id?._is_null === false) {
+            } else if (isNullValue === false) {
               query.whereNotNull(fkColumn);
-            } else if (filterObj.id?._is_not_null === true) {
+            } else if (isNotNullValue === true) {
               query.whereNotNull(fkColumn);
-            } else if (filterObj.id?._is_not_null === false) {
+            } else if (isNotNullValue === false) {
               query.whereNull(fkColumn);
             }
           }
@@ -179,13 +222,15 @@ async function applyFiltersToSubquery(
           if (relation && relation.foreignKeyColumn) {
             const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
             const filterObj = nestedRelFilter as any;
-            if (filterObj.id?._is_null === true) {
+            const isNullValue = normalizeBoolean(filterObj.id?._is_null);
+            const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
+            if (isNullValue === true) {
               subqueries.push(`${fkColumn} IS NULL`);
-            } else if (filterObj.id?._is_null === false) {
+            } else if (isNullValue === false) {
               subqueries.push(`${fkColumn} IS NOT NULL`);
-            } else if (filterObj.id?._is_not_null === true) {
+            } else if (isNotNullValue === true) {
               subqueries.push(`${fkColumn} IS NOT NULL`);
-            } else if (filterObj.id?._is_not_null === false) {
+            } else if (isNotNullValue === false) {
               subqueries.push(`${fkColumn} IS NULL`);
             }
           }
@@ -249,13 +294,15 @@ async function applyFiltersToSubquery(
         if (relation && relation.foreignKeyColumn) {
           const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
           const filterObj = nestedRelFilter as any;
-          if (filterObj.id?._is_null === true) {
+          const isNullValue = normalizeBoolean(filterObj.id?._is_null);
+          const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
+          if (isNullValue === true) {
             query.whereNotNull(fkColumn);
-          } else if (filterObj.id?._is_null === false) {
+          } else if (isNullValue === false) {
             query.whereNull(fkColumn);
-          } else if (filterObj.id?._is_not_null === true) {
+          } else if (isNotNullValue === true) {
             query.whereNull(fkColumn);
-          } else if (filterObj.id?._is_not_null === false) {
+          } else if (isNotNullValue === false) {
             query.whereNotNull(fkColumn);
           }
         }
@@ -288,13 +335,15 @@ async function applyFiltersToSubquery(
       if (relation && relation.foreignKeyColumn) {
         const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
         const filterObj = nestedRelFilter as any;
-        if (filterObj.id?._is_null === true) {
+        const isNullValue = normalizeBoolean(filterObj.id?._is_null);
+        const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
+        if (isNullValue === true) {
           query.whereNull(fkColumn);
-        } else if (filterObj.id?._is_null === false) {
+        } else if (isNullValue === false) {
           query.whereNotNull(fkColumn);
-        } else if (filterObj.id?._is_not_null === true) {
+        } else if (isNotNullValue === true) {
           query.whereNotNull(fkColumn);
-        } else if (filterObj.id?._is_not_null === false) {
+        } else if (isNotNullValue === false) {
           query.whereNull(fkColumn);
         }
       }
