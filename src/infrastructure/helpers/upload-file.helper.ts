@@ -247,31 +247,5 @@ export class UploadFileHelper {
     };
   }
 
-  createDeleteFileHelper(context: TDynamicContext) {
-    return async (fileId: string | number) => {
-      try {
-        const fileRepo = this.getFileRepo(context);
-
-        const files = await fileRepo.find({ where: { id: { _eq: fileId } } });
-        const file = files.data?.[0];
-
-        if (!file) {
-          throw new Error(`File with ID ${fileId} not found`);
-        }
-
-        const { location, storageConfig } = file;
-
-        await this.fileManagementService.deletePhysicalFile(
-          location,
-          storageConfig?.id || null,
-        );
-
-        return await fileRepo.delete({ id: fileId });
-      } catch (error: any) {
-        this.handleError(error, 'deleteFile');
->>>>>>> Stashed changes
-      }
-    };
-  }
 }
 
