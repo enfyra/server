@@ -64,6 +64,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const DB_PASSWORD = this.configService.get<string>('DB_PASSWORD') || '';
     const DB_NAME = this.configService.get<string>('DB_NAME') || 'enfyra';
 
+    // Connection pool settings
+    const poolMinSize = this.configService.get<number>('DB_POOL_MIN_SIZE') || 2;
+    const poolMaxSize = this.configService.get<number>('DB_POOL_MAX_SIZE') || 10;
+
     this.knexInstance = knex({
       client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
       connection: {
@@ -86,10 +90,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         },
       },
       pool: {
-        min: 2,
-        max: 10,
+        min: poolMinSize,
+        max: poolMaxSize,
       },
-      acquireConnectionTimeout: 10000,
+      acquireConnectionTimeout: this.configService.get<number>('DB_ACQUIRE_TIMEOUT') || 10000,
       debug: false,
     });
 
