@@ -141,7 +141,7 @@ export class UploadFileHelper {
               status: currentFile.status,
             };
 
-            return await fileRepo.update(fileId, updateData);
+            return await fileRepo.update({ id: fileId, data: updateData });
           }
 
           const processedFile = await this.fileManagementService.processFileUpload(
@@ -180,7 +180,7 @@ export class UploadFileHelper {
                 : null,
             };
 
-            const result = await fileRepo.update(fileId, updateData);
+            const result = await fileRepo.update({ id: fileId, data: updateData });
 
             await this.fileManagementService.rollbackFileCreation(
               processedFile.location,
@@ -214,7 +214,7 @@ export class UploadFileHelper {
           return currentFile;
         }
 
-        return await fileRepo.update(fileId, updateData);
+        return await fileRepo.update({ id: fileId, data: updateData });
       } catch (error: any) {
         this.handleError(error, 'updateFile');
       }

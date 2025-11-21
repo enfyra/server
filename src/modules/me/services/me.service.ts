@@ -23,6 +23,6 @@ export class MeService {
     }
     
     const userId = req.user._id || req.user.id;
-    return await repo.update(userId, body);
+    return await repo.update({ id: userId, data: body });
   }
 }

@@ -165,7 +165,7 @@ export class PackageController {
         );
       }
     }
-    const result = await packageRepo.update(id, body);
+    const result = await packageRepo.update({ id, data: body });
 
     // Reload package cache after update
     await this.packageCacheService.reload();

@@ -120,7 +120,7 @@ export class FileController {
             status: currentFile.status,
           };
 
-          return await fileRepo.update(id, updateData);
+          return await fileRepo.update({ id, data: updateData });
         }
 
         const processedFile =
@@ -162,7 +162,7 @@ export class FileController {
               : null,
           };
 
-          const result = await fileRepo.update(id, updateData);
+          const result = await fileRepo.update({ id, data: updateData });
 
           await this.fileManagementService.rollbackFileCreation(
             processedFile.location,
@@ -198,7 +198,7 @@ export class FileController {
     }
 
     try {
-      const result = await fileRepo.update(id, updateData);
+      const result = await fileRepo.update({ id, data: updateData });
       return result;
     } catch (error) {
       throw error;
