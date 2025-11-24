@@ -342,7 +342,7 @@
             "icon": "lucide:layout-dashboard",
             "path": "/dashboard",
             "isEnabled": true,
-            "isSystem": true,
+            "isSystem": false,
             "description": "Main dashboard",
             "order": 1,
             "permission": {
