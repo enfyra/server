@@ -1,2 +1,4 @@
-# Exclude Discord workflow from being merged to other projects
-.github/workflows/discord-release.yml merge=ours
+# Exclude GitHub workflows from being merged to other projects
+# This prevents upstream workflows from being merged when users fetch/merge from upstream
+.github/workflows/*.yml merge=ours
+.github/workflows/*.yaml merge=ours

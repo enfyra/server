@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { UploadFileHelper } from '../../infrastructure/helpers/upload-file.helper';
+import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
 import { FileManagementService } from './services/file-management.service';
 import { FileAssetsService } from './services/file-assets.service';
 import { AssetsController } from './controllers/assets.controller';

@@ -17,7 +17,7 @@ import { autoSlug } from '../../shared/utils/auto-slug.helper';
 import { CacheService } from '../cache/services/cache.service';
 import { SwaggerService } from '../swagger/services/swagger.service';
 import { GraphqlService } from 'src/modules/graphql/services/graphql.service';
-import { UploadFileHelper } from '../helpers/upload-file.helper';
+import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {

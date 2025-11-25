@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, forwardRef, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Knex, knex } from 'knex';
+import { AsyncLocalStorage } from 'async_hooks';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import { ExtendedKnex } from './types/knex-extended.types';
 import { stringifyRecordJsonFields } from './utils/json-parser';
@@ -15,6 +16,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(KnexService.name);
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
   private dbType: string;
+  private readonly knexContext = new AsyncLocalStorage<Knex | Knex.Transaction>();
 
   private cascadeHandler: CascadeHandler;
   private fieldStripper: FieldStripper;
@@ -326,7 +328,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCascadeRelations(tableName: string, recordId: any, cascadeContextMap: Map<string, any>): Promise<void> {
-    return this.cascadeHandler.handleCascadeRelations(tableName, recordId, cascadeContextMap);
+    const connection = this.knexContext.getStore() || this.knexInstance;
+    return this.cascadeHandler.handleCascadeRelations(tableName, recordId, cascadeContextMap, connection);
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
@@ -534,7 +537,9 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   async transaction(callback: (trx: Knex.Transaction) => Promise<any>): Promise<any> {
-    return await this.knexInstance.transaction(callback);
+    return await this.knexInstance.transaction(async (trx) => {
+      return this.knexContext.run(trx, async () => callback(trx));
+    });
   }
 
 
@@ -705,28 +710,30 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async insertWithCascade(tableName: string, data: any): Promise<any> {
+  async insertWithCascade(tableName: string, data: any, trx?: Knex | Knex.Transaction): Promise<any> {
+    const connection = trx || this.knexContext.getStore() || this.knexInstance;
     const manager = new KnexEntityManager(
-      this.knexInstance,
+      connection,
       this.hooks,
       this.dbType,
       this.logger,
       this,
     );
 
-    return await manager.insert(tableName, data);
+    return await this.knexContext.run(connection, async () => manager.insert(tableName, data));
   }
 
-  async updateWithCascade(tableName: string, recordId: any, data: any): Promise<void> {
+  async updateWithCascade(tableName: string, recordId: any, data: any, trx?: Knex | Knex.Transaction): Promise<void> {
+    const connection = trx || this.knexContext.getStore() || this.knexInstance;
     const manager = new KnexEntityManager(
-      this.knexInstance,
+      connection,
       this.hooks,
       this.dbType,
       this.logger,
       this,
     );
 
-    return await manager.update(tableName, recordId, data);
+    return await this.knexContext.run(connection, async () => manager.update(tableName, recordId, data));
   }
 
 }
