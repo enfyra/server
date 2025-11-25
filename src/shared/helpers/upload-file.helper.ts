@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { FileManagementService } from '../../modules/file-management/services/file-management.service';
-import { TDynamicContext } from '../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../interfaces/dynamic-context.interface';
 
 @Injectable()
 export class UploadFileHelper {
