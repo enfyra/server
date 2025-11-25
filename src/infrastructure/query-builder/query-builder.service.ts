@@ -285,8 +285,7 @@ export class QueryBuilderService {
       }
     }
     
-    const knex = this.knexService.getKnex();
-    return knex.transaction(callback);
+    return this.knexService.transaction(callback);
   }
 
   async findById(table: string, id: any): Promise<any> {
