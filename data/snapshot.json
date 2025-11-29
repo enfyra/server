@@ -82,13 +82,14 @@
         "name": "setting_definition",
         "description": "Stores global system configuration and settings",
         "isSystem": true,
+        "isSingleRecord": true,
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "isInit", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the system has been initialized" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether these are system settings" },
             { "name": "projectName", "type": "varchar", "isSystem": true, "description": "Name of the project/application" },
             { "name": "projectDescription", "type": "text", "isSystem": true, "description": "Description of the project/application" },
-            { "name": "projectUrl", "type": "varchar", "isSystem": true, "description": "URL of the project website" }
+            { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" }
         ],
         "relations": []
     },
