@@ -1,6 +1,7 @@
 import { Request } from 'express';
 import { randomUUID } from 'crypto';
 import { ObjectId } from 'mongodb';
+import ms from 'ms';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -22,6 +23,14 @@ export class AuthService {
     private queryBuilder: QueryBuilderService,
   ) {}
 
+  private calculateExpiredAt(remember: boolean): Date {
+    const expiryConfig = remember
+      ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
+      : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP');
+    const expiryMs = ms(expiryConfig);
+    return new Date(Date.now() + expiryMs);
+  }
+
   async login(body: LoginAuthDto) {
     const { email, password } = body;
 
@@ -36,16 +45,20 @@ export class AuthService {
       ? (typeof user._id === 'string' ? new ObjectId(user._id) : user._id)
       : (user.id || user._id);
 
+    const remember = body.remember || false;
+    const expiredAt = this.calculateExpiredAt(remember);
+
     const sessionData: any = isMongoDB
       ? {
           user: userId,
-          expiredAt: new Date(),
-          remember: body.remember || false,
+          expiredAt: expiredAt,
+          remember: remember,
         }
       : {
           id: randomUUID(),
           userId: userId.toString(),
-          remember: body.remember,
+          expiredAt: expiredAt,
+          remember: remember,
         };
 
     const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
@@ -125,6 +138,16 @@ export class AuthService {
       ? (session.user?._id || session.user)
       : session.userId;
 
+    const remember = session.remember || false;
+    const newExpiredAt = this.calculateExpiredAt(remember);
+    const sessionId = this.queryBuilder.isMongoDb() 
+      ? (session._id || session._id?.toString())
+      : session.id;
+
+    await this.queryBuilder.updateById('session_definition', sessionId, {
+      expiredAt: newExpiredAt,
+    });
+
     const accessToken = this.jwtService.sign(
       {
         id: userId,
@@ -133,14 +156,10 @@ export class AuthService {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
       },
     );
-
-    const sessionIdForRefresh = this.queryBuilder.isMongoDb() 
-      ? (session._id?.toString() || session._id)
-      : session.id;
     
-    const refreshToken = session.remember
+    const refreshToken = remember
       ? this.jwtService.sign(
-          { sessionId: sessionIdForRefresh },
+          { sessionId: sessionId },
           {
             expiresIn: this.configService.get<string>(
               'REFRESH_TOKEN_REMEMBER_EXP',

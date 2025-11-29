@@ -17,8 +17,10 @@ export const ROUTE_RELOAD_LOCK_KEY = 'routes:reload:lock';
 export const PACKAGE_RELOAD_LOCK_KEY = 'packages:reload:lock';
 export const STORAGE_CONFIG_RELOAD_LOCK_KEY = 'storage-config:reload:lock';
 export const AI_CONFIG_RELOAD_LOCK_KEY = 'ai-config:reload:lock';
+export const SESSION_CLEANUP_LOCK_KEY = 'session:cleanup:lock';
 
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,
   RELOAD_LOCK_TTL: 30000,
+  SESSION_CLEANUP_LOCK_TTL: 3600000,
 } as const;
