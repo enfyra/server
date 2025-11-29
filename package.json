@@ -44,6 +44,7 @@
     "@nestjs/microservices": "^11.1.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/schedule": "^6.0.1",
     "@nestjs/swagger": "^8.0.7",
     "@types/chalk": "^2.2.4",
     "amqp-connection-manager": "^4.1.14",

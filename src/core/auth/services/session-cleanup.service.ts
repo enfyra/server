@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
@@ -17,10 +18,8 @@ import { GraphqlService } from '../../../modules/graphql/services/graphql.servic
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 
 @Injectable()
-export class SessionCleanupService implements OnModuleInit, OnModuleDestroy {
+export class SessionCleanupService {
   private readonly logger = new Logger(SessionCleanupService.name);
-  private cleanupInterval: NodeJS.Timeout | null = null;
-  private readonly CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
@@ -38,38 +37,7 @@ export class SessionCleanupService implements OnModuleInit, OnModuleDestroy {
     private readonly graphqlService: GraphqlService,
   ) {}
 
-  onModuleInit() {
-    this.startCleanupScheduler();
-  }
-
-  onModuleDestroy() {
-    this.stopCleanupScheduler();
-  }
-
-  private startCleanupScheduler() {
-    this.logger.log('Starting session cleanup scheduler');
-    
-    const runCleanup = async () => {
-      try {
-        await this.cleanupExpiredSessions();
-      } catch (error) {
-        this.logger.error('Unhandled error in session cleanup scheduler:', error);
-      }
-    };
-
-    runCleanup();
-
-    this.cleanupInterval = setInterval(runCleanup, this.CLEANUP_INTERVAL_MS);
-  }
-
-  private stopCleanupScheduler() {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-      this.logger.log('Stopped session cleanup scheduler');
-    }
-  }
-
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async cleanupExpiredSessions(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
 
