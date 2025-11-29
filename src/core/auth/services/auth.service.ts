@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { randomUUID } from 'crypto';
 import { ObjectId } from 'mongodb';
-import ms from 'ms';
+import * as ms from 'ms';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
