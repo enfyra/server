@@ -387,6 +387,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           isSystem: relation.isSystem || false,
           isGenerated: true,
           isInverse: true,
+          onDelete: relation.onDelete,
         };
 
         if (inverseType === 'many-to-one') {

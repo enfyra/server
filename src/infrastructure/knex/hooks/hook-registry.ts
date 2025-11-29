@@ -174,6 +174,64 @@ export class KnexHookRegistry {
       return result;
     });
 
+    this.addHook('afterDelete', async (tableName: string, result: any) => {
+      if (!result) {
+        return result;
+      }
+
+      try {
+        const metadata = await this.metadataCacheService.getTableMetadata(tableName);
+        if (!metadata || !metadata.relations) {
+          return result;
+        }
+
+        const relations = Array.isArray(metadata.relations)
+          ? metadata.relations
+          : Object.values(metadata.relations || {});
+
+        const oneToOneCascadeRelations = relations.filter(
+          (relation: any) =>
+            relation.type === 'one-to-one' &&
+            relation.onDelete === 'CASCADE' &&
+            relation.inversePropertyName,
+        );
+
+        if (oneToOneCascadeRelations.length === 0) {
+          return result;
+        }
+
+        const ids = Array.isArray(result) ? result : [result];
+
+        for (const relation of oneToOneCascadeRelations) {
+          const targetTableName = relation.targetTableName || relation.targetTable;
+          if (!targetTableName) {
+            continue;
+          }
+
+          const isInverse = relation.isInverse;
+          const foreignKeyColumn = relation.foreignKeyColumn;
+
+          if (!foreignKeyColumn && !isInverse) {
+            continue;
+          }
+
+          if (!isInverse) {
+            await this.knexInstance(targetTableName)
+              .whereIn(foreignKeyColumn, ids)
+              .delete();
+          } else {
+            await this.knexInstance(tableName)
+              .whereIn(foreignKeyColumn, ids)
+              .delete();
+          }
+        }
+      } catch (error) {
+        this.logger.error(`[afterDelete] Failed to apply one-to-one cascade delete for table: ${tableName}`, error);
+      }
+
+      return result;
+    });
+
     this.addHook('afterSelect', (tableName, result) => {
       return this.autoParseJsonFields(result, { table: tableName });
     });
