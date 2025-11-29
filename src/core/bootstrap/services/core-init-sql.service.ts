@@ -58,7 +58,7 @@ export class CoreInitSqlService {
               .where('id', exist.id)
               .update({
                 isSystem: rest.isSystem,
-                isSingleRecord: name === 'setting_definition' ? true : (rest.isSingleRecord || false),
+                isSingleRecord: rest.isSingleRecord || false,
                 alias: rest.alias,
                 description: rest.description,
                 uniques: JSON.stringify(rest.uniques || []),
@@ -74,7 +74,7 @@ export class CoreInitSqlService {
           const insertedId = await this.insertAndGetId(trx, 'table_definition', {
             name: rest.name,
             isSystem: rest.isSystem || false,
-            isSingleRecord: name === 'setting_definition' ? true : (rest.isSingleRecord || false),
+            isSingleRecord: rest.isSingleRecord || false,
             alias: rest.alias,
             description: rest.description,
             uniques: JSON.stringify(rest.uniques || []),
@@ -417,7 +417,7 @@ export class CoreInitSqlService {
       return val;
     };
 
-    const snapshotIsSingleRecord = snapshotTable.name === 'setting_definition' ? true : (snapshotTable.isSingleRecord || false);
+    const snapshotIsSingleRecord = snapshotTable.isSingleRecord || false;
     if (snapshotIsSingleRecord !== (existingTable.isSingleRecord || false)) {
       return true;
     }

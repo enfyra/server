@@ -155,9 +155,7 @@ export class CoreInitMongoService {
 
       const record = this.buildRecordFromColumns(tableData, tableDef.columns);
 
-      if (tableName === 'setting_definition') {
-        record.isSingleRecord = true;
-      }
+      record.isSingleRecord = tableData.isSingleRecord || false;
 
       return record;
     });
