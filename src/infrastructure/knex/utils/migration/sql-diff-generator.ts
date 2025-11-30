@@ -232,7 +232,12 @@ export async function generateSQLFromDiff(
 
     processedUpdates.add(colName);
     const columnDef = generateColumnDefinition(update.newColumn, dbType);
-    sqlStatements.push(generateModifyColumnSQL(tableName, update.newColumn.name, columnDef, dbType));
+    const modifySQL = generateModifyColumnSQL(tableName, update.newColumn.name, columnDef, dbType, update.oldColumn);
+    if (Array.isArray(modifySQL)) {
+      sqlStatements.push(...modifySQL);
+    } else {
+      sqlStatements.push(modifySQL);
+    }
   }
 
   // Handle UNIQUE constraint CREATE
