@@ -77,15 +77,70 @@ export function generateModifyColumnSQL(
   columnName: string,
   columnDef: string,
   dbType: 'mysql' | 'postgres' | 'sqlite',
-): string {
+  oldColumn?: any,
+): string | string[] {
   const table = quoteIdentifier(tableName, dbType);
   const column = quoteIdentifier(columnName, dbType);
 
   switch (dbType) {
     case 'mysql':
       return `ALTER TABLE ${table} MODIFY COLUMN ${column} ${columnDef}`;
-    case 'postgres':
-      return `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${columnDef}`;
+    case 'postgres': {
+      const statements: string[] = [];
+      
+      let typeOnly = columnDef;
+      let hasNotNull = false;
+      let hasDefault = false;
+      let defaultValue = '';
+      
+      if (/\s+NOT\s+NULL/i.test(typeOnly)) {
+        hasNotNull = true;
+        typeOnly = typeOnly.replace(/\s+NOT\s+NULL/i, '').trim();
+      }
+      
+      const defaultMatch = typeOnly.match(/\s+DEFAULT\s+(.+)$/i);
+      if (defaultMatch) {
+        hasDefault = true;
+        defaultValue = defaultMatch[1].trim();
+        typeOnly = typeOnly.replace(/\s+DEFAULT\s+.+$/i, '').trim();
+      }
+      
+      typeOnly = typeOnly.trim();
+      
+      statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly}`);
+      
+      if (oldColumn) {
+        const oldIsNullable = oldColumn.isNullable !== false;
+        const newIsNullable = !hasNotNull;
+        
+        if (oldIsNullable !== newIsNullable) {
+          if (hasNotNull) {
+            statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`);
+          } else {
+            statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} DROP NOT NULL`);
+          }
+        }
+        
+        if (hasDefault) {
+          const oldDefault = oldColumn.defaultValue;
+          const newDefault = defaultValue;
+          if (JSON.stringify(oldDefault) !== newDefault.replace(/^'|'$/g, '')) {
+            statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`);
+          }
+        } else if (oldColumn.defaultValue !== null && oldColumn.defaultValue !== undefined) {
+          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT`);
+        }
+      } else {
+        if (hasNotNull) {
+          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`);
+        }
+        if (hasDefault) {
+          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`);
+        }
+      }
+      
+      return statements;
+    }
     case 'sqlite':
       throw new Error('SQLite does not support ALTER COLUMN. Use table recreation instead.');
     default:
