@@ -28,8 +28,6 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       this.sub = new Redis(this.configService.get<string>('REDIS_URI'));
       await Promise.all([this.pub.ping(), this.sub.ping()]);
 
-      this.nodeName = this.configService.get<string>('NODE_NAME') || null;
-
       this.sub.on('message', (channel: string, message: string) => {
         const handler = this.subscribedChannels.get(channel);
         if (handler) {
@@ -79,10 +77,19 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   }
 
   private decorateChannel(channel: string): string {
-    if (!this.nodeName) {
+    const nodeName = this.getNodeName();
+    if (!nodeName) {
       return channel;
     }
-    return `${channel}:${this.nodeName}`;
+    return `${channel}:${nodeName}`;
+  }
+
+  private getNodeName(): string | null {
+    if (this.nodeName !== null) {
+      return this.nodeName;
+    }
+    this.nodeName = this.configService.get<string>('NODE_NAME') || null;
+    return this.nodeName;
   }
 
   onModuleDestroy() {
