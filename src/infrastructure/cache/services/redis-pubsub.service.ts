@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import Redis from 'ioredis';
@@ -12,6 +8,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   public pub: Redis;
   public sub: Redis;
   private subscribedChannels = new Map<string, (channel: string, message: string) => void>();
+  private nodeName: string | null = null;
 
   constructor(
     private configService: ConfigService,
@@ -30,6 +27,8 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
       this.sub = new Redis(this.configService.get<string>('REDIS_URI'));
       await Promise.all([this.pub.ping(), this.sub.ping()]);
+
+      this.nodeName = this.configService.get<string>('NODE_NAME') || null;
 
       this.sub.on('message', (channel: string, message: string) => {
         const handler = this.subscribedChannels.get(channel);
@@ -53,29 +52,37 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     channel: string,
     handler: (channel: string, message: string) => void
   ): boolean {
-    if (this.subscribedChannels.has(channel)) {
+    const decoratedChannel = this.decorateChannel(channel);
+    if (this.subscribedChannels.has(decoratedChannel)) {
       return false;
     }
 
-    this.subscribedChannels.set(channel, handler);
-    this.sub.subscribe(channel);
+    this.subscribedChannels.set(decoratedChannel, handler);
+    this.sub.subscribe(decoratedChannel);
 
-    console.log(`[RedisPubSub] Subscribed to channel: ${channel}`);
+    console.log(`[RedisPubSub] Subscribed to channel: ${decoratedChannel}`);
 
     return true;
   }
 
   async publish(channel: string, payload: any) {
     try {
-
+      const decoratedChannel = this.decorateChannel(channel);
       const message =
         typeof payload === 'string' ? payload : JSON.stringify(payload);
 
-      await this.pub.publish(channel, message);
+      await this.pub.publish(decoratedChannel, message);
     } catch (error) {
       console.error(`[RedisPubSub] Failed to publish to ${channel}:`, error);
       throw error;
     }
+  }
+
+  private decorateChannel(channel: string): string {
+    if (!this.nodeName) {
+      return channel;
+    }
+    return `${channel}:${this.nodeName}`;
   }
 
   onModuleDestroy() {
