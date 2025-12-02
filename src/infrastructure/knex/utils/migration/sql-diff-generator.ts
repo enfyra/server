@@ -8,6 +8,7 @@ import {
   generateRenameColumnSQL,
   generateModifyColumnSQL,
   generateAddIndexSQL,
+  generateDropColumnSQL,
 } from './sql-dialect';
 
 const logger = new Logger('SqlDiffGenerator');
@@ -184,7 +185,7 @@ export async function generateSQLFromDiff(
     if (col.isForeignKey) {
       await dropForeignKeyIfExists(knex, tableName, col.name, dbType);
     }
-    sqlStatements.push(`ALTER TABLE ${qt(tableName)} DROP COLUMN ${qt(col.name)}`);
+    sqlStatements.push(generateDropColumnSQL(tableName, col.name, dbType));
   }
 
   // CREATE columns after DELETE
@@ -272,7 +273,7 @@ export async function generateSQLFromDiff(
       }
     } else if (crossOp.operation === 'dropColumn') {
       await dropForeignKeyIfExists(knex, crossOp.targetTable, crossOp.columnName, dbType);
-      sqlStatements.push(`ALTER TABLE ${qt(crossOp.targetTable)} DROP COLUMN ${qt(crossOp.columnName)}`);
+      sqlStatements.push(generateDropColumnSQL(crossOp.targetTable, crossOp.columnName, dbType));
     } else if (crossOp.operation === 'renameColumn') {
       sqlStatements.push(generateRenameColumnSQL(crossOp.targetTable, crossOp.oldColumnName, crossOp.newColumnName, dbType));
     }
