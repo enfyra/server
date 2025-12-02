@@ -30,8 +30,11 @@ export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void
       break;
 
     case 'varchar':
-    case 'text':
       column = table.string(col.name, col.options?.length || 255);
+      break;
+
+    case 'text':
+      column = table.text(col.name);
       break;
 
     case 'longtext':
