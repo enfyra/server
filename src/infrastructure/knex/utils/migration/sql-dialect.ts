@@ -299,3 +299,24 @@ export function getAllForeignKeyConstraintsReferencingTableQuery(
       };
   }
 }
+
+export function generateDropColumnSQL(
+  tableName: string,
+  columnName: string,
+  dbType: 'mysql' | 'postgres' | 'sqlite',
+): string {
+  const table = quoteIdentifier(tableName, dbType);
+  const column = quoteIdentifier(columnName, dbType);
+
+  switch (dbType) {
+    case 'mysql':
+      return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
+    case 'postgres':
+      return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
+    case 'sqlite':
+      return `ALTER TABLE ${table} DROP COLUMN ${column}`;
+    default:
+      return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
+  }
+}
+
