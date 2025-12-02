@@ -194,24 +194,7 @@ async function handleDeletedRelations(
         isForeignKey: true,
       });
     } else if (rel.type === 'one-to-many') {
-      const targetTableName = rel.targetTableName;
-      // O2M: FK column in target table = {inversePropertyName}Id
-      if (!rel.inversePropertyName) {
-        logger.warn(`  O2M relation '${rel.propertyName}' missing inversePropertyName, cannot determine FK column name`);
-        continue;
-      }
-      const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.inversePropertyName);
-
-      if (!diff.crossTableOperations) {
-        diff.crossTableOperations = [];
-      }
-
-      diff.crossTableOperations.push({
-        operation: 'dropColumn',
-        targetTable: targetTableName,
-        columnName: fkColumn,
-        isForeignKey: true,
-      });
+      continue;
     } else if (rel.type === 'many-to-many') {
       const junctionTableName = rel.junctionTableName;
 

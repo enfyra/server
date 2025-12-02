@@ -106,8 +106,30 @@ export function generateModifyColumnSQL(
       }
       
       typeOnly = typeOnly.trim();
-      
-      statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly}`);
+
+      let alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly}`;
+
+      if (oldColumn && oldColumn.type) {
+        const oldType = String(oldColumn.type).toLowerCase();
+        const newType = typeOnly.toLowerCase();
+
+        const isOldString =
+          oldType === 'varchar' ||
+          oldType === 'character varying' ||
+          oldType === 'text' ||
+          oldType === 'richtext';
+
+        const isNewInteger =
+          newType === 'integer' ||
+          newType === 'int' ||
+          newType === 'bigint';
+
+        if (isOldString && isNewInteger) {
+          alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::INTEGER`;
+        }
+      }
+
+      statements.push(alterTypeSql);
       
       if (oldColumn) {
         const oldIsNullable = oldColumn.isNullable !== false;
