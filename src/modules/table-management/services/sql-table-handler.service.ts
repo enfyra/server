@@ -510,6 +510,8 @@ export class SqlTableHandlerService {
   }
 
   private async updateTableInternal(id: string | number, body: CreateTableDto) {
+    const knex = this.queryBuilder.getKnex();
+
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -523,10 +525,9 @@ export class SqlTableHandlerService {
 
     this.validateRelations(body.relations);
 
-    const knex = this.queryBuilder.getKnex();
-
     try {
-      const { oldMetadata, newMetadata, result } = await knex.transaction(async (trx) => {
+      const trx = await knex.transaction();
+      try {
         const exists = await trx('table_definition')
           .where({ id })
           .first();
@@ -534,35 +535,48 @@ export class SqlTableHandlerService {
         if (!exists) {
           throw new ResourceNotFoundException(
             'table_definition',
-            String(id)
+            String(id),
           );
         }
 
         validateUniquePropertyNames(body.columns || [], body.relations || []);
 
-        const targetTableIds = body.relations
-          ?.filter((rel: any) => rel.type === 'many-to-many')
-          ?.map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
-          ?.filter((id: any) => id != null) || [];
+        const m2mTargetTableIds =
+          body.relations
+            ?.filter((rel: any) => rel.type === 'many-to-many')
+            ?.map((rel: any) =>
+              typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable,
+            )
+            ?.filter((tid: any) => tid != null) || [];
 
-        const targetTablesMap = new Map<number, string>();
-        if (targetTableIds.length > 0) {
+        const m2mTargetTablesMap = new Map<number, string>();
+        if (m2mTargetTableIds.length > 0) {
           const targetTables = await trx('table_definition')
             .select('id', 'name')
-            .whereIn('id', targetTableIds);
+            .whereIn('id', m2mTargetTableIds);
 
           for (const table of targetTables) {
-            targetTablesMap.set(table.id, table.name);
+            m2mTargetTablesMap.set(table.id, table.name);
           }
         }
 
-        this.validateAllColumnsUnique(body.columns || [], body.relations || [], exists.name, targetTablesMap);
+        this.validateAllColumnsUnique(
+          body.columns || [],
+          body.relations || [],
+          exists.name,
+          m2mTargetTablesMap,
+        );
 
         if (body.relations && body.relations.length > 0) {
-          await this.validateNoDuplicateInverseRelation(trx, Number(id), exists.name, body.relations, targetTablesMap);
+          await this.validateNoDuplicateInverseRelation(
+            trx,
+            Number(id),
+            exists.name,
+            body.relations,
+            m2mTargetTablesMap,
+          );
         }
 
-        const previousTableName = exists.name;
         await trx('table_definition')
           .where({ id })
           .update({
@@ -589,36 +603,40 @@ export class SqlTableHandlerService {
               .delete();
           }
 
-        for (const col of body.columns) {
-          if (col.name === 'id' || col.name === 'createdAt' || col.name === 'updatedAt') {
-            continue;
-          }
+          for (const col of body.columns) {
+            if (
+              col.name === 'id' ||
+              col.name === 'createdAt' ||
+              col.name === 'updatedAt'
+            ) {
+              continue;
+            }
 
-          const columnData = {
-            name: col.name,
-            type: col.type,
-            isPrimary: col.isPrimary || false,
-            isGenerated: col.isGenerated || false,
-            isNullable: col.isNullable ?? true,
-            isSystem: col.isSystem || false,
-            isUpdatable: col.isUpdatable ?? true,
-            isHidden: col.isHidden || false,
-            defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
-            options: col.options ? JSON.stringify(col.options) : null,
-            description: col.description,
-            placeholder: col.placeholder,
-            tableId: id,
-          };
+            const columnData = {
+              name: col.name,
+              type: col.type,
+              isPrimary: col.isPrimary || false,
+              isGenerated: col.isGenerated || false,
+              isNullable: col.isNullable ?? true,
+              isSystem: col.isSystem || false,
+              isUpdatable: col.isUpdatable ?? true,
+              isHidden: col.isHidden || false,
+              defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
+              options: col.options ? JSON.stringify(col.options) : null,
+              description: col.description,
+              placeholder: col.placeholder,
+              tableId: id,
+            };
 
-          if (col.id) {
-            await trx('column_definition')
-              .where({ id: col.id })
-              .update(columnData);
-          } else {
-            await trx('column_definition').insert(columnData);
+            if (col.id) {
+              await trx('column_definition')
+                .where({ id: col.id })
+                .update(columnData);
+            } else {
+              await trx('column_definition').insert(columnData);
+            }
           }
         }
-      }
 
         if (body.relations) {
           const existingRelations = await trx('relation_definition')
@@ -636,138 +654,155 @@ export class SqlTableHandlerService {
               .delete();
           }
 
-        const targetTableIds = body.relations
-          .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
-          .filter((id: any) => id != null);
-        
-        const targetTablesMap = new Map<number, string>();
-        if (targetTableIds.length > 0) {
-          const targetTables = await trx('table_definition')
-            .select('id', 'name')
-            .whereIn('id', targetTableIds);
-          
-          for (const table of targetTables) {
-            targetTablesMap.set(table.id, table.name);
-          }
-        }
-        
-        for (const rel of body.relations) {
-          const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
+          const targetTableIds = body.relations
+            .map((rel: any) =>
+              typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable,
+            )
+            .filter((tid: any) => tid != null);
 
-          // ✅ VALIDATION: Prevent relation type changes (only allow rename)
-          if (rel.id) {
-            const existingRel = await trx('relation_definition').where({ id: rel.id }).first();
-            if (existingRel && existingRel.type !== rel.type) {
-              throw new Error(
-                `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. ` +
-                `Please delete the old relation and create a new one.`
-              );
+          const targetTablesMap = new Map<number, string>();
+          if (targetTableIds.length > 0) {
+            const targetTables = await trx('table_definition')
+              .select('id', 'name')
+              .whereIn('id', targetTableIds);
+
+            for (const table of targetTables) {
+              targetTablesMap.set(table.id, table.name);
             }
           }
 
-          const relationData: any = {
-            propertyName: rel.propertyName,
-            type: rel.type,
-            targetTableId,
-            inversePropertyName: rel.inversePropertyName,
-            isNullable: rel.isNullable ?? true,
-            isSystem: rel.isSystem || false,
-            description: rel.description,
-            sourceTableId: id,
-          };
-
-          if (rel.type === 'many-to-many') {
-            const targetTableName = targetTablesMap.get(targetTableId);
-
-            if (!targetTableName) {
-              throw new Error(`Target table with ID ${targetTableId} not found`);
-            }
+          for (const rel of body.relations) {
+            const targetTableId =
+              typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable;
 
             if (rel.id) {
               const existingRel = await trx('relation_definition')
                 .where({ id: rel.id })
                 .first();
-              
-              if (existingRel && existingRel.junctionTableName) {
-                relationData.junctionTableName = existingRel.junctionTableName;
-                relationData.junctionSourceColumn = existingRel.junctionSourceColumn;
-                relationData.junctionTargetColumn = existingRel.junctionTargetColumn;
+              if (existingRel && existingRel.type !== rel.type) {
+                throw new Error(
+                  `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. ` +
+                    `Please delete the old relation and create a new one.`,
+                );
+              }
+            }
+
+            const relationData: any = {
+              propertyName: rel.propertyName,
+              type: rel.type,
+              targetTableId,
+              inversePropertyName: rel.inversePropertyName,
+              isNullable: rel.isNullable ?? true,
+              isSystem: rel.isSystem || false,
+              description: rel.description,
+              sourceTableId: id,
+            };
+
+            if (rel.type === 'many-to-many') {
+              const targetTableName = targetTablesMap.get(targetTableId);
+
+              if (!targetTableName) {
+                throw new Error(`Target table with ID ${targetTableId} not found`);
+              }
+
+              if (rel.id) {
+                const existingRel = await trx('relation_definition')
+                  .where({ id: rel.id })
+                  .first();
+
+                if (existingRel && existingRel.junctionTableName) {
+                  relationData.junctionTableName = existingRel.junctionTableName;
+                  relationData.junctionSourceColumn = existingRel.junctionSourceColumn;
+                  relationData.junctionTargetColumn = existingRel.junctionTargetColumn;
+                } else {
+                  const junctionTableName = getJunctionTableName(
+                    exists.name,
+                    rel.propertyName,
+                    targetTableName,
+                  );
+                  const { sourceColumn, targetColumn } = getJunctionColumnNames(
+                    exists.name,
+                    rel.propertyName,
+                    targetTableName,
+                  );
+                  relationData.junctionTableName = junctionTableName;
+                  relationData.junctionSourceColumn = sourceColumn;
+                  relationData.junctionTargetColumn = targetColumn;
+                }
               } else {
-            const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
-            relationData.junctionTableName = junctionTableName;
-            relationData.junctionSourceColumn = sourceColumn;
-            relationData.junctionTargetColumn = targetColumn;
+                const junctionTableName = getJunctionTableName(
+                  exists.name,
+                  rel.propertyName,
+                  targetTableName,
+                );
+                const { sourceColumn, targetColumn } = getJunctionColumnNames(
+                  exists.name,
+                  rel.propertyName,
+                  targetTableName,
+                );
+                relationData.junctionTableName = junctionTableName;
+                relationData.junctionSourceColumn = sourceColumn;
+                relationData.junctionTargetColumn = targetColumn;
               }
             } else {
-              const junctionTableName = getJunctionTableName(exists.name, rel.propertyName, targetTableName);
-              const { sourceColumn, targetColumn } = getJunctionColumnNames(exists.name, rel.propertyName, targetTableName);
-              relationData.junctionTableName = junctionTableName;
-              relationData.junctionSourceColumn = sourceColumn;
-              relationData.junctionTargetColumn = targetColumn;
+              relationData.junctionTableName = null;
+              relationData.junctionSourceColumn = null;
+              relationData.junctionTargetColumn = null;
             }
-          } else {
-            relationData.junctionTableName = null;
-            relationData.junctionSourceColumn = null;
-            relationData.junctionTargetColumn = null;
-          }
 
-          if (rel.id) {
-            await trx('relation_definition')
-              .where({ id: rel.id })
-              .update(relationData);
-          } else {
-            await trx('relation_definition').insert(relationData);
+            if (rel.id) {
+              await trx('relation_definition')
+                .where({ id: rel.id })
+                .update(relationData);
+            } else {
+              await trx('relation_definition').insert(relationData);
+            }
           }
         }
+
+        const oldMetadata = await this.metadataCacheService.lookupTableByName(
+          exists.name,
+        );
+
+        if (oldMetadata) {
+          const updatedFullMetadata = await this.getFullTableMetadataInTransaction(
+            trx,
+            exists.id,
+          );
+
+          if (!updatedFullMetadata) {
+            throw new Error(
+              `Failed to reload metadata after transaction for table ${exists.name}`,
+            );
+          }
+
+          await this.schemaMigrationService.updateTable(
+            exists.name,
+            oldMetadata,
+            updatedFullMetadata,
+          );
+        }
+
+        await trx.commit();
+
+        this.logger.log(
+          `Table updated: ${exists.name} (metadata + physical schema)`,
+        );
+
+        return { id: exists.id, name: exists.name };
+      } catch (innerError) {
+        if (trx && !trx.isCompleted()) {
+          try {
+            await trx.rollback();
+          } catch (rollbackError) {
+            this.logger.error(
+              `Failed to rollback transaction for updateTable: ${rollbackError.message}`,
+            );
+          }
+        }
+        throw innerError;
       }
-
-        const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
-
-        const preserveInverseRelations = (oldRels: any[] = [], newRels: any[] = []) => {
-          const inverseRels = (oldRels || []).filter(r => r.isInverse === true);
-
-          this.logger.log(`Preserving ${inverseRels.length} inverse relations: ${inverseRels.map(r => r.propertyName).join(', ')}`);
-
-          const newRelIds = new Set(newRels.map(r => r.id).filter(id => id != null));
-          const preservedInverse = inverseRels.filter(r => !newRelIds.has(r.id));
-
-          return [...newRels, ...preservedInverse];
-        };
-
-        const newMetadata = {
-          name: exists.name,
-          columns: body.columns !== undefined ? body.columns : (oldMetadata?.columns || []),
-          relations: body.relations !== undefined
-            ? preserveInverseRelations(oldMetadata?.relations, body.relations)
-            : (oldMetadata?.relations || []),
-          uniques: body.uniques !== undefined ? body.uniques : (oldMetadata?.uniques || []),
-          indexes: body.indexes !== undefined ? body.indexes : (oldMetadata?.indexes || [])
-        };
-
-        this.logger.log(`📊 Relations after merge: old=${oldMetadata?.relations?.length || 0}, new=${body.relations?.length || 0}, final=${newMetadata.relations.length}`);
-
-        return { oldMetadata, newMetadata, result: { id: exists.id, name: exists.name, ...newMetadata } };
-      });
-
-        if (oldMetadata && newMetadata) {
-        this.logger.log(`Executing DDL statements outside transaction...`);
-
-        // ✅ FIX: Reload fullMetadata từ DB sau khi transaction commit để lấy IDs mới của relations/columns
-        const knex = this.queryBuilder.getKnex();
-        const updatedFullMetadata = await this.getFullTableMetadataInTransaction(knex, result.id);
-
-        if (!updatedFullMetadata) {
-          throw new Error(`Failed to reload metadata after transaction for table ${result.name}`);
-        }
-
-        await this.schemaMigrationService.updateTable(result.name, oldMetadata, updatedFullMetadata);
-        }
-
-      this.logger.log(`Table updated: ${result.name} (metadata + physical schema)`);
-        
-      return result;
-      } catch (error) {
+    } catch (error) {
         this.loggingService.error('Table update failed', {
           context: 'updateTable',
           error: error.message,
