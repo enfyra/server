@@ -24,6 +24,11 @@ export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void
       column = table.bigInteger(col.name);
       break;
 
+    case 'richtext':
+    case 'code':
+      column = table.text(col.name, 'longtext');
+      break;
+
     case 'varchar':
     case 'text':
       column = table.string(col.name, col.options?.length || 255);

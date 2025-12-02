@@ -39,9 +39,19 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
         definition = 'BIGINT';
       }
       break;
+    case 'richtext':
+    case 'code':
+      if (dbType === 'postgres' || dbType === 'sqlite') {
+        definition = 'TEXT';
+      } else {
+        definition = 'LONGTEXT';
+      }
+      break;
     case 'varchar':
-    case 'text':
       definition = `VARCHAR(${col.options?.length || 255})`;
+      break;
+    case 'text':
+      definition = 'TEXT';
       break;
     case 'longtext':
       if (dbType === 'postgres') {
