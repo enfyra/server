@@ -22,6 +22,9 @@ export function smartMergeContext(
       if (key === '$data') {
         mergedCtx[key] = value;
       }
+      else if (key === '$body') {
+        mergedCtx[key] = merge({}, mergedCtx[key] || {}, value);
+      }
       else if (isPrimitive(value) && value !== null && value !== undefined) {
         mergedCtx[key] = value;
       }
