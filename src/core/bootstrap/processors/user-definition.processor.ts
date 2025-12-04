@@ -72,7 +72,12 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
       return { created: 0, skipped: 0 };
     }
 
-    const transformedRecords = await this.transformRecords(records, context);
+    const filteredRecords = await this.filterRootAdminRecords(records, knex, tableName);
+    if (filteredRecords.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+
+    const transformedRecords = await this.transformRecords(filteredRecords, context);
     const { randomUUID } = await import('crypto');
 
     let createdCount = 0;
@@ -113,8 +118,12 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
       return { created: 0, skipped: 0 };
     }
 
-    // Transform records first (handle role reference conversion)
-    const transformedRecords = await this.transformRecords(records, context);
+    const filteredRecords = await this.filterRootAdminRecordsMongo(records, db, collectionName);
+    if (filteredRecords.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+
+    const transformedRecords = await this.transformRecords(filteredRecords, context);
 
     let createdCount = 0;
     let skippedCount = 0;
@@ -163,5 +172,42 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
 
   protected getCompareFields(): string[] {
     return ['email', 'isRootAdmin', 'isSystem'];
+  }
+
+  private async filterRootAdminRecords(records: any[], knex: Knex, tableName: string): Promise<any[]> {
+    const rootAdminRecords = records.filter(record => record.isRootAdmin === true);
+    
+    if (rootAdminRecords.length === 0) {
+      return records;
+    }
+
+    const existingRootAdmin = await knex(tableName)
+      .where('isRootAdmin', true)
+      .first();
+
+    if (existingRootAdmin) {
+      this.logger.log(`   Skipped rootAdmin creation: Already exists at least 1 rootAdmin in database`);
+      return records.filter(record => record.isRootAdmin !== true);
+    }
+
+    return records;
+  }
+
+  private async filterRootAdminRecordsMongo(records: any[], db: Db, collectionName: string): Promise<any[]> {
+    const rootAdminRecords = records.filter(record => record.isRootAdmin === true);
+    
+    if (rootAdminRecords.length === 0) {
+      return records;
+    }
+
+    const existingRootAdmin = await db.collection(collectionName)
+      .findOne({ isRootAdmin: true });
+
+    if (existingRootAdmin) {
+      this.logger.log(`   Skipped rootAdmin creation: Already exists at least 1 rootAdmin in database`);
+      return records.filter(record => record.isRootAdmin !== true);
+    }
+
+    return records;
   }
 }

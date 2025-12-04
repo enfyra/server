@@ -5,14 +5,14 @@ We’re building the flexibility backend framework that automatically generates 
 
 ## Documentation
 
-For full documentation, visit [docs](https://github.com/Enfyra/documents)
+For full documentation, visit [docs](https://github.com/enfyra/documents)
 
-To see how to contribute, visit [Contributing](https://github.com/Enfyra/backend/blob/main/CONTRIBUTING.md)
+To see how to contribute, visit [Contributing](https://github.com/enfyra/server/blob/main/CONTRIBUTING.md)
 
 ## Community & Support
 
 - [Community Forum](https://github.com/orgs/enfyra/discussions)
-- [GitHub Issues](https://github.com/Enfyra/backend/issues)
+- [GitHub Issues](https://github.com/enfyra/server/issues)
 - [Discord](https://discord.gg/DH5sXtFVWM)
 
 ## How it works
