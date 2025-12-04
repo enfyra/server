@@ -1,4 +1,3 @@
-import { match } from 'path-to-regexp';
 import { DBToTSTypeMap, TSToDBTypeMap } from '../../utils/types/common.type';
 
 export function capitalize(str: string): string {
@@ -67,56 +66,6 @@ export function mapToGraphQLType(dbType: string): string {
     enum: 'String',
   };
   return map[dbType] || 'String';
-}
-
-export function isRouteMatched({
-  routePath,
-  reqPath,
-  prefix,
-}: {
-  routePath: string;
-  reqPath: string;
-  prefix?: string;
-}) {
-  if (!routePath || !reqPath) return null;
-
-  try {
-    const cleanPrefix = prefix?.replace(/^\//, '').replace(/\/$/, '');
-    const cleanRoute = routePath.replace(/^\//, '').replace(/\/$/, '');
-    const cleanReqPath = reqPath.replace(/^\//, '').replace(/\/$/, '');
-
-    if (cleanRoute.includes('*')) {
-      const wildcardPattern = cleanRoute.replace(/\*/g, '.*');
-      const fullPattern = cleanPrefix
-        ? `/${cleanPrefix}/${wildcardPattern}`
-        : `/${wildcardPattern}`;
-      const regex = new RegExp(`^${fullPattern}$`);
-      return regex.test(`/${cleanReqPath}`) ? { params: {} } : null;
-    }
-
-    const fullPattern = cleanPrefix
-      ? `/${cleanPrefix}/${cleanRoute}`
-      : `/${cleanRoute}`;
-
-    const matcher = match(fullPattern, { decode: decodeURIComponent });
-    const matched = matcher(`/${cleanReqPath}`);
-
-    if (matched) {
-      const cleanParams: Record<string, string> = {};
-      for (const [key, value] of Object.entries(matched.params)) {
-        if (typeof value === 'string') {
-          cleanParams[key] = value.split('?')[0];
-        } else {
-          cleanParams[key] = String(value);
-        }
-      }
-      return { params: cleanParams };
-    }
-
-    return null;
-  } catch (error) {
-    return null;
-  }
 }
 
 export function inverseRelationType(type: string): string {

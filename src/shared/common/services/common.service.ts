@@ -12,7 +12,6 @@ export class CommonService {
   dbTypeToTSType = CommonHelper.dbTypeToTSType;
   tsTypeToDBType = CommonHelper.tsTypeToDBType;
   mapToGraphQLType = CommonHelper.mapToGraphQLType;
-  isRouteMatched = CommonHelper.isRouteMatched;
   inverseRelationType = CommonHelper.inverseRelationType;
   assertNoSystemFlagDeep = CommonHelper.assertNoSystemFlagDeep;
   assertNoSystemFlagDeepRecursive = CommonHelper.assertNoSystemFlagDeepRecursive;
