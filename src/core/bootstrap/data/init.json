@@ -319,6 +319,14 @@
         },
         {
             "isEnabled": true,
+            "preHook": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
+            "name": "Me route hash password",
+            "isSystem":true,
+            "route": "/me",
+            "methods": ["PATCH"]
+        },
+        {
+            "isEnabled": true,
             "preHook": "if (@BODY.name) { @BODY.slug = await @HELPERS.autoSlug(@BODY.name); }",
             "name": "Folder definition auto slug",
             "isSystem": true,
