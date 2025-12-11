@@ -102,12 +102,11 @@ export class LLMService {
 
       const executedToolCalls = new Map<string, { toolId: string; result: any }>();
       let iterations = 0;
-      const maxIterations = config.maxToolIterations || 50; // Increased default
+      const maxIterations = config.maxToolIterations || 50;
       let accumulatedTokenUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
       const cacheKey = conversationId ? `conv_${conversationId}` : undefined;
 
-      // Detect infinite loops - track repeated failed tool calls
-      const failedToolCalls = new Map<string, number>(); // toolName:args -> count
+      const failedToolCalls = new Map<string, number>();
 
       while (iterations < maxIterations) {
         iterations++;
@@ -299,6 +298,124 @@ export class LLMService {
               },
               HttpStatus.INTERNAL_SERVER_ERROR,
             );
+          }
+        }
+
+        if (currentToolCalls.length > 0) {
+          const latestUserMessage = (() => {
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const m = messages[i];
+              if ((m as any).role === 'user') {
+                return (m as any).content || '';
+              }
+            }
+            return messages?.length ? messages[messages.length - 1]?.content || '' : '';
+          })();
+          const lowerMsg = typeof latestUserMessage === 'string' ? latestUserMessage.toLowerCase() : '';
+
+          const intentShift = /stop|cancel|pause|hold|đừng|dừng|hủy|huỷ|đổi ý|đổi sang|chuyển|yêu cầu khác|task khác|làm việc khác|change request|switch task|new request/.test(lowerMsg);
+          const isDestructiveTool = (name: string | undefined) =>
+            name === 'delete_tables' || name === 'delete_records' || name === 'update_records';
+
+          const needsConfirm = (tc: any) => {
+            const toolName = extractToolCallName(tc);
+            if (!isDestructiveTool(toolName)) return false;
+            const argsRaw = tc.function?.arguments || tc.args || tc.arguments || {};
+            let parsed: any = argsRaw;
+            if (typeof argsRaw === 'string') {
+              try { parsed = JSON.parse(argsRaw); } catch { parsed = {}; }
+            }
+            const ids = parsed?.ids;
+            const updates = parsed?.updates;
+            const bulkCount = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : 0;
+            const hasExplicitDeleteKeyword = /delete|remove|xoá|xóa|destroy|drop|clear/.test(lowerMsg);
+            const hasExplicitConfirm = /yes|đồng ý|ok|confirm|sure|go ahead|continue/.test(lowerMsg);
+            if (!hasExplicitDeleteKeyword && !hasExplicitConfirm) return true;
+            if (bulkCount === 0) return true;
+            return false;
+          };
+
+          if (intentShift) {
+            const clarification = `Phát hiện bạn muốn đổi yêu cầu. Đã tạm dừng tác vụ hiện tại. Bạn muốn tiếp tục yêu cầu mới hay tiếp tục tác vụ cũ? Trả lời "tiếp tục yêu cầu mới" hoặc "tiếp tục tác vụ cũ".`;
+            fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
+            onEvent({
+              type: 'text',
+              data: {
+                delta: (fullContent.endsWith('\n') ? '' : '\n\n') + clarification,
+              },
+            });
+
+            const finalUsage = extractTokenUsage(aggregateResponse);
+            if (finalUsage) {
+              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
+              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
+              onEvent({
+                type: 'tokens',
+                data: {
+                  inputTokens: accumulatedTokenUsage.inputTokens,
+                  outputTokens: accumulatedTokenUsage.outputTokens,
+                },
+              });
+            }
+
+            reportTokenUsage('stream', aggregateResponse);
+            return {
+              content: fullContent,
+              toolCalls: allToolCalls,
+              toolResults: allToolResults,
+              toolLoops: iterations,
+            };
+          }
+
+          const pendingDestructive = currentToolCalls.find((tc: any) => needsConfirm(tc));
+          if (pendingDestructive) {
+            const toolName = extractToolCallName(pendingDestructive) || 'destructive action';
+            const argsRaw = pendingDestructive.function?.arguments || pendingDestructive.args || pendingDestructive.arguments || {};
+            let parsed: any = argsRaw;
+            if (typeof argsRaw === 'string') {
+              try { parsed = JSON.parse(argsRaw); } catch { parsed = {}; }
+            }
+            const ids = parsed?.ids;
+            const updates = parsed?.updates;
+            const targetTable = parsed?.table || parsed?.tableName || parsed?.tableNames;
+            const count = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : undefined;
+            const scopeDesc = [
+              targetTable ? `table: ${JSON.stringify(targetTable)}` : null,
+              count ? `items: ${count}` : null,
+              ids && Array.isArray(ids) ? `ids: [${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '...' : ''}]` : null,
+            ].filter(Boolean).join(', ');
+
+            const confirmText = scopeDesc ? `${toolName} → ${scopeDesc}` : toolName;
+
+            const clarification = `Xác nhận thao tác phá hủy: ${confirmText}. Bạn có chắc muốn thực hiện không? Trả lời "yes" để tiếp tục hoặc cung cấp rõ phạm vi/ids.`;
+            fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
+            onEvent({
+              type: 'text',
+              data: {
+                delta: (fullContent.endsWith('\n') ? '' : '\n\n') + clarification,
+              },
+            });
+
+            const finalUsage = extractTokenUsage(aggregateResponse);
+            if (finalUsage) {
+              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
+              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
+              onEvent({
+                type: 'tokens',
+                data: {
+                  inputTokens: accumulatedTokenUsage.inputTokens,
+                  outputTokens: accumulatedTokenUsage.outputTokens,
+                },
+              });
+            }
+
+            reportTokenUsage('stream', aggregateResponse);
+            return {
+              content: fullContent,
+              toolCalls: allToolCalls,
+              toolResults: allToolResults,
+              toolLoops: iterations,
+            };
           }
         }
 

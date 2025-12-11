@@ -133,6 +133,7 @@ export async function executeBatchDynamicRepository(
     const results: any[] = [];
     const errors: any[] = [];
     let result: any;
+    const batchSize = 5;
 
     switch (args.operation) {
       case 'batch_create':
@@ -144,36 +145,38 @@ export async function executeBatchDynamicRepository(
           throw new Error(`CRITICAL: Do NOT include "id" field in batch_create operations. The database will automatically generate the id. Found "id" field in ${itemsWithId.length} item(s). Remove "id" from all data objects and try again.`);
         }
         
-        for (let i = 0; i < args.dataArray.length; i++) {
-          const data = args.dataArray[i];
-          if (abortSignal?.aborted) {
-            break;
-          }
-          try {
-            const createResult = await repo.create({ data, fields: safeFields });
-            const createdId = createResult?.data?.[0]?.id || createResult?.id || 'unknown';
-            results.push({
-              success: true,
-              index: i,
-              id: createdId,
-              data: createResult?.data?.[0] || createResult,
-            });
-          } catch (error: any) {
-            const errorMsg = error?.message || String(error);
-            logger.error(`[batch_dynamic_repository] Error creating record ${i + 1}/${args.dataArray.length}: ${errorMsg}`);
-            errors.push({
-              index: i,
-              error: 'CREATE_FAILED',
-              message: errorMsg,
-              data: data,
-            });
-            results.push({
-              success: false,
-              index: i,
-              error: 'CREATE_FAILED',
-              message: errorMsg,
-            });
-          }
+        for (let start = 0; start < args.dataArray.length; start += batchSize) {
+          if (abortSignal?.aborted) break;
+          const chunk = args.dataArray.slice(start, start + batchSize);
+          await Promise.all(chunk.map(async (data, offset) => {
+            const i = start + offset;
+            if (abortSignal?.aborted) return;
+            try {
+              const createResult = await repo.create({ data, fields: safeFields });
+              const createdId = createResult?.data?.[0]?.id || createResult?.id || 'unknown';
+              results.push({
+                success: true,
+                index: i,
+                id: createdId,
+                data: createResult?.data?.[0] || createResult,
+              });
+            } catch (error: any) {
+              const errorMsg = error?.message || String(error);
+              logger.error(`[batch_dynamic_repository] Error creating record ${i + 1}/${args.dataArray.length}: ${errorMsg}`);
+              errors.push({
+                index: i,
+                error: 'CREATE_FAILED',
+                message: errorMsg,
+                data: data,
+              });
+              results.push({
+                success: false,
+                index: i,
+                error: 'CREATE_FAILED',
+                message: errorMsg,
+              });
+            }
+          }));
         }
         
         const successCount = results.filter(r => r.success).length;
@@ -202,37 +205,39 @@ export async function executeBatchDynamicRepository(
           throw new Error('updates (array of {id, data}) is required for batch_update operation');
         }
         
-        for (let i = 0; i < args.updates.length; i++) {
-          const update = args.updates[i];
-          if (abortSignal?.aborted) {
-            break;
-          }
-          try {
-            const updateResult = await repo.update({ id: update.id, data: update.data, fields: safeFields });
-            results.push({
-              success: true,
-              index: i,
-              id: update.id,
-              data: updateResult?.data?.[0] || updateResult,
-            });
-          } catch (error: any) {
-            const errorMsg = error?.message || String(error);
-            logger.error(`[batch_dynamic_repository] Error updating record ${i + 1}/${args.updates.length} (ID: ${update.id}): ${errorMsg}`);
-            errors.push({
-              index: i,
-              id: update.id,
-              error: 'UPDATE_FAILED',
-              message: errorMsg,
-              data: update.data,
-            });
-            results.push({
-              success: false,
-              index: i,
-              id: update.id,
-              error: 'UPDATE_FAILED',
-              message: errorMsg,
-            });
-          }
+        for (let start = 0; start < args.updates.length; start += batchSize) {
+          if (abortSignal?.aborted) break;
+          const chunk = args.updates.slice(start, start + batchSize);
+          await Promise.all(chunk.map(async (update, offset) => {
+            const i = start + offset;
+            if (abortSignal?.aborted) return;
+            try {
+              const updateResult = await repo.update({ id: update.id, data: update.data, fields: safeFields });
+              results.push({
+                success: true,
+                index: i,
+                id: update.id,
+                data: updateResult?.data?.[0] || updateResult,
+              });
+            } catch (error: any) {
+              const errorMsg = error?.message || String(error);
+              logger.error(`[batch_dynamic_repository] Error updating record ${i + 1}/${args.updates.length} (ID: ${update.id}): ${errorMsg}`);
+              errors.push({
+                index: i,
+                id: update.id,
+                error: 'UPDATE_FAILED',
+                message: errorMsg,
+                data: update.data,
+              });
+              results.push({
+                success: false,
+                index: i,
+                id: update.id,
+                error: 'UPDATE_FAILED',
+                message: errorMsg,
+              });
+            }
+          }));
         }
         
         const updateSuccessCount = results.filter(r => r.success).length;
@@ -261,35 +266,37 @@ export async function executeBatchDynamicRepository(
           throw new Error('ids (array) is required for batch_delete operation');
         }
         
-        for (let i = 0; i < args.ids.length; i++) {
-          const id = args.ids[i];
-          if (abortSignal?.aborted) {
-            break;
-          }
-          try {
-            await repo.delete({ id });
-            results.push({
-              success: true,
-              index: i,
-              id: id,
-            });
-          } catch (error: any) {
-            const errorMsg = error?.message || String(error);
-            logger.error(`[batch_dynamic_repository] Error deleting record ${i + 1}/${args.ids.length} (ID: ${id}): ${errorMsg}`);
-            errors.push({
-              index: i,
-              id: id,
-              error: 'DELETE_FAILED',
-              message: errorMsg,
-            });
-            results.push({
-              success: false,
-              index: i,
-              id: id,
-              error: 'DELETE_FAILED',
-              message: errorMsg,
-            });
-          }
+        for (let start = 0; start < args.ids.length; start += batchSize) {
+          if (abortSignal?.aborted) break;
+          const chunk = args.ids.slice(start, start + batchSize);
+          await Promise.all(chunk.map(async (id, offset) => {
+            const i = start + offset;
+            if (abortSignal?.aborted) return;
+            try {
+              await repo.delete({ id });
+              results.push({
+                success: true,
+                index: i,
+                id: id,
+              });
+            } catch (error: any) {
+              const errorMsg = error?.message || String(error);
+              logger.error(`[batch_dynamic_repository] Error deleting record ${i + 1}/${args.ids.length} (ID: ${id}): ${errorMsg}`);
+              errors.push({
+                index: i,
+                id: id,
+                error: 'DELETE_FAILED',
+                message: errorMsg,
+              });
+              results.push({
+                success: false,
+                index: i,
+                id: id,
+                error: 'DELETE_FAILED',
+                message: errorMsg,
+              });
+            }
+          }));
         }
         
         const deleteSuccessCount = results.filter(r => r.success).length;

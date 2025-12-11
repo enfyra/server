@@ -109,19 +109,21 @@ export class ConversationSummaryService {
       ? `Previous summary:\n${conversation.summary}\n\n`
       : '';
 
-    const summaryPrompt = `Summarize this conversation for Enfyra AI agent. Be concise but complete. Preserve ALL technical details needed for continuation.
+    const summaryPrompt = `Summarize this conversation for Enfyra AI agent. Keep it compact but complete so the agent can continue work without missing context.
 
-CRITICAL: Include:
-- User goals & current progress
-- Tables created/modified/deleted (names + IDs)
-- Relations created (source→target, property names, types)
-- Data operations (create/update/delete, batch counts)
-- Errors & resolutions
-- Important IDs (table IDs, record IDs - CRITICAL for relations)
-- Pending/incomplete work
+CRITICAL - Capture current flow:
+- Goal & progress (what the user wants + what is already done)
+- Active task: type/status/priority + key data or results
+- Schema changes: tables created/updated/deleted with names + IDs
+- Relations: source→target, fields/types, and related IDs
+- Data ops: create/update/delete counts, ids, filters used
+- Routes/API: any route_definition lookups, paths, base URLs
+- Tools: tools invoked + purpose (1 line), note failed/retried calls
+- Errors & fixes: what failed, how it was resolved or next action
+- Pending/next steps: what remains or is blocked
 
-Format: Use compact structured format. Example:
-"User creating backend system. Created: users(id:1), posts(id:2). Relations: posts.user→users.id. Errors: FK constraint fixed by creating users first. Pending: add sample data."
+Output as one compact structured paragraph. Example:
+"Goal: build blog. Task: system_workflows in_progress. Tables: users(id:1), posts(id:2 updated). Relations: posts.userId→users.id. Data: created posts (count 3). Routes: checked route_definition (no match). Tools: find_records(posts), create_records(posts). Errors: FK missing, fixed by creating users. Pending: add comments table."
 
 ${previousContext}Conversation to summarize:
 ${messagesText}`;
@@ -129,7 +131,7 @@ ${messagesText}`;
     const summaryMessages: LLMMessage[] = [
       {
         role: 'system',
-        content: 'You are a conversation summarizer for Enfyra AI agent. Create concise, structured summaries that preserve ALL critical technical details: table names/IDs, relations, errors/solutions, workflow progress, and important IDs. Use compact format to minimize tokens while maintaining completeness. This summary will be injected into system prompts, so be efficient but thorough.',
+        content: 'You are the conversation summarizer for Enfyra AI agent. Produce ultra-compact, structured summaries that keep the agent aligned with the current workflow. Always include goal, active task, schema/data changes with IDs, route/API findings, tool usage highlights, errors/resolutions, and pending next steps. No fluff, no lists—return a tight paragraph the agent can reuse directly.',
       },
       {
         role: 'user',

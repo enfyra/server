@@ -353,6 +353,7 @@ export interface BuildSystemPromptParams {
     isRootAdmin?: boolean;
   };
   dbType?: 'postgres' | 'mysql' | 'mongodb' | 'sqlite';
+  conversationId?: string | number;
   latestUserMessage?: string;
   conversationSummary?: string;
   task?: {

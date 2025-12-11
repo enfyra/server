@@ -49,6 +49,7 @@ export async function buildSystemPromptForLLM(params: {
     tablesList,
     user,
     dbType,
+    conversationId: conversation.id,
     latestUserMessage,
     conversationSummary: conversation.summary,
     task: conversation.task,

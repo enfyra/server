@@ -97,7 +97,8 @@ Multiple: find_records with name._in, then delete_tables({"ids":[19,20]})
 **CRITICAL:**
 - delete_tables = table structure, delete_records = data
 - ALWAYS find ID first (cannot use table name)
-- NEVER use delete_records on table_definition`;
+- NEVER use delete_records on table_definition
+- Confirmation required for destructive ops: state table(s)/ids/count before delete; if scope unclear or conflicts with current task, ask brief confirmation then proceed`;
 
   const tableDeletionHint: HintContent = {
     category: 'table_deletion',
@@ -140,7 +141,8 @@ Batch: delete_records({"table":"product","ids":[1,2,3]})
 
 **CRITICAL:**
 - delete_records = data, delete_tables = structure
-- ALWAYS verify before delete`;
+- ALWAYS verify before delete
+- Confirmation required for destructive ops: state table/ids/count; if unclear or conflicting with current task, ask brief confirmation then proceed`;
 
   const crudDeleteOpsHint: HintContent = {
     category: 'crud_delete_operations',
@@ -179,16 +181,18 @@ find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"
   const systemWorkflowsContent = `**System Workflows (Multi-Step)**
 
 **Workflow:**
-0. Check existing task: get_task({"conversationId":<id>}) → if task is pending/in_progress, update or finish it instead of creating duplicate
+0. Check existing task: get_task({"conversationId":<id>}); if pending/in_progress → continue/update instead of duplicating
 1. Start: update_task({"conversationId":<id>,"type":"create_table","status":"in_progress","data":{...}})
-2. Execute: create_tables, create_records, update_tables (sequentially)
+2. Execute sequentially: create_tables → update_tables → create_records / update_records (one tool at a time)
 3. Complete: update_task({"conversationId":<id>,"status":"completed","result":{...}})
-4. On error: update_task({"status":"failed","error":"..."})
+4. On error: update_task({"status":"failed","error":"..."}); if fixable, retry only failed items
 
 **Rules:**
 - ALWAYS create task first for multi-step operations
-- Execute sequentially (one at a time)
-- Continue automatically without stopping`;
+- Continue automatically; do not stop to ask unless missing user-only info
+- Retry strategy: when a batch partially fails (e.g., create_tables), fix naming/IDs only for failed items and resend ONLY those
+- Progress reporting: update_task in-progress messages like "Creating table 4/5", "Adding sample data...", then mark completed
+- Intent shift: if user switches request mid-flow, pause current task (update_task status='paused' or 'cancelled' with reason) and confirm before resuming or abandoning`;
 
   const systemWorkflowsHint: HintContent = {
     category: 'system_workflows',

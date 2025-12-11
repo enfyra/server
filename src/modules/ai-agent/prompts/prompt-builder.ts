@@ -48,6 +48,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     tablesList,
     user,
     dbType = 'postgres',
+    conversationId,
     latestUserMessage,
     conversationSummary,
     task,
@@ -92,6 +93,10 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     prompt += `\n\n**Workspace Snapshot**\n- Database tables (live source of truth):\n${tablesList}`;
   }
   
+  if (conversationId !== undefined && conversationId !== null) {
+    prompt += `\n\n**Conversation Context**\n- Conversation ID: ${conversationId}`;
+  }
+
   if (user) {
     const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
     const userId = user.id || user._id;
