@@ -92,6 +92,7 @@ export function generateModifyColumnSQL(
       let hasNotNull = false;
       let hasDefault = false;
       let defaultValue = '';
+      let checkConstraint: string | null = null;
       
       if (/\s+NOT\s+NULL/i.test(typeOnly)) {
         hasNotNull = true;
@@ -105,7 +106,21 @@ export function generateModifyColumnSQL(
         typeOnly = typeOnly.replace(/\s+DEFAULT\s+.+$/i, '').trim();
       }
       
+      const checkMatch = typeOnly.match(/\s+CHECK\s+(.+)$/i);
+      if (checkMatch) {
+        checkConstraint = checkMatch[1].trim();
+        typeOnly = typeOnly.replace(/\s+CHECK\s+.+$/i, '').trim();
+      }
+      
       typeOnly = typeOnly.trim();
+
+      const oldIsEnum = oldColumn && (oldColumn.type === 'enum' || oldColumn.type === 'array-select');
+      const newIsEnum = checkConstraint !== null;
+
+      if (oldIsEnum) {
+        const constraintName = `chk_${tableName}_${columnName}`;
+        statements.push(`ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraintName}`);
+      }
 
       let alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly}`;
 
@@ -159,6 +174,11 @@ export function generateModifyColumnSQL(
         if (hasDefault) {
           statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`);
         }
+      }
+
+      if (checkConstraint) {
+        const constraintName = `chk_${tableName}_${columnName}`;
+        statements.push(`ALTER TABLE ${table} ADD CONSTRAINT ${constraintName} CHECK (${checkConstraint})`);
       }
       
       return statements;
