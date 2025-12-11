@@ -1887,13 +1887,6 @@
     uuid "^10.0.0"
     zod "^3.25.76 || ^4"
 
-"@langchain/deepseek@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@langchain/deepseek/-/deepseek-1.0.0.tgz#566fe7937a0d15f8b41017675c989b5287fb380c"
-  integrity sha512-jNMnX4iiqc+/T7kSr8JlDvtneFc1Jxc+I1feoBtGhnoGr8jN4R7t5oFvkuIZBaGNvS/mtJlP6Ujy3Z/X1qqjxg==
-  dependencies:
-    "@langchain/openai" "^1.0.0"
-
 "@langchain/google-genai@^1.0.0":
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/@langchain/google-genai/-/google-genai-1.0.0.tgz#2785fa163788cb6214dffc1dc29fcd5bbb751493"
@@ -1927,7 +1920,7 @@
     "@langchain/langgraph-sdk" "~1.0.0"
     uuid "^10.0.0"
 
-"@langchain/openai@^1.0.0", "@langchain/openai@^1.1.0":
+"@langchain/openai@^1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@langchain/openai/-/openai-1.1.0.tgz#3996f87af2342e4e99a1d5fc8ae733040f2d0bc2"
   integrity sha512-GUUnt0VBKeCB+WwPxDamYt5EZfe4NXCzJC7x9OFAlt1C60/rSBbAGJokSL0VWz4oXxQwkqSvR8xA54FBvGgxQw==

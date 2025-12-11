@@ -1,6 +1,5 @@
 import { StateGraph, Annotation, END, START } from '@langchain/langgraph';
 import { Logger } from '@nestjs/common';
-import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
@@ -14,6 +13,7 @@ import { SwaggerService } from '../../../infrastructure/swagger/services/swagger
 import { GraphqlService } from '../../graphql/services/graphql.service';
 import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
 import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
+import { collectRelationValidationErrors, collectTableDataValidationErrors, createTableDefinitionRepository } from './table-workflow.helper';
 
 const TableCreationStateAnnotation = Annotation.Root({
   tableName: Annotation<string>,
@@ -125,23 +125,19 @@ export class TableCreationWorkflow {
     try {
       this.logger.log(`[Workflow] Checking if table exists: ${state.tableName}`);
 
-      const repo = new DynamicRepository({
-        context: state.context,
-        tableName: 'table_definition',
+      const repo = createTableDefinitionRepository({
+        metadataCacheService: this.metadataCacheService,
         queryBuilder: this.queryBuilder,
         tableHandlerService: this.tableHandlerService,
         queryEngine: this.queryEngine,
         routeCacheService: this.routeCacheService,
         storageConfigCacheService: this.storageConfigCacheService,
         aiConfigCacheService: this.aiConfigCacheService,
-        metadataCacheService: this.metadataCacheService,
         systemProtectionService: this.systemProtectionService,
         tableValidationService: this.tableValidationService,
-        bootstrapScriptService: undefined,
-        redisPubSubService: undefined,
         swaggerService: this.swaggerService,
         graphqlService: this.graphqlService,
-      });
+      }, state.context);
 
       await repo.init();
 
@@ -186,88 +182,10 @@ export class TableCreationWorkflow {
     try {
       this.logger.log(`[Workflow] Validating table data for: ${state.tableName}`);
 
-      const errors: Array<{ step: string; error: string; retryable: boolean }> = [];
-
-      if (!state.tableData.name || state.tableData.name.trim() === '') {
-        errors.push({ step: 'validateTableData', error: 'Table name is required', retryable: false });
-      }
-
-      if (/[A-Z]/.test(state.tableData.name)) {
-        errors.push({ step: 'validateTableData', error: 'Table name must be lowercase', retryable: false });
-      }
-
-      if (!/^[a-z0-9_]+$/.test(state.tableData.name)) {
-        errors.push({ step: 'validateTableData', error: 'Table name must be snake_case (a-z, 0-9, _)', retryable: false });
-      }
-
-      if (state.tableData.name.startsWith('_')) {
-        errors.push({ step: 'validateTableData', error: 'Table name cannot start with an underscore (_)', retryable: false });
-      }
-
-      if (!state.tableData.columns || state.tableData.columns.length === 0) {
-        errors.push({ step: 'validateTableData', error: 'Table must have at least one column', retryable: false });
-      }
-
-      const idColumn = state.tableData.columns.find((col: any) => col.name === 'id' && col.isPrimary);
-      if (!idColumn) {
-        errors.push({ step: 'validateTableData', error: 'Table must have an "id" column with isPrimary=true', retryable: false });
-      }
-
-
-      if (idColumn && !idColumn.type) {
-        const isMongoDB = this.queryBuilder.isMongoDb();
-        idColumn.type = isMongoDB ? 'uuid' : 'int';
-      }
-
-      if (idColumn && !['int', 'uuid'].includes(idColumn.type)) {
-        errors.push({ step: 'validateTableData', error: 'Primary key "id" column must be type "int" or "uuid"', retryable: false });
-      }
-
-
-      if (idColumn && idColumn.type) {
-        const isMongoDB = this.queryBuilder.isMongoDb();
-        if (isMongoDB && idColumn.type !== 'uuid') {
-          errors.push({ step: 'validateTableData', error: 'MongoDB requires id column to be type "uuid", not "' + idColumn.type + '"', retryable: false });
-        }
-
-        if (!isMongoDB && idColumn.type === 'uuid') {
-          this.logger.warn(`[validateTableData] SQL database detected but id column uses "uuid". Consider using "int" for better performance.`);
-        }
-      }
-
-      const primaryCount = state.tableData.columns.filter((col: any) => col.isPrimary).length;
-      if (primaryCount !== 1) {
-        errors.push({ step: 'validateTableData', error: 'Only one column can have isPrimary=true', retryable: false });
-      }
-
-      const hasCreatedAt = state.tableData.columns.some((col: any) => col.name === 'createdAt');
-      const hasUpdatedAt = state.tableData.columns.some((col: any) => col.name === 'updatedAt');
-      if (hasCreatedAt || hasUpdatedAt) {
-        errors.push({
-          step: 'validateTableData',
-          error: 'createdAt and updatedAt columns are auto-generated by system. Do NOT include them in columns array.',
-          retryable: false,
-        });
-      }
-
-      if (state.tableData.relations) {
-        for (const rel of state.tableData.relations) {
-          if (rel.type === 'one-to-many' && !rel.inversePropertyName) {
-            errors.push({
-              step: 'validateTableData',
-              error: `One-to-many relation '${rel.propertyName}' must have inversePropertyName`,
-              retryable: false,
-            });
-          }
-          if (rel.type === 'many-to-many' && !rel.inversePropertyName) {
-            errors.push({
-              step: 'validateTableData',
-              error: `Many-to-many relation '${rel.propertyName}' must have inversePropertyName`,
-              retryable: false,
-            });
-          }
-        }
-      }
+      const errors = [
+        ...collectTableDataValidationErrors(state.tableData, this.queryBuilder),
+        ...collectRelationValidationErrors(state.tableData.relations),
+      ];
 
       if (errors.length > 0) {
         this.logger.error(`[Workflow] Validation failed: ${errors.map(e => e.error).join('; ')}`);
@@ -301,23 +219,22 @@ export class TableCreationWorkflow {
 
       this.logger.log(`[Workflow] Validating target tables for ${state.tableData.relations.length} relation(s)`);
 
-      const repo = new DynamicRepository({
-        context: state.context,
-        tableName: 'table_definition',
-        queryBuilder: this.queryBuilder,
-        tableHandlerService: this.tableHandlerService,
-        queryEngine: this.queryEngine,
-        routeCacheService: this.routeCacheService,
-        storageConfigCacheService: this.storageConfigCacheService,
-        aiConfigCacheService: this.aiConfigCacheService,
-        metadataCacheService: this.metadataCacheService,
-        systemProtectionService: this.systemProtectionService,
-        tableValidationService: this.tableValidationService,
-        bootstrapScriptService: undefined,
-        redisPubSubService: undefined,
-        swaggerService: this.swaggerService,
-        graphqlService: this.graphqlService,
-      });
+      const repo = createTableDefinitionRepository(
+        {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        },
+        state.context,
+      );
 
       await repo.init();
 
@@ -427,23 +344,22 @@ export class TableCreationWorkflow {
 
       this.logger.log(`[Workflow] Checking FK conflicts for ${state.tableData.relations.length} relation(s)`);
 
-      const repo = new DynamicRepository({
-        context: state.context,
-        tableName: 'table_definition',
-        queryBuilder: this.queryBuilder,
-        tableHandlerService: this.tableHandlerService,
-        queryEngine: this.queryEngine,
-        routeCacheService: this.routeCacheService,
-        storageConfigCacheService: this.storageConfigCacheService,
-        aiConfigCacheService: this.aiConfigCacheService,
-        metadataCacheService: this.metadataCacheService,
-        systemProtectionService: this.systemProtectionService,
-        tableValidationService: this.tableValidationService,
-        bootstrapScriptService: undefined,
-        redisPubSubService: undefined,
-        swaggerService: this.swaggerService,
-        graphqlService: this.graphqlService,
-      });
+      const repo = createTableDefinitionRepository(
+        {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        },
+        state.context,
+      );
 
       await repo.init();
 
@@ -528,23 +444,22 @@ export class TableCreationWorkflow {
         }
       }
 
-      const repo = new DynamicRepository({
-        context: state.context,
-        tableName: 'table_definition',
-        queryBuilder: this.queryBuilder,
-        tableHandlerService: this.tableHandlerService,
-        queryEngine: this.queryEngine,
-        routeCacheService: this.routeCacheService,
-        storageConfigCacheService: this.storageConfigCacheService,
-        aiConfigCacheService: this.aiConfigCacheService,
-        metadataCacheService: this.metadataCacheService,
-        systemProtectionService: this.systemProtectionService,
-        tableValidationService: this.tableValidationService,
-        bootstrapScriptService: undefined,
-        redisPubSubService: undefined,
-        swaggerService: this.swaggerService,
-        graphqlService: this.graphqlService,
-      });
+      const repo = createTableDefinitionRepository(
+        {
+          metadataCacheService: this.metadataCacheService,
+          queryBuilder: this.queryBuilder,
+          tableHandlerService: this.tableHandlerService,
+          queryEngine: this.queryEngine,
+          routeCacheService: this.routeCacheService,
+          storageConfigCacheService: this.storageConfigCacheService,
+          aiConfigCacheService: this.aiConfigCacheService,
+          systemProtectionService: this.systemProtectionService,
+          tableValidationService: this.tableValidationService,
+          swaggerService: this.swaggerService,
+          graphqlService: this.graphqlService,
+        },
+        state.context,
+      );
 
       await repo.init();
 

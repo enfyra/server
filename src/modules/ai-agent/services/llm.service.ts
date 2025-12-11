@@ -16,6 +16,8 @@ import { reportTokenUsage, extractTokenUsage } from '../utils/token-usage.helper
 import { evaluateNeedsTools, EvaluateNeedsToolsParams } from '../utils/evaluate-needs-tools.helper';
 import { aggregateToolCallsFromChunks, deduplicateToolCalls, parseRedactedToolCalls } from '../utils/stream-tool-aggregator.helper';
 import { processStreamContentDelta, processTokenUsage, processNonStreamingContent } from '../utils/stream-content-processor.helper';
+import { parseToolArguments, normalizeToolCallId, extractToolCallName, createToolCallCacheKey, parseToolArgsWithFallback } from '../utils/tool-call-parser.helper';
+import { validateToolCallArguments, formatToolArgumentsForExecution } from '../utils/tool-call-validator.helper';
 
 @Injectable()
 export class LLMService {
@@ -148,17 +150,7 @@ export class LLMService {
                   const streamKey = tc.id || `index_${tc.index ?? allChunks.length}`;
                   if (tc.function?.name && tc.id && !streamedToolCallIds.has(streamKey)) {
                     streamedToolCallIds.add(streamKey);
-                    let toolCallArgs = {};
-                    const args = tc.function?.arguments || tc.args || '';
-                    if (typeof args === 'string' && args.trim() && args !== '{}') {
-                      try {
-                        toolCallArgs = JSON.parse(args);
-                      } catch (e) {
-                        toolCallArgs = {};
-                      }
-                    } else if (args && typeof args === 'object') {
-                      toolCallArgs = args;
-                    }
+                    const toolCallArgs = parseToolArguments(tc.function?.arguments || tc.args || '');
                     onEvent({
                       type: 'tool_call',
                       data: {
@@ -317,28 +309,15 @@ export class LLMService {
             
             if (!canStream) {
               for (const tc of toolCalls) {
-                const toolName = tc.function?.name || tc.name;
-
+                const toolName = extractToolCallName(tc);
                 if (!tc.id) {
-                  tc.id = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  tc.id = normalizeToolCallId(tc);
                 }
                 const toolId = tc.id;
-                const toolArgs = tc.function?.arguments || tc.args || tc.arguments || {};
+                const toolCallArgs = parseToolArguments(tc.function?.arguments || tc.args || tc.arguments || '');
                 
-                let toolCallArgs = {};
-                if (typeof toolArgs === 'string' && toolArgs.trim() && toolArgs !== '{}') {
-                  try {
-                    toolCallArgs = JSON.parse(toolArgs);
-                  } catch (e) {
-                    toolCallArgs = {};
-                  }
-                } else if (toolArgs && typeof toolArgs === 'object') {
-                  toolCallArgs = toolArgs;
-                }
-                
-                const streamKey = toolId;
-                if (toolName && toolId && !streamedToolCallIds.has(streamKey)) {
-                  streamedToolCallIds.add(streamKey);
+                if (toolName && toolId && !streamedToolCallIds.has(toolId)) {
+                  streamedToolCallIds.add(toolId);
                   onEvent({
                     type: 'tool_call',
                     data: {
@@ -349,13 +328,6 @@ export class LLMService {
                     },
                   });
                 }
-                
-              }
-            } else {
-              for (const tc of toolCalls) {
-                const toolName = tc.function?.name || tc.name;
-                const toolId = tc.id || 'no-id';
-                const toolArgs = tc.function?.arguments || tc.args || tc.arguments || {};
               }
             }
           } else if (!canStream) {
@@ -511,41 +483,19 @@ export class LLMService {
 
           let toolArgs = tc.function?.arguments || tc.args || tc.arguments;
 
-          let toolCallId = tc.id || tc.tool_call_id;
+          let toolCallId = normalizeToolCallId(tc, validToolCalls.length);
           
-          if (!toolCallId) {
-            toolCallId = `call_${Date.now()}_${validToolCalls.length}_${Math.random().toString(36).substr(2, 9)}`;
+          if (!tc.id) {
             tc.id = toolCallId;
           }
 
-          let toolCallArgs = {};
-          if (typeof toolArgs === 'string' && toolArgs.trim()) {
-            try {
-              toolCallArgs = JSON.parse(toolArgs);
-            } catch (e) {
-              toolCallArgs = {};
-            }
-          } else if (toolArgs && typeof toolArgs === 'object') {
-            toolCallArgs = toolArgs;
-          }
-
-          const hasValidArgs = Object.keys(toolCallArgs).length > 0;
-          const toolsWithoutArgs = ['list_tables', 'get_table_details', 'get_hint'];
-          const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
+          const toolCallArgs = parseToolArguments(toolArgs);
           
-          
-          if (!hasValidArgs && !canHaveEmptyArgs) {
+          if (!validateToolCallArguments(toolName, toolCallArgs)) {
             continue;
           }
 
-          let parsedToolArgs = toolCallArgs;
-          if (typeof toolArgs === 'string') {
-            try {
-              parsedToolArgs = JSON.parse(toolArgs);
-            } catch (e) {
-              parsedToolArgs = toolCallArgs;
-            }
-          }
+          const parsedToolArgs = parseToolArgsWithFallback(toolArgs, toolCallArgs);
 
 
 
@@ -604,20 +554,7 @@ export class LLMService {
 
         for (const [toolCallId, { tc, toolName, toolArgs, parsedArgs }] of toolCallIdMap) {
           const toolId = toolCallId;
-
-          let normalizedArgs: string;
-          
-          if (typeof parsedArgs === 'object' && parsedArgs !== null) {
-            const sorted = Object.keys(parsedArgs).sort().reduce((acc: any, key) => {
-              acc[key] = parsedArgs[key];
-              return acc;
-            }, {});
-            normalizedArgs = JSON.stringify(sorted);
-          } else {
-            normalizedArgs = String(parsedArgs || '');
-          }
-          
-          const toolCallKey = `${toolName}:${normalizedArgs}`;
+          const toolCallKey = createToolCallCacheKey(toolName, parsedArgs);
           const existingCall = executedToolCalls.get(toolCallKey);
           
           if (existingCall) {
@@ -663,16 +600,7 @@ export class LLMService {
             continue;
           }
 
-          let finalArgs: string;
-          if (typeof toolArgs === 'object' && toolArgs !== null) {
-            finalArgs = JSON.stringify(toolArgs);
-          } else if (typeof toolArgs === 'string' && toolArgs.trim() && toolArgs !== '{}') {
-            finalArgs = toolArgs;
-          } else if (parsedArgs && typeof parsedArgs === 'object' && Object.keys(parsedArgs).length > 0) {
-            finalArgs = JSON.stringify(parsedArgs);
-          } else {
-            finalArgs = JSON.stringify({});
-          }
+          const finalArgs = formatToolArgumentsForExecution(toolArgs, parsedArgs);
 
           allToolCalls.push({
             id: toolId,
@@ -815,7 +743,7 @@ export class LLMService {
 
             // Track failed tool calls to detect infinite loops
             if (resultObj?.error) {
-              const failKey = `${toolName}:${normalizedArgs}`;
+              const failKey = toolCallKey;
               const failCount = (failedToolCalls.get(failKey) || 0) + 1;
               failedToolCalls.set(failKey, failCount);
 

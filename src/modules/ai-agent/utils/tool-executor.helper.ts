@@ -18,6 +18,7 @@ import { executeCreateTables } from './executors/create-tables.executor';
 import { executeUpdateTables } from './executors/update-tables.executor';
 import { executeDeleteTables } from './executors/delete-tables.executor';
 import { executeUpdateTask } from './executors/update-task.executor';
+import { executeGetTask } from './executors/get-task.executor';
 import { executeDynamicRepository } from './executors/dynamic-repository.executor';
 import { executeBatchDynamicRepository } from './executors/batch-dynamic-repository.executor';
 
@@ -149,6 +150,11 @@ export class ToolExecutor {
 
       case 'update_task':
         result = await executeUpdateTask(args, context, {
+          conversationService: this.conversationService,
+        });
+        break;
+      case 'get_task':
+        result = await executeGetTask(args, context, {
           conversationService: this.conversationService,
         });
         break;

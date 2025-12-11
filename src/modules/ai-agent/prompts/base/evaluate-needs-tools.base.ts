@@ -34,12 +34,11 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "delete record" → ["crud_delete_operations"]
 - "find/count records" (table name known) → ["crud_query_operations"]
 - "find/count records" (natural language, e.g., "show me routes", "list users") → ["natural_language_discovery", "crud_query_operations"]
-- "list tables/get schema" (table name known) → ["metadata_operations"]
-- "list tables/get schema" (natural language, e.g., "what routes exist") → ["natural_language_discovery", "metadata_operations"]
+- "list tables/get schema/check schema/show schema/describe table/show columns/check structure" (table name known) → ["natural_language_discovery", "metadata_operations"]
 - "routes/endpoints/API/API paths/test URLs" → ["routes_endpoints", "natural_language_discovery"]
 - "how to test API" → ["routes_endpoints"]
 - "what endpoints/API are available" → ["routes_endpoints", "natural_language_discovery"]
-- "xin api" / "give me api" / "api để" → ["routes_endpoints", "natural_language_discovery"]
+- "give me api" / "api to" → ["routes_endpoints", "natural_language_discovery"]
 - "create system/backend" → ["system_workflows", "table_schema_operations"]
 - "create system + add data" → ["system_workflows", "table_schema_operations", "crud_write_operations"]
 - CRITICAL: Only select what user explicitly needs. Do NOT add "crud_write_operations" unless user says "add data" or "insert records"
@@ -71,6 +70,14 @@ Examples:
 {"user": "Show tables that are not system", "output": {"categories": ["metadata_operations"]}}
 {"user": "What tables do I have?", "output": {"categories": ["metadata_operations"]}}
 {"user": "Get table schema for products", "output": {"categories": ["metadata_operations"]}}
+{"user": "check schema of products", "output": {"categories": ["metadata_operations"]}}
+{"user": "show schema for orders", "output": {"categories": ["metadata_operations"]}}
+{"user": "what columns does users table have", "output": {"categories": ["metadata_operations"]}}
+{"user": "describe table products", "output": {"categories": ["metadata_operations"]}}
+{"user": "show columns in orders", "output": {"categories": ["metadata_operations"]}}
+{"user": "check structure of users", "output": {"categories": ["metadata_operations"]}}
+{"user": "check schema of my user table", "output": {"categories": ["natural_language_discovery", "metadata_operations"]}}
+{"user": "what columns does my products table have", "output": {"categories": ["natural_language_discovery", "metadata_operations"]}}
 {"user": "Show me user tables", "output": {"categories": ["metadata_operations"]}}
 {"user": "Display all non-system tables", "output": {"categories": ["metadata_operations"]}}
 {"user": "Delete products table", "output": {"categories": ["table_deletion"]}}
@@ -88,9 +95,8 @@ Examples:
 {"user": "give me the endpoint to test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "what is the API path for products", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "how do I test the API", "output": {"categories": ["routes_endpoints"]}}
-{"user": "xin api để tạo đơn hàng", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "give me api to create order", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
-{"user": "api để test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
+{"user": "api to test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "what API endpoints are available", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "Create e-commerce system with 5 tables", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
 {"user": "Build backend and add sample data", "output": {"categories": ["system_workflows", "table_schema_operations", "crud_write_operations"]}}`;

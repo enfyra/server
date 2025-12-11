@@ -179,6 +179,7 @@ find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"
   const systemWorkflowsContent = `**System Workflows (Multi-Step)**
 
 **Workflow:**
+0. Check existing task: get_task({"conversationId":<id>}) → if task is pending/in_progress, update or finish it instead of creating duplicate
 1. Start: update_task({"conversationId":<id>,"type":"create_table","status":"in_progress","data":{...}})
 2. Execute: create_tables, create_records, update_tables (sequentially)
 3. Complete: update_task({"conversationId":<id>,"status":"completed","result":{...}})
@@ -193,7 +194,7 @@ find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"
     category: 'system_workflows',
     title: 'System Workflows (Multi-Step Operations)',
     content: systemWorkflowsContent,
-    tools: ['update_task', 'create_tables', 'update_tables', 'delete_tables', 'get_table_details', 'create_records', 'update_records'],
+    tools: ['get_task', 'update_task', 'create_tables', 'update_tables', 'delete_tables', 'get_table_details', 'create_records', 'update_records'],
   };
 
   const errorContent = `CRITICAL - Sequential Execution (PREVENTS ERRORS):

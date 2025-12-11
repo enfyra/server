@@ -7,10 +7,20 @@ import {
 } from '../../../src/shared/types/database-init.types';
 import { getKnexColumnType } from './schema-parser';
 
-export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): Promise<{
-  columns: Array<{ name: string; type: string; isNullable: boolean; defaultValue: any }>;
+type CurrentSchema = {
+  columns: Array<{
+    name: string;
+    type: string;
+    isNullable: boolean;
+    defaultValue: any;
+    enumValues?: string[] | null;
+  }>;
   foreignKeys: Array<{ column: string; references: string; referencesTable: string }>;
-}> {
+  uniques: Array<{ name: string; columns: string[] }>;
+  indexes: Array<{ name: string; columns: string[] }>;
+};
+
+export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): Promise<CurrentSchema> {
   const dbType = knex.client.config.client;
 
   if (dbType === 'mysql2') {
@@ -39,6 +49,21 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         AND REFERENCED_TABLE_NAME IS NOT NULL
     `, [tableName]);
 
+    const indexResult = await knex.raw(
+      `
+      SELECT
+        INDEX_NAME as indexName,
+        NON_UNIQUE as isNonUnique,
+        GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as columns
+      FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND INDEX_NAME != 'PRIMARY'
+      GROUP BY INDEX_NAME, NON_UNIQUE
+    `,
+      [tableName],
+    );
+
     return {
       columns: columnsResult[0].map((col: any) => {
         let enumValues = null;
@@ -60,6 +85,18 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         };
       }),
       foreignKeys: fkResult[0],
+      uniques: indexResult[0]
+        .filter((row: any) => row.isNonUnique === 0)
+        .map((row: any) => ({
+          name: row.indexName,
+          columns: String(row.columns).split(','),
+        })),
+      indexes: indexResult[0]
+        .filter((row: any) => row.isNonUnique === 1)
+        .map((row: any) => ({
+          name: row.indexName,
+          columns: String(row.columns).split(','),
+        })),
     };
   } else if (dbType === 'pg') {
     const columnsResult = await knex.raw(`
@@ -97,6 +134,24 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         AND tc.constraint_type = 'FOREIGN KEY'
     `, [tableName]);
 
+    const indexResult = await knex.raw(
+      `
+      SELECT
+        i.relname as index_name,
+        ix.indisunique as is_unique,
+        array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) as columns
+      FROM pg_class t
+      JOIN pg_index ix ON t.oid = ix.indrelid
+      JOIN pg_class i ON i.oid = ix.indexrelid
+      JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+      WHERE t.relname = ?
+        AND ix.indisprimary = false
+      GROUP BY i.relname, ix.indisunique
+    `,
+      [tableName],
+    );
+
     return {
       columns: columnsResult.rows.map((col: any) => ({
         name: col.name,
@@ -106,21 +161,37 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         enumValues: col.enum_values || null,
       })),
       foreignKeys: fkResult.rows,
+      uniques: indexResult.rows
+        .filter((row: any) => row.is_unique === true)
+        .map((row: any) => ({
+          name: row.index_name,
+          columns: row.columns || [],
+        })),
+      indexes: indexResult.rows
+        .filter((row: any) => row.is_unique === false)
+        .map((row: any) => ({
+          name: row.index_name,
+          columns: row.columns || [],
+        })),
     };
   }
 
-  return { columns: [], foreignKeys: [] };
+  return { columns: [], foreignKeys: [], uniques: [], indexes: [] };
 }
 
 export function compareSchemas(
   snapshotSchema: KnexTableSchema,
-  currentSchema: { columns: any[]; foreignKeys: any[] }
+  currentSchema: CurrentSchema
 ): {
   columnsToAdd: ColumnDef[];
   columnsToRemove: string[];
   columnsToModify: Array<{ column: ColumnDef; changes: string[] }>;
   relationsToAdd: RelationDef[];
   relationsToRemove: string[];
+  uniquesToAdd: string[][];
+  uniquesToRemove: Array<{ columns: string[]; name?: string }>;
+  indexesToAdd: string[][];
+  indexesToRemove: Array<{ columns: string[]; name?: string }>;
 } {
   const diff = {
     columnsToAdd: [] as ColumnDef[],
@@ -128,6 +199,10 @@ export function compareSchemas(
     columnsToModify: [] as Array<{ column: ColumnDef; changes: string[] }>,
     relationsToAdd: [] as RelationDef[],
     relationsToRemove: [] as string[],
+    uniquesToAdd: [] as string[][],
+    uniquesToRemove: [] as Array<{ columns: string[]; name?: string }>,
+    indexesToAdd: [] as string[][],
+    indexesToRemove: [] as Array<{ columns: string[]; name?: string }>,
   };
 
   const snapshotColumns = snapshotSchema.definition.columns.filter(
@@ -229,6 +304,75 @@ export function compareSchemas(
   for (const fk of currentSchema.foreignKeys) {
     if (!snapshotFkColumns.has(fk.column)) {
       diff.relationsToRemove.push(fk.column);
+    }
+  }
+
+  // ---- Uniques / Indexes ----
+  const resolveFieldName = (fieldName: string): string => {
+    const relation = snapshotSchema.definition.relations?.find(
+      (r) => r.propertyName === fieldName,
+    );
+    if (relation && (relation.type === 'many-to-one' || relation.type === 'one-to-one')) {
+      return getForeignKeyColumnName(relation.propertyName);
+    }
+    return fieldName;
+  };
+
+  const normalizeGroup = (cols: string[] | string): string => {
+    const arr = Array.isArray(cols) ? cols : String(cols || '').split(',');
+    return arr.map((c) => c.trim().toLowerCase()).join('|');
+  };
+
+  const snapshotUniqueGroups =
+    snapshotSchema.definition.uniques?.map((group) => group.map(resolveFieldName)) || [];
+  const snapshotIndexGroups =
+    snapshotSchema.definition.indexes?.map((group) => group.map(resolveFieldName)) || [];
+
+  const currentUniqueMap = new Map<string, { columns: string[]; name?: string }>();
+  for (const u of currentSchema.uniques || []) {
+    const key = normalizeGroup(u.columns || []);
+    currentUniqueMap.set(key, { columns: u.columns || [], name: u.name });
+  }
+
+  const currentIndexMap = new Map<string, { columns: string[]; name?: string }>();
+  for (const idx of currentSchema.indexes || []) {
+    const key = normalizeGroup(idx.columns || []);
+    currentIndexMap.set(key, { columns: idx.columns || [], name: idx.name });
+  }
+
+  // uniques to add
+  for (const group of snapshotUniqueGroups) {
+    const key = normalizeGroup(group);
+    if (!currentUniqueMap.has(key)) {
+      diff.uniquesToAdd.push(group);
+    }
+  }
+
+  // uniques to remove
+  for (const [key, info] of currentUniqueMap.entries()) {
+    const existsInSnapshot = snapshotUniqueGroups.some(
+      (g) => normalizeGroup(g) === key,
+    );
+    if (!existsInSnapshot) {
+      diff.uniquesToRemove.push({ columns: info.columns, name: info.name });
+    }
+  }
+
+  // indexes to add
+  for (const group of snapshotIndexGroups) {
+    const key = normalizeGroup(group);
+    if (!currentIndexMap.has(key)) {
+      diff.indexesToAdd.push(group);
+    }
+  }
+
+  // indexes to remove
+  for (const [key, info] of currentIndexMap.entries()) {
+    const existsInSnapshot = snapshotIndexGroups.some(
+      (g) => normalizeGroup(g) === key,
+    );
+    if (!existsInSnapshot) {
+      diff.indexesToRemove.push({ columns: info.columns, name: info.name });
     }
   }
 
