@@ -151,31 +151,31 @@ export async function executeBatchDynamicRepository(
           await Promise.all(chunk.map(async (data, offset) => {
             const i = start + offset;
             if (abortSignal?.aborted) return;
-            try {
-              const createResult = await repo.create({ data, fields: safeFields });
-              const createdId = createResult?.data?.[0]?.id || createResult?.id || 'unknown';
-              results.push({
-                success: true,
-                index: i,
-                id: createdId,
-                data: createResult?.data?.[0] || createResult,
-              });
-            } catch (error: any) {
-              const errorMsg = error?.message || String(error);
-              logger.error(`[batch_dynamic_repository] Error creating record ${i + 1}/${args.dataArray.length}: ${errorMsg}`);
-              errors.push({
-                index: i,
-                error: 'CREATE_FAILED',
-                message: errorMsg,
-                data: data,
-              });
-              results.push({
-                success: false,
-                index: i,
-                error: 'CREATE_FAILED',
-                message: errorMsg,
-              });
-            }
+          try {
+            const createResult = await repo.create({ data, fields: safeFields });
+            const createdId = createResult?.data?.[0]?.id || createResult?.id || 'unknown';
+            results.push({
+              success: true,
+              index: i,
+              id: createdId,
+              data: createResult?.data?.[0] || createResult,
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            logger.error(`[batch_dynamic_repository] Error creating record ${i + 1}/${args.dataArray.length}: ${errorMsg}`);
+            errors.push({
+              index: i,
+              error: 'CREATE_FAILED',
+              message: errorMsg,
+              data: data,
+            });
+            results.push({
+              success: false,
+              index: i,
+              error: 'CREATE_FAILED',
+              message: errorMsg,
+            });
+          }
           }));
         }
         
@@ -211,32 +211,32 @@ export async function executeBatchDynamicRepository(
           await Promise.all(chunk.map(async (update, offset) => {
             const i = start + offset;
             if (abortSignal?.aborted) return;
-            try {
-              const updateResult = await repo.update({ id: update.id, data: update.data, fields: safeFields });
-              results.push({
-                success: true,
-                index: i,
-                id: update.id,
-                data: updateResult?.data?.[0] || updateResult,
-              });
-            } catch (error: any) {
-              const errorMsg = error?.message || String(error);
-              logger.error(`[batch_dynamic_repository] Error updating record ${i + 1}/${args.updates.length} (ID: ${update.id}): ${errorMsg}`);
-              errors.push({
-                index: i,
-                id: update.id,
-                error: 'UPDATE_FAILED',
-                message: errorMsg,
-                data: update.data,
-              });
-              results.push({
-                success: false,
-                index: i,
-                id: update.id,
-                error: 'UPDATE_FAILED',
-                message: errorMsg,
-              });
-            }
+          try {
+            const updateResult = await repo.update({ id: update.id, data: update.data, fields: safeFields });
+            results.push({
+              success: true,
+              index: i,
+              id: update.id,
+              data: updateResult?.data?.[0] || updateResult,
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            logger.error(`[batch_dynamic_repository] Error updating record ${i + 1}/${args.updates.length} (ID: ${update.id}): ${errorMsg}`);
+            errors.push({
+              index: i,
+              id: update.id,
+              error: 'UPDATE_FAILED',
+              message: errorMsg,
+              data: update.data,
+            });
+            results.push({
+              success: false,
+              index: i,
+              id: update.id,
+              error: 'UPDATE_FAILED',
+              message: errorMsg,
+            });
+          }
           }));
         }
         
@@ -272,30 +272,30 @@ export async function executeBatchDynamicRepository(
           await Promise.all(chunk.map(async (id, offset) => {
             const i = start + offset;
             if (abortSignal?.aborted) return;
-            try {
-              await repo.delete({ id });
-              results.push({
-                success: true,
-                index: i,
-                id: id,
-              });
-            } catch (error: any) {
-              const errorMsg = error?.message || String(error);
-              logger.error(`[batch_dynamic_repository] Error deleting record ${i + 1}/${args.ids.length} (ID: ${id}): ${errorMsg}`);
-              errors.push({
-                index: i,
-                id: id,
-                error: 'DELETE_FAILED',
-                message: errorMsg,
-              });
-              results.push({
-                success: false,
-                index: i,
-                id: id,
-                error: 'DELETE_FAILED',
-                message: errorMsg,
-              });
-            }
+          try {
+            await repo.delete({ id });
+            results.push({
+              success: true,
+              index: i,
+              id: id,
+            });
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            logger.error(`[batch_dynamic_repository] Error deleting record ${i + 1}/${args.ids.length} (ID: ${id}): ${errorMsg}`);
+            errors.push({
+              index: i,
+              id: id,
+              error: 'DELETE_FAILED',
+              message: errorMsg,
+            });
+            results.push({
+              success: false,
+              index: i,
+              id: id,
+              error: 'DELETE_FAILED',
+              message: errorMsg,
+            });
+          }
           }));
         }
         

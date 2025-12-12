@@ -662,6 +662,15 @@ async function syncRelationOnDeleteChanges(
 ): Promise<void> {
   const dbType = knex.client.config.client;
 
+  // Ensure onDelete column exists in relation_definition table
+  const hasOnDeleteColumn = await knex.schema.hasColumn('relation_definition', 'onDelete');
+  if (!hasOnDeleteColumn) {
+    // Column doesn't exist yet, create it first
+    await knex.schema.alterTable('relation_definition', (table) => {
+      table.enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL']).notNullable().defaultTo('SET NULL');
+    });
+  }
+
   // Load current relations from database
   const tableDefRow = await knex('table_definition')
     .where('name', tableName)
