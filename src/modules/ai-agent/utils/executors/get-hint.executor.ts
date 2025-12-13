@@ -116,14 +116,23 @@ Multiple: find_records with name._in, then delete_tables({"ids":[19,20]})
 3. Check unique constraints: find_records with where clause
 4. Create: create_records({"table":"product","dataArray":[{"name":"Laptop","price":999.99,"category":{"id":19}}],"fields":"${idFieldName}"})
 
+**BATCHING for Multiple Records (CRITICAL):**
+- When creating/updating MANY records (e.g., 500 records), MUST split into batches of 100 records per call
+- Example: 500 records → 5 separate calls with 100 records each
+- create_records({"table":"product","dataArray":[/* 100 records */],"fields":"${idFieldName}"})
+- Then repeat for next 100 records, and so on
+- NEVER call create_records/update_records with all records in one call if > 100 records
+
 **UPDATE Records:**
 1. Check exists: find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}}})
 2. Update: update_records({"table":"product","updates":[{"id":1,"data":{"price":899.99}}],"fields":"${idFieldName}"})
+- Same batching rule applies: if updating > 100 records, split into batches of 100
 
 **CRITICAL:**
 - NEVER include ${idFieldName}, createdAt, updatedAt (auto-generated)
 - For relations: Use {"propertyName":{"id":19}}, NOT FK columns
-- ALWAYS query related tables for valid IDs - NEVER hardcode`;
+- ALWAYS query related tables for valid IDs - NEVER hardcode
+- BATCHING: Always split large operations (>100 records) into batches of 100 records per call`;
 
   const crudWriteOpsHint: HintContent = {
     category: 'crud_write_operations',

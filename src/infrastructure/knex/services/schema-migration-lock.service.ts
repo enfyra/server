@@ -99,15 +99,23 @@ export class SchemaMigrationLockService {
       if (row?.isLocked) {
         throw await this.buildLockedError(trx);
       }
+      const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
+      const updateData: any = {
+        isLocked: true,
+        lockedBy,
+        lockedContext: context,
+        lockToken: token,
+      };
+      
+      if (dbType === 'postgres') {
+        updateData.lockedAt = new Date().toISOString();
+      } else {
+        updateData.lockedAt = trx.raw('NOW()');
+      }
+      
       await trx(this.tableName)
         .where({ id: 1 })
-        .update({
-          isLocked: true,
-          lockedBy,
-          lockedContext: context,
-          lockedAt: new Date().toISOString(),
-          lockToken: token,
-        });
+        .update(updateData);
       return { token, dbType };
     });
 
@@ -166,15 +174,23 @@ export class SchemaMigrationLockService {
     token: string,
   ): Promise<void> {
     await this.ensureLockTable();
+    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
+    const updateData: any = {
+      isLocked: true,
+      lockedBy,
+      lockedContext: context,
+      lockToken: token,
+    };
+    
+    if (dbType === 'postgres') {
+      updateData.lockedAt = new Date().toISOString();
+    } else {
+      updateData.lockedAt = knex.raw('NOW()');
+    }
+    
     await knex(this.tableName)
       .where({ id: 1 })
-      .update({
-        isLocked: true,
-        lockedBy,
-        lockedContext: context,
-        lockedAt: new Date().toISOString(),
-        lockToken: token,
-      });
+      .update(updateData);
   }
 
   private async clearLockRow(knex: KnexLike, token: string): Promise<void> {
