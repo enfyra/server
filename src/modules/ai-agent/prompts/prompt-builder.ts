@@ -1,13 +1,11 @@
 import { EVALUATE_NEEDS_TOOLS_BASE_PROMPT } from './base/evaluate-needs-tools.base';
 import { SYSTEM_PROMPT_BASE } from './base/system-prompt.base';
-import { DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT, DEEPSEEK_SYSTEM_PROMPT_ADDITION } from './providers/deepseek.prompts';
 import { OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT, OPENAI_SYSTEM_PROMPT_ADDITION } from './providers/openai.prompts';
 import { ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT, ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
 import { GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT, GOOGLE_SYSTEM_PROMPT_ADDITION } from './providers/google.prompts';
 import { BuildSystemPromptParams } from '../utils/types';
-import { GLM_EVALUATE_NEEDS_TOOLS_PROMPT, GLM_SYSTEM_PROMPT_ADDITION } from './providers/glm.prompts';
 
-type Provider = 'OpenAI' | 'DeepSeek' | 'Anthropic' | 'Google' | 'GLM';
+type Provider = 'OpenAI' | 'Anthropic' | 'Google';
 
 interface ProviderPrompts {
   evaluateNeedsTools: string;
@@ -19,10 +17,6 @@ const PROVIDER_PROMPTS: Record<Provider, ProviderPrompts> = {
     evaluateNeedsTools: OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: OPENAI_SYSTEM_PROMPT_ADDITION,
   },
-  DeepSeek: {
-    evaluateNeedsTools: DEEPSEEK_EVALUATE_NEEDS_TOOLS_PROMPT,
-    systemPromptAddition: DEEPSEEK_SYSTEM_PROMPT_ADDITION,
-  },
   Anthropic: {
     evaluateNeedsTools: ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: ANTHROPIC_SYSTEM_PROMPT_ADDITION,
@@ -30,10 +24,6 @@ const PROVIDER_PROMPTS: Record<Provider, ProviderPrompts> = {
   Google: {
     evaluateNeedsTools: GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: GOOGLE_SYSTEM_PROMPT_ADDITION,
-  },
-  GLM: {
-    evaluateNeedsTools: GLM_EVALUATE_NEEDS_TOOLS_PROMPT,
-    systemPromptAddition: GLM_SYSTEM_PROMPT_ADDITION,
   },
 };
 
@@ -58,6 +48,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     tablesList,
     user,
     dbType = 'postgres',
+    conversationId,
     latestUserMessage,
     conversationSummary,
     task,
@@ -102,6 +93,10 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     prompt += `\n\n**Workspace Snapshot**\n- Database tables (live source of truth):\n${tablesList}`;
   }
   
+  if (conversationId !== undefined && conversationId !== null) {
+    prompt += `\n\n**Conversation Context**\n- Conversation ID: ${conversationId}`;
+  }
+
   if (user) {
     const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
     const userId = user.id || user._id;

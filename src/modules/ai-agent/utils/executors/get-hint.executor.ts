@@ -97,7 +97,8 @@ Multiple: find_records with name._in, then delete_tables({"ids":[19,20]})
 **CRITICAL:**
 - delete_tables = table structure, delete_records = data
 - ALWAYS find ID first (cannot use table name)
-- NEVER use delete_records on table_definition`;
+- NEVER use delete_records on table_definition
+- Confirmation required for destructive ops: state table(s)/ids/count before delete; if scope unclear or conflicts with current task, ask brief confirmation then proceed`;
 
   const tableDeletionHint: HintContent = {
     category: 'table_deletion',
@@ -115,14 +116,23 @@ Multiple: find_records with name._in, then delete_tables({"ids":[19,20]})
 3. Check unique constraints: find_records with where clause
 4. Create: create_records({"table":"product","dataArray":[{"name":"Laptop","price":999.99,"category":{"id":19}}],"fields":"${idFieldName}"})
 
+**BATCHING for Multiple Records (CRITICAL):**
+- When creating/updating MANY records (e.g., 500 records), MUST split into batches of 100 records per call
+- Example: 500 records → 5 separate calls with 100 records each
+- create_records({"table":"product","dataArray":[/* 100 records */],"fields":"${idFieldName}"})
+- Then repeat for next 100 records, and so on
+- NEVER call create_records/update_records with all records in one call if > 100 records
+
 **UPDATE Records:**
 1. Check exists: find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}}})
 2. Update: update_records({"table":"product","updates":[{"id":1,"data":{"price":899.99}}],"fields":"${idFieldName}"})
+- Same batching rule applies: if updating > 100 records, split into batches of 100
 
 **CRITICAL:**
 - NEVER include ${idFieldName}, createdAt, updatedAt (auto-generated)
 - For relations: Use {"propertyName":{"id":19}}, NOT FK columns
-- ALWAYS query related tables for valid IDs - NEVER hardcode`;
+- ALWAYS query related tables for valid IDs - NEVER hardcode
+- BATCHING: Always split large operations (>100 records) into batches of 100 records per call`;
 
   const crudWriteOpsHint: HintContent = {
     category: 'crud_write_operations',
@@ -140,7 +150,8 @@ Batch: delete_records({"table":"product","ids":[1,2,3]})
 
 **CRITICAL:**
 - delete_records = data, delete_tables = structure
-- ALWAYS verify before delete`;
+- ALWAYS verify before delete
+- Confirmation required for destructive ops: state table/ids/count; if unclear or conflicting with current task, ask brief confirmation then proceed`;
 
   const crudDeleteOpsHint: HintContent = {
     category: 'crud_delete_operations',
@@ -179,21 +190,24 @@ find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"
   const systemWorkflowsContent = `**System Workflows (Multi-Step)**
 
 **Workflow:**
+0. Check existing task: get_task({"conversationId":<id>}); if pending/in_progress → continue/update instead of duplicating
 1. Start: update_task({"conversationId":<id>,"type":"create_table","status":"in_progress","data":{...}})
-2. Execute: create_tables, create_records, update_tables (sequentially)
+2. Execute sequentially: create_tables → update_tables → create_records / update_records (one tool at a time)
 3. Complete: update_task({"conversationId":<id>,"status":"completed","result":{...}})
-4. On error: update_task({"status":"failed","error":"..."})
+4. On error: update_task({"status":"failed","error":"..."}); if fixable, retry only failed items
 
 **Rules:**
 - ALWAYS create task first for multi-step operations
-- Execute sequentially (one at a time)
-- Continue automatically without stopping`;
+- Continue automatically; do not stop to ask unless missing user-only info
+- Retry strategy: when a batch partially fails (e.g., create_tables), fix naming/IDs only for failed items and resend ONLY those
+- Progress reporting: update_task in-progress messages like "Creating table 4/5", "Adding sample data...", then mark completed
+- Intent shift: if user switches request mid-flow, pause current task (update_task status='paused' or 'cancelled' with reason) and confirm before resuming or abandoning`;
 
   const systemWorkflowsHint: HintContent = {
     category: 'system_workflows',
     title: 'System Workflows (Multi-Step Operations)',
     content: systemWorkflowsContent,
-    tools: ['update_task', 'create_tables', 'update_tables', 'delete_tables', 'get_table_details', 'create_records', 'update_records'],
+    tools: ['get_task', 'update_task', 'create_tables', 'update_tables', 'delete_tables', 'get_table_details', 'create_records', 'update_records'],
   };
 
   const errorContent = `CRITICAL - Sequential Execution (PREVENTS ERRORS):

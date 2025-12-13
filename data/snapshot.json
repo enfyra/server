@@ -421,12 +421,11 @@
         },
         "ai_config_definition": {
             "name": "ai_config_definition",
-            "description": "Stores AI agent configuration settings. Supports OpenAI, Anthropic (Claude), Google (Gemini), and DeepSeek.",
+            "description": "Stores AI agent configuration settings. Supports OpenAI-compatible (via baseUrl), Anthropic (Claude), Google (Gemini).",
             "isSystem": true,
-            "uniques": [["provider"]],
             "columns": [
                 { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-                { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google", "DeepSeek", "GLM"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI, Anthropic, Google, DeepSeek, or GLM)" },
+                { "name": "provider", "type": "enum", "isNullable": false, "isSystem": true, "options": ["OpenAI", "Anthropic", "Google"], "defaultValue": "OpenAI", "description": "AI provider (OpenAI-compatible via baseUrl, Anthropic, or Google)" },
                 { "name": "apiKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "API key for the AI provider (sensitive, hidden from API responses)" },
                 { "name": "model", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "gpt-4o-mini", "description": "Model name to use" },
                 { "name": "baseUrl", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Custom API base URL for providers that support overriding endpoint" },

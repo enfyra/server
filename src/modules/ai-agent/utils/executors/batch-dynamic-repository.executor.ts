@@ -133,6 +133,7 @@ export async function executeBatchDynamicRepository(
     const results: any[] = [];
     const errors: any[] = [];
     let result: any;
+    const batchSize = 5;
 
     switch (args.operation) {
       case 'batch_create':
@@ -144,11 +145,12 @@ export async function executeBatchDynamicRepository(
           throw new Error(`CRITICAL: Do NOT include "id" field in batch_create operations. The database will automatically generate the id. Found "id" field in ${itemsWithId.length} item(s). Remove "id" from all data objects and try again.`);
         }
         
-        for (let i = 0; i < args.dataArray.length; i++) {
-          const data = args.dataArray[i];
-          if (abortSignal?.aborted) {
-            break;
-          }
+        for (let start = 0; start < args.dataArray.length; start += batchSize) {
+          if (abortSignal?.aborted) break;
+          const chunk = args.dataArray.slice(start, start + batchSize);
+          await Promise.all(chunk.map(async (data, offset) => {
+            const i = start + offset;
+            if (abortSignal?.aborted) return;
           try {
             const createResult = await repo.create({ data, fields: safeFields });
             const createdId = createResult?.data?.[0]?.id || createResult?.id || 'unknown';
@@ -174,6 +176,7 @@ export async function executeBatchDynamicRepository(
               message: errorMsg,
             });
           }
+          }));
         }
         
         const successCount = results.filter(r => r.success).length;
@@ -202,11 +205,12 @@ export async function executeBatchDynamicRepository(
           throw new Error('updates (array of {id, data}) is required for batch_update operation');
         }
         
-        for (let i = 0; i < args.updates.length; i++) {
-          const update = args.updates[i];
-          if (abortSignal?.aborted) {
-            break;
-          }
+        for (let start = 0; start < args.updates.length; start += batchSize) {
+          if (abortSignal?.aborted) break;
+          const chunk = args.updates.slice(start, start + batchSize);
+          await Promise.all(chunk.map(async (update, offset) => {
+            const i = start + offset;
+            if (abortSignal?.aborted) return;
           try {
             const updateResult = await repo.update({ id: update.id, data: update.data, fields: safeFields });
             results.push({
@@ -233,6 +237,7 @@ export async function executeBatchDynamicRepository(
               message: errorMsg,
             });
           }
+          }));
         }
         
         const updateSuccessCount = results.filter(r => r.success).length;
@@ -261,11 +266,12 @@ export async function executeBatchDynamicRepository(
           throw new Error('ids (array) is required for batch_delete operation');
         }
         
-        for (let i = 0; i < args.ids.length; i++) {
-          const id = args.ids[i];
-          if (abortSignal?.aborted) {
-            break;
-          }
+        for (let start = 0; start < args.ids.length; start += batchSize) {
+          if (abortSignal?.aborted) break;
+          const chunk = args.ids.slice(start, start + batchSize);
+          await Promise.all(chunk.map(async (id, offset) => {
+            const i = start + offset;
+            if (abortSignal?.aborted) return;
           try {
             await repo.delete({ id });
             results.push({
@@ -290,6 +296,7 @@ export async function executeBatchDynamicRepository(
               message: errorMsg,
             });
           }
+          }));
         }
         
         const deleteSuccessCount = results.filter(r => r.success).length;

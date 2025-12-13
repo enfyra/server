@@ -43,12 +43,15 @@ export async function buildSystemPromptForLLM(params: {
 
   const baseApiUrl = configService.get<string>('BACKEND_URL');
 
+  const conversationId = conversation?.id ?? null;
+
   const systemPrompt = buildSystemPrompt({
     provider,
     needsTools,
     tablesList,
     user,
     dbType,
+    conversationId,
     latestUserMessage,
     conversationSummary: conversation.summary,
     task: conversation.task,

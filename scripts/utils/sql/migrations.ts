@@ -529,6 +529,95 @@ export async function applyRelationMigrations(
   }
 }
 
+export async function applyIndexAndUniqueMigrations(
+  knex: Knex,
+  tableName: string,
+  diff: ReturnType<typeof compareSchemas>,
+): Promise<void> {
+  const normalizeCols = (cols: string[] | string): string[] => {
+    if (Array.isArray(cols)) return cols;
+    return String(cols || '')
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean);
+  };
+
+  if (
+    diff.uniquesToAdd.length === 0 &&
+    diff.uniquesToRemove.length === 0 &&
+    diff.indexesToAdd.length === 0 &&
+    diff.indexesToRemove.length === 0
+  ) {
+    return;
+  }
+
+  console.log(`  ⚙️  Syncing uniques/indexes for ${tableName}`);
+
+  if (diff.uniquesToRemove.length > 0) {
+    for (const u of diff.uniquesToRemove) {
+      const colsArr = normalizeCols(u.columns);
+      try {
+        await knex.schema.alterTable(tableName, (table) => {
+          if (u.name) {
+            table.dropUnique(colsArr, u.name);
+          } else {
+            table.dropUnique(colsArr);
+          }
+        });
+        console.log(`    - Dropped UNIQUE (${colsArr.join(', ')})`);
+      } catch (err: any) {
+        console.log(`    ⚠️  Failed to drop UNIQUE (${colsArr.join(', ')}): ${err?.message}`);
+      }
+    }
+  }
+
+  if (diff.indexesToRemove.length > 0) {
+    for (const idx of diff.indexesToRemove) {
+      const colsArr = normalizeCols(idx.columns);
+      try {
+        await knex.schema.alterTable(tableName, (table) => {
+          if (idx.name) {
+            table.dropIndex(colsArr, idx.name);
+          } else {
+            table.dropIndex(colsArr);
+          }
+        });
+        console.log(`    - Dropped INDEX (${colsArr.join(', ')})`);
+      } catch (err: any) {
+        console.log(`    ⚠️  Failed to drop INDEX (${colsArr.join(', ')}): ${err?.message}`);
+      }
+    }
+  }
+
+  if (diff.uniquesToAdd.length > 0) {
+    for (const cols of diff.uniquesToAdd) {
+      const colsArr = normalizeCols(cols);
+      try {
+        await knex.schema.alterTable(tableName, (table) => {
+          table.unique(colsArr);
+        });
+        console.log(`    + Added UNIQUE (${colsArr.join(', ')})`);
+      } catch (err: any) {
+        console.log(`    ⚠️  Failed to add UNIQUE (${colsArr.join(', ')}): ${err?.message}`);
+      }
+    }
+  }
+
+  if (diff.indexesToAdd.length > 0) {
+    for (const cols of diff.indexesToAdd) {
+      const colsArr = normalizeCols(cols);
+      try {
+        await knex.schema.alterTable(tableName, (table) => {
+          table.index(colsArr);
+        });
+        console.log(`    + Added INDEX (${colsArr.join(', ')})`);
+      } catch (err: any) {
+        console.log(`    ⚠️  Failed to add INDEX (${colsArr.join(', ')}): ${err?.message}`);
+      }
+    }
+  }
+}
+
 export async function syncTable(
   knex: Knex,
   schema: KnexTableSchema,
@@ -545,7 +634,11 @@ export async function syncTable(
     diff.columnsToRemove.length > 0 ||
     diff.columnsToModify.length > 0 ||
     diff.relationsToAdd.length > 0 ||
-    diff.relationsToRemove.length > 0;
+    diff.relationsToRemove.length > 0 ||
+    diff.uniquesToAdd.length > 0 ||
+    diff.uniquesToRemove.length > 0 ||
+    diff.indexesToAdd.length > 0 ||
+    diff.indexesToRemove.length > 0;
 
   if (!hasChanges) {
     console.log(`⏩ No changes for table: ${tableName}`);
@@ -556,6 +649,7 @@ export async function syncTable(
 
   await applyColumnMigrations(knex, tableName, diff, schemas);
   await applyRelationMigrations(knex, tableName, diff, schemas);
+  await applyIndexAndUniqueMigrations(knex, tableName, diff);
   await syncRelationOnDeleteChanges(knex, tableName, schema);
 
   console.log(`✅ Synced table: ${tableName}`);
@@ -567,6 +661,15 @@ async function syncRelationOnDeleteChanges(
   schema: KnexTableSchema,
 ): Promise<void> {
   const dbType = knex.client.config.client;
+
+  // Ensure onDelete column exists in relation_definition table
+  const hasOnDeleteColumn = await knex.schema.hasColumn('relation_definition', 'onDelete');
+  if (!hasOnDeleteColumn) {
+    // Column doesn't exist yet, create it first
+    await knex.schema.alterTable('relation_definition', (table) => {
+      table.enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL']).notNullable().defaultTo('SET NULL');
+    });
+  }
 
   // Load current relations from database
   const tableDefRow = await knex('table_definition')

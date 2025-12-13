@@ -16,6 +16,8 @@ import { reportTokenUsage, extractTokenUsage } from '../utils/token-usage.helper
 import { evaluateNeedsTools, EvaluateNeedsToolsParams } from '../utils/evaluate-needs-tools.helper';
 import { aggregateToolCallsFromChunks, deduplicateToolCalls, parseRedactedToolCalls } from '../utils/stream-tool-aggregator.helper';
 import { processStreamContentDelta, processTokenUsage, processNonStreamingContent } from '../utils/stream-content-processor.helper';
+import { parseToolArguments, normalizeToolCallId, extractToolCallName, createToolCallCacheKey, parseToolArgsWithFallback } from '../utils/tool-call-parser.helper';
+import { validateToolCallArguments, formatToolArgumentsForExecution } from '../utils/tool-call-validator.helper';
 
 @Injectable()
 export class LLMService {
@@ -100,12 +102,11 @@ export class LLMService {
 
       const executedToolCalls = new Map<string, { toolId: string; result: any }>();
       let iterations = 0;
-      const maxIterations = config.maxToolIterations || 50; // Increased default
+      const maxIterations = config.maxToolIterations || 50;
       let accumulatedTokenUsage: { inputTokens: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 };
       const cacheKey = conversationId ? `conv_${conversationId}` : undefined;
 
-      // Detect infinite loops - track repeated failed tool calls
-      const failedToolCalls = new Map<string, number>(); // toolName:args -> count
+      const failedToolCalls = new Map<string, number>();
 
       while (iterations < maxIterations) {
         iterations++;
@@ -148,17 +149,7 @@ export class LLMService {
                   const streamKey = tc.id || `index_${tc.index ?? allChunks.length}`;
                   if (tc.function?.name && tc.id && !streamedToolCallIds.has(streamKey)) {
                     streamedToolCallIds.add(streamKey);
-                    let toolCallArgs = {};
-                    const args = tc.function?.arguments || tc.args || '';
-                    if (typeof args === 'string' && args.trim() && args !== '{}') {
-                      try {
-                        toolCallArgs = JSON.parse(args);
-                      } catch (e) {
-                        toolCallArgs = {};
-                      }
-                    } else if (args && typeof args === 'object') {
-                      toolCallArgs = args;
-                    }
+                    const toolCallArgs = parseToolArguments(tc.function?.arguments || tc.args || '');
                     onEvent({
                       type: 'tool_call',
                       data: {
@@ -310,6 +301,124 @@ export class LLMService {
           }
         }
 
+        if (currentToolCalls.length > 0) {
+          const latestUserMessage = (() => {
+            for (let i = messages.length - 1; i >= 0; i--) {
+              const m = messages[i];
+              if ((m as any).role === 'user') {
+                return (m as any).content || '';
+              }
+            }
+            return messages?.length ? messages[messages.length - 1]?.content || '' : '';
+          })();
+          const lowerMsg = typeof latestUserMessage === 'string' ? latestUserMessage.toLowerCase() : '';
+
+          const intentShift = /stop|cancel|pause|hold|đừng|dừng|hủy|huỷ|đổi ý|đổi sang|chuyển|yêu cầu khác|task khác|làm việc khác|change request|switch task|new request/.test(lowerMsg);
+          const isDestructiveTool = (name: string | undefined) =>
+            name === 'delete_tables' || name === 'delete_records' || name === 'update_records';
+
+          const needsConfirm = (tc: any) => {
+            const toolName = extractToolCallName(tc);
+            if (!isDestructiveTool(toolName)) return false;
+            const argsRaw = tc.function?.arguments || tc.args || tc.arguments || {};
+            let parsed: any = argsRaw;
+            if (typeof argsRaw === 'string') {
+              try { parsed = JSON.parse(argsRaw); } catch { parsed = {}; }
+            }
+            const ids = parsed?.ids;
+            const updates = parsed?.updates;
+            const bulkCount = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : 0;
+            const hasExplicitDeleteKeyword = /delete|remove|xoá|xóa|destroy|drop|clear/.test(lowerMsg);
+            const hasExplicitConfirm = /yes|đồng ý|ok|confirm|sure|go ahead|continue/.test(lowerMsg);
+            if (!hasExplicitDeleteKeyword && !hasExplicitConfirm) return true;
+            if (bulkCount === 0) return true;
+            return false;
+          };
+
+          if (intentShift) {
+            const clarification = `Phát hiện bạn muốn đổi yêu cầu. Đã tạm dừng tác vụ hiện tại. Bạn muốn tiếp tục yêu cầu mới hay tiếp tục tác vụ cũ? Trả lời "tiếp tục yêu cầu mới" hoặc "tiếp tục tác vụ cũ".`;
+            fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
+            onEvent({
+              type: 'text',
+              data: {
+                delta: (fullContent.endsWith('\n') ? '' : '\n\n') + clarification,
+              },
+            });
+
+            const finalUsage = extractTokenUsage(aggregateResponse);
+            if (finalUsage) {
+              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
+              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
+              onEvent({
+                type: 'tokens',
+                data: {
+                  inputTokens: accumulatedTokenUsage.inputTokens,
+                  outputTokens: accumulatedTokenUsage.outputTokens,
+                },
+              });
+            }
+
+            reportTokenUsage('stream', aggregateResponse);
+            return {
+              content: fullContent,
+              toolCalls: allToolCalls,
+              toolResults: allToolResults,
+              toolLoops: iterations,
+            };
+          }
+
+          const pendingDestructive = currentToolCalls.find((tc: any) => needsConfirm(tc));
+          if (pendingDestructive) {
+            const toolName = extractToolCallName(pendingDestructive) || 'destructive action';
+            const argsRaw = pendingDestructive.function?.arguments || pendingDestructive.args || pendingDestructive.arguments || {};
+            let parsed: any = argsRaw;
+            if (typeof argsRaw === 'string') {
+              try { parsed = JSON.parse(argsRaw); } catch { parsed = {}; }
+            }
+            const ids = parsed?.ids;
+            const updates = parsed?.updates;
+            const targetTable = parsed?.table || parsed?.tableName || parsed?.tableNames;
+            const count = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : undefined;
+            const scopeDesc = [
+              targetTable ? `table: ${JSON.stringify(targetTable)}` : null,
+              count ? `items: ${count}` : null,
+              ids && Array.isArray(ids) ? `ids: [${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '...' : ''}]` : null,
+            ].filter(Boolean).join(', ');
+
+            const confirmText = scopeDesc ? `${toolName} → ${scopeDesc}` : toolName;
+
+            const clarification = `Xác nhận thao tác phá hủy: ${confirmText}. Bạn có chắc muốn thực hiện không? Trả lời "yes" để tiếp tục hoặc cung cấp rõ phạm vi/ids.`;
+            fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
+            onEvent({
+              type: 'text',
+              data: {
+                delta: (fullContent.endsWith('\n') ? '' : '\n\n') + clarification,
+              },
+            });
+
+            const finalUsage = extractTokenUsage(aggregateResponse);
+            if (finalUsage) {
+              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
+              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
+              onEvent({
+                type: 'tokens',
+                data: {
+                  inputTokens: accumulatedTokenUsage.inputTokens,
+                  outputTokens: accumulatedTokenUsage.outputTokens,
+                },
+              });
+            }
+
+            reportTokenUsage('stream', aggregateResponse);
+            return {
+              content: fullContent,
+              toolCalls: allToolCalls,
+              toolResults: allToolResults,
+              toolLoops: iterations,
+            };
+          }
+        }
+
         if (aggregateResponse && currentToolCalls.length === 0) {
           const toolCalls = getToolCallsFromResponse(aggregateResponse);
           if (toolCalls.length > 0) {
@@ -317,28 +426,15 @@ export class LLMService {
             
             if (!canStream) {
               for (const tc of toolCalls) {
-                const toolName = tc.function?.name || tc.name;
-
+                const toolName = extractToolCallName(tc);
                 if (!tc.id) {
-                  tc.id = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  tc.id = normalizeToolCallId(tc);
                 }
                 const toolId = tc.id;
-                const toolArgs = tc.function?.arguments || tc.args || tc.arguments || {};
+                const toolCallArgs = parseToolArguments(tc.function?.arguments || tc.args || tc.arguments || '');
                 
-                let toolCallArgs = {};
-                if (typeof toolArgs === 'string' && toolArgs.trim() && toolArgs !== '{}') {
-                  try {
-                    toolCallArgs = JSON.parse(toolArgs);
-                  } catch (e) {
-                    toolCallArgs = {};
-                  }
-                } else if (toolArgs && typeof toolArgs === 'object') {
-                  toolCallArgs = toolArgs;
-                }
-                
-                const streamKey = toolId;
-                if (toolName && toolId && !streamedToolCallIds.has(streamKey)) {
-                  streamedToolCallIds.add(streamKey);
+                if (toolName && toolId && !streamedToolCallIds.has(toolId)) {
+                  streamedToolCallIds.add(toolId);
                   onEvent({
                     type: 'tool_call',
                     data: {
@@ -349,13 +445,6 @@ export class LLMService {
                     },
                   });
                 }
-                
-              }
-            } else {
-              for (const tc of toolCalls) {
-                const toolName = tc.function?.name || tc.name;
-                const toolId = tc.id || 'no-id';
-                const toolArgs = tc.function?.arguments || tc.args || tc.arguments || {};
               }
             }
           } else if (!canStream) {
@@ -511,41 +600,19 @@ export class LLMService {
 
           let toolArgs = tc.function?.arguments || tc.args || tc.arguments;
 
-          let toolCallId = tc.id || tc.tool_call_id;
+          let toolCallId = normalizeToolCallId(tc, validToolCalls.length);
           
-          if (!toolCallId) {
-            toolCallId = `call_${Date.now()}_${validToolCalls.length}_${Math.random().toString(36).substr(2, 9)}`;
+          if (!tc.id) {
             tc.id = toolCallId;
           }
 
-          let toolCallArgs = {};
-          if (typeof toolArgs === 'string' && toolArgs.trim()) {
-            try {
-              toolCallArgs = JSON.parse(toolArgs);
-            } catch (e) {
-              toolCallArgs = {};
-            }
-          } else if (toolArgs && typeof toolArgs === 'object') {
-            toolCallArgs = toolArgs;
-          }
-
-          const hasValidArgs = Object.keys(toolCallArgs).length > 0;
-          const toolsWithoutArgs = ['list_tables', 'get_table_details', 'get_hint'];
-          const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
+          const toolCallArgs = parseToolArguments(toolArgs);
           
-          
-          if (!hasValidArgs && !canHaveEmptyArgs) {
+          if (!validateToolCallArguments(toolName, toolCallArgs)) {
             continue;
           }
 
-          let parsedToolArgs = toolCallArgs;
-          if (typeof toolArgs === 'string') {
-            try {
-              parsedToolArgs = JSON.parse(toolArgs);
-            } catch (e) {
-              parsedToolArgs = toolCallArgs;
-            }
-          }
+          const parsedToolArgs = parseToolArgsWithFallback(toolArgs, toolCallArgs);
 
 
 
@@ -604,20 +671,7 @@ export class LLMService {
 
         for (const [toolCallId, { tc, toolName, toolArgs, parsedArgs }] of toolCallIdMap) {
           const toolId = toolCallId;
-
-          let normalizedArgs: string;
-          
-          if (typeof parsedArgs === 'object' && parsedArgs !== null) {
-            const sorted = Object.keys(parsedArgs).sort().reduce((acc: any, key) => {
-              acc[key] = parsedArgs[key];
-              return acc;
-            }, {});
-            normalizedArgs = JSON.stringify(sorted);
-          } else {
-            normalizedArgs = String(parsedArgs || '');
-          }
-          
-          const toolCallKey = `${toolName}:${normalizedArgs}`;
+          const toolCallKey = createToolCallCacheKey(toolName, parsedArgs);
           const existingCall = executedToolCalls.get(toolCallKey);
           
           if (existingCall) {
@@ -663,16 +717,7 @@ export class LLMService {
             continue;
           }
 
-          let finalArgs: string;
-          if (typeof toolArgs === 'object' && toolArgs !== null) {
-            finalArgs = JSON.stringify(toolArgs);
-          } else if (typeof toolArgs === 'string' && toolArgs.trim() && toolArgs !== '{}') {
-            finalArgs = toolArgs;
-          } else if (parsedArgs && typeof parsedArgs === 'object' && Object.keys(parsedArgs).length > 0) {
-            finalArgs = JSON.stringify(parsedArgs);
-          } else {
-            finalArgs = JSON.stringify({});
-          }
+          const finalArgs = formatToolArgumentsForExecution(toolArgs, parsedArgs);
 
           allToolCalls.push({
             id: toolId,
@@ -815,7 +860,7 @@ export class LLMService {
 
             // Track failed tool calls to detect infinite loops
             if (resultObj?.error) {
-              const failKey = `${toolName}:${normalizedArgs}`;
+              const failKey = toolCallKey;
               const failCount = (failedToolCalls.get(failKey) || 0) + 1;
               failedToolCalls.set(failKey, failCount);
 

@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { ConversationService } from './conversation.service';
@@ -14,6 +14,7 @@ import { StreamEvent } from '../interfaces/stream-event.interface';
 import { generateTitleFromMessage } from '../utils/conversation-helper';
 import { buildLLMMessages } from '../utils/message-builder.helper';
 import { summarizeToolResults } from '../utils/tool-result-summarizer.helper';
+import { selectToolsForRequest } from '../utils/tool-selection.helper';
 
 @Injectable()
 export class AiAgentService {
@@ -358,72 +359,30 @@ export class AiAgentService {
         conversationHistory: messages,
         conversationSummary: conversation.summary,
       });
-      
-      const hintCategories = evaluateResult.categories || [];
-      
-      let selectedToolNames: string[] = [];
-      if (hintCategories && hintCategories.length > 0) {
-        const { buildHintContent, getHintTools } = require('../utils/executors/get-hint.executor');
-        const dbType = this.queryBuilder.getDbType();
-        const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
-        
-        const hints = buildHintContent(dbType, idFieldName, hintCategories);
-        selectedToolNames = getHintTools(hints);
-        selectedToolNames = selectedToolNames.filter(tool => tool !== 'get_hint');
-        selectedToolNames = Array.from(new Set(selectedToolNames));
-      }
 
-      if (selectedToolNames && selectedToolNames.length > 0) {
-        const hasFindRecords = selectedToolNames.includes('find_records');
-        const hasCreateRecord = selectedToolNames.includes('create_records');
-        const hasUpdateRecord = selectedToolNames.includes('update_records');
-        const hasGetTableDetails = selectedToolNames.includes('get_table_details');
-        
+      const {
+        selectedToolNames,
+        toolsDefSize,
+        hintCategories,
+        needsTools,
+      } = selectToolsForRequest({
+        evaluateCategories: evaluateResult.categories || [],
+        queryBuilder: this.queryBuilder,
+        provider: config.provider,
+      });
 
-
-        if ((hasCreateRecord || hasUpdateRecord || selectedToolNames.includes('delete_records')) && !hasFindRecords) {
-          selectedToolNames = [...selectedToolNames, 'find_records'];
-        }
-        
-
-
-        if ((hasCreateRecord || hasUpdateRecord) && !hasGetTableDetails) {
-          selectedToolNames = [...selectedToolNames, 'get_table_details'];
-        }
-        if (hasFindRecords && !hasGetTableDetails) {
-          selectedToolNames = [...selectedToolNames, 'get_table_details'];
-        }
-      }
-
-      const needsTools = selectedToolNames && selectedToolNames.length > 0;
-      const llmMessages = await buildLLMMessages({ conversation, messages, config, user, needsTools, hintCategories, selectedToolNames, metadataCacheService: this.metadataCacheService, queryBuilder: this.queryBuilder, configService: this.configService });
-
-      let toolsDefSize = 0;
-      if (selectedToolNames && selectedToolNames.length > 0) {
-        const toolsDefFile = require('../utils/llm-tools.helper');
-        const COMMON_TOOLS = toolsDefFile.COMMON_TOOLS || [];
-        const selectedTools = COMMON_TOOLS.filter((tool: any) => selectedToolNames.includes(tool.name));
-        
-        const formatTools = toolsDefFile.formatToolsForProvider || ((provider: string, tools: any[]) => {
-          if (provider === 'Anthropic') {
-            return tools.map((tool) => ({
-              name: tool.name,
-              description: tool.description,
-              input_schema: tool.parameters,
-            }));
-          }
-          return tools.map((tool) => ({
-            type: 'function' as const,
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.parameters,
-            },
-          }));
-        });
-        const formattedTools = formatTools(config.provider, selectedTools);
-        toolsDefSize = JSON.stringify(formattedTools).length;
-      }
+      const llmMessages = await buildLLMMessages({
+        conversation,
+        messages,
+        config,
+        user,
+        needsTools,
+        hintCategories,
+        selectedToolNames,
+        metadataCacheService: this.metadataCacheService,
+        queryBuilder: this.queryBuilder,
+        configService: this.configService,
+      });
       
     let historyCount = 0;
     let toolCallsCount = 0;

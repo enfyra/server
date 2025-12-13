@@ -78,15 +78,9 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         user: DB_USERNAME,
         password: DB_PASSWORD,
         database: DB_NAME,
-        typeCast: function (field: any, next: any) {
+        typeCast: (field: any, next: any) => {
           if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
             return field.string();
-          }
-          // MySQL BOOLEAN is alias of TINYINT(1)
-          if (DB_TYPE === 'mysql' && field.type === 'TINY' && field.length === 1) {
-            const s = field.string();
-            if (s === null) return null;
-            return s === '1';
           }
           return next();
         },

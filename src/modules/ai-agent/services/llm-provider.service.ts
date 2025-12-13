@@ -1,17 +1,20 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatDeepSeek } from '@langchain/deepseek';
 
 @Injectable()
 export class LLMProviderService {
   async createLLM(config: any): Promise<any> {
     if (config.provider === 'OpenAI') {
+      const baseURL = config.baseUrl
+        ? String(config.baseUrl).replace(/\/$/, '')
+        : undefined;
       return new ChatOpenAI({
         apiKey: config.apiKey,
         model: config.model?.trim(),
         timeout: config.llmTimeout || 30000,
         streaming: true,
+        configuration: baseURL ? { baseURL } : undefined,
       });
     }
 
@@ -32,31 +35,6 @@ export class LLMProviderService {
         temperature: 0.7,
         maxOutputTokens: 8192,
         streaming: true,
-      });
-    }
-
-    if (config.provider === 'DeepSeek') {
-      return new ChatDeepSeek({
-        apiKey: config.apiKey,
-        model: config.model?.trim(),
-        timeout: config.llmTimeout || 30000,
-        streaming: true,
-      });
-    }
-
-    if (config.provider === 'GLM') {
-      if (!config.apiKey) {
-        throw new BadRequestException('GLM provider requires an API key');
-      }
-      const baseUrl = (config.baseUrl || 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '');
-      return new ChatOpenAI({
-        apiKey: config.apiKey,
-        model: config.model?.trim(),
-        timeout: config.llmTimeout || 30000,
-        streaming: true,
-        configuration: {
-          baseURL: baseUrl,
-        },
       });
     }
 
