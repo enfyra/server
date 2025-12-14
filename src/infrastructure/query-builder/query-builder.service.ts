@@ -123,7 +123,7 @@ export class QueryBuilderService {
 
     if (this.dbType === 'mongodb') {
       const executor = new MongoQueryExecutor(this.mongoService);
-      return executor.execute({ ...options, metadata });
+      return executor.execute({ ...options, metadata, dbType: this.dbType });
     }
 
     const executor = new SqlQueryExecutor(

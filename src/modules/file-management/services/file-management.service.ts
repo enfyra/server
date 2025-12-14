@@ -26,9 +26,31 @@ export class FileManagementService {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
   }
 
-  public createIdReference(id: number | string): any {
+  public createIdReference(id: number | string | null | undefined): any {
+    if (!id || id === null || id === undefined) {
+      return null;
+    }
+    
+    if (typeof id === 'string' && id.trim() === '') {
+      return null;
+    }
+    
     const idField = this.getIdField();
-    return { [idField]: id };
+    
+    let normalizedId: string | number = id;
+    if (this.queryBuilder.isMongoDb()) {
+      if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
+        normalizedId = (id as any).toString();
+      } else {
+        normalizedId = String(id);
+      }
+      
+      if (!normalizedId || (typeof normalizedId === 'string' && normalizedId.trim() === '')) {
+        return null;
+      }
+    }
+    
+    return { [idField]: normalizedId };
   }
 
 
@@ -82,7 +104,28 @@ export class FileManagementService {
 
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
+      
+      const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+      const storageConfigIdValue = storageConfig?.[idField];
+      
+      if (!storageConfig || !storageConfigIdValue) {
+        throw new BadRequestException('Storage config not found or invalid');
+      }
+
       const storageService = this.storageFactory.getStorageServiceByConfig(storageConfig);
+
+      let normalizedStorageConfigId: string | number = storageConfigIdValue;
+      if (this.queryBuilder.isMongoDb() && normalizedStorageConfigId) {
+        if (typeof normalizedStorageConfigId === 'object' && normalizedStorageConfigId !== null && typeof (normalizedStorageConfigId as any).toString === 'function') {
+          normalizedStorageConfigId = (normalizedStorageConfigId as any).toString();
+        } else {
+          normalizedStorageConfigId = String(normalizedStorageConfigId);
+        }
+      }
+
+      if (!normalizedStorageConfigId || (typeof normalizedStorageConfigId === 'string' && normalizedStorageConfigId.trim() === '')) {
+        throw new BadRequestException('Invalid storage config ID after normalization');
+      }
 
       const uploadResult = await storageService.upload(
             fileData.buffer,
@@ -96,14 +139,14 @@ export class FileManagementService {
         mimetype: fileData.mimetype,
         type: fileType,
         filesize: fileData.size,
-        storage_config_id: storageConfig.id,
+        storage_config_id: normalizedStorageConfigId,
         location: uploadResult.location,
         description: fileData.description,
         status: 'active',
       };
 
       this.logger.log(
-        `File processed successfully: ${uniqueFilename} on storage config ${storageConfig.id} (${storageConfig.type})`,
+        `File processed successfully: ${uniqueFilename} on storage config ${normalizedStorageConfigId} (${storageConfig.type})`,
       );
       return processedInfo;
     } catch (error) {
@@ -160,7 +203,10 @@ export class FileManagementService {
       storageConfigId,
     );
 
+    let fileUploadedToCloud = false;
     try {
+      fileUploadedToCloud = true;
+
       const savedFile = await fileRepo.create({
         data: {
           filename: processedFile.filename,
@@ -181,10 +227,25 @@ export class FileManagementService {
 
       return savedFile;
     } catch (error) {
-      await this.rollbackFileCreation(
-        processedFile.location,
-        processedFile.storage_config_id,
-      );
+      if (fileUploadedToCloud) {
+        this.logger.warn(
+          `Database save failed for file ${processedFile.location}, rolling back cloud storage upload`,
+        );
+        try {
+          await this.rollbackFileCreation(
+            processedFile.location,
+            processedFile.storage_config_id,
+          );
+          this.logger.log(
+            `Successfully rolled back cloud storage upload for ${processedFile.location}`,
+          );
+        } catch (rollbackError) {
+          this.logger.error(
+            `Failed to rollback cloud storage upload for ${processedFile.location}: ${rollbackError.message}`,
+            rollbackError,
+          );
+        }
+      }
       throw error;
     }
   }

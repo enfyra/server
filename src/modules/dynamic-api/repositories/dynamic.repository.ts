@@ -163,8 +163,14 @@ export class DynamicRepository {
         }
         throw error;
       }
-    } catch (error) {
-      throw new BadRequestException(error.message);
+    } catch (error: any) {
+      if (error.errInfo) {
+        const errorMessage = error.errInfo?.details?.details 
+          ? JSON.stringify(error.errInfo.details.details, null, 2)
+          : error.message || 'Document failed validation';
+        throw new BadRequestException(errorMessage);
+      }
+      throw new BadRequestException(error.message || 'Document failed validation');
     }
   }
 

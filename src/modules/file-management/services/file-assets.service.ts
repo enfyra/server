@@ -65,7 +65,9 @@ export class FileAssetsService {
 
     const { location, storageConfig, filename, mimetype, type: fileType } = file as any;
     const storageType = storageConfig?.type || 'Local Storage';
-    const storageConfigId = storageConfig?.id || null;
+    const storageConfigId = storageConfig?._id || storageConfig?.id || null;
+
+    this.logger.debug(`File asset request - storageType: ${storageType}, storageConfigId: ${storageConfigId}, hasStorageConfig: ${!!storageConfig}`);
 
     if (storageType === 'Google Cloud Storage' || storageType === 'Cloudflare R2' || storageType === 'Amazon S3') {
       if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
@@ -85,10 +87,6 @@ export class FileAssetsService {
         storageConfigId,
       );
       return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype, shouldDownload));
-    }
-
-    if (storageType === 'Amazon S3') {
-      throw new NotFoundException('S3 storage not implemented yet');
     }
 
     if (storageType === 'Local Storage') {
@@ -166,6 +164,8 @@ export class FileAssetsService {
       const quality = query.quality
         ? parseInt(query.quality as string, 10)
         : undefined;
+      
+      this.logger.debug(`Image processing params: format=${format}, quality=${quality}, width=${width}, height=${height}`);
       const cache = query.cache
         ? parseInt(query.cache as string, 10)
         : undefined;
@@ -271,19 +271,36 @@ export class FileAssetsService {
         if (!formatValidation.valid) {
           return void res.status(400).json({ error: formatValidation.error });
         }
-        imageProcessor = ImageProcessorHelper.setImageFormat(
-          imageProcessor,
-          format.toLowerCase(),
-          quality,
-        );
+        const formatLower = format.toLowerCase();
+        if (formatLower === 'avif' && quality !== undefined) {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            formatLower,
+            undefined,
+          );
+        } else {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            formatLower,
+            quality,
+          );
+        }
         filename = ImageFormatHelper.updateFilenameWithFormat(filename, format);
       } else if (quality) {
         const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
-        imageProcessor = ImageProcessorHelper.setImageFormat(
-          imageProcessor,
-          originalFormat,
-          quality,
-        );
+        if (originalFormat === 'avif') {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            originalFormat,
+            undefined,
+          );
+        } else {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            originalFormat,
+            quality,
+          );
+        }
       }
 
       const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
@@ -318,8 +335,9 @@ export class FileAssetsService {
       );
     } catch (error) {
       this.logger.error('Image processing error:', error);
+      this.logger.error('Error stack:', error instanceof Error ? error.stack : String(error));
       if (!res.headersSent)
-        res.status(500).json({ error: 'Image processing failed' });
+        res.status(500).json({ error: 'Image processing failed', details: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -364,19 +382,36 @@ export class FileAssetsService {
         if (!formatValidation.valid) {
           return void res.status(400).json({ error: formatValidation.error });
         }
-        imageProcessor = ImageProcessorHelper.setImageFormat(
-          imageProcessor,
-          format.toLowerCase(),
-          quality,
-        );
+        const formatLower = format.toLowerCase();
+        if (formatLower === 'avif' && quality !== undefined) {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            formatLower,
+            undefined,
+          );
+        } else {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            formatLower,
+            quality,
+          );
+        }
         filename = ImageFormatHelper.updateFilenameWithFormat(filename, format);
       } else if (quality) {
         const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
-        imageProcessor = ImageProcessorHelper.setImageFormat(
-          imageProcessor,
-          originalFormat,
-          quality,
-        );
+        if (originalFormat === 'avif') {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            originalFormat,
+            undefined,
+          );
+        } else {
+          imageProcessor = ImageProcessorHelper.setImageFormat(
+            imageProcessor,
+            originalFormat,
+            quality,
+          );
+        }
       }
 
       const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);

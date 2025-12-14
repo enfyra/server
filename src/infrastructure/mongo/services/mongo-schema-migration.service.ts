@@ -11,20 +11,46 @@ export class MongoSchemaMigrationService {
 
   private getBsonType(type: string): BsonType {
     const typeMap: Record<string, BsonType> = {
+      // String types
       'string': 'string',
       'text': 'string',
+      'varchar': 'string',
+      'char': 'string',
       'uuid': 'string',
+      'richtext': 'string',
+      
+      // Integer types
       'int': 'int',
       'integer': 'int',
+      'smallint': 'int',
+      'tinyint': 'int',
       'bigint': 'long',
+      
+      // Float types
       'float': 'double',
+      'double': 'double',
       'decimal': 'double',
+      'numeric': 'double',
+      'real': 'double',
+      
+      // Boolean
       'boolean': 'bool',
+      'bool': 'bool',
+      
+      // Date/Time types
       'date': 'date',
       'datetime': 'date',
       'timestamp': 'date',
+      
+      // JSON/Object types
       'json': 'object',
+      'simple-json': 'object',
+      
+      // Array types
       'array': 'array',
+      
+      // Enum - stored as string in MongoDB
+      'enum': 'string',
     };
     return typeMap[type] || 'string';
   }

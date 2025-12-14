@@ -4,15 +4,17 @@ import { convertValueByType } from './type-converter';
 export function whereToMongoFilter(
   metadata: any,
   conditions: WhereCondition[],
-  tableName?: string
+  tableName?: string,
+  dbType?: string
 ): any {
   const filter: any = {};
+  const isMongo = dbType === 'mongodb' || !dbType;
 
   for (const condition of conditions) {
     let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
     const tableNameForConversion = tableName || condition.field.split('.')[0];
 
-    if (fieldName === 'id') {
+    if (isMongo && fieldName === 'id') {
       fieldName = '_id';
     }
 
@@ -106,18 +108,21 @@ export function whereToMongoFilter(
 export function convertLogicalFilterToMongo(
   metadata: any,
   filter: any,
-  tableName?: string
+  tableName?: string,
+  dbType?: string
 ): any {
   if (!filter || typeof filter !== 'object') {
     return {};
   }
+
+  const isMongo = dbType === 'mongodb' || !dbType;
 
   if (filter._and) {
     const conditions = Array.isArray(filter._and)
       ? filter._and
       : Object.values(filter._and);
     return {
-      $and: conditions.map((condition: any) => convertLogicalFilterToMongo(metadata, condition, tableName))
+      $and: conditions.map((condition: any) => convertLogicalFilterToMongo(metadata, condition, tableName, dbType))
     };
   }
 
@@ -126,13 +131,13 @@ export function convertLogicalFilterToMongo(
       ? filter._or
       : Object.values(filter._or);
     return {
-      $or: conditions.map((condition: any) => convertLogicalFilterToMongo(metadata, condition, tableName))
+      $or: conditions.map((condition: any) => convertLogicalFilterToMongo(metadata, condition, tableName, dbType))
     };
   }
 
   if (filter._not) {
     return {
-      $nor: [convertLogicalFilterToMongo(metadata, filter._not, tableName)]
+      $nor: [convertLogicalFilterToMongo(metadata, filter._not, tableName, dbType)]
     };
   }
 
@@ -142,19 +147,24 @@ export function convertLogicalFilterToMongo(
       continue;
     }
 
+    let fieldName = field;
+    if (isMongo && fieldName === 'id') {
+      fieldName = '_id';
+    }
+
     if (typeof value === 'object' && value !== null) {
       const firstKey = Object.keys(value)[0];
       const isOperator = firstKey?.startsWith('_');
 
       if (isOperator) {
         for (const [op, val] of Object.entries(value)) {
-          applyOperatorToMatch(metadata, mongoFilter, tableName || '', field, op, val);
+          applyOperatorToMatch(metadata, mongoFilter, tableName || '', fieldName, op, val);
         }
       } else {
-        mongoFilter[field] = value;
+        mongoFilter[fieldName] = value;
       }
     } else {
-      mongoFilter[field] = value;
+      mongoFilter[fieldName] = value;
     }
   }
 

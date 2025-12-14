@@ -17,7 +17,12 @@ export async function buildNestedLookupPipeline(
     for (const [key, value] of Object.entries(relationFilter)) {
       if (typeof value === 'object' && value !== null) {
         const firstKey = Object.keys(value)[0];
-        const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+        const FIELD_OPERATORS = [
+          '_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_in', '_not_in',
+          '_contains', '_starts_with', '_ends_with', '_between',
+          '_is_null', '_is_not_null'
+        ];
+        const isOperator = firstKey && FIELD_OPERATORS.includes(firstKey);
 
         if (isOperator) {
           fieldFilters[key] = value;
@@ -121,11 +126,14 @@ export async function buildNestedLookupPipeline(
       });
 
       if (nestedRelationFilter) {
-        nestedPipeline.push({
-          $match: {
-            [nestedRel.propertyName]: { $ne: null }
-          }
-        });
+        const hasIsNullFilter = checkIfFilterContainsIsNull(nestedRelationFilter);
+        if (!hasIsNullFilter) {
+          nestedPipeline.push({
+            $match: {
+              [nestedRel.propertyName]: { $ne: null }
+            }
+          });
+        }
       }
     }
   }
@@ -241,3 +249,56 @@ export async function addProjectionStage(
     pipeline.push({ $project: projectStage });
   }
 }
+
+function checkIfFilterContainsIsNull(filter: any): boolean {
+  if (!filter || typeof filter !== 'object') {
+    return false;
+  }
+
+  if (filter === null) {
+    return true;
+  }
+
+  if (Array.isArray(filter)) {
+    return filter.some(item => checkIfFilterContainsIsNull(item));
+  }
+
+  if ('_or' in filter && Array.isArray(filter._or)) {
+    return filter._or.some((condition: any) => checkIfFilterContainsIsNull(condition));
+  }
+
+  if ('_and' in filter && Array.isArray(filter._and)) {
+    return filter._and.some((condition: any) => checkIfFilterContainsIsNull(condition));
+  }
+
+  if ('_not' in filter) {
+    return checkIfFilterContainsIsNull(filter._not);
+  }
+
+  for (const [key, value] of Object.entries(filter)) {
+    if (value === null) {
+      if (key === '_eq' || key === '$eq') {
+        return true;
+      }
+      continue;
+    }
+
+    if (typeof value === 'object') {
+      if ('_is_null' in value && (value._is_null === true || value._is_null === 'true')) {
+        return true;
+      }
+      if ('_eq' in value && value._eq === null) {
+        return true;
+      }
+      if ('$eq' in value && value.$eq === null) {
+        return true;
+      }
+      if (checkIfFilterContainsIsNull(value)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
