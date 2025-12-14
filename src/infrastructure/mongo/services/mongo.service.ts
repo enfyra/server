@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Inject, forwardRef } from '@nestjs/common';
-import { MongoClient, Db, Collection, Document, ObjectId } from 'mongodb';
+import { MongoClient, Db, Collection, Document, ObjectId, Long } from 'mongodb';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 
 @Injectable()
@@ -112,6 +112,11 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
+      if (column.type === 'bigint' && typeof fieldValue === 'number') {
+        result[fieldName] = Long.fromNumber(fieldValue);
+        continue;
+      }
+
       if (column.type === 'simple-json' || column.type === 'json') {
         if (typeof fieldValue === 'string') {
           try {
@@ -187,9 +192,20 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     try {
       result = await collection.insertOne(dataWithTimestamps);
       insertedId = result.insertedId;
-    } catch (err) {
-      console.error(`[insertOne] Validation error for ${collectionName}:`, err.errInfo);
-      throw err;
+    } catch (err: any) {
+      const errorMessage = err.errInfo?.details?.details 
+        ? JSON.stringify(err.errInfo.details.details, null, 2)
+        : err.errInfo 
+        ? JSON.stringify(err.errInfo, null, 2)
+        : err.message || 'Unknown validation error';
+      
+      console.error(`[insertOne] Validation error for ${collectionName}:`, errorMessage);
+      
+      const validationError = new Error(
+        `MongoDB validation failed for ${collectionName}: ${errorMessage}`
+      );
+      (validationError as any).errInfo = err.errInfo;
+      throw validationError;
     }
 
     await this.updateInverseRelationsOnUpdate(collectionName, insertedId, {}, dataWithRelations);

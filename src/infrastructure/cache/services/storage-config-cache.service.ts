@@ -60,11 +60,28 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
 
           this.storageConfigsCache = new Map();
           for (const [id, config] of payload.configs) {
-            this.storageConfigsCache.set(id, config);
-            if (typeof id === 'number') {
-              this.storageConfigsCache.set(String(id), config);
-            } else if (typeof id === 'string' && !isNaN(Number(id))) {
-              this.storageConfigsCache.set(Number(id), config);
+            if (!id || id === null || id === undefined) {
+              continue;
+            }
+            
+            let normalizedId: string | number = id;
+            
+            if (this.queryBuilder.isMongoDb()) {
+              if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
+                normalizedId = (id as any).toString();
+              } else {
+                normalizedId = String(id);
+              }
+            }
+            
+            this.storageConfigsCache.set(normalizedId, config);
+            
+            if (!this.queryBuilder.isMongoDb()) {
+              if (typeof normalizedId === 'number') {
+                this.storageConfigsCache.set(String(normalizedId), config);
+              } else if (typeof normalizedId === 'string' && !isNaN(Number(normalizedId))) {
+                this.storageConfigsCache.set(Number(normalizedId), config);
+              }
             }
           }
           this.cacheLoaded = true;
@@ -81,12 +98,48 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
     );
   }
 
-  async getStorageConfigById(id: number | string): Promise<any | null> {
+  async getStorageConfigById(id: number | string | null | undefined): Promise<any | null> {
     if (!this.cacheLoaded) {
       await this.reload();
     }
-    const normalizedId = typeof id === 'string' ? parseInt(id, 10) : id;
-    return this.storageConfigsCache.get(normalizedId) || this.storageConfigsCache.get(id) || null;
+    
+    if (!id || id === null || id === undefined) {
+      return null;
+    }
+    
+    let normalizedId: string | number = id;
+    if (this.queryBuilder.isMongoDb()) {
+      if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
+        normalizedId = (id as any).toString();
+      } else {
+        normalizedId = String(id);
+      }
+    }
+    
+    let config = this.storageConfigsCache.get(normalizedId);
+    if (config) {
+      return config;
+    }
+    
+    if (this.queryBuilder.isMongoDb()) {
+      this.logger.warn(`Storage config with ID ${normalizedId} not found in cache. Cache size: ${this.storageConfigsCache.size}`);
+      return null;
+    } else {
+      const numId = typeof normalizedId === 'string' ? parseInt(normalizedId, 10) : normalizedId;
+      if (!isNaN(numId as number)) {
+        config = this.storageConfigsCache.get(numId);
+        if (config) {
+          return config;
+        }
+      }
+      if (typeof normalizedId === 'number') {
+        config = this.storageConfigsCache.get(String(normalizedId));
+        if (config) {
+          return config;
+        }
+      }
+    }
+    return null;
   }
 
   async getStorageConfigByType(type: string): Promise<any | null> {
@@ -128,12 +181,29 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
         const configsMap = new Map();
         for (const config of configs) {
           const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-          const id = config[idField];
+          let id = config[idField];
+          
+          if (!id) {
+            this.logger.warn('Storage config missing ID, skipping');
+            continue;
+          }
+          
+          if (this.queryBuilder.isMongoDb()) {
+            if (typeof id === 'object' && id !== null && typeof id.toString === 'function') {
+              id = id.toString();
+            } else {
+              id = String(id);
+            }
+          }
+          
           configsMap.set(id, config);
-          if (typeof id === 'number') {
-            configsMap.set(String(id), config);
-          } else if (typeof id === 'string' && !isNaN(Number(id))) {
-            configsMap.set(Number(id), config);
+          
+          if (!this.queryBuilder.isMongoDb()) {
+            if (typeof id === 'number') {
+              configsMap.set(String(id), config);
+            } else if (typeof id === 'string' && !isNaN(Number(id))) {
+              configsMap.set(Number(id), config);
+            }
           }
         }
 

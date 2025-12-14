@@ -1,4 +1,4 @@
-import { Db, Collection } from 'mongodb';
+import { Db, Collection, ObjectId } from 'mongodb';
 import {
   QueryOptions,
   WhereCondition,
@@ -13,6 +13,7 @@ export class MongoQueryExecutor {
   private debugLog: any[] = [];
   private readonly db: Db;
   private metadata: any;
+  private dbType: string = 'mongodb';
 
   constructor(private readonly mongoService: any) {
     this.db = mongoService.getDb();
@@ -30,8 +31,10 @@ export class MongoQueryExecutor {
     debugLog?: any[];
     pipeline?: any[];
     metadata?: any;
+    dbType?: string;
   }): Promise<any> {
     this.metadata = options.metadata;
+    this.dbType = options.dbType || 'mongodb';
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
 
@@ -91,7 +94,7 @@ export class MongoQueryExecutor {
           }
         }
       } else {
-        queryOptions.mongoLogicalFilter = convertLogicalFilterToMongo(this.metadata, options.filter, options.tableName);
+        queryOptions.mongoLogicalFilter = convertLogicalFilterToMongo(this.metadata, options.filter, options.tableName, this.dbType);
       }
     }
 
@@ -146,7 +149,7 @@ export class MongoQueryExecutor {
         let filter = {};
 
         if (queryOptions.where && queryOptions.where.length > 0) {
-          filter = whereToMongoFilter(this.metadata, queryOptions.where, options.tableName);
+          filter = whereToMongoFilter(this.metadata, queryOptions.where, options.tableName, this.dbType);
         }
 
         filterCount = await collection.countDocuments(filter);
@@ -217,7 +220,7 @@ export class MongoQueryExecutor {
         });
       }
       const results = await collection.aggregate(options.pipeline).toArray();
-      return results;
+      return this.normalizeMongoResults(results);
     }
 
     return this.executeAggregationPipeline(collection, options);
@@ -238,10 +241,10 @@ export class MongoQueryExecutor {
     if (options.mongoRawFilter && this.metadata) {
       const tableMeta = this.metadata.tables?.get(options.table);
       if (tableMeta) {
-        await applyMixedFilters(this.metadata, pipeline, options.mongoRawFilter, options.table, tableMeta);
+        await applyMixedFilters(this.metadata, pipeline, options.mongoRawFilter, options.table, tableMeta, this.dbType);
       }
     } else if (options.where) {
-      const filter = whereToMongoFilter(this.metadata, options.where, options.table);
+      const filter = whereToMongoFilter(this.metadata, options.where, options.table, this.dbType);
       pipeline.push({ $match: filter });
     } else if (options.mongoLogicalFilter) {
       pipeline.push({ $match: options.mongoLogicalFilter });
@@ -294,7 +297,7 @@ export class MongoQueryExecutor {
         return results;
       }
 
-      return results;
+      return this.normalizeMongoResults(results);
     }
 
     const { scalarFields, relations } = options.mongoFieldsExpanded;
@@ -391,11 +394,14 @@ export class MongoQueryExecutor {
         });
 
         if (relationFilter) {
-          pipeline.push({
-            $match: {
-              [rel.propertyName]: { $ne: null }
-            }
-          });
+          const hasIsNullFilter = this.checkIfFilterContainsIsNull(relationFilter);
+          if (!hasIsNullFilter) {
+            pipeline.push({
+              $match: {
+                [rel.propertyName]: { $ne: null }
+              }
+            });
+          }
         }
       }
     }
@@ -444,7 +450,7 @@ export class MongoQueryExecutor {
       return results;
     }
 
-    return results;
+    return this.normalizeMongoResults(results);
   }
 
   private async addProjectionStage(
@@ -506,6 +512,120 @@ export class MongoQueryExecutor {
 
       pipeline.push({ $project: projectStage });
     }
+  }
+
+  private checkIfFilterContainsIsNull(filter: any): boolean {
+    if (!filter || typeof filter !== 'object') {
+      return false;
+    }
+
+    if (filter === null) {
+      return true;
+    }
+
+    if (Array.isArray(filter)) {
+      return filter.some(item => this.checkIfFilterContainsIsNull(item));
+    }
+
+    if ('_or' in filter && Array.isArray(filter._or)) {
+      return filter._or.some((condition: any) => this.checkIfFilterContainsIsNull(condition));
+    }
+
+    if ('_and' in filter && Array.isArray(filter._and)) {
+      return filter._and.some((condition: any) => this.checkIfFilterContainsIsNull(condition));
+    }
+
+    if ('_not' in filter) {
+      return this.checkIfFilterContainsIsNull(filter._not);
+    }
+
+    for (const [key, value] of Object.entries(filter)) {
+      if (value === null) {
+        if (key === '_eq' || key === '$eq') {
+          return true;
+        }
+        continue;
+      }
+
+      if (typeof value === 'object') {
+        if ('_is_null' in value && (value._is_null === true || value._is_null === 'true')) {
+          return true;
+        }
+        if ('_eq' in value && value._eq === null) {
+          return true;
+        }
+        if ('$eq' in value && value.$eq === null) {
+          return true;
+        }
+        if (this.checkIfFilterContainsIsNull(value)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private normalizeMongoResults(results: any[]): any[] {
+    return results.map(result => this.normalizeMongoObject(result));
+  }
+
+  private normalizeMongoObject(obj: any): any {
+    if (!obj || typeof obj !== 'object') {
+      return obj;
+    }
+
+    if (obj instanceof ObjectId) {
+      return obj.toString();
+    }
+
+    if (obj instanceof Date) {
+      return obj.toISOString();
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.normalizeMongoObject(item));
+    }
+
+    if ('buffer' in obj && obj.buffer && typeof obj.buffer === 'object' && Object.keys(obj.buffer).length === 12) {
+      try {
+        const bufferObj = obj.buffer as Record<string, number>;
+        const bufferArray = Object.keys(bufferObj)
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(key => bufferObj[key]);
+        const objectId = new ObjectId(Buffer.from(bufferArray));
+        return objectId.toString();
+      } catch {
+      }
+    }
+
+    const normalized: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value instanceof ObjectId) {
+        normalized[key] = value.toString();
+      } else if (value instanceof Date) {
+        normalized[key] = value.toISOString();
+      } else if (value && typeof value === 'object' && !(value instanceof Buffer)) {
+        if ('buffer' in value && value.buffer && typeof value.buffer === 'object' && Object.keys(value.buffer).length === 12) {
+          try {
+            const bufferObj = value.buffer as Record<string, number>;
+            const bufferArray = Object.keys(bufferObj)
+              .sort((a, b) => parseInt(a) - parseInt(b))
+              .map(key => bufferObj[key]);
+            const objectId = new ObjectId(Buffer.from(bufferArray));
+            normalized[key] = objectId.toString();
+          } catch {
+            normalized[key] = this.normalizeMongoObject(value);
+          }
+        } else {
+          normalized[key] = this.normalizeMongoObject(value);
+        }
+      } else {
+        normalized[key] = value;
+      }
+    }
+
+    return normalized;
   }
 
 }

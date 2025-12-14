@@ -7,7 +7,8 @@ export async function buildRelationLookupPipeline(
   metadata: any,
   targetTable: string,
   filter: any,
-  targetMeta: any
+  targetMeta: any,
+  dbType?: string
 ): Promise<any[]> {
   const subPipeline: any[] = [];
 
@@ -43,16 +44,16 @@ export async function buildRelationLookupPipeline(
           whereConditions.push({ field, operator: '=', value } as WhereCondition);
         }
       }
-      const matchFilter = whereToMongoFilter(metadata, whereConditions, targetTable);
+      const matchFilter = whereToMongoFilter(metadata, whereConditions, targetTable, dbType);
       subPipeline.push({ $match: matchFilter });
     } else {
-      const logicalFilter = convertLogicalFilterToMongo(metadata, fieldFilters, targetTable);
+      const logicalFilter = convertLogicalFilterToMongo(metadata, fieldFilters, targetTable, dbType);
       subPipeline.push({ $match: logicalFilter });
     }
   }
 
   if (relationFilters && Object.keys(relationFilters).length > 0) {
-    await applyRelationFilters(metadata, subPipeline, relationFilters, targetTable);
+    await applyRelationFilters(metadata, subPipeline, relationFilters, targetTable, false, dbType);
   }
 
   return subPipeline;
@@ -63,7 +64,8 @@ export async function applyRelationFilters(
   pipeline: any[],
   relationFilters: any,
   tableName: string,
-  invert: boolean = false
+  invert: boolean = false,
+  dbType?: string
 ): Promise<void> {
   if (!metadata) {
     return;
@@ -92,7 +94,8 @@ export async function applyRelationFilters(
       metadata,
       targetTable,
       relationFilter,
-      targetMeta
+      targetMeta,
+      dbType
     );
 
     let localField: string;
@@ -143,7 +146,8 @@ export async function applyMixedFilters(
   pipeline: any[],
   filter: any,
   tableName: string,
-  tableMeta: any
+  tableMeta: any,
+  dbType?: string
 ): Promise<void> {
   if (filter._and && Array.isArray(filter._and)) {
     const fieldConditions: any[] = [];
@@ -166,14 +170,14 @@ export async function applyMixedFilters(
 
     if (fieldConditions.length > 0) {
       const mongoFieldConditions = fieldConditions.map(fc =>
-        convertLogicalFilterToMongo(metadata, fc, tableName)
+        convertLogicalFilterToMongo(metadata, fc, tableName, dbType)
       );
       pipeline.push({ $match: { $and: mongoFieldConditions } });
     }
 
     for (const [relName, relFilters] of Object.entries(allRelationFilters)) {
       for (const relFilter of relFilters as any[]) {
-        await applyRelationFilters(metadata, pipeline, { [relName]: relFilter }, tableName);
+        await applyRelationFilters(metadata, pipeline, { [relName]: relFilter }, tableName, false, dbType);
       }
     }
     return;
@@ -217,7 +221,8 @@ export async function applyMixedFilters(
           metadata,
           targetTable,
           relCondition.filter,
-          targetMeta
+          targetMeta,
+          dbType
         );
 
         let localField: string;
@@ -254,7 +259,7 @@ export async function applyMixedFilters(
 
       // Add field conditions
       for (const fc of fieldConditions) {
-        orConditions.push(convertLogicalFilterToMongo(metadata, fc, tableName));
+        orConditions.push(convertLogicalFilterToMongo(metadata, fc, tableName, dbType));
       }
 
       // Add relation size checks
@@ -281,7 +286,7 @@ export async function applyMixedFilters(
     } else {
       // No relations, just field conditions
       const mongoFieldConditions = filter._or.map((condition: any) =>
-        convertLogicalFilterToMongo(metadata, condition, tableName)
+        convertLogicalFilterToMongo(metadata, condition, tableName, dbType)
       );
       pipeline.push({ $match: { $or: mongoFieldConditions } });
     }
@@ -292,7 +297,7 @@ export async function applyMixedFilters(
     const separated = separateFilters(filter._not, tableMeta);
 
     if (Object.keys(separated.fieldFilters).length > 0) {
-      const mongoFilter = convertLogicalFilterToMongo(metadata, separated.fieldFilters, tableName);
+      const mongoFilter = convertLogicalFilterToMongo(metadata, separated.fieldFilters, tableName, dbType);
       pipeline.push({ $match: { $nor: [mongoFilter] } });
     }
 
@@ -334,15 +339,15 @@ export async function applyMixedFilters(
           whereConditions.push({ field, operator: '=', value } as WhereCondition);
         }
       }
-      const matchFilter = whereToMongoFilter(metadata, whereConditions, tableName);
+      const matchFilter = whereToMongoFilter(metadata, whereConditions, tableName, dbType);
       pipeline.push({ $match: matchFilter });
     } else {
-      const logicalFilter = convertLogicalFilterToMongo(metadata, fieldFilters, tableName);
+      const logicalFilter = convertLogicalFilterToMongo(metadata, fieldFilters, tableName, dbType);
       pipeline.push({ $match: logicalFilter });
     }
   }
 
   if (relationFilters && Object.keys(relationFilters).length > 0) {
-    await applyRelationFilters(metadata, pipeline, relationFilters, tableName);
+    await applyRelationFilters(metadata, pipeline, relationFilters, tableName, false, dbType);
   }
 }

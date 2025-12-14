@@ -100,7 +100,12 @@ export class ImageProcessorHelper {
         processor.png({ quality, compressionLevel: 6, progressive: false }),
       webp: () =>
         processor.webp({ quality, effort: 1 }),
-      avif: () => processor.avif({ quality, effort: 1 }),
+      avif: () => {
+        if (quality === undefined) {
+          return processor.avif({ effort: 1 });
+        }
+        return processor.avif({ quality, effort: 1 });
+      },
       gif: () => processor.gif(),
     };
     return formatMap[format]?.() || processor;
