@@ -205,13 +205,16 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     }
 
     for (const route of routes) {
-      const allHooks = [...globalHooks, ...(route.hooks || [])];
+      const enabledRouteHooks = Array.isArray(route.hooks)
+        ? route.hooks.filter((h: any) => h?.isEnabled === true)
+        : [];
+      const allHooks = [...globalHooks, ...enabledRouteHooks];
 
       const isMongoDB = this.queryBuilder.isMongoDb();
       const uniqueHooks = allHooks.filter((hook, index, self) =>
         index === self.findIndex((h) => {
-          const hId = isMongoDB ? h._id?.toString() : h.id;
-          const hookId = isMongoDB ? hook._id?.toString() : hook.id;
+          const hId = isMongoDB ? h?._id?.toString() : h?.id;
+          const hookId = isMongoDB ? hook?._id?.toString() : hook?.id;
           return hId === hookId;
         })
       );

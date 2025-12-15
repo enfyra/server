@@ -398,7 +398,7 @@
         ],
         "relations": [
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who owns this conversation" },
-            { "propertyName": "config", "type": "many-to-one", "targetTable": "ai_config_definition", "isSystem": true, "isNullable": false, "description": "AI configuration (provider, model) used for this conversation", "onDelete": "RESTRICT" },
+            { "propertyName": "config", "type": "many-to-one", "targetTable": "ai_config_definition", "isSystem": true, "isNullable": false, "description": "AI configuration (provider, model) used for this conversation", "onDelete": "CASCADE" },
             { "propertyName": "messages", "type": "one-to-many", "targetTable": "ai_message_definition", "isSystem": true, "inversePropertyName": "conversation", "isInverseEager": false, "description": "Messages in this conversation" }
         ]
     },
