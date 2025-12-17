@@ -17,7 +17,8 @@
             { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the column can be updated after creation" },
             { "name": "isHidden", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether to hide this column from API responses" },
             { "name": "description", "type": "richtext", "isSystem": true, "description": "Rich text description of the column's purpose" },
-            { "name": "placeholder", "type": "text", "isSystem": true, "description": "Placeholder text for form inputs" }
+            { "name": "placeholder", "type": "text", "isSystem": true, "description": "Placeholder text for form inputs" },
+            { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the column" }
         ],
         "relations": [
             { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "inversePropertyName": "columns", "isInverseEager": true, "description": "The table that this column belongs to" }
@@ -39,7 +40,8 @@
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of the relationship purpose" },
             { "name": "junctionTableName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Name of the junction table for many-to-many relations" },
             { "name": "junctionSourceColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Column name in junction table referencing source table" },
-            { "name": "junctionTargetColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Column name in junction table referencing target table" }
+            { "name": "junctionTargetColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Column name in junction table referencing target table" },
+            { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the relation" }
         ],
         "relations": [
             { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "inversePropertyName": "relations", "isInverseEager": true, "description": "The table where this relation is defined" },
@@ -59,7 +61,8 @@
             { "name": "uniques", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of unique constraints (e.g., [['email'], ['name', 'parent']])" },
             { "name": "indexes", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of database indexes for performance optimization" },
             { "name": "alias", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Human-readable alias for the table" },
-            { "name": "description", "type": "text", "isSystem": true, "description": "Description of the table's purpose" }
+            { "name": "description", "type": "text", "isSystem": true, "description": "Description of the table's purpose" },
+            { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the table" }
         ]
     },
     "user_definition": {
