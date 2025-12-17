@@ -62,8 +62,8 @@ export function buildTableSchema(
         case 'datetime':
           column = table.datetime(col.name);
           break;
-        case 'json':
-          column = table.json(col.name);
+        case 'simple-json':
+          column = table.text(col.name, 'longtext');
           break;
         default:
           column = table.text(col.name);

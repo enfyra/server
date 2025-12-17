@@ -347,10 +347,11 @@ export class SqlTableHandlerService {
           isSystem: col.isSystem || false,
           isUpdatable: col.isUpdatable ?? true,
           isHidden: col.isHidden || false,
-          defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
-          options: col.options ? JSON.stringify(col.options) : null,
+          defaultValue: col.defaultValue !== undefined ? JSON.stringify(col.defaultValue) : null,
+          options: col.options !== undefined ? JSON.stringify(col.options) : null,
           description: col.description,
           placeholder: col.placeholder,
+          metadata: col.metadata !== undefined ? JSON.stringify(col.metadata) : null,
           tableId: tableId,
         }));
         await trx('column_definition').insert(columnsToInsert);
@@ -621,10 +622,11 @@ export class SqlTableHandlerService {
               isSystem: col.isSystem || false,
               isUpdatable: col.isUpdatable ?? true,
               isHidden: col.isHidden || false,
-              defaultValue: col.defaultValue ? JSON.stringify(col.defaultValue) : null,
-              options: col.options ? JSON.stringify(col.options) : null,
+              defaultValue: col.defaultValue !== undefined ? JSON.stringify(col.defaultValue) : null,
+              options: col.options !== undefined ? JSON.stringify(col.options) : null,
               description: col.description,
               placeholder: col.placeholder,
+              metadata: col.metadata !== undefined ? JSON.stringify(col.metadata) : null,
               tableId: id,
             };
 
