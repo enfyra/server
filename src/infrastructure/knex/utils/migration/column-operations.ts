@@ -61,9 +61,8 @@ export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void
       column = table.decimal(col.name, col.options?.precision || 10, col.options?.scale || 2);
       break;
 
-    case 'json':
     case 'simple-json':
-      column = table.json(col.name);
+      column = table.text(col.name, 'longtext');
       break;
 
     default:

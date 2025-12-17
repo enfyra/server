@@ -33,8 +33,8 @@ export function dbTypeToTSType(dbType: string): string {
     timestamp: 'Date',
     timestamptz: 'Date',
     time: 'Date',
-    json: 'any',
-    jsonb: 'any',
+    json: 'string',
+    jsonb: 'string',
   };
   return map[dbType.toLowerCase()] ?? 'any';
 }
@@ -45,7 +45,7 @@ export function tsTypeToDBType(tsType: string): string {
     string: 'varchar',
     boolean: 'boolean',
     Date: 'timestamp',
-    any: 'json',
+    any: 'simple-json',
   };
   return map[tsType] ?? 'text';
 }

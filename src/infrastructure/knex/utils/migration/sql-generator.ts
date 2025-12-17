@@ -97,15 +97,8 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
         definition = `DECIMAL(${col.options?.precision || 10}, ${col.options?.scale || 2})`;
       }
       break;
-    case 'json':
     case 'simple-json':
-      if (dbType === 'postgres') {
-        definition = 'JSONB';
-      } else if (dbType === 'sqlite') {
-        definition = 'TEXT';
-      } else {
-        definition = 'JSON';
-      }
+      definition = dbType === 'mysql' ? 'LONGTEXT' : 'TEXT';
       break;
     case 'enum':
       if (dbType === 'postgres' && Array.isArray(col.options)) {

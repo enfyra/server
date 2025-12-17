@@ -43,8 +43,8 @@ export type DBToTSTypeMap = {
   timestamp: 'Date';
   timestamptz: 'Date';
   time: 'Date';
-  json: 'any';
-  jsonb: 'any';
+  json: 'string';
+  jsonb: 'string';
 };
 
 export type TSToDBTypeMap = {
@@ -52,7 +52,7 @@ export type TSToDBTypeMap = {
   string: 'varchar';
   boolean: 'boolean';
   Date: 'timestamp';
-  any: 'json';
+  any: 'simple-json';
 };
 
 export type TInverseRelation = {

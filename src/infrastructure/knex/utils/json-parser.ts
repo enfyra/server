@@ -16,9 +16,9 @@ export function parseRecordJsonFields(record: any, tableMetadata: any): any {
     const fieldName = column.name;
     const fieldType = column.type;
 
-    // Auto-parse simple-json, json fields
+    // Auto-parse simple-json fields
     if (
-      (fieldType === 'simple-json' || fieldType === 'json') &&
+      fieldType === 'simple-json' &&
       parsed[fieldName] &&
       typeof parsed[fieldName] === 'string'
     ) {
@@ -58,9 +58,9 @@ export function stringifyRecordJsonFields(record: any, tableMetadata: any): any 
     const fieldName = column.name;
     const fieldType = column.type;
 
-    // Auto-stringify simple-json, json fields
+    // Auto-stringify simple-json fields
     if (
-      (fieldType === 'simple-json' || fieldType === 'json') &&
+      fieldType === 'simple-json' &&
       stringified[fieldName] !== null &&
       stringified[fieldName] !== undefined &&
       typeof stringified[fieldName] !== 'string'

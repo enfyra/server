@@ -131,7 +131,7 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
     'simple-json': 'text',
     richtext: 'text',
     code: 'text',
-    'array-select': 'json',
+    'array-select': 'text',
     enum: 'enum',
   };
 

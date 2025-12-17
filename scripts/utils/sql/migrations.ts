@@ -48,8 +48,8 @@ export async function applyColumnMigrations(
           case 'datetime':
             column = table.datetime(col.name);
             break;
-          case 'json':
-            column = table.json(col.name);
+          case 'simple-json':
+            column = table.text(col.name, 'longtext');
             break;
           case 'enum':
             if (Array.isArray(col.options)) {
@@ -253,7 +253,7 @@ export async function applyColumnMigrations(
           'uuid': 'CHAR(36)',
           'timestamp': 'TIMESTAMP',
           'datetime': 'DATETIME',
-          'json': 'JSON',
+          'json': 'LONGTEXT',
         };
 
         sqlType = typeMap[knexType] || 'TEXT';
@@ -379,13 +379,7 @@ export async function applyColumnMigrations(
         const isCurrentJson = currentDataType === 'jsonb' || currentUdtName === 'jsonb';
         const isCurrentText = currentDataType === 'text' || currentUdtName === 'text';
         
-        if (knexType === 'json') {
-          if (isCurrentText) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE jsonb USING "${col.name}"::jsonb`);
-          } else if (!isCurrentJson) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE jsonb USING "${col.name}"::jsonb`);
-          }
-        } else if (knexType === 'text') {
+        if (knexType === 'text') {
           if (isCurrentJson) {
             await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
           } else if (!isCurrentText) {

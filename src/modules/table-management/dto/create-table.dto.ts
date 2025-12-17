@@ -101,6 +101,9 @@ export class CreateColumnDto {
   options?: any;
 
   @IsOptional()
+  metadata?: any;
+
+  @IsOptional()
   @IsString()
   placeholder?: string;
 }

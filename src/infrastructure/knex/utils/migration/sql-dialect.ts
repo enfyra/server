@@ -352,7 +352,7 @@ export function generateDropColumnSQL(
 
   switch (dbType) {
     case 'mysql':
-      return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
+      return `ALTER TABLE ${table} DROP COLUMN ${column}`;
     case 'postgres':
       return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
     case 'sqlite':
