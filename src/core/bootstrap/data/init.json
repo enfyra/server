@@ -78,7 +78,8 @@
             "mainTable": "ai_config_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:sparkles"
+            "icon": "lucide:sparkles",
+            "publishedMethods": ["GET"]
         },
         {
             "path": "/role_definition",
@@ -214,7 +215,8 @@
             "mainTable": "storage_config_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:hard-drive"
+            "icon": "lucide:hard-drive",
+            "publishedMethods": ["GET"]
         },
         {
             "path": "/admin/reload",
