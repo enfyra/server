@@ -39,7 +39,7 @@ export class KnexEntityManager {
         insertedId = Array.isArray(result) ? result[0] : result;
       }
 
-      const recordId = insertedId || data.id;
+      const recordId = insertedId || (Array.isArray(processedData) ? processedData[0]?.id : processedData?.id) || data.id;
       this.logger.log(`   Inserted record ID: ${recordId}`);
 
       let hookResult = recordId;

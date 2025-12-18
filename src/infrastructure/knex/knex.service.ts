@@ -118,6 +118,32 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private registerDefaultHooks() {
     const cascadeContextMap = new Map<string, any>();
 
+    this.addHook('beforeInsert', async (tableName, data) => {
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata) return data;
+
+      const pkColumn = tableMetadata.columns.find(col => col.isPrimary);
+      if (!pkColumn || pkColumn.type !== 'uuid') return data;
+
+      const uuid = await import('uuid');
+      const pkName = pkColumn.name;
+
+      if (Array.isArray(data)) {
+        return data.map(record => {
+          if (!record[pkName] || record[pkName] === null || record[pkName] === undefined) {
+            return { ...record, [pkName]: uuid.v7() };
+          }
+          return record;
+        });
+      }
+
+      if (!data[pkName] || data[pkName] === null || data[pkName] === undefined) {
+        return { ...data, [pkName]: uuid.v7() };
+      }
+
+      return data;
+    });
+
     this.addHook('beforeInsert', (tableName, data) => {
       const originalRelationData: any = {};
 
@@ -511,11 +537,11 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const now = this.knexInstance.fn.now();
 
     if (tableColumns) {
-      const { randomUUID } = await import('crypto');
+      const uuid = await import('uuid');
       for (const record of records) {
         for (const [colName, colType] of tableColumns.entries()) {
           if (colType === 'uuid' && (record[colName] === null || record[colName] === undefined)) {
-            record[colName] = randomUUID();
+            record[colName] = uuid.v7();
           }
         }
 
