@@ -66,7 +66,7 @@
     "rxjs": "^7.8.1",
     "sharp": "^0.34.3",
     "sqlite3": "^5.1.7",
-    "uuid": "latest",
+    "uuid": "^11.1.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
