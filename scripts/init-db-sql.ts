@@ -20,6 +20,7 @@ import {
   syncJunctionTables,
 } from './utils/sql/junction-tables';
 import { syncTable } from './utils/sql/migrations';
+import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
 
 dotenv.config();
 
@@ -31,23 +32,54 @@ dotenv.config();
 
 export async function initializeDatabaseSql(): Promise<void> {
   const DB_TYPE = process.env.DB_TYPE || 'mysql';
-  const DB_HOST = process.env.DB_HOST || 'localhost';
-  const DB_PORT =
-    Number(process.env.DB_PORT) || (DB_TYPE === 'postgres' ? 5432 : 3306);
-  const DB_USERNAME = process.env.DB_USERNAME || 'root';
-  const DB_PASSWORD = process.env.DB_PASSWORD || '';
-  const DB_NAME = process.env.DB_NAME || 'enfyra';
+  
+  let connectionConfig: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    database: string;
+  };
+
+  const DB_URI = process.env.DB_URI;
+  console.log(`🔍 DB_URI: ${DB_URI ? DB_URI.replace(/:[^:@]+@/, ':****@') : 'NOT SET'}`);
+  
+  if (DB_URI) {
+    try {
+      const parsed = parseDatabaseUri(DB_URI);
+      connectionConfig = {
+        host: parsed.host,
+        port: parsed.port,
+        user: parsed.user,
+        password: parsed.password,
+        database: parsed.database,
+      };
+      console.log(`✅ Parsed from URI: host=${connectionConfig.host}, port=${connectionConfig.port}, user=${connectionConfig.user}, password=${connectionConfig.password ? '****' : 'EMPTY'}, database=${connectionConfig.database}`);
+    } catch (error) {
+      console.error('❌ Failed to parse DB_URI:', error);
+      throw error;
+    }
+  } else {
+    connectionConfig = {
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT) || (DB_TYPE === 'postgres' ? 5432 : 3306),
+      user: process.env.DB_USERNAME || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'enfyra',
+    };
+    console.log(`⚠️ Using legacy env vars: host=${connectionConfig.host}, port=${connectionConfig.port}, user=${connectionConfig.user}, password=${connectionConfig.password ? '****' : 'EMPTY'}, database=${connectionConfig.database}`);
+  }
 
   await ensureDatabaseExists();
 
   const knexInstance = knex({
     client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
     connection: {
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USERNAME,
-      password: DB_PASSWORD,
-      database: DB_NAME,
+      host: connectionConfig.host,
+      port: connectionConfig.port,
+      user: connectionConfig.user,
+      password: connectionConfig.password,
+      database: connectionConfig.database,
     },
   });
 

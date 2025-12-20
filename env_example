@@ -1,30 +1,42 @@
 ############################################
-# Database (RDBMS) - required
+# Database - required
 ############################################
 # One of: mysql | postgres | mongodb
 DB_TYPE=mysql
-# Hostname/IP of the SQL server
-DB_HOST=localhost
-# Port: mysql/mariadb=3306, postgres=5432
-DB_PORT=3306
-# SQL user/password
-DB_USERNAME=root
-DB_PASSWORD=1234
-# Database name
-DB_NAME=enfyra
 
-############################################
-# MongoDB (only if DB_TYPE=mongodb) - optional
-############################################
-# Full connection string
+# Database connection URI (master/write connection)
+# For MySQL: mysql://user:password@host:port/database
+# For PostgreSQL: postgresql://user:password@host:port/database
+# For MongoDB: mongodb://user:password@host:port/database?authSource=admin
+# 
+# Note: If password contains special characters (@, :, /, etc.), URL-encode them:
+#   Example: password "p@ssw0rd" → "p%40ssw0rd"
+#   Common encodings: @ = %40, : = %3A, / = %2F, % = %25, # = %23, ? = %3F, & = %26
+DB_URI=mysql://root:1234@localhost:3306/enfyra
+
+# Replica URIs (optional, comma-separated for multiple replicas)
+# DB_REPLICA_URIS=mysql://user:password@replica1:3306/enfyra,mysql://user:password@replica2:3306/enfyra
+
+# Read from master (optional, default: false)
+# If true, master is included in round-robin pool for reads (master + replicas)
+# If false, read queries only use replicas via round-robin (master is only used for writes)
+# DB_READ_FROM_MASTER=false
+
+# MongoDB URI (only if DB_TYPE=mongodb)
 # MONGO_URI=mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra?authSource=admin
 
 ############################################
 # SQL Connection Pool - optional (tune per env)
 ############################################
-# Connection pool settings
-DB_POOL_MIN_SIZE=2                   # Minimum connections in pool
-DB_POOL_MAX_SIZE=100                 # Maximum connections in pool
+# Total connection pool size (automatically distributed between master and replicas)
+DB_POOL_MIN_SIZE=2                   # Total minimum connections (distributed across all nodes)
+DB_POOL_MAX_SIZE=100                 # Total maximum connections (distributed across all nodes)
+
+# Pool distribution ratio (optional, default: 0.6 = 60% master, 40% replicas)
+# Example: DB_POOL_MAX_SIZE=100, DB_POOL_MASTER_RATIO=0.6, 1 master + 2 replicas
+#   → Master: 60 connections, Each replica: 20 connections
+# DB_POOL_MASTER_RATIO=0.6           # Master gets 60% of total pool, remaining 40% divided among replicas
+
 # Connection acquisition timeout (ms)
 DB_ACQUIRE_TIMEOUT=60000
 # PostgreSQL idle connection timeout (ms)
