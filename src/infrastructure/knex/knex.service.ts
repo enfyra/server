@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, forwardRef, Inject } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, forwardRef, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Knex, knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -9,6 +9,8 @@ import { KnexEntityManager } from './entity-manager';
 import { CascadeHandler } from './utils/cascade-handler';
 import { FieldStripper } from './utils/field-stripper';
 import { RelationTransformer } from './utils/relation-transformer';
+import { parseDatabaseUri } from './utils/uri-parser';
+import { ReplicationManager } from './services/replication-manager.service';
 
 @Injectable()
 export class KnexService implements OnModuleInit, OnModuleDestroy {
@@ -46,6 +48,8 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCacheService: MetadataCacheService,
+    @Optional() @Inject(forwardRef(() => ReplicationManager))
+    private readonly replicationManager?: ReplicationManager,
   ) {}
 
   async onModuleInit() {
@@ -60,38 +64,84 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     
     this.logger.log('🔌 Initializing Knex connection with hooks...');
     
-    const DB_HOST = this.configService.get<string>('DB_HOST') || 'localhost';
-    const DB_PORT = this.configService.get<number>('DB_PORT') || (DB_TYPE === 'postgres' ? 5432 : 3306);
-    const DB_USERNAME = this.configService.get<string>('DB_USERNAME') || 'root';
-    const DB_PASSWORD = this.configService.get<string>('DB_PASSWORD') || '';
-    const DB_NAME = this.configService.get<string>('DB_NAME') || 'enfyra';
-
-    // Connection pool settings
-    const poolMinSize = parseInt(this.configService.get<string>('DB_POOL_MIN_SIZE') || '2');
-    const poolMaxSize = parseInt(this.configService.get<string>('DB_POOL_MAX_SIZE') || '10');
-
-    this.knexInstance = knex({
-      client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
-      connection: {
-        host: DB_HOST,
-        port: DB_PORT,
-        user: DB_USERNAME,
-        password: DB_PASSWORD,
-        database: DB_NAME,
-        typeCast: (field: any, next: any) => {
-          if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
-            return field.string();
+    if (this.replicationManager) {
+      let retries = 50;
+      while (retries > 0) {
+        try {
+          const masterKnex = this.replicationManager.getMasterKnex();
+          if (masterKnex) {
+            this.knexInstance = masterKnex;
+            this.logger.log('Using replication manager for connection routing');
+            break;
           }
-          return next();
+        } catch (error) {
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+        retries--;
+      }
+      
+      if (!this.knexInstance) {
+        this.logger.warn('ReplicationManager not ready after waiting, falling back to direct connection');
+      }
+    }
+    
+    if (!this.knexInstance) {
+      const DB_URI = this.configService.get<string>('DB_URI');
+      let connectionConfig: {
+        host: string;
+        port: number;
+        user: string;
+        password: string;
+        database: string;
+      };
+
+      if (DB_URI) {
+        const parsed = parseDatabaseUri(DB_URI);
+        connectionConfig = {
+          host: parsed.host,
+          port: parsed.port,
+          user: parsed.user,
+          password: parsed.password,
+          database: parsed.database,
+        };
+        this.logger.log(`Using database URI: ${DB_URI.replace(/:[^:@]+@/, ':****@')}`);
+      } else {
+        connectionConfig = {
+          host: this.configService.get<string>('DB_HOST') || 'localhost',
+          port: this.configService.get<number>('DB_PORT') || (DB_TYPE === 'postgres' ? 5432 : 3306),
+          user: this.configService.get<string>('DB_USERNAME') || 'root',
+          password: this.configService.get<string>('DB_PASSWORD') || '',
+          database: this.configService.get<string>('DB_NAME') || 'enfyra',
+        };
+        this.logger.warn('Using legacy DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_NAME format. Consider migrating to DB_URI format.');
+      }
+
+      const poolMinSize = parseInt(this.configService.get<string>('DB_POOL_MIN_SIZE') || '2');
+      const poolMaxSize = parseInt(this.configService.get<string>('DB_POOL_MAX_SIZE') || '10');
+
+      this.knexInstance = knex({
+        client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
+        connection: {
+          host: connectionConfig.host,
+          port: connectionConfig.port,
+          user: connectionConfig.user,
+          password: connectionConfig.password,
+          database: connectionConfig.database,
+          typeCast: (field: any, next: any) => {
+            if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
+              return field.string();
+            }
+            return next();
+          },
         },
-      },
-      pool: {
-        min: poolMinSize,
-        max: poolMaxSize,
-      },
-      acquireConnectionTimeout: parseInt(this.configService.get<string>('DB_ACQUIRE_TIMEOUT') || '10000'),
-      debug: false,
-    });
+        pool: {
+          min: poolMinSize,
+          max: poolMaxSize,
+        },
+        acquireConnectionTimeout: parseInt(this.configService.get<string>('DB_ACQUIRE_TIMEOUT') || '10000'),
+        debug: false,
+      });
+    }
 
     this.cascadeHandler = new CascadeHandler(
       this.knexInstance,
@@ -278,15 +328,12 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return await this.autoParseJsonFields(result, { table: tableName });
     });
 
-    // Recursive boolean normalization for nested relations (MySQL only).
-    // Uses preloaded metadata to avoid async lookups during traversal.
     this.addHook('afterSelect', (tableName, result) => {
       if (this.dbType !== 'mysql' || result == null) return result;
 
       const meta = this.metadataCacheService.getDirectMetadata?.();
       if (!meta) return result;
 
-      // Build table -> booleanSet and relation map once
       const booleanMap = new Map<string, Set<string>>();
       const relationMap = new Map<string, Map<string, string>>();
 
@@ -407,7 +454,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  private wrapQueryBuilder(qb: any): any {
+  private wrapQueryBuilder(qb: any, currentKnex?: Knex): any {
     const self = this;
     const originalInsert = qb.insert;
     const originalUpdate = qb.update;
@@ -415,25 +462,46 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     const originalThen = qb.then;
     const tableName = qb._single?.table;
 
+    const getMasterQueryBuilder = () => {
+      if (!self.replicationManager) {
+        return qb;
+      }
+      
+      const masterKnex = self.getKnexForWrite();
+      if (currentKnex === masterKnex) {
+        return qb;
+      }
+
+      const newQb = masterKnex(tableName);
+      return newQb;
+    };
+
     qb.insert = async function(data: any, ...rest: any[]) {
+      const masterQb = getMasterQueryBuilder();
+      self.logger.debug(`[Query Routing] INSERT on ${tableName} - using MASTER`);
       const processedData = await self.runHooks('beforeInsert', tableName, data);
-      const result = await originalInsert.call(this, processedData, ...rest);
+      const result = await originalInsert.call(masterQb, processedData, ...rest);
       return self.runHooks('afterInsert', tableName, result);
     };
 
     qb.update = async function(data: any, ...rest: any[]) {
+      const masterQb = getMasterQueryBuilder();
+      self.logger.debug(`[Query Routing] UPDATE on ${tableName} - using MASTER`);
       const processedData = await self.runHooks('beforeUpdate', tableName, data);
-      const result = await originalUpdate.call(this, processedData, ...rest);
+      const result = await originalUpdate.call(masterQb, processedData, ...rest);
       return self.runHooks('afterUpdate', tableName, result);
     };
 
     qb.delete = qb.del = async function(...args: any[]) {
+      const masterQb = getMasterQueryBuilder();
+      self.logger.debug(`[Query Routing] DELETE on ${tableName} - using MASTER`);
       await self.runHooks('beforeDelete', tableName, args);
-      const result = await originalDelete.call(this, ...args);
+      const result = await originalDelete.call(masterQb, ...args);
       return self.runHooks('afterDelete', tableName, result);
     };
 
     qb.then = function(onFulfilled: any, onRejected: any) {
+      self.logger.debug(`[Query Routing] SELECT on ${tableName} - using ${self.replicationManager ? 'REPLICA' : 'MASTER'}`);
       self.runHooks('beforeSelect', this, tableName);
 
       return originalThen.call(this, async (result: any) => {
@@ -475,15 +543,32 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     }
 
     const self = this;
-    return new Proxy(this.knexInstance, {
+    const baseKnex = this.knexInstance;
+
+    return new Proxy(baseKnex, {
       get(target, prop) {
         const value = target[prop];
 
         if (typeof value === 'function') {
           if (prop === 'table' || prop === 'from' || prop === 'queryBuilder') {
             return function(...args: any[]) {
-              const qb = value.apply(target, args);
-              return self.wrapQueryBuilder(qb);
+              const knexInstance = self.getKnexForRead();
+              const qb = value.apply(knexInstance, args);
+              return self.wrapQueryBuilder(qb, knexInstance);
+            };
+          }
+
+          if (prop === 'raw') {
+            return function(sql: string, bindings?: any) {
+              const sqlUpper = sql.trim().toUpperCase();
+              const isReadQuery = sqlUpper.startsWith('SELECT') || 
+                                   sqlUpper.startsWith('SHOW') || 
+                                   sqlUpper.startsWith('DESCRIBE') ||
+                                   sqlUpper.startsWith('EXPLAIN');
+              
+              const knexInstance = isReadQuery ? self.getKnexForRead() : self.getKnexForWrite();
+              self.logger.debug(`[Query Routing] ${isReadQuery ? 'READ' : 'WRITE'} query: ${sql.substring(0, 50)}...`);
+              return value.apply(knexInstance, arguments);
             };
           }
 
@@ -493,10 +578,25 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         return value;
       },
       apply(target, thisArg, args: [string]) {
-        const qb = Reflect.apply(target, thisArg, args);
-        return self.wrapQueryBuilder(qb);
+        const knexInstance = self.getKnexForRead();
+        const qb = Reflect.apply(target, knexInstance, args);
+        return self.wrapQueryBuilder(qb, knexInstance);
       },
     }) as ExtendedKnex;
+  }
+
+  private getKnexForRead(): Knex {
+    if (this.replicationManager) {
+      return this.replicationManager.getReplicaKnex();
+    }
+    return this.knexInstance;
+  }
+
+  private getKnexForWrite(): Knex {
+    if (this.replicationManager) {
+      return this.replicationManager.getMasterKnex();
+    }
+    return this.knexInstance;
   }
 
   async raw(sql: string, bindings?: any[]): Promise<any> {
@@ -557,7 +657,9 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   async transaction(callback: (trx: Knex.Transaction) => Promise<any>): Promise<any> {
-    return await this.knexInstance.transaction(async (trx) => {
+    const knexInstance = this.getKnexForWrite();
+    this.logger.debug('[Query Routing] Transaction - using MASTER');
+    return await knexInstance.transaction(async (trx) => {
       return this.knexContext.run(trx, async () => callback(trx));
     });
   }
