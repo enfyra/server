@@ -32,7 +32,6 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           // Initialize owner M2M relations
           if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
 
-          // NOTE: publishedMethods, hooks, handlers, routePermissions are inverse - NOT stored
         }
 
         // Handle mainTable reference differently for SQL vs MongoDB
@@ -83,8 +82,6 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           }
         }
 
-        // NOTE: Inverse relations (hooks, handlers, routePermissions, publishedMethods)
-        // are NOT stored - they will be computed via $lookup based on metadata
 
         // Debug: log first route to see what we're trying to insert
         if (isMongoDB && record.path === '/route_definition') {

@@ -208,7 +208,7 @@ export class SystemProtectionService {
       }
     }
 
-    if (tableName === 'hook_definition') {
+    if (tableName === 'pre_hook_definition' || tableName === 'post_hook_definition') {
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create system hook');
       }

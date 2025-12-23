@@ -111,7 +111,9 @@
         ],
         "relations": [
             { "propertyName": "targetTables", "type": "many-to-many", "targetTable": "table_definition", "isSystem": true, "description": "Additional tables that this route can access" },
-            { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "description": "Primary table that this route operates on" }
+            { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "description": "Primary table that this route operates on" },
+            { "propertyName": "preHook", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Pre-hooks that run before route execution" },
+            { "propertyName": "postHook", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Post-hooks that run after route execution" }
         ]
     },
     "role_definition": {
@@ -156,25 +158,42 @@
             { "propertyName": "method", "type": "many-to-one", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": true, "description": "HTTP method (GET, POST, etc.) this handler responds to" }
         ]
     },
-    "hook_definition": {
-        "name": "hook_definition",
-        "description": "Defines lifecycle hooks that run before/after route execution",
+    "pre_hook_definition": {
+        "name": "pre_hook_definition",
+        "description": "Defines lifecycle hooks that run before route execution",
         "isSystem": true,
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "name", "type": "varchar", "isSystem": true, "isNullable": false, "description": "Descriptive name for the hook" },
-            { "name": "preHook", "type": "code", "isNullable": true, "isSystem": true, "description": "Code to execute before the main route handler" },
-            { "name": "afterHook", "type": "code", "isNullable": true, "isSystem": true, "description": "Code to execute after the main route handler" },
-            { "name": "preHookTimeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for preHook execution. If not set, uses default system timeout." },
-            { "name": "afterHookTimeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for afterHook execution. If not set, uses default system timeout." },
+            { "name": "code", "type": "code", "isNullable": true, "isSystem": true, "description": "Code to execute before the main route handler" },
+            { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for hook execution. If not set, uses default system timeout." },
             { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order (lower numbers execute first)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the hook is active" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the hook does" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
         ],
         "relations": [
-            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "hooks", "description": "Route this hook is attached to (null for global hooks)" },
-            { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "hooks", "description": "HTTP methods this hook applies to" }
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "preHook", "description": "Route this hook is attached to (null for global hooks)" },
+            { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "preHooks", "description": "HTTP methods this hook applies to" }
+        ]
+    },
+    "post_hook_definition": {
+        "name": "post_hook_definition",
+        "description": "Defines lifecycle hooks that run after route execution",
+        "isSystem": true,
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "name", "type": "varchar", "isSystem": true, "isNullable": false, "description": "Descriptive name for the hook" },
+            { "name": "code", "type": "code", "isNullable": true, "isSystem": true, "description": "Code to execute after the main route handler" },
+            { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for hook execution. If not set, uses default system timeout." },
+            { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order (lower numbers execute first)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the hook is active" },
+            { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the hook does" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
+        ],
+        "relations": [
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "postHook", "description": "Route this hook is attached to (null for global hooks)" },
+            { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "postHooks", "description": "HTTP methods this hook applies to" }
         ]
     },
     "session_definition": {

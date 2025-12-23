@@ -478,7 +478,8 @@ export class MongoTableHandlerService {
             publishedMethods: [],
             routePermissions: [],
             handlers: [],
-            hooks: [],
+            preHook: [],
+            postHook: [],
           },
         });
         this.logger.log(`Route /${body.name} created for collection ${body.name}`);

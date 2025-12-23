@@ -11,7 +11,8 @@ import { MenuDefinitionProcessor } from './processors/menu-definition.processor'
 import { RouteDefinitionProcessor } from './processors/route-definition.processor';
 import { RouteHandlerDefinitionProcessor } from './processors/route-handler-definition.processor';
 import { MethodDefinitionProcessor } from './processors/method-definition.processor';
-import { HookDefinitionProcessor } from './processors/hook-definition.processor';
+import { PreHookDefinitionProcessor } from './processors/pre-hook-definition.processor';
+import { PostHookDefinitionProcessor } from './processors/post-hook-definition.processor';
 import { SettingDefinitionProcessor } from './processors/setting-definition.processor';
 import { ExtensionDefinitionProcessor } from './processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from './processors/folder-definition.processor';
@@ -32,7 +33,8 @@ import { AiConfigDefinitionProcessor } from './processors/ai-config-definition.p
     RouteDefinitionProcessor,
     RouteHandlerDefinitionProcessor,
     MethodDefinitionProcessor,
-    HookDefinitionProcessor,
+    PreHookDefinitionProcessor,
+    PostHookDefinitionProcessor,
     SettingDefinitionProcessor,
     ExtensionDefinitionProcessor,
     FolderDefinitionProcessor,

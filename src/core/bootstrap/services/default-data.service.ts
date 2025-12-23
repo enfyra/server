@@ -11,7 +11,8 @@ import { MenuDefinitionProcessor } from '../processors/menu-definition.processor
 import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
 import { RouteHandlerDefinitionProcessor } from '../processors/route-handler-definition.processor';
 import { MethodDefinitionProcessor } from '../processors/method-definition.processor';
-import { HookDefinitionProcessor } from '../processors/hook-definition.processor';
+import { PreHookDefinitionProcessor } from '../processors/pre-hook-definition.processor';
+import { PostHookDefinitionProcessor } from '../processors/post-hook-definition.processor';
 import { SettingDefinitionProcessor } from '../processors/setting-definition.processor';
 import { ExtensionDefinitionProcessor } from '../processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from '../processors/folder-definition.processor';
@@ -42,7 +43,8 @@ export class DefaultDataService {
     private readonly routeProcessor: RouteDefinitionProcessor,
     private readonly routeHandlerProcessor: RouteHandlerDefinitionProcessor,
     private readonly methodProcessor: MethodDefinitionProcessor,
-    private readonly hookProcessor: HookDefinitionProcessor,
+    private readonly preHookProcessor: PreHookDefinitionProcessor,
+    private readonly postHookProcessor: PostHookDefinitionProcessor,
     private readonly settingProcessor: SettingDefinitionProcessor,
     private readonly extensionProcessor: ExtensionDefinitionProcessor,
     private readonly folderProcessor: FolderDefinitionProcessor,
@@ -60,7 +62,8 @@ export class DefaultDataService {
     this.processors.set('route_definition', this.routeProcessor);
     this.processors.set('route_handler_definition', this.routeHandlerProcessor);
     this.processors.set('method_definition', this.methodProcessor);
-    this.processors.set('hook_definition', this.hookProcessor);
+    this.processors.set('pre_hook_definition', this.preHookProcessor);
+    this.processors.set('post_hook_definition', this.postHookProcessor);
     this.processors.set('setting_definition', this.settingProcessor);
     this.processors.set('extension_definition', this.extensionProcessor);
     this.processors.set('folder_definition', this.folderProcessor);
