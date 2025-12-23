@@ -20,19 +20,18 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
     next: CallHandler<T>,
   ): Promise<Observable<any>> {
     const req = context.switchToHttp().getRequest();
-    const hooks = req.routeData?.hooks;
-    if (hooks?.length) {
-      for (const hook of hooks) {
-        if (!hook.preHook) continue;
+    const preHooks = req.routeData?.preHook;
+    if (preHooks?.length) {
+      for (const hook of preHooks) {
+        if (!hook.code) continue;
         try {
-          const code = hook.preHook;
-          // Use hook timeout if explicitly set, otherwise read from env config (no default fallback)
-          const preHookTimeout = hook.preHookTimeout !== null && hook.preHookTimeout !== undefined
-            ? hook.preHookTimeout
+          const code = hook.code;
+          const preHookTimeout = hook.timeout !== null && hook.timeout !== undefined
+            ? hook.timeout
             : this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT');
           
           if (preHookTimeout === null || preHookTimeout === undefined) {
-            throw new Error('PreHook timeout must be set either in hook definition (preHookTimeout) or in environment variable (DEFAULT_PREHOOK_TIMEOUT)');
+            throw new Error('PreHook timeout must be set either in hook definition (timeout) or in environment variable (DEFAULT_PREHOOK_TIMEOUT)');
           }
           
           const result = await this.handlerExecurtorService.run(
@@ -71,18 +70,18 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           return undefined;
         }
 
-        if (hooks?.length) {
-          for (const hook of hooks) {
-            if (!hook.afterHook) continue;
+        const postHooks = req.routeData?.postHook;
+        if (postHooks?.length) {
+          for (const hook of postHooks) {
+            if (!hook.code) continue;
             try {
-              const code = hook.afterHook;
-              // Use hook timeout if explicitly set, otherwise read from env config (no default fallback)
-              const afterHookTimeout = hook.afterHookTimeout !== null && hook.afterHookTimeout !== undefined
-                ? hook.afterHookTimeout
+              const code = hook.code;
+              const postHookTimeout = hook.timeout !== null && hook.timeout !== undefined
+                ? hook.timeout
                 : this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT');
               
-              if (afterHookTimeout === null || afterHookTimeout === undefined) {
-                throw new Error('AfterHook timeout must be set either in hook definition (afterHookTimeout) or in environment variable (DEFAULT_AFTERHOOK_TIMEOUT)');
+              if (postHookTimeout === null || postHookTimeout === undefined) {
+                throw new Error('PostHook timeout must be set either in hook definition (timeout) or in environment variable (DEFAULT_AFTERHOOK_TIMEOUT)');
               }
               
               req.routeData.context.$data = data;
@@ -100,7 +99,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               const result = await this.handlerExecurtorService.run(
                 code,
                 req.routeData.context,
-                afterHookTimeout,
+                postHookTimeout,
               );
 
               if (result !== undefined) {
@@ -128,18 +127,18 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           details: error.details || {},
         };
 
-        if (hooks?.length) {
-          for (const hook of hooks) {
-            if (!hook.afterHook) continue;
+        const postHooks = req.routeData?.postHook;
+        if (postHooks?.length) {
+          for (const hook of postHooks) {
+            if (!hook.code) continue;
             try {
-              const code = hook.afterHook;
-              // Use hook timeout if explicitly set, otherwise read from env config (no default fallback)
-              const afterHookTimeout = hook.afterHookTimeout !== null && hook.afterHookTimeout !== undefined
-                ? hook.afterHookTimeout
+              const code = hook.code;
+              const postHookTimeout = hook.timeout !== null && hook.timeout !== undefined
+                ? hook.timeout
                 : this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT');
               
-              if (afterHookTimeout === null || afterHookTimeout === undefined) {
-                throw new Error('AfterHook timeout must be set either in hook definition (afterHookTimeout) or in environment variable (DEFAULT_AFTERHOOK_TIMEOUT)');
+              if (postHookTimeout === null || postHookTimeout === undefined) {
+                throw new Error('PostHook timeout must be set either in hook definition (timeout) or in environment variable (DEFAULT_AFTERHOOK_TIMEOUT)');
               }
               
               req.routeData.context.$data = null; // No data when error occurs
@@ -155,7 +154,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
               const result = await this.handlerExecurtorService.run(
                 code,
                 req.routeData.context,
-                afterHookTimeout,
+                postHookTimeout,
               );
 
               if (result !== undefined) {
@@ -164,8 +163,8 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
                   subscriber.complete();
                 });
               }
-            } catch (afterHookError) {
-              console.error('AfterHook failed during error handling:', afterHookError);
+            } catch (postHookError) {
+              console.error('PostHook failed during error handling:', postHookError);
             }
           }
         }

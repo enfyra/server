@@ -265,7 +265,8 @@ export class DynamicRepository {
     if (
       [
         'route_definition',
-        'hook_definition',
+        'pre_hook_definition',
+        'post_hook_definition',
         'route_handler_definition',
         'route_permission_definition',
         'role_definition',

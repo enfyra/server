@@ -22,7 +22,6 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
         if (!transformed.routes) transformed.routes = [];
         if (!transformed.route_permissions) transformed.route_permissions = [];
 
-        // NOTE: hooks and handlers are inverse relations - NOT stored
 
         // Add timestamps
         const now = new Date();

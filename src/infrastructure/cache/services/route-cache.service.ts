@@ -167,8 +167,10 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
         'handlers.method.*',
         'routePermissions.*',
         'routePermissions.role.*',
-        'hooks.*',
-        'hooks.methods.*',
+        'preHook.*',
+        'preHook.methods.*',
+        'postHook.*',
+        'postHook.methods.*',
         'publishedMethods.*',
         'targetTables.*',
       ],
@@ -178,8 +180,8 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const routeFieldName = isMongoDB ? 'route' : 'routeId';
 
-    const globalHooksResult = await this.queryBuilder.select({
-      tableName: 'hook_definition',
+    const globalPreHooksResult = await this.queryBuilder.select({
+      tableName: 'pre_hook_definition',
       filter: {
         _and: [
           {
@@ -193,25 +195,43 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       fields: ['*', 'methods.*'],
       sort: ['priority'],
     });
-    const globalHooks = globalHooksResult.data;
+    const globalPreHooks = globalPreHooksResult.data;
 
-    for (const hook of globalHooks) {
-      if (hook.preHook) {
-        hook.preHook = transformCode(hook.preHook);
+    const globalPostHooksResult = await this.queryBuilder.select({
+      tableName: 'post_hook_definition',
+      filter: {
+        _and: [
+          {
+            isEnabled: { _eq: true },
+          },
+          {
+            [routeFieldName]: { _is_null: true }
+          }
+        ],
+      },
+      fields: ['*', 'methods.*'],
+      sort: ['priority'],
+    });
+    const globalPostHooks = globalPostHooksResult.data;
+
+    for (const hook of globalPreHooks) {
+      if (hook.code) {
+        hook.code = transformCode(hook.code);
       }
-      if (hook.afterHook) {
-        hook.afterHook = transformCode(hook.afterHook);
+    }
+    for (const hook of globalPostHooks) {
+      if (hook.code) {
+        hook.code = transformCode(hook.code);
       }
     }
 
     for (const route of routes) {
-      const enabledRouteHooks = Array.isArray(route.hooks)
-        ? route.hooks.filter((h: any) => h?.isEnabled === true)
+      const enabledRoutePreHooks = Array.isArray(route.preHook)
+        ? route.preHook.filter((h: any) => h?.isEnabled === true)
         : [];
-      const allHooks = [...globalHooks, ...enabledRouteHooks];
+      const allPreHooks = [...globalPreHooks, ...enabledRoutePreHooks];
 
-      const isMongoDB = this.queryBuilder.isMongoDb();
-      const uniqueHooks = allHooks.filter((hook, index, self) =>
+      const uniquePreHooks = allPreHooks.filter((hook, index, self) =>
         index === self.findIndex((h) => {
           const hId = isMongoDB ? h?._id?.toString() : h?.id;
           const hookId = isMongoDB ? hook?._id?.toString() : hook?.id;
@@ -219,7 +239,22 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
         })
       );
 
-      route.hooks = uniqueHooks;
+      route.preHook = uniquePreHooks;
+
+      const enabledRoutePostHooks = Array.isArray(route.postHook)
+        ? route.postHook.filter((h: any) => h?.isEnabled === true)
+        : [];
+      const allPostHooks = [...globalPostHooks, ...enabledRoutePostHooks];
+
+      const uniquePostHooks = allPostHooks.filter((hook, index, self) =>
+        index === self.findIndex((h) => {
+          const hId = isMongoDB ? h?._id?.toString() : h?.id;
+          const hookId = isMongoDB ? hook?._id?.toString() : hook?.id;
+          return hId === hookId;
+        })
+      );
+
+      route.postHook = uniquePostHooks;
 
       if (!route.targetTables) {
         route.targetTables = [];
@@ -233,13 +268,17 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
         }
       }
 
-      if (route.hooks && Array.isArray(route.hooks)) {
-        for (const hook of route.hooks) {
-          if (hook.preHook) {
-            hook.preHook = transformCode(hook.preHook);
+      if (route.preHook && Array.isArray(route.preHook)) {
+        for (const hook of route.preHook) {
+          if (hook.code) {
+            hook.code = transformCode(hook.code);
           }
-          if (hook.afterHook) {
-            hook.afterHook = transformCode(hook.afterHook);
+        }
+      }
+      if (route.postHook && Array.isArray(route.postHook)) {
+        for (const hook of route.postHook) {
+          if (hook.code) {
+            hook.code = transformCode(hook.code);
           }
         }
       }
