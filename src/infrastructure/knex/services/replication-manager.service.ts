@@ -46,14 +46,11 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     const replicaPoolMin = replicaCount > 0 ? Math.max(1, Math.floor(totalPoolMinSize * replicaRatio)) : totalPoolMinSize;
     const replicaPoolMax = replicaCount > 0 ? Math.max(1, Math.floor(totalPoolMaxSize * replicaRatio)) : totalPoolMaxSize;
     
-    this.logger.log(`📊 Pool distribution: Master (${masterPoolMin}-${masterPoolMax}), Replicas (${replicaPoolMin}-${replicaPoolMax} each, ${replicaCount} replica(s))`);
-
     const masterConfig = parseDatabaseUri(DB_URI);
     this.masterKnex = this.createKnexInstance(masterConfig, masterPoolMin, masterPoolMax);
     
     try {
       await this.masterKnex.raw('SELECT 1');
-      this.logger.log(`✅ Master connection established: ${DB_URI.replace(/:[^:@]+@/, ':****@')}`);
     } catch (error) {
       this.logger.error('Failed to establish master connection:', error);
       throw error;
@@ -77,21 +74,13 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
             errorCount: 0,
             connectionCount: 0,
           });
-          
-          this.logger.log(`✅ Replica connection established: ${uri.replace(/:[^:@]+@/, ':****@')}`);
         } catch (error) {
-          this.logger.warn(`Failed to connect to replica ${uri.replace(/:[^:@]+@/, ':****@')}:`, error);
         }
       }
 
       if (this.replicaNodes.length > 0) {
-        this.logger.log(`📊 Replication enabled: ${this.replicaNodes.length} replica(s) active`);
         this.startHealthCheck();
-      } else {
-        this.logger.warn('No healthy replicas available, falling back to master only');
       }
-    } else {
-      this.logger.log('No replicas configured, using master only');
     }
   }
 
@@ -139,26 +128,22 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       this.currentReplicaIndex = (this.currentReplicaIndex + 1) % totalNodes;
       
       if (currentIndex === 0) {
-        this.logger.debug('DB_READ_FROM_MASTER enabled, using master for read (round-robin)');
         return this.masterKnex;
       }
       
       const replicaIndex = currentIndex - 1;
       const selectedNode = healthyReplicas[replicaIndex];
       selectedNode.connectionCount++;
-      this.logger.debug(`DB_READ_FROM_MASTER enabled, using replica: ${selectedNode.uri.replace(/:[^:@]+@/, ':****@')} (round-robin)`);
       return selectedNode.knex;
     }
     
     if (healthyReplicas.length === 0) {
-      this.logger.debug('No healthy replicas available, using master for read');
       return this.masterKnex;
     }
 
     const selectedNode = healthyReplicas[this.currentReplicaIndex % healthyReplicas.length];
     this.currentReplicaIndex = (this.currentReplicaIndex + 1) % healthyReplicas.length;
     selectedNode.connectionCount++;
-    this.logger.debug(`Using replica: ${selectedNode.uri.replace(/:[^:@]+@/, ':****@')} (round-robin)`);
     
     return selectedNode.knex;
   }
@@ -171,7 +156,6 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
         try {
           await node.knex.raw('SELECT 1');
           if (!node.isHealthy) {
-            this.logger.log(`✅ Replica recovered: ${node.uri.replace(/:[^:@]+@/, ':****@')}`);
             node.isHealthy = true;
             node.errorCount = 0;
           }
@@ -180,7 +164,6 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
           node.lastErrorTime = Date.now();
           
           if (node.isHealthy) {
-            this.logger.warn(`❌ Replica unhealthy: ${node.uri.replace(/:[^:@]+@/, ':****@')} (error count: ${node.errorCount})`);
             node.isHealthy = false;
           }
         }
@@ -192,8 +175,6 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
     }
-
-    this.logger.log('🔌 Destroying replication connections...');
     
     for (const node of this.replicaNodes) {
       try {
@@ -206,8 +187,6 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     if (this.masterKnex) {
       await this.masterKnex.destroy();
     }
-
-    this.logger.log('Replication connections destroyed');
   }
 
   getReplicaStats() {

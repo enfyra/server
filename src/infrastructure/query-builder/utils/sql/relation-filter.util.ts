@@ -214,14 +214,14 @@ async function applyFiltersToSubquery(
               const isNullValue = normalizeBoolean(idFilter._is_null);
               const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
               
-              if (isNullValue === true) {
-                query.whereNull(fkColumn);
-              } else if (isNullValue === false) {
-                query.whereNotNull(fkColumn);
-              } else if (isNotNullValue === true) {
-                query.whereNotNull(fkColumn);
-              } else if (isNotNullValue === false) {
-                query.whereNull(fkColumn);
+            if (isNullValue === true) {
+              query.whereNull(fkColumn);
+            } else if (isNullValue === false) {
+              query.whereNotNull(fkColumn);
+            } else if (isNotNullValue === true) {
+              query.whereNotNull(fkColumn);
+            } else if (isNotNullValue === false) {
+              query.whereNull(fkColumn);
               } else if (idFilter._eq !== undefined) {
                 query.where(fkColumn, '=', idFilter._eq);
               } else if (idFilter._neq !== undefined) {
@@ -274,14 +274,14 @@ async function applyFiltersToSubquery(
               const isNullValue = normalizeBoolean(idFilter._is_null);
               const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
               
-              if (isNullValue === true) {
-                subqueries.push(`${fkColumn} IS NULL`);
-              } else if (isNullValue === false) {
-                subqueries.push(`${fkColumn} IS NOT NULL`);
-              } else if (isNotNullValue === true) {
-                subqueries.push(`${fkColumn} IS NOT NULL`);
-              } else if (isNotNullValue === false) {
-                subqueries.push(`${fkColumn} IS NULL`);
+            if (isNullValue === true) {
+              subqueries.push(`${fkColumn} IS NULL`);
+            } else if (isNullValue === false) {
+              subqueries.push(`${fkColumn} IS NOT NULL`);
+            } else if (isNotNullValue === true) {
+              subqueries.push(`${fkColumn} IS NOT NULL`);
+            } else if (isNotNullValue === false) {
+              subqueries.push(`${fkColumn} IS NULL`);
               } else if (idFilter._eq !== undefined) {
                 subqueries.push(`${fkColumn} = ${typeof idFilter._eq === 'string' ? `'${idFilter._eq}'` : idFilter._eq}`);
               } else if (idFilter._neq !== undefined) {
@@ -363,14 +363,14 @@ async function applyFiltersToSubquery(
             const isNullValue = normalizeBoolean(idFilter._is_null);
             const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
             
-            if (isNullValue === true) {
-              query.whereNotNull(fkColumn);
-            } else if (isNullValue === false) {
-              query.whereNull(fkColumn);
-            } else if (isNotNullValue === true) {
-              query.whereNull(fkColumn);
-            } else if (isNotNullValue === false) {
-              query.whereNotNull(fkColumn);
+          if (isNullValue === true) {
+            query.whereNotNull(fkColumn);
+          } else if (isNullValue === false) {
+            query.whereNull(fkColumn);
+          } else if (isNotNullValue === true) {
+            query.whereNull(fkColumn);
+          } else if (isNotNullValue === false) {
+            query.whereNotNull(fkColumn);
             } else if (idFilter._eq !== undefined) {
               query.where(fkColumn, '!=', idFilter._eq);
             } else if (idFilter._neq !== undefined) {
@@ -419,14 +419,14 @@ async function applyFiltersToSubquery(
           const isNullValue = normalizeBoolean(idFilter._is_null);
           const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
           
-          if (isNullValue === true) {
-            query.whereNull(fkColumn);
-          } else if (isNullValue === false) {
-            query.whereNotNull(fkColumn);
-          } else if (isNotNullValue === true) {
-            query.whereNotNull(fkColumn);
-          } else if (isNotNullValue === false) {
-            query.whereNull(fkColumn);
+        if (isNullValue === true) {
+          query.whereNull(fkColumn);
+        } else if (isNullValue === false) {
+          query.whereNotNull(fkColumn);
+        } else if (isNotNullValue === true) {
+          query.whereNotNull(fkColumn);
+        } else if (isNotNullValue === false) {
+          query.whereNull(fkColumn);
           } else if (idFilter._eq !== undefined) {
             query.where(fkColumn, '=', idFilter._eq);
           } else if (idFilter._neq !== undefined) {

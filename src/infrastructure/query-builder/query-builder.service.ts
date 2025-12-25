@@ -129,6 +129,7 @@ export class QueryBuilderService {
     const executor = new SqlQueryExecutor(
       this.knexService.getKnex(),
       this.dbType as 'postgres' | 'mysql' | 'sqlite',
+      this.knexService,
     );
     return executor.execute({ ...options, metadata });
   }
