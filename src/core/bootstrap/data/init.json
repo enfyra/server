@@ -314,6 +314,7 @@
     "pre_hook_definition": [
         {
             "isEnabled": true,
+            "isGlobal": false,
             "code": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
             "name": "User definition hash password",
             "isSystem":true,
@@ -322,6 +323,7 @@
         },
         {
             "isEnabled": true,
+            "isGlobal": false,
             "code": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
             "name": "Me route hash password",
             "isSystem":true,
@@ -330,6 +332,7 @@
         },
         {
             "isEnabled": true,
+            "isGlobal": false,
             "code": "if (@BODY.name) { @BODY.slug = await @HELPERS.autoSlug(@BODY.name); }",
             "name": "Folder definition auto slug",
             "isSystem": true,
@@ -340,9 +343,11 @@
     "post_hook_definition": [
         {
             "isEnabled": true,
+            "isGlobal": true,
             "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
             "name": "Default response",
-            "isSystem":false
+            "isSystem":false,
+            "methods": ["GET", "POST", "PATCH", "DELETE"]
         }
     ],
     "storage_config_definition": [

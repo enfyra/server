@@ -3,14 +3,14 @@ export async function expandFieldsMongo(
   tableName: string,
   fields: string[]
 ): Promise<{
-  scalarFields: string[];  // Regular fields to include
-  relations: Array<{      // Relations to $lookup
+  scalarFields: string[];
+  relations: Array<{
     propertyName: string;
     targetTable: string;
     localField: string;
     foreignField: string;
     type: 'one' | 'many';
-    nestedFields: string[]; // Fields to include from related table (can be nested like 'methods.*')
+    nestedFields: string[];
   }>;
 }> {
   if (!metadata) {
@@ -77,7 +77,8 @@ export async function expandFieldsMongo(
         }
       }
     } else {
-      if (!scalarFields.includes(field)) {
+      const fieldExists = baseMeta.columns?.some(c => c.name === field);
+      if (fieldExists && !scalarFields.includes(field)) {
         scalarFields.push(field);
       }
     }
@@ -108,7 +109,7 @@ export async function expandFieldsMongo(
     else if (rel.type === 'many-to-many') {
       if (rel.mappedBy) {
         localField = '_id';
-        foreignField = rel.mappedBy; // Owner field name in target table
+        foreignField = rel.mappedBy;
         isInverse = true;
       } else {
         localField = rel.propertyName;
