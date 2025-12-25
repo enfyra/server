@@ -66,7 +66,7 @@ export function separateFilters(
               id: value
             };
           } else {
-            fieldFilters[key] = value;
+          fieldFilters[key] = value;
           }
         } else {
           relationFilters[key] = value;

@@ -7,6 +7,8 @@ import {
 } from '../../../shared/types/query-builder.types';
 import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-clause';
 import { separateFilters, applyRelationFilters } from '../utils/sql/relation-filter.util';
+import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
+import { KnexService } from '../../knex/knex.service';
 
 export class SqlQueryExecutor {
   private readonly logger = new Logger(SqlQueryExecutor.name);
@@ -16,6 +18,7 @@ export class SqlQueryExecutor {
   constructor(
     private readonly knex: Knex,
     private readonly dbType: 'postgres' | 'mysql' | 'sqlite',
+    private readonly knexService?: KnexService,
   ) {}
 
   async execute(options: {
@@ -116,9 +119,165 @@ export class SqlQueryExecutor {
       }
     }
 
+    let cteClauses: string[] | undefined = undefined;
+    let useCTE = false;
+    let whereClauseForCTE: string | undefined = undefined;
+
     if (queryOptions.fields && queryOptions.fields.length > 0) {
-      const expandedSelects = await this.expandFieldsToSelect(queryOptions.table, queryOptions.fields, relationSorts);
-      queryOptions.select = [...(queryOptions.select || []), ...expandedSelects];
+      const orderByClause = mainTableSorts.length > 0
+        ? `ORDER BY ${mainTableSorts.map(s => {
+            const field = s.field.includes('.') ? s.field : `${queryOptions.table}.${s.field}`;
+            return `${quoteIdentifier(field.split('.')[0], this.dbType)}.${quoteIdentifier(field.split('.')[1] || field, this.dbType)}`;
+          }).join(', ')} ${mainTableSorts[0].direction.toUpperCase()}`
+        : undefined;
+
+      if (queryOptions.limit && orderByClause && this.dbType === 'postgres') {
+        const metadata = this.metadata?.tables?.get(queryOptions.table);
+        if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
+          if (metadata) {
+            const { hasRelations } = separateFilters(originalFilter, metadata);
+            if (!hasRelations) {
+              const buildWhereFromFilter = (filter: any, tablePrefix: string): string[] => {
+                const parts: string[] = [];
+                for (const [field, value] of Object.entries(filter)) {
+                  if (field === '_and' && Array.isArray(value)) {
+                    const andParts = value.map(f => {
+                      const subParts = buildWhereFromFilter(f, tablePrefix);
+                      return subParts.length > 0 ? `(${subParts.join(' AND ')})` : null;
+                    }).filter(p => p !== null);
+                    if (andParts.length > 0) {
+                      parts.push(`(${andParts.join(' AND ')})`);
+                    }
+                  } else if (field === '_or' && Array.isArray(value)) {
+                    const orParts = value.map(f => {
+                      const subParts = buildWhereFromFilter(f, tablePrefix);
+                      return subParts.length > 0 ? `(${subParts.join(' AND ')})` : null;
+                    }).filter(p => p !== null);
+                    if (orParts.length > 0) {
+                      parts.push(`(${orParts.join(' OR ')})`);
+                    }
+                  } else if (field === '_not' && typeof value === 'object' && value !== null) {
+                    const notParts = buildWhereFromFilter(value, tablePrefix);
+                    if (notParts.length > 0) {
+                      parts.push(`NOT (${notParts.join(' AND ')})`);
+                    }
+                  } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    for (const [op, val] of Object.entries(value)) {
+                      const quotedField = `${quoteIdentifier(tablePrefix, this.dbType)}.${quoteIdentifier(field, this.dbType)}`;
+                      let sqlValue: string;
+                      if (val === null) {
+                        sqlValue = 'NULL';
+                      } else if (typeof val === 'string') {
+                        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                        const column = metadata.columns.find(c => c.name === field);
+                        const isUUID = column && (column.type?.toLowerCase() === 'uuid' || column.type?.toLowerCase().includes('uuid'));
+                        if (isUUID && uuidPattern.test(val)) {
+                          sqlValue = `'${val}'::uuid`;
+                        } else {
+                          sqlValue = `'${val.replace(/'/g, "''")}'`;
+                        }
+                      } else if (typeof val === 'boolean') {
+                        sqlValue = val ? 'true' : 'false';
+                      } else if (typeof val === 'number') {
+                        sqlValue = String(val);
+                      } else {
+                        sqlValue = `'${String(val).replace(/'/g, "''")}'`;
+                      }
+                      if (op === '_eq') {
+                        parts.push(`${quotedField} = ${sqlValue}`);
+                      } else if (op === '_neq') {
+                        parts.push(`${quotedField} != ${sqlValue}`);
+                      } else if (op === '_gt') {
+                        parts.push(`${quotedField} > ${sqlValue}`);
+                      } else if (op === '_gte') {
+                        parts.push(`${quotedField} >= ${sqlValue}`);
+                      } else if (op === '_lt') {
+                        parts.push(`${quotedField} < ${sqlValue}`);
+                      } else if (op === '_lte') {
+                        parts.push(`${quotedField} <= ${sqlValue}`);
+                      } else if (op === '_is_null') {
+                        parts.push(`${quotedField} IS NULL`);
+                      } else if (op === '_is_not_null') {
+                        parts.push(`${quotedField} IS NOT NULL`);
+                      } else if (op === '_in') {
+                        const inValues = Array.isArray(val) ? val : [val];
+                        const inSql = inValues.map(v => {
+                          if (typeof v === 'string') {
+                            return `'${v.replace(/'/g, "''")}'`;
+                          }
+                          return String(v);
+                        }).join(', ');
+                        parts.push(`${quotedField} IN (${inSql})`);
+                      } else if (op === '_not_in') {
+                        const notInValues = Array.isArray(val) ? val : [val];
+                        const notInSql = notInValues.map(v => {
+                          if (typeof v === 'string') {
+                            return `'${v.replace(/'/g, "''")}'`;
+                          }
+                          return String(v);
+                        }).join(', ');
+                        parts.push(`${quotedField} NOT IN (${notInSql})`);
+                      }
+                    }
+                  } else {
+                    const quotedField = `${quoteIdentifier(tablePrefix, this.dbType)}.${quoteIdentifier(field, this.dbType)}`;
+                    let sqlValue: string;
+                    if (value === null) {
+                      sqlValue = 'NULL';
+                    } else if (typeof value === 'string') {
+                      sqlValue = `'${value.replace(/'/g, "''")}'`;
+                    } else if (typeof value === 'boolean') {
+                      sqlValue = value ? 'true' : 'false';
+                    } else {
+                      sqlValue = String(value);
+                    }
+                    parts.push(`${quotedField} = ${sqlValue}`);
+                  }
+                }
+                return parts;
+              };
+              const whereParts = buildWhereFromFilter(originalFilter, queryOptions.table);
+              if (whereParts.length > 0) {
+                whereClauseForCTE = `WHERE ${whereParts.join(' AND ')}`;
+              }
+            }
+          }
+        } else if (queryOptions.where && queryOptions.where.length > 0) {
+          const whereParts: string[] = [];
+          for (const condition of queryOptions.where) {
+            const field = condition.field.includes('.') 
+              ? condition.field 
+              : `${quoteIdentifier(queryOptions.table, this.dbType)}.${quoteIdentifier(condition.field, this.dbType)}`;
+            let value: string;
+            if (typeof condition.value === 'string') {
+              value = `'${condition.value.replace(/'/g, "''")}'`;
+            } else if (condition.value === null) {
+              value = 'NULL';
+            } else if (typeof condition.value === 'boolean') {
+              value = condition.value ? 'true' : 'false';
+            } else {
+              value = String(condition.value);
+            }
+            whereParts.push(`${field} ${condition.operator} ${value}`);
+          }
+          if (whereParts.length > 0) {
+            whereClauseForCTE = `WHERE ${whereParts.join(' AND ')}`;
+          }
+        }
+      }
+
+      const expandedResult = await this.expandFieldsToSelect(
+        queryOptions.table,
+        queryOptions.fields,
+        relationSorts,
+        queryOptions.limit,
+        orderByClause,
+        whereClauseForCTE,
+        queryOptions.offset,
+      );
+      queryOptions.select = [...(queryOptions.select || []), ...expandedResult.select];
+      cteClauses = expandedResult.cteClauses;
+      useCTE = cteClauses !== undefined && cteClauses.length > 0 && this.dbType === 'postgres';
     }
 
     if (queryOptions.where) {
@@ -136,6 +295,7 @@ export class SqlQueryExecutor {
     queryOptions.sort = mainTableSorts;
 
     let query: any = this.knex(queryOptions.table);
+    let rawSQLQuery: string | null = null;
 
     const metaParts = Array.isArray(options.meta)
       ? options.meta
@@ -143,6 +303,78 @@ export class SqlQueryExecutor {
 
     const needsFilterCount = metaParts.includes('filterCount') || metaParts.includes('*');
 
+    if (useCTE && cteClauses) {
+      const limitedCTEName = `limited_${queryOptions.table}`;
+      const tableAlias = 't';
+      const quotedTable = quoteIdentifier(queryOptions.table, this.dbType);
+
+      const aggregationCTENames = new Set<string>();
+      
+      cteClauses.forEach(cte => {
+        const match = cte.match(/^(\w+)\s+AS\s*\(/i);
+        if (match) {
+          const cteName = match[1];
+          if (cteName !== limitedCTEName) {
+            aggregationCTENames.add(cteName);
+          }
+        }
+      });
+
+      const selectItems = queryOptions.select.map(item => {
+        if (typeof item === 'string') {
+          const quotedTable = quoteIdentifier(queryOptions.table, this.dbType);
+          const tableRefPattern = new RegExp(`"${queryOptions.table}"\\.`, 'g');
+          const tableRefPattern2 = new RegExp(`${quotedTable}\\.`, 'g');
+          const tableRefPattern3 = new RegExp(`${queryOptions.table}\\.`, 'g');
+          let result = item.replace(tableRefPattern, `${tableAlias}.`);
+          result = result.replace(tableRefPattern2, `${tableAlias}.`);
+          result = result.replace(tableRefPattern3, `${tableAlias}.`);
+          
+          if (this.dbType === 'postgres' && !result.trim().startsWith('(') && !result.includes('select ') && !result.includes('COALESCE')) {
+            result = result.replace(
+              new RegExp(`${tableAlias}\\.([a-zA-Z_][a-zA-Z0-9_]*)`, 'g'),
+              (match, columnName) => {
+                return `${tableAlias}.${quoteIdentifier(columnName, this.dbType)}`;
+              }
+            );
+          }
+          
+          return result;
+        }
+        return item;
+      });
+
+      const selectSQL = selectItems.join(', ');
+
+      const leftJoins = Array.from(aggregationCTENames).map(cteName => {
+        return `LEFT JOIN ${cteName} ON ${tableAlias}.${quoteIdentifier('id', this.dbType)} = ${cteName}.parent_id`;
+      }).join(' ');
+
+      const orderBySQL = mainTableSorts.length > 0
+        ? `ORDER BY ${mainTableSorts.map(s => {
+            let field = s.field;
+            if (field.includes('.')) {
+              const parts = field.split('.');
+              if (parts[0] === queryOptions.table) {
+                field = `${tableAlias}.${quoteIdentifier(parts[1], this.dbType)}`;
+              } else {
+                field = field.replace(new RegExp(`^${queryOptions.table}\\.`, 'g'), `${tableAlias}.`);
+              }
+            } else {
+              field = `${tableAlias}.${quoteIdentifier(field, this.dbType)}`;
+            }
+            return field;
+          }).join(', ')} ${mainTableSorts[0].direction.toUpperCase()}`
+        : '';
+
+      rawSQLQuery = `
+WITH ${cteClauses.join(',\n')}
+SELECT ${selectSQL}
+FROM ${limitedCTEName}
+INNER JOIN ${quotedTable} ${tableAlias} ON ${limitedCTEName}.${quoteIdentifier('id', this.dbType)} = ${tableAlias}.${quoteIdentifier('id', this.dbType)}
+${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
+      `.trim();
+    } else {
     if (queryOptions.select) {
       const selectItems = queryOptions.select.map(field => {
         if (typeof field === 'string' && field.trim().startsWith('(')) {
@@ -155,8 +387,10 @@ export class SqlQueryExecutor {
 
     if (needsFilterCount) {
       query.select(this.knex.raw('COUNT(*) OVER() as __filter_count__'));
+      }
     }
 
+    if (!useCTE) {
     const isSystemTable = ['table_definition', 'column_definition', 'relation_definition', 'method_definition'].includes(queryOptions.table);
 
     if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
@@ -210,6 +444,7 @@ export class SqlQueryExecutor {
 
     if (queryOptions.limit !== undefined && queryOptions.limit !== null && queryOptions.limit > 0) {
       query = query.limit(queryOptions.limit);
+      }
     }
 
     let totalCount = 0;
@@ -221,14 +456,28 @@ export class SqlQueryExecutor {
     }
 
     if (this.debugLog && this.debugLog.length >= 0) {
+      if (useCTE && rawSQLQuery) {
+        this.debugLog.push({
+          type: 'SQL Query (CTE)',
+          table: queryOptions.table,
+          sql: rawSQLQuery,
+        });
+      } else {
       this.debugLog.push({
         type: 'SQL Query',
         table: queryOptions.table,
         sql: query.toSQL().toNative(),
       });
     }
+    }
 
-    const results = await query;
+    let results: any[];
+    if (useCTE && rawSQLQuery) {
+      const rawResult = await this.knex.raw(rawSQLQuery);
+      results = this.dbType === 'postgres' ? (rawResult as any).rows : rawResult;
+    } else {
+      results = await query;
+    }
 
     let filterCount = 0;
 
@@ -238,6 +487,60 @@ export class SqlQueryExecutor {
       results.forEach((row: any) => {
         delete row.__filter_count__;
       });
+    }
+
+    if (this.knexService) {
+      results = await this.knexService.parseResult(results, queryOptions.table);
+    } else {
+      const parseSimpleJsonFields = (data: any, tableName: string): any => {
+        if (!data || !this.metadata) return data;
+        
+        const tableMeta = this.metadata.tables?.get(tableName);
+        if (!tableMeta) return data;
+
+        if (Array.isArray(data)) {
+          return data.map(item => parseSimpleJsonFields(item, tableName));
+        }
+
+        if (typeof data !== 'object' || Buffer.isBuffer(data)) {
+          return data;
+        }
+
+        const parsed = { ...data };
+
+        for (const column of tableMeta.columns) {
+          if (column.type === 'simple-json' && parsed[column.name] && typeof parsed[column.name] === 'string') {
+            try {
+              parsed[column.name] = JSON.parse(parsed[column.name]);
+            } catch (e) {
+            }
+          }
+        }
+
+        for (const [key, value] of Object.entries(parsed)) {
+          if (value && typeof value === 'object' && !Array.isArray(value) && !Buffer.isBuffer(value)) {
+            const valueAny = value as any;
+            if (valueAny.id !== undefined || valueAny.createdAt !== undefined) {
+              const relation = tableMeta.relations?.find(r => r.propertyName === key);
+              if (relation) {
+                parsed[key] = parseSimpleJsonFields(value, relation.targetTableName);
+              }
+            }
+          } else if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+            const firstItem = value[0] as any;
+            if (firstItem.id !== undefined) {
+              const relation = tableMeta.relations?.find(r => r.propertyName === key);
+              if (relation) {
+                parsed[key] = (value as any[]).map(item => parseSimpleJsonFields(item, relation.targetTableName));
+              }
+            }
+          }
+        }
+
+        return parsed;
+      };
+
+      results = parseSimpleJsonFields(results, queryOptions.table);
     }
 
     return {
@@ -388,10 +691,14 @@ export class SqlQueryExecutor {
   private async expandFieldsToSelect(
     tableName: string,
     fields: string[],
-    sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = []
-  ): Promise<string[]> {
+    sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
+    limit?: number,
+    orderByClause?: string,
+    whereClause?: string,
+    offset?: number,
+  ): Promise<{ select: string[]; cteClauses?: string[] }> {
     if (!this.metadata) {
-      return fields;
+      return { select: fields };
     }
 
     const allMetadata = this.metadata;
@@ -415,10 +722,21 @@ export class SqlQueryExecutor {
 
     try {
       const { expandFieldsToJoinsAndSelect } = await import('../utils/sql/expand-fields');
-      const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
-      return result.select;
+      const result = await expandFieldsToJoinsAndSelect(
+        tableName,
+        fields,
+        metadataGetter,
+        this.dbType,
+        sortOptions,
+        undefined,
+        limit,
+        orderByClause,
+        whereClause,
+        offset,
+      );
+      return { select: result.select, cteClauses: result.cteClauses };
     } catch (error) {
-      return fields;
+      return { select: fields };
     }
   }
 }

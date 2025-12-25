@@ -478,7 +478,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     qb.insert = async function(data: any, ...rest: any[]) {
       const masterQb = getMasterQueryBuilder();
-      self.logger.debug(`[Query Routing] INSERT on ${tableName} - using MASTER`);
       const processedData = await self.runHooks('beforeInsert', tableName, data);
       const result = await originalInsert.call(masterQb, processedData, ...rest);
       return self.runHooks('afterInsert', tableName, result);
@@ -486,7 +485,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     qb.update = async function(data: any, ...rest: any[]) {
       const masterQb = getMasterQueryBuilder();
-      self.logger.debug(`[Query Routing] UPDATE on ${tableName} - using MASTER`);
       const processedData = await self.runHooks('beforeUpdate', tableName, data);
       const result = await originalUpdate.call(masterQb, processedData, ...rest);
       return self.runHooks('afterUpdate', tableName, result);
@@ -494,14 +492,12 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     qb.delete = qb.del = async function(...args: any[]) {
       const masterQb = getMasterQueryBuilder();
-      self.logger.debug(`[Query Routing] DELETE on ${tableName} - using MASTER`);
       await self.runHooks('beforeDelete', tableName, args);
       const result = await originalDelete.call(masterQb, ...args);
       return self.runHooks('afterDelete', tableName, result);
     };
 
     qb.then = function(onFulfilled: any, onRejected: any) {
-      self.logger.debug(`[Query Routing] SELECT on ${tableName} - using ${self.replicationManager ? 'REPLICA' : 'MASTER'}`);
       self.runHooks('beforeSelect', this, tableName);
 
       return originalThen.call(this, async (result: any) => {
@@ -567,7 +563,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
                                    sqlUpper.startsWith('EXPLAIN');
               
               const knexInstance = isReadQuery ? self.getKnexForRead() : self.getKnexForWrite();
-              self.logger.debug(`[Query Routing] ${isReadQuery ? 'READ' : 'WRITE'} query: ${sql.substring(0, 50)}...`);
               return value.apply(knexInstance, arguments);
             };
           }
@@ -658,12 +653,46 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
   async transaction(callback: (trx: Knex.Transaction) => Promise<any>): Promise<any> {
     const knexInstance = this.getKnexForWrite();
-    this.logger.debug('[Query Routing] Transaction - using MASTER');
     return await knexInstance.transaction(async (trx) => {
       return this.knexContext.run(trx, async () => callback(trx));
     });
   }
 
+
+  async parseResult(result: any, tableName: string, runHooks: boolean = true): Promise<any> {
+    if (!result || !tableName) {
+      return result;
+    }
+
+    if (runHooks) {
+      await this.runHooks('beforeSelect', null, tableName);
+    }
+
+    if (!this.columnTypesMap.has(tableName)) {
+      await this.loadColumnTypesForTable(tableName);
+    }
+
+    if (!this.columnTypesMap.has(tableName)) {
+      return result;
+    }
+
+    const columnTypes = this.columnTypesMap.get(tableName)!;
+
+    let parsed: any;
+    if (Array.isArray(result)) {
+      parsed = await Promise.all(result.map(record => this.parseRecord(record, columnTypes, tableName)));
+    } else if (typeof result === 'object' && !Buffer.isBuffer(result)) {
+      parsed = await this.parseRecord(result, columnTypes, tableName);
+    } else {
+      parsed = result;
+    }
+
+    if (runHooks) {
+      parsed = await this.runHooks('afterSelect', tableName, parsed);
+    }
+
+    return parsed;
+  }
 
   private async autoParseJsonFields(result: any, queryContext?: any): Promise<any> {
     if (!result) {
