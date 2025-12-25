@@ -19,12 +19,14 @@ function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
         return true;
       }
     } else if (relationNames.has(key)) {
-      // Check if this is actually a relation filter (not a field filter with operators)
       if (typeof value === 'object' && value !== null) {
         const keys = Object.keys(value);
         const hasOperator = keys.some(k => k.startsWith('_'));
         if (!hasOperator) {
-          // No operators, this is a true relation filter
+          return true;
+        }
+        const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in'];
+        if (keys.length === 1 && idOperators.includes(keys[0])) {
           return true;
         }
       }
@@ -54,19 +56,22 @@ export function separateFilters(
     }
 
     if (relationNames.has(key)) {
-      // Check if value contains operators - if yes, it's a field filter, not relation filter
       if (typeof value === 'object' && value !== null) {
         const keys = Object.keys(value);
         const hasOperator = keys.some(k => k.startsWith('_'));
         if (hasOperator) {
-          // This is a field filter with operators like _is_null, _eq, etc.
-          fieldFilters[key] = value;
+          const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in'];
+          if (keys.length === 1 && idOperators.includes(keys[0])) {
+            relationFilters[key] = {
+              id: value
+            };
+          } else {
+            fieldFilters[key] = value;
+          }
         } else {
-          // This is a nested relation filter
           relationFilters[key] = value;
         }
       } else {
-        // Simple value - treat as field filter
         fieldFilters[key] = value;
       }
     } else {

@@ -188,7 +188,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
             isEnabled: { _eq: true },
           },
           {
-            [routeFieldName]: { _is_null: true }
+            isGlobal: { _eq: true }
           }
         ],
       },
@@ -205,7 +205,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
             isEnabled: { _eq: true },
           },
           {
-            [routeFieldName]: { _is_null: true }
+            isGlobal: { _eq: true }
           }
         ],
       },
@@ -227,7 +227,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
 
     for (const route of routes) {
       const enabledRoutePreHooks = Array.isArray(route.preHook)
-        ? route.preHook.filter((h: any) => h?.isEnabled === true)
+        ? route.preHook.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
         : [];
       const allPreHooks = [...globalPreHooks, ...enabledRoutePreHooks];
 
@@ -242,7 +242,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       route.preHook = uniquePreHooks;
 
       const enabledRoutePostHooks = Array.isArray(route.postHook)
-        ? route.postHook.filter((h: any) => h?.isEnabled === true)
+        ? route.postHook.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
         : [];
       const allPostHooks = [...globalPostHooks, ...enabledRoutePostHooks];
 

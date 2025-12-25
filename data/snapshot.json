@@ -169,11 +169,12 @@
             { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for hook execution. If not set, uses default system timeout." },
             { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order (lower numbers execute first)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the hook is active" },
+            { "name": "isGlobal", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this hook applies globally to all routes" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the hook does" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
         ],
         "relations": [
-            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "preHook", "description": "Route this hook is attached to (null for global hooks)" },
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "preHook", "description": "Route this hook is attached to (null when isGlobal is true)" },
             { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "preHooks", "description": "HTTP methods this hook applies to" }
         ]
     },
@@ -188,11 +189,12 @@
             { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for hook execution. If not set, uses default system timeout." },
             { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order (lower numbers execute first)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the hook is active" },
+            { "name": "isGlobal", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this hook applies globally to all routes" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the hook does" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
         ],
         "relations": [
-            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "postHook", "description": "Route this hook is attached to (null for global hooks)" },
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "postHook", "description": "Route this hook is attached to (null when isGlobal is true)" },
             { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "postHooks", "description": "HTTP methods this hook applies to" }
         ]
     },

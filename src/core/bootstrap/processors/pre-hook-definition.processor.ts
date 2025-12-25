@@ -23,6 +23,9 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
         if (transformedHook.isEnabled === undefined) {
           transformedHook.isEnabled = false;
         }
+        if (transformedHook.isGlobal === undefined) {
+          transformedHook.isGlobal = false;
+        }
         if (transformedHook.isSystem === undefined) {
           transformedHook.isSystem = false;
         }
@@ -185,6 +188,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
       'timeout',
       'priority',
       'isEnabled',
+      'isGlobal',
     ];
   }
 

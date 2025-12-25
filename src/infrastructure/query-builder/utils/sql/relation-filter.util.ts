@@ -208,16 +208,31 @@ async function applyFiltersToSubquery(
           if (relation && relation.foreignKeyColumn) {
             const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
             const filterObj = nestedRelFilter as any;
-            const isNullValue = normalizeBoolean(filterObj.id?._is_null);
-            const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
-            if (isNullValue === true) {
-              query.whereNull(fkColumn);
-            } else if (isNullValue === false) {
-              query.whereNotNull(fkColumn);
-            } else if (isNotNullValue === true) {
-              query.whereNotNull(fkColumn);
-            } else if (isNotNullValue === false) {
-              query.whereNull(fkColumn);
+            const idFilter = filterObj.id;
+            
+            if (idFilter && typeof idFilter === 'object') {
+              const isNullValue = normalizeBoolean(idFilter._is_null);
+              const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
+              
+              if (isNullValue === true) {
+                query.whereNull(fkColumn);
+              } else if (isNullValue === false) {
+                query.whereNotNull(fkColumn);
+              } else if (isNotNullValue === true) {
+                query.whereNotNull(fkColumn);
+              } else if (isNotNullValue === false) {
+                query.whereNull(fkColumn);
+              } else if (idFilter._eq !== undefined) {
+                query.where(fkColumn, '=', idFilter._eq);
+              } else if (idFilter._neq !== undefined) {
+                query.where(fkColumn, '!=', idFilter._neq);
+              } else if (idFilter._in !== undefined) {
+                const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
+                query.whereIn(fkColumn, inValues);
+              } else if (idFilter._not_in !== undefined) {
+                const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+                query.whereNotIn(fkColumn, notInValues);
+              }
             }
           }
         } else {
@@ -253,16 +268,33 @@ async function applyFiltersToSubquery(
           if (relation && relation.foreignKeyColumn) {
             const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
             const filterObj = nestedRelFilter as any;
-            const isNullValue = normalizeBoolean(filterObj.id?._is_null);
-            const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
-            if (isNullValue === true) {
-              subqueries.push(`${fkColumn} IS NULL`);
-            } else if (isNullValue === false) {
-              subqueries.push(`${fkColumn} IS NOT NULL`);
-            } else if (isNotNullValue === true) {
-              subqueries.push(`${fkColumn} IS NOT NULL`);
-            } else if (isNotNullValue === false) {
-              subqueries.push(`${fkColumn} IS NULL`);
+            const idFilter = filterObj.id;
+            
+            if (idFilter && typeof idFilter === 'object') {
+              const isNullValue = normalizeBoolean(idFilter._is_null);
+              const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
+              
+              if (isNullValue === true) {
+                subqueries.push(`${fkColumn} IS NULL`);
+              } else if (isNullValue === false) {
+                subqueries.push(`${fkColumn} IS NOT NULL`);
+              } else if (isNotNullValue === true) {
+                subqueries.push(`${fkColumn} IS NOT NULL`);
+              } else if (isNotNullValue === false) {
+                subqueries.push(`${fkColumn} IS NULL`);
+              } else if (idFilter._eq !== undefined) {
+                subqueries.push(`${fkColumn} = ${typeof idFilter._eq === 'string' ? `'${idFilter._eq}'` : idFilter._eq}`);
+              } else if (idFilter._neq !== undefined) {
+                subqueries.push(`${fkColumn} != ${typeof idFilter._neq === 'string' ? `'${idFilter._neq}'` : idFilter._neq}`);
+              } else if (idFilter._in !== undefined) {
+                const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
+                const inStr = inValues.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
+                subqueries.push(`${fkColumn} IN (${inStr})`);
+              } else if (idFilter._not_in !== undefined) {
+                const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+                const notInStr = notInValues.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
+                subqueries.push(`${fkColumn} NOT IN (${notInStr})`);
+              }
             }
           }
         }
@@ -325,16 +357,31 @@ async function applyFiltersToSubquery(
         if (relation && relation.foreignKeyColumn) {
           const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
           const filterObj = nestedRelFilter as any;
-          const isNullValue = normalizeBoolean(filterObj.id?._is_null);
-          const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
-          if (isNullValue === true) {
-            query.whereNotNull(fkColumn);
-          } else if (isNullValue === false) {
-            query.whereNull(fkColumn);
-          } else if (isNotNullValue === true) {
-            query.whereNull(fkColumn);
-          } else if (isNotNullValue === false) {
-            query.whereNotNull(fkColumn);
+          const idFilter = filterObj.id;
+          
+          if (idFilter && typeof idFilter === 'object') {
+            const isNullValue = normalizeBoolean(idFilter._is_null);
+            const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
+            
+            if (isNullValue === true) {
+              query.whereNotNull(fkColumn);
+            } else if (isNullValue === false) {
+              query.whereNull(fkColumn);
+            } else if (isNotNullValue === true) {
+              query.whereNull(fkColumn);
+            } else if (isNotNullValue === false) {
+              query.whereNotNull(fkColumn);
+            } else if (idFilter._eq !== undefined) {
+              query.where(fkColumn, '!=', idFilter._eq);
+            } else if (idFilter._neq !== undefined) {
+              query.where(fkColumn, '=', idFilter._neq);
+            } else if (idFilter._in !== undefined) {
+              const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
+              query.whereNotIn(fkColumn, inValues);
+            } else if (idFilter._not_in !== undefined) {
+              const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+              query.whereIn(fkColumn, notInValues);
+            }
           }
         }
       } else {
@@ -366,16 +413,31 @@ async function applyFiltersToSubquery(
       if (relation && relation.foreignKeyColumn) {
         const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
         const filterObj = nestedRelFilter as any;
-        const isNullValue = normalizeBoolean(filterObj.id?._is_null);
-        const isNotNullValue = normalizeBoolean(filterObj.id?._is_not_null);
-        if (isNullValue === true) {
-          query.whereNull(fkColumn);
-        } else if (isNullValue === false) {
-          query.whereNotNull(fkColumn);
-        } else if (isNotNullValue === true) {
-          query.whereNotNull(fkColumn);
-        } else if (isNotNullValue === false) {
-          query.whereNull(fkColumn);
+        const idFilter = filterObj.id;
+        
+        if (idFilter && typeof idFilter === 'object') {
+          const isNullValue = normalizeBoolean(idFilter._is_null);
+          const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
+          
+          if (isNullValue === true) {
+            query.whereNull(fkColumn);
+          } else if (isNullValue === false) {
+            query.whereNotNull(fkColumn);
+          } else if (isNotNullValue === true) {
+            query.whereNotNull(fkColumn);
+          } else if (isNotNullValue === false) {
+            query.whereNull(fkColumn);
+          } else if (idFilter._eq !== undefined) {
+            query.where(fkColumn, '=', idFilter._eq);
+          } else if (idFilter._neq !== undefined) {
+            query.where(fkColumn, '!=', idFilter._neq);
+          } else if (idFilter._in !== undefined) {
+            const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
+            query.whereIn(fkColumn, inValues);
+          } else if (idFilter._not_in !== undefined) {
+            const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+            query.whereNotIn(fkColumn, notInValues);
+          }
         }
       }
     } else {

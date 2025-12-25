@@ -165,14 +165,14 @@ export class RouteDetectMiddleware implements NestMiddleware {
         return hooks.filter((hook: any) => {
           const methodList = hook.methods?.map((m: any) => m.method) ?? [];
 
-          const isGlobalAll = !hook.route && methodList.length === 0;
-          const isGlobalMethod = !hook.route && methodList.includes(method);
-          const isLocalAll =
-            hook.route?.id === route.id && methodList.length === 0;
+          // Global hooks: must have isGlobal=true and method must match
+          const isGlobalMethod = hook.isGlobal === true && methodList.includes(method);
+          
+          // Local hooks: must match route and method must match
           const isLocalMethod =
-            hook.route?.id === route.id && methodList.includes(method);
+            hook.isGlobal === false && hook.route?.id === route.id && methodList.includes(method);
 
-          return isGlobalAll || isGlobalMethod || isLocalAll || isLocalMethod;
+          return isGlobalMethod || isLocalMethod;
         });
       };
 

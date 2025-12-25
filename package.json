@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
