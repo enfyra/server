@@ -286,7 +286,8 @@ export async function buildCTEStrategy(
 
   const jsonObjectFunc = getJsonObjectFunc(dbType);
   const jsonObject = `${jsonObjectFunc}(${columns.join(',')})`;
-  const jsonArrayAgg = dbType === 'postgres' ? 'jsonb_agg' : getJsonArrayAggFunc(dbType);
+  const jsonArrayAggFunc = getJsonArrayAggFunc(dbType);
+  const jsonArrayAgg = dbType === 'postgres' ? jsonArrayAggFunc.replace('json_agg', 'jsonb_agg') : jsonArrayAggFunc;
   const emptyArray = dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
 
   const quotedParentTable = quoteIdentifier(parentTable, dbType);

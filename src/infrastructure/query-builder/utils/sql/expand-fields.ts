@@ -184,8 +184,7 @@ export async function expandFieldsToJoinsAndSelect(
         const cteName = `${relationName}_agg`;
         const quotedCTEName = quoteIdentifier(cteName, dbType);
         const quotedRelation = quoteIdentifier(relationName, dbType);
-        const emptyArray = getEmptyJsonArray(dbType);
-        const tableAlias = useCTE ? 't' : tableName;
+        const emptyArray = dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
         const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
         select.push(`COALESCE(${quotedCTEName}.${quotedRelationInCTE}, ${emptyArray}) as ${quotedRelation}`);
       } else {
