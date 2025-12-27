@@ -14,6 +14,12 @@ import { expandFieldsToJoinsAndSelect } from './utils/sql/expand-fields';
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 
+let ObjectId: any;
+try {
+  ObjectId = require('mongodb').ObjectId;
+} catch (err) {
+}
+
 @Injectable()
 export class QueryBuilderService {
   private dbType: DatabaseType;
@@ -32,6 +38,43 @@ export class QueryBuilderService {
 
   getDbType(): DatabaseType {
     return this.dbType;
+  }
+
+  private safeObjectId(value: any): any {
+    if (!ObjectId) return value;
+    if (typeof value === 'string') {
+      try {
+        return new ObjectId(value);
+      } catch (err) {
+        return value;
+      }
+    }
+    return value;
+  }
+
+  private buildMongoFilter(where: WhereCondition[]): any {
+    const filter: any = {};
+    for (const condition of where) {
+      let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
+      if (fieldName === 'id') fieldName = '_id';
+
+      let value = condition.value;
+      if (fieldName === '_id') {
+        value = this.safeObjectId(value);
+      }
+
+      switch (condition.operator) {
+        case '=': filter[fieldName] = value; break;
+        case '!=': filter[fieldName] = { $ne: value }; break;
+        case '>': filter[fieldName] = { $gt: value }; break;
+        case '<': filter[fieldName] = { $lt: value }; break;
+        case '>=': filter[fieldName] = { $gte: value }; break;
+        case '<=': filter[fieldName] = { $lte: value }; break;
+        case 'in': filter[fieldName] = { $in: value }; break;
+        case 'not in': filter[fieldName] = { $nin: value }; break;
+      }
+    }
+    return filter;
   }
 
   private applyWhereToKnex(query: any, conditions: WhereCondition[]): any {
@@ -141,28 +184,7 @@ export class QueryBuilderService {
       const dataWithoutHiddenNulls = await this.mongoService.stripHiddenNullFields(options.table, dataWithRelations);
       const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(dataWithoutHiddenNulls);
 
-      const filter: any = {};
-      const { ObjectId } = require('mongodb');
-      for (const condition of options.where) {
-        let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
-        if (fieldName === 'id') fieldName = '_id';
-
-        let value = condition.value;
-        if (fieldName === '_id' && typeof value === 'string') {
-          try { value = new ObjectId(value); } catch (err) { }
-        }
-
-        switch (condition.operator) {
-          case '=': filter[fieldName] = value; break;
-          case '!=': filter[fieldName] = { $ne: value }; break;
-          case '>': filter[fieldName] = { $gt: value }; break;
-          case '<': filter[fieldName] = { $lt: value }; break;
-          case '>=': filter[fieldName] = { $gte: value }; break;
-          case '<=': filter[fieldName] = { $lte: value }; break;
-          case 'in': filter[fieldName] = { $in: value }; break;
-          case 'not in': filter[fieldName] = { $nin: value }; break;
-        }
-      }
+      const filter = this.buildMongoFilter(options.where);
 
       const collection = this.mongoService.collection(options.table);
       await collection.updateMany(filter, { $set: dataWithTimestamp });
@@ -177,14 +199,18 @@ export class QueryBuilderService {
       query = this.applyWhereToKnex(query, options.where);
     }
     
-    const recordsToUpdate = await query.clone();
+    const recordsToUpdate = await query;
     
     for (const record of recordsToUpdate) {
       await this.knexService.updateWithCascade(options.table, record.id, options.data);
     }
     
     if (options.returning) {
-      return query.returning(options.returning);
+      const returnQuery = knex(options.table);
+      if (options.where.length > 0) {
+        this.applyWhereToKnex(returnQuery, options.where);
+      }
+      return await returnQuery.select(options.returning);
     }
     
     return { affected: recordsToUpdate.length };
@@ -192,28 +218,7 @@ export class QueryBuilderService {
 
   async delete(options: DeleteOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter: any = {};
-      const { ObjectId } = require('mongodb');
-      for (const condition of options.where) {
-        let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
-        if (fieldName === 'id') fieldName = '_id';
-
-        let value = condition.value;
-        if (fieldName === '_id' && typeof value === 'string') {
-          try { value = new ObjectId(value); } catch (err) { }
-        }
-
-        switch (condition.operator) {
-          case '=': filter[fieldName] = value; break;
-          case '!=': filter[fieldName] = { $ne: value }; break;
-          case '>': filter[fieldName] = { $gt: value }; break;
-          case '<': filter[fieldName] = { $lt: value }; break;
-          case '>=': filter[fieldName] = { $gte: value }; break;
-          case '<=': filter[fieldName] = { $lte: value }; break;
-          case 'in': filter[fieldName] = { $in: value }; break;
-          case 'not in': filter[fieldName] = { $nin: value }; break;
-        }
-      }
+      const filter = this.buildMongoFilter(options.where);
 
       const collection = this.mongoService.collection(options.table);
       const result = await collection.deleteMany(filter);
@@ -227,35 +232,12 @@ export class QueryBuilderService {
       query = this.applyWhereToKnex(query, options.where);
     }
     
-    return query.delete();
+    return await query.delete();
   }
 
   async count(options: CountOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter: any = {};
-      if (options.where) {
-        const { ObjectId } = require('mongodb');
-        for (const condition of options.where) {
-          let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
-          if (fieldName === 'id') fieldName = '_id';
-
-          let value = condition.value;
-          if (fieldName === '_id' && typeof value === 'string') {
-            try { value = new ObjectId(value); } catch (err) { }
-          }
-
-          switch (condition.operator) {
-            case '=': filter[fieldName] = value; break;
-            case '!=': filter[fieldName] = { $ne: value }; break;
-            case '>': filter[fieldName] = { $gt: value }; break;
-            case '<': filter[fieldName] = { $lt: value }; break;
-            case '>=': filter[fieldName] = { $gte: value }; break;
-            case '<=': filter[fieldName] = { $lte: value }; break;
-            case 'in': filter[fieldName] = { $in: value }; break;
-            case 'not in': filter[fieldName] = { $nin: value }; break;
-          }
-        }
-      }
+      const filter = options.where ? this.buildMongoFilter(options.where) : {};
       return this.mongoService.count(options.table, filter);
     }
     
@@ -291,21 +273,21 @@ export class QueryBuilderService {
 
   async findById(table: string, id: any): Promise<any> {
     if (this.dbType === 'mongodb') {
-      return this.mongoService.findOne(table, { _id: id });
+      const mongoId = this.safeObjectId(id);
+      return this.mongoService.findOne(table, { _id: mongoId });
     }
     
     const knex = this.knexService.getKnex();
-    return knex(table).where('id', id).first();
+    return await knex(table).where('id', id).first();
   }
 
   async findOneWhere(table: string, where: Record<string, any>): Promise<any> {
     if (this.dbType === 'mongodb') {
-      const { ObjectId } = require('mongodb');
       const normalizedWhere: any = {};
       
       for (const [key, value] of Object.entries(where)) {
         if (key === 'id' || key === '_id') {
-          normalizedWhere._id = typeof value === 'string' ? new ObjectId(value) : value;
+          normalizedWhere._id = this.safeObjectId(value);
         } else {
           normalizedWhere[key] = value;
         }
@@ -315,17 +297,16 @@ export class QueryBuilderService {
     }
     
     const knex = this.knexService.getKnex();
-    return knex(table).where(where).first();
+    return await knex(table).where(where).first();
   }
 
   async findWhere(table: string, where: Record<string, any>): Promise<any[]> {
     if (this.dbType === 'mongodb') {
-      const { ObjectId } = require('mongodb');
       const normalizedWhere: any = {};
       
       for (const [key, value] of Object.entries(where)) {
         if (key === 'id' || key === '_id') {
-          normalizedWhere._id = typeof value === 'string' ? new ObjectId(value) : value;
+          normalizedWhere._id = this.safeObjectId(value);
         } else {
           normalizedWhere[key] = value;
         }
@@ -337,7 +318,7 @@ export class QueryBuilderService {
     }
     
     const knex = this.knexService.getKnex();
-    return knex(table).where(where);
+    return await knex(table).where(where);
   }
 
   async insertAndGet(table: string, data: any): Promise<any> {
@@ -350,7 +331,7 @@ export class QueryBuilderService {
     const knex = this.knexService.getKnex();
     const recordId = insertedId || data.id;
 
-    return knex(table).where('id', recordId).first();
+    return await knex(table).where('id', recordId).first();
   }
 
   async updateById(table: string, id: any, data: any): Promise<any> {
@@ -360,7 +341,7 @@ export class QueryBuilderService {
     
     await this.knexService.updateWithCascade(table, id, data);
     const knex = this.knexService.getKnex();
-    return knex(table).where('id', id).first();
+    return await knex(table).where('id', id).first();
   }
 
   async deleteById(table: string, id: any): Promise<number> {

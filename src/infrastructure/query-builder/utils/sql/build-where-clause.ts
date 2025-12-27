@@ -380,5 +380,4 @@ export function buildWhereClause(
   return query;
 }
 
-// Re-export for backwards compatibility
 export { hasLogicalOperators } from '../shared/logical-operators.util';

@@ -8,6 +8,7 @@ import {
 import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-clause';
 import { separateFilters, applyRelationFilters } from '../utils/sql/relation-filter.util';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
+import { getPrimaryKeyColumn } from '../../knex/utils/metadata-loader';
 import { KnexService } from '../../knex/knex.service';
 
 export class SqlQueryExecutor {
@@ -131,7 +132,7 @@ export class SqlQueryExecutor {
           }).join(', ')} ${mainTableSorts[0].direction.toUpperCase()}`
         : undefined;
 
-      if (queryOptions.limit && orderByClause && this.dbType === 'postgres') {
+      if (queryOptions.limit && orderByClause && (this.dbType === 'postgres' || this.dbType === 'mysql')) {
         const metadata = this.metadata?.tables?.get(queryOptions.table);
         if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
           if (metadata) {
@@ -171,7 +172,7 @@ export class SqlQueryExecutor {
                         const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
                         const column = metadata.columns.find(c => c.name === field);
                         const isUUID = column && (column.type?.toLowerCase() === 'uuid' || column.type?.toLowerCase().includes('uuid'));
-                        if (isUUID && uuidPattern.test(val)) {
+                        if (isUUID && uuidPattern.test(val) && this.dbType === 'postgres') {
                           sqlValue = `'${val}'::uuid`;
                         } else {
                           sqlValue = `'${val.replace(/'/g, "''")}'`;
@@ -277,7 +278,7 @@ export class SqlQueryExecutor {
       );
       queryOptions.select = [...(queryOptions.select || []), ...expandedResult.select];
       cteClauses = expandedResult.cteClauses;
-      useCTE = cteClauses !== undefined && cteClauses.length > 0 && this.dbType === 'postgres';
+      useCTE = cteClauses !== undefined && cteClauses.length > 0 && (this.dbType === 'postgres' || this.dbType === 'mysql');
     }
 
     if (queryOptions.where) {
@@ -311,7 +312,7 @@ export class SqlQueryExecutor {
       const aggregationCTENames = new Set<string>();
       
       cteClauses.forEach(cte => {
-        const match = cte.match(/^(\w+)\s+AS\s*\(/i);
+        const match = cte.match(/^[`"]?(\w+)[`"]?\s+AS\s*\(/i);
         if (match) {
           const cteName = match[1];
           if (cteName !== limitedCTEName) {
@@ -346,8 +347,15 @@ export class SqlQueryExecutor {
 
       const selectSQL = selectItems.join(', ');
 
+      const tableMeta = this.metadata?.tables?.get(queryOptions.table);
+      const pkColumn = tableMeta ? getPrimaryKeyColumn(tableMeta) : null;
+      const pkName = pkColumn?.name || 'id';
+      const quotedPkName = quoteIdentifier(pkName, this.dbType);
+
       const leftJoins = Array.from(aggregationCTENames).map(cteName => {
-        return `LEFT JOIN ${cteName} ON ${tableAlias}.${quoteIdentifier('id', this.dbType)} = ${cteName}.parent_id`;
+        const quotedCTEName = quoteIdentifier(cteName, this.dbType);
+        const quotedParentId = quoteIdentifier('parent_id', this.dbType);
+        return `LEFT JOIN ${quotedCTEName} ON ${tableAlias}.${quotedPkName} = ${quotedCTEName}.${quotedParentId}`;
       }).join(' ');
 
       const orderBySQL = mainTableSorts.length > 0
@@ -363,15 +371,16 @@ export class SqlQueryExecutor {
             } else {
               field = `${tableAlias}.${quoteIdentifier(field, this.dbType)}`;
             }
-            return field;
-          }).join(', ')} ${mainTableSorts[0].direction.toUpperCase()}`
+            return `${field} ${s.direction.toUpperCase()}`;
+          }).join(', ')}`
         : '';
 
+      const quotedLimitedCTE = quoteIdentifier(limitedCTEName, this.dbType);
       rawSQLQuery = `
 WITH ${cteClauses.join(',\n')}
 SELECT ${selectSQL}
-FROM ${limitedCTEName}
-INNER JOIN ${quotedTable} ${tableAlias} ON ${limitedCTEName}.${quoteIdentifier('id', this.dbType)} = ${tableAlias}.${quoteIdentifier('id', this.dbType)}
+FROM ${quotedLimitedCTE}
+INNER JOIN ${quotedTable} ${tableAlias} ON ${quotedLimitedCTE}.${quotedPkName} = ${tableAlias}.${quotedPkName}
 ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       `.trim();
     } else {
@@ -455,7 +464,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       totalCount = Number(totalResult?.count || 0);
     }
 
-    if (this.debugLog && this.debugLog.length >= 0) {
+    if (this.debugLog) {
       if (useCTE && rawSQLQuery) {
         this.debugLog.push({
           type: 'SQL Query (CTE)',
@@ -474,7 +483,34 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     let results: any[];
     if (useCTE && rawSQLQuery) {
       const rawResult = await this.knex.raw(rawSQLQuery);
-      results = this.dbType === 'postgres' ? (rawResult as any).rows : rawResult;
+      if (this.dbType === 'postgres') {
+        results = (rawResult as any).rows;
+      } else {
+        if (Array.isArray(rawResult) && rawResult.length > 0) {
+          const rows = rawResult[0];
+          if (Array.isArray(rows)) {
+            results = rows;
+          } else if (rows && typeof rows === 'object') {
+            const keys = Object.keys(rows);
+            if (keys.length > 0 && /^\d+$/.test(keys[0])) {
+              results = Object.values(rows);
+            } else {
+              results = [rows];
+            }
+          } else {
+            results = [];
+          }
+        } else if (rawResult && typeof rawResult === 'object') {
+          const keys = Object.keys(rawResult);
+          if (keys.length > 0 && /^\d+$/.test(keys[0])) {
+            results = Object.values(rawResult);
+          } else {
+            results = [rawResult];
+          }
+        } else {
+          results = [];
+        }
+      }
     } else {
       results = await query;
     }

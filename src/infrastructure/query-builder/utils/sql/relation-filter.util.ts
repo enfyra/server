@@ -4,8 +4,25 @@ import { buildWhereClause } from './build-where-clause';
 import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 import { separateFilters } from '../shared/filter-separator.util';
 
-// Re-export for backwards compatibility
 export { separateFilters };
+
+function escapeSqlString(value: any, dbType: string): string {
+  if (value === null || value === undefined) {
+    return 'NULL';
+  }
+  if (typeof value === 'string') {
+    const escaped = value.replace(/'/g, "''");
+    return `'${escaped}'`;
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  const escaped = String(value).replace(/'/g, "''");
+  return `'${escaped}'`;
+}
 
 function isUUIDColumn(columnName: string, metadata: TableMetadata | null | undefined): boolean {
   if (!metadata) return false;
@@ -283,16 +300,18 @@ async function applyFiltersToSubquery(
             } else if (isNotNullValue === false) {
               subqueries.push(`${fkColumn} IS NULL`);
               } else if (idFilter._eq !== undefined) {
-                subqueries.push(`${fkColumn} = ${typeof idFilter._eq === 'string' ? `'${idFilter._eq}'` : idFilter._eq}`);
+                const escapedValue = escapeSqlString(idFilter._eq, dbType);
+                subqueries.push(`${fkColumn} = ${escapedValue}`);
               } else if (idFilter._neq !== undefined) {
-                subqueries.push(`${fkColumn} != ${typeof idFilter._neq === 'string' ? `'${idFilter._neq}'` : idFilter._neq}`);
+                const escapedValue = escapeSqlString(idFilter._neq, dbType);
+                subqueries.push(`${fkColumn} != ${escapedValue}`);
               } else if (idFilter._in !== undefined) {
                 const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
-                const inStr = inValues.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
+                const inStr = inValues.map(v => escapeSqlString(v, dbType)).join(', ');
                 subqueries.push(`${fkColumn} IN (${inStr})`);
               } else if (idFilter._not_in !== undefined) {
                 const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
-                const notInStr = notInValues.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
+                const notInStr = notInValues.map(v => escapeSqlString(v, dbType)).join(', ');
                 subqueries.push(`${fkColumn} NOT IN (${notInStr})`);
               }
             }

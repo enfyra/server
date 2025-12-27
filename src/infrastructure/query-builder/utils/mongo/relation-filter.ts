@@ -204,7 +204,6 @@ export async function applyMixedFilters(
     }
 
     if (hasRelations) {
-      // First, add all lookups
       const lookupFields: string[] = [];
       for (const relCondition of relationConditions) {
         const relation = tableMeta.relations.find((r: any) => r.propertyName === relCondition.relationName);
@@ -238,7 +237,6 @@ export async function applyMixedFilters(
           continue;
         }
 
-        // OPTIMIZATION: Add $limit for many-to-one/one-to-one relations
         if ((relation.type === 'many-to-one' || relation.type === 'one-to-one') && lookupPipeline.length > 0) {
           lookupPipeline.push({ $limit: 1 });
         }
@@ -254,15 +252,12 @@ export async function applyMixedFilters(
         });
       }
 
-      // Now combine field and relation conditions in a single $or
       const orConditions: any[] = [];
 
-      // Add field conditions
       for (const fc of fieldConditions) {
         orConditions.push(convertLogicalFilterToMongo(metadata, fc, tableName, dbType));
       }
 
-      // Add relation size checks
       for (const lookupField of lookupFields) {
         orConditions.push({
           $expr: {
@@ -275,7 +270,6 @@ export async function applyMixedFilters(
         pipeline.push({ $match: { $or: orConditions } });
       }
 
-      // Clean up lookup fields
       const projectFields: any = {};
       for (const lookupField of lookupFields) {
         projectFields[lookupField] = 0;
@@ -284,7 +278,6 @@ export async function applyMixedFilters(
         pipeline.push({ $project: projectFields });
       }
     } else {
-      // No relations, just field conditions
       const mongoFieldConditions = filter._or.map((condition: any) =>
         convertLogicalFilterToMongo(metadata, condition, tableName, dbType)
       );

@@ -212,7 +212,7 @@ export class MongoQueryExecutor {
     const collection = this.db.collection(options.table);
 
     if (options.pipeline) {
-      if (this.debugLog && this.debugLog.length >= 0) {
+      if (this.debugLog) {
         this.debugLog.push({
           type: 'MongoDB Custom Pipeline',
           collection: options.table,
@@ -229,7 +229,6 @@ export class MongoQueryExecutor {
   private async executeAggregationPipeline(collection: Collection, options: QueryOptions): Promise<any[]> {
     const pipeline: any[] = [];
 
-    // Check if we have relation filters that require lookups before limiting
     const hasRelationFilters = options.mongoRawFilter && this.metadata &&
       Object.keys(options.mongoRawFilter).some(key => {
         const tableMeta = this.metadata.tables?.get(options.table);
@@ -251,7 +250,6 @@ export class MongoQueryExecutor {
     }
 
     if (!options.mongoFieldsExpanded) {
-      // OPTIMIZATION: Apply sort/limit BEFORE projection for simple queries
       if (options.sort) {
         const sortSpec: any = {};
         for (const sortOpt of options.sort) {
@@ -283,7 +281,7 @@ export class MongoQueryExecutor {
         pipeline.push({ $project: projection });
       }
 
-      if (this.debugLog && this.debugLog.length >= 0) {
+      if (this.debugLog) {
         this.debugLog.push({
           type: 'MongoDB Aggregation Pipeline',
           collection: options.table,
@@ -302,8 +300,6 @@ export class MongoQueryExecutor {
 
     const { scalarFields, relations } = options.mongoFieldsExpanded;
 
-    // OPTIMIZATION: If no relation filters, apply sort/limit BEFORE lookups
-    // This reduces the number of documents that need to be joined
     if (!hasRelationFilters) {
       if (options.sort) {
         const sortSpec: any = {};
@@ -327,7 +323,6 @@ export class MongoQueryExecutor {
       }
     }
 
-    // Now apply lookups (on limited dataset if no relation filters)
     for (const rel of relations) {
       const needsNestedPipeline = rel.nestedFields && rel.nestedFields.length > 0;
       const relationFilter = options.mongoRawFilter?.[rel.propertyName];
@@ -406,7 +401,6 @@ export class MongoQueryExecutor {
       }
     }
 
-    // If we had relation filters, apply sort/limit AFTER lookups
     if (hasRelationFilters) {
       if (options.sort) {
         const sortSpec: any = {};
@@ -436,7 +430,7 @@ export class MongoQueryExecutor {
       pipeline.push({ $count: 'count' });
     }
 
-    if (this.debugLog && this.debugLog.length >= 0) {
+    if (this.debugLog) {
       this.debugLog.push({
         type: 'MongoDB Aggregation Pipeline',
         collection: options.table,
