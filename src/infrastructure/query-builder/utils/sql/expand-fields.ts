@@ -1,7 +1,8 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../knex/utils/naming-helpers';
+import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
 import { buildNestedSubquery, buildCTEStrategy } from './nested-subquery-builder';
-import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
+import { quoteIdentifier, getEmptyJsonArray } from '../../../knex/utils/migration/sql-dialect';
 
 interface FieldExpansionResult {
   select: string[];
@@ -114,7 +115,7 @@ export async function expandFieldsToJoinsAndSelect(
   }
 
   const cteClauses: string[] = [];
-  const useCTE = dbType === 'postgres' && limit !== undefined && limit > 0 && orderByClause;
+  const useCTE = (dbType === 'postgres' || dbType === 'mysql') && limit !== undefined && limit > 0 && orderByClause;
 
   let limitedCTEName: string | null = null;
   if (useCTE) {
@@ -136,8 +137,12 @@ export async function expandFieldsToJoinsAndSelect(
     }
     const limitSQL = limit ? `LIMIT ${limit}` : '';
     const offsetSQL = offset ? `OFFSET ${offset}` : '';
-    cteClauses.push(`${limitedCTEName} AS (
-      SELECT id FROM ${quotedTable}${wherePart}${orderByInCTE ? ' ' + orderByInCTE : ''}${limitSQL ? ' ' + limitSQL : ''}${offsetSQL ? ' ' + offsetSQL : ''}
+    const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
+    const pkColumn = baseMeta ? getPrimaryKeyColumn(baseMeta as any) : null;
+    const pkName = pkColumn?.name || 'id';
+    const quotedPkCol = quoteIdentifier(pkName, dbType);
+    cteClauses.push(`${quotedLimitedCTE} AS (
+      SELECT ${quotedPkCol} FROM ${quotedTable}${wherePart}${orderByInCTE ? ' ' + orderByInCTE : ''}${limitSQL ? ' ' + limitSQL : ''}${offsetSQL ? ' ' + offsetSQL : ''}
     )`);
   }
 
@@ -165,11 +170,11 @@ export async function expandFieldsToJoinsAndSelect(
     } else if (useCTE && limitedCTEName && (relation.type === 'one-to-many' || relation.type === 'many-to-many')) {
       const cteClause = await buildCTEStrategy(
         tableName,
-        baseMeta,
+        baseMeta as any,
         relationName,
         nestedFields,
         dbType,
-        metadataGetter,
+        metadataGetter as any,
         sortOptions,
         limitedCTEName,
       );
@@ -177,18 +182,20 @@ export async function expandFieldsToJoinsAndSelect(
       if (cteClause) {
         cteClauses.push(cteClause);
         const cteName = `${relationName}_agg`;
+        const quotedCTEName = quoteIdentifier(cteName, dbType);
         const quotedRelation = quoteIdentifier(relationName, dbType);
-        const emptyArray = dbType === 'postgres' ? "'[]'::jsonb" : "'[]'";
+        const emptyArray = getEmptyJsonArray(dbType);
         const tableAlias = useCTE ? 't' : tableName;
-        select.push(`COALESCE(${cteName}.${quotedRelation}, ${emptyArray}) as ${quotedRelation}`);
+        const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
+        select.push(`COALESCE(${quotedCTEName}.${quotedRelationInCTE}, ${emptyArray}) as ${quotedRelation}`);
       } else {
         const subquery = await buildNestedSubquery(
           tableName,
-          baseMeta,
+          baseMeta as any,
           relationName,
           nestedFields,
           dbType,
-          metadataGetter,
+          metadataGetter as any,
           sortOptions,
         );
 
@@ -199,11 +206,11 @@ export async function expandFieldsToJoinsAndSelect(
     } else {
       const subquery = await buildNestedSubquery(
         tableName,
-        baseMeta,
+        baseMeta as any,
         relationName,
         nestedFields,
         dbType,
-        metadataGetter,
+        metadataGetter as any,
         sortOptions,
       );
 

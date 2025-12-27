@@ -9,9 +9,6 @@ export function hasLogicalOperators(filter: any): boolean {
     return filter.some(item => hasLogicalOperators(item));
   }
 
-  // Note: _contains, _starts_with, _ends_with, _between are NOT logical operators
-  // They are field operators and should be handled in the simple conversion path
-
   for (const key of Object.keys(filter)) {
     if (LOGICAL_OPERATORS.includes(key)) {
       return true;

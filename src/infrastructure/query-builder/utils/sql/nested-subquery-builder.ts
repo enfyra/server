@@ -1,5 +1,7 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../knex/utils/naming-helpers';
+import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
+import { TableMetadata } from '../../../knex/types/knex-types';
 import {
   quoteIdentifier,
   getJsonObjectFunc,
@@ -7,21 +9,6 @@ import {
   getEmptyJsonArray,
   castToText,
 } from '../../../knex/utils/migration/sql-dialect';
-
-interface TableMetadata {
-  name: string;
-  columns: Array<{ name: string; type: string }>;
-  relations: Array<{
-    propertyName: string;
-    type: 'many-to-one' | 'one-to-many' | 'one-to-one' | 'many-to-many';
-    targetTableName: string;
-    inversePropertyName?: string;
-    foreignKeyColumn?: string;
-    junctionTableName?: string;
-    junctionSourceColumn?: string;
-    junctionTargetColumn?: string;
-  }>;
-}
 
 export async function buildNestedSubquery(
   parentTable: string,
@@ -33,6 +20,7 @@ export async function buildNestedSubquery(
   sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
   nestingLevel: number = 0,
   parentAliasOverride?: string,
+  junctionAlias?: string,
 ): Promise<string | null> {
   const relation = parentMeta.relations?.find(r => r.propertyName === relationName);
   if (!relation) {
@@ -40,9 +28,10 @@ export async function buildNestedSubquery(
     return null;
   }
 
-  const targetMeta = await metadataGetter(relation.targetTableName);
+  const targetTableName = (relation as any).targetTableName || relation.targetTable;
+  const targetMeta = await metadataGetter(targetTableName);
   if (!targetMeta) {
-    console.warn(`[NESTED-SUBQUERY] Target metadata not found for ${relation.targetTableName}`);
+    console.warn(`[NESTED-SUBQUERY] Target metadata not found for ${targetTableName}`);
     return null;
   }
 
@@ -73,7 +62,8 @@ export async function buildNestedSubquery(
     const fkColumnsToOmit = new Set<string>();
     for (const rel of targetMeta.relations || []) {
       if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
-        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.targetTableName);
+        const relTargetTable = (rel as any).targetTableName || rel.targetTable;
+        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
         if (fkCol) fkColumnsToOmit.add(fkCol);
       }
     }
@@ -100,7 +90,7 @@ export async function buildNestedSubquery(
 
   for (const [subRelName, subFields] of subRelations.entries()) {
     const nestedSubquery = await buildNestedSubquery(
-      relation.targetTableName,
+      targetTableName,
       targetMeta,
       subRelName,
       subFields,
@@ -109,6 +99,7 @@ export async function buildNestedSubquery(
       sortOptions.filter(s => s.field.startsWith(`${relationName}.${subRelName}`)),
       nestingLevel + 1,
       parentAliasOverride,
+      `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel + 1}`,
     );
 
     if (nestedSubquery) {
@@ -129,17 +120,21 @@ export async function buildNestedSubquery(
   const nextAlias = nestingLevel === 0 ? 'c' : `c${nestingLevel}`;
 
   const parentRef = nestingLevel === 0 ? quoteIdentifier(parentTable, dbType) : parentAlias;
+  const targetPkColumn = getPrimaryKeyColumn(targetMeta);
+  const targetPkName = targetPkColumn?.name || 'id';
+  const parentPkColumn = getPrimaryKeyColumn(parentMeta);
+  const parentPkName = parentPkColumn?.name || 'id';
 
   if (relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse)) {
     const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
-    const leftSide = castToText(`${nextAlias}.id`, dbType);
+    const leftSide = castToText(`${nextAlias}.${quoteIdentifier(targetPkName, dbType)}`, dbType);
     const rightSide = castToText(`${parentRef}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
-    return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
+    return `(select ${jsonObject} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
   } else if (relation.type === 'one-to-one' && (relation as any).isInverse) {
     const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName || relationName);
     const leftSide = castToText(`${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
-    const rightSide = castToText(`${parentRef}.id`, dbType);
-    return `(select ${jsonObject} from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
+    const rightSide = castToText(`${parentRef}.${quoteIdentifier(parentPkName, dbType)}`, dbType);
+    return `(select ${jsonObject} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
   } else if (relation.type === 'one-to-many') {
     let fkColumn = relation.foreignKeyColumn;
 
@@ -148,7 +143,7 @@ export async function buildNestedSubquery(
         fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
       } else {
         const inverseRelation = targetMeta.relations?.find(
-          r => r.type === 'many-to-one' && r.targetTableName === parentTable
+          r => r.type === 'many-to-one' && ((r as any).targetTableName || r.targetTable) === parentTable
         );
         if (inverseRelation?.foreignKeyColumn) {
           fkColumn = inverseRelation.foreignKeyColumn;
@@ -163,8 +158,8 @@ export async function buildNestedSubquery(
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
     const leftSide = castToText(`${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`, dbType);
-    const rightSide = castToText(`${parentRef}.id`, dbType);
-    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide}${orderClause})`;
+    const rightSide = castToText(`${parentRef}.${quoteIdentifier(parentPkName, dbType)}`, dbType);
+    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide}${orderClause})`;
   } else if (relation.type === 'many-to-many') {
     const junctionTable = relation.junctionTableName;
     if (!junctionTable) {
@@ -173,17 +168,18 @@ export async function buildNestedSubquery(
     }
 
     const junctionSourceCol = relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
-    const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(relation.targetTableName);
+    const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
 
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
 
-    const joinLeft = castToText(`j.${quoteIdentifier(junctionTargetCol, dbType)}`, dbType);
-    const joinRight = castToText(`${nextAlias}.id`, dbType);
-    const whereLeft = castToText(`j.${quoteIdentifier(junctionSourceCol, dbType)}`, dbType);
-    const whereRight = castToText(`${parentRef}.id`, dbType);
+    const jAlias = junctionAlias || (nestingLevel === 0 ? 'j' : `j_${relationName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel}`);
+    const joinLeft = castToText(`${jAlias}.${quoteIdentifier(junctionTargetCol, dbType)}`, dbType);
+    const joinRight = castToText(`${nextAlias}.${quoteIdentifier(targetPkName, dbType)}`, dbType);
+    const whereLeft = castToText(`${jAlias}.${quoteIdentifier(junctionSourceCol, dbType)}`, dbType);
+    const whereRight = castToText(`${parentRef}.${quoteIdentifier(parentPkName, dbType)}`, dbType);
 
-    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} j join ${quoteIdentifier(relation.targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight})`;
+    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} ${jAlias} join ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight})`;
   }
 
   return null;
@@ -209,7 +205,8 @@ export async function buildCTEStrategy(
     return null;
   }
 
-  const targetMeta = await metadataGetter(relation.targetTableName);
+  const targetTableName = (relation as any).targetTableName || relation.targetTable;
+  const targetMeta = await metadataGetter(targetTableName);
   if (!targetMeta) {
     return null;
   }
@@ -238,7 +235,8 @@ export async function buildCTEStrategy(
     const fkColumnsToOmit = new Set<string>();
     for (const rel of targetMeta.relations || []) {
       if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
-        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.targetTableName);
+        const relTargetTable = (rel as any).targetTableName || rel.targetTable;
+        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
         if (fkCol) fkColumnsToOmit.add(fkCol);
       }
     }
@@ -265,7 +263,7 @@ export async function buildCTEStrategy(
 
   for (const [subRelName, subFields] of subRelations.entries()) {
     const nestedSubquery = await buildNestedSubquery(
-      relation.targetTableName,
+      targetTableName,
       targetMeta,
       subRelName,
       subFields,
@@ -274,6 +272,7 @@ export async function buildCTEStrategy(
       sortOptions.filter(s => s.field.startsWith(`${relationName}.${subRelName}`)),
       1,
       'r',
+      `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
     );
 
     if (nestedSubquery) {
@@ -291,9 +290,13 @@ export async function buildCTEStrategy(
   const emptyArray = dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
 
   const quotedParentTable = quoteIdentifier(parentTable, dbType);
-  const quotedTargetTable = quoteIdentifier(relation.targetTableName, dbType);
+  const quotedTargetTable = quoteIdentifier(targetTableName, dbType);
   const quotedParentId = quoteIdentifier(parentIdColumn, dbType);
   const quotedRelationName = quoteIdentifier(relationName, dbType);
+  const targetPkColumn = targetMeta ? getPrimaryKeyColumn(targetMeta as any) : null;
+  const targetPkName = targetPkColumn?.name || 'id';
+  const parentPkColumn = parentMeta ? getPrimaryKeyColumn(parentMeta as any) : null;
+  const parentPkName = parentPkColumn?.name || 'id';
 
   if (relation.type === 'one-to-many') {
     let fkColumn = relation.foreignKeyColumn;
@@ -302,7 +305,7 @@ export async function buildCTEStrategy(
         fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
       } else {
         const inverseRelation = targetMeta.relations?.find(
-          r => r.type === 'many-to-one' && r.targetTableName === parentTable
+          r => r.type === 'many-to-one' && ((r as any).targetTableName || r.targetTable) === parentTable
         );
         if (inverseRelation?.foreignKeyColumn) {
           fkColumn = inverseRelation.foreignKeyColumn;
@@ -314,13 +317,16 @@ export async function buildCTEStrategy(
 
     const quotedFkCol = quoteIdentifier(fkColumn, dbType);
     const cteName = `${relationName}_agg`;
+    const quotedCTEName = quoteIdentifier(cteName, dbType);
+    const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
+    const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
 
-    return `${cteName} AS (
+    return `${quotedCTEName} AS (
       SELECT 
-        r.${quotedFkCol} as parent_id,
-        ${jsonArrayAgg}(${jsonObject}) as ${quotedRelationName}
+        r.${quotedFkCol} as ${quotedParentIdCol},
+        ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) as ${quotedRelationName}
       FROM ${quotedTargetTable} r
-      INNER JOIN ${limitedCTEName} l ON r.${quotedFkCol} = l.${quotedParentId}
+      INNER JOIN ${quotedLimitedCTE} l ON r.${quotedFkCol} = l.${quotedParentId}
       GROUP BY r.${quotedFkCol}
     )`;
   } else if (relation.type === 'many-to-many') {
@@ -330,20 +336,24 @@ export async function buildCTEStrategy(
     }
 
     const junctionSourceCol = relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
-    const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(relation.targetTableName);
+    const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
 
     const quotedJunctionTable = quoteIdentifier(junctionTable, dbType);
     const quotedJunctionSourceCol = quoteIdentifier(junctionSourceCol, dbType);
     const quotedJunctionTargetCol = quoteIdentifier(junctionTargetCol, dbType);
     const cteName = `${relationName}_agg`;
+    const quotedCTEName = quoteIdentifier(cteName, dbType);
+    const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
+    const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
+    const quotedIdCol = quoteIdentifier('id', dbType);
 
-    return `${cteName} AS (
+    return `${quotedCTEName} AS (
       SELECT 
-        j.${quotedJunctionSourceCol} as parent_id,
-        ${jsonArrayAgg}(${jsonObject}) as ${quotedRelationName}
+        j.${quotedJunctionSourceCol} as ${quotedParentIdCol},
+        ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) as ${quotedRelationName}
       FROM ${quotedJunctionTable} j
-      INNER JOIN ${quotedTargetTable} r ON j.${quotedJunctionTargetCol} = r.id
-      INNER JOIN ${limitedCTEName} l ON j.${quotedJunctionSourceCol} = l.${quotedParentId}
+      INNER JOIN ${quotedTargetTable} r ON j.${quotedJunctionTargetCol} = r.${quoteIdentifier(targetPkName, dbType)}
+      INNER JOIN ${quotedLimitedCTE} l ON j.${quotedJunctionSourceCol} = l.${quotedParentId}
       GROUP BY j.${quotedJunctionSourceCol}
     )`;
   }
