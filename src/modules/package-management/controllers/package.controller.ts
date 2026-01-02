@@ -37,7 +37,7 @@ export class PackageController {
 
     if (!body.type) {
       throw new ValidationException(
-        'Package type is required (App or Backend)',
+        'Package type is required (App or Server)',
       );
     }
 
@@ -49,7 +49,6 @@ export class PackageController {
       throw new ValidationException('Repository not found in context');
     }
 
-    // Check if package already exists in database
     const existingPackages = await packageRepo.find({
       where: { name: { _eq: body.name }, type: { _eq: body.type } },
     });
@@ -61,7 +60,24 @@ export class PackageController {
     }
 
     try {
-      // Check if package is already installed in node_modules
+      if (body.type === 'App') {
+        const savedPackage = await this.queryBuilder.insertAndGet('package_definition', {
+          ...body,
+          version: body.version || '1.0.0',
+          description: body.description || '',
+          isSystem: false,
+        });
+
+        await this.packageCacheService.reload();
+
+        const savedPackageId = savedPackage.id || savedPackage._id;
+        const result = await packageRepo.find({
+          where: { id: { _eq: savedPackageId } },
+        });
+
+        return result;
+      }
+
       const isAlreadyInstalled =
         await this.packageManagementService.isPackageInstalled(body.name);
       this.logger.log(
@@ -71,7 +87,6 @@ export class PackageController {
       let installationResult;
 
       if (isAlreadyInstalled) {
-        // Package exists in node_modules, just get its info without installing
         this.logger.log(
           `Package "${body.name}" already exists in node_modules, skipping npm install`,
         );
@@ -79,7 +94,6 @@ export class PackageController {
           body.name,
         );
       } else {
-        // Package not in node_modules, need to install
         this.logger.log(
           `Package "${body.name}" not found in node_modules, proceeding with installation`,
         );
@@ -93,7 +107,6 @@ export class PackageController {
         );
       }
 
-      // Verify package is properly installed before saving
       try {
         require(body.name);
         this.logger.log(`Package "${body.name}" successfully required`);
@@ -103,7 +116,6 @@ export class PackageController {
         );
       }
 
-      // Save to database
       const savedPackage = await this.queryBuilder.insertAndGet('package_definition', {
         ...body,
         version: installationResult.version,
@@ -111,10 +123,8 @@ export class PackageController {
         isSystem: isAlreadyInstalled ? true : false,
       });
 
-      // Reload package cache after creation
       await this.packageCacheService.reload();
 
-      // Return using dynamic repo format (same as dynamic repo .create() method)
       const savedPackageId = savedPackage.id || savedPackage._id;
       const result = await packageRepo.find({
         where: { id: { _eq: savedPackageId } },
@@ -150,7 +160,12 @@ export class PackageController {
       throw new ResourceNotFoundException(`Package with ID ${id} not found`);
     }
 
-    // If version is being updated, reinstall the package
+    if (packageRecord.type === 'App') {
+      const result = await packageRepo.update({ id, data: body });
+      await this.packageCacheService.reload();
+      return result;
+    }
+
     if (body.version && body.version !== packageRecord.version) {
       try {
         await this.packageManagementService.updatePackage({
@@ -167,7 +182,6 @@ export class PackageController {
     }
     const result = await packageRepo.update({ id, data: body });
 
-    // Reload package cache after update
     await this.packageCacheService.reload();
 
     return result;
@@ -193,22 +207,24 @@ export class PackageController {
       throw new ResourceNotFoundException(`Package with ID ${id} not found`);
     }
 
-    // Don't allow deletion of system packages
     if (packageRecord.isSystem) {
       throw new ValidationException('Cannot uninstall system packages');
     }
 
     try {
-      // Uninstall the package
+      if (packageRecord.type === 'App') {
+        const result = await packageRepo.delete({ id });
+        await this.packageCacheService.reload();
+        return result;
+      }
+
       await this.packageManagementService.uninstallPackage({
         name: packageRecord.name,
         type: packageRecord.type,
       });
 
-      // Remove from database
       const result = await packageRepo.delete({ id });
 
-      // Reload package cache after deletion
       await this.packageCacheService.reload();
 
       return result;
