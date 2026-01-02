@@ -8,21 +8,21 @@ const execAsync = promisify(exec);
 
 interface PackageInstallRequest {
   name: string;
-  type: 'App' | 'Backend';
+  type: 'App' | 'Server';
   version?: string;
   flags?: string;
 }
 
 interface PackageUpdateRequest {
   name: string;
-  type: 'App' | 'Backend';
+  type: 'App' | 'Server';
   currentVersion: string;
   newVersion: string;
 }
 
 interface PackageUninstallRequest {
   name: string;
-  type: 'App' | 'Backend';
+  type: 'App' | 'Server';
 }
 
 interface InstallationResult {
@@ -33,13 +33,11 @@ interface InstallationResult {
 @Injectable()
 export class PackageManagementService {
   private getPackageManager(): string {
-    // Check environment variable first
     const envPkgManager = process.env.PACKAGE_MANAGER;
     if (envPkgManager) {
       return envPkgManager;
     }
 
-    // Auto-detect based on lock files
     const fs = require('fs');
     const path = require('path');
 
@@ -56,7 +54,6 @@ export class PackageManagementService {
       return 'pnpm';
     }
 
-    // Default fallback
     return 'npm';
   }
   async installPackage(
@@ -65,15 +62,14 @@ export class PackageManagementService {
     const { name, type, version = 'latest', flags = '' } = request;
 
     if (type === 'App') {
-      // App packages are not handled by backend - skip
       return {
         version: version === 'latest' ? '1.0.0' : version,
         description: `App package ${name} (skipped - handled by frontend)`,
       };
     }
 
-    if (type === 'Backend') {
-      return await this.installBackendPackage(name, version, flags);
+    if (type === 'Server') {
+      return await this.installServerPackage(name, version, flags);
     }
 
     throw new Error(`Unsupported package type: ${type}`);
@@ -85,14 +81,12 @@ export class PackageManagementService {
     const { name, type, newVersion } = request;
 
     if (type === 'App') {
-      // App packages are not handled by backend - skip
       return {
         version: newVersion,
         description: `App package ${name} (skipped - handled by frontend)`,
       };
     }
 
-    // For backend updates, reuse the install logic with the new version
     return await this.installPackage({
       name,
       type,
@@ -104,19 +98,18 @@ export class PackageManagementService {
     const { name, type } = request;
 
     if (type === 'App') {
-      // App packages are not handled by backend - skip
       return;
     }
 
-    if (type === 'Backend') {
-      await this.uninstallBackendPackage(name);
+    if (type === 'Server') {
+      await this.uninstallServerPackage(name);
       return;
     }
 
     throw new Error(`Unsupported package type: ${type}`);
   }
 
-  private async installBackendPackage(
+  private async installServerPackage(
     name: string,
     version: string,
     flags: string,
@@ -146,7 +139,6 @@ export class PackageManagementService {
         throw new Error(stderr);
       }
 
-      // Get package info
       const packageInfo = await this.getPackageInfo(name);
       return {
         version: packageInfo.version,
@@ -161,88 +153,41 @@ export class PackageManagementService {
         cmd: error.cmd
       });
 
-      // If npm install fails with empty output, try alternative approach
-      if (error.code === 1 && error.stdout === '' && error.stderr === '') {
-        try {
-          // Try with --no-package-lock flag
-          const altCommand = `npm install ${packageSpec} --no-package-lock ${flags}`.trim();
-
-          const { stderr: altStderr } = await execAsync(altCommand, {
-            cwd: process.cwd(),
-            timeout: 30000,
-          });
-
-          if (altStderr && !altStderr.includes('WARN')) {
-            throw new Error(altStderr);
-          }
-
-          // Get package info
-          const packageInfo = await this.getPackageInfo(name);
-          return {
-            version: packageInfo.version,
-            description: packageInfo.description,
-          };
-        } catch (altError) {
-          console.error(`Alternative install also failed:`, altError.message);
-
-          // Final diagnostic check
-          try {
-            const { stdout: versionOutput } = await execAsync('npm --version', {
-              cwd: process.cwd(),
-              timeout: 10000,
-            });
-
-            const { stdout: configOutput } = await execAsync('npm config get registry', {
-              cwd: process.cwd(),
-              timeout: 10000,
-            });
-          } catch (diagError) {
-            console.error(`Diagnostic check failed:`, diagError.message);
-          }
-
-          // Try with official npm registry
-          try {
-            const registryCommand = `npm install ${packageSpec} --registry https://registry.npmjs.org/ ${flags}`.trim();
-
-            const { stderr: registryStderr } = await execAsync(registryCommand, {
-              cwd: process.cwd(),
-              timeout: 30000,
-            });
-
-            if (registryStderr && !registryStderr.includes('WARN')) {
-              throw new Error(registryStderr);
-            }
-
-            // Get package info
-            const packageInfo = await this.getPackageInfo(name);
-            return {
-              version: packageInfo.version,
-              description: packageInfo.description,
-            };
-          } catch (registryError) {
-            console.error(`Official registry install also failed:`, registryError.message);
-
-            // Final check: try a simple npm command
-            try {
-              await execAsync('npm list --depth=0', {
-                cwd: process.cwd(),
-                timeout: 10000,
-              });
-            } catch (testError) {
-              console.error(`Basic npm commands also failing:`, testError.message);
-            }
-
-            throw new Error(`All npm install attempts failed. This appears to be an npm environment issue. Try running 'npm install lodash' manually in terminal to diagnose.`);
-          }
+      try {
+        let registryCommand: string;
+        if (packageManager === 'bun') {
+          registryCommand = `bun add ${packageSpec} --registry https://registry.npmjs.org/ ${flags}`.trim();
+        } else if (packageManager === 'yarn') {
+          registryCommand = `yarn add ${packageSpec} --registry https://registry.npmjs.org/ ${flags}`.trim();
+        } else if (packageManager === 'pnpm') {
+          registryCommand = `pnpm add ${packageSpec} --registry https://registry.npmjs.org/ ${flags}`.trim();
+        } else {
+          registryCommand = `npm install ${packageSpec} --registry https://registry.npmjs.org/ --legacy-peer-deps ${flags}`.trim();
         }
-      }
 
-      throw error;
+        const { stderr: registryStderr } = await execAsync(registryCommand, {
+          cwd: process.cwd(),
+          timeout: 30000,
+        });
+
+        if (registryStderr && !registryStderr.includes('WARN') && !registryStderr.includes('warning')) {
+          throw new Error(registryStderr);
+        }
+
+        const packageInfo = await this.getPackageInfo(name);
+        return {
+          version: packageInfo.version,
+          description: packageInfo.description,
+        };
+      } catch (registryError) {
+        console.error(`Official registry install also failed:`, registryError.message);
+        throw new Error(`All ${packageManager} install attempts failed for ${name}. Try running '${packageManager} add ${name}' manually in terminal to diagnose.`);
+      }
     }
   }
 
 
-  private async uninstallBackendPackage(name: string): Promise<void> {
+  private async uninstallServerPackage(name: string): Promise<void> {
     const packageManager = this.getPackageManager();
 
     let command: string;
@@ -260,7 +205,7 @@ export class PackageManagementService {
     try {
       const { stderr } = await execAsync(command, {
         cwd: process.cwd(),
-        timeout: 120000, // 2 minutes timeout
+        timeout: 120000,
       });
 
 
@@ -268,10 +213,8 @@ export class PackageManagementService {
         throw new Error(stderr);
       }
     } catch (error) {
-      // Silently skip if package not found in node_modules
       const errorMsg = error.message || error.toString();
 
-      // Check if this is a "package not found" scenario
       const isPackageNotFound =
         errorMsg.includes('not found') ||
         errorMsg.includes('ENOENT') ||
@@ -309,15 +252,25 @@ export class PackageManagementService {
         description: packageJson.description,
       };
     } catch (error) {
-      // If we can't read package.json, try npm info
       try {
-        const { stdout } = await execAsync(
-          `npm info ${packageName} version description --json`,
-        );
+        const packageManager = this.getPackageManager();
+        let command: string;
+
+        if (packageManager === 'bun') {
+          command = `bun pm info ${packageName} --json`;
+        } else if (packageManager === 'yarn') {
+          command = `yarn npm info ${packageName} --json`;
+        } else if (packageManager === 'pnpm') {
+          command = `pnpm info ${packageName} --json`;
+        } else {
+          command = `npm info ${packageName} version description --json`;
+        }
+
+        const { stdout } = await execAsync(command);
         const info = JSON.parse(stdout);
         return {
-          version: info.version,
-          description: info.description,
+          version: info.version || info[packageName]?.version,
+          description: info.description || info[packageName]?.description,
         };
       } catch (npmError) {
         throw new Error(`Could not get package info: ${error.message}`);
@@ -326,15 +279,43 @@ export class PackageManagementService {
   }
 
   async listInstalledPackages(): Promise<any[]> {
+    const packageManager = this.getPackageManager();
+    let command: string;
+
+    if (packageManager === 'bun') {
+      command = 'bun pm ls --json';
+    } else if (packageManager === 'yarn') {
+      command = 'yarn list --json --depth=0';
+    } else if (packageManager === 'pnpm') {
+      command = 'pnpm list --json --depth=0';
+    } else {
+      command = 'npm list --json --depth=0';
+    }
+
     try {
-      const { stdout } = await execAsync('npm list --json --depth=0');
-      const npmList = JSON.parse(stdout);
+      const { stdout } = await execAsync(command);
+      const list = JSON.parse(stdout);
+
+      let dependencies: Record<string, any> = {};
+      if (packageManager === 'npm' || packageManager === 'pnpm') {
+        dependencies = list.dependencies || {};
+      } else if (packageManager === 'yarn') {
+        dependencies = list.dependencies?.trees?.reduce((acc: any, tree: any) => {
+          if (tree.name) {
+            const [name, version] = tree.name.split('@');
+            acc[name] = { name, version: tree.version || version };
+          }
+          return acc;
+        }, {}) || {};
+      } else if (packageManager === 'bun') {
+        dependencies = list.packages || {};
+      }
 
       const packages = [];
-      for (const [name, info] of Object.entries(npmList.dependencies || {})) {
+      for (const [name, info] of Object.entries(dependencies)) {
         packages.push({
           name,
-          version: (info as any).version,
+          version: (info as any).version || 'unknown',
           description: (info as any).description || '',
         });
       }
@@ -346,8 +327,21 @@ export class PackageManagementService {
   }
 
   async searchPackages(query: string): Promise<any[]> {
+    const packageManager = this.getPackageManager();
+    let command: string;
+
+    if (packageManager === 'bun') {
+      command = `bun pm search ${query} --json`;
+    } else if (packageManager === 'yarn') {
+      command = `yarn npm search ${query} --json`;
+    } else if (packageManager === 'pnpm') {
+      command = `pnpm search ${query} --json`;
+    } else {
+      command = `npm search ${query} --json`;
+    }
+
     try {
-      const { stdout } = await execAsync(`npm search ${query} --json`);
+      const { stdout } = await execAsync(command);
       const searchResults = JSON.parse(stdout);
 
       return searchResults.map((pkg: any) => ({
@@ -365,7 +359,6 @@ export class PackageManagementService {
 
   async isPackageInstalled(packageName: string): Promise<boolean> {
     try {
-      // Check if package is listed in project's package.json dependencies
       const projectPackageJsonPath = path.join(process.cwd(), 'package.json');
       const packageJsonContent = await fs.readFile(projectPackageJsonPath, 'utf-8');
       const packageJson = JSON.parse(packageJsonContent);

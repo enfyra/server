@@ -32,6 +32,7 @@ import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware
 import { RouteDetectMiddleware } from './infrastructure/middleware/route-detect.middleware';
 import { FileManagementModule } from './modules/file-management/file-management.module';
 import { PackageManagementModule } from './modules/package-management/package-management.module';
+import { PackageManagementService } from './modules/package-management/services/package-management.service';
 import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/swagger.module';
 import { KnexModule } from './infrastructure/knex/knex.module';
 import { MongoModule } from './infrastructure/mongo/mongo.module';
@@ -98,6 +99,7 @@ import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
     SqlFunctionService,
     RouteCacheService,
     PackageCacheService,
+    PackageManagementService,
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -114,6 +116,7 @@ import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
     RedisPubSubService,
     RouteCacheService,
     PackageCacheService,
+    PackageManagementService,
     CacheModule,
     DatabaseSchemaService,
   ],

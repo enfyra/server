@@ -346,14 +346,14 @@
     },
     "package_definition": {
         "name": "package_definition",
-        "description": "Manages npm packages installed in the application (frontend and backend)",
+        "description": "Manages npm packages installed in the application (app and server)",
         "isSystem": true,
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "description": "Primary key identifier" },
             { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "isGenerated": false, "description": "NPM package name (e.g., lodash, express)" },
             { "name": "version", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Actual installed version from node_modules", "defaultValue": "latest" },
             { "name": "flags", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Install flags like '--ignore-engines --force'" },
-            { "name": "type", "type": "enum", "isNullable": false, "options": ["App", "Backend"], "description": "Whether this is a frontend (App) or backend package" },
+            { "name": "type", "type": "enum", "isNullable": false, "options": ["App", "Server"], "description": "Whether this is a frontend (App) or backend (Server) package" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the package is currently active" },
             { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Short package description" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a core system package" }
