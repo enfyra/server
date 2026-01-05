@@ -3,6 +3,7 @@ import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { PackageManagementService } from '../../../modules/package-management/services/package-management.service';
 import {
   PACKAGE_CACHE_SYNC_EVENT_KEY,
   PACKAGE_RELOAD_LOCK_KEY,
@@ -21,6 +22,7 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
     private readonly redisPubSubService: RedisPubSubService,
     private readonly cacheService: CacheService,
     private readonly instanceService: InstanceService,
+    private readonly packageManagementService: PackageManagementService,
   ) {}
 
   async onModuleInit() {
@@ -31,9 +33,6 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
     await this.reload();
   }
 
-  /**
-   * Subscribe to package sync messages from other instances
-   */
   private subscribe() {
     const sub = this.redisPubSubService.sub;
     if (!sub) {
@@ -41,12 +40,10 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
       return;
     }
 
-    // Only subscribe if not already subscribed
     if (this.messageHandler) {
       return;
     }
 
-    // Create and store handler
     this.messageHandler = (channel: string, message: string) => {
       if (channel === PACKAGE_CACHE_SYNC_EVENT_KEY) {
         try {
@@ -67,7 +64,6 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
       }
     };
 
-    // Subscribe via RedisPubSubService (prevents duplicates)
     this.redisPubSubService.subscribeWithHandler(
       PACKAGE_CACHE_SYNC_EVENT_KEY,
       this.messageHandler
@@ -81,9 +77,6 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
     return this.packagesCache;
   }
 
-  /**
-   * Reload packages from DB (acquire lock → load → publish → save)
-   */
   async reload(): Promise<void> {
     const instanceId = this.instanceService.getInstanceId();
 
@@ -105,14 +98,13 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
         const start = Date.now();
         this.logger.log('Reloading packages cache...');
 
-        // Load from DB
         const packages = await this.loadPackages();
         this.logger.log(`Loaded ${packages.length} packages in ${Date.now() - start}ms`);
 
-        // Broadcast to other instances FIRST
+        await this.ensurePackagesInstalled();
+
         await this.publish(packages);
 
-        // Then save to local memory cache
         this.packagesCache = packages;
         this.cacheLoaded = true;
       } finally {
@@ -125,9 +117,6 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
     }
   }
 
-  /**
-   * Publish packages to other instances via Redis PubSub
-   */
   private async publish(packages: string[]): Promise<void> {
     try {
       const payload = {
@@ -153,10 +142,51 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
       fields: ['name'],
       filter: {
         isEnabled: true,
-        type: 'Backend',
+        type: 'Server',
       },
     });
 
     return result.data.map((p: any) => p.name);
+  }
+
+  private async loadPackagesWithVersion(): Promise<Array<{ name: string; version: string }>> {
+    const result = await this.queryBuilder.select({
+      tableName: 'package_definition',
+      fields: ['name', 'version'],
+      filter: {
+        isEnabled: true,
+        type: 'Server',
+      },
+    });
+
+    return result.data.map((p: any) => ({
+      name: p.name,
+      version: p.version || 'latest',
+    }));
+  }
+
+  private async ensurePackagesInstalled(): Promise<void> {
+    const packagesWithVersion = await this.loadPackagesWithVersion();
+
+    for (const pkg of packagesWithVersion) {
+      const isInstalled = await this.packageManagementService.isPackageInstalled(pkg.name);
+
+      if (!isInstalled) {
+        this.logger.log(`Package ${pkg.name} not found in package.json, installing...`);
+
+        try {
+          await this.packageManagementService.installPackage({
+            name: pkg.name,
+            type: 'Server',
+            version: pkg.version,
+          });
+
+          this.logger.log(`Successfully installed package ${pkg.name}@${pkg.version}`);
+        } catch (error) {
+          this.logger.error(`Failed to install package ${pkg.name}:`, error.message);
+          throw error;
+        }
+      }
+    }
   }
 }
