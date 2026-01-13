@@ -6,7 +6,7 @@ import {
   WhereCondition,
 } from '../../../shared/types/query-builder.types';
 import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-clause';
-import { separateFilters, applyRelationFilters } from '../utils/sql/relation-filter.util';
+import { separateFilters, applyRelationFilters, buildRelationSubquery } from '../utils/sql/relation-filter.util';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 import { getPrimaryKeyColumn } from '../../knex/utils/metadata-loader';
 import { KnexService } from '../../knex/knex.service';
@@ -136,7 +136,8 @@ export class SqlQueryExecutor {
         const metadata = this.metadata?.tables?.get(queryOptions.table);
         if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
           if (metadata) {
-            const { hasRelations } = separateFilters(originalFilter, metadata);
+            const { hasRelations, relationFilters, fieldFilters } = separateFilters(originalFilter, metadata);
+
             if (!hasRelations) {
               const buildWhereFromFilter = (filter: any, tablePrefix: string): string[] => {
                 const parts: string[] = [];
@@ -240,6 +241,28 @@ export class SqlQueryExecutor {
               const whereParts = buildWhereFromFilter(originalFilter, queryOptions.table);
               if (whereParts.length > 0) {
                 whereClauseForCTE = `WHERE ${whereParts.join(' AND ')}`;
+              }
+            } else if (hasRelations && Object.keys(relationFilters).length > 0) {
+              const relationSubqueries: string[] = [];
+
+              for (const [relName, relFilter] of Object.entries(relationFilters)) {
+                try {
+                  const subquery = await this.buildRelationSubqueryForCTE(
+                    queryOptions.table,
+                    relName,
+                    relFilter,
+                    metadata,
+                  );
+                  if (subquery) {
+                    relationSubqueries.push(`EXISTS (${subquery})`);
+                  }
+                } catch (error) {
+                  this.logger.warn(`Failed to build relation subquery for ${relName}: ${error.message}`);
+                }
+              }
+
+              if (relationSubqueries.length > 0) {
+                whereClauseForCTE = `WHERE ${relationSubqueries.join(' AND ')}`;
               }
             }
           }
@@ -758,7 +781,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
 
     try {
       const { expandFieldsToJoinsAndSelect } = await import('../utils/sql/expand-fields');
-      const result = await expandFieldsToJoinsAndSelect(
+      const expanded = await expandFieldsToJoinsAndSelect(
         tableName,
         fields,
         metadataGetter,
@@ -770,9 +793,26 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         whereClause,
         offset,
       );
-      return { select: result.select, cteClauses: result.cteClauses };
+      return { select: expanded.select, cteClauses: expanded.cteClauses };
     } catch (error) {
       return { select: fields };
     }
+  }
+
+  private async buildRelationSubqueryForCTE(
+    tableName: string,
+    relationName: string,
+    relationFilter: any,
+    metadata: any,
+  ): Promise<string | null> {
+    return await buildRelationSubquery(
+      this.knex,
+      tableName,
+      relationName,
+      relationFilter,
+      metadata,
+      this.dbType,
+      (tName: string) => this.metadata?.tables?.get(tName),
+    );
   }
 }
