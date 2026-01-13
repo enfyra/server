@@ -2,12 +2,6 @@
     "role_definition": {
         "name": "Admin"
     },
-    "user_definition": {
-        "email": "enfyra@admin.com",
-        "password": "1234",
-        "isRootAdmin": true,
-        "isSystem":true
-    },
     "setting_definition": {
         "isInit": false,
         "isSystem":true,

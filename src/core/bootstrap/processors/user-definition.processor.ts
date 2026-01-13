@@ -68,8 +68,18 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
   }
 
   async processSql(records: any[], knex: Knex, tableName: string, context?: any): Promise<UpsertResult> {
+    const { randomUUID } = await import('crypto');
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
     if (!records || records.length === 0) {
-      return { created: 0, skipped: 0 };
+      const adminUser = await this.getAdminUserFromEnv();
+      if (adminUser) {
+        records = [adminUser];
+      } else {
+        return { created: 0, skipped: 0 };
+      }
     }
 
     const filteredRecords = await this.filterRootAdminRecords(records, knex, tableName);
@@ -78,10 +88,6 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     }
 
     const transformedRecords = await this.transformRecords(filteredRecords, context);
-    const { randomUUID } = await import('crypto');
-
-    let createdCount = 0;
-    let skippedCount = 0;
 
     for (const record of transformedRecords) {
       try {
@@ -114,8 +120,16 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
   }
 
   async processMongo(records: any[], db: Db, collectionName: string, context?: any): Promise<UpsertResult> {
+    let createdCount = 0;
+    let skippedCount = 0;
+
     if (!records || records.length === 0) {
-      return { created: 0, skipped: 0 };
+      const adminUser = await this.getAdminUserFromEnv();
+      if (adminUser) {
+        records = [adminUser];
+      } else {
+        return { created: 0, skipped: 0 };
+      }
     }
 
     const filteredRecords = await this.filterRootAdminRecordsMongo(records, db, collectionName);
@@ -124,9 +138,6 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     }
 
     const transformedRecords = await this.transformRecords(filteredRecords, context);
-
-    let createdCount = 0;
-    let skippedCount = 0;
 
     for (const record of transformedRecords) {
       try {
@@ -195,7 +206,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
 
   private async filterRootAdminRecordsMongo(records: any[], db: Db, collectionName: string): Promise<any[]> {
     const rootAdminRecords = records.filter(record => record.isRootAdmin === true);
-    
+
     if (rootAdminRecords.length === 0) {
       return records;
     }
@@ -209,5 +220,21 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     }
 
     return records;
+  }
+
+  private async getAdminUserFromEnv(): Promise<any | null> {
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+
+    if (!adminEmail || !adminPassword) {
+      return null;
+    }
+
+    return {
+      email: adminEmail,
+      password: adminPassword,
+      isRootAdmin: true,
+      isSystem: true,
+    };
   }
 }
