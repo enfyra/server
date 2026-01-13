@@ -75,6 +75,13 @@ REFRESH_TOKEN_NO_REMEMBER_EXP=1d
 REFRESH_TOKEN_REMEMBER_EXP=7d
 
 ############################################
+# Admin Account - required
+############################################
+# Default admin account (created on first init)
+ADMIN_EMAIL=admin@enfyra.com
+ADMIN_PASSWORD=admin123456
+
+############################################
 # Package Manager - optional
 ############################################
 # One of: yarn | npm | pnpm
