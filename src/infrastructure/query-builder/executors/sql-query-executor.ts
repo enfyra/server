@@ -300,8 +300,8 @@ export class SqlQueryExecutor {
         queryOptions.offset,
       );
       queryOptions.select = [...(queryOptions.select || []), ...expandedResult.select];
-      cteClauses = expandedResult.cteClauses;
-      useCTE = cteClauses !== undefined && cteClauses.length > 0 && (this.dbType === 'postgres' || this.dbType === 'mysql');
+      cteClauses = expandedResult.cteClauses || [];
+      useCTE = cteClauses.length > 0;
     }
 
     if (queryOptions.where) {

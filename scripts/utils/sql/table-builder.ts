@@ -223,7 +223,7 @@ export async function createAllTables(
 
   await addForeignKeys(knex, schemas, dbType);
 
-  await createJunctionTables(knex, schemas, dbType);
+  await createJunctionTables(knex, schemas);
 
   console.log('✅ All tables created successfully!');
 }
