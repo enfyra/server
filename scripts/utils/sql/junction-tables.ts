@@ -11,7 +11,6 @@ import { getPrimaryKeyType } from './schema-parser';
 export async function createJunctionTables(
   knex: Knex,
   schemas: KnexTableSchema[],
-  dbType: string,
 ): Promise<void> {
   console.log('🔗 Creating junction tables...');
 
@@ -82,6 +81,14 @@ export async function createJunctionTables(
 
       const pkName = getShortPkName(junction.tableName);
       table.primary([junction.sourceColumn, junction.targetColumn], pkName);
+
+      const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
+      const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+      const reverseIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'rev');
+
+      table.index([junction.sourceColumn], sourceIndexName);
+      table.index([junction.targetColumn], targetIndexName);
+      table.index([junction.targetColumn, junction.sourceColumn], reverseIndexName);
     });
 
     console.log(`✅ Created junction table: ${junction.tableName}`);
@@ -93,7 +100,6 @@ export async function createJunctionTables(
 export async function syncJunctionTables(
   knex: Knex,
   schemas: KnexTableSchema[],
-  dbType: string,
 ): Promise<void> {
   console.log('🔗 Syncing junction tables...');
 
@@ -147,12 +153,14 @@ export async function syncJunctionTables(
           const pkName = getShortPkName(junction.tableName);
           table.primary([junction.sourceColumn, junction.targetColumn], pkName);
 
-          if (dbType !== 'postgres') {
-            const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
-            const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
-            table.index([junction.sourceColumn], sourceIndexName);
-            table.index([junction.targetColumn], targetIndexName);
-          }
+          const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
+          const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+          const reverseIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'rev');
+
+          table.index([junction.sourceColumn], sourceIndexName);
+          table.index([junction.targetColumn], targetIndexName);
+
+          table.index([junction.targetColumn, junction.sourceColumn], reverseIndexName);
         });
 
         console.log(`  ✅ Created junction table: ${junction.tableName}`);

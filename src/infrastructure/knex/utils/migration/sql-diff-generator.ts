@@ -342,40 +342,49 @@ export async function generateSQLFromDiff(
     if (dbType === 'postgres') {
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
-          ${qt('id')} SERIAL PRIMARY KEY,
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
           ${qt(targetColumn)} ${targetColType} NOT NULL,
+          PRIMARY KEY (${qt(sourceColumn)}, ${qt(targetColumn)}),
           FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          UNIQUE (${qt(sourceColumn)}, ${qt(targetColumn)})
+          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE
         )
       `.trim().replace(/\s+/g, ' ');
     } else if (dbType === 'sqlite') {
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
-          ${qt('id')} INTEGER PRIMARY KEY AUTOINCREMENT,
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
           ${qt(targetColumn)} ${targetColType} NOT NULL,
+          PRIMARY KEY (${qt(sourceColumn)}, ${qt(targetColumn)}),
           FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          UNIQUE (${qt(sourceColumn)}, ${qt(targetColumn)})
+          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE
         )
       `.trim().replace(/\s+/g, ' ');
     } else {
       // MySQL
       createJunctionSQL = `
         CREATE TABLE ${qt(junctionName)} (
-          ${qt('id')} INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           ${qt(sourceColumn)} ${sourceColType} NOT NULL,
           ${qt(targetColumn)} ${targetColType} NOT NULL,
+          PRIMARY KEY (${qt(sourceColumn)}, ${qt(targetColumn)}),
+          KEY ${qt(`idx_${sourceColumn}`)} (${qt(sourceColumn)}),
+          KEY ${qt(`idx_${targetColumn}`)} (${qt(targetColumn)}),
+          KEY ${qt(`idx_${targetColumn}_${sourceColumn}`)} (${qt(targetColumn)}, ${qt(sourceColumn)}),
           FOREIGN KEY (${qt(sourceColumn)}) REFERENCES ${qt(sourceTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE,
-          UNIQUE KEY ${qt(`unique_${sourceColumn}_${targetColumn}`)} (${qt(sourceColumn)}, ${qt(targetColumn)})
+          FOREIGN KEY (${qt(targetColumn)}) REFERENCES ${qt(targetTable)} (${qt('id')}) ON DELETE CASCADE ON UPDATE CASCADE
         )
       `.trim().replace(/\s+/g, ' ');
     }
 
     sqlStatements.push(createJunctionSQL);
+
+    // Create additional indexes for PostgreSQL (for individual columns and reverse order)
+    if (dbType === 'postgres') {
+      const indexSourceSQL = `CREATE INDEX ${qt(`idx_${sourceColumn}`)} ON ${qt(junctionName)} (${qt(sourceColumn)})`;
+      const indexTargetSQL = `CREATE INDEX ${qt(`idx_${targetColumn}`)} ON ${qt(junctionName)} (${qt(targetColumn)})`;
+      const indexReverseSQL = `CREATE INDEX ${qt(`idx_${targetColumn}_${sourceColumn}`)} ON ${qt(junctionName)} (${qt(targetColumn)}, ${qt(sourceColumn)})`;
+
+      sqlStatements.push(indexSourceSQL, indexTargetSQL, indexReverseSQL);
+    }
   }
 
   for (const junctionDrop of ensureArray(junctionDiff.drop)) {

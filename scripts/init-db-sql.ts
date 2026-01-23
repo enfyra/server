@@ -120,7 +120,7 @@ export async function initializeDatabaseSql(): Promise<void> {
       }
     }
 
-    await syncJunctionTables(knexInstance, schemas, DB_TYPE);
+    await syncJunctionTables(knexInstance, schemas);
 
     console.log('\n🎉 Database initialization/sync completed!');
   } catch (error) {

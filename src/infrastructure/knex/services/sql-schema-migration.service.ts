@@ -498,9 +498,6 @@ export class SqlSchemaMigrationService {
         // ✅ Use Knex schema builder instead of raw SQL for better portability
         try {
           await knex.schema.createTable(junctionTableName, (table) => {
-            // Primary key - auto-increment ID
-            table.increments('id').primary();
-
             // Source FK column
             const sourceCol = this.createFKColumn(table, junctionSourceColumn, sourcePkType, dbType);
             sourceCol.notNullable();
@@ -508,6 +505,9 @@ export class SqlSchemaMigrationService {
             // Target FK column
             const targetCol = this.createFKColumn(table, junctionTargetColumn, targetPkType, dbType);
             targetCol.notNullable();
+
+            // Composite Primary Key (no 'id' column)
+            table.primary([junctionSourceColumn, junctionTargetColumn]);
 
             // Foreign key constraints
             table.foreign(junctionSourceColumn)
@@ -522,8 +522,14 @@ export class SqlSchemaMigrationService {
               .onDelete('CASCADE')
               .onUpdate('CASCADE');
 
-            // Unique constraint to prevent duplicate relations
-            table.unique([junctionSourceColumn, junctionTargetColumn]);
+            // Index on source column
+            table.index([junctionSourceColumn]);
+
+            // Index on target column
+            table.index([junctionTargetColumn]);
+
+            // Reverse composite index
+            table.index([junctionTargetColumn, junctionSourceColumn]);
           });
 
           this.logger.log(`Created junction table: ${junctionTableName}`);

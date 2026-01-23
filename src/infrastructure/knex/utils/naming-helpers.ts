@@ -183,7 +183,7 @@ export function getShortFkName(
 
 /**
  * Generate short index name to avoid MySQL 64 char limit
- * 
+ *
  * @example
  * getShortIndexName('route_definition', 'targetTables', 'src')
  * // Returns: 'route_definition_targetTables_src_idx'
@@ -191,7 +191,7 @@ export function getShortFkName(
 export function getShortIndexName(
   sourceTable: string,
   propertyName: string,
-  direction: 'src' | 'tgt',
+  direction: 'src' | 'tgt' | 'rev',
 ): string {
   return `${sourceTable}_${propertyName}_${direction}_idx`;
 }

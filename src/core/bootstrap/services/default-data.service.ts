@@ -82,14 +82,26 @@ export class DefaultDataService {
 
   async insertAllDefaultRecords(): Promise<void> {
     this.logger.log('Starting default data upsert...');
-    
+
     if (this.dbType === 'mongodb') {
       return this.insertAllDefaultRecordsMongo();
     }
-    
+
     const qb = this.queryBuilder.getConnection();
     let totalCreated = 0;
     let totalSkipped = 0;
+
+    const userProcessor = this.processors.get('user_definition');
+    if (userProcessor) {
+      try {
+        this.logger.log(`Processing 'user_definition' (ensure rootAdmin from env)...`);
+        const result = await userProcessor.processSql([], qb, 'user_definition', {});
+        totalCreated += result.created;
+        totalSkipped += result.skipped;
+      } catch (error) {
+        this.logger.error(`Error processing 'user_definition': ${error.message}`);
+      }
+    }
 
     for (const [tableName, rawRecords] of Object.entries(initJson)) {
       const processor = this.processors.get(tableName);
@@ -99,7 +111,7 @@ export class DefaultDataService {
       }
 
       if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
-        this.logger.debug(`❎ Table '${tableName}' has no data, skipping.`);
+        this.logger.debug(`Table '${tableName}' has no data, skipping.`);
         continue;
       }
 
@@ -112,10 +124,10 @@ export class DefaultDataService {
         const context = { knex: qb, tableName, dbType };
 
         const result = await processor.processSql(records, qb, tableName, context);
-        
+
         totalCreated += result.created;
         totalSkipped += result.skipped;
-        
+
         this.logger.log(
           `'${tableName}': ${result.created} created, ${result.skipped} skipped`
         );
@@ -126,7 +138,7 @@ export class DefaultDataService {
     }
 
     this.logger.log(
-      `🎉 Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`
+      `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`
     );
   }
 
@@ -136,6 +148,18 @@ export class DefaultDataService {
     const db = this.queryBuilder.getMongoDb();
     let totalCreated = 0;
     let totalSkipped = 0;
+
+    const userProcessor = this.processors.get('user_definition');
+    if (userProcessor) {
+      try {
+        this.logger.log(`Processing 'user_definition' (ensure rootAdmin from env)...`);
+        const result = await userProcessor.processMongo([], db, 'user_definition', {});
+        totalCreated += result.created;
+        totalSkipped += result.skipped;
+      } catch (error) {
+        this.logger.error(`Error processing 'user_definition': ${error.message}`);
+      }
+    }
 
     for (const [collectionName, rawRecords] of Object.entries(initJson)) {
       if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
@@ -164,7 +188,7 @@ export class DefaultDataService {
       }
     }
 
-    this.logger.log(`🎉 MongoDB default data completed! Total: ${totalCreated} created, ${totalSkipped} skipped`);
+    this.logger.log(`MongoDB default data completed! Total: ${totalCreated} created, ${totalSkipped} skipped`);
   }
 
   async insertTableRecords(tableName: string): Promise<UpsertResult> {
