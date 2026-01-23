@@ -78,8 +78,9 @@ REFRESH_TOKEN_REMEMBER_EXP=7d
 # Admin Account - required
 ############################################
 # Default admin account (created on first init)
-ADMIN_EMAIL=admin@enfyra.com
-ADMIN_PASSWORD=admin123456
+ADMIN_EMAIL=enfyra@admin.com
+ADMIN_PASSWORD=1234
+
 
 ############################################
 # Package Manager - optional
