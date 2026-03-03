@@ -208,7 +208,7 @@
             { "name": "remember", "type": "boolean", "isSystem": true, "defaultValue": false, "description": "Whether this is a long-lived 'remember me' session" }
         ],
         "relations": [
-            { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "description": "User who owns this session" }
+            { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }
         ]
     },
     "schema_history": {
