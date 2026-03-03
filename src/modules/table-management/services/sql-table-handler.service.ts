@@ -487,12 +487,13 @@ export class SqlTableHandlerService {
           exists.name,
           m2mTargetTablesMap,
         );
-        if (body.relations && body.relations.length > 0) {
+        const newRelations = body.relations?.filter((rel: any) => !rel.id) || [];
+        if (newRelations.length > 0) {
           await this.validateNoDuplicateInverseRelation(
             trx,
             Number(id),
             exists.name,
-            body.relations,
+            newRelations,
             m2mTargetTablesMap,
           );
         }
