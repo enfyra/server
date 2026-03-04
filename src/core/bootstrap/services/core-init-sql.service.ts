@@ -121,14 +121,6 @@ export class CoreInitSqlService {
             }
           }
         }
-        const snapshotColumnNames = new Set((def.columns || []).map(col => col.name));
-        const columnsToRemove = existingColumns.filter(col =>
-          !snapshotColumnNames.has(col.name)
-        );
-        for (const colToRemove of columnsToRemove) {
-          await trx('column_definition').where('id', colToRemove.id).delete();
-          this.logger.log(`Removed column ${colToRemove.name} from ${name}`);
-        }
       }
       this.logger.log('Phase 3: Processing relation definitions...');
       const allRelationsToProcess: Array<{
@@ -237,34 +229,6 @@ export class CoreInitSqlService {
           }
           await trx('relation_definition').insert(insertData);
           this.logger.log(`Added relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`);
-        }
-      }
-      for (const [name, defRaw] of Object.entries(snapshot)) {
-        const def = defRaw as any;
-        const tableId = tableNameToId[name];
-        if (!tableId) continue;
-        const snapshotRelationKeys = new Set(
-          (def.relations || [])
-            .filter(rel => !!rel.propertyName)
-            .map(rel => rel.propertyName)
-        );
-        for (const [otherName, otherDefRaw] of Object.entries(snapshot)) {
-          const otherDef = otherDefRaw as any;
-          for (const rel of otherDef.relations || []) {
-            if (rel.inversePropertyName && rel.targetTable === name) {
-              snapshotRelationKeys.add(rel.inversePropertyName);
-            }
-          }
-        }
-        const existingRelations = await trx('relation_definition')
-          .where('sourceTableId', tableId)
-          .select('*');
-        const relationsToRemove = existingRelations.filter(
-          rel => !snapshotRelationKeys.has(rel.propertyName)
-        );
-        for (const relToRemove of relationsToRemove) {
-          await trx('relation_definition').where('id', relToRemove.id).delete();
-          this.logger.log(`Removed relation ${relToRemove.propertyName} from ${name}`);
         }
       }
       this.logger.log('SQL metadata sync completed');
