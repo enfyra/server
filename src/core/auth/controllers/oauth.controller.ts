@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, Res, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
+import { randomUUID } from 'crypto';
 import { OAuthService } from '../services/oauth.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
 import { Public } from '../../../shared/decorators/public-route.decorator';
@@ -15,7 +16,6 @@ export class OAuthController {
   @Get(':provider')
   async oauthLogin(
     @Param('provider') provider: string,
-    @Query('redirect') redirectUrl: string,
     @Res() res: Response
   ) {
     const validProviders = ['google', 'facebook', 'github'];
@@ -23,11 +23,7 @@ export class OAuthController {
       throw new BadRequestException(`Invalid OAuth provider: ${provider}`);
     }
 
-    if (!redirectUrl) {
-      throw new BadRequestException('Redirect URL is required');
-    }
-
-    const state = Buffer.from(JSON.stringify({ redirect: redirectUrl })).toString('base64url');
+    const state = randomUUID();
     const authUrl = this.oauthService.getAuthorizationUrl(provider as any, state);
     return res.redirect(authUrl);
   }
@@ -37,7 +33,6 @@ export class OAuthController {
   async oauthCallback(
     @Param('provider') provider: string,
     @Query('code') code: string,
-    @Query('state') state: string,
     @Query('error') error: string,
     @Query('error_description') errorDescription: string,
     @Res() res: Response
@@ -47,14 +42,15 @@ export class OAuthController {
       throw new BadRequestException(`OAuth provider '${provider}' is not configured`);
     }
 
-    const redirectUrl = this.parseRedirectFromState(state);
-
-    if (!redirectUrl) {
-      throw new BadRequestException('Redirect URL is required');
+    if (!config.appCallbackUrl) {
+      throw new BadRequestException('App callback URL is not configured');
     }
 
+    const callbackUrl = new URL(config.appCallbackUrl);
+
     if (error) {
-      return res.redirect(`${redirectUrl}?error=${encodeURIComponent(errorDescription || error)}`);
+      callbackUrl.searchParams.set('error', errorDescription || error);
+      return res.redirect(callbackUrl.toString());
     }
 
     if (!code) {
@@ -63,30 +59,14 @@ export class OAuthController {
 
     try {
       const tokens = await this.oauthService.handleCallback(provider as any, code);
-
-      if (!config.appCallbackUrl) {
-        throw new BadRequestException('App callback URL is not configured');
-      }
-
-      const callbackUrl = new URL(config.appCallbackUrl);
       callbackUrl.searchParams.set('accessToken', tokens.accessToken);
       callbackUrl.searchParams.set('refreshToken', tokens.refreshToken);
       callbackUrl.searchParams.set('expTime', String(tokens.expTime));
-      callbackUrl.searchParams.set('redirect', redirectUrl);
 
       return res.redirect(callbackUrl.toString());
     } catch (err: any) {
-      return res.redirect(`${redirectUrl}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`);
-    }
-  }
-
-  private parseRedirectFromState(state?: string): string | null {
-    if (!state) return null;
-    try {
-      const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
-      return decoded.redirect || null;
-    } catch {
-      return null;
+      callbackUrl.searchParams.set('error', err.message || 'OAuth login failed');
+      return res.redirect(callbackUrl.toString());
     }
   }
 }
