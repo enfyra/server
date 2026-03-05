@@ -12,6 +12,7 @@ export const CACHE_IDENTIFIERS = {
   WEBSOCKET: 'websocket',
   PACKAGE: 'package',
   BOOTSTRAP: 'bootstrap',
+  OAUTH_CONFIG: 'oauth-config',
 } as const;
 
 type CacheIdentifier = (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
@@ -42,6 +43,7 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
 
   storage_config_definition: [CACHE_IDENTIFIERS.STORAGE],
   ai_config_definition: [CACHE_IDENTIFIERS.AI_CONFIG],
+  oauth_config_definition: [CACHE_IDENTIFIERS.OAUTH_CONFIG],
   websocket_definition: [CACHE_IDENTIFIERS.WEBSOCKET],
   websocket_event_definition: [CACHE_IDENTIFIERS.WEBSOCKET],
   package_definition: [CACHE_IDENTIFIERS.PACKAGE],

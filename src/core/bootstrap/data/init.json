@@ -104,6 +104,22 @@
             "icon":"lucide:route"
         },
         {
+            "path": "/auth/:provider",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route",
+            "publishedMethods": ["GET"]
+        },
+        {
+            "path": "/auth/:provider/callback",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon":"lucide:route",
+            "publishedMethods": ["GET"]
+        },
+        {
             "path": "/me",
             "mainTable": "user_definition",
             "isEnabled": true,
@@ -317,6 +333,13 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:zap"
+        },
+        {
+            "path": "/oauth_config_definition",
+            "mainTable": "oauth_config_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:key"
         }
     ],
     "pre_hook_definition": [
@@ -599,6 +622,22 @@
             "permission": {
                 "and": [
                     { "route": "/role_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "OAuth",
+            "icon": "heroicons:key",
+            "path": "/settings/oauth",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "OAuth provider configuration",
+            "order": 11,
+            "parent": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/oauth_config_definition", "actions": ["read"] }
                 ]
             }
         },
