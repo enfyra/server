@@ -73,12 +73,45 @@
         "columns": [
             { "name": "id", "type": "uuid", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Unique user identifier (UUID)" },
             { "name": "email", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": null, "description": "User's email address (unique login identifier)" },
-            { "name": "password", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": null, "isHidden": true, "description": "Hashed password for authentication" },
+            { "name": "password", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": null, "isHidden": true, "description": "Hashed password for authentication (nullable for OAuth users)" },
             { "name": "isRootAdmin", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "isUpdatable": false, "description": "Whether user has root admin privileges (cannot be changed)" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-generated user account" }
         ],
         "relations": [
             { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "description": "User's assigned role for permissions" }
+        ]
+    },
+    "oauth_config_definition": {
+        "name": "oauth_config_definition",
+        "description": "Configures OAuth providers for authentication (Google, Facebook, GitHub, etc.)",
+        "isSystem": true,
+        "uniques": [["provider"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "provider", "type": "enum", "options": ["google", "facebook", "github"], "isNullable": false, "isSystem": true, "description": "OAuth provider name" },
+            { "name": "clientId", "type": "varchar", "isNullable": false, "isSystem": true, "isHidden": true, "description": "OAuth client ID from the provider" },
+            { "name": "clientSecret", "type": "varchar", "isNullable": false, "isSystem": true, "isHidden": true, "description": "OAuth client secret from the provider" },
+            { "name": "redirectUri", "type": "varchar", "isNullable": false, "isSystem": true, "description": "OAuth provider callback URL registered with the provider (e.g., https://api.enfyra.com/auth/google/callback)" },
+            { "name": "appCallbackUrl", "type": "varchar", "isNullable": true, "isSystem": true, "description": "App callback URL where backend redirects with tokens after OAuth success (e.g., https://app.enfyra.com/api/auth/callback)" },
+            { "name": "scope", "type": "varchar", "isNullable": true, "isSystem": true, "description": "OAuth scopes (comma-separated, e.g., 'openid,email,profile')" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this OAuth provider is active" },
+            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of this OAuth configuration" }
+        ],
+        "relations": []
+    },
+    "oauth_account_definition": {
+        "name": "oauth_account_definition",
+        "description": "Links user accounts to OAuth providers for authentication",
+        "isSystem": true,
+        "uniques": [["provider", "providerUserId"]],
+        "indexes": [["user"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "provider", "type": "enum", "options": ["google", "facebook", "github"], "isNullable": false, "isSystem": true, "description": "OAuth provider name" },
+            { "name": "providerUserId", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique user ID from the OAuth provider" }
+        ],
+        "relations": [
+            { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "description": "The user account linked to this OAuth provider" }
         ]
     },
     "setting_definition": {
