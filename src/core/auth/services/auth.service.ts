@@ -93,6 +93,7 @@ export class AuthService {
       accessToken,
       refreshToken,
       expTime: decoded.exp * 1000,
+      loginProvider: null,
     };
   }
 
@@ -180,6 +181,7 @@ export class AuthService {
       accessToken,
       refreshToken,
       expTime: accessTokenDecoded.exp * 1000,
+      loginProvider: loginProvider ?? null,
     };
   }
 }

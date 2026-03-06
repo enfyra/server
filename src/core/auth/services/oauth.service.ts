@@ -85,6 +85,7 @@ export class OAuthService {
     accessToken: string;
     refreshToken: string;
     expTime: number;
+    loginProvider: string | null;
   }> {
     const config = this.oauthConfigCache.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
@@ -279,6 +280,7 @@ export class OAuthService {
     accessToken: string;
     refreshToken: string;
     expTime: number;
+    loginProvider: string | null;
   } {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB ? user._id : user.id;
@@ -301,6 +303,7 @@ export class OAuthService {
       accessToken,
       refreshToken,
       expTime: decoded.exp * 1000,
+      loginProvider,
     };
   }
 }

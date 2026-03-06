@@ -72,6 +72,7 @@ export class OAuthController {
       callbackUrl.searchParams.set('accessToken', tokens.accessToken);
       callbackUrl.searchParams.set('refreshToken', tokens.refreshToken);
       callbackUrl.searchParams.set('expTime', String(tokens.expTime));
+      callbackUrl.searchParams.set('loginProvider', tokens.loginProvider ?? '');
       callbackUrl.searchParams.set('redirect', redirectUrl);
 
       return res.redirect(callbackUrl.toString());
