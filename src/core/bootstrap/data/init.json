@@ -127,6 +127,14 @@
             "icon":"lucide:route"
         },
         {
+            "path": "/me/oauth-accounts",
+            "mainTable": "oauth_account_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:key",
+            "publishedMethods": ["GET"]
+        },
+        {
             "path": "/method_definition",
             "mainTable": "method_definition",
             "isEnabled": true,
@@ -340,6 +348,13 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key"
+        },
+        {
+            "path": "/oauth_account_definition",
+            "mainTable": "oauth_account_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:link"
         }
     ],
     "pre_hook_definition": [
@@ -626,18 +641,51 @@
             }
         },
         {
-            "type": "Menu",
+            "type": "Dropdown Menu",
             "label": "OAuth",
             "icon": "heroicons:key",
             "path": "/settings/oauth",
             "isEnabled": true,
             "isSystem": true,
-            "description": "OAuth provider configuration",
+            "description": "OAuth provider configuration and linked accounts",
             "order": 11,
             "parent": "Settings",
             "permission": {
+                "or": [
+                    { "route": "/oauth_config_definition", "actions": ["read"] },
+                    { "route": "/oauth_account_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Config",
+            "icon": "heroicons:cog-8-tooth",
+            "path": "/settings/oauth/config",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "OAuth provider configuration",
+            "order": 1,
+            "parent": "OAuth",
+            "permission": {
                 "and": [
                     { "route": "/oauth_config_definition", "actions": ["read"] }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Accounts",
+            "icon": "heroicons:link",
+            "path": "/settings/oauth/accounts",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Linked OAuth accounts",
+            "order": 2,
+            "parent": "OAuth",
+            "permission": {
+                "and": [
+                    { "route": "/oauth_account_definition", "actions": ["read"] }
                 ]
             }
         },

@@ -1,9 +1,11 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { Request } from 'express';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class MeService {
-  constructor() {}
+  constructor(private readonly queryBuilder: QueryBuilderService) {}
 
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
@@ -32,5 +34,16 @@ export class MeService {
     
     const userId = req.user._id || req.user.id;
     return await repo.update({ id: userId, data: body });
+  }
+
+  async findOAuthAccounts(req: Request & { user: any }) {
+    if (!req.user) throw new UnauthorizedException();
+    const userId = req.user._id || req.user.id;
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const where = isMongoDB
+      ? { user: userId instanceof ObjectId ? userId : new ObjectId(String(userId)) }
+      : { userId };
+    const data = await this.queryBuilder.findWhere('oauth_account_definition', where);
+    return { data };
   }
 }

@@ -18,4 +18,10 @@ export class MeController {
   update(@Body() body: any, @Req() req: Request & { user: any }) {
     return this.meService.update(body, req);
   }
+
+  @Public()
+  @Get('oauth-accounts')
+  findOAuthAccounts(@Req() req: Request & { user: any }) {
+    return this.meService.findOAuthAccounts(req);
+  }
 }
