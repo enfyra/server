@@ -17,7 +17,6 @@ export interface OAuthConfig {
   clientSecret: string;
   redirectUri: string;
   appCallbackUrl: string;
-  scope?: string;
   isEnabled: boolean;
   description?: string;
 }
@@ -108,7 +107,6 @@ export class OAuthConfigCacheService implements OnModuleInit, OnApplicationBoots
       clientSecret: config.clientSecret,
       redirectUri: config.redirectUri,
       appCallbackUrl: config.appCallbackUrl,
-      scope: config.scope,
       isEnabled: config.isEnabled !== false,
       description: config.description,
     }));

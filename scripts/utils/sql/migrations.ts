@@ -86,87 +86,6 @@ export async function applyColumnMigrations(
     });
   }
   if (diff.columnsToRemove.length > 0) {
-    console.log(`  🗑️  Removing ${diff.columnsToRemove.length} column(s) from ${tableName}:`);
-    for (const colName of diff.columnsToRemove) {
-      console.log(`    - ${colName}`);
-    }
-    for (const colName of diff.columnsToRemove) {
-      try {
-        if (dbType === 'mysql2') {
-          const fkConstraints = await knex.raw(`
-            SELECT CONSTRAINT_NAME
-            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = ?
-              AND COLUMN_NAME = ?
-              AND REFERENCED_TABLE_NAME IS NOT NULL
-          `, [tableName, colName]);
-          for (const row of fkConstraints[0]) {
-            const constraintName = row.CONSTRAINT_NAME;
-            console.log(`    ⚠️  Dropping FK constraint: ${constraintName}`);
-            await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
-          }
-          const uniqueConstraints = await knex.raw(`
-            SELECT DISTINCT CONSTRAINT_NAME
-            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = ?
-              AND COLUMN_NAME = ?
-              AND CONSTRAINT_NAME != 'PRIMARY'
-              AND REFERENCED_TABLE_NAME IS NULL
-          `, [tableName, colName]);
-          for (const row of uniqueConstraints[0]) {
-            const constraintName = row.CONSTRAINT_NAME;
-            console.log(`    ⚠️  Dropping UNIQUE constraint/index: ${constraintName}`);
-            try {
-              await knex.raw(`ALTER TABLE \`${tableName}\` DROP INDEX \`${constraintName}\``);
-            } catch (err) {
-            }
-          }
-        } else if (dbType === 'pg') {
-          const fkConstraints = await knex.raw(`
-            SELECT tc.constraint_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-              ON tc.constraint_name = kcu.constraint_name
-            WHERE tc.table_schema = 'public'
-              AND tc.table_name = ?
-              AND kcu.column_name = ?
-              AND tc.constraint_type = 'FOREIGN KEY'
-          `, [tableName, colName]);
-          for (const row of fkConstraints.rows) {
-            const constraintName = row.constraint_name;
-            console.log(`    ⚠️  Dropping FK constraint: ${constraintName}`);
-            await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
-          }
-          const uniqueConstraints = await knex.raw(`
-            SELECT tc.constraint_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-              ON tc.constraint_name = kcu.constraint_name
-            WHERE tc.table_schema = 'public'
-              AND tc.table_name = ?
-              AND kcu.column_name = ?
-              AND tc.constraint_type = 'UNIQUE'
-          `, [tableName, colName]);
-          for (const row of uniqueConstraints.rows) {
-            const constraintName = row.constraint_name;
-            console.log(`    ⚠️  Dropping UNIQUE constraint: ${constraintName}`);
-            try {
-              await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
-            } catch (err) {
-            }
-          }
-        }
-      } catch (error) {
-        console.log(`    ⚠️  Failed to drop constraints for ${colName}: ${error.message}`);
-      }
-    }
-    await knex.schema.alterTable(tableName, (table) => {
-      for (const colName of diff.columnsToRemove) {
-        table.dropColumn(colName);
-      }
-    });
   }
   if (diff.columnsToModify.length > 0) {
     console.log(`  ✏️  Modifying ${diff.columnsToModify.length} column(s) in ${tableName}:`);
@@ -371,43 +290,6 @@ export async function applyRelationMigrations(
   schemas: KnexTableSchema[],
 ): Promise<void> {
   if (diff.relationsToRemove.length > 0) {
-    console.log(`  🗑️  Removing ${diff.relationsToRemove.length} relation(s) from ${tableName}:`);
-    const dbType = knex.client.config.client;
-    for (const fkColumn of diff.relationsToRemove) {
-      console.log(`    - ${fkColumn}`);
-      if (dbType === 'mysql2') {
-        const fkConstraints = await knex.raw(`
-          SELECT CONSTRAINT_NAME
-          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-          WHERE TABLE_SCHEMA = DATABASE()
-            AND TABLE_NAME = ?
-            AND COLUMN_NAME = ?
-            AND REFERENCED_TABLE_NAME IS NOT NULL
-        `, [tableName, fkColumn]);
-        if (fkConstraints[0]?.length > 0) {
-          const constraintName = fkConstraints[0][0].CONSTRAINT_NAME;
-          await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
-        }
-      } else if (dbType === 'pg') {
-        const fkConstraints = await knex.raw(`
-          SELECT tc.constraint_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-          WHERE tc.table_schema = 'public'
-            AND tc.table_name = ?
-            AND kcu.column_name = ?
-            AND tc.constraint_type = 'FOREIGN KEY'
-        `, [tableName, fkColumn]);
-        if (fkConstraints.rows?.length > 0) {
-          const constraintName = fkConstraints.rows[0].constraint_name;
-          await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
-        }
-      }
-      await knex.schema.alterTable(tableName, (table) => {
-        table.dropColumn(fkColumn);
-      });
-    }
   }
   if (diff.relationsToAdd.length > 0) {
     const m2oRelations = diff.relationsToAdd.filter(r => {

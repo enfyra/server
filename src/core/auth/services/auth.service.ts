@@ -53,12 +53,14 @@ export class AuthService {
           user: userId,
           expiredAt: expiredAt,
           remember: remember,
+          loginProvider: null,
         }
       : {
           id: randomUUID(),
           userId: userId.toString(),
           expiredAt: expiredAt,
           remember: remember,
+          loginProvider: null,
         };
 
     const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
@@ -70,6 +72,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(
       {
         id: isMongoDB ? user._id : user.id,
+        loginProvider: null,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),
@@ -148,9 +151,12 @@ export class AuthService {
       expiredAt: newExpiredAt,
     });
 
+    const loginProvider = session.loginProvider ?? null;
+
     const accessToken = this.jwtService.sign(
       {
         id: userId,
+        loginProvider,
       },
       {
         expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP'),

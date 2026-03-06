@@ -55,7 +55,7 @@ export class OAuthService {
     }
 
     const urls = this.providerUrls[provider];
-    const scope = config.scope || this.getDefaultScope(provider);
+    const scope = this.getDefaultScope(provider);
 
     const params = new URLSearchParams({
       client_id: config.clientId,
@@ -101,7 +101,7 @@ export class OAuthService {
 
     const user = await this.findOrCreateUser(provider, userInfo);
 
-    const session = await this.createSession(user);
+    const session = await this.createSession(user, provider);
 
     return this.generateTokens(user, session);
   }
@@ -251,7 +251,7 @@ export class OAuthService {
     return user;
   }
 
-  private async createSession(user: any): Promise<any> {
+  private async createSession(user: any, provider: OAuthProvider): Promise<any> {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB ? user._id : user.id;
 
@@ -262,12 +262,14 @@ export class OAuthService {
           user: userId,
           expiredAt,
           remember: true,
+          loginProvider: provider,
         }
       : {
           id: randomUUID(),
           userId: userId.toString(),
           expiredAt,
           remember: true,
+          loginProvider: provider,
         };
 
     return this.queryBuilder.insertAndGet('session_definition', sessionData);
@@ -281,9 +283,10 @@ export class OAuthService {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB ? user._id : user.id;
     const sessionId = isMongoDB ? session._id : session.id;
+    const loginProvider = session.loginProvider ?? null;
 
     const accessToken = this.jwtService.sign(
-      { id: userId },
+      { id: userId, loginProvider },
       { expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') }
     );
 

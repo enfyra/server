@@ -12,7 +12,15 @@ export class MeService {
       throw new Error('Repository not found in route context');
     }
     const userId = req.user._id || req.user.id;
-    return await repo.find({ where: { id: { _eq: userId } } });
+    const result = await repo.find({ where: { id: { _eq: userId } } });
+    const loginProvider = req.user.loginProvider ?? null;
+    if (result?.data && Array.isArray(result.data)) {
+      return {
+        ...result,
+        data: result.data.map((item: any) => ({ ...item, loginProvider })),
+      };
+    }
+    return result;
   }
 
   async update(body: any, req: Request & { user: any; routeData?: any }) {
