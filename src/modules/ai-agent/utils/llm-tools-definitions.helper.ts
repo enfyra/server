@@ -183,6 +183,10 @@ Returns:
     name: 'create_tables',
     description: `Purpose → Create one or multiple tables. Processes tables sequentially internally to avoid deadlocks.
 
+SCHEMA LOCK - ONE TABLE PER CALL:
+- Pass exactly 1 table per call, wait for result, then call again for next table
+- Passing multiple tables causes "Schema đang được cập nhật" and most will fail
+
 Inputs:
 - tables (required): Array of table definition objects. For single table, use array with 1 element.
 
@@ -268,6 +272,10 @@ Detailed workflows, step-by-step instructions, and validation rules are provided
     name: 'update_tables',
     description: `Purpose → Update one or multiple existing tables. Processes tables sequentially internally to avoid deadlocks.
 
+SCHEMA LOCK - ONE TABLE PER CALL:
+- Pass exactly 1 table per call, wait for result, then call again for next table
+- Passing multiple tables causes "Schema đang được cập nhật" and most will fail
+
 Inputs:
 - tables (required): Array of table update objects. For single table, use array with 1 element.
 
@@ -330,6 +338,11 @@ Detailed workflows and step-by-step instructions are provided in the "RELEVANT W
   {
     name: 'delete_tables',
     description: `Purpose → Delete one or multiple tables by their IDs. This tool permanently removes the table structure and all its data. Processes tables sequentially internally.
+
+SCHEMA LOCK - ONE TABLE PER CALL:
+- Pass exactly 1 id per call, wait for result, then call again for next table
+- Passing multiple ids causes "Schema đang được cập nhật" and most deletes will fail
+- Example: 10 tables → delete_tables({"ids":[1]}), wait → delete_tables({"ids":[2]}), etc.
 
 CRITICAL - Find Table IDs First:
 - This tool ONLY accepts table IDs (array of numbers), NOT table names
