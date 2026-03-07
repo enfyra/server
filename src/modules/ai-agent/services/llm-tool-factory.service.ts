@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { z } from 'zod';
 import { ToolExecutor } from '../utils/tool-executor.helper';
@@ -10,6 +11,8 @@ import { RouteCacheService } from '../../../infrastructure/cache/services/route-
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { ConversationService } from './conversation.service';
+import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { BcryptService } from '../../../core/auth/services/bcrypt.service';
 
 @Injectable()
 export class LLMToolFactoryService {
@@ -25,6 +28,9 @@ export class LLMToolFactoryService {
     private readonly tableValidationService: TableValidationService,
     private readonly conversationService: ConversationService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly handlerExecutorService: HandlerExecutorService,
+    private readonly configService: ConfigService,
+    private readonly bcryptService: BcryptService,
   ) {
     this.toolExecutor = new ToolExecutor(
       this.metadataCacheService,
@@ -36,6 +42,9 @@ export class LLMToolFactoryService {
       this.tableValidationService,
       this.conversationService,
       this.eventEmitter,
+      this.handlerExecutorService,
+      this.configService,
+      this.bcryptService,
     );
   }
 

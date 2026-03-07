@@ -53,13 +53,13 @@ export function buildHintContent(dbType: string, idFieldName: string, categories
 Structure: create_tables({"tables":[{"name":"products","columns":[{"name":"${idFieldName}","type":"${isMongoDB ? 'uuid' : 'int'}","isPrimary":true,"isGenerated":true},{"name":"name","type":"varchar"}]}]})
 
 **With Relations** (CRITICAL):
-1. Find target table ID FIRST: find_records({"table":"table_definition","where":{"name":{"_eq":"categories"}},"fields":"${idFieldName}"})
+1. Find target table ID FIRST: find_records({"table":"table_definition","filter":{"name":{"_eq":"categories"}},"fields":"${idFieldName}"})
 2. Use ID in relation: {"propertyName":"category","type":"many-to-one","targetTable":{"id":19}}
 3. NEVER use table name or hardcoded ID without verification
 
 **Multi-table with Relations:**
 1. Create base tables first (no relations)
-2. Find their IDs: find_records({"table":"table_definition","where":{"name":{"_in":["categories","instructors"]}}})
+2. Find their IDs: find_records({"table":"table_definition","filter":{"name":{"_in":["categories","instructors"]}}})
 3. Create dependent tables with relations using IDs from step 2
 
 **UPDATE Tables:**
@@ -71,6 +71,11 @@ update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","typ
 - To change relation type: MUST delete existing relation first, then create new one with different type
 - Workflow to change type: delete_tables (to remove relation) → create_tables or update_tables (to add new relation with new type)
 - Add new relation: Find target ID first, then update_tables with relations array
+
+**CRITICAL - create_tables AUTO-CREATES route:**
+- When create_tables succeeds, route /{table_name} is AUTO-CREATED (path, mainTable, isEnabled:true)
+- Do NOT create route_definition for the new table - it already exists
+- To add handler/hook: find_records route_definition filter path._eq, then create pre_hook/post_hook or route_handler_definition
 
 **CRITICAL:**
 - Table name: snake_case, lowercase, not start with "_"
@@ -96,7 +101,7 @@ update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","typ
   const tableDeletionContent = `**Table Deletion**
 
 **Workflow:**
-1. Find ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName}"})
+1. Find ID: find_records({"table":"table_definition","filter":{"name":{"_eq":"products"}},"fields":"${idFieldName}"})
 2. Delete: delete_tables({"ids":[19]})
 Multiple tables: find_records with name._in, then delete ONE at a time: delete_tables({"ids":[19]}), wait → delete_tables({"ids":[20]}), etc.
 
@@ -125,7 +130,7 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
 1. get_table_details({"tableName":["product"]}) → Check required fields & relations
 2. If required relations exist (isNullable=false): Query related table for valid IDs
    find_records({"table":"categories","fields":"${idFieldName},name","limit":10})
-3. Check unique constraints: find_records with where clause
+3. Check unique constraints: find_records with filter clause
 4. Create: create_records({"table":"product","dataArray":[{"name":"Laptop","price":999.99,"category":{"id":19}}],"fields":"${idFieldName}"}) — relations: use propertyName (category) with {id}, NOT categoryId
 
 **BATCHING for Multiple Records (CRITICAL):**
@@ -136,7 +141,7 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
 - NEVER call create_records/update_records with all records in one call if > 100 records
 
 **UPDATE Records:**
-1. Check exists: find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}}})
+1. Check exists: find_records({"table":"product","filter":{"${idFieldName}":{"_eq":1}}})
 2. Update: update_records({"table":"product","updates":[{"id":1,"data":{"price":899.99}}],"fields":"${idFieldName}"})
 - Same batching rule applies: if updating > 100 records, split into batches of 100
 
@@ -158,7 +163,7 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
   const crudDeleteOpsContent = `**CRUD Delete Operations**
 
 **Workflow:**
-1. Verify exists: find_records({"table":"product","where":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}"})
+1. Verify exists: find_records({"table":"product","filter":{"${idFieldName}":{"_eq":1}},"fields":"${idFieldName}"})
 2. Delete: delete_records({"table":"product","ids":[1]})
 Batch: delete_records({"table":"product","ids":[1,2,3]})
 
@@ -182,15 +187,15 @@ Batch: delete_records({"table":"product","ids":[1,2,3]})
 3. Use ONLY verified fields in query - NEVER guess field names
 
 **Find Records:**
-find_records({"table":"product","fields":"${idFieldName},name,price","where":{"price":{"_gt":100}},"limit":10,"sort":"-price"})
+find_records({"table":"product","fields":"${idFieldName},name,price","filter":{"price":{"_gt":100}},"limit":10,"sort":"-price"})
 
 **Count Records:**
 - Total: find_records({"table":"product","fields":"${idFieldName}","limit":1,"meta":"totalCount"})
-- With filter: find_records({"table":"product","fields":"${idFieldName}","where":{"price":{"_gt":100}},"limit":1,"meta":"filterCount"})
+- With filter: find_records({"table":"product","fields":"${idFieldName}","filter":{"price":{"_gt":100}},"limit":1,"meta":"filterCount"})
 Read count from response metadata
 
 **Relations:**
-find_records({"table":"order","fields":"${idFieldName},customer.name","where":{"customer":{"name":{"_eq":"John"}}}})
+find_records({"table":"order","fields":"${idFieldName},customer.name","filter":{"customer":{"name":{"_eq":"John"}}}})
 
 **Operators:** _eq, _neq, _gt, _gte, _lt, _lte, _contains, _in, _between, _is_null, _and, _or`;
 
@@ -250,7 +255,7 @@ Error handling:
 
 **List Tables:**
 - All: find_records({"table":"table_definition","fields":"name,isSystem","limit":0})
-- User tables only: find_records({"table":"table_definition","where":{"isSystem":{"_eq":false}},"fields":"name","limit":0})
+- User tables only: find_records({"table":"table_definition","filter":{"isSystem":{"_eq":false}},"fields":"name","limit":0})
 
 **Get Schema:**
 - Single: get_table_details({"tableName":["product"]})
@@ -292,6 +297,10 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
   const routesEndpointsContent = `**Routes & Endpoints Discovery**
 
+**CRITICAL - create_tables AUTO-CREATES route /{table_name}:**
+- When a table is created via create_tables, route /{table_name} is AUTO-CREATED (path, mainTable, isEnabled)
+- Do NOT create route_definition for /{table_name} - it already exists. Just add handler/hook if needed.
+
 **CRITICAL - NEVER invent routes. ALWAYS query route_definition table first.**
 
 **$repos in route handler – targetTables only (agent MUST NOT set mainTable):**
@@ -301,7 +310,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **Making route PUBLIC (no auth required):**
 - Update route_definition with publishedMethods – add the method (e.g. GET)
-- Workflow: 1) find_records route_definition where path._eq, fields: id,publishedMethods.id. 2) find_records method_definition where method._eq GET. 3) update_records route_definition with data: {publishedMethods: [..., {id: getMethodId}]} (include existing + new)
+- Workflow: 1) find_records route_definition filter path._eq, fields: id,publishedMethods.id. 2) find_records method_definition filter method._eq GET. 3) update_records route_definition with data: {publishedMethods: [..., {id: getMethodId}]} (include existing + new)
 - Do NOT create route_permission_definition for public – use publishedMethods on route_definition only
 - CRITICAL: Update via route_definition (not route_permission) so route cache reloads correctly
 
@@ -312,19 +321,19 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - You MUST query route_definition to find the ACTUAL path - NEVER assume
 
 **Find Available Routes:**
-1. Query all enabled routes: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true}},"fields":"path,mainTable.name","limit":0})
-2. Filter by table: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"mainTable.name":{"_eq":"products"}},"fields":"path","limit":0})
-3. Search by path: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"path":{"_contains":"product"}},"fields":"path,mainTable.name","limit":10})
+1. Query all enabled routes: find_records({"table":"route_definition","filter":{"isEnabled":{"_eq":true}},"fields":"path,mainTable.name","limit":0})
+2. Filter by table: find_records({"table":"route_definition","filter":{"isEnabled":{"_eq":true},"mainTable.name":{"_eq":"products"}},"fields":"path","limit":0})
+3. Search by path: find_records({"table":"route_definition","filter":{"isEnabled":{"_eq":true},"path":{"_contains":"product"}},"fields":"path,mainTable.name","limit":10})
 
 **Get Route Details:**
 - Get full schema: get_table_details({"tableName":["route_definition"]})
-- Query specific route: find_records({"table":"route_definition","where":{"path":{"_eq":"/products"},"isEnabled":{"_eq":true}},"fields":"path,mainTable.name,publishedMethods.method","limit":1})
+- Query specific route: find_records({"table":"route_definition","filter":{"path":{"_eq":"/products"},"isEnabled":{"_eq":true}},"fields":"path,mainTable.name,publishedMethods.method","limit":1})
 
 **Delete route (workflow):**
-1. find_records route_definition where path._eq → routeId
-2. find_records route_handler_definition where route.id._eq routeId → handler ids
+1. find_records route_definition filter path._eq → routeId
+2. find_records route_handler_definition filter route.id._eq routeId → handler ids
 3. delete_records route_handler_definition with ids:[...] (delete handlers first)
-4. delete_records route_definition with ids:[routeId]. Use ids NOT where.
+4. delete_records route_definition with ids:[routeId]. Use ids NOT filter.
 
 **CRITICAL Rules:**
 - NEVER guess or invent route paths - ALWAYS query route_definition first
@@ -353,51 +362,79 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 **CRITICAL - Use #table_name, NOT #main:**
 - ALWAYS use #<table_name> (e.g. #user_definition, #products) in handler logic. NEVER use #main.
 - #main is only valid if route.mainTable equals the table you need - you must verify mainTable first. When in doubt, use #table_name.
-- Example: "return #user_definition.find({ where: { email: @BODY.email }, limit: 1 });" NOT "return #main.find(...)"
+- Example: "return #user_definition.find({ filter: { email: @BODY.email }, limit: 1 });" NOT "return #main.find(...)"
 
 **Context available (route handler only):**
-- @BODY: request body | @PARAMS, @QUERY: params/query | @USER: logged-in user
-- #<table_name>: repos from route.targetTables. API: .find({ where, limit }) → { data: [...] }; .create({ data: {...} }); .update({ id, data: {...} }); .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object.
+- @BODY: request body | @PARAMS: route params | @QUERY: query (filter, fields, limit, sort, page, meta). Use @QUERY.filter (not where) | @USER: logged-in user
+- #<table_name>: repos from route.targetTables. API: .find({ filter, limit }) → { data: [...] }; .create({ data: {...} }); .update({ id, data: {...} }); .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object.
 - @HELPERS: bcrypt via @HELPERS.$bcrypt.hash(plain), @HELPERS.$bcrypt.compare(plain, hash). Use @HELPERS.$bcrypt - NEVER $bcrypt.
 - @RES: response | @CACHE | @THROW4xx/5xx | @UPLOADED_FILE
 
 **PREFER template syntax:** @BODY, #user_definition, @THROW404 instead of $ctx.$body, $ctx.$repos.main, etc.
 
-**CRITICAL - Custom handler: show code first, then create after confirm:**
-- When creating or updating handler logic: 1) Write the handler code. 2) Show it to the user (in code block). 3) Ask for confirmation in user's language. 4) Only after user confirms, create_records/update_records route_handler_definition with that logic.
-- NEVER create/update route_handler_definition without showing the logic to user and getting confirmation first.
+**CRITICAL - Test BEFORE writing/saving ANY custom code (handler, hook, websocket):**
+- MUST run_handler_test BEFORE create/update for route_handler_definition, pre_hook_definition, post_hook_definition, bootstrap_script_definition, websocket handlers.
+- Order: 1) Write draft code. 2) run_handler_test FIRST to verify. 3) If error: use fixGuidance + nextSteps from response to fix, retry. 4) After success: cleanup test records. 5) Show code, ask confirm. 6) create/update only after confirm.
+- NEVER create/update any handler/hook/ws record without run_handler_test success + cleanup + user confirmation.
 
-**Workflow to create route + handler (for fetching records from table X):**
-1. find_records table_definition → tableId. 2. create_records route_definition with targetTables (NO mainTable). 3. find_records method_definition → methodId. 4. Write handler logic, show to user, ask confirm. 5. After confirm: create_records route_handler_definition with the logic. Use #<table_name>, NEVER #main.
-- If route already exists: update_records with targetTables only before adding handler.
+**CRITICAL - For update/delete handlers: create new record first to test:**
+- NEVER test update or delete on existing records. Create a new record via create_records, then test update/delete on that new record, then delete_records to cleanup.
 
-**Workflow to create handler only (route already exists):**
-1. find_records route_definition, method_definition. 2. If route needs targetTables: update_records. 3. Write handler logic, show to user, ask confirm in user's language. 4. After confirm: create_records route_handler_definition. Use #table_name NOT #main.
+**Workflow - NEW table + handler (e.g. posts with RLS):**
+1. create_tables for table (route /{table_name} is AUTO-CREATED). 2. find_records route_definition filter path._eq "/posts" → routeId. 3. find_records method_definition (GET). 4. Write handler/hook, run_handler_test. 5. Cleanup, ask confirm. 6. create_records pre_hook_definition (for RLS) or route_handler_definition. Do NOT create route - it exists.
 
-**Logic structure:** return { data: ... } or throw. Example: return #user_definition.find({ where: {}, limit: 10 }); Use #table_name, never #main.
+**Workflow - EXISTING table + handler (route already auto-created when table was created):**
+1. find_records route_definition filter mainTable.name._eq or path._eq. 2. find_records method_definition. 3. Write handler/hook, run_handler_test. 4. Cleanup, ask confirm. 5. create_records pre_hook/post_hook or route_handler_definition. Do NOT create route - it exists.
 
-**Delete route + handler:** 1) find_records route_definition where path._eq → routeId. 2) find_records route_handler_definition where route.id._eq routeId → handler ids. 3) delete_records route_handler_definition ids:[...]. 4) delete_records route_definition ids:[routeId]. Use ids, NOT where.
+**Workflow - CUSTOM route (path different from /{table_name}):**
+- Only create route_definition when path is NOT /{table_name}. For standard /{table_name}, route is auto-created.
+
+**Logic structure:** return { data: ... } or throw. Example: return #user_definition.find({ filter: {}, limit: 10 }); Use #table_name, never #main.
+
+**Delete route + handler:** 1) find_records route_definition filter path._eq → routeId. 2) find_records route_handler_definition filter route.id._eq routeId → handler ids. 3) delete_records route_handler_definition ids:[...]. 4) delete_records route_definition ids:[routeId]. Use ids, NOT filter.
 
 **Route + public access:** When creating route with handler, if route should be public (no auth): add publishedMethods to route_definition (e.g. icon, publishedMethods). For "make public" later: update_records route_definition with publishedMethods (add method id). Do NOT create route_permission_definition for public.
+
+**Testing handler before deploy (run_handler_test) – MANDATORY before create/update:**
+- MUST run_handler_test before done. After test: cleanup. Then ask confirm and create/update.
+- For update/delete: create_records first → run_handler_test on new record → delete_records to cleanup.
+- Workflow: 1) get_table_details. 2) Write handler. 3) run_handler_test. 4) If error: read fixGuidance and nextSteps, fix code, retry. 5) Cleanup. 6) Ask confirm → create/update.
+- Example: run_handler_test({"table":"products","handlerCode":"return await #products.find({ limit: 5 });"})
+
+**run_handler_test error response – fix strategy:**
+- When success=false, response includes: errorKind, fixGuidance, nextSteps, location?, codeContext?.
+- errorKind → fix: SYNTAX_ERROR (brackets, quotes, typos) | REFERENCE_ERROR (#table typo, @BODY typo) | TYPE_ERROR (.find/.create args, null check) | SCRIPT_TIMEOUT (reduce limit, increase timeoutMs) | BUSINESS_LOGIC (fix validation) | RESOURCE_NOT_FOUND (create test record) | VALIDATION_ERROR (check schema, body) | DATABASE_QUERY (filter operators) | HELPER_NOT_FOUND (@HELPERS.$bcrypt) | TABLE_NOT_FOUND (verify table name).
+- ALWAYS follow nextSteps to fix, then retry run_handler_test.
 
 **Registration/Signup handlers (CRITICAL - Security):**
 - NEVER read isSystem, isRootAdmin from @BODY - set server-side: isSystem: false, isRootAdmin: false (or from safe defaults)
 - For relations: Use propertyName (e.g. role) NOT foreignKeyColumn (roleId). Example: role: @BODY.role ? { id: @BODY.role } : null
 - Request body for registration should only include: email, role (optional, as id). Exclude isSystem, isRootAdmin
 - Hash password: const hashed = await @HELPERS.$bcrypt.hash(@BODY.password). NEVER use $bcrypt - use @HELPERS.$bcrypt
-- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ where: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); return await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } });`;
+- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ filter: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); return await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } });`;
 
   const hookOpsContent = `**Pre/Post Hooks** – Ctx: $body,$params,$query,$user,$repos,$res,$api,$cache,$helpers,$throw. Pre: no $data. Post: +$data,$api.response. Pre return → short-circuit.
 
+**CRITICAL – @QUERY uses filter, NOT where:**
+- API query params: filter, fields, limit, sort, page, meta, aggregate, deep
+- To modify query in pre-hook: use @QUERY.filter (not @QUERY.where)
+- Example RLS (only author sees own posts): @QUERY.filter = { ...(@QUERY.filter || {}), author: { id: { _eq: @USER.id } } };
+
 **CRITICAL – methods is REQUIRED:** Hook runs ONLY when request method (GET/POST/etc.) matches hook's methods. If methods is empty, hook NEVER runs.
 
-**Workflow:** 1) find_records method_definition where method._eq GET (or POST, etc.) → methodId. 2) find_records route_definition where path._eq → routeId. 3) create_records pre_hook_definition: route:{id:routeId}, methods:[{id:methodId}], code, isEnabled:true. MUST include methods array. isGlobal:true + route:null → all routes.`;
+**CRITICAL – Test before save:** MUST run_handler_test before create/update hook. Use table from route's targetTables. On error: follow fixGuidance + nextSteps, fix, retry.
+
+**RLS pre-hook example (filter by current user):**
+if (!@USER) return { error: "Unauthorized" };
+@QUERY.filter = { ...(@QUERY.filter || {}), author: { id: { _eq: @USER.id } } };
+
+**Workflow:** 1) find_records method_definition, route_definition. 2) Write hook code. 3) run_handler_test to verify. 4) On error: fix per fixGuidance. 5) Cleanup, ask confirm. 6) create_records pre_hook_definition: route:{id}, methods:[{id}], code, isEnabled:true. MUST include methods array.`;
 
   const hookOpsHint: HintContent = {
     category: 'hook_operations',
     title: 'Pre/Post Hook Operations',
     content: hookOpsContent,
-    tools: ['find_records', 'create_records', 'update_records'],
+    tools: ['find_records', 'create_records', 'update_records', 'run_handler_test', 'get_table_details'],
   };
 
   const bootstrapOpsContent = `**Bootstrap Script Operations** – Runs on app startup (no HTTP request).
@@ -407,43 +444,47 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - @CACHE | @HELPERS (autoSlug) | @THROW | @LOGS
 - No: @BODY, @USER, @REQ, @RES, @PARAMS, @QUERY, @UPLOADED_FILE, @SOCKET
 
-**Workflow:** create_records bootstrap_script_definition with name (unique), logic, priority (lower=first), isEnabled:true, description. Update: update_records bootstrap_script_definition.
+**CRITICAL – Test before save:** MUST run_handler_test before create/update bootstrap. Pass table from logic (e.g. #role_definition → table:"role_definition"). On error: fix per fixGuidance, retry.
 
-**Fields:** name, description, logic (code), timeout (ms), priority (int, default 0), isEnabled (default true).
+**Workflow:** 1) Write logic. 2) run_handler_test to verify. 3) On error: fix. 4) Ask confirm. 5) create_records bootstrap_script_definition: name, logic, priority, isEnabled:true.
 
-**Logic pattern:** Use #<table_name>. API: .find({ where, limit }) → { data }; .create({ data: {...} }). Example: const res = await #role_definition.find({ limit: 10 }); const roles = res?.data || [];`;
+**Fields:** name, description, logic (code), timeout (ms), priority (int), isEnabled (default true).
+
+**Logic pattern:** Use #<table_name>. .find({ filter, limit }) → { data }; .create({ data: {...} }).`;
 
   const bootstrapOpsHint: HintContent = {
     category: 'bootstrap_operations',
     title: 'Bootstrap Script Operations',
     content: bootstrapOpsContent,
-    tools: ['create_records', 'update_records', 'find_records'],
+    tools: ['create_records', 'update_records', 'find_records', 'run_handler_test', 'get_table_details'],
   };
 
   const websocketOpsContent = `**WebSocket Handler Operations** – Real-time connection + event handlers.
 
 **Context by type:**
-- Connection (connectionHandlerScript): @BODY = clientInfo, @USER, @SOCKET (emit, join, leave, to, rooms). $repos = {} (empty – no table access).
+- Connection (connectionHandlerScript): @BODY = clientInfo, @USER, @SOCKET (emit, join, leave, to, rooms). $repos = {} (empty).
 - Event (handlerScript): @BODY = event payload, @USER, @SOCKET. $repos = {} (empty).
 
-**Gateway workflow:** create_records websocket_definition: path (e.g. /chat), description, isEnabled:true, requireAuth, connectionHandlerScript (optional). Update connectionHandlerScript via update_records.
+**CRITICAL – Test before save:** For WebSocket handlers ($repos empty), run_handler_test with table:"user_definition" (or any table) to test @BODY/@SOCKET logic if needed. On error: follow fixGuidance, fix, retry.
 
-**Event workflow:** 1) find_records websocket_definition where path._eq → gatewayId. 2) create_records websocket_event_definition: gateway:{id}, eventName (e.g. sendMessage), handlerScript, isEnabled:true. Update handlerScript via update_records.
+**Gateway workflow:** Write connectionHandlerScript → run_handler_test if applicable → create_records websocket_definition: path, connectionHandlerScript, isEnabled:true.
 
-**PREFER template:** @BODY, @SOCKET, @THROW. No #table – WebSocket handlers cannot access $repos.`;
+**Event workflow:** find_records websocket_definition → create_records websocket_event_definition: gateway:{id}, eventName, handlerScript. Test before save.
+
+**PREFER template:** @BODY, @SOCKET, @THROW. No #table in WebSocket handlers.`;
 
   const websocketOpsHint: HintContent = {
     category: 'websocket_operations',
     title: 'WebSocket Handler Operations',
     content: websocketOpsContent,
-    tools: ['find_records', 'create_records', 'update_records'],
+    tools: ['find_records', 'create_records', 'update_records', 'run_handler_test'],
   };
 
   const handlerOpsHint: HintContent = {
     category: 'handler_operations',
     title: 'Route Handler Operations (Custom Logic)',
     content: handlerOpsContent,
-    tools: ['find_records', 'create_records', 'update_records', 'delete_records'],
+    tools: ['find_records', 'create_records', 'update_records', 'delete_records', 'run_handler_test', 'get_table_details'],
   };
 
   allHints.push(
