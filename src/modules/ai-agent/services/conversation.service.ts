@@ -185,7 +185,7 @@ export class ConversationService {
     }
     const result = await repo.find({
       where,
-      fields: 'columns.*',
+      fields: '*',
       limit: limit ?? 0,
       sort: sort || 'sequence',
     });

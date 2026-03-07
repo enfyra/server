@@ -152,7 +152,7 @@ export async function buildLLMMessages(params: {
 
         if (!hasToolCalls && assistantContent) {
           const messageIndex = messages.indexOf(message);
-          const isRecentMessage = messageIndex >= messages.length - 4; 
+          const isRecentMessage = messageIndex >= messages.length - 12;
 
           if (!isRecentMessage) {
             skippedCount++;

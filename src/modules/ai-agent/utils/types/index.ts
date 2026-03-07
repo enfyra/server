@@ -338,6 +338,5 @@ export interface BuildSystemPromptParams {
     result?: any;
   };
   hintContent?: string;
-  baseApiUrl?: string;
 }
 

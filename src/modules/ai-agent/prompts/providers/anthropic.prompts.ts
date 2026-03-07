@@ -7,7 +7,7 @@ FORMAT RULES (FOLLOW EXACTLY):
 - If no tools are needed, output {"categories": []}
 
 Examples:
-{"user": "Create backend bán khóa học", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
+{"user": "Create backend for course sales", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
 {"user": "Create 5 tables", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
 {"user": "Find products", "output": {"categories": ["crud_query_operations"]}}
 {"user": "Hello", "output": {"categories": []}}`;

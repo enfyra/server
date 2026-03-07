@@ -74,6 +74,17 @@ export async function executeDynamicRepository(
       args.limit = 1;
     }
   }
+  // LLM (OpenAI, GLM...) sometimes sends where as JSON string; query builder expects object
+  if (args.where != null && typeof args.where === 'string') {
+    try {
+      const trimmed = args.where.trim();
+      if (trimmed && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        args.where = JSON.parse(trimmed);
+      }
+    } catch (e) {
+      logger.warn(`[dynamic_repository] Failed to parse where string for ${args.table}: ${(e as Error)?.message}`);
+    }
+  }
   const {
     queryBuilder,
     tableHandlerService,
