@@ -167,7 +167,10 @@ export function formatToolResultSummary(toolName: string, toolArgs: any, result:
         const reason = result.reason || result.message || 'unknown';
         return `[create_records] ${table} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to create records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
       }
-      const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+      if (result.errorCode === 'INVALID_ROUTE_DEFINITION_PAYLOAD') {
+        return `[create_records] ${table} -> ERROR: Do NOT include mainTable in route_definition. Use targetTables only: { path, targetTables: [{id: tableId}], isEnabled: true }. Remove mainTable and retry.`;
+      }
+      const message = typeof result.error === 'string' ? result.error : (result.message || result.userMessage || JSON.stringify(result.error));
       const errorMessage = truncateString(message, 500);
       const errorCode = result.errorCode ? ` (${result.errorCode})` : '';
       return `[create_records] ${table} -> ERROR${errorCode}: ${errorMessage}`;
@@ -191,7 +194,10 @@ export function formatToolResultSummary(toolName: string, toolArgs: any, result:
         const reason = result.reason || result.message || 'unknown';
         return `[update_records] ${table} id=${id} -> PERMISSION DENIED: You MUST inform the user: "You do not have permission to update records in table ${table}. Reason: ${reason}. Please check your access rights or contact an administrator." Then STOP - do NOT retry this operation or call any other tools.`;
       }
-      const message = typeof result.error === 'string' ? result.error : JSON.stringify(result.error);
+      if (result.errorCode === 'INVALID_ROUTE_DEFINITION_PAYLOAD') {
+        return `[update_records] ${table} -> ERROR: Do NOT include mainTable in route_definition. Use targetTables only. Remove mainTable from data and retry.`;
+      }
+      const message = typeof result.error === 'string' ? result.error : (result.message || result.userMessage || JSON.stringify(result.error));
       const errorMessage = truncateString(message, 500);
       const errorCode = result.errorCode ? ` (${result.errorCode})` : '';
       return `[update_records] ${table} id=${id} -> ERROR${errorCode}: ${errorMessage}`;

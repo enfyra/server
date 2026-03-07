@@ -100,11 +100,37 @@ export async function executeBatchDynamicRepository(
       }
     }
   }
+  const ROUTE_DEFINITION_MAINTABLE_ERROR = {
+    error: true,
+    errorCode: 'INVALID_ROUTE_DEFINITION_PAYLOAD',
+    message: 'Agent MUST NOT set mainTable on route_definition. Use targetTables only.',
+    userMessage: `❌ **Invalid route_definition payload**: You must NOT include mainTable or mainTableId when creating/updating route_definition.\n\n📋 **Correct format**: Use targetTables only. Example: { path: "/register", targetTables: [{id: tableId}], isEnabled: true }.\n\n💡 **Note**: mainTable is system-managed. Link tables via targetTables: [{id: tableId}].`,
+    suggestion: 'Remove mainTable and mainTableId from the payload. Use targetTables to link tables the handler needs.',
+  };
+
   try {
     const safeFields = args.fields && args.fields.trim() ? args.fields : 'id';
     const validOperations = ['batch_create', 'batch_update', 'batch_delete'];
     if (!validOperations.includes(args.operation)) {
       throw new Error(`Invalid operation: "${args.operation}". Valid operations are: ${validOperations.join(', ')}. For finding records, use find_records tool instead.`);
+    }
+    if (args.table === 'route_definition') {
+      if (args.operation === 'batch_create' && args.dataArray) {
+        const hasMainTable = args.dataArray.some((item: any) =>
+          item?.mainTable !== undefined || item?.mainTableId !== undefined,
+        );
+        if (hasMainTable) {
+          return ROUTE_DEFINITION_MAINTABLE_ERROR;
+        }
+      }
+      if (args.operation === 'batch_update' && args.updates) {
+        const hasMainTable = args.updates.some((u: any) =>
+          u?.data && (u.data.mainTable !== undefined || u.data.mainTableId !== undefined),
+        );
+        if (hasMainTable) {
+          return ROUTE_DEFINITION_MAINTABLE_ERROR;
+        }
+      }
     }
     const results: any[] = [];
     const errors: any[] = [];
