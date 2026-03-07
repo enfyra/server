@@ -37,6 +37,7 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "create/update X tables" (X > 1, e.g., "5 tables", "3 tables", "multiple tables") → ["system_workflows", "table_schema_operations"]
 - "delete table" → ["table_deletion"]
 - "custom handler" / "route handler" / "logic for route" / "handler for POST /x" / "write handler code" / "add handler to route" → ["handler_operations"]
+- "test handler" / "run handler" / "try handler" / "test custom logic" / "run handler test" / "execute handler" → ["handler_operations"]
 - "pre-hook" / "post-hook" / "pre hook" / "post hook" / "hook before" / "hook after" / "validate before route" / "log after" / "run before route" / "run after route" → ["hook_operations"]
 - "bootstrap" / "startup script" / "run on app start" / "init script" / "seed data on start" / "script on startup" → ["bootstrap_operations"]
 - "websocket" / "WebSocket" / "connection handler" / "event handler" / "real-time" / "gateway /chat" / "when client connects" / "handler for event X" → ["websocket_operations"]
@@ -99,6 +100,8 @@ Examples:
 {"user": "Remove endpoint /api/users", "output": {"categories": ["routes_endpoints"]}}
 {"user": "Create custom handler for POST /products", "output": {"categories": ["handler_operations"]}}
 {"user": "Add handler to route /checkout", "output": {"categories": ["handler_operations"]}}
+{"user": "Test handler for products", "output": {"categories": ["handler_operations"]}}
+{"user": "Run handler test", "output": {"categories": ["handler_operations"]}}
 {"user": "Write logic for user registration", "output": {"categories": ["handler_operations"]}}
 {"user": "Edit handler for GET /orders", "output": {"categories": ["handler_operations"]}}
 {"user": "Add pre-hook to validate before delete", "output": {"categories": ["hook_operations"]}}

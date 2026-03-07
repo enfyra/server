@@ -110,7 +110,7 @@ export function formatToolResultSummary(toolName: string, toolArgs: any, result:
         const idsStr = tableIds.length > 0 ? ` ids=[${tableIds.join(', ')}]` : '';
         const moreInfo = length > 5 ? ` (+${length - 5} more)` : '';
         if (length > 1) {
-          logger.debug(`[find_records table_definition] DEBUG: length=${length}, allIds=[${allIds.join(',')}], tableNames=[${tableNames.join(',')}], toolArgs.where=${JSON.stringify(toolArgs?.where)}`);
+          logger.debug(`[find_records table_definition] DEBUG: length=${length}, allIds=[${allIds.join(',')}], tableNames=[${tableNames.join(',')}], toolArgs.where=${JSON.stringify(toolArgs?.filter ?? toolArgs?.where)}`);
           return `[${name}] ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}. ALL IDs: [${allIds.join(', ')}]. CRITICAL: For table deletion, use delete_tables with ALL IDs in array: delete_tables({"ids":[${allIds.join(',')}]})`;
         }
         return `[${name}] ${table} -> Found ${length} table(s)${namesStr}${idsStr}${moreInfo}.`;

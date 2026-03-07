@@ -33,7 +33,7 @@ export async function executeGetTableDetails(
       error: true,
       errorCode: 'MISSING_TABLE_NAME',
       message: 'tableName parameter is required and must be an array of table names.',
-      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","where":{"name":{"_contains":"route"}},"limit":5}). Then use the returned table names in get_table_details({"tableName":["route_definition"]}).',
+      suggestion: 'If you do not know the table names, FIRST call find_records to discover tables: find_records({"table":"table_definition","fields":"id,name,isSystem","filter":{"name":{"_contains":"route"}},"limit":5}). Then use the returned table names in get_table_details({"tableName":["route_definition"]}).',
       example: 'get_table_details({"tableName":["route_definition","user_definition"]})',
     };
   }

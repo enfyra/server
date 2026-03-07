@@ -57,8 +57,6 @@ function shouldSkipEvaluation(
   if (isCapabilityQuestion) {
     return { skip: true, reason: 'capability_question' };
   }
-  // Don't skip short messages when there's conversation history - could be confirmation ("ok", "yes", "do it")
-  // that needs tools from previous turn (e.g. delete after user confirmed)
   if (isCasual && !hasConversationHistory) {
     return { skip: true, reason: 'casual_message' };
   }

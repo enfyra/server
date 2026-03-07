@@ -61,12 +61,13 @@ export class DynamicRepository {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
   }
 
-  async find(opt: { where?: any; fields?: string | string[]; limit?: number; sort?: string; meta?: string | string[] }) {
+  async find(opt: { filter?: any; where?: any; fields?: string | string[]; limit?: number; sort?: string; meta?: string | string[] } = {}) {
     const debugMode = this.context.$query?.debugMode === 'true' || this.context.$query?.debugMode === true;
+    const filterValue = opt?.filter ?? opt?.where ?? this.context.$query?.filter ?? {};
     return await this.queryEngine.find({
       tableName: this.tableName,
       fields: opt?.fields || this.context.$query?.fields || '',
-      filter: opt?.where || this.context.$query?.filter || {},
+      filter: filterValue,
       page: this.context.$query?.page || 1,
       limit: (opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10)),
       meta: opt?.meta || this.context.$query?.meta,

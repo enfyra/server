@@ -18,6 +18,7 @@ import { executeUpdateTask } from './executors/update-task.executor';
 import { executeGetTask } from './executors/get-task.executor';
 import { executeDynamicRepository } from './executors/dynamic-repository.executor';
 import { executeBatchDynamicRepository } from './executors/batch-dynamic-repository.executor';
+import { executeRunHandlerTest } from './executors/run-handler-test.executor';
 
 export class ToolExecutor {
   private readonly logger = new Logger(ToolExecutor.name);
@@ -32,6 +33,9 @@ export class ToolExecutor {
     private readonly tableValidationService: TableValidationService,
     private readonly conversationService: ConversationService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly handlerExecutorService?: any,
+    private readonly configService?: any,
+    private readonly bcryptService?: any,
   ) {}
 
   async executeTool(
@@ -115,7 +119,7 @@ export class ToolExecutor {
         break;
       case 'find_records':
         if (args?.table === 'table_definition') {
-          this.logger.debug(`[ToolExecutor] DEBUG find_records table_definition: where=${JSON.stringify(args?.where)}, limit=${args?.limit}`);
+          this.logger.debug(`[ToolExecutor] DEBUG find_records table_definition: filter=${JSON.stringify(args?.filter ?? args?.where)}, limit=${args?.limit}`);
         }
         result = await executeDynamicRepository(
           { ...args, operation: 'find' },
@@ -159,6 +163,22 @@ export class ToolExecutor {
           abortSignal,
           baseDeps,
         );
+        break;
+      case 'run_handler_test':
+        if (!this.handlerExecutorService || !this.configService) {
+          result = {
+            success: false,
+            error: 'run_handler_test requires HandlerExecutorService - not available',
+            errorCode: 'SERVICE_UNAVAILABLE',
+          };
+        } else {
+          result = await executeRunHandlerTest(args, context, {
+            ...baseDeps,
+            handlerExecutorService: this.handlerExecutorService,
+            configService: this.configService,
+            bcryptService: this.bcryptService,
+          });
+        }
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

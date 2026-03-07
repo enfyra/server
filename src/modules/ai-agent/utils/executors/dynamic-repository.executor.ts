@@ -55,7 +55,7 @@ export async function executeDynamicRepository(
       error: true,
       errorCode: 'MISSING_TABLE',
       message: 'Table parameter is required for this operation',
-      userMessage: `❌ **Missing Table Information**: You must specify the target table before calling this tool.\n\n📋 **Next Steps**:\n1. Identify the table name using get_table_details or find_records on table_definition\n2. Retry this tool with a valid table parameter (example: {"table":"table_definition","where":{...}})\n\n💡 **Tip**: Always fetch table metadata first when the user has not provided the exact table name.`,
+      userMessage: `❌ **Missing Table Information**: You must specify the target table before calling this tool.\n\n📋 **Next Steps**:\n1. Identify the table name using get_table_details or find_records on table_definition\n2. Retry this tool with a valid table parameter (example: {"table":"table_definition","filter":{...}})\n\n💡 **Tip**: Always fetch table metadata first when the user has not provided the exact table name.`,
       suggestion: 'Find the table name or ID first (get_table_details or find_records on table_definition), then call this tool with the table parameter.',
     };
   }
@@ -74,15 +74,15 @@ export async function executeDynamicRepository(
       args.limit = 1;
     }
   }
-  // LLM (OpenAI, GLM...) sometimes sends where as JSON string; query builder expects object
-  if (args.where != null && typeof args.where === 'string') {
+  let filterValue = (args as any).filter ?? args.where;
+  if (filterValue != null && typeof filterValue === 'string') {
     try {
-      const trimmed = args.where.trim();
+      const trimmed = filterValue.trim();
       if (trimmed && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
-        args.where = JSON.parse(trimmed);
+        filterValue = JSON.parse(trimmed);
       }
     } catch (e) {
-      logger.warn(`[dynamic_repository] Failed to parse where string for ${args.table}: ${(e as Error)?.message}`);
+      logger.warn(`[dynamic_repository] Failed to parse filter string for ${args.table}: ${(e as Error)?.message}`);
     }
   }
   const {
@@ -157,19 +157,20 @@ export async function executeDynamicRepository(
     id: args.id,
     meta: args.meta,
   };
-  if (args.where) {
-    preview.where = args.where;
+  const filterVal = (args as any).filter ?? args.where;
+  if (filterVal) {
+    preview.filter = filterVal;
   }
   if (args.data) {
     preview.dataKeys = Object.keys(args.data);
   }
   try {
     if (args.operation === 'delete' && !args.id) {
-      if (!args.where) {
-        throw new Error('id or where is required for delete operation');
+      if (!filterValue) {
+        throw new Error('id or filter is required for delete operation');
       }
       const lookup = await repo.find({
-        where: args.where,
+        where: filterValue,
         fields: 'id',
         limit: 0,
       });
@@ -196,7 +197,7 @@ export async function executeDynamicRepository(
     switch (args.operation) {
       case 'find':
         result = await repo.find({
-          where: args.where,
+          where: filterValue,
           fields: args.fields,
           limit: args.limit,
           sort: args.sort,
@@ -273,7 +274,7 @@ export async function executeDynamicRepository(
         errorType: 'INVALID_INPUT',
         errorCode: 'FOREIGN_KEY_VIOLATION',
         message: errorMessage,
-        userMessage: `❌ **Foreign Key Constraint Error**: The value for "${fkColumn}" in table "${args.table}" references a record that doesn't exist in table "${refTable}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${args.table}" to see the relation structure\n2. Call find_records to check if the referenced record exists\n   - Example: {"table":"${refTable}","where":{"id":{"_eq":<your_id>}},"fields":"id","limit":1}\n3. If the record doesn't exist, create it first or use an existing ID\n4. NEVER use hardcoded IDs (like ${fkColumn}: 1) without verifying they exist\n\n💡 **Note**: Always verify foreign key references exist BEFORE creating records with foreign keys.`,
+        userMessage: `❌ **Foreign Key Constraint Error**: The value for "${fkColumn}" in table "${args.table}" references a record that doesn't exist in table "${refTable}".\n\n📋 **Action Required**:\n1. Call get_table_details with tableName="${args.table}" to see the relation structure\n2. Call find_records to check if the referenced record exists\n   - Example: {"table":"${refTable}","filter":{"id":{"_eq":<your_id>}},"fields":"id","limit":1}\n3. If the record doesn't exist, create it first or use an existing ID\n4. NEVER use hardcoded IDs (like ${fkColumn}: 1) without verifying they exist\n\n💡 **Note**: Always verify foreign key references exist BEFORE creating records with foreign keys.`,
         suggestion: `Call find_records to verify the referenced record exists in table "${refTable}" before creating the record.`,
         details: {
           ...details,
@@ -287,20 +288,20 @@ export async function executeDynamicRepository(
       (args.operation === 'delete' || args.operation === 'update') &&
       (errorMessage.includes('operator does not exist: character varying = uuid') ||
         errorMessage.includes('operator does not exist') && errorMessage.includes('character varying')) &&
-      (args.where?.id?._eq === args.table || args.id === args.table);
+      ((filterValue as any)?.id?._eq === args.table || args.id === args.table);
     if (isTableNameAsIdError) {
       return {
         error: true,
         errorType: 'INVALID_INPUT',
         errorCode: 'TABLE_NAME_AS_ID',
         message: `Cannot use table name "${args.table}" as id value. To delete a TABLE (not data), you must delete the table_definition record.`,
-        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1})\n2. Get the id (number) from the result\n3. Delete the table using delete_tables tool: delete_tables({"ids":[<id_from_step_1>]})\n\n💡 **Note**: Using delete_record on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must use delete_tables tool.`,
-        suggestion: `To delete table "${args.table}", first find it in table_definition: find_records({"table":"table_definition","where":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1}). Then use the id (number) from the result to delete: delete_tables({"ids":[<id>]}).`,
+        userMessage: `❌ **Error**: You cannot use table name "${args.table}" as an id value.\n\n📋 **To DELETE/DROP a TABLE** (not data records), you MUST:\n1. Find the table_definition record: find_records({"table":"table_definition","filter":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1})\n2. Get the id (number) from the result\n3. Delete the table using delete_tables tool: delete_tables({"ids":[<id_from_step_1>]})\n\n💡 **Note**: Using delete_record on data tables (${args.table}) only deletes data records, NOT the table itself. To delete the table structure, you must use delete_tables tool.`,
+        suggestion: `To delete table "${args.table}", first find it in table_definition: find_records({"table":"table_definition","filter":{"name":{"_eq":"${args.table}"}},"fields":"id,name","limit":1}). Then use the id (number) from the result to delete: delete_tables({"ids":[<id>]}).`,
         details: {
           ...details,
           table: args.table,
           operation: args.operation,
-          incorrectIdValue: args.where?.id?._eq || args.id,
+          incorrectIdValue: (filterValue as any)?.id?._eq || args.id,
         },
       };
     }
@@ -313,7 +314,7 @@ export async function executeDynamicRepository(
       const columnName = columnMatch ? (columnMatch[1] || columnMatch[2]) : 'unknown';
       const tableMatch = errorMessage.match(/from "([^"]+)"|table "([^"]+)"/i);
       const tableName = tableMatch ? (tableMatch[1] || tableMatch[2]) : args.table;
-      const usedInWhere = args.where ? JSON.stringify(args.where) : '';
+      const usedInFilter = filterValue ? JSON.stringify(filterValue) : '';
       const usedInFields = args.fields || '';
       return {
         error: true,
@@ -326,7 +327,7 @@ export async function executeDynamicRepository(
           ...details,
           invalidColumn: columnName,
           table: tableName,
-          usedInWhere,
+          usedInFilter,
           usedInFields,
         },
       };

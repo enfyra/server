@@ -26,7 +26,7 @@ Use when:
 
 Skip when:
 - You already called get_table_details for this table earlier in this response - reuse the previous result
-- User asks for "non-system tables" but you haven't filtered yet → call find_records({"table":"table_definition","fields":"name,isSystem","where":{"isSystem":{"_eq":false}},"limit":0}) first to filter
+- User asks for "non-system tables" but you haven't filtered yet → call find_records({"table":"table_definition","fields":"name,isSystem","filter":{"isSystem":{"_eq":false}},"limit":0}) first to filter
 
 Inputs:
 - tableName (required) → array of table names (case-sensitive). For single table, use array with 1 element: ["user_definition"]
@@ -179,6 +179,8 @@ Returns:
   {
     name: 'create_tables',
     description: `Purpose → Create one or multiple tables. Processes tables sequentially internally to avoid deadlocks.
+
+AUTO-CREATES ROUTE: When create_tables succeeds, route /{table_name} is AUTO-CREATED. Do NOT create route_definition separately - it already exists. Add handler/hook via pre_hook_definition, route_handler_definition.
 
 SCHEMA LOCK - ONE TABLE PER CALL:
 - Pass exactly 1 table per call, wait for result, then call again for next table
@@ -373,7 +375,7 @@ Detailed workflows and step-by-step instructions are provided in the "RELEVANT W
         ids: {
           type: 'array',
           items: { type: 'number' },
-          description: 'Array of table IDs (numbers) from table_definition. Must be found first using find_records({"table":"table_definition","where":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}) or get_table_details. For single table, use array with 1 element: [123].',
+          description: 'Array of table IDs (numbers) from table_definition. Must be found first using find_records({"table":"table_definition","filter":{"name":{"_eq":"table_name"}},"fields":"id,name","limit":1}) or get_table_details. For single table, use array with 1 element: [123].',
         },
       },
       required: ['ids'],
@@ -506,8 +508,7 @@ Output:
 
 CRITICAL - NEVER Select All, ALWAYS Filter and Specify Fields:
 - NEVER use "*" or omit fields parameter - ALWAYS specify minimal fields needed (e.g., "id", "id,name")
-- NEVER call without where/filter - ALWAYS specify conditions to limit results
-- NEVER query all records without filter - ALWAYS use where parameter
+- NEVER query all records without filter - ALWAYS use filter parameter (same as @QUERY.filter in pre-hook)
 
 Permission: Auto-checked for business tables. Fails with clear error if denied.
 
@@ -517,12 +518,12 @@ CRITICAL - Field Names Check:
 
 CRITICAL - COUNT Queries (Counting Records):
 - To count TOTAL number of records: fields="id", limit=1, meta="totalCount" (omit where or set to null)
-- To count records WITH a filter: fields="id", limit=1, where={filter conditions}, meta="filterCount"
+- To count records WITH a filter: fields="id", limit=1, filter={filter conditions}, meta="filterCount"
 - Read the totalCount or filterCount value from the response metadata
 - NEVER use limit=0 just to count - always use limit=1 with appropriate meta parameter
 
 Examples:
-- Find: find_records({"table":"product","where":{"price":{"_gt":100}},"fields":"id,name","limit":10})
+- Find: find_records({"table":"product","filter":{"price":{"_gt":100}},"fields":"id,name","limit":10})
 - Count: find_records({"table":"product","fields":"id","limit":1,"meta":"totalCount"})
 
 Detailed workflows, filtering strategies, and best practices are provided in the "RELEVANT WORKFLOWS & RULES" section of your system prompt if available.`,
@@ -533,10 +534,10 @@ Detailed workflows, filtering strategies, and best practices are provided in the
           type: 'string',
           description: 'Name of the table to query.',
         },
-        where: {
+        filter: {
           type: 'object',
           description:
-            'Filter conditions. Supports operators: _eq,_neq,_gt,_gte,_lt,_lte,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null. Logical blocks: _and,_or,_not. Use _contains for case-insensitive partial match (NOT _icontains).',
+            'Filter conditions (same as @QUERY.filter in pre-hook). Operators: _eq,_neq,_gt,_gte,_lt,_lte,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null. Logical: _and,_or,_not. Use _contains for case-insensitive partial match (NOT _icontains).',
         },
         fields: {
           type: 'string',
@@ -751,6 +752,72 @@ Detailed workflows and best practices are provided in the "RELEVANT WORKFLOWS & 
         },
       },
       required: ['table', 'ids'],
+    },
+  },
+  {
+    name: 'run_handler_test',
+    description: `Purpose → Run custom handler logic in a sandboxed test environment. Use to verify handler code before saving to route_handler_definition.
+
+CRITICAL - When to use:
+- User wants to "test" or "try" handler logic before deploying
+- MANDATORY: must run_handler_test before create/update route_handler_definition. After test: cleanup (delete test records).
+- For update/delete handlers: create new record first, test on that record, then delete_records to cleanup. NEVER test on existing records.
+
+Workflow:
+1. get_table_details to verify table. 2. Write handler using #<table_name>, @BODY, @PARAMS. 3. run_handler_test. 4. Cleanup test records. 5. success → ask confirm → create/update route_handler_definition
+
+Context in test:
+- #<table_name>: DynamicRepository for the table (use #products for table "products")
+- @BODY: request body (pass via body param)
+- @PARAMS: route params (pass via params param)
+- @HELPERS.$bcrypt: available for password hash/compare
+
+Inputs:
+- table (required): Table name for #<table_name> repo
+- handlerCode (required): Handler code string. Must use return statement. Example: "return await #products.find({ limit: 5 });"
+- body (optional): Simulated request body for @BODY
+- params (optional): Simulated route params for @PARAMS (e.g. {"id": 1})
+- query (optional): Simulated query for @QUERY. Use filter key (e.g. query: { filter: {} }). @QUERY.filter NOT @QUERY.where
+- timeoutMs (optional): Max execution time in ms (default 10000)
+
+Output when success: { success: true; result; logs? }
+
+Output when error: { success: false; error; errorCode; errorKind; fixGuidance; nextSteps[]; location?; codeContext?; logs? }
+- errorKind: SYNTAX_ERROR | REFERENCE_ERROR | TYPE_ERROR | SCRIPT_TIMEOUT | BUSINESS_LOGIC | RESOURCE_NOT_FOUND | VALIDATION_ERROR | DATABASE_QUERY | HELPER_NOT_FOUND | TABLE_NOT_FOUND | ...
+- ALWAYS read fixGuidance and nextSteps when success=false. Fix the code per guidance, then retry run_handler_test.
+
+Example:
+run_handler_test({"table":"products","handlerCode":"return await #products.find({ limit: 3 });"})
+run_handler_test({"table":"user_definition","handlerCode":"return await #user_definition.find({ filter: { email: { _eq: @BODY.email } }, limit: 1 });","body":{"email":"test@example.com"}})`,
+    parameters: {
+      type: 'object',
+      properties: {
+        table: {
+          type: 'string',
+          description: 'Table name for the DynamicRepository (#table_name in handler).',
+        },
+        handlerCode: {
+          type: 'string',
+          description: 'Handler code to execute. Use #<table_name>, @BODY, @PARAMS. Must return a value.',
+        },
+        body: {
+          type: 'object',
+          description: 'Optional. Simulated request body for @BODY in handler.',
+        },
+        params: {
+          type: 'object',
+          description: 'Optional. Simulated route params for @PARAMS (e.g. { id: 1 }).',
+        },
+        query: {
+          type: 'object',
+          description: 'Optional. Simulated @QUERY. Use filter, fields, limit, sort, page. CRITICAL: use filter NOT where (e.g. { filter: {} }).',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional. Max execution time in ms. Default 10000.',
+        },
+      },
+      required: ['table', 'handlerCode'],
     },
   },
 ];
