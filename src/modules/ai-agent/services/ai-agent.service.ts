@@ -309,7 +309,7 @@ export class AiAgentService {
         },
         userId,
       });
-      const limit = config.maxConversationMessages || 5;
+      const limit = config.maxConversationMessages ?? 24;
       const allMessagesDesc = await this.conversationService.getMessages({
         conversationId: conversation.id,
         limit,
@@ -338,15 +338,10 @@ export class AiAgentService {
       if (messages.length >= limit) {
         await this.conversationSummaryService.createSummary({ conversationId: conversation.id, configId, userId, triggerMessage: userMessage });
         const refreshed = await this.conversationService.getConversation({ id: conversation.id, userId });
-        if (refreshed?.lastSummaryAt) {
-          const recentDesc = await this.conversationService.getMessages({
-            conversationId: conversation.id,
-            limit,
-            userId,
-            sort: '-createdAt',
-            since: refreshed.lastSummaryAt,
-          });
-          messages = [...recentDesc].reverse();
+        if (refreshed) {
+          Object.assign(conversation, { summary: refreshed.summary, lastSummaryAt: refreshed.lastSummaryAt });
+          const recentCount = Math.min(limit, 14);
+          messages = allMessages.slice(-recentCount);
         }
       }
 
@@ -383,7 +378,24 @@ export class AiAgentService {
         queryBuilder: this.queryBuilder,
         configService: this.configService,
       });
-      
+
+      const toolMsgs = llmMessages.filter((m: any) => m.tool_calls?.length > 0 || (m.role === 'tool' && m.content));
+      for (const tm of toolMsgs) {
+        if (tm.tool_calls) {
+          for (const tc of tm.tool_calls) {
+            const t = tc as any;
+            const nm = t.function?.name || t.name;
+            const args = t.function?.arguments || t.arguments || '';
+            if (nm === 'delete_tables' || nm === 'find_records') {
+              this.logger.debug(`[AiAgent] DEBUG tool_call in llmMessages: ${nm} args=${typeof args === 'string' ? args?.slice(0, 200) : JSON.stringify(args)?.slice(0, 200)}`);
+            }
+          }
+        }
+        if (tm.role === 'tool' && typeof tm.content === 'string' && (tm.content.includes('delete') || tm.content.includes('table_definition') || tm.content.includes('Found') || tm.content.includes('ALL IDs'))) {
+          this.logger.debug(`[AiAgent] DEBUG tool_result in llmMessages: ${tm.content.slice(0, 350)}...`);
+        }
+      }
+
     let historyCount = 0;
     let toolCallsCount = 0;
     for (const msg of llmMessages) {
@@ -592,6 +604,15 @@ export class AiAgentService {
             contentToSave = JSON.stringify(contentToSave);
           }
 
+          this.logger.debug(`[AiAgent] DEBUG final LLM content (first 400 chars): ${(contentToSave || '').slice(0, 400)}`);
+          const deleteCalls = (llmResponse.toolCalls || allToolCalls).filter((tc: any) => (tc.function?.name || tc.name) === 'delete_tables');
+          if (deleteCalls.length > 0) {
+            for (const dc of deleteCalls) {
+              const args = dc.function?.arguments || dc.arguments || '';
+              this.logger.debug(`[AiAgent] DEBUG delete_tables tool call in final response: args=${typeof args === 'string' ? args : JSON.stringify(args)}`);
+            }
+          }
+
           const assistantSequence = lastSequence + 2;
           const uniqueToolCalls = allToolCalls.length > 0 ? (() => {
             const seen = new Set<string>();
@@ -675,9 +696,14 @@ export class AiAgentService {
     } catch (error: any) {
       cleanup();
 
-      const errorMessage = error?.response?.data?.error?.message ||
+      let errorMessage = error?.response?.data?.error?.message ||
                           error?.message ||
                           String(error);
+
+      const status = error?.response?.status ?? error?.status ?? error?.statusCode;
+      if (status === 429 || /429|quota|insufficient balance|rate limit|please recharge/i.test(errorMessage)) {
+        errorMessage = 'AI provider quota exceeded or insufficient balance. Please check your API billing or try again later.';
+      }
 
       if (errorMessage === 'Request aborted by client') {
         

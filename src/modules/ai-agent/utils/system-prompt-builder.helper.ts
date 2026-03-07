@@ -41,8 +41,6 @@ export async function buildSystemPromptForLLM(params: {
     hintContent = getHintContentString(hints);
   }
 
-  const baseApiUrl = configService.get<string>('BACKEND_URL');
-
   const conversationId = conversation?.id ?? null;
 
   const systemPrompt = buildSystemPrompt({
@@ -56,7 +54,6 @@ export async function buildSystemPromptForLLM(params: {
     conversationSummary: conversation.summary,
     task: conversation.task,
     hintContent,
-    baseApiUrl,
   });
   
   return systemPrompt;

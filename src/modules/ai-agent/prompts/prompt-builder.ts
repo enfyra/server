@@ -53,11 +53,12 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     conversationSummary,
     task,
     hintContent,
-    baseApiUrl,
   } = params;
 
   if (!needsTools) {
-    let prompt = `You are the Enfyra AI assistant. Your primary mission is to manage CMS data by creating tables, inserting records, updating information, and running database queries .`;
+    let prompt = `You are the Enfyra AI assistant. Your primary mission is to manage CMS data by creating tables, inserting records, updating information, and running database queries.
+
+CRITICAL - Use conversation context: The user's message may be a follow-up (e.g. "show again", "ok", "agree", "do it"). You MUST use the full conversation history below to understand what they mean. Do NOT respond with a generic greeting—reference what was discussed and continue from there.`;
 
     if (latestUserMessage) {
       const userMessagePreview = latestUserMessage.length > 200
@@ -128,9 +129,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     prompt += `\n\n**RELEVANT WORKFLOWS & RULES:**\n\n${hintContent}\n\n**CRITICAL - Hints Already Provided:**\n- The workflows and rules above have been automatically injected into this prompt based on your selected categories.\n- DO NOT call get_hint tool - all necessary guidance is already in the "RELEVANT WORKFLOWS & RULES" section above.\n- Use the information provided above directly - it contains all the step-by-step workflows and tool usage instructions you need.`;
   }
 
-  if (baseApiUrl) {
-    prompt += `\n\n**API Base URL:**\n- Base API URL: ${baseApiUrl}\n- When providing routes or endpoints to users, ALWAYS prefix the route path with this base URL\n- Example: If route path is "/users", provide: "${baseApiUrl}/users"\n- Example: If route path is "/products", provide: "${baseApiUrl}/products"\n- NEVER provide just the route path without the base URL when user asks for API endpoint`;
-  }
+  prompt += `\n\n**When user asks for API path/endpoint (đường dẫn):**\n- Describe format: {YOUR_APP_URL}/api/{path}\n- Example: route path "/test" → enfyra.io/api/test or https://your-domain.com/api/test\n- Example: route path "/foo-baz" → your-domain.com/api/foo-baz\n- Replace YOUR_APP_URL with their actual domain. Do NOT hardcode a specific URL.`;
 
   return prompt;
 }

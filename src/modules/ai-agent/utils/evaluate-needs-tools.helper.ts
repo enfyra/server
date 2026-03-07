@@ -44,8 +44,8 @@ function extractJsonBlock(input: string): string | null {
 
 function shouldSkipEvaluation(userMessage: string): { skip: boolean; reason?: string } {
   const userMessageLower = userMessage.toLowerCase().trim();
-  const isGreeting = /^(xin chào|hello|hi|hey|chào|greetings|good (morning|afternoon|evening)|how are you|how do you do|what's up|sup)$/i.test(userMessageLower);
-  const isCapabilityQuestion = /^(bạn làm|what can|can you|what do you|what are you|capabilities|abilities|help|giúp gì|bạn giúp)/i.test(userMessageLower);
+  const isGreeting = /^(hello|hi|hey|greetings|good (morning|afternoon|evening)|how are you|how do you do|what's up|sup)$/i.test(userMessageLower);
+  const isCapabilityQuestion = /^(what can|can you|what do you|what are you|capabilities|abilities|help)/i.test(userMessageLower);
   const isCasual = userMessageLower.length < 20 && !/[a-z]{3,}/i.test(userMessageLower.replace(/[^a-z]/gi, ''));
 
   if (isGreeting) {
@@ -163,8 +163,18 @@ export async function evaluateNeedsTools(params: EvaluateNeedsToolsParams): Prom
     }
 
     return { toolNames: [], categories: [] };
-  } catch (error) {
-    logger.error(`Error in evaluateNeedsTools: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (error: any) {
+    const provider = config?.provider || 'Unknown';
+    const model = config?.model || 'N/A';
+    const baseUrl = config?.baseUrl ? '(set)' : '(default)';
+    const status = error?.response?.status ?? error?.status ?? error?.statusCode;
+    const errMsg = error?.message ?? String(error);
+    logger.warn(
+      '[evaluateNeedsTools] provider=' + provider + ' model=' + model + ' baseUrl=' + baseUrl + ' status=' + status + ' error=' + errMsg,
+    );
+    if (error?.response?.data) {
+      logger.warn('[evaluateNeedsTools] response.data=' + JSON.stringify(error.response.data)?.slice(0, 300));
+    }
     return { toolNames: [] };
   }
 }

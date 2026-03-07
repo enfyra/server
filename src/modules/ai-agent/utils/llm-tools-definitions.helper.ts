@@ -452,15 +452,15 @@ Returns:
   },
   {
     name: 'get_task',
-    description: `Purpose → kiểm tra trạng thái task hiện tại của conversation.
+    description: `Purpose → Check current task status of the conversation.
 
 Use when:
-- Trước khi tạo task mới, cần biết đã có task pending/in_progress chưa
-- Muốn hiển thị/nhắc lại tiến độ task hiện tại cho user
-- Muốn quyết định hủy/cập nhật task dựa trên trạng thái hiện có
+- Before creating new task, check if there is a pending/in_progress task
+- Display or remind user of current task progress
+- Decide to cancel/update task based on current status
 
 Inputs:
-- conversationId (optional): ID của cuộc hội thoại. Nếu không truyền, tool sẽ dùng context.$params.conversationId
+- conversationId (optional): Conversation ID. If omitted, tool uses context.$params.conversationId
 
 Output:
 {
@@ -485,7 +485,7 @@ Output:
       properties: {
         conversationId: {
           oneOf: [{ type: 'string' }, { type: 'number' }],
-          description: 'Conversation ID. Nếu bỏ trống sẽ lấy từ context.$params.conversationId.',
+          description: 'Conversation ID. If omitted, taken from context.$params.conversationId.',
         },
       },
     },
@@ -526,7 +526,7 @@ Detailed workflows, filtering strategies, and best practices are provided in the
         where: {
           type: 'object',
           description:
-            'Filter conditions. Supports operators such as _eq,_neq,_gt,_gte,_lt,_lte,_like,_ilike,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null as well as nested logical blocks (_and,_or,_not).',
+            'Filter conditions. Supports operators: _eq,_neq,_gt,_gte,_lt,_lte,_contains,_starts_with,_ends_with,_between,_in,_not_in,_is_null,_is_not_null. Logical blocks: _and,_or,_not. Use _contains for case-insensitive partial match (NOT _icontains).',
         },
         fields: {
           type: 'string',

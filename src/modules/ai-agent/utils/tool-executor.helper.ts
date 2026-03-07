@@ -100,6 +100,7 @@ export class ToolExecutor {
         result = await executeUpdateTables(args, context, abortSignal, baseDeps);
         break;
       case 'delete_tables':
+        this.logger.debug(`[ToolExecutor] DEBUG delete_tables: rawArgs=${argsStr}, parsedIds=${JSON.stringify(args?.ids)}`);
         result = await executeDeleteTables(args, context, abortSignal, baseDeps);
         break;
       case 'update_task':
@@ -113,6 +114,9 @@ export class ToolExecutor {
         });
         break;
       case 'find_records':
+        if (args?.table === 'table_definition') {
+          this.logger.debug(`[ToolExecutor] DEBUG find_records table_definition: where=${JSON.stringify(args?.where)}, limit=${args?.limit}`);
+        }
         result = await executeDynamicRepository(
           { ...args, operation: 'find' },
           context,

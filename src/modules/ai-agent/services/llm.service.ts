@@ -16,6 +16,25 @@ import { aggregateToolCallsFromChunks, deduplicateToolCalls, parseRedactedToolCa
 import { processStreamContentDelta, processTokenUsage, processNonStreamingContent } from '../utils/stream-content-processor.helper';
 import { parseToolArguments, normalizeToolCallId, extractToolCallName, createToolCallCacheKey, parseToolArgsWithFallback } from '../utils/tool-call-parser.helper';
 import { validateToolCallArguments, formatToolArgumentsForExecution } from '../utils/tool-call-validator.helper';
+
+/** Detect if text appears to be in Vietnamese (diacritics, common chars) */
+function seemsVietnamese(text: string): boolean {
+  if (!text || typeof text !== 'string') return false;
+  return /[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i.test(text);
+}
+
+function getConfirmDestructiveMessage(confirmText: string, inVietnamese: boolean): string {
+  return inVietnamese
+    ? `Xác nhận thao tác có thể gây mất dữ liệu: ${confirmText}. Trả lời "yes" để tiếp tục hoặc chỉ rõ phạm vi/ids.`
+    : `Confirm destructive action: ${confirmText}. Reply "yes" to proceed or specify scope/ids.`;
+}
+
+function getIntentShiftMessage(inVietnamese: boolean): string {
+  return inVietnamese
+    ? `Đã phát hiện thay đổi ý định. Tạm dừng tác vụ hiện tại. Trả lời "continue with new request" hoặc "continue previous task".`
+    : `Detected intent change. Current task paused. Reply "continue with new request" or "continue previous task".`;
+}
+
 @Injectable()
 export class LLMService {
   private readonly logger = new Logger(LLMService.name);
@@ -275,7 +294,7 @@ export class LLMService {
             return messages?.length ? messages[messages.length - 1]?.content || '' : '';
           })();
           const lowerMsg = typeof latestUserMessage === 'string' ? latestUserMessage.toLowerCase() : '';
-          const intentShift = /stop|cancel|pause|hold|đừng|dừng|hủy|huỷ|đổi ý|đổi sang|chuyển|yêu cầu khác|task khác|làm việc khác|change request|switch task|new request/.test(lowerMsg);
+          const intentShift = /stop|cancel|pause|hold|change request|switch task|new request/.test(lowerMsg);
           const isDestructiveTool = (name: string | undefined) =>
             name === 'delete_tables' || name === 'delete_records' || name === 'update_records';
           const needsConfirm = (tc: any) => {
@@ -289,14 +308,15 @@ export class LLMService {
             const ids = parsed?.ids;
             const updates = parsed?.updates;
             const bulkCount = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : 0;
-            const hasExplicitDeleteKeyword = /delete|remove|xoá|xóa|destroy|drop|clear/.test(lowerMsg);
-            const hasExplicitConfirm = /yes|đồng ý|ok|confirm|sure|go ahead|continue/.test(lowerMsg);
+            const hasExplicitDeleteKeyword = /delete|remove|destroy|drop|clear/.test(lowerMsg);
+            const hasExplicitConfirm = /yes|ok|confirm|sure|go ahead|continue|agree|do it/.test(lowerMsg);
             if (!hasExplicitDeleteKeyword && !hasExplicitConfirm) return true;
             if (bulkCount === 0) return true;
             return false;
           };
           if (intentShift) {
-            const clarification = `Phát hiện bạn muốn đổi yêu cầu. Đã tạm dừng tác vụ hiện tại. Bạn muốn tiếp tục yêu cầu mới hay tiếp tục tác vụ cũ? Trả lời "tiếp tục yêu cầu mới" hoặc "tiếp tục tác vụ cũ".`;
+            const inVietnamese = seemsVietnamese(latestUserMessage);
+            const clarification = getIntentShiftMessage(inVietnamese);
             fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
             onEvent({
               type: 'text',
@@ -342,7 +362,8 @@ export class LLMService {
               ids && Array.isArray(ids) ? `ids: [${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '...' : ''}]` : null,
             ].filter(Boolean).join(', ');
             const confirmText = scopeDesc ? `${toolName} → ${scopeDesc}` : toolName;
-            const clarification = `Xác nhận thao tác phá hủy: ${confirmText}. Bạn có chắc muốn thực hiện không? Trả lời "yes" để tiếp tục hoặc cung cấp rõ phạm vi/ids.`;
+            const inVietnamese = seemsVietnamese(latestUserMessage);
+            const clarification = getConfirmDestructiveMessage(confirmText, inVietnamese);
             fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
             onEvent({
               type: 'text',

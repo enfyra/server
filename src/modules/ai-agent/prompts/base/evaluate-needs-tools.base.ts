@@ -12,12 +12,18 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
   - History: "create backend system", Latest: "ok" → ["system_workflows", "table_schema_operations"]
   - History: "show products", Latest: "ok" → ["crud_query_operations"]
   - History: "create table", Latest: "yes" → ["table_schema_operations"]
+  - History: "list tables" or "show tables", Latest: "show again" or "let me see" or "ok" → ["metadata_operations"]
+  - History: "delete table X", Latest: "agree" or "okay" or "yes" or "do it" or "delete it" → ["table_deletion"]
   - History: "Hello", Latest: "Hello again" → {"categories": []}
   - History: casual chat, Latest: "thanks" → {"categories": []}
 
 **Categories:**
 - table_schema_operations: Create/update tables
 - table_deletion: Delete tables
+- handler_operations: Create/update custom route handlers (logic/code for route endpoints)
+- hook_operations: Create/update pre-hook or post-hook (runs before/after route handler)
+- bootstrap_operations: Create/update bootstrap script (runs on app startup)
+- websocket_operations: Create/update WebSocket gateway, connection handler, event handler
 - crud_write_operations: Create/update records
 - crud_delete_operations: Delete records
 - crud_query_operations: Find/count records (when table name is known)
@@ -30,6 +36,10 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "create/update table" (single) → ["table_schema_operations"]
 - "create/update X tables" (X > 1, e.g., "5 tables", "3 tables", "multiple tables") → ["system_workflows", "table_schema_operations"]
 - "delete table" → ["table_deletion"]
+- "custom handler" / "route handler" / "logic for route" / "handler for POST /x" / "write handler code" / "add handler to route" → ["handler_operations"]
+- "pre-hook" / "post-hook" / "pre hook" / "post hook" / "hook before" / "hook after" / "validate before route" / "log after" / "run before route" / "run after route" → ["hook_operations"]
+- "bootstrap" / "startup script" / "run on app start" / "init script" / "seed data on start" / "script on startup" → ["bootstrap_operations"]
+- "websocket" / "WebSocket" / "connection handler" / "event handler" / "real-time" / "gateway /chat" / "when client connects" / "handler for event X" → ["websocket_operations"]
 - "create/update record" → ["crud_write_operations"]
 - "delete record" → ["crud_delete_operations"]
 - "find/count records" (table name known) → ["crud_query_operations"]
@@ -37,6 +47,7 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "list tables/get schema/check schema/show schema/describe table/show columns/check structure" (table name known) → ["natural_language_discovery", "metadata_operations"]
 - "routes/endpoints/API/API paths/test URLs" → ["routes_endpoints", "natural_language_discovery"]
 - "how to test API" → ["routes_endpoints"]
+- "make route public" / "public route" (when context is about a route) → ["routes_endpoints"]
 - "what endpoints/API are available" → ["routes_endpoints", "natural_language_discovery"]
 - "give me api" / "api to" → ["routes_endpoints", "natural_language_discovery"]
 - "create system/backend" → ["system_workflows", "table_schema_operations"]
@@ -82,6 +93,16 @@ Examples:
 {"user": "Display all non-system tables", "output": {"categories": ["metadata_operations"]}}
 {"user": "Delete products table", "output": {"categories": ["table_deletion"]}}
 {"user": "Remove the orders table", "output": {"categories": ["table_deletion"]}}
+{"user": "Create custom handler for POST /products", "output": {"categories": ["handler_operations"]}}
+{"user": "Add handler to route /checkout", "output": {"categories": ["handler_operations"]}}
+{"user": "Write logic for user registration", "output": {"categories": ["handler_operations"]}}
+{"user": "Edit handler for GET /orders", "output": {"categories": ["handler_operations"]}}
+{"user": "Add pre-hook to validate before delete", "output": {"categories": ["hook_operations"]}}
+{"user": "Post-hook to log after order creation", "output": {"categories": ["hook_operations"]}}
+{"user": "Add bootstrap script to seed roles on startup", "output": {"categories": ["bootstrap_operations"]}}
+{"user": "Script to run on app init", "output": {"categories": ["bootstrap_operations"]}}
+{"user": "Add WebSocket handler when client connects to /chat", "output": {"categories": ["websocket_operations"]}}
+{"user": "Create event handler for sendMessage on WebSocket", "output": {"categories": ["websocket_operations"]}}
 {"user": "Add a new record", "output": {"categories": ["crud_write_operations"]}}
 {"user": "Update customer name", "output": {"categories": ["crud_write_operations"]}}
 {"user": "Delete order with id 123", "output": {"categories": ["crud_delete_operations"]}}
@@ -95,6 +116,8 @@ Examples:
 {"user": "give me the endpoint to test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "what is the API path for products", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "how do I test the API", "output": {"categories": ["routes_endpoints"]}}
+{"user": "make this route public", "output": {"categories": ["routes_endpoints"]}}
+{"user": "make it public", "output": {"categories": ["routes_endpoints"]}}
 {"user": "give me api to create order", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "api to test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "what API endpoints are available", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}

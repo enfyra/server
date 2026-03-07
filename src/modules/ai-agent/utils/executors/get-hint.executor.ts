@@ -1,5 +1,4 @@
 import { Logger } from '@nestjs/common';
-import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
 import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
 import { GetHintExecutorDependencies, HintContent } from '../types';
 
@@ -248,7 +247,7 @@ Error handling:
 find_records({"table":"table_definition","fields":"name","limit":0}) → WAIT
 
 **Step 2: Match table name**
-Match user term to table names (e.g., "courses" → "courses", "danh mục" → "categories")
+Match user term to table names (e.g., "courses" → "courses", "category" → "categories")
 
 **Step 3: Field discovery - STRICT LIMIT**
 **A) Finding specific field:**
@@ -280,6 +279,17 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
 
 **CRITICAL - NEVER invent routes. ALWAYS query route_definition table first.**
 
+**$repos in route handler – targetTables only (agent MUST NOT set mainTable):**
+- Agent has NO permission to set mainTable. Only link tables via targetTables.
+- Handler uses $repos (#main, #<alias>) when route has tables linked. Link table X via targetTables: [{id: tableId}].
+- create/update route: use targetTables only. NEVER include mainTable in create_records or update_records.
+
+**Making route PUBLIC (no auth required):**
+- Update route_definition with publishedMethods – add the method (e.g. GET)
+- Workflow: 1) find_records route_definition where path._eq, fields: id,publishedMethods.id. 2) find_records method_definition where method._eq GET. 3) update_records route_definition with data: {publishedMethods: [..., {id: getMethodId}]} (include existing + new)
+- Do NOT create route_permission_definition for public – use publishedMethods on route_definition only
+- CRITICAL: Update via route_definition (not route_permission) so route cache reloads correctly
+
 **IMPORTANT - Routes Can Be Customized:**
 - Routes paths can be CUSTOMIZED by users - they are NOT always "/table_name"
 - Default path format: "/table_name" (e.g., "/products", "/users")
@@ -289,7 +299,7 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
 **Find Available Routes:**
 1. Query all enabled routes: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true}},"fields":"path,mainTable.name","limit":0})
 2. Filter by table: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"mainTable.name":{"_eq":"products"}},"fields":"path","limit":0})
-3. Search by path: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"path":{"_icontains":"product"}},"fields":"path,mainTable.name","limit":10})
+3. Search by path: find_records({"table":"route_definition","where":{"isEnabled":{"_eq":true},"path":{"_contains":"product"}},"fields":"path,mainTable.name","limit":10})
 
 **Get Route Details:**
 - Get full schema: get_table_details({"tableName":["route_definition"]})
@@ -300,10 +310,7 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
 - Only routes with isEnabled=true are active
 - Route paths are CUSTOMIZABLE - may not match table name
 - Use find_records to discover actual routes before suggesting test URLs
-- **When providing routes to users:**
-  * ALWAYS prefix route path with base API URL from system prompt
-  * Example: route path "/users" → provide full URL like "https://api.enfyra.io/users"
-  * NEVER provide just "/users" - always include full URL
+- **When providing API path to users:** Use format {YOUR_APP_URL}/api/{path}. Example: route path "/foo-baz" → enfyra.io/api/foo-baz or https://your-domain.com/api/foo-baz. Do NOT hardcode URL.
 - **If route not found in route_definition:**
   * Inform user: "Route not found in route_definition table"
   * **MUST tell user**: "If you have customized the route path, it may not be discoverable by table name. Please check your route_definition table or provide the custom path."
@@ -313,7 +320,98 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
     category: 'routes_endpoints',
     title: 'Routes & Endpoints Discovery',
     content: routesEndpointsContent,
-    tools: ['find_records', 'get_table_details'],
+    tools: ['find_records', 'get_table_details', 'update_records'],
+  };
+
+  const handlerOpsContent = `**Route Handler Operations**
+
+**CRITICAL - $repos + agent MUST NOT touch mainTable:**
+- Agent MUST NOT set mainTable. Only link tables via targetTables. NEVER include mainTable in create_records/update_records for route_definition.
+- $repos is populated from route.mainTable + route.targetTables. Link tables handler needs via targetTables: [{id: tableId}, ...].
+- If route needs to fetch from table X: add table X to targetTables (not mainTable). Handler uses #<tableName> or #main if mainTable exists (set by system/user).
+
+**Context available (route handler only):**
+- @BODY: request body | @PARAMS, @QUERY: params/query | @USER: logged-in user
+- #main, #<table_alias>: repos from route (link tables via targetTables; agent must NOT set mainTable)
+- @RES: response (set status, json) | @CACHE, @HELPERS ($jwt, $bcrypt, autoSlug, $uploadFile…)
+- @THROW4xx/5xx | @UPLOADED_FILE (if upload)
+
+**PREFER template syntax:** @BODY, #main, @THROW404 instead of $ctx.$body, $ctx.$repos.main, etc.
+
+**Workflow to create route + handler (for fetching records from table X):**
+1. find_records({"table":"table_definition","where":{"name":{"_eq":"X"}},"fields":"${idFieldName}","limit":1}) → tableId
+2. create_records route_definition with path, description, isEnabled, targetTables: [{id: tableId}] (NO mainTable). Add more tables to targetTables if handler needs them.
+3. find_records method_definition (e.g. GET) → methodId
+4. create_records route_handler_definition with route, method, logic (e.g. "return #main.find({ where: {}, limit: 10 });" or "#X.find(...)" if using table name)
+- If route already exists: update_records with targetTables only (NEVER mainTable) before adding handler
+
+**Workflow to create handler only (route already exists):**
+1. find_records({"table":"route_definition","where":{"path":{"_eq":"/products"}},"fields":"${idFieldName},targetTables","limit":1})
+2. If route has no targetTables for needed table: update_records with targetTables: [{id: tableId}, ...] (NEVER set mainTable)
+3. find_records({"table":"method_definition","where":{"method":{"_eq":"POST"}},"fields":"${idFieldName}","limit":1})
+4. create_records({"table":"route_handler_definition","dataArray":[{"route":{"${idFieldName}":<routeId>},"method":{"${idFieldName}":<methodId>},"logic":"return #main.find({ where: {}, limit: 10 });","description":"..."}],"fields":"${idFieldName}"})
+
+**Logic structure:** return { data: ... } or throw. Example: return #main.find({ where: {}, limit: 10 });
+
+**Route + public access:** When creating route with handler, if route should be public (no auth): add publishedMethods to route_definition (e.g. icon, publishedMethods). For "make public" later: update_records route_definition with publishedMethods (add method id). Do NOT create route_permission_definition for public.`;
+
+  const hookOpsContent = `**Pre/Post Hooks** – Ctx: $body,$params,$query,$user,$repos,$res,$api,$cache,$helpers,$throw. Pre: no $data. Post: +$data,$api.response. Pre return → short-circuit.
+
+**CRITICAL – methods is REQUIRED:** Hook runs ONLY when request method (GET/POST/etc.) matches hook's methods. If methods is empty, hook NEVER runs.
+
+**Workflow:** 1) find_records method_definition where method._eq GET (or POST, etc.) → methodId. 2) find_records route_definition where path._eq → routeId. 3) create_records pre_hook_definition: route:{id:routeId}, methods:[{id:methodId}], code, isEnabled:true. MUST include methods array. isGlobal:true + route:null → all routes.`;
+
+  const hookOpsHint: HintContent = {
+    category: 'hook_operations',
+    title: 'Pre/Post Hook Operations',
+    content: hookOpsContent,
+    tools: ['find_records', 'create_records', 'update_records'],
+  };
+
+  const bootstrapOpsContent = `**Bootstrap Script Operations** – Runs on app startup (no HTTP request).
+
+**Context (no HTTP):**
+- #<table_name>: $repos with all init'd tables (e.g. #products, #users) – query/insert at startup
+- @CACHE | @HELPERS (autoSlug) | @THROW | @LOGS
+- No: @BODY, @USER, @REQ, @RES, @PARAMS, @QUERY, @UPLOADED_FILE, @SOCKET
+
+**Workflow:** create_records bootstrap_script_definition with name (unique), logic, priority (lower=first), isEnabled:true, description. Update: update_records bootstrap_script_definition.
+
+**Fields:** name, description, logic (code), timeout (ms), priority (int, default 0), isEnabled (default true).
+
+**Logic pattern:** Use #<table_name> (e.g. #role_definition) to query/insert. Example: const roles = await #role_definition.find({ limit: 10 });`;
+
+  const bootstrapOpsHint: HintContent = {
+    category: 'bootstrap_operations',
+    title: 'Bootstrap Script Operations',
+    content: bootstrapOpsContent,
+    tools: ['create_records', 'update_records', 'find_records'],
+  };
+
+  const websocketOpsContent = `**WebSocket Handler Operations** – Real-time connection + event handlers.
+
+**Context by type:**
+- Connection (connectionHandlerScript): @BODY = clientInfo, @USER, @SOCKET (emit, join, leave, to, rooms). $repos = {} (empty – no table access).
+- Event (handlerScript): @BODY = event payload, @USER, @SOCKET. $repos = {} (empty).
+
+**Gateway workflow:** create_records websocket_definition: path (e.g. /chat), description, isEnabled:true, requireAuth, connectionHandlerScript (optional). Update connectionHandlerScript via update_records.
+
+**Event workflow:** 1) find_records websocket_definition where path._eq → gatewayId. 2) create_records websocket_event_definition: gateway:{id}, eventName (e.g. sendMessage), handlerScript, isEnabled:true. Update handlerScript via update_records.
+
+**PREFER template:** @BODY, @SOCKET, @THROW. No #table – WebSocket handlers cannot access $repos.`;
+
+  const websocketOpsHint: HintContent = {
+    category: 'websocket_operations',
+    title: 'WebSocket Handler Operations',
+    content: websocketOpsContent,
+    tools: ['find_records', 'create_records', 'update_records'],
+  };
+
+  const handlerOpsHint: HintContent = {
+    category: 'handler_operations',
+    title: 'Route Handler Operations (Custom Logic)',
+    content: handlerOpsContent,
+    tools: ['find_records', 'create_records', 'update_records'],
   };
 
   allHints.push(
@@ -321,6 +419,10 @@ Match user term to table names (e.g., "courses" → "courses", "danh mục" → 
     fieldOptHint,
     tableSchemaOpsHint,
     tableDeletionHint,
+    handlerOpsHint,
+    hookOpsHint,
+    bootstrapOpsHint,
+    websocketOpsHint,
     crudWriteOpsHint,
     crudDeleteOpsHint,
     crudQueryOpsHint,
@@ -393,6 +495,10 @@ export async function executeGetHint(
       'field_optimization',
       'table_schema_operations',
       'table_deletion',
+      'handler_operations',
+      'hook_operations',
+      'bootstrap_operations',
+      'websocket_operations',
       'crud_write_operations',
       'crud_delete_operations',
       'crud_query_operations',
