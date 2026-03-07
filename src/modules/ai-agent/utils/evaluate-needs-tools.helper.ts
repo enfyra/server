@@ -42,7 +42,10 @@ function extractJsonBlock(input: string): string | null {
   return null;
 }
 
-function shouldSkipEvaluation(userMessage: string): { skip: boolean; reason?: string } {
+function shouldSkipEvaluation(
+  userMessage: string,
+  hasConversationHistory?: boolean,
+): { skip: boolean; reason?: string } {
   const userMessageLower = userMessage.toLowerCase().trim();
   const isGreeting = /^(hello|hi|hey|greetings|good (morning|afternoon|evening)|how are you|how do you do|what's up|sup)$/i.test(userMessageLower);
   const isCapabilityQuestion = /^(what can|can you|what do you|what are you|capabilities|abilities|help)/i.test(userMessageLower);
@@ -54,7 +57,9 @@ function shouldSkipEvaluation(userMessage: string): { skip: boolean; reason?: st
   if (isCapabilityQuestion) {
     return { skip: true, reason: 'capability_question' };
   }
-  if (isCasual) {
+  // Don't skip short messages when there's conversation history - could be confirmation ("ok", "yes", "do it")
+  // that needs tools from previous turn (e.g. delete after user confirmed)
+  if (isCasual && !hasConversationHistory) {
     return { skip: true, reason: 'casual_message' };
   }
   return { skip: false };
@@ -122,9 +127,10 @@ function parseResponseContent(response: any): string {
 }
 
 export async function evaluateNeedsTools(params: EvaluateNeedsToolsParams): Promise<{ toolNames: string[]; categories?: string[] }> {
-  const { userMessage, config, llm } = params;
+  const { userMessage, config, llm, conversationHistory } = params;
 
-  const skipCheck = shouldSkipEvaluation(userMessage);
+  const hasConversationHistory = !!(conversationHistory && conversationHistory.length > 0);
+  const skipCheck = shouldSkipEvaluation(userMessage, hasConversationHistory);
   if (skipCheck.skip) {
     return { toolNames: [], categories: [] };
   }

@@ -129,7 +129,7 @@ CRITICAL - Use conversation context: The user's message may be a follow-up (e.g.
     prompt += `\n\n**RELEVANT WORKFLOWS & RULES:**\n\n${hintContent}\n\n**CRITICAL - Hints Already Provided:**\n- The workflows and rules above have been automatically injected into this prompt based on your selected categories.\n- DO NOT call get_hint tool - all necessary guidance is already in the "RELEVANT WORKFLOWS & RULES" section above.\n- Use the information provided above directly - it contains all the step-by-step workflows and tool usage instructions you need.`;
   }
 
-  prompt += `\n\n**When user asks for API path/endpoint (đường dẫn):**\n- Describe format: {YOUR_APP_URL}/api/{path}\n- Example: route path "/test" → enfyra.io/api/test or https://your-domain.com/api/test\n- Example: route path "/foo-baz" → your-domain.com/api/foo-baz\n- Replace YOUR_APP_URL with their actual domain. Do NOT hardcode a specific URL.`;
+  prompt += `\n\n**When user asks for API path/endpoint:**\n- Describe format: {YOUR_APP_URL}/api/{path}\n- Example: route path "/test" → enfyra.io/api/test or https://your-domain.com/api/test\n- Example: route path "/foo-baz" → your-domain.com/api/foo-baz\n- Replace YOUR_APP_URL with their actual domain. Do NOT hardcode a specific URL.`;
 
   return prompt;
 }
