@@ -568,6 +568,8 @@ Detailed workflows, filtering strategies, and best practices are provided in the
     name: 'create_records',
     description: `Purpose → Create one or multiple records in a table. Processes records sequentially internally.
 
+CRITICAL - CASCADE-first: Prefer create/update from parent with nested relations over creating child tables separately. Example: create route with handlers: [{method:{id},logic},...], targetTables: [{id}], publishedMethods: [{id}] in one call. Fewer calls, atomic.
+
 Permission: Auto-checked for business tables. Fails with clear error if denied.
 
 CRITICAL - Schema Check Required:
@@ -635,6 +637,8 @@ Detailed workflows, step-by-step instructions, and best practices are provided i
   {
     name: 'update_records',
     description: `Purpose → Update one or multiple records by ID. Processes records sequentially internally.
+
+CRITICAL - CASCADE-first: Prefer update from parent with nested relations over updating child tables separately. Example: update route_definition with data: {handlers:[{method:{id},logic}], targetTables:[{id}], publishedMethods:[{id}]} instead of create_records route_handler_definition then update_records route. Fewer calls, atomic.
 
 Permission: Auto-checked for business tables. Fails with clear error if denied.
 
@@ -767,8 +771,7 @@ CRITICAL - When to use:
 - MANDATORY: must run_handler_test before create/update route_handler_definition. After test: cleanup (delete test records).
 - For update/delete handlers: create new record first, test on that record, then delete_records to cleanup. NEVER test on existing records.
 
-Workflow:
-1. get_table_details to verify table. 2. Write handler using #<table_name>, @BODY, @PARAMS. 3. run_handler_test. 4. Cleanup test records. 5. success → show code to user → create/update route_handler_definition
+Workflow - PREFER CASCADE: update route from root with nested handlers. 1) find_records route_definition, method_definition. 2) run_handler_test. 3) update_records route_definition with data: {handlers: [{method:{id}, logic}], targetTables, publishedMethods} – do NOT create route_handler_definition separately.
 
 Context in test:
 - #<table_name>: DynamicRepository for the table (use #products for table "products")

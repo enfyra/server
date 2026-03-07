@@ -126,6 +126,9 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
 
   const crudWriteOpsContent = `**CRUD Write Operations**
 
+**CASCADE-first (create/update from root):**
+- Prefer create/update parent with nested child relations over separate child-table calls. Fewer tools, atomic. Example: update route_definition with handlers: [{method:{id},logic}], targetTables: [{id}], publishedMethods: [{id}] in one update_records – do NOT create route_handler_definition separately then update route.
+
 **CREATE Records - Workflow:**
 1. get_table_details({"tableName":["product"]}) → Check required fields & relations
 2. If required relations exist (isNullable=false): Query related table for valid IDs
@@ -307,11 +310,9 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - Agent MUST NEVER set mainTable. create_records/update_records route_definition: use targetTables ONLY. NEVER include mainTable.
 - Handler uses #<table_name> from targetTables. Prefer #table_name over #main.
 
-**Making route PUBLIC (no auth required):**
-- Update route_definition with publishedMethods – add the method (e.g. GET)
-- Workflow: 1) find_records route_definition filter path._eq, fields: id,publishedMethods.id. 2) find_records method_definition filter method._eq GET. 3) update_records route_definition with data: {publishedMethods: [..., {id: getMethodId}]} (include existing + new)
-- Do NOT create route_permission_definition for public – use publishedMethods on route_definition only
-- CRITICAL: Update via route_definition (not route_permission) so route cache reloads correctly
+**CASCADE-first for routes:** Update route_definition with nested handlers, targetTables, publishedMethods, preHook, postHook in one update_records. Do NOT create route_handler_definition, pre_hook_definition, post_hook_definition separately.
+
+**Making route PUBLIC:** update_records route_definition with data: {publishedMethods: [{id: getMethodId}, ...existing]}. Do NOT create route_permission_definition.
 
 **IMPORTANT - Routes Can Be Customized:**
 - Routes paths can be CUSTOMIZED by users - they are NOT always "/table_name"
@@ -380,11 +381,15 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 **CRITICAL - For update/delete handlers: create new record first to test:**
 - NEVER test update or delete on existing records. Create a new record via create_records, then test update/delete on that new record, then delete_records to cleanup.
 
-**Workflow - NEW table + handler (e.g. posts with RLS):**
-1. create_tables for table (route /{table_name} is AUTO-CREATED). 2. find_records route_definition filter path._eq "/posts" → routeId. 3. find_records method_definition (GET). 4. Write handler/hook, run_handler_test. 5. Cleanup, show code to user. 6. create_records pre_hook_definition (for RLS) or route_handler_definition. Do NOT create route - it exists.
+**Workflow - PREFER CASCADE (update from route, not separate child tables):**
+- Update route_definition with nested handlers, preHook, postHook, targetTables, publishedMethods in one update_records. Do NOT create route_handler_definition/pre_hook_definition separately.
+- Example: update_records route_definition updates: [{id: routeId, data: {handlers: [{method: {id: postMethodId}, logic: "..."}], publishedMethods: [{id: getMethodId}], targetTables: [{id: tableId}]}}]
 
-**Workflow - EXISTING table + handler (route already auto-created when table was created):**
-1. find_records route_definition filter mainTable.name._eq or path._eq. 2. find_records method_definition. 3. Write handler/hook, run_handler_test. 4. Cleanup, show code to user. 5. create_records pre_hook/post_hook or route_handler_definition. Do NOT create route - it exists.
+**Workflow - NEW table + handler (e.g. posts with RLS):**
+1. create_tables for table (route AUTO-CREATED). 2. find_records route_definition path._eq "/posts" → routeId. 3. find_records method_definition (GET, POST). 4. run_handler_test. 5. update_records route_definition with data: {handlers: [{method:{id}, logic}], preHook: [{...}]} – CASCADE from route.
+
+**Workflow - EXISTING table + handler:**
+1. find_records route_definition path._eq or mainTable.name._eq. 2. find_records method_definition. 3. run_handler_test. 4. update_records route_definition with nested handlers/hooks – CASCADE from route.
 
 **Workflow - CUSTOM route (path different from /{table_name}, e.g. /register):**
 - Only create route_definition when path is NOT /{table_name}. For /{table_name}, route is auto-created - Do NOT create.
@@ -429,7 +434,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 if (!@USER) return { error: "Unauthorized" };
 @QUERY.filter = { ...(@QUERY.filter || {}), author: { id: { _eq: @USER.id } } };
 
-**Workflow:** 1) find_records method_definition, route_definition. 2) Write hook code. 3) run_handler_test to verify. 4) On error: fix per fixGuidance. 5) Cleanup, show code to user. 6) create_records pre_hook_definition: route:{id}, methods:[{id}], code, isEnabled:true. MUST include methods array.`;
+**Workflow - PREFER CASCADE:** update_records route_definition with data: {preHook: [{methods:[{id}], code, isEnabled:true}], postHook: [...]} – nested from route. If separate: create_records pre_hook_definition with route:{id}, methods:[{id}], code.`;
 
   const hookOpsHint: HintContent = {
     category: 'hook_operations',
