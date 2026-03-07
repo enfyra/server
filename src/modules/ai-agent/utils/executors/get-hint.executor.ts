@@ -303,10 +303,9 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **CRITICAL - NEVER invent routes. ALWAYS query route_definition table first.**
 
-**$repos in route handler – targetTables only (agent MUST NOT set mainTable):**
-- Agent has NO permission to set mainTable. Only link tables via targetTables.
-- Handler uses #<table_name> (e.g. #user_definition) from targetTables. NEVER use #main unless you verified route.mainTable matches the table. Prefer #table_name.
-- create/update route: use targetTables only. NEVER include mainTable in create_records or update_records.
+**$repos in route handler – targetTables only, NEVER mainTable:**
+- Agent MUST NEVER set mainTable. create_records/update_records route_definition: use targetTables ONLY. NEVER include mainTable.
+- Handler uses #<table_name> from targetTables. Prefer #table_name over #main.
 
 **Making route PUBLIC (no auth required):**
 - Update route_definition with publishedMethods – add the method (e.g. GET)
@@ -355,9 +354,10 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
   const handlerOpsContent = `**Route Handler Operations**
 
-**CRITICAL - $repos + agent MUST NOT touch mainTable:**
-- Agent MUST NOT set mainTable. Only link tables via targetTables. NEVER include mainTable in create_records/update_records for route_definition.
-- $repos is populated from route.mainTable + route.targetTables. Link tables handler needs via targetTables: [{id: tableId}, ...].
+**CRITICAL - Agent MUST NEVER set mainTable:**
+- NEVER include mainTable in create_records or update_records for route_definition. Agent has NO permission.
+- Link tables handler needs via targetTables ONLY: targetTables: [{id: tableId}]. Example: find_records table_definition filter name._eq "user_definition" → tableId → targetTables: [{id: tableId}].
+- WRONG: create_records route_definition with mainTable. RIGHT: create_records with path, targetTables, isEnabled - NO mainTable.
 
 **CRITICAL - Use #table_name, NOT #main:**
 - ALWAYS use #<table_name> (e.g. #user_definition, #products) in handler logic. NEVER use #main.
@@ -366,7 +366,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **Context available (route handler only):**
 - @BODY: request body | @PARAMS: route params | @QUERY: query (filter, fields, limit, sort, page, meta). Use @QUERY.filter (not where) | @USER: logged-in user
-- #<table_name>: repos from route.targetTables. API: .find({ filter, limit }) → { data: [...] }; .create({ data: {...} }); .update({ id, data: {...} }); .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object.
+- #<table_name>: repos from route.targetTables. API: .find({ filter, limit }) → { data: [...] }; .create({ data: {...} }) → { data: [record], count?: 1 }; .update({ id, data: {...} }) → { data: [record] }; .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object. To get single record: created?.data?.[0], updated?.data?.[0].
 - @HELPERS: bcrypt via @HELPERS.$bcrypt.hash(plain), @HELPERS.$bcrypt.compare(plain, hash). Use @HELPERS.$bcrypt - NEVER $bcrypt.
 - @RES: response | @CACHE | @THROW4xx/5xx | @UPLOADED_FILE
 
@@ -374,20 +374,21 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **CRITICAL - Test BEFORE writing/saving ANY custom code (handler, hook, websocket):**
 - MUST run_handler_test BEFORE create/update for route_handler_definition, pre_hook_definition, post_hook_definition, bootstrap_script_definition, websocket handlers.
-- Order: 1) Write draft code. 2) run_handler_test FIRST to verify. 3) If error: use fixGuidance + nextSteps from response to fix, retry. 4) After success: cleanup test records. 5) Show code, ask confirm. 6) create/update only after confirm.
-- NEVER create/update any handler/hook/ws record without run_handler_test success + cleanup + user confirmation.
+- Order: 1) Write draft code. 2) run_handler_test FIRST to verify. 3) If error: use fixGuidance + nextSteps from response to fix, retry. 4) After success: cleanup test records. 5) Show code to user. 6) create/update (no confirmation needed).
+- NEVER create/update any handler/hook/ws record without run_handler_test success + cleanup. Always show code to user before create/update.
 
 **CRITICAL - For update/delete handlers: create new record first to test:**
 - NEVER test update or delete on existing records. Create a new record via create_records, then test update/delete on that new record, then delete_records to cleanup.
 
 **Workflow - NEW table + handler (e.g. posts with RLS):**
-1. create_tables for table (route /{table_name} is AUTO-CREATED). 2. find_records route_definition filter path._eq "/posts" → routeId. 3. find_records method_definition (GET). 4. Write handler/hook, run_handler_test. 5. Cleanup, ask confirm. 6. create_records pre_hook_definition (for RLS) or route_handler_definition. Do NOT create route - it exists.
+1. create_tables for table (route /{table_name} is AUTO-CREATED). 2. find_records route_definition filter path._eq "/posts" → routeId. 3. find_records method_definition (GET). 4. Write handler/hook, run_handler_test. 5. Cleanup, show code to user. 6. create_records pre_hook_definition (for RLS) or route_handler_definition. Do NOT create route - it exists.
 
 **Workflow - EXISTING table + handler (route already auto-created when table was created):**
-1. find_records route_definition filter mainTable.name._eq or path._eq. 2. find_records method_definition. 3. Write handler/hook, run_handler_test. 4. Cleanup, ask confirm. 5. create_records pre_hook/post_hook or route_handler_definition. Do NOT create route - it exists.
+1. find_records route_definition filter mainTable.name._eq or path._eq. 2. find_records method_definition. 3. Write handler/hook, run_handler_test. 4. Cleanup, show code to user. 5. create_records pre_hook/post_hook or route_handler_definition. Do NOT create route - it exists.
 
-**Workflow - CUSTOM route (path different from /{table_name}):**
-- Only create route_definition when path is NOT /{table_name}. For standard /{table_name}, route is auto-created.
+**Workflow - CUSTOM route (path different from /{table_name}, e.g. /register):**
+- Only create route_definition when path is NOT /{table_name}. For /{table_name}, route is auto-created - Do NOT create.
+- When creating: path, targetTables: [{id: tableId}], isEnabled: true. NEVER mainTable. Example: find_records table_definition filter name._eq "user_definition" → id → create_records route_definition dataArray: [{ path: "/register", targetTables: [{id: tableId}], isEnabled: true }].
 
 **Logic structure:** return { data: ... } or throw. Example: return #user_definition.find({ filter: {}, limit: 10 }); Use #table_name, never #main.
 
@@ -396,9 +397,9 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 **Route + public access:** When creating route with handler, if route should be public (no auth): add publishedMethods to route_definition (e.g. icon, publishedMethods). For "make public" later: update_records route_definition with publishedMethods (add method id). Do NOT create route_permission_definition for public.
 
 **Testing handler before deploy (run_handler_test) – MANDATORY before create/update:**
-- MUST run_handler_test before done. After test: cleanup. Then ask confirm and create/update.
+- MUST run_handler_test before done. After test: cleanup. Then show code to user and create/update.
 - For update/delete: create_records first → run_handler_test on new record → delete_records to cleanup.
-- Workflow: 1) get_table_details. 2) Write handler. 3) run_handler_test. 4) If error: read fixGuidance and nextSteps, fix code, retry. 5) Cleanup. 6) Ask confirm → create/update.
+- Workflow: 1) get_table_details. 2) Write handler. 3) run_handler_test. 4) If error: read fixGuidance and nextSteps, fix code, retry. 5) Cleanup. 6) Show code to user → create/update.
 - Example: run_handler_test({"table":"products","handlerCode":"return await #products.find({ limit: 5 });"})
 
 **run_handler_test error response – fix strategy:**
@@ -411,7 +412,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - For relations: Use propertyName (e.g. role) NOT foreignKeyColumn (roleId). Example: role: @BODY.role ? { id: @BODY.role } : null
 - Request body for registration should only include: email, role (optional, as id). Exclude isSystem, isRootAdmin
 - Hash password: const hashed = await @HELPERS.$bcrypt.hash(@BODY.password). NEVER use $bcrypt - use @HELPERS.$bcrypt
-- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ filter: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); return await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } });`;
+- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ filter: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); const created = await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } }); return { data: created?.data?.[0] ?? {} };`;
 
   const hookOpsContent = `**Pre/Post Hooks** – Ctx: $body,$params,$query,$user,$repos,$res,$api,$cache,$helpers,$throw. Pre: no $data. Post: +$data,$api.response. Pre return → short-circuit.
 
@@ -428,7 +429,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 if (!@USER) return { error: "Unauthorized" };
 @QUERY.filter = { ...(@QUERY.filter || {}), author: { id: { _eq: @USER.id } } };
 
-**Workflow:** 1) find_records method_definition, route_definition. 2) Write hook code. 3) run_handler_test to verify. 4) On error: fix per fixGuidance. 5) Cleanup, ask confirm. 6) create_records pre_hook_definition: route:{id}, methods:[{id}], code, isEnabled:true. MUST include methods array.`;
+**Workflow:** 1) find_records method_definition, route_definition. 2) Write hook code. 3) run_handler_test to verify. 4) On error: fix per fixGuidance. 5) Cleanup, show code to user. 6) create_records pre_hook_definition: route:{id}, methods:[{id}], code, isEnabled:true. MUST include methods array.`;
 
   const hookOpsHint: HintContent = {
     category: 'hook_operations',
@@ -446,11 +447,11 @@ if (!@USER) return { error: "Unauthorized" };
 
 **CRITICAL – Test before save:** MUST run_handler_test before create/update bootstrap. Pass table from logic (e.g. #role_definition → table:"role_definition"). On error: fix per fixGuidance, retry.
 
-**Workflow:** 1) Write logic. 2) run_handler_test to verify. 3) On error: fix. 4) Ask confirm. 5) create_records bootstrap_script_definition: name, logic, priority, isEnabled:true.
+**Workflow:** 1) Write logic. 2) run_handler_test to verify. 3) On error: fix. 4) Show logic to user. 5) create_records bootstrap_script_definition: name, logic, priority, isEnabled:true.
 
 **Fields:** name, description, logic (code), timeout (ms), priority (int), isEnabled (default true).
 
-**Logic pattern:** Use #<table_name>. .find({ filter, limit }) → { data }; .create({ data: {...} }).`;
+**Logic pattern:** Use #<table_name>. .find({ filter, limit }) → { data }; .create({ data: {...} }) → { data: [record] }; use created?.data?.[0] for single record.`;
 
   const bootstrapOpsHint: HintContent = {
     category: 'bootstrap_operations',

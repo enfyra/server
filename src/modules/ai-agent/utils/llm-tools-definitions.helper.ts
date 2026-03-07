@@ -583,6 +583,8 @@ CRITICAL - Relations Format:
 - Format: {"propertyName": {id: value}} - Example: {"role": {id: 1}}, {"category": {id: 19}}
 - NEVER include isSystem, isRootAdmin in dataArray - they have defaults; for registration/signup, set server-side in handler logic
 
+CRITICAL - route_definition: NEVER include mainTable in dataArray. Use targetTables only: { path, targetTables: [{id: tableId}], isEnabled: true }. mainTable is system-managed, agent MUST NOT set it.
+
 CRITICAL - DO NOT Include ID in Create Operations:
 - NEVER include "id" field in data - including id will cause errors
 
@@ -647,6 +649,8 @@ CRITICAL - Check Record Exists Before Update:
 CRITICAL - Relations Format:
 - Use propertyName from relations[].propertyName (e.g. "role", "category"). NEVER use foreignKeyColumn (roleId, categoryId)
 - Format: {"propertyName": {id: value}} - Example: {"role": {id: 1}}
+
+CRITICAL - route_definition: NEVER include mainTable in updates. Use targetTables only when linking tables. mainTable is system-managed, agent MUST NOT set it.
 
 Inputs:
 - table (required): Name of the table to update records in
@@ -764,10 +768,11 @@ CRITICAL - When to use:
 - For update/delete handlers: create new record first, test on that record, then delete_records to cleanup. NEVER test on existing records.
 
 Workflow:
-1. get_table_details to verify table. 2. Write handler using #<table_name>, @BODY, @PARAMS. 3. run_handler_test. 4. Cleanup test records. 5. success → ask confirm → create/update route_handler_definition
+1. get_table_details to verify table. 2. Write handler using #<table_name>, @BODY, @PARAMS. 3. run_handler_test. 4. Cleanup test records. 5. success → show code to user → create/update route_handler_definition
 
 Context in test:
 - #<table_name>: DynamicRepository for the table (use #products for table "products")
+- .find() → { data: [...] }; .create() → { data: [record], count?: 1 }; .update() → { data: [record] }. To get single record: created?.data?.[0], updated?.data?.[0]
 - @BODY: request body (pass via body param)
 - @PARAMS: route params (pass via params param)
 - @HELPERS.$bcrypt: available for password hash/compare
