@@ -77,7 +77,12 @@ update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","typ
 - NEVER include createdAt/updatedAt (auto-generated)
 - ALWAYS find target table ID before creating relations
 - Use relations array, NOT FK columns
-- Relation type is IMMUTABLE - cannot be updated, only deleted and recreated`;
+- Relation type is IMMUTABLE - cannot be updated, only deleted and recreated
+
+**SCHEMA LOCK - ONE TABLE PER CALL (CRITICAL):**
+- create_tables and update_tables: pass exactly 1 table per call, wait for result, then next table
+- Passing multiple tables causes "Schema đang được cập nhật" errors
+- Example: 3 tables → create_tables({"tables":[t1]}), wait → create_tables({"tables":[t2]}), wait → create_tables({"tables":[t3]})`;
 
   const tableSchemaOpsHint: HintContent = {
     category: 'table_schema_operations',
@@ -91,13 +96,19 @@ update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","typ
 **Workflow:**
 1. Find ID: find_records({"table":"table_definition","where":{"name":{"_eq":"products"}},"fields":"${idFieldName}"})
 2. Delete: delete_tables({"ids":[19]})
-Multiple: find_records with name._in, then delete_tables({"ids":[19,20]})
+Multiple tables: find_records with name._in, then delete ONE at a time: delete_tables({"ids":[19]}), wait → delete_tables({"ids":[20]}), etc.
 
 **CRITICAL:**
 - delete_tables = table structure, delete_records = data
 - ALWAYS find ID first (cannot use table name)
 - NEVER use delete_records on table_definition
-- Confirmation required for destructive ops: state table(s)/ids/count before delete; if scope unclear or conflicts with current task, ask brief confirmation then proceed`;
+- Confirmation required for destructive ops: state table(s)/ids/count before delete; if scope unclear or conflicts with current task, ask brief confirmation then proceed
+
+**SCHEMA LOCK - ONE TABLE PER CALL (CRITICAL):**
+- delete_tables: pass exactly 1 id per call, wait for result, then next table
+- Passing multiple ids causes "Schema đang được cập nhật" errors - most deletes will fail
+- Example: 10 tables → delete_tables({"ids":[1]}), wait → delete_tables({"ids":[2]}), etc.
+- If any delete fails with schema lock error: retry that table alone after a moment`;
 
   const tableDeletionHint: HintContent = {
     category: 'table_deletion',
