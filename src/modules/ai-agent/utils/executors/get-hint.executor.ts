@@ -79,9 +79,11 @@ update_tables({"tables":[{"tableName":"products","columns":[{"name":"stock","typ
 - Use relations array, NOT FK columns
 - Relation type is IMMUTABLE - cannot be updated, only deleted and recreated
 
+**Confirmation (schema change):** For create_tables, update_tables: state what you will create/update, ask in user's language, proceed after confirm.
+
 **SCHEMA LOCK - ONE TABLE PER CALL (CRITICAL):**
 - create_tables and update_tables: pass exactly 1 table per call, wait for result, then next table
-- Passing multiple tables causes "Schema đang được cập nhật" errors
+- Passing multiple tables causes "Schema is being updated" errors
 - Example: 3 tables → create_tables({"tables":[t1]}), wait → create_tables({"tables":[t2]}), wait → create_tables({"tables":[t3]})`;
 
   const tableSchemaOpsHint: HintContent = {
@@ -102,11 +104,11 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
 - delete_tables = table structure, delete_records = data
 - ALWAYS find ID first (cannot use table name)
 - NEVER use delete_records on table_definition
-- Confirmation required for destructive ops: state table(s)/ids/count before delete; if scope unclear or conflicts with current task, ask brief confirmation then proceed
+- Confirmation required (schema change): state table(s)/ids/count before delete_tables; ask in user's language; proceed after user confirms
 
 **SCHEMA LOCK - ONE TABLE PER CALL (CRITICAL):**
 - delete_tables: pass exactly 1 id per call, wait for result, then next table
-- Passing multiple ids causes "Schema đang được cập nhật" errors - most deletes will fail
+- Passing multiple ids causes "Schema is being updated" errors - most deletes will fail
 - Example: 10 tables → delete_tables({"ids":[1]}), wait → delete_tables({"ids":[2]}), etc.
 - If any delete fails with schema lock error: retry that table alone after a moment`;
 
@@ -124,7 +126,7 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
 2. If required relations exist (isNullable=false): Query related table for valid IDs
    find_records({"table":"categories","fields":"${idFieldName},name","limit":10})
 3. Check unique constraints: find_records with where clause
-4. Create: create_records({"table":"product","dataArray":[{"name":"Laptop","price":999.99,"category":{"id":19}}],"fields":"${idFieldName}"})
+4. Create: create_records({"table":"product","dataArray":[{"name":"Laptop","price":999.99,"category":{"id":19}}],"fields":"${idFieldName}"}) — relations: use propertyName (category) with {id}, NOT categoryId
 
 **BATCHING for Multiple Records (CRITICAL):**
 - When creating/updating MANY records (e.g., 500 records), MUST split into batches of 100 records per call
@@ -140,7 +142,9 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
 
 **CRITICAL:**
 - NEVER include ${idFieldName}, createdAt, updatedAt (auto-generated)
-- For relations: Use {"propertyName":{"id":19}}, NOT FK columns
+- NEVER include columns with defaultValue or isGenerated - they are auto-filled
+- NEVER include isSystem, isRootAdmin in request body for user-facing APIs (registration, signup) - server sets these with safe defaults
+- For relations: Use propertyName from relations[].propertyName with {"propertyName":{"id":19}}, NEVER use foreignKeyColumn (roleId, categoryId)
 - ALWAYS query related tables for valid IDs - NEVER hardcode
 - BATCHING: Always split large operations (>100 records) into batches of 100 records per call`;
 
@@ -161,7 +165,7 @@ Batch: delete_records({"table":"product","ids":[1,2,3]})
 **CRITICAL:**
 - delete_records = data, delete_tables = structure
 - ALWAYS verify before delete
-- Confirmation required for destructive ops: state table/ids/count; if unclear or conflicting with current task, ask brief confirmation then proceed`;
+- delete_records = data only, no confirmation required. For delete_tables (schema), confirmation required.`;
 
   const crudDeleteOpsHint: HintContent = {
     category: 'crud_delete_operations',
@@ -292,7 +296,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **$repos in route handler – targetTables only (agent MUST NOT set mainTable):**
 - Agent has NO permission to set mainTable. Only link tables via targetTables.
-- Handler uses $repos (#main, #<alias>) when route has tables linked. Link table X via targetTables: [{id: tableId}].
+- Handler uses #<table_name> (e.g. #user_definition) from targetTables. NEVER use #main unless you verified route.mainTable matches the table. Prefer #table_name.
 - create/update route: use targetTables only. NEVER include mainTable in create_records or update_records.
 
 **Making route PUBLIC (no auth required):**
@@ -316,6 +320,12 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - Get full schema: get_table_details({"tableName":["route_definition"]})
 - Query specific route: find_records({"table":"route_definition","where":{"path":{"_eq":"/products"},"isEnabled":{"_eq":true}},"fields":"path,mainTable.name,publishedMethods.method","limit":1})
 
+**Delete route (workflow):**
+1. find_records route_definition where path._eq → routeId
+2. find_records route_handler_definition where route.id._eq routeId → handler ids
+3. delete_records route_handler_definition with ids:[...] (delete handlers first)
+4. delete_records route_definition with ids:[routeId]. Use ids NOT where.
+
 **CRITICAL Rules:**
 - NEVER guess or invent route paths - ALWAYS query route_definition first
 - Only routes with isEnabled=true are active
@@ -331,7 +341,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
     category: 'routes_endpoints',
     title: 'Routes & Endpoints Discovery',
     content: routesEndpointsContent,
-    tools: ['find_records', 'get_table_details', 'update_records'],
+    tools: ['find_records', 'get_table_details', 'update_records', 'delete_records'],
   };
 
   const handlerOpsContent = `**Route Handler Operations**
@@ -339,32 +349,43 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 **CRITICAL - $repos + agent MUST NOT touch mainTable:**
 - Agent MUST NOT set mainTable. Only link tables via targetTables. NEVER include mainTable in create_records/update_records for route_definition.
 - $repos is populated from route.mainTable + route.targetTables. Link tables handler needs via targetTables: [{id: tableId}, ...].
-- If route needs to fetch from table X: add table X to targetTables (not mainTable). Handler uses #<tableName> or #main if mainTable exists (set by system/user).
+
+**CRITICAL - Use #table_name, NOT #main:**
+- ALWAYS use #<table_name> (e.g. #user_definition, #products) in handler logic. NEVER use #main.
+- #main is only valid if route.mainTable equals the table you need - you must verify mainTable first. When in doubt, use #table_name.
+- Example: "return #user_definition.find({ where: { email: @BODY.email }, limit: 1 });" NOT "return #main.find(...)"
 
 **Context available (route handler only):**
 - @BODY: request body | @PARAMS, @QUERY: params/query | @USER: logged-in user
-- #main, #<table_alias>: repos from route (link tables via targetTables; agent must NOT set mainTable)
-- @RES: response (set status, json) | @CACHE, @HELPERS ($jwt, $bcrypt, autoSlug, $uploadFile…)
-- @THROW4xx/5xx | @UPLOADED_FILE (if upload)
+- #<table_name>: repos from route.targetTables. API: .find({ where, limit }) → { data: [...] }; .create({ data: {...} }); .update({ id, data: {...} }); .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object.
+- @HELPERS: bcrypt via @HELPERS.$bcrypt.hash(plain), @HELPERS.$bcrypt.compare(plain, hash). Use @HELPERS.$bcrypt - NEVER $bcrypt.
+- @RES: response | @CACHE | @THROW4xx/5xx | @UPLOADED_FILE
 
-**PREFER template syntax:** @BODY, #main, @THROW404 instead of $ctx.$body, $ctx.$repos.main, etc.
+**PREFER template syntax:** @BODY, #user_definition, @THROW404 instead of $ctx.$body, $ctx.$repos.main, etc.
+
+**CRITICAL - Custom handler: show code first, then create after confirm:**
+- When creating or updating handler logic: 1) Write the handler code. 2) Show it to the user (in code block). 3) Ask for confirmation in user's language. 4) Only after user confirms, create_records/update_records route_handler_definition with that logic.
+- NEVER create/update route_handler_definition without showing the logic to user and getting confirmation first.
 
 **Workflow to create route + handler (for fetching records from table X):**
-1. find_records({"table":"table_definition","where":{"name":{"_eq":"X"}},"fields":"${idFieldName}","limit":1}) → tableId
-2. create_records route_definition with path, description, isEnabled, targetTables: [{id: tableId}] (NO mainTable). Add more tables to targetTables if handler needs them.
-3. find_records method_definition (e.g. GET) → methodId
-4. create_records route_handler_definition with route, method, logic (e.g. "return #main.find({ where: {}, limit: 10 });" or "#X.find(...)" if using table name)
-- If route already exists: update_records with targetTables only (NEVER mainTable) before adding handler
+1. find_records table_definition → tableId. 2. create_records route_definition with targetTables (NO mainTable). 3. find_records method_definition → methodId. 4. Write handler logic, show to user, ask confirm. 5. After confirm: create_records route_handler_definition with the logic. Use #<table_name>, NEVER #main.
+- If route already exists: update_records with targetTables only before adding handler.
 
 **Workflow to create handler only (route already exists):**
-1. find_records({"table":"route_definition","where":{"path":{"_eq":"/products"}},"fields":"${idFieldName},targetTables","limit":1})
-2. If route has no targetTables for needed table: update_records with targetTables: [{id: tableId}, ...] (NEVER set mainTable)
-3. find_records({"table":"method_definition","where":{"method":{"_eq":"POST"}},"fields":"${idFieldName}","limit":1})
-4. create_records({"table":"route_handler_definition","dataArray":[{"route":{"${idFieldName}":<routeId>},"method":{"${idFieldName}":<methodId>},"logic":"return #main.find({ where: {}, limit: 10 });","description":"..."}],"fields":"${idFieldName}"})
+1. find_records route_definition, method_definition. 2. If route needs targetTables: update_records. 3. Write handler logic, show to user, ask confirm in user's language. 4. After confirm: create_records route_handler_definition. Use #table_name NOT #main.
 
-**Logic structure:** return { data: ... } or throw. Example: return #main.find({ where: {}, limit: 10 });
+**Logic structure:** return { data: ... } or throw. Example: return #user_definition.find({ where: {}, limit: 10 }); Use #table_name, never #main.
 
-**Route + public access:** When creating route with handler, if route should be public (no auth): add publishedMethods to route_definition (e.g. icon, publishedMethods). For "make public" later: update_records route_definition with publishedMethods (add method id). Do NOT create route_permission_definition for public.`;
+**Delete route + handler:** 1) find_records route_definition where path._eq → routeId. 2) find_records route_handler_definition where route.id._eq routeId → handler ids. 3) delete_records route_handler_definition ids:[...]. 4) delete_records route_definition ids:[routeId]. Use ids, NOT where.
+
+**Route + public access:** When creating route with handler, if route should be public (no auth): add publishedMethods to route_definition (e.g. icon, publishedMethods). For "make public" later: update_records route_definition with publishedMethods (add method id). Do NOT create route_permission_definition for public.
+
+**Registration/Signup handlers (CRITICAL - Security):**
+- NEVER read isSystem, isRootAdmin from @BODY - set server-side: isSystem: false, isRootAdmin: false (or from safe defaults)
+- For relations: Use propertyName (e.g. role) NOT foreignKeyColumn (roleId). Example: role: @BODY.role ? { id: @BODY.role } : null
+- Request body for registration should only include: email, role (optional, as id). Exclude isSystem, isRootAdmin
+- Hash password: const hashed = await @HELPERS.$bcrypt.hash(@BODY.password). NEVER use $bcrypt - use @HELPERS.$bcrypt
+- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ where: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); return await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } });`;
 
   const hookOpsContent = `**Pre/Post Hooks** – Ctx: $body,$params,$query,$user,$repos,$res,$api,$cache,$helpers,$throw. Pre: no $data. Post: +$data,$api.response. Pre return → short-circuit.
 
@@ -390,7 +411,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **Fields:** name, description, logic (code), timeout (ms), priority (int, default 0), isEnabled (default true).
 
-**Logic pattern:** Use #<table_name> (e.g. #role_definition) to query/insert. Example: const roles = await #role_definition.find({ limit: 10 });`;
+**Logic pattern:** Use #<table_name>. API: .find({ where, limit }) → { data }; .create({ data: {...} }). Example: const res = await #role_definition.find({ limit: 10 }); const roles = res?.data || [];`;
 
   const bootstrapOpsHint: HintContent = {
     category: 'bootstrap_operations',
@@ -422,7 +443,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
     category: 'handler_operations',
     title: 'Route Handler Operations (Custom Logic)',
     content: handlerOpsContent,
-    tools: ['find_records', 'create_records', 'update_records'],
+    tools: ['find_records', 'create_records', 'update_records', 'delete_records'],
   };
 
   allHints.push(

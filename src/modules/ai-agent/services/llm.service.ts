@@ -17,24 +17,6 @@ import { processStreamContentDelta, processTokenUsage, processNonStreamingConten
 import { parseToolArguments, normalizeToolCallId, extractToolCallName, createToolCallCacheKey, parseToolArgsWithFallback } from '../utils/tool-call-parser.helper';
 import { validateToolCallArguments, formatToolArgumentsForExecution } from '../utils/tool-call-validator.helper';
 
-/** Detect if text appears to be in Vietnamese (diacritics, common chars) */
-function seemsVietnamese(text: string): boolean {
-  if (!text || typeof text !== 'string') return false;
-  return /[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i.test(text);
-}
-
-function getConfirmDestructiveMessage(confirmText: string, inVietnamese: boolean): string {
-  return inVietnamese
-    ? `Xác nhận thao tác có thể gây mất dữ liệu: ${confirmText}. Trả lời "yes" để tiếp tục hoặc chỉ rõ phạm vi/ids.`
-    : `Confirm destructive action: ${confirmText}. Reply "yes" to proceed or specify scope/ids.`;
-}
-
-function getIntentShiftMessage(inVietnamese: boolean): string {
-  return inVietnamese
-    ? `Đã phát hiện thay đổi ý định. Tạm dừng tác vụ hiện tại. Trả lời "continue with new request" hoặc "continue previous task".`
-    : `Detected intent change. Current task paused. Reply "continue with new request" or "continue previous task".`;
-}
-
 @Injectable()
 export class LLMService {
   private readonly logger = new Logger(LLMService.name);
@@ -283,115 +265,7 @@ export class LLMService {
             );
           }
         }
-        if (currentToolCalls.length > 0) {
-          const latestUserMessage = (() => {
-            for (let i = messages.length - 1; i >= 0; i--) {
-              const m = messages[i];
-              if ((m as any).role === 'user') {
-                return (m as any).content || '';
-              }
-            }
-            return messages?.length ? messages[messages.length - 1]?.content || '' : '';
-          })();
-          const lowerMsg = typeof latestUserMessage === 'string' ? latestUserMessage.toLowerCase() : '';
-          const intentShift = /stop|cancel|pause|hold|change request|switch task|new request/.test(lowerMsg);
-          const isDestructiveTool = (name: string | undefined) =>
-            name === 'delete_tables' || name === 'delete_records' || name === 'update_records';
-          const needsConfirm = (tc: any) => {
-            const toolName = extractToolCallName(tc);
-            if (!isDestructiveTool(toolName)) return false;
-            const argsRaw = tc.function?.arguments || tc.args || tc.arguments || {};
-            let parsed: any = argsRaw;
-            if (typeof argsRaw === 'string') {
-              try { parsed = JSON.parse(argsRaw); } catch { parsed = {}; }
-            }
-            const ids = parsed?.ids;
-            const updates = parsed?.updates;
-            const bulkCount = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : 0;
-            const hasExplicitDeleteKeyword = /delete|remove|destroy|drop|clear/.test(lowerMsg);
-            const hasExplicitConfirm = /yes|ok|confirm|sure|go ahead|continue|agree|do it/.test(lowerMsg);
-            if (!hasExplicitDeleteKeyword && !hasExplicitConfirm) return true;
-            if (bulkCount === 0) return true;
-            return false;
-          };
-          if (intentShift) {
-            const inVietnamese = seemsVietnamese(latestUserMessage);
-            const clarification = getIntentShiftMessage(inVietnamese);
-            fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
-            onEvent({
-              type: 'text',
-              data: {
-                delta: (fullContent.endsWith('\n') ? '' : '\n\n') + clarification,
-              },
-            });
-            const finalUsage = extractTokenUsage(aggregateResponse);
-            if (finalUsage) {
-              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
-              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
-              onEvent({
-                type: 'tokens',
-                data: {
-                  inputTokens: accumulatedTokenUsage.inputTokens,
-                  outputTokens: accumulatedTokenUsage.outputTokens,
-                },
-              });
-            }
-            reportTokenUsage('stream', aggregateResponse);
-            return {
-              content: fullContent,
-              toolCalls: allToolCalls,
-              toolResults: allToolResults,
-              toolLoops: iterations,
-            };
-          }
-          const pendingDestructive = currentToolCalls.find((tc: any) => needsConfirm(tc));
-          if (pendingDestructive) {
-            const toolName = extractToolCallName(pendingDestructive) || 'destructive action';
-            const argsRaw = pendingDestructive.function?.arguments || pendingDestructive.args || pendingDestructive.arguments || {};
-            let parsed: any = argsRaw;
-            if (typeof argsRaw === 'string') {
-              try { parsed = JSON.parse(argsRaw); } catch { parsed = {}; }
-            }
-            const ids = parsed?.ids;
-            const updates = parsed?.updates;
-            const targetTable = parsed?.table || parsed?.tableName || parsed?.tableNames;
-            const count = Array.isArray(ids) ? ids.length : Array.isArray(updates) ? updates.length : undefined;
-            const scopeDesc = [
-              targetTable ? `table: ${JSON.stringify(targetTable)}` : null,
-              count ? `items: ${count}` : null,
-              ids && Array.isArray(ids) ? `ids: [${ids.slice(0, 5).join(', ')}${ids.length > 5 ? '...' : ''}]` : null,
-            ].filter(Boolean).join(', ');
-            const confirmText = scopeDesc ? `${toolName} → ${scopeDesc}` : toolName;
-            const inVietnamese = seemsVietnamese(latestUserMessage);
-            const clarification = getConfirmDestructiveMessage(confirmText, inVietnamese);
-            fullContent += (fullContent.endsWith('\n') ? '' : '\n\n') + clarification;
-            onEvent({
-              type: 'text',
-              data: {
-                delta: (fullContent.endsWith('\n') ? '' : '\n\n') + clarification,
-              },
-            });
-            const finalUsage = extractTokenUsage(aggregateResponse);
-            if (finalUsage) {
-              accumulatedTokenUsage.inputTokens = Math.max(accumulatedTokenUsage.inputTokens, finalUsage.inputTokens ?? 0);
-              accumulatedTokenUsage.outputTokens = Math.max(accumulatedTokenUsage.outputTokens, finalUsage.outputTokens ?? 0);
-              onEvent({
-                type: 'tokens',
-                data: {
-                  inputTokens: accumulatedTokenUsage.inputTokens,
-                  outputTokens: accumulatedTokenUsage.outputTokens,
-                },
-              });
-            }
-            reportTokenUsage('stream', aggregateResponse);
-            return {
-              content: fullContent,
-              toolCalls: allToolCalls,
-              toolResults: allToolResults,
-              toolLoops: iterations,
-            };
-          }
-        }
+        // Destructive action confirmation: handled by LLM per system prompt. No server-side blocking.
         if (aggregateResponse && currentToolCalls.length === 0) {
           const toolCalls = getToolCallsFromResponse(aggregateResponse);
           if (toolCalls.length > 0) {

@@ -47,6 +47,7 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "list tables/get schema/check schema/show schema/describe table/show columns/check structure" (table name known) → ["natural_language_discovery", "metadata_operations"]
 - "routes/endpoints/API/API paths/test URLs" → ["routes_endpoints", "natural_language_discovery"]
 - "how to test API" → ["routes_endpoints"]
+- "delete route" / "remove route" / "delete endpoint" / "remove endpoint" → ["routes_endpoints"]
 - "make route public" / "public route" (when context is about a route) → ["routes_endpoints"]
 - "what endpoints/API are available" → ["routes_endpoints", "natural_language_discovery"]
 - "give me api" / "api to" → ["routes_endpoints", "natural_language_discovery"]
@@ -93,6 +94,9 @@ Examples:
 {"user": "Display all non-system tables", "output": {"categories": ["metadata_operations"]}}
 {"user": "Delete products table", "output": {"categories": ["table_deletion"]}}
 {"user": "Remove the orders table", "output": {"categories": ["table_deletion"]}}
+{"user": "Delete route /register", "output": {"categories": ["routes_endpoints"]}}
+{"user": "delete route /register for me", "output": {"categories": ["routes_endpoints"]}}
+{"user": "Remove endpoint /api/users", "output": {"categories": ["routes_endpoints"]}}
 {"user": "Create custom handler for POST /products", "output": {"categories": ["handler_operations"]}}
 {"user": "Add handler to route /checkout", "output": {"categories": ["handler_operations"]}}
 {"user": "Write logic for user registration", "output": {"categories": ["handler_operations"]}}
