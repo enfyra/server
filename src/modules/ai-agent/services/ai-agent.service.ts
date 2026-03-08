@@ -61,6 +61,12 @@ export class AiAgentService {
     const allToolCalls: any[] = [];
     const allToolResults: any[] = [];
     let hasStartedStreaming = false;
+    let actualInputTokens = 0;
+    let actualOutputTokens = 0;
+    let actualCacheHitTokens = 0;
+    let selectedToolNames: string[] = [];
+    let evaluateTools: string[] = [];
+    let streamStartTime = 0;
 
     const cleanup = () => {
       if (heartbeatInterval) {
@@ -109,6 +115,27 @@ export class AiAgentService {
           ? summarizeToolResults(uniqueToolCalls || [], allToolResults)
           : null;
 
+        const usedToolNames = toolCallsToSave
+          ? [...new Set((toolCallsToSave as any[]).map((tc) => tc.function?.name || tc.name).filter(Boolean))]
+          : [];
+        const durationMs = streamStartTime > 0 ? Date.now() - streamStartTime : undefined;
+        const messageMetadata: Record<string, any> = {};
+        if (selectedToolNames?.length) messageMetadata.boundTools = selectedToolNames;
+        if (usedToolNames.length) {
+          messageMetadata.usedTools = usedToolNames;
+          messageMetadata.usedToolsCount = usedToolNames.length;
+        }
+        if (config?.provider) messageMetadata.provider = config.provider;
+        if (config?.model) messageMetadata.model = config.model;
+        if (evaluateTools?.length) messageMetadata.evaluateTools = evaluateTools;
+        if (durationMs != null) messageMetadata.durationMs = durationMs;
+        if (actualCacheHitTokens > 0) {
+          messageMetadata.cacheHitTokens = actualCacheHitTokens;
+          if (actualInputTokens > 0) {
+            messageMetadata.cacheHitPct = Math.round((actualCacheHitTokens / actualInputTokens) * 1000) / 10;
+          }
+        }
+
         await this.conversationService.createMessage({
           data: {
             conversationId: conversationIdForCleanup,
@@ -117,6 +144,9 @@ export class AiAgentService {
             toolCalls: toolCallsToSave,
             toolResults: toolResultsToSave,
             sequence: assistantSequence,
+            inputTokens: actualInputTokens > 0 ? actualInputTokens : undefined,
+            outputTokens: actualOutputTokens > 0 ? actualOutputTokens : undefined,
+            metadata: Object.keys(messageMetadata).length ? messageMetadata : undefined,
           },
           userId,
         });
@@ -240,6 +270,7 @@ export class AiAgentService {
     let lastSequence: number | undefined;
 
     let configId: string | number;
+    let config: any;
 
     try {
       if (request.conversation) {
@@ -285,7 +316,7 @@ export class AiAgentService {
 
       }
 
-      const config = await this.aiConfigCacheService.getConfigById(configId);
+      config = await this.aiConfigCacheService.getConfigById(configId);
       if (!config) {
         await sendErrorAndClose(`AI config with ID ${configId} not found`);
         return;
@@ -348,23 +379,23 @@ export class AiAgentService {
       const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || request.message;
       const userMessageStr = typeof latestUserMessage === 'string' ? latestUserMessage : JSON.stringify(latestUserMessage);
 
+      const evaluateConfigId = await this.aiConfigCacheService.getEvaluateStageConfigId();
+      const stage1ConfigId = evaluateConfigId ?? configId;
+
       const evaluateResult = await this.llmService.evaluateNeedsTools({
         userMessage: userMessageStr,
-        configId,
+        configId: stage1ConfigId,
         conversationHistory: messages,
         conversationSummary: conversation.summary,
       });
 
-      const {
-        selectedToolNames,
-        toolsDefSize,
-        hintCategories,
-        needsTools,
-      } = selectToolsForRequest({
-        evaluateCategories: evaluateResult.categories || [],
-        queryBuilder: this.queryBuilder,
+      const selectResult = selectToolsForRequest({
+        evaluateTools: evaluateResult.tools || [],
         provider: config.provider,
       });
+      selectedToolNames = selectResult.selectedToolNames || [];
+      evaluateTools = evaluateResult.tools || [];
+      const { toolsDefSize, needsTools } = selectResult;
 
       const llmMessages = await buildLLMMessages({
         conversation,
@@ -372,7 +403,6 @@ export class AiAgentService {
         config,
         user,
         needsTools,
-        hintCategories,
         selectedToolNames,
         metadataCacheService: this.metadataCacheService,
         queryBuilder: this.queryBuilder,
@@ -409,8 +439,6 @@ export class AiAgentService {
       }
     }
 
-      let actualInputTokens = 0;
-      let actualOutputTokens = 0;
 
       fullContent = '';
       allToolCalls.length = 0;
@@ -419,6 +447,7 @@ export class AiAgentService {
 
       let llmResponse: any = null;
       try {
+        streamStartTime = Date.now();
         llmResponse = await this.llmService.chatStream({
           messages: llmMessages,
           configId,
@@ -479,6 +508,7 @@ export class AiAgentService {
             } else if (event.type === 'tokens') {
               actualInputTokens = event.data?.inputTokens || 0;
               actualOutputTokens = event.data?.outputTokens || 0;
+              if (event.data?.cacheHitTokens != null) actualCacheHitTokens = event.data.cacheHitTokens;
               sendEvent(event);
             } else if (event.type === 'error') {
               sendEvent(event);
@@ -631,6 +661,29 @@ export class AiAgentService {
             ? summarizeToolResults(toolCallsToSave, toolResultsToSave)
             : null;
 
+          const usedToolNames = toolCallsToSave
+            ? [...new Set((toolCallsToSave as any[]).map((tc: any) => tc.function?.name || tc.name).filter(Boolean))]
+            : [];
+          const durationMs = streamStartTime > 0 ? Date.now() - streamStartTime : undefined;
+          const messageMetadata: Record<string, any> = {};
+          if (selectedToolNames?.length) messageMetadata.boundTools = selectedToolNames;
+          if (usedToolNames.length) {
+            messageMetadata.usedTools = usedToolNames;
+            messageMetadata.usedToolsCount = usedToolNames.length;
+          }
+          if (llmResponse?.toolLoops != null) messageMetadata.toolLoops = llmResponse.toolLoops;
+          if (config?.provider) messageMetadata.provider = config.provider;
+          if (config?.model) messageMetadata.model = config.model;
+          if (llmResponse?.toolsAddedOnDemand?.length) messageMetadata.toolsAddedOnDemand = llmResponse.toolsAddedOnDemand;
+          if (evaluateTools?.length) messageMetadata.evaluateTools = evaluateTools;
+          if (durationMs != null) messageMetadata.durationMs = durationMs;
+          if (actualCacheHitTokens > 0) {
+            messageMetadata.cacheHitTokens = actualCacheHitTokens;
+            if (actualInputTokens > 0) {
+              messageMetadata.cacheHitPct = Math.round((actualCacheHitTokens / actualInputTokens) * 1000) / 10;
+            }
+          }
+
           const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || request.message;
           const userMessageStr = typeof latestUserMessage === 'string' ? latestUserMessage : JSON.stringify(latestUserMessage);
           const provider = config.provider || 'Unknown';
@@ -643,6 +696,9 @@ export class AiAgentService {
               toolCalls: toolCallsToSave.length > 0 ? toolCallsToSave : null,
               toolResults: summarizedToolResults,
               sequence: assistantSequence,
+              inputTokens: actualInputTokens > 0 ? actualInputTokens : undefined,
+              outputTokens: actualOutputTokens > 0 ? actualOutputTokens : undefined,
+              metadata: Object.keys(messageMetadata).length ? messageMetadata : undefined,
             },
             userId,
             context: {

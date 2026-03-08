@@ -119,29 +119,25 @@ Multiple: {"tableName":["product","category","order"]}`,
   },
   {
     name: 'get_hint',
-    description: `Purpose → General guidance for system operations. Use for general workflows, not tool-specific rules.
+    description: `Purpose → Get workflow guidance. Call FIRST before acting when task involves something you might need to guess.
 
-CRITICAL - Check System Prompt First:
-- BEFORE calling this tool, check if your system prompt contains a "RELEVANT WORKFLOWS & RULES" section
-- If "RELEVANT WORKFLOWS & RULES" section exists in your system prompt, DO NOT call this tool - all necessary guidance is already provided
-- Only call this tool if you do NOT see "RELEVANT WORKFLOWS & RULES" in your system prompt and you need additional guidance
+CRITICAL – Call get_hint BEFORE writing/saving:
+- Handler or hook code (handler_operations, hook_operations) – syntax like @USER, @QUERY, workflow
+- Table schema, relations, CASCADE (table_schema_operations)
+- Route, endpoint, API setup (routes_endpoints)
+- CRUD with relations, batching (crud_write_operations)
+- Bootstrap, WebSocket (bootstrap_operations, websocket_operations)
 
-CRITICAL - Call ONCE per iteration. Use category array for multiple categories: {"category":["table_operations","error_handling"]}. Reuse result - never call multiple times.
+Do NOT guess – check categories, call get_hint first, then execute.
 
-Use when:
-- System prompt does NOT contain "RELEVANT WORKFLOWS & RULES" section AND you need general guidance about system operations
-- Unsure about table discovery or complex workflows and hints are not already provided
 Available categories:
-- table_operations → Table creation/update operations (create_tables, update_tables tools)
-- field_optimization → General field selection and query optimization (NOT tool-specific)
-- database_type → Database-specific context
-- error_handling → General error handling protocols
-- table_discovery → Finding tables
-- complex_workflows → Step-by-step workflows
-
+- database_type, field_optimization, table_schema_operations, table_deletion
+- handler_operations, hook_operations, bootstrap_operations, websocket_operations
+- crud_write_operations, crud_delete_operations, crud_query_operations
+- metadata_operations, natural_language_discovery, system_workflows, error_handling, routes_endpoints
 
 Input: category (string) or categories (array) or omit for all
-Example: {"category":"table_operations"} or {"category":["table_operations","error_handling"]}
+Example: {"category":"handler_operations"} or {"category":["handler_operations","routes_endpoints"]}
 
 Returns:
 {
@@ -155,23 +151,15 @@ Returns:
       properties: {
         category: {
           oneOf: [
-            {
-              type: 'string',
-              description:
-                'Single hint category: database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows.',
-            },
+            { type: 'string', description: 'Single hint category' },
             {
               type: 'array',
-              items: {
-                type: 'string',
-                enum: ['database_type', 'field_optimization', 'table_operations', 'error_handling', 'table_discovery', 'complex_workflows'],
-              },
-              description:
-                'Multiple hint categories to retrieve at once. Useful when you need guidance on multiple topics (e.g., ["table_operations", "error_handling"]).',
+              items: { type: 'string' },
+              description: 'Multiple hint categories',
             },
           ],
           description:
-            'Hint category (string) or categories (array of strings). Available: database_type, field_optimization, table_operations, error_handling, table_discovery, complex_workflows. Omit for all hints.',
+            'Hint category or array. Available: database_type, field_optimization, table_schema_operations, table_deletion, handler_operations, hook_operations, bootstrap_operations, websocket_operations, crud_write_operations, crud_delete_operations, crud_query_operations, metadata_operations, natural_language_discovery, system_workflows, error_handling, routes_endpoints. Omit for all.',
         },
       },
     },
@@ -568,8 +556,6 @@ Detailed workflows, filtering strategies, and best practices are provided in the
     name: 'create_records',
     description: `Purpose → Create one or multiple records in a table. Processes records sequentially internally.
 
-CRITICAL - CASCADE-first: Prefer create/update from parent with nested relations over creating child tables separately. Example: create route with handlers: [{method:{id},logic},...], targetTables: [{id}], publishedMethods: [{id}] in one call. Fewer calls, atomic.
-
 Permission: Auto-checked for business tables. Fails with clear error if denied.
 
 CRITICAL - Schema Check Required:
@@ -637,8 +623,6 @@ Detailed workflows, step-by-step instructions, and best practices are provided i
   {
     name: 'update_records',
     description: `Purpose → Update one or multiple records by ID. Processes records sequentially internally.
-
-CRITICAL - CASCADE-first: Prefer update from parent with nested relations over updating child tables separately. Example: update route_definition with data: {handlers:[{method:{id},logic}], targetTables:[{id}], publishedMethods:[{id}]} instead of create_records route_handler_definition then update_records route. Fewer calls, atomic.
 
 Permission: Auto-checked for business tables. Fails with clear error if denied.
 
@@ -771,7 +755,6 @@ CRITICAL - When to use:
 - MANDATORY: must run_handler_test before create/update route_handler_definition. After test: cleanup (delete test records).
 - For update/delete handlers: create new record first, test on that record, then delete_records to cleanup. NEVER test on existing records.
 
-Workflow - PREFER CASCADE: update route from root with nested handlers. 1) find_records route_definition, method_definition. 2) run_handler_test. 3) update_records route_definition with data: {handlers: [{method:{id}, logic}], targetTables, publishedMethods} – do NOT create route_handler_definition separately.
 
 Context in test:
 - #<table_name>: DynamicRepository for the table (use #products for table "products")

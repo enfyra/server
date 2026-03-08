@@ -10,13 +10,12 @@ export async function buildSystemPromptForLLM(params: {
   user?: any;
   latestUserMessage?: string;
   needsTools?: boolean;
-  hintCategories?: string[];
   selectedToolNames?: string[];
   metadataCacheService: MetadataCacheService;
   queryBuilder: QueryBuilderService;
   configService: ConfigService;
 }): Promise<string> {
-  const { conversation, user, latestUserMessage, needsTools = true, config, hintCategories, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
+  const { conversation, user, latestUserMessage, needsTools = true, config, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
   const provider = config?.provider || 'OpenAI';
 
   let tablesList: string | undefined;
@@ -24,21 +23,11 @@ export async function buildSystemPromptForLLM(params: {
     selectedToolNames.includes('create_tables') ||
     selectedToolNames.includes('update_tables') ||
     selectedToolNames.includes('delete_tables') ||
-    (selectedToolNames.includes('find_records') && !hintCategories?.includes('metadata_operations'))
+    selectedToolNames.includes('find_records')
   );
   if (needsTableListForReference) {
     const metadata = await metadataCacheService.getMetadata();
     tablesList = Array.from(metadata.tables.keys()).map(name => `- ${name}`).join('\n');
-  }
-
-  const dbType = queryBuilder.getDbType();
-  const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
-
-  let hintContent: string | undefined;
-  if (hintCategories && hintCategories.length > 0) {
-    const { buildHintContent, getHintContentString } = require('../utils/executors/get-hint.executor');
-    const hints = buildHintContent(dbType, idFieldName, hintCategories);
-    hintContent = getHintContentString(hints);
   }
 
   const conversationId = conversation?.id ?? null;
@@ -48,14 +37,12 @@ export async function buildSystemPromptForLLM(params: {
     needsTools,
     tablesList,
     user,
-    dbType,
+    dbType: queryBuilder.getDbType(),
     conversationId,
     latestUserMessage,
     conversationSummary: conversation.summary,
     task: conversation.task,
-    hintContent,
   });
-  
+
   return systemPrompt;
 }
-

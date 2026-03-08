@@ -434,13 +434,15 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 if (!@USER) return { error: "Unauthorized" };
 @QUERY.filter = { ...(@QUERY.filter || {}), author: { id: { _eq: @USER.id } } };
 
-**Workflow - PREFER CASCADE:** update_records route_definition with data: {preHook: [{methods:[{id}], code, isEnabled:true}], postHook: [...]} – nested from route. If separate: create_records pre_hook_definition with route:{id}, methods:[{id}], code.`;
+**Workflow - PREFER CASCADE:** update_records route_definition with data: {preHook: [{methods:[{id}], code, isEnabled:true}], postHook: [...]} – nested from route. If separate: create_records pre_hook_definition with route:{id}, methods:[{id}], code.
+
+**Delete hook:** find_records pre_hook_definition (or post_hook_definition) filter route.id._eq routeId → ids → delete_records with ids:[...]. Use ids, NOT filter.`;
 
   const hookOpsHint: HintContent = {
     category: 'hook_operations',
     title: 'Pre/Post Hook Operations',
     content: hookOpsContent,
-    tools: ['find_records', 'create_records', 'update_records', 'run_handler_test', 'get_table_details'],
+    tools: ['find_records', 'create_records', 'update_records', 'delete_records', 'run_handler_test', 'get_table_details'],
   };
 
   const bootstrapOpsContent = `**Bootstrap Script Operations** – Runs on app startup (no HTTP request).

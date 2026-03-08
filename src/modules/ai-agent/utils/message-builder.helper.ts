@@ -15,13 +15,12 @@ export async function buildLLMMessages(params: {
   config: any;
   user?: any;
   needsTools?: boolean;
-  hintCategories?: string[];
   selectedToolNames?: string[];
   metadataCacheService: MetadataCacheService;
   queryBuilder: QueryBuilderService;
   configService: ConfigService;
 }): Promise<LLMMessage[]> {
-  const { conversation, messages, config, user, needsTools = true, hintCategories, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
+  const { conversation, messages, config, user, needsTools = true, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
 
   const latestUserMessage = messages.length > 0
     ? messages[messages.length - 1]?.content
@@ -32,8 +31,7 @@ export async function buildLLMMessages(params: {
     config, 
     user, 
     latestUserMessage, 
-    needsTools, 
-    hintCategories, 
+    needsTools,
     selectedToolNames,
     metadataCacheService,
     queryBuilder,

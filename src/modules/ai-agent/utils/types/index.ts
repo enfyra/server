@@ -22,6 +22,8 @@ export interface IToolCall {
 export interface IToolResult {
   toolCallId: string;
   result: any;
+  /** 'success' | 'error' - explicit status for filtering/analytics. Derived from result?.error when saving. */
+  status?: 'success' | 'error';
 }
 
 export interface LLMMessage {
@@ -36,6 +38,7 @@ export interface LLMResponse {
   toolCalls: IToolCall[];
   toolResults: IToolResult[];
   toolLoops?: number;
+  toolsAddedOnDemand?: string[];
 }
 
 export interface IMessage {
@@ -46,6 +49,21 @@ export interface IMessage {
   toolCalls?: IToolCall[] | null;
   toolResults?: IToolResult[] | null;
   sequence: number;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  metadata?: {
+    boundTools?: string[];
+    usedTools?: string[];
+    usedToolsCount?: number;
+    toolLoops?: number;
+    provider?: string;
+    model?: string;
+    toolsAddedOnDemand?: string[];
+    evaluateTools?: string[];
+    durationMs?: number;
+    cacheHitTokens?: number;
+    cacheHitPct?: number;
+  } | null;
   createdAt: Date;
 }
 
@@ -56,6 +74,21 @@ export interface IMessageCreate {
   toolCalls?: IToolCall[] | null;
   toolResults?: IToolResult[] | null;
   sequence: number;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  metadata?: {
+    boundTools?: string[];
+    usedTools?: string[];
+    usedToolsCount?: number;
+    toolLoops?: number;
+    provider?: string;
+    model?: string;
+    toolsAddedOnDemand?: string[];
+    evaluateTools?: string[];
+    durationMs?: number;
+    cacheHitTokens?: number;
+    cacheHitPct?: number;
+  } | null;
 }
 
 export interface IConversation {
@@ -140,6 +173,8 @@ export interface StreamTokenEvent {
   data: {
     inputTokens: number;
     outputTokens: number;
+    cacheHitTokens?: number;
+    cacheCreationTokens?: number;
   };
 }
 
@@ -337,6 +372,5 @@ export interface BuildSystemPromptParams {
     error?: string;
     result?: any;
   };
-  hintContent?: string;
 }
 

@@ -18,6 +18,9 @@ export function summarizeToolResults(toolCalls: any[], toolResults: any[]): any[
   }
 
   return toolResults.map((toolResult) => {
+    const status: 'success' | 'error' = toolResult.result?.error ? 'error' : 'success';
+    const withStatus = { ...toolResult, status };
+
     const toolCall = toolCalls?.find((tc) => tc.id === toolResult.toolCallId);
     const toolName = toolCall?.function?.name || '';
     let parsedArgs: any = {};
@@ -33,19 +36,19 @@ export function summarizeToolResults(toolCalls: any[], toolResults: any[]): any[
     }
 
     if (toolName === 'get_table_details') {
-      return toolResult;
+      return withStatus;
     }
 
     const originalResultStr = JSON.stringify(toolResult.result || {});
     const originalResultSize = originalResultStr.length;
 
     if (originalResultSize < 100 && !toolResult.result?.error) {
-      return toolResult;
+      return withStatus;
     }
 
     const summary = formatToolResultSummary(toolName, parsedArgs, toolResult.result);
     return {
-      ...toolResult,
+      ...withStatus,
       result: summary,
     };
   });

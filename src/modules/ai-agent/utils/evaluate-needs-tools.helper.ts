@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages');
-import { buildEvaluateNeedsToolsPrompt } from '../prompts/prompt-builder';
-import { extractTokenUsage } from './token-usage.helper';
+import { buildEvaluateToolSelectionPrompt } from '../prompts/prompt-builder';
+import { TOOL_SHORT_DESCRIPTIONS } from '../prompts/base/evaluate-tool-selection.base';
 
 const logger = new Logger('EvaluateNeedsToolsHelper');
 
@@ -23,7 +23,7 @@ function extractJsonBlock(input: string): string | null {
   if (fenceMatch && fenceMatch[1]) {
     return fenceMatch[1].trim();
   }
-  const startIndex = input.indexOf('{"categories"');
+  const startIndex = input.indexOf('{"tools"');
   if (startIndex === -1) {
     return null;
   }
@@ -66,7 +66,7 @@ function shouldSkipEvaluation(
 function buildMessages(params: EvaluateNeedsToolsParams): any[] {
   const { conversationHistory = [], conversationSummary, userMessage, config } = params;
   const provider = config.provider || 'Unknown';
-  const systemPrompt = buildEvaluateNeedsToolsPrompt(provider);
+  const systemPrompt = buildEvaluateToolSelectionPrompt(provider);
 
   const messages: any[] = [
     new SystemMessage(systemPrompt),
@@ -124,21 +124,22 @@ function parseResponseContent(response: any): string {
   return responseContent;
 }
 
-export async function evaluateNeedsTools(params: EvaluateNeedsToolsParams): Promise<{ toolNames: string[]; categories?: string[] }> {
+const VALID_TOOL_NAMES = new Set(Object.keys(TOOL_SHORT_DESCRIPTIONS));
+
+export async function evaluateNeedsTools(params: EvaluateNeedsToolsParams): Promise<{ tools: string[] }> {
   const { userMessage, config, llm, conversationHistory } = params;
 
   const hasConversationHistory = !!(conversationHistory && conversationHistory.length > 0);
   const skipCheck = shouldSkipEvaluation(userMessage, hasConversationHistory);
   if (skipCheck.skip) {
-    return { toolNames: [], categories: [] };
+    return { tools: [] };
   }
 
   try {
     const messages = buildMessages(params);
     const response = await llm.invoke(messages);
-    
+
     const responseContent = parseResponseContent(response);
-    const tokenUsage = extractTokenUsage(response);
 
     let parsedContent: any = null;
     try {
@@ -154,19 +155,13 @@ export async function evaluateNeedsTools(params: EvaluateNeedsToolsParams): Prom
       }
     }
 
-    if (!parsedContent) {
-      return { toolNames: [], categories: [] };
+    if (!parsedContent || !Array.isArray(parsedContent.tools)) {
+      return { tools: [] };
     }
 
-    if (parsedContent.categories !== undefined) {
-      const selectedCategories = Array.isArray(parsedContent.categories) ? parsedContent.categories : [];
-      if (selectedCategories.length === 0) {
-        return { toolNames: [], categories: [] };
-      }
-      return { toolNames: [], categories: selectedCategories };
-    }
-
-    return { toolNames: [], categories: [] };
+    const tools = (parsedContent.tools as string[])
+      .filter((t): t is string => typeof t === 'string' && VALID_TOOL_NAMES.has(t));
+    return { tools };
   } catch (error: any) {
     const provider = config?.provider || 'Unknown';
     const model = config?.model || 'N/A';
@@ -179,7 +174,7 @@ export async function evaluateNeedsTools(params: EvaluateNeedsToolsParams): Prom
     if (error?.response?.data) {
       logger.warn('[evaluateNeedsTools] response.data=' + JSON.stringify(error.response.data)?.slice(0, 300));
     }
-    return { toolNames: [] };
+    return { tools: [] };
   }
 }
 

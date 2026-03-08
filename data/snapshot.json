@@ -469,8 +469,11 @@
             { "name": "role", "type": "enum", "isNullable": false, "isSystem": true, "options": ["user", "assistant", "system"], "description": "Message role: user (from user), assistant (from LLM), system (system prompts)" },
             { "name": "content", "type": "text", "isNullable": true, "isSystem": true, "description": "Message content. Null if assistant message has tool_calls (will have content in final response)" },
             { "name": "toolCalls", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Tool calls made by LLM. Format: [{ id: 'call_abc123', type: 'function', function: { name: '...', arguments: '...' } }]" },
-                { "name": "toolResults", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Tool execution results. Format: [{ toolCallId: 'call_abc123', result: {...} }]. Must match tool_call_id with toolCalls." },
-                { "name": "sequence", "type": "int", "isNullable": false, "isSystem": true, "description": "Message sequence number within conversation (incremental)" }
+            { "name": "toolResults", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Tool execution results. Format: [{ toolCallId: 'call_abc123', result: {...}, status: 'success'|'error' }]. Must match tool_call_id with toolCalls. status derived from result.error when saving." },
+            { "name": "sequence", "type": "int", "isNullable": false, "isSystem": true, "description": "Message sequence number within conversation (incremental)" },
+            { "name": "inputTokens", "type": "int", "isNullable": true, "isSystem": true, "description": "Token count consumed as input for this assistant message (LLM request)" },
+            { "name": "outputTokens", "type": "int", "isNullable": true, "isSystem": true, "description": "Token count produced as output for this assistant message (LLM response)" },
+            { "name": "metadata", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Debug metadata. boundTools, usedTools, usedToolsCount, toolLoops, provider, model, toolsAddedOnDemand, evaluateTools, durationMs, cacheHitTokens, cacheHitPct for assistant messages." }
             ],
             "relations": [
                 { "propertyName": "conversation", "type": "many-to-one", "targetTable": "ai_conversation_definition", "isSystem": true, "isNullable": false, "description": "Conversation this message belongs to", "onDelete": "CASCADE" }
