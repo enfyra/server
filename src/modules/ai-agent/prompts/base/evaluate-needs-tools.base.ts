@@ -39,6 +39,7 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "custom handler" / "route handler" / "logic for route" / "handler for POST /x" / "write handler code" / "add handler to route" → ["handler_operations"]
 - "test handler" / "run handler" / "try handler" / "test custom logic" / "run handler test" / "execute handler" → ["handler_operations"]
 - "pre-hook" / "post-hook" / "pre hook" / "post hook" / "hook before" / "hook after" / "validate before route" / "log after" / "run before route" / "run after route" → ["hook_operations"]
+- "delete hook" / "remove hook" / "xóa hook" (any language for delete + hook) → ["hook_operations"]
 - "bootstrap" / "startup script" / "run on app start" / "init script" / "seed data on start" / "script on startup" → ["bootstrap_operations"]
 - "websocket" / "WebSocket" / "connection handler" / "event handler" / "real-time" / "gateway /chat" / "when client connects" / "handler for event X" → ["websocket_operations"]
 - "create/update record" → ["crud_write_operations"]
@@ -106,6 +107,8 @@ Examples:
 {"user": "Edit handler for GET /orders", "output": {"categories": ["handler_operations"]}}
 {"user": "Add pre-hook to validate before delete", "output": {"categories": ["hook_operations"]}}
 {"user": "Post-hook to log after order creation", "output": {"categories": ["hook_operations"]}}
+{"user": "Delete that hook", "output": {"categories": ["hook_operations"]}}
+{"user": "xóa cái hook đó đi", "output": {"categories": ["hook_operations"]}}
 {"user": "Add bootstrap script to seed roles on startup", "output": {"categories": ["bootstrap_operations"]}}
 {"user": "Script to run on app init", "output": {"categories": ["bootstrap_operations"]}}
 {"user": "Add WebSocket handler when client connects to /chat", "output": {"categories": ["websocket_operations"]}}

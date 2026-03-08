@@ -21,6 +21,7 @@ export interface AiConfig {
   summaryThreshold: number;
   llmTimeout: number;
   maxToolIterations?: number;
+  evaluateStage?: boolean;
   description?: string;
 }
 @Injectable()
@@ -107,6 +108,8 @@ export class AiConfigCacheService implements OnModuleInit, OnApplicationBootstra
       maxConversationMessages: config.maxConversationMessages || 10,
       summaryThreshold: config.summaryThreshold || 20,
       llmTimeout: config.llmTimeout || 30000,
+      maxToolIterations: config.maxToolIterations ?? 10,
+      evaluateStage: config.evaluateStage === true,
       description: config.description,
     }));
   }
@@ -176,5 +179,17 @@ export class AiConfigCacheService implements OnModuleInit, OnApplicationBootstra
       return null;
     }
     return this.configsCache.get(numericId) || null;
+  }
+
+  async getEvaluateStageConfigId(): Promise<number | null> {
+    if (!this.cacheLoaded) {
+      await this.reload();
+    }
+    for (const config of this.configsCache.values()) {
+      if (config.evaluateStage && config.isEnabled) {
+        return config.id;
+      }
+    }
+    return null;
   }
 }

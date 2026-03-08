@@ -287,6 +287,15 @@ export class ConversationService {
     if (data.toolResults) {
       createData.toolResults = data.toolResults;
     }
+    if (data.inputTokens != null && data.inputTokens > 0) {
+      createData.inputTokens = data.inputTokens;
+    }
+    if (data.outputTokens != null && data.outputTokens > 0) {
+      createData.outputTokens = data.outputTokens;
+    }
+    if (data.metadata && Object.keys(data.metadata).length > 0) {
+      createData.metadata = data.metadata;
+    }
     const result = await repo.create({ data: createData });
     return await this.mapMessage(result.data[0], context, true);
   }
@@ -399,6 +408,9 @@ export class ConversationService {
       toolCalls,
       toolResults,
       sequence: data.sequence,
+      inputTokens: data.inputTokens != null ? data.inputTokens : undefined,
+      outputTokens: data.outputTokens != null ? data.outputTokens : undefined,
+      metadata: data.metadata || undefined,
       createdAt: new Date(data.createdAt),
     };
     if (mapped.role === 'assistant' && debug) {

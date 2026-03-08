@@ -1,4 +1,4 @@
-import { EVALUATE_NEEDS_TOOLS_BASE_PROMPT } from './base/evaluate-needs-tools.base';
+import { EVALUATE_TOOL_SELECTION_BASE_PROMPT } from './base/evaluate-tool-selection.base';
 import { SYSTEM_PROMPT_BASE } from './base/system-prompt.base';
 import { OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT, OPENAI_SYSTEM_PROMPT_ADDITION } from './providers/openai.prompts';
 import { ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT, ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
@@ -27,17 +27,14 @@ const PROVIDER_PROMPTS: Record<Provider, ProviderPrompts> = {
   },
 };
 
-export function buildEvaluateNeedsToolsPrompt(provider: string): string {
+export function buildEvaluateToolSelectionPrompt(provider: string): string {
   const normalizedProvider = (provider || 'OpenAI') as Provider;
   const providerPrompts = PROVIDER_PROMPTS[normalizedProvider] || PROVIDER_PROMPTS.OpenAI;
-  
   const providerSpecific = providerPrompts.evaluateNeedsTools;
-  const basePrompt = EVALUATE_NEEDS_TOOLS_BASE_PROMPT;
-  
+  const basePrompt = EVALUATE_TOOL_SELECTION_BASE_PROMPT;
   if (providerSpecific) {
     return `${providerSpecific}\n\n${basePrompt}`;
   }
-  
   return basePrompt;
 }
 
@@ -52,7 +49,6 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     latestUserMessage,
     conversationSummary,
     task,
-    hintContent,
   } = params;
 
   if (!needsTools) {
@@ -125,8 +121,14 @@ CRITICAL - Use conversation context: The user's message may be a follow-up (e.g.
     prompt += taskInfo;
   }
   
-  if (hintContent && hintContent.length > 0) {
-    prompt += `\n\n**RELEVANT WORKFLOWS & RULES:**\n\n${hintContent}\n\n**CRITICAL - Hints Already Provided:**\n- The workflows and rules above have been automatically injected into this prompt based on your selected categories.\n- DO NOT call get_hint tool - all necessary guidance is already in the "RELEVANT WORKFLOWS & RULES" section above.\n- Use the information provided above directly - it contains all the step-by-step workflows and tool usage instructions you need.`;
+  if (needsTools) {
+    prompt += `\n\n**Handler/Hook code syntax:** Use @USER (NOT context.user), @QUERY (NOT query), @BODY. Wrong: context.user, query.filter – these fail at runtime.
+
+**get_hint – call BEFORE acting when unsure:**
+1. Check hint categories: handler_operations, hook_operations, table_schema_operations, crud_write_operations, routes_endpoints, bootstrap_operations, websocket_operations, etc.
+2. If the task involves something you might need to guess (handler/hook code syntax, cascade workflow, RLS, relations format, route/handler setup) → a relevant category likely exists.
+3. Call get_hint with that category FIRST to get detailed workflow and rules, then execute. Do NOT guess or improvise when hints exist.
+4. When stuck mid-workflow: also call get_hint to fix and continue.`;
   }
 
   prompt += `\n\n**When user asks for API path/endpoint:**\n- Describe format: {YOUR_APP_URL}/api/{path}\n- Example: route path "/test" → enfyra.io/api/test or https://your-domain.com/api/test\n- Example: route path "/foo-baz" → your-domain.com/api/foo-baz\n- Replace YOUR_APP_URL with their actual domain. Do NOT hardcode a specific URL.`;

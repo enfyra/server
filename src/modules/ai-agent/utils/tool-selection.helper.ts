@@ -1,36 +1,19 @@
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-
 interface SelectToolsParams {
-  evaluateCategories: string[];
-  queryBuilder: QueryBuilderService;
+  evaluateTools: string[];
   provider: string;
 }
 
 interface SelectToolsResult {
   selectedToolNames: string[];
   toolsDefSize: number;
-  hintCategories: string[];
   needsTools: boolean;
 }
 
 export function selectToolsForRequest(params: SelectToolsParams): SelectToolsResult {
-  const { evaluateCategories, queryBuilder, provider } = params;
+  const { evaluateTools = [], provider } = params;
+  let selectedToolNames = [...evaluateTools];
 
-  const hintCategories = evaluateCategories || [];
-  let selectedToolNames: string[] = [];
-
-  if (hintCategories && hintCategories.length > 0) {
-    const { buildHintContent, getHintTools } = require('./executors/get-hint.executor');
-    const dbType = queryBuilder.getDbType();
-    const idFieldName = dbType === 'mongodb' ? '_id' : 'id';
-
-    const hints = buildHintContent(dbType, idFieldName, hintCategories);
-    selectedToolNames = getHintTools(hints);
-    selectedToolNames = selectedToolNames.filter((tool: string) => tool !== 'get_hint');
-    selectedToolNames = Array.from(new Set(selectedToolNames));
-  }
-
-  if (selectedToolNames && selectedToolNames.length > 0) {
+  if (selectedToolNames.length > 0) {
     const hasFindRecords = selectedToolNames.includes('find_records');
     const hasCreateRecord = selectedToolNames.includes('create_records');
     const hasUpdateRecord = selectedToolNames.includes('update_records');
@@ -46,10 +29,16 @@ export function selectToolsForRequest(params: SelectToolsParams): SelectToolsRes
     if (hasFindRecords && !hasGetTableDetails) {
       selectedToolNames = [...selectedToolNames, 'get_table_details'];
     }
+
+    if (!selectedToolNames.includes('get_hint')) {
+      selectedToolNames = [...selectedToolNames, 'get_hint'];
+    }
+
+    selectedToolNames = Array.from(new Set(selectedToolNames));
   }
 
   let toolsDefSize = 0;
-  if (selectedToolNames && selectedToolNames.length > 0) {
+  if (selectedToolNames.length > 0) {
     const toolsDefFile = require('./llm-tools.helper');
     const COMMON_TOOLS = toolsDefFile.COMMON_TOOLS || [];
     const selectedTools = COMMON_TOOLS.filter((tool: any) => selectedToolNames.includes(tool.name));
@@ -75,13 +64,11 @@ export function selectToolsForRequest(params: SelectToolsParams): SelectToolsRes
     toolsDefSize = JSON.stringify(formattedTools).length;
   }
 
-  const needsTools = selectedToolNames && selectedToolNames.length > 0;
+  const needsTools = selectedToolNames.length > 0;
 
   return {
     selectedToolNames,
     toolsDefSize,
-    hintCategories,
     needsTools,
   };
 }
-

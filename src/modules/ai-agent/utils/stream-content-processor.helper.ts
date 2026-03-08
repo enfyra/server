@@ -65,17 +65,20 @@ export function processTokenUsage(
     const prevOutput = accumulatedTokenUsage.outputTokens;
     const newInput = Math.max(prevInput, chunkUsage.inputTokens ?? 0);
     const newOutput = Math.max(prevOutput, chunkUsage.outputTokens ?? 0);
+    const hasNewCacheHit = (chunkUsage.cacheHitTokens ?? 0) > 0;
 
-    if (newInput > prevInput || newOutput > prevOutput) {
+    if (newInput > prevInput || newOutput > prevOutput || hasNewCacheHit) {
       accumulatedTokenUsage.inputTokens = newInput;
       accumulatedTokenUsage.outputTokens = newOutput;
-      onEvent({
-        type: 'tokens',
-        data: {
-          inputTokens: newInput,
-          outputTokens: newOutput,
-        },
-      });
+      const data: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheHitTokens?: number;
+        cacheCreationTokens?: number;
+      } = { inputTokens: newInput, outputTokens: newOutput };
+      if (chunkUsage.cacheHitTokens != null) data.cacheHitTokens = chunkUsage.cacheHitTokens;
+      if (chunkUsage.cacheCreationTokens != null) data.cacheCreationTokens = chunkUsage.cacheCreationTokens;
+      onEvent({ type: 'tokens', data });
     }
   }
 
@@ -98,13 +101,18 @@ export async function processNonStreamingContent(
     newTokenUsage.inputTokens = Math.max(newTokenUsage.inputTokens, usage.inputTokens ?? 0);
     newTokenUsage.outputTokens = Math.max(newTokenUsage.outputTokens, usage.outputTokens ?? 0);
 
-    onEvent({
-      type: 'tokens',
-      data: {
-        inputTokens: newTokenUsage.inputTokens,
-        outputTokens: newTokenUsage.outputTokens,
-      },
-    });
+    const data: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheHitTokens?: number;
+      cacheCreationTokens?: number;
+    } = {
+      inputTokens: newTokenUsage.inputTokens,
+      outputTokens: newTokenUsage.outputTokens,
+    };
+    if (usage.cacheHitTokens != null) data.cacheHitTokens = usage.cacheHitTokens;
+    if (usage.cacheCreationTokens != null) data.cacheCreationTokens = usage.cacheCreationTokens;
+    onEvent({ type: 'tokens', data });
   }
 
   const fullDelta = reduceContentToString(aggregateResponse?.content);
