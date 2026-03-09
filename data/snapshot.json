@@ -136,7 +136,7 @@
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "path", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": null, "description": "URL path for the route (e.g., /api/users)" },
-            { "name": "isEnabled", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether the route is active and accessible" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": true, "description": "Whether the route is active and accessible" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined route" },
             { "name": "icon", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": "lucide:route", "description": "Icon identifier for UI display" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the route does" }
