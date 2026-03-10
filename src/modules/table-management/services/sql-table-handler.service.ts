@@ -14,6 +14,7 @@ import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { getForeignKeyColumnName, getJunctionTableName, getJunctionColumnNames } from '../../../infrastructure/knex/utils/naming-helpers';
+import { generateDefaultRecord } from '../utils/generate-default-record';
 @Injectable()
 export class SqlTableHandlerService {
   private logger = new Logger(SqlTableHandlerService.name);
@@ -284,6 +285,7 @@ export class SqlTableHandlerService {
       const insertResult = await trx('table_definition').insert({
         name: body.name,
         isSystem: body.isSystem,
+        ...(body.isSingleRecord && { isSingleRecord: true }),
         alias: body.alias,
         description: body.description,
         uniques: JSON.stringify(body.uniques || []),
@@ -398,11 +400,29 @@ export class SqlTableHandlerService {
       createdMetadataSnapshot = fullMetadata;
       this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
+
+      // Create default record for single-record tables
+      if (body.isSingleRecord) {
+        this.logger.log(`\nSingle-record table detected. Creating default record...`);
+        const knex = this.queryBuilder.getKnex();
+        const existingRecord = await knex(body.name).first();
+        if (!existingRecord) {
+          const defaultRecord = generateDefaultRecord(fullMetadata.columns || []);
+          await knex(body.name).insert(defaultRecord);
+          this.logger.log(`   Default record created for table ${body.name}`);
+        } else {
+          this.logger.log(`   Record already exists in table ${body.name}, skipping default creation`);
+        }
+      }
+
       this.logger.log(`\n${'='.repeat(80)}`);
       this.logger.log(`TABLE CREATED SUCCESSFULLY: ${body.name}`);
       this.logger.log(`   - Metadata saved to DB`);
       this.logger.log(`   - Physical schema migrated`);
       this.logger.log(`   - Route created`);
+      if (body.isSingleRecord) {
+        this.logger.log(`   - Default record created (single-record table)`);
+      }
       this.logger.log(`${'='.repeat(80)}\n`);
       return fullMetadata;
     } catch (error) {

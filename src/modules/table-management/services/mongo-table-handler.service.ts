@@ -14,6 +14,7 @@ import {
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
+import { generateDefaultRecord } from '../utils/generate-default-record';
 @Injectable()
 export class MongoTableHandlerService {
   private logger = new Logger(MongoTableHandlerService.name);
@@ -284,6 +285,7 @@ export class MongoTableHandlerService {
       const tableRecord = await this.queryBuilder.insertAndGet('table_definition', {
         name: body.name,
         isSystem: body.isSystem,
+        ...(body.isSingleRecord && { isSingleRecord: true }),
         alias: body.alias,
         description: body.description,
         uniques: JSON.stringify(body.uniques || []),
@@ -393,6 +395,21 @@ export class MongoTableHandlerService {
       }
       const fullMetadata = await this.getFullTableMetadata(tableId);
       await this.schemaMigrationService.createCollection(fullMetadata);
+
+      // Create default record for single-record tables
+      if (body.isSingleRecord) {
+        this.logger.log(`Single-record collection detected. Creating default record...`);
+        const db = this.mongoService.getDb();
+        const existingRecord = await db.collection(body.name).findOne();
+        if (!existingRecord) {
+          const defaultRecord = generateDefaultRecord(fullMetadata.columns || []);
+          await db.collection(body.name).insertOne(defaultRecord);
+          this.logger.log(`   Default record created for collection ${body.name}`);
+        } else {
+          this.logger.log(`   Record already exists in collection ${body.name}, skipping default creation`);
+        }
+      }
+
       this.logger.log(`Collection created: ${body.name} (metadata + validation + indexes)`);
       return fullMetadata;
     } catch (error) {
