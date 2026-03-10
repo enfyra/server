@@ -209,6 +209,25 @@ export function generateDropForeignKeySQL(
   }
 }
 
+export function generateDropIndexSQL(
+  tableName: string,
+  indexName: string,
+  dbType: 'mysql' | 'postgres' | 'sqlite',
+): string {
+  const table = quoteIdentifier(tableName, dbType);
+  const index = quoteIdentifier(indexName, dbType);
+
+  switch (dbType) {
+    case 'mysql':
+      return `ALTER TABLE ${table} DROP INDEX ${index}`;
+    case 'postgres':
+    case 'sqlite':
+      return `DROP INDEX IF EXISTS ${index}`;
+    default:
+      return `ALTER TABLE ${table} DROP INDEX ${index}`;
+  }
+}
+
 export function generateAddIndexSQL(
   tableName: string,
   indexName: string,

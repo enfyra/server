@@ -516,6 +516,10 @@ export class SqlTableHandlerService {
             m2mTargetTablesMap,
           );
         }
+        const oldMetadata = await this.getFullTableMetadataInTransaction(
+          trx,
+          exists.id,
+        );
         await trx('table_definition')
           .where({ id })
           .update({
@@ -680,9 +684,6 @@ export class SqlTableHandlerService {
             }
           }
         }
-        const oldMetadata = await this.metadataCacheService.lookupTableByName(
-          exists.name,
-        );
         if (oldMetadata) {
           const updatedFullMetadata = await this.getFullTableMetadataInTransaction(
             trx,

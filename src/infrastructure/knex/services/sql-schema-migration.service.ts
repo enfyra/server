@@ -713,6 +713,14 @@ export class SqlSchemaMigrationService {
       JSON.stringify(oldCol.options) !== JSON.stringify(newCol.options)
     );
   }
+  private normalizeIndexColumns(idx: any): string[] {
+    if (Array.isArray(idx)) return idx;
+    if (idx && Array.isArray(idx.value)) return idx.value;
+    return [];
+  }
+  private indexKey(cols: string[]): string {
+    return cols.slice().sort().join(',');
+  }
   private analyzeConstraintChanges(oldMetadata: any, newMetadata: any, diff: any): void {
     this.logger.log('Constraint Analysis:');
     const oldUniques = oldMetadata.uniques || [];
@@ -723,12 +731,21 @@ export class SqlSchemaMigrationService {
     } else {
       this.logger.log(`  Unique constraints unchanged`);
     }
-    const oldIndexes = oldMetadata.indexes || [];
-    const newIndexes = newMetadata.indexes || [];
-    if (!this.arraysEqual(oldIndexes, newIndexes)) {
-      this.logger.log(`  🔧 Indexes changed:`, { oldIndexes, newIndexes });
-      diff.constraints.indexes.update = newIndexes;
-    } else {
+    const oldIndexes = (oldMetadata.indexes || []).map((idx: any) => this.normalizeIndexColumns(idx));
+    const newIndexes = (newMetadata.indexes || []).map((idx: any) => this.normalizeIndexColumns(idx));
+    const oldIndexKeys = new Set(oldIndexes.map((cols: string[]) => this.indexKey(cols)));
+    const newIndexKeys = new Set(newIndexes.map((cols: string[]) => this.indexKey(cols)));
+    const toDelete = oldIndexes.filter((cols: string[]) => cols.length > 0 && !newIndexKeys.has(this.indexKey(cols)));
+    const toCreate = newIndexes.filter((cols: string[]) => cols.length > 0 && !oldIndexKeys.has(this.indexKey(cols)));
+    if (toDelete.length > 0) {
+      this.logger.log(`  ➖ Indexes to DROP:`, toDelete);
+      diff.constraints.indexes.delete = toDelete;
+    }
+    if (toCreate.length > 0) {
+      this.logger.log(`  ➕ Indexes to CREATE:`, toCreate);
+      diff.constraints.indexes.create = toCreate;
+    }
+    if (toDelete.length === 0 && toCreate.length === 0) {
       this.logger.log(`  Indexes unchanged`);
     }
   }
