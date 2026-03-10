@@ -96,8 +96,6 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
 
     if (shouldReload) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
-      // Delay to ensure DB transaction is committed before reloading
-      await new Promise(resolve => setTimeout(resolve, 500));
       await this.reload();
     }
   }
