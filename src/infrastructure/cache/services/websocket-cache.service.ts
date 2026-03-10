@@ -63,7 +63,8 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
     }
 
     this.messageHandler = (channel: string, message: string) => {
-      if (channel === WEBSOCKET_CACHE_SYNC_EVENT_KEY) {
+      const isWebsocketChannel = channel === WEBSOCKET_CACHE_SYNC_EVENT_KEY || channel.startsWith(WEBSOCKET_CACHE_SYNC_EVENT_KEY + ':');
+      if (isWebsocketChannel) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();
@@ -91,8 +92,12 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.WEBSOCKET)) {
+    const shouldReload = shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.WEBSOCKET);
+
+    if (shouldReload) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
+      // Delay to ensure DB transaction is committed before reloading
+      await new Promise(resolve => setTimeout(resolve, 500));
       await this.reload();
     }
   }
@@ -192,7 +197,7 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
         filter: {
           _and: [
             { isEnabled: { _eq: true } },
-            { gatewayId: { _eq: isMongoDB ? gateway._id : gateway.id } },
+            { gateway: { _eq: isMongoDB ? gateway._id : gateway.id } },
           ],
         },
         fields: ['*'],

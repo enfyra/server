@@ -199,12 +199,6 @@ export class DynamicRepository {
     }
   }
 
-  /**
-   * Emit cache invalidation event.
-   * Each cache service listens to this event and decides whether to reload
-   * based on the table name. The cache services handle Redis Pub/Sub
-   * to synchronize across multiple instances.
-   */
   private async reload() {
     this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
       tableName: this.tableName,

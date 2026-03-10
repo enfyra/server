@@ -33,7 +33,7 @@ export class EventQueueService extends WorkerHost {
 
     this.logger.debug(`Processing event ${eventName} for socket ${socketId} on ${gatewayPath}`);
 
-    const socketProxy = this.createSocketProxy(gatewayPath);
+    const socketProxy = this.createSocketProxy(gatewayPath, socketId);
 
     const ctx: TDynamicContext = {
       $body: payload || {},
@@ -102,11 +102,14 @@ export class EventQueueService extends WorkerHost {
     };
   }
 
-  private createSocketProxy(gatewayPath: string) {
+  private createSocketProxy(gatewayPath: string, socketId: string) {
     const self = this;
     return {
       emit: (event: string, data: any) => {
         self.websocketGateway.emitToNamespace(gatewayPath, event, data);
+      },
+      send: (event: string, data: any) => {
+        self.websocketGateway.emitToSocket(gatewayPath, socketId, event, data);
       },
       join: () => {},
       leave: () => {},

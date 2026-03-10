@@ -7,7 +7,7 @@ import Redis from 'ioredis';
 export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   public pub: Redis;
   public sub: Redis;
-  private subscribedChannels = new Map<string, (channel: string, message: string) => void>();
+  private subscribedChannels = new Map<string, Array<(channel: string, message: string) => void>>();
   private nodeName: string | null = null;
 
   constructor(
@@ -29,9 +29,11 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       await Promise.all([this.pub.ping(), this.sub.ping()]);
 
       this.sub.on('message', (channel: string, message: string) => {
-        const handler = this.subscribedChannels.get(channel);
-        if (handler) {
-          handler(channel, message);
+        const handlers = this.subscribedChannels.get(channel);
+        if (handlers) {
+          for (const handler of handlers) {
+            handler(channel, message);
+          }
         }
       });
 
@@ -56,11 +58,13 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
     const decoratedChannel = this.decorateChannel(channel);
-    if (this.subscribedChannels.has(decoratedChannel)) {
-      return false;
+    const existing = this.subscribedChannels.get(decoratedChannel);
+    if (existing) {
+      existing.push(handler);
+      return true;
     }
 
-    this.subscribedChannels.set(decoratedChannel, handler);
+    this.subscribedChannels.set(decoratedChannel, [handler]);
     this.sub.subscribe(decoratedChannel);
 
     console.log(`[RedisPubSub] Subscribed to channel: ${decoratedChannel}`);
