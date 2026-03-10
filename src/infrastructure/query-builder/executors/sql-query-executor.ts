@@ -426,12 +426,38 @@ export class SqlQueryExecutor {
         : '';
 
       const quotedLimitedCTE = quoteIdentifier(limitedCTEName, this.dbType);
+
+      // Build filter count CTE if needed
+      let filterCountCTE = '';
+      let filterCountCrossJoin = '';
+      if (needsFilterCount) {
+        // Find the limited CTE and extract its query (without LIMIT/OFFSET) to create a count CTE
+        const limitedCTEDef = cteClauses.find(cte =>
+          cte.startsWith(`${quotedLimitedCTE} AS`) || cte.startsWith(`"${limitedCTEName}" AS`)
+        );
+        if (limitedCTEDef) {
+          // Extract everything between AS ( and the final )
+          // The CTE format is: "limited_table" AS ( SELECT "id" FROM "table" WHERE ... ORDER BY ... LIMIT ... )
+          const asMatch = limitedCTEDef.match(/AS\s*\(\s*(SELECT\s+[\s\S]+)\s*\)$/i);
+          if (asMatch) {
+            let baseQuery = asMatch[1].trim();
+            // Remove ORDER BY, LIMIT, OFFSET from the end
+            baseQuery = baseQuery.replace(/\s+ORDER\s+BY\s+[\s\S]+$/i, '');
+            baseQuery = baseQuery.replace(/\s+LIMIT\s+\d+$/i, '');
+            baseQuery = baseQuery.replace(/\s+OFFSET\s+\d+$/i, '');
+            filterCountCTE = `, "filter_count_cte" AS (SELECT COUNT(*) as cnt FROM (${baseQuery}) subq)`;
+            filterCountCrossJoin = ', "filter_count_cte"';
+          }
+        }
+      }
+      const filterCountSelect = needsFilterCount && filterCountCTE ? ', filter_count_cte.cnt as __filter_count__' : '';
+
       rawSQLQuery = `
-WITH ${cteClauses.join(',\n')}
-SELECT ${selectSQL}
+WITH ${cteClauses.join(',\n')}${filterCountCTE}
+SELECT ${selectSQL}${filterCountSelect}
 FROM ${quotedLimitedCTE}
 INNER JOIN ${quotedTable} ${tableAlias} ON ${quotedLimitedCTE}.${quotedPkName} = ${tableAlias}.${quotedPkName}
-${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
+${leftJoins ? leftJoins : ''}${filterCountCrossJoin}${orderBySQL ? ' ' + orderBySQL : ''}
       `.trim();
     } else {
     if (queryOptions.select) {
