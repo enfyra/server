@@ -396,7 +396,6 @@ export class MongoTableHandlerService {
       const fullMetadata = await this.getFullTableMetadata(tableId);
       await this.schemaMigrationService.createCollection(fullMetadata);
 
-      // Create default record for single-record tables
       if (body.isSingleRecord) {
         this.logger.log(`Single-record collection detected. Creating default record...`);
         const db = this.mongoService.getDb();
@@ -468,6 +467,7 @@ export class MongoTableHandlerService {
       if ('description' in body) updateData.description = body.description;
       if ('uniques' in body) updateData.uniques = body.uniques;
       if ('indexes' in body) updateData.indexes = body.indexes;
+      if ('isSingleRecord' in body) updateData.isSingleRecord = body.isSingleRecord;
       if (Object.keys(updateData).length > 0) {
         await this.queryBuilder.updateById('table_definition', id, updateData);
       }
@@ -610,6 +610,20 @@ export class MongoTableHandlerService {
       if (oldMetadata && newMetadata) {
         await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
       }
+
+      if (body.isSingleRecord === true && !exists.isSingleRecord) {
+        this.logger.log(`Collection changed to single-record mode. Checking for existing record...`);
+        const db = this.mongoService.getDb();
+        const existingRecord = await db.collection(exists.name).findOne();
+        if (!existingRecord) {
+          const defaultRecord = generateDefaultRecord(newMetadata?.columns || []);
+          await db.collection(exists.name).insertOne(defaultRecord);
+          this.logger.log(`   Default record created for collection ${exists.name}`);
+        } else {
+          this.logger.log(`   Record already exists in collection ${exists.name}, skipping default creation`);
+        }
+      }
+
       this.logger.log(`Collection updated: ${exists.name} (metadata + validation + indexes)`);
       return newMetadata;
     } catch (error) {

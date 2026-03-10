@@ -401,7 +401,6 @@ export class SqlTableHandlerService {
       this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
 
-      // Create default record for single-record tables
       if (body.isSingleRecord) {
         this.logger.log(`\nSingle-record table detected. Creating default record...`);
         const knex = this.queryBuilder.getKnex();
@@ -525,6 +524,7 @@ export class SqlTableHandlerService {
             description: body.description,
             uniques: body.uniques ? JSON.stringify(body.uniques) : exists.uniques,
             indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
+            ...(body.isSingleRecord !== undefined && { isSingleRecord: body.isSingleRecord }),
           });
         if (body.columns) {
           const existingColumns = await trx('column_definition')
@@ -700,6 +700,24 @@ export class SqlTableHandlerService {
           );
         }
         await trx.commit();
+
+        if (body.isSingleRecord === true && !exists.isSingleRecord) {
+          this.logger.log(`\nTable changed to single-record mode. Checking for existing record...`);
+          const knex = this.queryBuilder.getKnex();
+          const existingRecord = await knex(exists.name).first();
+          if (!existingRecord) {
+            const fullMetadata = await this.getFullTableMetadataInTransaction(
+              await knex.transaction(),
+              exists.id,
+            );
+            const defaultRecord = generateDefaultRecord(fullMetadata?.columns || []);
+            await knex(exists.name).insert(defaultRecord);
+            this.logger.log(`   Default record created for table ${exists.name}`);
+          } else {
+            this.logger.log(`   Record already exists in table ${exists.name}, skipping default creation`);
+          }
+        }
+
         this.logger.log(
           `Table updated: ${exists.name} (metadata + physical schema)`,
         );
