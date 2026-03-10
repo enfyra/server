@@ -31,7 +31,7 @@ export class ConnectionQueueService extends WorkerHost {
 
     this.logger.debug(`Processing connection script for socket ${socketId} on ${gatewayPath}`);
 
-    const socketProxy = this.createSocketProxy(gatewayPath);
+    const socketProxy = this.createSocketProxy(gatewayPath, socketId);
 
     const ctx: TDynamicContext = {
       $body: clientInfo || {},
@@ -101,12 +101,14 @@ export class ConnectionQueueService extends WorkerHost {
     };
   }
 
-  private createSocketProxy(gatewayPath: string) {
+  private createSocketProxy(gatewayPath: string, socketId: string) {
     const self = this;
+    const emitToClient = (event: string, data: any) => {
+      self.websocketGateway.emitToSocket(gatewayPath, socketId, event, data);
+    };
     return {
-      emit: (event: string, data: any) => {
-        self.websocketGateway.emitToNamespace(gatewayPath, event, data);
-      },
+      emit: emitToClient,
+      send: emitToClient,
       join: () => {},
       leave: () => {},
       to: (room: string) => ({

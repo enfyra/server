@@ -33,6 +33,7 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
   server: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
   private registeredGateways = new Set<string>();
+  private gatewayConfigsByPath = new Map<string, any>();
   constructor(
     private readonly configService: ConfigService,
     @InjectQueue('ws-connection')
@@ -61,23 +62,32 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     this.redisPubSubService.subscribeWithHandler(
       WEBSOCKET_CACHE_SYNC_EVENT_KEY,
       async (channel: string, message: string) => {
-        if (channel === WEBSOCKET_CACHE_SYNC_EVENT_KEY) {
+        const isWebsocketChannel = channel === WEBSOCKET_CACHE_SYNC_EVENT_KEY || channel.startsWith(WEBSOCKET_CACHE_SYNC_EVENT_KEY + ':');
+        if (isWebsocketChannel) {
           try {
             const payload = JSON.parse(message);
-            this.logger.log(`Received websocket cache sync with ${payload.gateways?.length || 0} gateways`);
+            const gateways: any[] = payload.gateways || [];
+            this.logger.log(`Received websocket cache sync with ${gateways.length} gateways`);
+            const newPaths = new Set(gateways.map((g: any) => g.path));
             const oldPaths = new Set(this.registeredGateways);
+            this.updateGatewayConfigs(gateways);
             for (const path of oldPaths) {
-              const namespace = this.server.of(path);
-              namespace.disconnectSockets();
-              namespace.removeAllListeners();
+              if (!newPaths.has(path)) {
+                const namespace = this.server.of(path);
+                namespace.disconnectSockets();
+                namespace.removeAllListeners();
+                this.registeredGateways.delete(path);
+                this.gatewayConfigsByPath.delete(path);
+                this.logger.log(`Removed gateway ${path}, disconnected clients`);
+              }
             }
-            this.registeredGateways.clear();
-            const gateways = payload.gateways || [];
             for (const gateway of gateways) {
-              this.setupNamespace(gateway);
-              this.registeredGateways.add(gateway.path);
+              if (!this.registeredGateways.has(gateway.path)) {
+                this.setupNamespace(gateway.path);
+                this.registeredGateways.add(gateway.path);
+              }
             }
-            this.logger.log(`Reloaded gateways from cache sync: ${this.registeredGateways.size} gateways registered`);
+            this.logger.log(`Cache sync done: ${this.registeredGateways.size} gateways, clients kept connected`);
           } catch (error) {
             this.logger.error('Failed to process websocket cache sync:', error);
           }
@@ -85,14 +95,22 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       }
     );
   }
+
+  private updateGatewayConfigs(gateways: any[]) {
+    this.gatewayConfigsByPath.clear();
+    for (const g of gateways) {
+      this.gatewayConfigsByPath.set(g.path, g);
+    }
+  }
   async registerGateways() {
     try {
       const gateways = await this.websocketCache.getGateways();
+      this.updateGatewayConfigs(gateways);
       for (const gateway of gateways) {
         if (this.registeredGateways.has(gateway.path)) {
           continue;
         }
-        this.setupNamespace(gateway);
+        this.setupNamespace(gateway.path);
         this.registeredGateways.add(gateway.path);
       }
       this.logger.log(`Registered ${gateways.length} websocket gateways`);
@@ -100,14 +118,22 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       this.logger.error('Failed to register websocket gateways:', error);
     }
   }
-  private setupNamespace(gateway: any) {
-    const namespace = this.server.of(gateway.path);
+
+  private setupNamespace(path: string) {
+    const namespace = this.server.of(path);
     namespace.use(async (socket: SocketData, next) => {
+      const gateway = this.gatewayConfigsByPath.get(path);
+      if (!gateway) {
+        return next(new Error('Gateway not configured'));
+      }
       if (gateway.requireAuth) {
         const { token } = socket.handshake.auth;
         if (!token) {
-          this.logger.warn(`Connection rejected: no token provided for ${gateway.path}`);
-          return next(new Error('Authentication token required'));
+          const err = new Error('Authentication token required');
+          (err as any).data = { code: 'AUTH_REQUIRED', path };
+          this.logger.warn(`Connection rejected: no token provided for ${path}`);
+          if (socket.conn) socket.conn.close();
+          return next(err);
         }
         try {
           const user = this.jwtService.verify(token);
@@ -116,8 +142,11 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
           socket.data.gateway = gateway;
           next();
         } catch (error) {
-          this.logger.warn(`Connection rejected: invalid token for ${gateway.path}`);
-          return next(new Error('Invalid authentication token'));
+          const err = new Error('Invalid authentication token');
+          (err as any).data = { code: 'AUTH_INVALID', path };
+          this.logger.warn(`Connection rejected: invalid token for ${path}`);
+          if (socket.conn) socket.conn.close();
+          return next(err);
         }
       } else {
         socket.data.gateway = gateway;
@@ -125,7 +154,19 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       }
     });
     namespace.on('connection', async (socket: SocketData) => {
-      const gatewayData = socket.data.gateway;
+      const gatewayData = this.gatewayConfigsByPath.get(path) ?? socket.data.gateway;
+      if (!gatewayData) {
+        this.logger.warn(`Connection rejected: missing gateway data for ${path}`);
+        socket.emit('auth_error', { code: 'AUTH_REJECTED', message: 'Authentication failed' });
+        socket.disconnect(true);
+        return;
+      }
+      if (gatewayData.requireAuth && !socket.data.userId) {
+        this.logger.warn(`Connection rejected: auth required but no user for ${gatewayData.path}`);
+        socket.emit('auth_error', { code: 'AUTH_REQUIRED', message: 'Authentication token required' });
+        socket.disconnect(true);
+        return;
+      }
       const userId = socket.data.userId || socket.id;
       this.logger.debug(`Client connected to ${gatewayData.path}: ${socket.id} (user: ${userId})`);
       if (gatewayData.connectionHandlerScript) {
@@ -167,21 +208,30 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       socket.join(roomName);
       this.logger.debug(`Socket ${socket.id} joined room ${roomName}`);
       for (const event of gatewayData.events) {
-        socket.on(event.eventName, async (payload) => {
-          this.logger.debug(`Event ${event.eventName} received from ${socket.id} on ${gatewayData.path}`);
+        const eventName = event.eventName;
+        socket.on(eventName, async (payload) => {
+          this.logger.debug(`Event ${eventName} received from ${socket.id} on ${gatewayData.path}`);
           try {
+            const freshGateway = await this.websocketCache.getGatewayByPath(gatewayData.path);
+            const freshEvent = freshGateway?.events?.find((e: any) => e.eventName === eventName);
+            const script = freshEvent?.handlerScript ?? event.handlerScript;
+
+            if (!script) {
+              this.logger.warn(`No handler for event ${eventName} on ${gatewayData.path}`);
+              return;
+            }
             await this.eventQueue.add(
-              `ws-event-${gatewayData.id}-${event.eventName}`,
+              `ws-event-${gatewayData.id}-${eventName}`,
               {
                 socketId: socket.id,
                 userId: socket.data.userId || null,
-                eventName: event.eventName,
+                eventName,
                 payload,
                 gatewayId: gatewayData.id,
                 gatewayPath: gatewayData.path,
-                eventId: event.id,
-                script: event.handlerScript,
-                timeout: event.timeout,
+                eventId: freshEvent?.id ?? event.id,
+                script,
+                timeout: freshEvent?.timeout ?? event.timeout,
               },
               {
                 attempts: 0,
@@ -196,8 +246,8 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
               },
             );
           } catch (error) {
-            this.logger.error(`Event handler failed for ${event.eventName}:`, error);
-            socket.emit('error', { event: event.eventName, message: error.message });
+            this.logger.error(`Event handler failed for ${eventName}:`, error);
+            socket.emit('error', { event: eventName, message: error.message });
           }
         });
       }
@@ -232,6 +282,10 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
   emitToNamespace(path: string, event: string, data: any) {
     this.logger.debug(`Emitting to namespace ${path}: ${event} ${JSON.stringify(data)}`);
     this.server.of(path).emit(event, data);
+  }
+  emitToSocket(path: string, socketId: string, event: string, data: any) {
+    this.logger.debug(`Emitting to socket ${socketId} on ${path}: ${event}`);
+    this.server.of(path).to(socketId).emit(event, data);
   }
   emitToAll(event: string, data: any) {
     this.logger.debug(`Emitting to all: ${event} ${JSON.stringify(data)}`);

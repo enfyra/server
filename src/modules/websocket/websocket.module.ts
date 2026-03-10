@@ -50,7 +50,6 @@ import { WebsocketEmitService } from './services/websocket-emit.service';
     ),
   ],
   providers: [
-    WebsocketCacheService,
     WebsocketGatewayFactory,
     DynamicWebSocketGateway,
     ConnectionQueueService,
@@ -58,7 +57,6 @@ import { WebsocketEmitService } from './services/websocket-emit.service';
     WebsocketEmitService,
   ],
   exports: [
-    WebsocketCacheService,
     WebsocketGatewayFactory,
     DynamicWebSocketGateway,
     WebsocketEmitService,
