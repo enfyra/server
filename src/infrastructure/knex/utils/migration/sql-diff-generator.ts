@@ -8,6 +8,7 @@ import {
   generateRenameColumnSQL,
   generateModifyColumnSQL,
   generateAddIndexSQL,
+  generateDropIndexSQL,
   generateDropColumnSQL,
 } from './sql-dialect';
 const logger = new Logger('SqlDiffGenerator');
@@ -196,9 +197,19 @@ export async function generateSQLFromDiff(
     const columns = uniqueGroup.map((col: string) => qt(col)).join(', ');
     sqlStatements.push(`ALTER TABLE ${qt(tableName)} ADD UNIQUE (${columns})`);
   }
-  for (const indexGroup of ensureArray(constraintDiff.indexes?.update) || []) {
-    const indexName = `idx_${tableName}_${indexGroup.join('_')}`;
-    sqlStatements.push(generateAddIndexSQL(tableName, indexName, indexGroup, dbType));
+  for (const indexGroup of ensureArray(constraintDiff.indexes?.delete) || []) {
+    const cols = Array.isArray(indexGroup) ? indexGroup : (indexGroup?.value || []);
+    if (cols.length === 0) continue;
+    const indexName = `idx_${tableName}_${cols.join('_')}`;
+    sqlStatements.push(generateDropIndexSQL(tableName, indexName, dbType));
+    logger.log(`  Drop index ${indexName} (columns: ${cols.join(', ')})`);
+  }
+  for (const indexGroup of ensureArray(constraintDiff.indexes?.create) || []) {
+    const cols = Array.isArray(indexGroup) ? indexGroup : (indexGroup?.value || []);
+    if (cols.length === 0) continue;
+    const indexName = `idx_${tableName}_${cols.join('_')}`;
+    sqlStatements.push(generateAddIndexSQL(tableName, indexName, cols, dbType));
+    logger.log(`  Add index ${indexName} (columns: ${cols.join(', ')})`);
   }
   for (const crossOp of crossTableOps) {
     if (crossOp.operation === 'createColumn') {
