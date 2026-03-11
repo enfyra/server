@@ -13,7 +13,11 @@ import {
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
-import { getForeignKeyColumnName, getJunctionTableName, getJunctionColumnNames } from '../../../infrastructure/knex/utils/naming-helpers';
+import {
+  getForeignKeyColumnName,
+  getJunctionTableName,
+  getJunctionColumnNames,
+} from '../../../infrastructure/knex/utils/naming-helpers';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 @Injectable()
 export class SqlTableHandlerService {
@@ -376,6 +380,21 @@ export class SqlTableHandlerService {
           isSystem: false,
           icon: 'lucide:table',
         });
+        const newRoute = await trx('route_definition')
+          .where({ path: `/${body.name}` })
+          .first();
+        if (newRoute?.id) {
+          const methods = await trx('method_definition').select('id');
+          const junctionTable = getJunctionTableName('route_definition', 'availableMethods', 'method_definition');
+          const { sourceColumn, targetColumn } = getJunctionColumnNames('route_definition', 'availableMethods', 'method_definition');
+          const hasJunction = await trx.schema.hasTable(junctionTable);
+          if (hasJunction && methods?.length > 0) {
+            await trx(junctionTable).insert(
+              methods.map((m: any) => ({ [sourceColumn]: newRoute.id, [targetColumn]: m.id })),
+            );
+            this.logger.log(`   Linked ${methods.length} available methods to route /${body.name}`);
+          }
+        }
         this.logger.log(`Route /${body.name} created for table ${body.name}`);
       } else {
         this.logger.warn(`Route /${body.name} already exists, skipping route creation`);

@@ -42,7 +42,8 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:git-branch",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/table_definition",
@@ -50,14 +51,16 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:table",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/user_definition",
             "mainTable": "user_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon": "lucide:user"
+            "icon": "lucide:user",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/setting_definition",
@@ -65,7 +68,8 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:settings",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/ai_config_definition",
@@ -73,35 +77,40 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:sparkles",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/role_definition",
             "mainTable": "role_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:shield-check"
+            "icon":"lucide:shield-check",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/auth/login",
             "mainTable": "user_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["POST"]
         },
          {
             "path": "/auth/logout",
             "mainTable": "user_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["POST"]
         },
          {
             "path": "/auth/refresh-token",
             "mainTable": "user_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/auth/:provider",
@@ -109,7 +118,8 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/auth/:provider/callback",
@@ -117,14 +127,16 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/me",
             "mainTable": "user_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["GET", "PATCH"]
         },
         {
             "path": "/me/oauth-accounts",
@@ -132,42 +144,48 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/method_definition",
             "mainTable": "method_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/pre_hook_definition",
             "mainTable": "pre_hook_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/post_hook_definition",
             "mainTable": "post_hook_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/route_handler_definition",
             "mainTable": "route_handler_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/route_permission_definition",
             "mainTable": "route_permission_definition",
             "isEnabled": true,
             "isSystem":true,
-            "icon":"lucide:route"
+            "icon":"lucide:route",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/menu_definition",
@@ -175,7 +193,8 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:menu",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/extension_definition",
@@ -183,35 +202,40 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:puzzle",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/folder_definition",
             "mainTable": "folder_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:folder"
+            "icon": "lucide:folder",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/folder_definition/tree",
             "mainTable": "folder_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:folder-tree"
+            "icon": "lucide:folder-tree",
+            "availableMethods": ["GET"]
         },
         {
             "path": "/file_definition",
             "mainTable": "file_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:file"
+            "icon": "lucide:file",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/file_permission_definition",
             "mainTable": "file_permission_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:file"
+            "icon": "lucide:file",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/assets/:id",
@@ -219,21 +243,24 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:download",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/package_definition",
             "mainTable": "package_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:package"
+            "icon": "lucide:package",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/bootstrap_script_definition",
             "mainTable": "bootstrap_script_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:play"
+            "icon": "lucide:play",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/storage_config_definition",
@@ -241,49 +268,56 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:hard-drive",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/admin/reload",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:refresh-cw",
-            "description": "Reload all caches and schemas"
+            "description": "Reload all caches and schemas",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/admin/reload/metadata",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:database",
-            "description": "Reload metadata cache"
+            "description": "Reload metadata cache",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/admin/reload/routes",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:route",
-            "description": "Reload routes cache"
+            "description": "Reload routes cache",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/admin/reload/swagger",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:file-code",
-            "description": "Reload Swagger spec"
+            "description": "Reload Swagger spec",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/admin/reload/graphql",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:code",
-            "description": "Reload GraphQL schema"
+            "description": "Reload GraphQL schema",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/admin/metadata-sync/:id",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:sync",
-            "description": "Sync metadata with physical database"
+            "description": "Sync metadata with physical database",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/api-docs",
@@ -291,70 +325,89 @@
             "isSystem": true,
             "icon": "lucide:book-open",
             "description": "Swagger API Documentation",
-            "publishedMethods": ["GET"]
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
+        },
+        {
+            "path": "/graphql-schema",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:file-code",
+            "description": "GraphQL schema SDL (full definition for debugging)",
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/ai-agent/chat",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:message-square",
-            "description": "AI Agent Chat (non-streaming)"
+            "description": "AI Agent Chat (non-streaming)",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/ai-agent/chat/stream",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:zap",
-            "description": "AI Agent Chat (streaming)"
+            "description": "AI Agent Chat (streaming)",
+            "availableMethods": ["GET"]
         },
         {
             "path": "/ai-agent/cancel",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:square",
-            "description": "Cancel AI Agent streaming"
+            "description": "Cancel AI Agent streaming",
+            "availableMethods": ["POST"]
         },
         {
             "path": "/ai_conversation_definition",
             "mainTable": "ai_conversation_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:messages-square"
+            "icon": "lucide:messages-square",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/ai_message_definition",
             "mainTable": "ai_message_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:message-circle"
+            "icon": "lucide:message-circle",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/websocket_definition",
             "mainTable": "websocket_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:radio-tower"
+            "icon": "lucide:radio-tower",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/websocket_event_definition",
             "mainTable": "websocket_event_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:zap"
+            "icon": "lucide:zap",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/oauth_config_definition",
             "mainTable": "oauth_config_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:key"
+            "icon": "lucide:key",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
             "path": "/oauth_account_definition",
             "mainTable": "oauth_account_definition",
             "isEnabled": true,
             "isSystem": true,
-            "icon": "lucide:link"
+            "icon": "lucide:link",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         }
     ],
     "pre_hook_definition": [

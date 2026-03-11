@@ -47,7 +47,14 @@ export class RouteDetectMiddleware implements NestMiddleware {
       'relation_definition',
     ];
 
-    if (matchedRoute) {
+    const isMethodAvailable = (route: any) => {
+      const methods = route?.availableMethods;
+      if (!methods || !Array.isArray(methods) || methods.length === 0) return false;
+      const methodNames = methods.map((m: any) => m?.method ?? m).filter(Boolean);
+      return methodNames.includes(method);
+    };
+
+    if (matchedRoute && isMethodAvailable(matchedRoute.route)) {
       const realClientIP = this.detectClientIP(req);
       const context: TDynamicContext = {
         $body: req.routeData?.context?.$body || req.body || {},

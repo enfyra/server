@@ -144,6 +144,7 @@
         "relations": [
             { "propertyName": "targetTables", "type": "many-to-many", "targetTable": "table_definition", "isSystem": true, "description": "Additional tables that this route can access" },
             { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "description": "Primary table that this route operates on" },
+            { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP/GraphQL methods this route supports" },
             { "propertyName": "preHook", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Pre-hooks that run before route execution" },
             { "propertyName": "postHook", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Post-hooks that run after route execution" }
         ]
@@ -266,7 +267,8 @@
         ],
         "relations": [
             { "propertyName": "route_permissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method" },
-            { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publishedMethods", "description": "Routes that support this method" }
+            { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publishedMethods", "description": "Routes that support this method" },
+            { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" }
         ]
     },
     "menu_definition": {

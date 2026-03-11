@@ -1,9 +1,10 @@
+import { printSchema } from 'graphql';
 import { makeExecutableSchema } from '@graphql-tools/schema';
-import { GraphQLSchema } from 'graphql';
 import { createYoga } from 'graphql-yoga';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import { generateGraphQLTypeDefsFromTables } from '../utils/generate-type-defs';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
@@ -12,9 +13,11 @@ import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../sha
 export class GraphqlService implements OnApplicationBootstrap {
   private readonly logger = new Logger(GraphqlService.name);
   private yogaApp: ReturnType<typeof createYoga>;
+  private schema: ReturnType<typeof makeExecutableSchema> | null = null;
 
   constructor(
     private metadataCache: MetadataCacheService,
+    private routeCacheService: RouteCacheService,
     private dynamicResolver: DynamicResolver,
   ) {}
 
@@ -43,8 +46,20 @@ export class GraphqlService implements OnApplicationBootstrap {
         return;
       }
 
-      const tables = Array.from(metadata.tables.values());
-      const typeDefs = generateGraphQLTypeDefsFromTables(tables);
+      const routes = await this.routeCacheService.getRoutes();
+      const tablesWithGql = new Set<string>();
+      for (const route of routes) {
+        const methods = route.availableMethods || [];
+        const methodNames = methods.map((m: any) => m?.method ?? m).filter(Boolean);
+        const hasQuery = methodNames.includes('GQL_QUERY');
+        const hasMutation = methodNames.includes('GQL_MUTATION');
+        if (hasQuery && hasMutation && route.mainTable?.name) {
+          tablesWithGql.add(route.mainTable.name);
+        }
+      }
+
+      const allTables = Array.from(metadata.tables.values());
+      const typeDefs = generateGraphQLTypeDefsFromTables(allTables, tablesWithGql);
 
       const resolvers = {
         Query: new Proxy({}, {
@@ -63,10 +78,10 @@ export class GraphqlService implements OnApplicationBootstrap {
         }),
       };
 
-      const schema = makeExecutableSchema({ typeDefs, resolvers });
+      this.schema = makeExecutableSchema({ typeDefs, resolvers });
       
       this.yogaApp = createYoga({
-        schema,
+        schema: this.schema,
         graphqlEndpoint: '/graphql',
         graphiql: true,
       });
@@ -76,6 +91,15 @@ export class GraphqlService implements OnApplicationBootstrap {
       this.logger.error('Failed to reload GraphQL schema:', error.message);
       throw error;
     }
+  }
+
+  getSchemaSdl(): string {
+    if (!this.schema) {
+      throw new Error(
+        'GraphQL schema not initialized. Call reloadSchema() first.',
+      );
+    }
+    return printSchema(this.schema);
   }
 
   getYogaInstance() {

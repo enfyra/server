@@ -16,8 +16,14 @@ export function generatePathsFromRoutes(routes: any[], restMethods: string[]): R
     const tableName = route.mainTable?.name;
     const publishedMethods = route.publishedMethods || [];
     const availableMethods = new Set<string>();
-    if (route.isExpressRoute) {
-      route.handlers.forEach((handler: any) => {
+    const routeAvailableMethods = route.availableMethods || [];
+    const routeAvailableNames = routeAvailableMethods.map((m: any) => m?.method ?? m).filter(Boolean);
+    if (routeAvailableNames.length > 0) {
+      routeAvailableNames
+        .filter((m: string) => restMethodsSet.has(m))
+        .forEach((m: string) => availableMethods.add(m));
+    } else if (route.isExpressRoute) {
+      route.handlers?.forEach((handler: any) => {
         const method = handler.method?.method;
         if (method && restMethodsSet.has(method)) {
           availableMethods.add(method);
