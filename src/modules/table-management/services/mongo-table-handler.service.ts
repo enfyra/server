@@ -376,6 +376,11 @@ export class MongoTableHandlerService {
         path: `/${body.name}`,
       });
       if (!existingRoute) {
+        const methodsResult = await this.queryBuilder.select({
+          tableName: 'method_definition',
+          fields: ['id'],
+        });
+        const allMethodIds = (methodsResult.data || []).map((m: any) => m._id ?? m.id);
         await this.queryBuilder.insert({
           table: 'route_definition',
           data: {
@@ -385,13 +390,14 @@ export class MongoTableHandlerService {
             isSystem: false,
             icon: 'lucide:table',
             publishedMethods: [],
+            availableMethods: allMethodIds,
             routePermissions: [],
             handlers: [],
             preHook: [],
             postHook: [],
           },
         });
-        this.logger.log(`Route /${body.name} created for collection ${body.name}`);
+        this.logger.log(`Route /${body.name} created for collection ${body.name} (${allMethodIds.length} available methods)`);
       }
       const fullMetadata = await this.getFullTableMetadata(tableId);
       await this.schemaMigrationService.createCollection(fullMetadata);

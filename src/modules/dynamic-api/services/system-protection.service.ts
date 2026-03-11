@@ -149,6 +149,7 @@ export class SystemProtectionService {
       const allowed = this.getAllowedFields([
         'description',
         'publishedMethods',
+        'availableMethods',
         'icon',
       ]);
       const disallowed = changedFields.filter((f) => !allowed.includes(f));

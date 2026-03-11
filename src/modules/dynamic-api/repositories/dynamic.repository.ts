@@ -96,6 +96,9 @@ export class DynamicRepository {
         existing: null,
         currentUser: this.context.$user,
       });
+      if (this.tableName === 'route_definition') {
+        this.filterPublishedMethodsToAvailable(body, null);
+      }
       if (this.tableName === 'table_definition') {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(body);
@@ -152,6 +155,9 @@ export class DynamicRepository {
         existing: exists,
         currentUser: this.context.$user,
       });
+      if (this.tableName === 'route_definition' && body.publishedMethods) {
+        this.filterPublishedMethodsToAvailable(body, exists);
+      }
       if (this.tableName === 'table_definition') {
         const table: any = await this.tableHandlerService.updateTable(id, body);
         const tableId = table._id || table.id;
@@ -197,6 +203,33 @@ export class DynamicRepository {
     } catch (error) {
       throw new BadRequestException(error.message);
     }
+  }
+
+  private toMethodIds(arr: any[]): number[] {
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((item) => (item && typeof item === 'object' && 'id' in item ? item.id : item))
+      .filter((id): id is number => id != null && typeof id === 'number');
+  }
+
+  private filterPublishedMethodsToAvailable(body: any, existing: any): void {
+    const availableIds = new Set<number>(
+      body.availableMethods
+        ? this.toMethodIds(Array.isArray(body.availableMethods) ? body.availableMethods : [])
+        : existing?.availableMethods
+          ? this.toMethodIds(Array.isArray(existing.availableMethods) ? existing.availableMethods : [])
+          : [],
+    );
+    if (availableIds.size === 0) {
+      body.publishedMethods = [];
+      return;
+    }
+    const published = Array.isArray(body.publishedMethods) ? body.publishedMethods : [];
+    const filtered = published.filter((item: any) => {
+      const id = item && typeof item === 'object' && 'id' in item ? item.id : item;
+      return id != null && availableIds.has(Number(id));
+    });
+    body.publishedMethods = filtered;
   }
 
   private async reload() {

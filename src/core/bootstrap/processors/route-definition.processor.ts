@@ -60,6 +60,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             delete transformedRecord.publishedMethods;
           }
         }
+        if (record.availableMethods && Array.isArray(record.availableMethods)) {
+          if (isMongoDB) {
+            transformedRecord._availableMethods = record.availableMethods;
+            delete transformedRecord.availableMethods;
+          } else {
+            transformedRecord._availableMethods = record.availableMethods;
+            delete transformedRecord.availableMethods;
+          }
+        }
         if (isMongoDB && record.path === '/route_definition') {
           this.logger.log(`📋 Sample route document to insert: ${JSON.stringify(transformedRecord, null, 2)}`);
         }
@@ -88,12 +97,30 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         );
       }
     }
+    if (!isMongoDB && record._availableMethods && Array.isArray(record._availableMethods)) {
+      const methodNames = record._availableMethods;
+      const result = await this.queryBuilder.select({
+        tableName: 'method_definition',
+        filter: { method: { _in: methodNames } },
+        fields: ['id', 'method'],
+      });
+      const methods = result.data;
+      const methodIds = methods.map((m: any) => m.id);
+      if (methodIds.length > 0) {
+        await this.queryBuilder.updateById('route_definition', record.id, {
+          availableMethods: methodIds
+        });
+        this.logger.log(
+          `   🔗 Linked ${methodIds.length} available methods to route ${record.path}`,
+        );
+      }
+    }
   }
   getUniqueIdentifier(record: any): object {
     return { path: record.path };
   }
   protected getCompareFields(): string[] {
-    return ['path', 'isEnabled', 'icon', 'description', 'isSystem', 'mainTable', 'publishedMethods'];
+    return ['path', 'isEnabled', 'icon', 'description', 'isSystem', 'mainTable', 'publishedMethods', 'availableMethods'];
   }
   protected getRecordIdentifier(record: any): string {
     return `[Route] ${record.path}`;

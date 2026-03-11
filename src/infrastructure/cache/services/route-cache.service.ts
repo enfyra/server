@@ -161,6 +161,7 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
         'postHook.*',
         'postHook.methods.method',
         'publishedMethods.*',
+        'availableMethods.*',
         'targetTables.*',
       ],
     });
@@ -281,7 +282,13 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
       return;
     }
     const basePath = route.path;
-    for (const method of this.allMethods) {
+    const raw = route.availableMethods;
+    const methods =
+      Array.isArray(raw) && raw.length > 0
+        ? raw.map((m: any) => m?.method ?? m).filter(Boolean)
+        : [];
+    if (methods.length === 0) return;
+    for (const method of methods) {
       this.routeEngine.insert(method, basePath, route);
       if (['DELETE', 'PATCH'].includes(method)) {
         this.routeEngine.insert(method, `${basePath}/:id`, route);

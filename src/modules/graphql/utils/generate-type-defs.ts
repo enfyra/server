@@ -22,7 +22,11 @@ function mapColumnTypeToGraphQL(type: string): string {
 }
 export function generateGraphQLTypeDefsFromTables(
   tables: any[],
+  queryableTableNames?: Set<string>,
 ): string {
+  const allowQuery = queryableTableNames
+    ? (name: string) => queryableTableNames.has(name)
+    : () => true;
   let typeDefs = '';
   let queryDefs = '';
   let mutationDefs = '';
@@ -115,7 +119,7 @@ export function generateGraphQLTypeDefsFromTables(
       const updateType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
       updateInputFields.push(`  ${fieldName}: ${updateType}`);
     }
-    if (inputFields.length > 0) {
+    if (inputFields.length > 0 && allowQuery(typeName)) {
       resultDefs += `
 type ${typeName}Result {
   data: [${typeName}!]!
