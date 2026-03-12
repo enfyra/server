@@ -49,6 +49,7 @@ lerna-debug.log*
 
 # temp directory
 .temp
+.temp-extension-builds
 .tmp
 tmp/
 

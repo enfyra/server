@@ -417,7 +417,13 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - For relations: Use propertyName (e.g. role) NOT foreignKeyColumn (roleId). Example: role: @BODY.role ? { id: @BODY.role } : null
 - Request body for registration should only include: email, role (optional, as id). Exclude isSystem, isRootAdmin
 - Hash password: const hashed = await @HELPERS.$bcrypt.hash(@BODY.password). NEVER use $bcrypt - use @HELPERS.$bcrypt
-- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ filter: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); const created = await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } }); return { data: created?.data?.[0] ?? {} };`;
+- Registration example: const { email, password } = @BODY; const res = await #user_definition.find({ filter: { email: { _eq: email } }, limit: 1 }); if (res?.data?.length) @THROW400("Email already exists"); const hashed = await @HELPERS.$bcrypt.hash(password); const created = await #user_definition.create({ data: { email, password: hashed, isSystem: false, isRootAdmin: false } }); return { data: created?.data?.[0] ?? {} };
+
+**Handler packages ($ctx.$pkgs) – lodash, axios, etc.:**
+- Handlers access npm packages via $ctx.$pkgs.packagename (e.g. $ctx.$pkgs.lodash, $ctx.$pkgs.axios).
+- CRITICAL: Before writing handler that uses a package, check if installed: find_records({"table":"package_definition","filter":{"type":{"_eq":"Server"},"name":{"_eq":"lodash"},"isEnabled":{"_eq":true}},"fields":"id,name","limit":1})
+- If NOT found: Tell user "Package [name] is required. Please install: Settings → Packages → Install Package → Server Package → install [name]. Then retry." Agent CANNOT install.
+- Only use $ctx.$pkgs in code AFTER confirming package exists.`;
 
   const hookOpsContent = `**Pre/Post Hooks** – Ctx: $body,$params,$query,$user,$repos,$res,$api,$cache,$helpers,$throw. Pre: no $data. Post: +$data,$api.response. Pre return → short-circuit.
 
@@ -436,7 +442,9 @@ if (!@USER) return { error: "Unauthorized" };
 
 **Workflow - PREFER CASCADE:** update_records route_definition with data: {preHook: [{methods:[{id}], code, isEnabled:true}], postHook: [...]} – nested from route. If separate: create_records pre_hook_definition with route:{id}, methods:[{id}], code.
 
-**Delete hook:** find_records pre_hook_definition (or post_hook_definition) filter route.id._eq routeId → ids → delete_records with ids:[...]. Use ids, NOT filter.`;
+**Delete hook:** find_records pre_hook_definition (or post_hook_definition) filter route.id._eq routeId → ids → delete_records with ids:[...]. Use ids, NOT filter.
+
+**Hook packages ($ctx.$pkgs):** Same rule as handlers. Before using lodash, axios, etc.: find_records package_definition filter type._eq "Server", name._eq "packagename". If not installed, tell user to install via Settings → Packages → Server Package. Agent cannot install. Only use after confirming.`;
 
   const hookOpsHint: HintContent = {
     category: 'hook_operations',
@@ -495,6 +503,214 @@ if (!@USER) return { error: "Unauthorized" };
     tools: ['find_records', 'create_records', 'update_records', 'delete_records', 'run_handler_test', 'get_table_details'],
   };
 
+  const menuOpsContent = `**Menu Operations** – Create and manage navigation menus (sidebar) via menu_definition.
+
+**CRITICAL - menu_definition has LABEL, NOT name:**
+- menu_definition columns: id, type, **label**, icon, path, order, isEnabled, parent...
+- There is NO "name" column. Display text is in **label**.
+- To find menu by display text (Dashboard, Welcome, Settings): filter {"label":{"_eq":"Dashboard"}} - NEVER use "name"
+- fields: use "id,label" or "id,label,path" - NOT "id,name"
+
+**Menu Types:**
+- **Menu** (leaf item): Clickable item that navigates to a page. Has path (e.g. /reports). Can also be a container for child items.
+- **Dropdown Menu** (container): Collapsible section that groups child menus. Has label + icon. Path is optional (e.g. /settings for section URL). Children appear when expanded.
+
+**Ordering (field: order):**
+- order: integer. Lower number = appears HIGHER in list (0, 1, 2...).
+- Top-level: order 1 = first, order 2 = second. Example: Dashboard=1, Data=2, Settings=4.
+- Under same parent: order controls sibling order. Example: General=1, Menu=3, Extensions=4 under Settings.
+- Check existing menus: find_records with filter parent.id._eq or no parent for top-level, then set order. To insert between items (e.g. after order 3): use order 4 and optionally update_records on the next item to shift it.
+
+**Schema (get_table_details first):**
+- type: "Menu" or "Dropdown Menu"
+- label, icon (default "lucide:menu"), path (URL route, must start with /), order, isEnabled
+- parent: many-to-one to menu_definition (optional, for nesting under Dropdown Menu)
+
+**Workflow - Create top-level menu:**
+1. get_table_details({"tableName":["menu_definition"]})
+2. create_records({"table":"menu_definition","dataArray":[{"type":"Menu","label":"Reports","icon":"lucide:bar-chart","path":"/reports","order":5,"isEnabled":true}],"fields":"${idFieldName}"})
+
+**Workflow - Create menu under parent (e.g. under Settings):**
+1. find_records({"table":"menu_definition","filter":{"type":{"_eq":"Dropdown Menu"},"label":{"_eq":"Settings"}},"fields":"${idFieldName}","limit":1})
+2. Extract parent ${idFieldName} from result
+3. create_records with parent: {id: parentId} (SQL) or parent: {_id: parentId} (MongoDB). Example: {"table":"menu_definition","dataArray":[{"type":"Menu","label":"My Page","icon":"lucide:file","path":"/settings/my-page","order":10,"parent":{"${idFieldName}":parentId},"isEnabled":true}],"fields":"${idFieldName}"}
+
+**Parent relation format:**
+- SQL: parent: {id: number}
+- MongoDB: parent: {_id: "..."} (ObjectId string)
+
+**CRITICAL:**
+- path must be UNIQUE across all menus
+- icon: Lucide icon id, e.g. "lucide:bar-chart", "lucide:settings"
+- order: lower number = higher in list
+
+**After creating/updating menu:** Tell user to refresh the page (F5 or reload) to see the new menu in the sidebar. Menu changes may not appear until refresh.`;
+
+  const menuOpsHint: HintContent = {
+    category: 'menu_operations',
+    title: 'Menu Operations (Navigation Sidebar)',
+    content: menuOpsContent,
+    tools: ['find_records', 'get_table_details', 'create_records', 'update_records'],
+  };
+
+  const extensionOpsContent = `**Extension Operations** – Create custom pages and widgets with Vue SFC. Extensions render when user navigates to menu path.
+
+**CRITICAL - MUST call update_records to persist extension code:**
+- Outputting Vue code in your text response does NOT update the extension. User will NOT see it.
+- To update existing extension: find_records extension_definition → get id → update_records({"table":"extension_definition","updates":[{"id":X,"data":{"code":"<template>...</template>\\n<script setup>...</script>"}}]})
+- NEVER say "I've updated" or "đã cập nhật" without having actually called update_records. If you didn't call the tool, the change was NOT saved.
+- Same for create: MUST call create_records to create new extension – showing code is not enough.
+
+**CRITICAL - Code is AUTO-COMPILED:** When create_records/update_records on extension_definition includes \`code\`, the server compiles Vue SFC to JS automatically. No separate tool needed. If compile fails, error message is returned - fix code and retry.
+
+**Schema:**
+- type: "page" (full page linked to menu) or "widget" (embed via <Widget :id="dbId" />)
+- name, description, version (default "1.0.0"), isEnabled (default true)
+- code: Vue SFC string (REQUIRED for page/widget with UI)
+- menu: one-to-one relation to menu_definition (REQUIRED for type "page" - links extension to menu path)
+
+**Workflow - Create menu + extension (full page):**
+1. Create menu first: get_table_details + create_records menu_definition (e.g. path "/custom/analytics")
+2. Find menu by path: find_records menu_definition filter path._eq "/custom/analytics" (or by label._eq "Dashboard")
+3. create_records extension_definition with: name, type:"page", code (Vue SFC), menu:{id: menuId}
+- CRITICAL: menu_definition has **label** not name. To find menu: filter by label or path, NEVER by name.
+
+**Workflow - Create widget only (no menu):**
+create_records extension_definition with: name, type:"widget", code (Vue SFC). No menu needed.
+
+**Workflow - Update existing extension code (e.g. Welcome Page):**
+1. find_records({"table":"extension_definition","filter":{"name":{"_eq":"Welcome Page"}},"fields":"id,name","limit":1}) – or filter by menu.path
+2. update_records({"table":"extension_definition","updates":[{"id":<id from step 1>,"data":{"code":"<full Vue SFC string>"}}]})
+3. User must refresh (F5) to see changes. Do NOT claim success without calling update_records.
+
+**For consistent UI:** Call get_hint with category "ui_vibe" to get Enfyra design system (colors, layout, typography, spacing).
+
+**Vue SFC - CRITICAL RULES (no imports, use globals):**
+- NO import statements. All composables and Vue API are injected globally.
+- Structure: <template>...</template> + <script setup>...</script>
+
+**Available globally in extension code:**
+- Vue: ref, reactive, computed, watch, onMounted, onUnmounted, etc.
+- Composables: useToast, useApi, useEnfyraAuth, usePermissions, useHeaderActionRegistry, useRouter, useRoute, navigateTo
+- Components: UButton, UCard, UInput, UTable, UBadge, FormEditor, DataTable, PermissionGate, Widget, etc.
+
+**Header actions - CORRECT usage (pass actions directly, NOT .register()):**
+\`\`\`javascript
+useHeaderActionRegistry([
+  { id: 'refresh', label: 'Refresh', onClick: refreshData, color: 'primary' }
+]);
+\`\`\`
+
+**Minimal Vue SFC example:**
+\`\`\`vue
+<template>
+  <div class="p-6">
+    <h1 class="text-2xl font-bold">{{ title }}</h1>
+    <UButton @click="handleClick">Click</UButton>
+  </div>
+</template>
+<script setup>
+const title = ref('My Extension');
+const toast = useToast();
+const handleClick = () => toast.add({ title: 'Clicked', color: 'green' });
+</script>
+\`\`\`
+
+**API call – useApi requires execute():**
+\`\`\`javascript
+const { data, error, execute } = useApi('/user_definition', { query: { limit: 10 } });
+onMounted(() => execute());  // Must call execute() - useApi does NOT auto-run
+\`\`\`
+
+**NPM packages (getPackages):** CRITICAL - Before writing extension code that uses a package:
+1. Check if installed: find_records({"table":"package_definition","filter":{"type":{"_eq":"App"},"name":{"_eq":"dayjs"},"isEnabled":{"_eq":true}},"fields":"id,name","limit":1})
+2. If NOT found: Tell user "Package [name] is required. Please install: Settings → Packages → Install Package → App Package → install [name]. Then retry." Agent CANNOT install. User MUST install manually.
+3. Only use getPackages() in extension code AFTER confirming package exists in package_definition.
+- Call inside onMounted or async handler (client-side only)
+- Destructuring: const { dayjs, lodash } = await getPackages();
+- With array (recommended): const packages = await getPackages(['dayjs', 'lodash']); then packages.dayjs, packages.lodash
+- chart.js: const { Chart } = await getPackages(['chart.js']);
+- Package names = npm names (dayjs, lodash, chart.js)
+
+**If create_records fails with compile error:** Read error message (syntax, unknown component, etc.), fix the Vue SFC code, retry create_records or update_records.
+
+**After creating/updating extension (or menu+extension):** Tell user to refresh the page (F5 or reload) to see the new menu and extension content. Changes may not appear until refresh.`;
+
+  const extensionOpsHint: HintContent = {
+    category: 'extension_operations',
+    title: 'Extension Operations (Vue SFC Pages & Widgets)',
+    content: extensionOpsContent,
+    tools: ['find_records', 'get_table_details', 'create_records', 'update_records'],
+  };
+
+  const uiVibeContent = `**UI Vibe – Enfyra Design System** – Create extensions that match the app's visual style for consistency.
+
+**Color palette (use via color= prop):**
+- primary: violet/indigo gradient (main actions)
+- success: emerald (positive, active)
+- error: rose (danger, delete)
+- warning: amber (caution)
+- info: cyan (informational)
+- neutral: slate (secondary, muted)
+
+**Page layout – standard structure:**
+\`\`\`vue
+<div class="p-6 space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-800 dark:text-white/90">Page Title</h1>
+      <p class="text-gray-500 dark:text-gray-400 mt-1">Optional description</p>
+    </div>
+    <UBadge variant="soft" color="primary">Status</UBadge>
+  </div>
+
+  <!-- Stats cards grid -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <UCard>
+      <div class="text-center p-4">
+        <div class="text-2xl font-bold text-violet-600">{{ count }}</div>
+        <div class="text-sm text-gray-500 dark:text-gray-400">Label</div>
+      </div>
+    </UCard>
+  </div>
+
+  <!-- Content sections -->
+  <UCard>
+    <template #header>
+      <h3 class="text-lg font-semibold">Section Title</h3>
+    </template>
+    <div class="space-y-4">...</div>
+  </UCard>
+</div>
+\`\`\`
+
+**Components & styling:**
+- UCard: use for sections; has #header slot. App uses rounded-2xl glass-card.
+- UButton: color="primary" for main action, variant="soft" or "outline" for secondary, variant="ghost" for subtle.
+- UBadge: variant="soft" for status labels; color matches context (success, error, info).
+- UInput/UTextarea: use label prop; size="sm" often.
+- EmptyState: use when no data – \`<EmptyState title="No items" description="Add first" :action="{ label: 'Add', onClick }" />\`
+
+**Typography:**
+- Page title: text-3xl font-bold text-gray-800 dark:text-white/90
+- Section title: text-lg font-semibold
+- Body: text-sm text-gray-800 dark:text-white/90
+- Muted: text-gray-500 dark:text-gray-400
+
+**Spacing:** p-6 for page padding, space-y-6 between sections, gap-6 in grids, space-y-4 in forms.
+
+**Icons:** Lucide via UIcon – \`<UIcon name="lucide:bar-chart" />\`, lucide:settings, lucide:user, lucide:plus, etc.
+
+**Responsive:** Use grid-cols-1 md:grid-cols-2 lg:grid-cols-3 for cards; flex flex-wrap gap-4 for button groups.`;
+
+  const uiVibeHint: HintContent = {
+    category: 'ui_vibe',
+    title: 'UI Vibe (Enfyra Design System)',
+    content: uiVibeContent,
+    tools: [],
+  };
+
   allHints.push(
     dbTypeHint,
     fieldOptHint,
@@ -504,6 +720,9 @@ if (!@USER) return { error: "Unauthorized" };
     hookOpsHint,
     bootstrapOpsHint,
     websocketOpsHint,
+    menuOpsHint,
+    extensionOpsHint,
+    uiVibeHint,
     crudWriteOpsHint,
     crudDeleteOpsHint,
     crudQueryOpsHint,
@@ -580,6 +799,9 @@ export async function executeGetHint(
       'hook_operations',
       'bootstrap_operations',
       'websocket_operations',
+      'menu_operations',
+      'extension_operations',
+      'ui_vibe',
       'crud_write_operations',
       'crud_delete_operations',
       'crud_query_operations',

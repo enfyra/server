@@ -206,6 +206,14 @@
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
+            "path": "/extension_definition/preview",
+            "mainTable": "extension_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "publishedMethods": ["POST"],
+            "availableMethods": ["POST"]
+        },
+        {
             "path": "/folder_definition",
             "mainTable": "folder_definition",
             "isEnabled": true,
@@ -631,6 +639,22 @@
             "parent": "Settings",
             "permission": {
                 "or": [{ "route": "/bootstrap_script_definition", "actions": ["read"] }]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Cache Reload",
+            "icon": "lucide:refresh-cw",
+            "path": "/settings/admin/cache",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Manually reload server caches (metadata, routes, swagger, graphql)",
+            "order": 12,
+            "parent": "Settings",
+            "permission": {
+                "or": [
+                    { "route": "/admin/reload", "actions": ["create"] }
+                ]
             }
         },
         {

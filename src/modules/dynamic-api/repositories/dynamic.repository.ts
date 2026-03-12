@@ -99,6 +99,13 @@ export class DynamicRepository {
       if (this.tableName === 'route_definition') {
         this.filterPublishedMethodsToAvailable(body, null);
       }
+      if (this.tableName === 'extension_definition' && body.code) {
+        const { processExtensionDefinition } = await import(
+          '../../extension-definition/utils/processor.util'
+        );
+        const { processedBody } = await processExtensionDefinition(body, 'POST');
+        Object.assign(body, processedBody);
+      }
       if (this.tableName === 'table_definition') {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(body);
@@ -157,6 +164,13 @@ export class DynamicRepository {
       });
       if (this.tableName === 'route_definition' && body.publishedMethods) {
         this.filterPublishedMethodsToAvailable(body, exists);
+      }
+      if (this.tableName === 'extension_definition' && body.code) {
+        const { processExtensionDefinition } = await import(
+          '../../extension-definition/utils/processor.util'
+        );
+        const { processedBody } = await processExtensionDefinition(body, 'PATCH');
+        Object.assign(body, processedBody);
       }
       if (this.tableName === 'table_definition') {
         const table: any = await this.tableHandlerService.updateTable(id, body);

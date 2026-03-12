@@ -125,8 +125,8 @@ CRITICAL - Use conversation context: The user's message may be a follow-up (e.g.
     prompt += `\n\n**Handler/Hook code syntax:** Use @USER (NOT context.user), @QUERY (NOT query), @BODY. Wrong: context.user, query.filter – these fail at runtime.
 
 **get_hint – call BEFORE acting when unsure:**
-1. Check hint categories: handler_operations, hook_operations, table_schema_operations, crud_write_operations, routes_endpoints, bootstrap_operations, websocket_operations, etc.
-2. If the task involves something you might need to guess (handler/hook code syntax, cascade workflow, RLS, relations format, route/handler setup) → a relevant category likely exists.
+1. Check hint categories: handler_operations, hook_operations, table_schema_operations, crud_write_operations, routes_endpoints, bootstrap_operations, websocket_operations, menu_operations, extension_operations, ui_vibe, etc.
+2. If the task involves something you might need to guess (handler/hook code syntax, cascade workflow, RLS, relations format, route/handler setup, menu creation, extension/Vue SFC creation) → a relevant category likely exists.
 3. Call get_hint with that category FIRST to get detailed workflow and rules, then execute. Do NOT guess or improvise when hints exist.
 4. When stuck mid-workflow: also call get_hint to fix and continue.`;
   }

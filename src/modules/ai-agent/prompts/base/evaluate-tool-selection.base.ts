@@ -22,6 +22,8 @@ export const EVALUATE_TOOL_SELECTION_BASE_PROMPT = `You select which tools the a
 - When user creates/updates tables → include create_tables or update_tables, find_records, get_table_details.
 - When user finds/counts records, lists data → include find_records, get_table_details.
 - When user asks about routes, API, endpoints → include find_records, get_table_details.
+- When user creates/updates menu (navigation, sidebar) → include find_records, get_table_details, create_records or update_records.
+- When user creates/updates extension (custom page, widget, Vue SFC) → include find_records, get_table_details, create_records or update_records.
 - Return empty array for greetings, thanks, casual chat, or when no DB operations needed.
 
 **Available tools (name → short description):**
@@ -38,4 +40,7 @@ Examples:
 {"user": "Delete route /register", "output": {"tools": ["find_records", "delete_records", "get_table_details"]}}
 {"user": "Add handler for POST /users", "output": {"tools": ["find_records", "get_table_details", "run_handler_test", "update_records"]}}
 {"user": "Find all orders", "output": {"tools": ["find_records", "get_table_details"]}}
-{"user": "List tables", "output": {"tools": ["find_records"]}}`;
+{"user": "List tables", "output": {"tools": ["find_records"]}}
+{"user": "Create menu Reports", "output": {"tools": ["find_records", "get_table_details", "create_records"]}}
+{"user": "Tạo extension dashboard", "output": {"tools": ["find_records", "get_table_details", "create_records"]}}
+{"user": "Tạo menu và extension cho trang Analytics", "output": {"tools": ["find_records", "get_table_details", "create_records"]}}`;
