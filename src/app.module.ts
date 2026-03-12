@@ -42,6 +42,7 @@ import { DatabaseSchemaService } from './infrastructure/knex/services/database-s
 import { AdminModule } from './modules/admin/admin.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { WebsocketModule } from './modules/websocket/websocket.module';
+import { ExtensionDefinitionModule } from './modules/extension-definition/extension-definition.module';
 
 @Global()
 @Module({
@@ -93,6 +94,7 @@ import { WebsocketModule } from './modules/websocket/websocket.module';
     AdminModule,
     AiAgentModule,
     WebsocketModule,
+    ExtensionDefinitionModule,
     DynamicModule,
     HandlerExecutorModule,
     GraphqlModule,

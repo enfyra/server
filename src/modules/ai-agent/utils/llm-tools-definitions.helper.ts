@@ -127,12 +127,15 @@ CRITICAL – Call get_hint BEFORE writing/saving:
 - Route, endpoint, API setup (routes_endpoints)
 - CRUD with relations, batching (crud_write_operations)
 - Bootstrap, WebSocket (bootstrap_operations, websocket_operations)
+- Menu, navigation, sidebar (menu_operations)
+- Extension, custom page, widget, Vue SFC (extension_operations, ui_vibe)
 
 Do NOT guess – check categories, call get_hint first, then execute.
 
 Available categories:
 - database_type, field_optimization, table_schema_operations, table_deletion
 - handler_operations, hook_operations, bootstrap_operations, websocket_operations
+- menu_operations, extension_operations, ui_vibe
 - crud_write_operations, crud_delete_operations, crud_query_operations
 - metadata_operations, natural_language_discovery, system_workflows, error_handling, routes_endpoints
 
@@ -159,7 +162,7 @@ Returns:
             },
           ],
           description:
-            'Hint category or array. Available: database_type, field_optimization, table_schema_operations, table_deletion, handler_operations, hook_operations, bootstrap_operations, websocket_operations, crud_write_operations, crud_delete_operations, crud_query_operations, metadata_operations, natural_language_discovery, system_workflows, error_handling, routes_endpoints. Omit for all.',
+            'Hint category or array. Available: database_type, field_optimization, table_schema_operations, table_deletion, handler_operations, hook_operations, bootstrap_operations, websocket_operations, menu_operations, extension_operations, ui_vibe, crud_write_operations, crud_delete_operations, crud_query_operations, metadata_operations, natural_language_discovery, system_workflows, error_handling, routes_endpoints. Omit for all.',
         },
       },
     },

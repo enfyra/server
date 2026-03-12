@@ -30,6 +30,9 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - metadata_operations: List tables, get schema (when table name is known)
 - natural_language_discovery: User asks about resources in natural language (e.g., "show me routes", "list users", "which routes are published with method get") - need to guess table name first
 - routes_endpoints: User asks about routes, endpoints, API, API paths, test URLs, or how to test APIs
+- menu_operations: Create/update menu, sidebar, navigation
+- extension_operations: Create/update extension, custom page, widget, Vue SFC
+- ui_vibe: Creating extension with UI – use WITH extension_operations for consistent Enfyra design
 - system_workflows: Multi-step, system creation
 
 **Selection (MINIMUM NECESSARY):**
@@ -53,6 +56,8 @@ export const EVALUATE_NEEDS_TOOLS_BASE_PROMPT = `You are a category selector for
 - "make route public" / "public route" (when context is about a route) → ["routes_endpoints"]
 - "what endpoints/API are available" → ["routes_endpoints", "natural_language_discovery"]
 - "give me api" / "api to" → ["routes_endpoints", "natural_language_discovery"]
+- "menu" / "sidebar" / "navigation" / "create menu" / "add menu item" / "menu item" → ["menu_operations"]
+- "extension" / "custom page" / "widget" / "Vue" / "Vue SFC" / "custom UI" / "create page" / "create extension" / "add extension" → ["extension_operations", "ui_vibe"]
 - "create system/backend" → ["system_workflows", "table_schema_operations"]
 - "create system + add data" → ["system_workflows", "table_schema_operations", "crud_write_operations"]
 - CRITICAL: Only select what user explicitly needs. Do NOT add "crud_write_operations" unless user says "add data" or "insert records"
@@ -132,5 +137,8 @@ Examples:
 {"user": "api to test", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "what API endpoints are available", "output": {"categories": ["routes_endpoints", "natural_language_discovery"]}}
 {"user": "Create e-commerce system with 5 tables", "output": {"categories": ["system_workflows", "table_schema_operations"]}}
-{"user": "Build backend and add sample data", "output": {"categories": ["system_workflows", "table_schema_operations", "crud_write_operations"]}}`;
+{"user": "Build backend and add sample data", "output": {"categories": ["system_workflows", "table_schema_operations", "crud_write_operations"]}}
+{"user": "Create custom analytics dashboard page", "output": {"categories": ["extension_operations", "ui_vibe", "menu_operations"]}}
+{"user": "Add extension for reports", "output": {"categories": ["extension_operations", "ui_vibe"]}}
+{"user": "Create menu Welcome and extension", "output": {"categories": ["menu_operations", "extension_operations", "ui_vibe"]}}`;
 
