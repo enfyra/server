@@ -167,7 +167,6 @@ export class RouteCacheService implements OnModuleInit, OnApplicationBootstrap {
     });
     const routes = result.data;
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const routeFieldName = isMongoDB ? 'route' : 'routeId';
     const globalPreHooksResult = await this.queryBuilder.select({
       tableName: 'pre_hook_definition',
       filter: {
