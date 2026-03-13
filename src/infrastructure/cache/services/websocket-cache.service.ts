@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
+import { MetadataCacheService } from './metadata-cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { transformCode } from '../../handler-executor/code-transformer';
 import {
@@ -47,6 +48,7 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
     private readonly redisPubSubService: RedisPubSubService,
     private readonly cacheService: CacheService,
     private readonly instanceService: InstanceService,
+    private readonly metadataCacheService: MetadataCacheService,
   ) {}
 
   async onModuleInit() {
@@ -139,6 +141,14 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
         const start = Date.now();
         this.logger.log('Reloading websocket cache...');
 
+        this.logger.log('Waiting for metadata cache to be loaded...');
+        const metadataLoaded = await this.metadataCacheService.waitForLoad();
+        if (!metadataLoaded) {
+          this.logger.error('Metadata cache not loaded, cannot reload websocket cache');
+          return;
+        }
+        this.logger.log('Metadata cache is ready, proceeding with websocket cache reload');
+
         const gateways = await this.loadGateways();
         this.logger.log(`Loaded ${gateways.length} websocket gateways in ${Date.now() - start}ms`);
 
@@ -190,16 +200,21 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
         gateway.connectionHandlerScript = transformCode(gateway.connectionHandlerScript);
       }
 
+      const filterValue = isMongoDB ? gateway._id : gateway.id;
+      this.logger.debug(`Loading events for gateway ${gateway.path || gateway.id}, filter value: ${filterValue}`);
+
       const eventsResult = await this.queryBuilder.select({
         tableName: 'websocket_event_definition',
         filter: {
           _and: [
             { isEnabled: { _eq: true } },
-            { gateway: { _eq: isMongoDB ? gateway._id : gateway.id } },
+            { gateway: { _eq: filterValue } },
           ],
         },
         fields: ['*'],
       });
+
+      this.logger.debug(`Events result for gateway ${gateway.path || gateway.id}: ${eventsResult.data?.length || 0} events`);
 
       for (const event of eventsResult.data) {
         if (event.handlerScript) {

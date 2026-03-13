@@ -3,35 +3,99 @@ import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
+
 @Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
   constructor(private readonly queryBuilder: QueryBuilderService) {
     super();
   }
+
+  /**
+   * Process menu definitions for SQL databases.
+   * Only creates new records, skips existing ones without updating.
+   * This preserves user modifications to menus.
+   */
   async processSql(
     records: any[],
     knex: Knex,
     tableName: string,
     context?: any,
   ): Promise<UpsertResult> {
-    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
-    const menuItems = records.filter(r => r.type === 'Menu');
+    const transformedRecords = await this.transformRecords(records, { ...context, knex });
     let totalCreated = 0;
     let totalSkipped = 0;
-    if (dropdownMenus.length > 0) {
-      this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
-      const result = await super.processSql(dropdownMenus, knex, tableName, { ...context, knex });
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
+
+    // Process in order: Dropdown Menus first, then Menu items
+    const dropdownMenus = transformedRecords.filter(r => r.type === 'Dropdown Menu');
+    const menuItems = transformedRecords.filter(r => r.type === 'Menu');
+
+    for (const record of [...dropdownMenus, ...menuItems]) {
+      try {
+        const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
+        if (result.created) totalCreated++;
+        if (result.skipped) totalSkipped++;
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+      }
     }
-    if (menuItems.length > 0) {
-      this.logger.log(`Processing ${menuItems.length} Menu items...`);
-      const result = await super.processSql(menuItems, knex, tableName, { ...context, knex });
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
-    }
+
     return { created: totalCreated, skipped: totalSkipped };
   }
+
+  private async processSqlRecordOnlyCreate(
+    record: any,
+    knex: Knex,
+    tableName: string,
+    context?: any,
+  ): Promise<{ created: boolean; skipped: boolean }> {
+    const uniqueWhere = this.getUniqueIdentifier(record);
+    const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
+
+    let existingRecord = null;
+    for (const whereCondition of whereConditions) {
+      const cleanedCondition = { ...whereCondition };
+      for (const key in cleanedCondition) {
+        if (Array.isArray(cleanedCondition[key])) {
+          delete cleanedCondition[key];
+        }
+      }
+      existingRecord = await knex(tableName).where(cleanedCondition).first();
+      if (existingRecord) break;
+    }
+
+    if (existingRecord) {
+      // Skip existing record - do NOT update to preserve user modifications
+      this.logger.log(`   Skipped (existing): ${this.getRecordIdentifier(record)}`);
+      if (this.afterUpsert) {
+        await this.afterUpsert({ ...record, id: existingRecord.id }, false, context);
+      }
+      return { created: false, skipped: true };
+    }
+
+    // Create new record
+    const cleanedRecord = this.cleanRecordForKnex(record);
+    const dbType = context?.dbType;
+    let insertedId: any;
+    if (dbType === 'postgres') {
+      const result = await knex(tableName).insert(cleanedRecord, ['id']);
+      insertedId = result[0]?.id || result[0];
+    } else {
+      const result = await knex(tableName).insert(cleanedRecord);
+      insertedId = Array.isArray(result) ? result[0] : result;
+    }
+    this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+    if (this.afterUpsert) {
+      await this.afterUpsert({ ...record, id: insertedId }, true, context);
+    }
+    return { created: true, skipped: false };
+  }
+
+  /**
+   * Process menu definitions for MongoDB.
+   * Only creates new records, skips existing ones without updating.
+   * This preserves user modifications to menus.
+   */
   async processMongo(
     records: any[],
     db: any,
@@ -41,30 +105,68 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
-    const menuItemsWithParent = records.filter(r => r.type === 'Menu' && r.parent);
-    const otherMenuItems = records.filter(r => r.type === 'Menu' && !r.parent);
+
+    const transformedRecords = await this.transformRecords(records, context);
     let totalCreated = 0;
     let totalSkipped = 0;
-    if (dropdownMenus.length > 0) {
-      this.logger.log(`Processing ${dropdownMenus.length} Dropdown Menus...`);
-      const result = await super.processMongo(dropdownMenus, db, collectionName, context);
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
+
+    // Process in order: Dropdown Menus first, then Menu items without parent, then with parent
+    const dropdownMenus = transformedRecords.filter(r => r.type === 'Dropdown Menu');
+    const otherMenuItems = transformedRecords.filter(r => r.type === 'Menu' && !r.parent);
+    const menuItemsWithParent = transformedRecords.filter(r => r.type === 'Menu' && r.parent);
+
+    for (const record of [...dropdownMenus, ...otherMenuItems, ...menuItemsWithParent]) {
+      try {
+        const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
+        if (result.created) totalCreated++;
+        if (result.skipped) totalSkipped++;
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+      }
     }
-    if (otherMenuItems.length > 0) {
-      this.logger.log(`Processing ${otherMenuItems.length} Menu items...`);
-      const result = await super.processMongo(otherMenuItems, db, collectionName, context);
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
-    }
-    if (menuItemsWithParent.length > 0) {
-      this.logger.log(`Processing ${menuItemsWithParent.length} Menu items with parents...`);
-      const result = await super.processMongo(menuItemsWithParent, db, collectionName, context);
-      totalCreated += result.created;
-      totalSkipped += result.skipped;
-    }
+
     return { created: totalCreated, skipped: totalSkipped };
+  }
+
+  private async processMongoRecordOnlyCreate(
+    record: any,
+    db: any,
+    collectionName: string,
+    context?: any,
+  ): Promise<{ created: boolean; skipped: boolean }> {
+    const uniqueWhere = this.getUniqueIdentifier(record);
+    const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
+
+    let existingRecord = null;
+    for (const whereCondition of whereConditions) {
+      const cleanedCondition = { ...whereCondition };
+      for (const key in cleanedCondition) {
+        if (Array.isArray(cleanedCondition[key])) {
+          delete cleanedCondition[key];
+        }
+      }
+      existingRecord = await db.collection(collectionName).findOne(cleanedCondition);
+      if (existingRecord) break;
+    }
+
+    if (existingRecord) {
+      // Skip existing record - do NOT update to preserve user modifications
+      this.logger.log(`   Skipped (existing): ${this.getRecordIdentifier(record)}`);
+      if (this.afterUpsert) {
+        await this.afterUpsert({ ...record, _id: existingRecord._id }, false, context);
+      }
+      return { created: false, skipped: true };
+    }
+
+    // Create new record
+    const cleanedRecord = this.cleanRecordForMongo(record);
+    const result = await db.collection(collectionName).insertOne(cleanedRecord);
+    this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+    if (this.afterUpsert) {
+      await this.afterUpsert({ ...record, _id: result.insertedId }, true, context);
+    }
+    return { created: true, skipped: false };
   }
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';

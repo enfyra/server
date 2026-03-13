@@ -530,4 +530,20 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   getDirectMetadata(): EnfyraMetadata {
     return this.inMemoryCache;
   }
+
+  isLoaded(): boolean {
+    return this.inMemoryCache !== null;
+  }
+
+  async waitForLoad(timeoutMs: number = 30000): Promise<boolean> {
+    const startTime = Date.now();
+    while (!this.isLoaded()) {
+      if (Date.now() - startTime > timeoutMs) {
+        this.logger.error('Timeout waiting for metadata to load');
+        return false;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return true;
+  }
 }

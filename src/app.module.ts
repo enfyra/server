@@ -17,8 +17,6 @@ import { CacheModule } from './infrastructure/cache/cache.module';
 import { HandlerExecutorModule } from './infrastructure/handler-executor/handler-executor.module';
 import { QueryEngineModule } from './infrastructure/query-engine/query-engine.module';
 import { RedisPubSubService } from './infrastructure/cache/services/redis-pubsub.service';
-import { RouteCacheService } from './infrastructure/cache/services/route-cache.service';
-import { PackageCacheService } from './infrastructure/cache/services/package-cache.service';
 import { SqlFunctionService } from './infrastructure/sql/services/sql-function.service';
 import { DynamicModule } from './modules/dynamic-api/dynamic.module';
 import { GraphqlModule } from './modules/graphql/graphql.module';
@@ -103,8 +101,6 @@ import { ExtensionDefinitionModule } from './modules/extension-definition/extens
     JwtStrategy,
     RedisPubSubService,
     SqlFunctionService,
-    RouteCacheService,
-    PackageCacheService,
     PackageManagementService,
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
@@ -120,8 +116,6 @@ import { ExtensionDefinitionModule } from './modules/extension-definition/extens
     QueryBuilderModule,
     JwtModule,
     RedisPubSubService,
-    RouteCacheService,
-    PackageCacheService,
     PackageManagementService,
     CacheModule,
     DatabaseSchemaService,
