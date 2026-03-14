@@ -1,7 +1,7 @@
 import { printSchema } from 'graphql';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { createYoga } from 'graphql-yoga';
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
@@ -9,9 +9,12 @@ import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import { generateGraphQLTypeDefsFromTables } from '../utils/generate-type-defs';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 
+const COLOR = '\x1b[95m'; // Bright Magenta
+const RESET = '\x1b[0m';
+
 @Injectable()
-export class GraphqlService implements OnApplicationBootstrap {
-  private readonly logger = new Logger(GraphqlService.name);
+export class GraphqlService {
+  private readonly logger = new Logger(`${COLOR}GraphQL${RESET}`);
   private yogaApp: ReturnType<typeof createYoga>;
   private schema: ReturnType<typeof makeExecutableSchema> | null = null;
 
@@ -21,15 +24,6 @@ export class GraphqlService implements OnApplicationBootstrap {
     private dynamicResolver: DynamicResolver,
   ) {}
 
-  async onApplicationBootstrap() {
-    try {
-      await this.reloadSchema();
-      this.logger.log('GraphQL schema initialized successfully');
-    } catch (error) {
-      this.logger.error('Failed to initialize GraphQL schema:', error.message);
-    }
-  }
-
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
     if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.GRAPHQL)) {
@@ -38,8 +32,11 @@ export class GraphqlService implements OnApplicationBootstrap {
     }
   }
 
+  @OnEvent(CACHE_EVENTS.ROUTE_LOADED)
   async reloadSchema(): Promise<void> {
     try {
+      const start = Date.now();
+
       const metadata = await this.metadataCache.getMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn('Metadata not available, skipping GraphQL schema generation');
@@ -79,14 +76,14 @@ export class GraphqlService implements OnApplicationBootstrap {
       };
 
       this.schema = makeExecutableSchema({ typeDefs, resolvers });
-      
+
       this.yogaApp = createYoga({
         schema: this.schema,
         graphqlEndpoint: '/graphql',
         graphiql: true,
       });
 
-      this.logger.log('GraphQL schema generated successfully');
+      this.logger.log(`Generated schema with ${tablesWithGql.size} types in ${Date.now() - start}ms`);
     } catch (error) {
       this.logger.error('Failed to reload GraphQL schema:', error.message);
       throw error;

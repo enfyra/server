@@ -36,9 +36,6 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
           }
         }
       });
-
-      console.log('[RedisPubSub] Master message handler initialized');
-
     } catch (error) {
       console.error(
         '[RedisPubSub] Failed to initialize Redis connections:',
@@ -53,7 +50,6 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     handler: (channel: string, message: string) => void
   ): boolean {
     if (!this.sub) {
-      console.warn('[RedisPubSub] Redis subscriber not initialized yet, queuing subscription');
       setTimeout(() => this.subscribeWithHandler(channel, handler), 100);
       return false;
     }
@@ -66,8 +62,6 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
     this.subscribedChannels.set(decoratedChannel, [handler]);
     this.sub.subscribe(decoratedChannel);
-
-    console.log(`[RedisPubSub] Subscribed to channel: ${decoratedChannel}`);
 
     return true;
   }

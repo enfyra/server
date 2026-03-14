@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IConversation } from '../interfaces/conversation.interface';
 import { IMessage } from '../interfaces/message.interface';
-import { LLMMessage } from './types';
+import { LLMMessage } from '../types';
 import { buildSystemPromptForLLM } from './system-prompt-builder.helper';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';

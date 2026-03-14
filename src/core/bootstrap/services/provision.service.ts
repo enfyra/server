@@ -1,26 +1,19 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CommonService } from '../../../shared/common/services/common.service';
-import { DefaultDataService } from './default-data.service';
-import { CoreInitService } from './core-init.service';
+import { DataProvisionService } from './data-provision.service';
+import { MetadataProvisionService } from './metadata-provision.service';
+import { DataMigrationService } from './data-migration.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import * as fs from 'fs';
-import * as path from 'path';
-
-const initJson = JSON.parse(
-  fs.readFileSync(
-    path.join(process.cwd(), 'src/core/bootstrap/data/init.json'),
-    'utf8',
-  ),
-);
 
 @Injectable()
-export class BootstrapService implements OnModuleInit {
-  private readonly logger = new Logger(BootstrapService.name);
+export class ProvisionService implements OnModuleInit {
+  private readonly logger = new Logger(ProvisionService.name);
 
   constructor(
     private readonly commonService: CommonService,
-    private readonly defaultDataService: DefaultDataService,
-    private readonly coreInitService: CoreInitService,
+    private readonly dataProvisionService: DataProvisionService,
+    private readonly metadataProvisionService: MetadataProvisionService,
+    private readonly dataMigrationService: DataMigrationService,
     private readonly queryBuilder: QueryBuilderService,
   ) {}
 
@@ -31,7 +24,6 @@ export class BootstrapService implements OnModuleInit {
     for (let i = 0; i < maxRetries; i++) {
       try {
         await this.queryBuilder.raw('SELECT 1');
-        this.logger.log('Database connection successful.');
         return;
       } catch (error) {
         this.logger.warn(
@@ -44,10 +36,11 @@ export class BootstrapService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    const start = Date.now();
     try {
       await this.waitForDatabaseConnection();
     } catch (err) {
-      this.logger.error('Error during application bootstrap:', err);
+      this.logger.error('Error during application provision:', err);
       return;
     }
 
@@ -63,9 +56,9 @@ export class BootstrapService implements OnModuleInit {
     if (!setting || !setting.isInit) {
       this.logger.log('First time initialization...');
 
-      await this.coreInitService.createInitMetadata();
+      await this.metadataProvisionService.createInitMetadata();
 
-      await this.defaultDataService.insertAllDefaultRecords();
+      await this.dataProvisionService.insertAllDefaultRecords();
 
       const settings2Result = await this.queryBuilder.select({
         tableName: 'setting_definition',
@@ -76,7 +69,7 @@ export class BootstrapService implements OnModuleInit {
 
       if (!setting) {
         this.logger.error('Setting record not found after initialization');
-        throw new Error('Setting record not found. DefaultDataService may have failed.');
+        throw new Error('Setting record not found. DataProvisionService may have failed.');
       }
 
       const settingId = setting._id || setting.id;
@@ -87,30 +80,13 @@ export class BootstrapService implements OnModuleInit {
         data: { isInit: true },
       });
 
-      this.logger.log('Initialization successful');
+      this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
     } else {
-      this.logger.log('System already initialized, skipping data sync');
-      
-      await this.ensureCriticalRecords();
-    }
-  }
-
-  private async ensureCriticalRecords(): Promise<void> {
-    this.logger.log('Checking critical default records...');
-    
-    try {
-      const aiConfigResult = await this.queryBuilder.select({
-        tableName: 'ai_config_definition',
-        limit: 1,
-      });
-      
-      if (!aiConfigResult.data || aiConfigResult.data.length === 0) {
-        this.logger.log('No ai_config_definition records found, creating default...');
-        const result = await this.defaultDataService.insertTableRecords('ai_config_definition');
-        this.logger.log(`ai_config_definition: ${result.created} created, ${result.skipped} skipped`);
+      if (this.dataMigrationService.hasMigrations()) {
+        this.logger.log('Running data migrations from data-migration.json...');
+        await this.dataMigrationService.runMigrations();
       }
-    } catch (error) {
-      this.logger.warn(`Error checking critical records: ${error.message}`);
+      this.logger.log(`System ready in ${Date.now() - start}ms`);
     }
   }
 }

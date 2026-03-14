@@ -15,14 +15,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     const dbType = process.env.DB_TYPE;
-    
+
     if (dbType !== 'mongodb') {
-      this.logger.log('DB_TYPE is not mongodb, skipping MongoDB initialization');
       return;
     }
 
     const uri = process.env.MONGO_URI;
-    
+
     if (!uri) {
       throw new Error('MONGO_URI is not defined in environment variables');
     }
@@ -30,10 +29,10 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     try {
       this.client = new MongoClient(uri);
       await this.client.connect();
-      
+
       const dbName = this.extractDbName(uri);
       this.db = this.client.db(dbName);
-      
+
       await this.db.command({ ping: 1 });
       this.logger.log(`Connected to MongoDB: ${dbName}`);
     } catch (error) {

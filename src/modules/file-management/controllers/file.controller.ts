@@ -9,7 +9,7 @@ import {
   Body,
 } from '@nestjs/common';
 import { FileManagementService } from '../services/file-management.service';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 import {
   ValidationException,
   FileUploadException,

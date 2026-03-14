@@ -6,10 +6,10 @@ import { TableHandlerService } from '../../../table-management/services/table-ha
 import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
 import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../../shared/types';
 import { executeCheckPermission } from './check-permission.executor';
 import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { DeleteTablesExecutorDependencies } from '../types';
+import { DeleteTablesExecutorDependencies } from '../../types';
 
 const logger = new Logger('DeleteTablesExecutor');
 

@@ -6,7 +6,7 @@ import {
 } from '../../../core/exceptions/custom-exceptions';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 @Injectable()
 export class DynamicService {
   private logger = new Logger(DynamicService.name);

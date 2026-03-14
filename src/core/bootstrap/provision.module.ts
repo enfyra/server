@@ -1,10 +1,11 @@
 import { Global, Module } from '@nestjs/common';
-import { BootstrapService } from './services/bootstrap.service';
-import { CoreInitService } from './services/core-init.service';
-import { CoreInitSqlService } from './services/core-init-sql.service';
-import { CoreInitMongoService } from './services/core-init-mongo.service';
-import { DefaultDataService } from './services/default-data.service';
+import { ProvisionService } from './services/provision.service';
+import { MetadataProvisionService } from './services/metadata-provision.service';
+import { MetadataProvisionSqlService } from './services/metadata-provision-sql.service';
+import { MetadataProvisionMongoService } from './services/metadata-provision-mongo.service';
+import { DataProvisionService } from './services/data-provision.service';
 import { BootstrapScriptService } from './services/bootstrap-script.service';
+import { DataMigrationService } from './services/data-migration.service';
 
 import { UserDefinitionProcessor } from './processors/user-definition.processor';
 import { MenuDefinitionProcessor } from './processors/menu-definition.processor';
@@ -25,11 +26,12 @@ import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-
 @Global()
 @Module({
   providers: [
-    BootstrapService,
-    CoreInitService,
-    CoreInitSqlService,
-    CoreInitMongoService,
-    DefaultDataService,
+    ProvisionService,
+    MetadataProvisionService,
+    MetadataProvisionSqlService,
+    MetadataProvisionMongoService,
+    DataProvisionService,
+    DataMigrationService,
     UserDefinitionProcessor,
     MenuDefinitionProcessor,
     RouteDefinitionProcessor,
@@ -47,6 +49,6 @@ import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-
     WebsocketEventDefinitionProcessor,
     BootstrapScriptService,
   ],
-  exports: [BootstrapService, CoreInitService, DefaultDataService, BootstrapScriptService],
+  exports: [ProvisionService, MetadataProvisionService, DataProvisionService, BootstrapScriptService, DataMigrationService],
 })
-export class BootstrapModule {}
+export class ProvisionModule {}

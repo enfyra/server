@@ -5,7 +5,7 @@ import {
   RecoveryStrategy,
   RecoveryResult,
   EscalationTrigger,
-} from './types';
+} from '../types';
 
 const logger = new Logger('ErrorRecovery');
 

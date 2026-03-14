@@ -1,10 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../../shared/types';
 import { ScriptErrorFactory } from '../../../../shared/utils/script-error-factory';
 import { transformCode } from '../../../../infrastructure/handler-executor/code-transformer';
 import { formatHandlerTestErrorResponse } from '../handler-test-error-strategy.helper';
-import { DynamicRepositoryExecutorDependencies } from '../types';
+import { DynamicRepositoryExecutorDependencies } from '../../types';
 
 const logger = new Logger('RunHandlerTestExecutor');
 

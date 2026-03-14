@@ -1,5 +1,13 @@
 export const CACHE_EVENTS = {
   INVALIDATE: 'cache:invalidate',
+  METADATA_LOADED: 'cache:metadata:loaded',
+  ROUTE_LOADED: 'cache:route:loaded',
+  STORAGE_LOADED: 'cache:storage:loaded',
+  AI_CONFIG_LOADED: 'cache:ai-config:loaded',
+  OAUTH_CONFIG_LOADED: 'cache:oauth-config:loaded',
+  WEBSOCKET_LOADED: 'cache:websocket:loaded',
+  PACKAGE_LOADED: 'cache:package:loaded',
+  SYSTEM_READY: 'system:ready',
 } as const;
 
 export const CACHE_IDENTIFIERS = {

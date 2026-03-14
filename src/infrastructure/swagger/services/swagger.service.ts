@@ -1,24 +1,32 @@
-import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { OpenAPIObject } from '@nestjs/swagger';
 import { RouteCacheService } from '../../cache/services/route-cache.service';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { generateErrorSchema } from '../utils/openapi-schema-generator';
 import { generatePathsFromRoutes, generateCommonResponses } from '../utils/openapi-path-generator';
 import { HttpAdapterHost } from '@nestjs/core';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+
+const COLOR = '\x1b[94m'; // Bright Blue
+const RESET = '\x1b[0m';
+
 @Injectable()
-export class SwaggerService implements OnApplicationBootstrap {
-  private readonly logger = new Logger(SwaggerService.name);
+export class SwaggerService {
+  private readonly logger = new Logger(`${COLOR}Swagger${RESET}`);
   private currentSpec: OpenAPIObject;
   private methodsCache: string[] = [];
+  private isReady = false;
+
   constructor(
     private routeCacheService: RouteCacheService,
     private queryBuilder: QueryBuilderService,
     private httpAdapterHost: HttpAdapterHost,
+    private eventEmitter: EventEmitter2,
   ) {}
-  async onApplicationBootstrap() {
-    await this.reloadSwagger();
+
+  getIsReady(): boolean {
+    return this.isReady;
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -29,14 +37,23 @@ export class SwaggerService implements OnApplicationBootstrap {
     }
   }
 
+  @OnEvent(CACHE_EVENTS.ROUTE_LOADED)
   async reloadSwagger() {
     try {
+      const start = Date.now();
       this.currentSpec = await this.generateOpenApiSpec();
+      const pathCount = Object.keys(this.currentSpec.paths || {}).length;
+      this.logger.log(`Generated OpenAPI spec with ${pathCount} paths in ${Date.now() - start}ms`);
+      if (!this.isReady) {
+        this.isReady = true;
+        this.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+      }
     } catch (error) {
-      console.error('Error reloading Swagger:', error);
+      this.logger.error('Error reloading Swagger:', error);
       throw error;
     }
   }
+
   private async generateOpenApiSpec(): Promise<OpenAPIObject> {
     const expressRoutes = this.getExpressRoutes();
     const dbRoutes = await this.routeCacheService.getRoutes();
@@ -100,12 +117,14 @@ export class SwaggerService implements OnApplicationBootstrap {
       },
     };
   }
+
   getCurrentSpec(): OpenAPIObject {
     if (!this.currentSpec) {
       throw new Error('Swagger spec not initialized. Call reloadSwagger() first.');
     }
     return this.currentSpec;
   }
+
   private getExpressRoutes(): any[] {
     const routeMap = new Map();
     try {
@@ -134,10 +153,11 @@ export class SwaggerService implements OnApplicationBootstrap {
         });
       }
     } catch (error) {
-      console.error('Error getting Express routes:', error);
+      this.logger.error('Error getting Express routes:', error);
     }
     return Array.from(routeMap.values());
   }
+
   private combineRoutes(expressRoutes: any[], dbRoutes: any[]): any[] {
     const combinedRoutes = [...dbRoutes];
     expressRoutes.forEach(expressRoute => {

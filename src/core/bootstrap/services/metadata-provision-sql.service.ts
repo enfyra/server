@@ -4,8 +4,8 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
 @Injectable()
-export class CoreInitSqlService {
-  private readonly logger = new Logger(CoreInitSqlService.name);
+export class MetadataProvisionSqlService {
+  private readonly logger = new Logger(MetadataProvisionSqlService.name);
   private readonly dbType: string;
   constructor(
     private readonly queryBuilder: QueryBuilderService,

@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { FileManagementService } from './file-management.service';
 import { Response } from 'express';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { ImageProcessorHelper } from '../utils/image-processor.helper';

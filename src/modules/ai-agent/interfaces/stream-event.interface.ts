@@ -7,4 +7,4 @@ export type {
   StreamDoneEvent,
   StreamTaskEvent,
   StreamEvent,
-} from '../utils/types';
+} from '../types';

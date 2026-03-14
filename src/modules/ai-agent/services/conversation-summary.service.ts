@@ -3,7 +3,7 @@ import { ConversationService } from './conversation.service';
 import { LLMService } from './llm.service';
 import { AiConfigCacheService } from '../../../infrastructure/cache/services/ai-config-cache.service';
 import { IMessage } from '../interfaces/message.interface';
-import { LLMMessage } from '../utils/types';
+import { LLMMessage } from '../types';
 import { formatToolResultSummary } from '../utils/tool-result-summarizer.helper';
 
 @Injectable()

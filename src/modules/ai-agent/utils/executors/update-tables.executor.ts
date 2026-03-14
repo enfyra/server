@@ -5,10 +5,10 @@ import { TableHandlerService } from '../../../table-management/services/table-ha
 import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
 import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../../shared/types';
 import { TableUpdateWorkflow } from '../table-update-workflow';
 import { executeCheckPermission } from './check-permission.executor';
-import { UpdateTablesExecutorDependencies } from '../types';
+import { UpdateTablesExecutorDependencies } from '../../types';
 
 const logger = new Logger('UpdateTablesExecutor');
 

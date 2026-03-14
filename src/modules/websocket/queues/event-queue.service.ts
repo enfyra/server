@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Processor, OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 
 export interface EventJobData {

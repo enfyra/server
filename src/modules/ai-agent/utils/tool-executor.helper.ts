@@ -7,7 +7,7 @@ import { QueryEngine } from '../../../infrastructure/query-engine/services/query
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { ConversationService } from '../services/conversation.service';
 import { executeGetTableDetails } from './executors/get-table-details.executor';
 import { executeGetHint } from './executors/get-hint.executor';

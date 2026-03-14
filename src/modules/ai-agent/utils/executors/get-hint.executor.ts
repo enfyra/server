@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
-import { GetHintExecutorDependencies, HintContent } from '../types';
+import { TDynamicContext } from '../../../../shared/types';
+import { GetHintExecutorDependencies, HintContent } from '../../types';
 
 const logger = new Logger('GetHintExecutor');
 
@@ -475,25 +475,102 @@ if (!@USER) return { error: "Unauthorized" };
     tools: ['create_records', 'update_records', 'find_records', 'run_handler_test', 'get_table_details'],
   };
 
-  const websocketOpsContent = `**WebSocket Handler Operations** – Real-time connection + event handlers.
+  const websocketOpsContent = `**WebSocket Handler Operations** – Real-time bi-directional communication via Socket.IO.
 
-**Context by type:**
-- Connection (connectionHandlerScript): @BODY = clientInfo, @USER, @SOCKET (emit, join, leave, to, rooms). $repos = {} (empty).
-- Event (handlerScript): @BODY = event payload, @USER, @SOCKET. $repos = {} (empty).
+**Schema - websocket_definition (Gateway):**
+- path: Namespace path (e.g., "/chat", "/notifications"). Must start with "/".
+- requireAuth: boolean. If true, clients must provide JWT token in auth.
+- connectionHandlerScript: Code runs when client connects.
+- connectionHandlerTimeout: Timeout in ms (default 30000).
+- isEnabled: boolean.
 
-**CRITICAL – Test before save:** For WebSocket handlers ($repos empty), run_handler_test with table:"user_definition" (or any table) to test @BODY/@SOCKET logic if needed. On error: follow fixGuidance, fix, retry.
+**Schema - websocket_event_definition (Event):**
+- gateway: Relation to websocket_definition (required).
+- eventName: Event name client emits (e.g., "send_message", "typing").
+- handlerScript: Code runs when event received.
+- timeout: Timeout in ms (default 30000).
+- isEnabled: boolean.
 
-**Gateway workflow:** Write connectionHandlerScript → run_handler_test if applicable → create_records websocket_definition: path, connectionHandlerScript, isEnabled:true.
+**@SOCKET Methods (different behavior by handler type):**
 
-**Event workflow:** find_records websocket_definition → create_records websocket_event_definition: gateway:{id}, eventName, handlerScript. Test before save.
+Connection Handler (connectionHandlerScript):
+- @SOCKET.emit(event, data) → Send to THIS client only
+- @SOCKET.to(room).emit(event, data) → Send to room (not this client)
 
-**PREFER template:** @BODY, @SOCKET, @THROW. No #table in WebSocket handlers.`;
+Event Handler (handlerScript):
+- @SOCKET.emit(event, data) → Broadcast to ALL clients in namespace
+- @SOCKET.send(event, data) → Send to THIS client only
+- @SOCKET.to(room).emit(event, data) → Send to room (not this client)
+
+**Context Variables:**
+- Connection: @BODY = {id: socketId, ip, headers}, @USER = {id} if auth, @SOCKET
+- Event: @BODY = payload from client, @USER = {id} if auth, @SOCKET
+- Both: $repos = {} (empty), use @HELPERS.$api for external calls if needed.
+
+**Code Examples:**
+
+Connection handler (log connection + join user room):
+\`\`\`
+// @BODY = {id: "socket123", ip: "127.0.0.1", headers: {...}}
+if (@USER) {
+  // User already auto-joined room "user_{userId}" by system
+}
+// Send welcome to this client
+@SOCKET.emit("connected", {message: "Welcome!", socketId: @BODY.id});
+\`\`\`
+
+Event handler (chat message):
+\`\`\`
+// @BODY = {text: "Hello", roomId: "general"}
+if (!@BODY.text || !@BODY.roomId) {
+  @THROW400("text and roomId required");
+}
+const message = {
+  text: @BODY.text,
+  userId: @USER.id,
+  timestamp: Date.now()
+};
+// Broadcast to all in room
+@SOCKET.to(@BODY.roomId).emit("message", message);
+// Confirm to sender
+@SOCKET.send("message_sent", message);
+\`\`\`
+
+**Workflow - Create Gateway:**
+1. get_table_details({tableName: ["websocket_definition"]})
+2. create_records({table: "websocket_definition", dataArray: [{path: "/chat", requireAuth: true, connectionHandlerScript: "...", isEnabled: true}]})
+
+**Workflow - Create Event:**
+1. find_records({table: "websocket_definition", filter: {path: {_eq: "/chat"}}, fields: "id"})
+2. create_records({table: "websocket_event_definition", dataArray: [{gateway: {id: GATEWAY_ID}, eventName: "send_message", handlerScript: "...", isEnabled: true}]})
+
+**Workflow - Update Gateway/Event:**
+1. find_records to get id
+2. update_records({table: "websocket_definition", updates: [{id: ID, data: {connectionHandlerScript: "..."}}]})
+
+**Workflow - Delete Event:**
+1. find_records to get id
+2. delete_records({table: "websocket_event_definition", ids: [ID]})
+
+**Client Connection (JavaScript):**
+\`\`\`
+import { io } from "socket.io-client";
+const socket = io("http://localhost:1105/chat", {auth: {token: "JWT_TOKEN"}});
+socket.on("message", (data) => console.log(data));
+socket.emit("send_message", {text: "Hello", roomId: "general"});
+\`\`\`
+
+**CRITICAL:**
+- Test handlers with run_handler_test before saving
+- path must be UNIQUE across gateways
+- requireAuth: true requires valid JWT in auth.token
+- Changes auto-reload gateways (no restart needed)`;
 
   const websocketOpsHint: HintContent = {
     category: 'websocket_operations',
     title: 'WebSocket Handler Operations',
     content: websocketOpsContent,
-    tools: ['find_records', 'create_records', 'update_records', 'run_handler_test'],
+    tools: ['find_records', 'create_records', 'update_records', 'delete_records', 'run_handler_test', 'get_table_details'],
   };
 
   const handlerOpsHint: HintContent = {

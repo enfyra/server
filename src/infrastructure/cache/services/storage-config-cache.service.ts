@@ -1,149 +1,175 @@
-import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable } from '@nestjs/common';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
-import { MetadataCacheService } from './metadata-cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
   STORAGE_CONFIG_RELOAD_LOCK_KEY,
-  REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 
-@Injectable()
-export class StorageConfigCacheService implements OnModuleInit, OnApplicationBootstrap {
-  private readonly logger = new Logger(StorageConfigCacheService.name);
-  private storageConfigsCache: Map<string | number, any> = new Map();
-  private cacheLoaded = false;
-  private messageHandler: ((channel: string, message: string) => void) | null = null;
+const STORAGE_CONFIG: CacheConfig = {
+  syncEventKey: STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
+  lockKey: STORAGE_CONFIG_RELOAD_LOCK_KEY,
+  cacheIdentifier: CACHE_IDENTIFIERS.STORAGE,
+  colorCode: '\x1b[37m',
+  cacheName: 'StorageConfigCache',
+};
 
+@Injectable()
+export class StorageConfigCacheService extends BaseCacheService<Map<string | number, any>> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly redisPubSubService: RedisPubSubService,
-    private readonly cacheService: CacheService,
-    private readonly metadataCacheService: MetadataCacheService,
-    private readonly instanceService: InstanceService,
-  ) {}
-
-  async onModuleInit() {
-    this.subscribe();
+    redisPubSubService: RedisPubSubService,
+    cacheService: CacheService,
+    instanceService: InstanceService,
+    eventEmitter: EventEmitter2,
+  ) {
+    super(STORAGE_CONFIG, redisPubSubService, cacheService, instanceService, eventEmitter);
   }
 
-  async onApplicationBootstrap() {
-    await this.metadataCacheService.getMetadata();
-
+  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
+  async onMetadataLoaded() {
     await this.reload();
-  }
-
-  private subscribe() {
-    const sub = this.redisPubSubService.sub;
-    if (!sub) {
-      this.logger.warn('Redis subscription not available for storage config cache sync');
-      return;
-    }
-
-    if (this.messageHandler) {
-      return;
-    }
-
-    this.messageHandler = (channel: string, message: string) => {
-      if (channel === STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY) {
-        try {
-          const payload = JSON.parse(message);
-          const myInstanceId = this.instanceService.getInstanceId();
-
-          if (payload.instanceId === myInstanceId) {
-            return;
-          }
-
-          this.logger.log(`Received storage config cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-
-          this.storageConfigsCache = new Map();
-          for (const [id, config] of payload.configs) {
-            if (!id || id === null || id === undefined) {
-              continue;
-            }
-            
-            let normalizedId: string | number = id;
-            
-            if (this.queryBuilder.isMongoDb()) {
-              if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
-                normalizedId = (id as any).toString();
-              } else {
-                normalizedId = String(id);
-              }
-            }
-            
-            this.storageConfigsCache.set(normalizedId, config);
-            
-            if (!this.queryBuilder.isMongoDb()) {
-              if (typeof normalizedId === 'number') {
-                this.storageConfigsCache.set(String(normalizedId), config);
-              } else if (typeof normalizedId === 'string' && !isNaN(Number(normalizedId))) {
-                this.storageConfigsCache.set(Number(normalizedId), config);
-              }
-            }
-          }
-          this.cacheLoaded = true;
-          this.logger.log(`Storage config cache synced: ${payload.configs.length} configs`);
-        } catch (error) {
-          this.logger.error('Failed to parse storage config cache sync message:', error);
-        }
-      }
-    };
-
-    this.redisPubSubService.subscribeWithHandler(
-      STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
-      this.messageHandler
-    );
+    this.eventEmitter?.emit(CACHE_EVENTS.STORAGE_LOADED);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.STORAGE)) {
+    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reload();
     }
   }
 
-  async getStorageConfigById(id: number | string | null | undefined): Promise<any | null> {
-    if (!this.cacheLoaded) {
-      await this.reload();
+  protected async loadFromDb(): Promise<any[]> {
+    const result = await this.queryBuilder.select({
+      tableName: 'storage_config_definition',
+      filter: { isEnabled: { _eq: true } },
+      fields: ['*'],
+    });
+
+    return result.data || [];
+  }
+
+  protected transformData(configs: any[]): Map<string | number, any> {
+    const configsMap = new Map<string | number, any>();
+    const isMongoDb = this.queryBuilder.isMongoDb();
+
+    for (const config of configs) {
+      const idField = isMongoDb ? '_id' : 'id';
+      let id = config[idField];
+
+      if (!id) {
+        this.logger.warn('Storage config missing ID, skipping');
+        continue;
+      }
+
+      if (isMongoDb) {
+        if (typeof id === 'object' && id !== null && typeof id.toString === 'function') {
+          id = id.toString();
+        } else {
+          id = String(id);
+        }
+      }
+
+      configsMap.set(id, config);
+
+      if (!isMongoDb) {
+        if (typeof id === 'number') {
+          configsMap.set(String(id), config);
+        } else if (typeof id === 'string' && !isNaN(Number(id))) {
+          configsMap.set(Number(id), config);
+        }
+      }
     }
-    
+
+    return configsMap;
+  }
+
+  protected handleSyncData(data: Array<[string | number, any]>): void {
+    this.cache = new Map();
+    const isMongoDb = this.queryBuilder.isMongoDb();
+
+    for (const [id, config] of data) {
+      if (!id || id === null || id === undefined) {
+        continue;
+      }
+
+      let normalizedId: string | number = id;
+
+      if (isMongoDb) {
+        if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
+          normalizedId = (id as any).toString();
+        } else {
+          normalizedId = String(id);
+        }
+      }
+
+      this.cache.set(normalizedId, config);
+
+      if (!isMongoDb) {
+        if (typeof normalizedId === 'number') {
+          this.cache.set(String(normalizedId), config);
+        } else if (typeof normalizedId === 'string' && !isNaN(Number(normalizedId))) {
+          this.cache.set(Number(normalizedId), config);
+        }
+      }
+    }
+  }
+
+  protected deserializeSyncData(payload: any): any {
+    return payload.configs;
+  }
+
+  protected serializeForPublish(cache: Map<string | number, any>): Record<string, any> {
+    return { configs: Array.from(cache.entries()) };
+  }
+
+  protected getLogCount(): string {
+    return `${this.cache.size} storage configs`;
+  }
+
+  protected logSyncSuccess(payload: any): void {
+    this.logger.log(`Cache synced: ${payload.configs?.length || 0} configs`);
+  }
+
+  async getStorageConfigById(id: number | string | null | undefined): Promise<any | null> {
+    await this.ensureLoaded();
+
     if (!id || id === null || id === undefined) {
       return null;
     }
-    
+
     let normalizedId: string | number = id;
-    if (this.queryBuilder.isMongoDb()) {
+    const isMongoDb = this.queryBuilder.isMongoDb();
+
+    if (isMongoDb) {
       if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
         normalizedId = (id as any).toString();
       } else {
         normalizedId = String(id);
       }
     }
-    
-    let config = this.storageConfigsCache.get(normalizedId);
+
+    let config = this.cache.get(normalizedId);
     if (config) {
       return config;
     }
-    
-    if (this.queryBuilder.isMongoDb()) {
-      this.logger.warn(`Storage config with ID ${normalizedId} not found in cache. Cache size: ${this.storageConfigsCache.size}`);
-      return null;
-    } else {
+
+    if (!isMongoDb) {
       const numId = typeof normalizedId === 'string' ? parseInt(normalizedId, 10) : normalizedId;
       if (!isNaN(numId as number)) {
-        config = this.storageConfigsCache.get(numId);
+        config = this.cache.get(numId);
         if (config) {
           return config;
         }
       }
       if (typeof normalizedId === 'number') {
-        config = this.storageConfigsCache.get(String(normalizedId));
+        config = this.cache.get(String(normalizedId));
         if (config) {
           return config;
         }
@@ -153,110 +179,13 @@ export class StorageConfigCacheService implements OnModuleInit, OnApplicationBoo
   }
 
   async getStorageConfigByType(type: string): Promise<any | null> {
-    if (!this.cacheLoaded) {
-      await this.reload();
-    }
-    for (const config of this.storageConfigsCache.values()) {
+    await this.ensureLoaded();
+    const values = Array.from(this.cache.values());
+    for (const config of values) {
       if (config.type === type && config.isEnabled === true) {
         return config;
       }
     }
     return null;
   }
-
-  async reload(): Promise<void> {
-    const instanceId = this.instanceService.getInstanceId();
-
-    try {
-      const acquired = await this.cacheService.acquire(
-        STORAGE_CONFIG_RELOAD_LOCK_KEY,
-        instanceId,
-        REDIS_TTL.RELOAD_LOCK_TTL
-      );
-
-      if (!acquired) {
-        this.logger.log('Another instance is reloading storage configs, waiting for broadcast...');
-        return;
-      }
-
-      this.logger.log(`Acquired storage config reload lock (instance ${instanceId.slice(0, 8)})`);
-
-      try {
-        const start = Date.now();
-        this.logger.log('Reloading storage config cache...');
-
-        const configs = await this.loadStorageConfigs();
-        this.logger.log(`Loaded ${configs.length} storage configs in ${Date.now() - start}ms`);
-
-        const configsMap = new Map();
-        for (const config of configs) {
-          const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-          let id = config[idField];
-          
-          if (!id) {
-            this.logger.warn('Storage config missing ID, skipping');
-            continue;
-          }
-          
-          if (this.queryBuilder.isMongoDb()) {
-            if (typeof id === 'object' && id !== null && typeof id.toString === 'function') {
-              id = id.toString();
-            } else {
-              id = String(id);
-            }
-          }
-          
-          configsMap.set(id, config);
-          
-          if (!this.queryBuilder.isMongoDb()) {
-            if (typeof id === 'number') {
-              configsMap.set(String(id), config);
-            } else if (typeof id === 'string' && !isNaN(Number(id))) {
-              configsMap.set(Number(id), config);
-            }
-          }
-        }
-
-        await this.publish(Array.from(configsMap.entries()));
-        this.storageConfigsCache = configsMap;
-        this.cacheLoaded = true;
-      } finally {
-        await this.cacheService.release(STORAGE_CONFIG_RELOAD_LOCK_KEY, instanceId);
-        this.logger.log('Released storage config reload lock');
-      }
-    } catch (error) {
-      this.logger.error('Failed to reload storage config cache:', error);
-      throw error;
-    }
-  }
-
-  private async publish(configsArray: Array<[string | number, any]>): Promise<void> {
-    try {
-      const payload = {
-        instanceId: this.instanceService.getInstanceId(),
-        configs: configsArray,
-        timestamp: Date.now(),
-      };
-
-      await this.redisPubSubService.publish(
-        STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
-        JSON.stringify(payload),
-      );
-
-      this.logger.log(`Published storage config cache to other instances (${configsArray.length} configs)`);
-    } catch (error) {
-      this.logger.error('Failed to publish storage config cache sync:', error);
-    }
-  }
-
-  private async loadStorageConfigs(): Promise<any[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'storage_config_definition',
-      filter: { isEnabled: { _eq: true } },
-      fields: ['*'],
-    });
-
-    return result.data || [];
-  }
 }
-

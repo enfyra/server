@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../../shared/types';
 import {
   formatErrorForUser,
   shouldEscalateToHuman,
@@ -9,7 +9,7 @@ import {
   getRecoveryStrategy,
 } from '../error-recovery.helper';
 import { executeCheckPermission } from './check-permission.executor';
-import { DynamicRepositoryExecutorDependencies } from '../types';
+import { DynamicRepositoryExecutorDependencies } from '../../types';
 const logger = new Logger('DynamicRepositoryExecutor');
 export async function executeDynamicRepository(
   args: {

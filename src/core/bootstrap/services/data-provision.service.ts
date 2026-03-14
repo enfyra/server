@@ -25,14 +25,14 @@ import { GenericTableProcessor } from '../processors/generic-table.processor';
 
 const initJson = JSON.parse(
   fs.readFileSync(
-    path.join(process.cwd(), 'src/core/bootstrap/data/init.json'),
+    path.join(process.cwd(), 'data/default-data.json'),
     'utf8',
   ),
 );
 
 @Injectable()
-export class DefaultDataService {
-  private readonly logger = new Logger(DefaultDataService.name);
+export class DataProvisionService {
+  private readonly logger = new Logger(DataProvisionService.name);
   private readonly processors = new Map<string, BaseTableProcessor>();
   private readonly dbType: string;
 
@@ -201,7 +201,7 @@ export class DefaultDataService {
   async insertTableRecords(tableName: string): Promise<UpsertResult> {
     const rawRecords = initJson[tableName];
     if (!rawRecords) {
-      this.logger.warn(`No data found in init.json for '${tableName}'`);
+      this.logger.warn(`No data found in default-data.json for '${tableName}'`);
       return { created: 0, skipped: 0 };
     }
 

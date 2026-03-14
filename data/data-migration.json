@@ -1,0 +1,9 @@
+{
+  "menu_definition": [
+    {
+      "_unique": { "path": { "_eq": "/dashboard" } },
+      "type": "Menu",
+      "isSystem": true
+    }
+  ]
+}

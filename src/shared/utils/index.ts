@@ -1,5 +1,7 @@
 export * from './constant';
 export * from './helpers';
 export * from './script-error-factory';
-export * from './types/common.type';
-export * from './types/dynamic-context.type';
+
+// Re-export types from shared/types for backward compatibility
+export * from '../types/common.types';
+export * from '../types/dynamic-context.types';

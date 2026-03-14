@@ -10,6 +10,11 @@ import {
   TableDef,
 } from '../src/shared/types/database-init.types';
 dotenv.config();
+
+interface SnapshotOld {
+  tables?: string[];
+  deletedTables?: string[];
+}
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {
     int: 'int',
@@ -237,6 +242,31 @@ export async function initializeDatabaseMongo(): Promise<void> {
       console.log('⚠️ Database already initialized, skipping init.');
       return;
     }
+
+    const snapshotOldPath = path.resolve(process.cwd(), 'data/snapshot-migration.json');
+    let snapshotOld: SnapshotOld = { tables: [], deletedTables: [] };
+    if (fs.existsSync(snapshotOldPath)) {
+      try {
+        snapshotOld = JSON.parse(fs.readFileSync(snapshotOldPath, 'utf8'));
+      } catch (e) {
+        console.warn('⚠️ Failed to parse snapshot-migration.json, using empty structure');
+      }
+    }
+
+    if (snapshotOld.deletedTables && snapshotOld.deletedTables.length > 0) {
+      console.log(`🗑️ Processing ${snapshotOld.deletedTables.length} collection(s) to delete...`);
+      for (const collectionName of snapshotOld.deletedTables) {
+        const collections = await db.listCollections({ name: collectionName }).toArray();
+        if (collections.length > 0) {
+          console.log(`  Dropping collection: ${collectionName}`);
+          await db.dropCollection(collectionName);
+          console.log(`  ✅ Dropped collection: ${collectionName}`);
+        } else {
+          console.log(`  ⏩ Collection ${collectionName} does not exist, skipping`);
+        }
+      }
+    }
+
     const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
     console.log('📖 Loaded snapshot.json');

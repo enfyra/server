@@ -1,5 +1,5 @@
 import { optimizeMetadataForLLM } from './metadata-optimizer.helper';
-import { CompactFormat } from './types';
+import { CompactFormat } from '../types';
 
 export function toCompactFormat<T extends Record<string, any>>(
   items: T[],

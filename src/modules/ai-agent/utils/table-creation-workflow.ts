@@ -7,7 +7,7 @@ import { TableHandlerService } from '../../table-management/services/table-handl
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
 import { collectRelationValidationErrors, collectTableDataValidationErrors, createTableDefinitionRepository } from './table-workflow.helper';
 

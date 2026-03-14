@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { LLMMessage } from './types';
+import { LLMMessage } from '../types';
 
 const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages');
 

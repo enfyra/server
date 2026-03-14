@@ -6,14 +6,10 @@ dotenv.config();
 async function initializeDatabase(): Promise<void> {
   const DB_TYPE = process.env.DB_TYPE || 'mysql';
 
-  console.log(`🔍 Detected DB_TYPE: ${DB_TYPE}`);
-
   if (DB_TYPE === 'mongodb') {
-    console.log('🍃 Initializing MongoDB...');
     const { initializeDatabaseMongo } = await import('./init-db-mongo');
     await initializeDatabaseMongo();
   } else if (['mysql', 'postgres', 'mariadb'].includes(DB_TYPE)) {
-    console.log('🐬 Initializing SQL database...');
     const { initializeDatabaseSql } = await import('./init-db-sql');
     await initializeDatabaseSql();
   } else {
