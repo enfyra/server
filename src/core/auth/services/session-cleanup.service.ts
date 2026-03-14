@@ -11,7 +11,7 @@ import { TableHandlerService } from '../../../modules/table-management/services/
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 
 @Injectable()
 export class SessionCleanupService {

@@ -1,152 +1,53 @@
-import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable } from '@nestjs/common';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { PackageManagementService } from '../../../modules/package-management/services/package-management.service';
+import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   PACKAGE_CACHE_SYNC_EVENT_KEY,
   PACKAGE_RELOAD_LOCK_KEY,
-  REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 
-@Injectable()
-export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap {
-  private readonly logger = new Logger(PackageCacheService.name);
-  private packagesCache: string[] = [];
-  private cacheLoaded = false;
-  private messageHandler: ((channel: string, message: string) => void) | null = null;
+const PACKAGE_CONFIG: CacheConfig = {
+  syncEventKey: PACKAGE_CACHE_SYNC_EVENT_KEY,
+  lockKey: PACKAGE_RELOAD_LOCK_KEY,
+  cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
+  colorCode: '\x1b[35m',
+  cacheName: 'PackageCache',
+};
 
+@Injectable()
+export class PackageCacheService extends BaseCacheService<string[]> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly redisPubSubService: RedisPubSubService,
-    private readonly cacheService: CacheService,
-    private readonly instanceService: InstanceService,
+    redisPubSubService: RedisPubSubService,
+    cacheService: CacheService,
+    instanceService: InstanceService,
+    eventEmitter: EventEmitter2,
     private readonly packageManagementService: PackageManagementService,
-  ) {}
-
-  async onModuleInit() {
-    this.subscribe();
+  ) {
+    super(PACKAGE_CONFIG, redisPubSubService, cacheService, instanceService, eventEmitter);
   }
 
-  async onApplicationBootstrap() {
+  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
+  async onMetadataLoaded() {
     await this.reload();
-  }
-
-  private subscribe() {
-    const sub = this.redisPubSubService.sub;
-    if (!sub) {
-      this.logger.warn('Redis subscription not available for package cache sync');
-      return;
-    }
-
-    if (this.messageHandler) {
-      return;
-    }
-
-    this.messageHandler = (channel: string, message: string) => {
-      if (channel === PACKAGE_CACHE_SYNC_EVENT_KEY) {
-        try {
-          const payload = JSON.parse(message);
-          const myInstanceId = this.instanceService.getInstanceId();
-
-          if (payload.instanceId === myInstanceId) {
-            return;
-          }
-
-          this.logger.log(`Received package cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-          this.packagesCache = payload.packages;
-          this.cacheLoaded = true;
-          this.logger.log(`Package cache synced: ${payload.packages.length} packages`);
-        } catch (error) {
-          this.logger.error('Failed to parse package cache sync message:', error);
-        }
-      }
-    };
-
-    this.redisPubSubService.subscribeWithHandler(
-      PACKAGE_CACHE_SYNC_EVENT_KEY,
-      this.messageHandler
-    );
+    this.eventEmitter?.emit(CACHE_EVENTS.PACKAGE_LOADED);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.PACKAGE)) {
+    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reload();
     }
   }
 
-  async getPackages(): Promise<string[]> {
-    if (!this.cacheLoaded) {
-      await this.reload();
-    }
-    return this.packagesCache;
-  }
-
-  async reload(): Promise<void> {
-    const instanceId = this.instanceService.getInstanceId();
-
-    try {
-      const acquired = await this.cacheService.acquire(
-        PACKAGE_RELOAD_LOCK_KEY,
-        instanceId,
-        REDIS_TTL.RELOAD_LOCK_TTL
-      );
-
-      if (!acquired) {
-        this.logger.log('Another instance is reloading packages, waiting for broadcast...');
-        return;
-      }
-
-      this.logger.log(`Acquired package reload lock (instance ${instanceId.slice(0, 8)})`);
-
-      try {
-        const start = Date.now();
-        this.logger.log('Reloading packages cache...');
-
-        const packages = await this.loadPackages();
-        this.logger.log(`Loaded ${packages.length} packages in ${Date.now() - start}ms`);
-
-        await this.ensurePackagesInstalled();
-
-        await this.publish(packages);
-
-        this.packagesCache = packages;
-        this.cacheLoaded = true;
-      } finally {
-        await this.cacheService.release(PACKAGE_RELOAD_LOCK_KEY, instanceId);
-        this.logger.log('Released package reload lock');
-      }
-    } catch (error) {
-      this.logger.error('Failed to reload package cache:', error);
-      throw error;
-    }
-  }
-
-  private async publish(packages: string[]): Promise<void> {
-    try {
-      const payload = {
-        instanceId: this.instanceService.getInstanceId(),
-        packages: packages,
-        timestamp: Date.now(),
-      };
-
-      await this.redisPubSubService.publish(
-        PACKAGE_CACHE_SYNC_EVENT_KEY,
-        JSON.stringify(payload),
-      );
-
-      this.logger.log(`Published package cache to other instances (${packages.length} packages)`);
-    } catch (error) {
-      this.logger.error('Failed to publish package cache sync:', error);
-    }
-  }
-
-  private async loadPackages(): Promise<string[]> {
+  protected async loadFromDb(): Promise<string[]> {
     const result = await this.queryBuilder.select({
       tableName: 'package_definition',
       fields: ['name'],
@@ -159,20 +60,32 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
     return result.data.map((p: any) => p.name);
   }
 
-  private async loadPackagesWithVersion(): Promise<Array<{ name: string; version: string }>> {
-    const result = await this.queryBuilder.select({
-      tableName: 'package_definition',
-      fields: ['name', 'version'],
-      filter: {
-        isEnabled: true,
-        type: 'Server',
-      },
-    });
+  protected transformData(packages: string[]): string[] {
+    return packages;
+  }
 
-    return result.data.map((p: any) => ({
-      name: p.name,
-      version: p.version || 'latest',
-    }));
+  protected handleSyncData(data: string[]): void {
+    this.cache = data;
+  }
+
+  protected deserializeSyncData(payload: any): any {
+    return payload.packages;
+  }
+
+  protected serializeForPublish(packages: string[]): Record<string, any> {
+    return { packages };
+  }
+
+  protected getLogCount(): string {
+    return `${this.cache.length} packages`;
+  }
+
+  protected logSyncSuccess(payload: any): void {
+    this.logger.log(`Package cache synced: ${payload.packages?.length || 0} packages`);
+  }
+
+  protected async afterTransform(): Promise<void> {
+    await this.ensurePackagesInstalled();
   }
 
   private async ensurePackagesInstalled(): Promise<void> {
@@ -198,5 +111,26 @@ export class PackageCacheService implements OnModuleInit, OnApplicationBootstrap
         }
       }
     }
+  }
+
+  private async loadPackagesWithVersion(): Promise<Array<{ name: string; version: string }>> {
+    const result = await this.queryBuilder.select({
+      tableName: 'package_definition',
+      fields: ['name', 'version'],
+      filter: {
+        isEnabled: true,
+        type: 'Server',
+      },
+    });
+
+    return result.data.map((p: any) => ({
+      name: p.name,
+      version: p.version || 'latest',
+    }));
+  }
+
+  async getPackages(): Promise<string[]> {
+    await this.ensureLoaded();
+    return this.cache;
   }
 }

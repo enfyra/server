@@ -1,4 +1,4 @@
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 
 export function createLLMContext(user?: any, conversationId?: string | number): TDynamicContext {
   return {

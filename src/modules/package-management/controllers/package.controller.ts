@@ -9,7 +9,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PackageManagementService } from '../services/package-management.service';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 import {
   ValidationException,
   ResourceNotFoundException,

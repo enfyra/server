@@ -53,17 +53,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    const start = Date.now();
     const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
     this.dbType = DB_TYPE;
 
     if (DB_TYPE === 'mongodb') {
-      this.logger.log('Skipping Knex initialization (DB_TYPE=mongodb)');
       return;
     }
 
-    
-    this.logger.log('🔌 Initializing Knex connection with hooks...');
-    
     if (this.replicationManager) {
       let retries = 50;
       while (retries > 0) {
@@ -71,7 +68,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           const masterKnex = this.replicationManager.getMasterKnex();
           if (masterKnex) {
             this.knexInstance = masterKnex;
-            this.logger.log('Using replication manager for connection routing');
             break;
           }
         } catch (error) {
@@ -79,12 +75,12 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         await new Promise(resolve => setTimeout(resolve, 100));
         retries--;
       }
-      
+
       if (!this.knexInstance) {
         this.logger.warn('ReplicationManager not ready after waiting, falling back to direct connection');
       }
     }
-    
+
     if (!this.knexInstance) {
       const DB_URI = this.configService.get<string>('DB_URI');
       let connectionConfig: {
@@ -104,7 +100,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           password: parsed.password,
           database: parsed.database,
         };
-        this.logger.log(`Using database URI: ${DB_URI.replace(/:[^:@]+@/, ':****@')}`);
       } else {
         connectionConfig = {
           host: this.configService.get<string>('DB_HOST') || 'localhost',
@@ -113,7 +108,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           password: this.configService.get<string>('DB_PASSWORD') || '',
           database: this.configService.get<string>('DB_NAME') || 'enfyra',
         };
-        this.logger.warn('Using legacy DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD/DB_NAME format. Consider migrating to DB_URI format.');
       }
 
       const poolMinSize = parseInt(this.configService.get<string>('DB_POOL_MIN_SIZE') || '2');
@@ -158,7 +152,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await this.knexInstance.raw('SELECT 1');
-      this.logger.log('Knex connection established with timestamp hooks');
+      this.logger.log(`Connected in ${Date.now() - start}ms`);
     } catch (error) {
       this.logger.error('Failed to establish Knex connection:', error);
       throw error;
@@ -390,8 +384,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
       return walk(result, tableName);
     });
-
-    this.logger.log('🪝 Default hooks registered');
   }
 
   private async handleCascadeRelations(tableName: string, recordId: any, cascadeContextMap: Map<string, any>): Promise<void> {

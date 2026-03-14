@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Query, Req, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { AiAgentService } from '../services/ai-agent.service';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 
 @Controller('ai-agent')
 export class AiAgentController {

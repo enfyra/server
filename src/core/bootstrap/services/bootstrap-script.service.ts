@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
@@ -9,7 +9,7 @@ import { TableHandlerService } from '../../../modules/table-management/services/
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { InstanceService } from '../../../shared/services/instance.service';
 import {
@@ -20,7 +20,7 @@ import { transformCode } from '../../../infrastructure/handler-executor/code-tra
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 
 @Injectable()
-export class BootstrapScriptService implements OnApplicationBootstrap {
+export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);
 
   constructor(
@@ -36,11 +36,12 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     private eventEmitter: EventEmitter2,
   ) {}
 
-  async onApplicationBootstrap() {
-    this.logger.log('Starting BootstrapScriptService...');
+  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
+  async onMetadataLoaded() {
+    const start = Date.now();
     await this.waitForTableExists();
-    await this.executeBootstrapScripts();
-    this.logger.log('BootstrapScriptService completed successfully');
+    const scriptCount = await this.executeBootstrapScripts();
+    this.logger.log(`Completed in ${Date.now() - start}ms (${scriptCount} scripts)`);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -52,13 +53,12 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
   }
 
   async reloadBootstrapScripts() {
-    this.logger.log('Reloading BootstrapScriptService...');
+    const start = Date.now();
     await this.withBootstrapLock(async () => {
       await this.cacheService.clearAll();
-      this.logger.log('Cleared all Redis data');
       await this.executeBootstrapScriptsWithoutLock();
-      this.logger.log('BootstrapScriptService reload completed successfully');
     }, 'reload');
+    this.logger.log(`Reload completed in ${Date.now() - start}ms`);
   }
 
   private async withBootstrapLock<R>(
@@ -70,18 +70,16 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
     const lockTimeout = REDIS_TTL.BOOTSTRAP_LOCK_TTL;
     const lockAcquired = await this.cacheService.acquire(lockKey, lockValue, lockTimeout);
     if (!lockAcquired) {
-      this.logger.log(`🔴 Bootstrap ${context} skipped - another instance is executing (${lockValue})`);
+      this.logger.log(`Skipped - another instance is executing`);
       return;
     }
     try {
-      this.logger.log(`Bootstrap ${context} acquired lock - starting execution (${lockValue})`);
       return await operation();
     } catch (error) {
-      this.logger.error(`BootstrapScriptService ${context} failed:`, error);
+      this.logger.error(`${context} failed:`, error);
       throw error;
     } finally {
       await this.cacheService.release(lockKey, lockValue);
-      this.logger.log(`Bootstrap ${context} lock released (${lockValue})`);
     }
   }
 
@@ -91,36 +89,30 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
         if (this.queryBuilder.isMongoDb()) {
           const db = this.queryBuilder.getMongoDb();
           const collections = await db.listCollections({ name: 'bootstrap_script_definition' }).toArray();
-          if (collections.length > 0) {
-            this.logger.log(`bootstrap_script_definition collection found on attempt ${attempt}`);
-            return;
-          }
+          if (collections.length > 0) return;
         } else {
           const knex = this.queryBuilder.getKnex();
           const exists = await knex.schema.hasTable('bootstrap_script_definition');
-          if (exists) {
-            this.logger.log(`bootstrap_script_definition table found on attempt ${attempt}`);
-            return;
-          }
+          if (exists) return;
         }
       } catch (error) {
-        this.logger.log(`⏳ Attempt ${attempt}/${maxRetries}: bootstrap_script_definition not ready, waiting ${delayMs}ms...`);
-        if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        } else {
+        if (attempt === maxRetries) {
           throw new Error(`bootstrap_script_definition not found after ${maxRetries} attempts`);
         }
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
   }
 
-  private async executeBootstrapScripts() {
+  private async executeBootstrapScripts(): Promise<number> {
+    let scriptCount = 0;
     await this.withBootstrapLock(async () => {
-      await this.executeBootstrapScriptsWithoutLock();
+      scriptCount = await this.executeBootstrapScriptsWithoutLock();
     }, 'startup');
+    return scriptCount;
   }
 
-  private async executeBootstrapScriptsWithoutLock() {
+  private async executeBootstrapScriptsWithoutLock(): Promise<number> {
     const result = await this.queryBuilder.select({
       tableName: 'bootstrap_script_definition',
       filter: { isEnabled: { _eq: true } },
@@ -132,21 +124,19 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
         script.logic = transformCode(script.logic);
       }
     }
-    this.logger.log(`Found ${scripts.length} bootstrap scripts to execute`);
+    let executedCount = 0;
     for (const script of scripts) {
       try {
         if (!script.logic || script.logic.trim() === '') {
-          this.logger.warn(`Script ${script.name} has no logic, skipping`);
           continue;
         }
-        this.logger.log(`Executing script: ${script.name} (priority: ${script.priority})`);
         await this.executeScript(script);
-        this.logger.log(`Script ${script.name} completed successfully`);
+        executedCount++;
       } catch (error) {
         this.logger.error(`Script ${script.name} failed:`, error);
       }
     }
-    this.logger.log(`Bootstrap scripts execution completed`);
+    return executedCount;
   }
 
   private async executeScript(script: any) {
@@ -167,7 +157,6 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
           eventEmitter: this.eventEmitter,
         });
         await dynamicRepo.init();
-        this.logger.debug(`📦 Created dynamic repository for table: ${tableName}`);
         return [tableName, dynamicRepo];
       }),
     );
@@ -190,13 +179,11 @@ export class BootstrapScriptService implements OnApplicationBootstrap {
       repo.context = ctx;
     });
     const timeoutMs = script.timeout || 30000;
-    this.logger.log(`Executing script with timeout: ${timeoutMs}ms`);
     const executionResult = await this.handlerExecutorService.run(
       script.logic,
       ctx,
       timeoutMs,
     );
-    this.logger.log(`Script execution result:`, executionResult);
     return executionResult;
   }
 

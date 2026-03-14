@@ -4,5 +4,4 @@ export type {
   IToolResult,
   IMessage,
   IMessageCreate,
-} from '../utils/types';
-
+} from '../types';

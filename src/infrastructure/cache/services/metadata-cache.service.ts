@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { CacheService } from './cache.service';
 import { RedisPubSubService } from './redis-pubsub.service';
@@ -15,6 +15,9 @@ import {
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { ObjectId } from 'mongodb';
 
+const COLOR = '\x1b[36m'; // Cyan
+const RESET = '\x1b[0m';
+
 export interface EnfyraMetadata {
   tables: Map<string, any>;
   tablesList: any[];
@@ -24,7 +27,7 @@ export interface EnfyraMetadata {
 
 @Injectable()
 export class MetadataCacheService implements OnApplicationBootstrap, OnModuleInit {
-  private readonly logger = new Logger(MetadataCacheService.name);
+  private readonly logger = new Logger(`${COLOR}MetadataCache${RESET}`);
   private inMemoryCache: EnfyraMetadata | null = null; // In-memory cache to avoid Redis calls
   private messageHandler: ((channel: string, message: string) => void) | null = null;
 
@@ -35,6 +38,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     private readonly redisPubSubService: RedisPubSubService,
     private readonly instanceService: InstanceService,
     private readonly databaseSchemaService: DatabaseSchemaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit() {
@@ -44,8 +48,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
   async onApplicationBootstrap() {
     try {
+      const start = Date.now();
       await this.reload();
-      this.logger.log('MetadataCacheService initialization completed');
+      this.logger.log(`Loaded ${this.inMemoryCache?.tablesList?.length || 0} table definitions in ${Date.now() - start}ms`);
+      this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
     } catch (error) {
       this.logger.error('MetadataCacheService initialization failed:', error);
       throw error;
@@ -53,12 +59,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   private subscribe() {
-    const sub = this.redisPubSubService.sub;
-    if (!sub) {
-      this.logger.warn('Redis subscription not available for metadata cache sync');
-      return;
-    }
-
     if (this.messageHandler) {
       return;
     }
@@ -83,6 +83,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           };
 
           this.inMemoryCache = metadata;
+
+          // Emit event to trigger dependent caches on this instance
+          this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
         } catch (error) {
           this.logger.error('Failed to parse metadata cache sync message:', error);
         }

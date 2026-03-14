@@ -2,7 +2,7 @@ import {
   AuthenticationException,
   AuthorizationException,
 } from '../../../core/exceptions/custom-exceptions';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 import * as fs from 'fs';
 
 export class FileValidationHelper {

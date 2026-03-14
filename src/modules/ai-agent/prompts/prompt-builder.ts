@@ -3,7 +3,7 @@ import { SYSTEM_PROMPT_BASE } from './base/system-prompt.base';
 import { OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT, OPENAI_SYSTEM_PROMPT_ADDITION } from './providers/openai.prompts';
 import { ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT, ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
 import { GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT, GOOGLE_SYSTEM_PROMPT_ADDITION } from './providers/google.prompts';
-import { BuildSystemPromptParams } from '../utils/types';
+import { BuildSystemPromptParams } from '../types';
 
 type Provider = 'OpenAI' | 'Anthropic' | 'Google';
 

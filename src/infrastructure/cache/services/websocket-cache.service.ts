@@ -1,17 +1,24 @@
-import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable } from '@nestjs/common';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
-import { MetadataCacheService } from './metadata-cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { transformCode } from '../../handler-executor/code-transformer';
 import {
   WEBSOCKET_CACHE_SYNC_EVENT_KEY,
   WEBSOCKET_RELOAD_LOCK_KEY,
-  REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+
+const WEBSOCKET_CONFIG: CacheConfig = {
+  syncEventKey: WEBSOCKET_CACHE_SYNC_EVENT_KEY,
+  lockKey: WEBSOCKET_RELOAD_LOCK_KEY,
+  cacheIdentifier: CACHE_IDENTIFIERS.WEBSOCKET,
+  colorCode: '\x1b[32m',
+  cacheName: 'WebsocketCache',
+};
 
 interface WebSocketEvent {
   id: number | string;
@@ -37,155 +44,31 @@ interface WebSocketGateway {
 }
 
 @Injectable()
-export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstrap {
-  private readonly logger = new Logger(WebsocketCacheService.name);
-  private gatewaysCache: WebSocketGateway[] = [];
-  private cacheLoaded = false;
-  private messageHandler: ((channel: string, message: string) => void) | null = null;
-
+export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly redisPubSubService: RedisPubSubService,
-    private readonly cacheService: CacheService,
-    private readonly instanceService: InstanceService,
-    private readonly metadataCacheService: MetadataCacheService,
-  ) {}
-
-  async onModuleInit() {
-    this.subscribe();
+    redisPubSubService: RedisPubSubService,
+    cacheService: CacheService,
+    instanceService: InstanceService,
+    eventEmitter: EventEmitter2,
+  ) {
+    super(WEBSOCKET_CONFIG, redisPubSubService, cacheService, instanceService, eventEmitter);
   }
 
-  async onApplicationBootstrap() {
+  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
+  async onMetadataLoaded() {
     await this.reload();
-  }
-
-  private subscribe() {
-    if (this.messageHandler) {
-      return;
-    }
-
-    this.messageHandler = (channel: string, message: string) => {
-      const isWebsocketChannel = channel === WEBSOCKET_CACHE_SYNC_EVENT_KEY || channel.startsWith(WEBSOCKET_CACHE_SYNC_EVENT_KEY + ':');
-      if (isWebsocketChannel) {
-        try {
-          const payload = JSON.parse(message);
-          const myInstanceId = this.instanceService.getInstanceId();
-
-          if (payload.instanceId === myInstanceId) {
-            return;
-          }
-
-          this.logger.log(`Received websocket cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-
-          this.gatewaysCache = payload.gateways;
-          this.cacheLoaded = true;
-          this.logger.log(`WebSocket cache synced: ${payload.gateways.length} gateways`);
-        } catch (error) {
-          this.logger.error('Failed to parse websocket cache sync message:', error);
-        }
-      }
-    };
-
-    this.redisPubSubService.subscribeWithHandler(
-      WEBSOCKET_CACHE_SYNC_EVENT_KEY,
-      this.messageHandler
-    );
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    const shouldReload = shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.WEBSOCKET);
-
-    if (shouldReload) {
+    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reload();
     }
   }
 
-  async getGateways(): Promise<WebSocketGateway[]> {
-    if (!this.cacheLoaded) {
-      await this.reload();
-    }
-    return this.gatewaysCache;
-  }
-
-  async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
-    const gateways = await this.getGateways();
-    return gateways.find(g => g.path === path) || null;
-  }
-
-  async getEventsByGatewayId(gatewayId: number | string): Promise<WebSocketEvent[]> {
-    const gateway = await this.getGatewayByPath(gatewayId as string);
-    if (!gateway) return [];
-    return gateway.events || [];
-  }
-
-  async reload(): Promise<void> {
-    const instanceId = this.instanceService.getInstanceId();
-
-    try {
-      const acquired = await this.cacheService.acquire(
-        WEBSOCKET_RELOAD_LOCK_KEY,
-        instanceId,
-        REDIS_TTL.RELOAD_LOCK_TTL
-      );
-
-      if (!acquired) {
-        this.logger.log('Another instance is reloading websockets, waiting for broadcast...');
-        return;
-      }
-
-      this.logger.log(`Acquired websocket reload lock (instance ${instanceId.slice(0, 8)})`);
-
-      try {
-        const start = Date.now();
-        this.logger.log('Reloading websocket cache...');
-
-        this.logger.log('Waiting for metadata cache to be loaded...');
-        const metadataLoaded = await this.metadataCacheService.waitForLoad();
-        if (!metadataLoaded) {
-          this.logger.error('Metadata cache not loaded, cannot reload websocket cache');
-          return;
-        }
-        this.logger.log('Metadata cache is ready, proceeding with websocket cache reload');
-
-        const gateways = await this.loadGateways();
-        this.logger.log(`Loaded ${gateways.length} websocket gateways in ${Date.now() - start}ms`);
-
-        this.gatewaysCache = gateways;
-        await this.publish(gateways);
-
-        this.cacheLoaded = true;
-      } finally {
-        await this.cacheService.release(WEBSOCKET_RELOAD_LOCK_KEY, instanceId);
-        this.logger.log('Released websocket reload lock');
-      }
-    } catch (error) {
-      this.logger.error('Failed to reload websocket cache:', error);
-      throw error;
-    }
-  }
-
-  private async publish(gateways: WebSocketGateway[]): Promise<void> {
-    try {
-      const payload = {
-        instanceId: this.instanceService.getInstanceId(),
-        gateways: gateways,
-        timestamp: Date.now(),
-      };
-
-      await this.redisPubSubService.publish(
-        WEBSOCKET_CACHE_SYNC_EVENT_KEY,
-        JSON.stringify(payload),
-      );
-
-      this.logger.log(`Published websocket cache to other instances (${gateways.length} gateways)`);
-    } catch (error) {
-      this.logger.error('Failed to publish websocket cache sync:', error);
-    }
-  }
-
-  private async loadGateways(): Promise<WebSocketGateway[]> {
+  protected async loadFromDb(): Promise<WebSocketGateway[]> {
     const isMongoDB = this.queryBuilder.isMongoDb();
 
     const result = await this.queryBuilder.select({
@@ -201,7 +84,6 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
       }
 
       const filterValue = isMongoDB ? gateway._id : gateway.id;
-      this.logger.debug(`Loading events for gateway ${gateway.path || gateway.id}, filter value: ${filterValue}`);
 
       const eventsResult = await this.queryBuilder.select({
         tableName: 'websocket_event_definition',
@@ -214,8 +96,6 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
         fields: ['*'],
       });
 
-      this.logger.debug(`Events result for gateway ${gateway.path || gateway.id}: ${eventsResult.data?.length || 0} events`);
-
       for (const event of eventsResult.data) {
         if (event.handlerScript) {
           event.handlerScript = transformCode(event.handlerScript);
@@ -226,5 +106,49 @@ export class WebsocketCacheService implements OnModuleInit, OnApplicationBootstr
     }
 
     return gateways;
+  }
+
+  protected transformData(gateways: WebSocketGateway[]): WebSocketGateway[] {
+    return gateways;
+  }
+
+  protected handleSyncData(data: WebSocketGateway[]): void {
+    this.cache = data;
+  }
+
+  protected deserializeSyncData(payload: any): any {
+    return payload.gateways;
+  }
+
+  protected serializeForPublish(gateways: WebSocketGateway[]): Record<string, any> {
+    return { gateways };
+  }
+
+  protected getLogCount(): string {
+    return `${this.cache.length} websocket gateways`;
+  }
+
+  protected logSyncSuccess(payload: any): void {
+    this.logger.log(`Cache synced: ${payload.gateways?.length || 0} gateways`);
+  }
+
+  protected emitLoadedEvent(): void {
+    this.eventEmitter.emit(CACHE_EVENTS.WEBSOCKET_LOADED);
+  }
+
+  async getGateways(): Promise<WebSocketGateway[]> {
+    await this.ensureLoaded();
+    return this.cache;
+  }
+
+  async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
+    const gateways = await this.getGateways();
+    return gateways.find(g => g.path === path) || null;
+  }
+
+  async getEventsByGatewayId(gatewayId: number | string): Promise<WebSocketEvent[]> {
+    const gateway = await this.getGatewayByPath(gatewayId as string);
+    if (!gateway) return [];
+    return gateway.events || [];
   }
 }

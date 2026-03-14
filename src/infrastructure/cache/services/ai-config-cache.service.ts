@@ -1,15 +1,24 @@
-import { Injectable, Logger, OnModuleInit, OnApplicationBootstrap } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable } from '@nestjs/common';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   AI_CONFIG_CACHE_SYNC_EVENT_KEY,
   AI_CONFIG_RELOAD_LOCK_KEY,
-  REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+
+const AI_CONFIG: CacheConfig = {
+  syncEventKey: AI_CONFIG_CACHE_SYNC_EVENT_KEY,
+  lockKey: AI_CONFIG_RELOAD_LOCK_KEY,
+  cacheIdentifier: CACHE_IDENTIFIERS.AI_CONFIG,
+  colorCode: '\x1b[34m',
+  cacheName: 'AiConfigCache',
+};
+
 export interface AiConfig {
   id: number;
   provider: string;
@@ -24,74 +33,34 @@ export interface AiConfig {
   evaluateStage?: boolean;
   description?: string;
 }
+
 @Injectable()
-export class AiConfigCacheService implements OnModuleInit, OnApplicationBootstrap {
-  private readonly logger = new Logger(AiConfigCacheService.name);
-  private configsCache: Map<number, AiConfig> = new Map();
-  private cacheLoaded = false;
-  private messageHandler: ((channel: string, message: string) => void) | null = null;
+export class AiConfigCacheService extends BaseCacheService<Map<number, AiConfig>> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly redisPubSubService: RedisPubSubService,
-    private readonly cacheService: CacheService,
-    private readonly instanceService: InstanceService,
-  ) {}
-  async onModuleInit() {
-    this.subscribe();
+    redisPubSubService: RedisPubSubService,
+    cacheService: CacheService,
+    instanceService: InstanceService,
+    eventEmitter: EventEmitter2,
+  ) {
+    super(AI_CONFIG, redisPubSubService, cacheService, instanceService, eventEmitter);
   }
-  async onApplicationBootstrap() {
-    try {
-      await this.reload();
-      this.logger.log('AiConfigCacheService initialization completed');
-    } catch (error) {
-      this.logger.error('AiConfigCacheService initialization failed:', error);
-      throw error;
-    }
-  }
-  private subscribe() {
-    const sub = this.redisPubSubService.sub;
-    if (!sub) {
-      this.logger.warn('Redis subscription not available for AI config cache sync');
-      return;
-    }
-    if (this.messageHandler) {
-      return;
-    }
-    this.messageHandler = async (channel: string, message: string) => {
-      if (channel === AI_CONFIG_CACHE_SYNC_EVENT_KEY) {
-        try {
-          const payload = JSON.parse(message);
-          const myInstanceId = this.instanceService.getInstanceId();
-          if (payload.instanceId === myInstanceId) {
-            return;
-          }
-          this.logger.log(`Received AI config cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-          this.configsCache = new Map();
-          for (const [id, config] of payload.configs) {
-            this.configsCache.set(Number(id), config);
-          }
-          this.cacheLoaded = true;
-          this.logger.log(`AI config cache synced: ${payload.configs.length} configs`);
-        } catch (error) {
-          this.logger.error('Failed to parse AI config cache sync message:', error);
-        }
-      }
-    };
-    this.redisPubSubService.subscribeWithHandler(
-      AI_CONFIG_CACHE_SYNC_EVENT_KEY,
-      this.messageHandler
-    );
+
+  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
+  async onMetadataLoaded() {
+    await this.reload();
+    this.eventEmitter?.emit(CACHE_EVENTS.AI_CONFIG_LOADED);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.AI_CONFIG)) {
+    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reload();
     }
   }
 
-  private async loadConfigsFromDb(): Promise<AiConfig[]> {
+  protected async loadFromDb(): Promise<AiConfig[]> {
     const result = await this.queryBuilder.select({
       tableName: 'ai_config_definition',
     });
@@ -113,79 +82,56 @@ export class AiConfigCacheService implements OnModuleInit, OnApplicationBootstra
       description: config.description,
     }));
   }
-  async reload(): Promise<void> {
-    const instanceId = this.instanceService.getInstanceId();
-    try {
-      const acquired = await this.cacheService.acquire(
-        AI_CONFIG_RELOAD_LOCK_KEY,
-        instanceId,
-        REDIS_TTL.RELOAD_LOCK_TTL
-      );
-      if (!acquired) {
-        this.logger.log('Another instance is reloading AI config, waiting for broadcast...');
-        return;
-      }
-      this.logger.log(`Acquired AI config reload lock (instance ${instanceId.slice(0, 8)})`);
-      try {
-        const start = Date.now();
-        this.logger.log('Reloading AI config cache...');
-        const configs = await this.loadConfigsFromDb();
-        this.logger.log(`Loaded ${configs.length} AI configs in ${Date.now() - start}ms`);
-        const configsMap = new Map<number, AiConfig>();
-        for (const config of configs) {
-          configsMap.set(config.id, config);
-        }
-        await this.publish(Array.from(configsMap.entries()));
-        this.configsCache = configsMap;
-        this.cacheLoaded = true;
-      } finally {
-        await this.cacheService.release(AI_CONFIG_RELOAD_LOCK_KEY, instanceId);
-        this.logger.log('Released AI config reload lock');
-      }
-    } catch (error) {
-      this.logger.error('Failed to reload AI config cache:', error);
-      throw error;
+
+  protected transformData(configs: AiConfig[]): Map<number, AiConfig> {
+    const map = new Map<number, AiConfig>();
+    for (const config of configs) {
+      map.set(config.id, config);
     }
+    return map;
   }
-  private async publish(configsArray: Array<[number, AiConfig]>): Promise<void> {
-    try {
-      const payload = {
-        instanceId: this.instanceService.getInstanceId(),
-        configs: configsArray,
-        timestamp: Date.now(),
-      };
-      await this.redisPubSubService.publish(
-        AI_CONFIG_CACHE_SYNC_EVENT_KEY,
-        JSON.stringify(payload),
-      );
-      this.logger.log(`Published AI config cache to other instances (${configsArray.length} configs)`);
-    } catch (error) {
-      this.logger.error('Failed to publish AI config cache sync:', error);
-    }
+
+  protected handleSyncData(data: Array<[number, AiConfig]>): void {
+    this.cache = new Map(data);
   }
+
+  protected deserializeSyncData(payload: any): any {
+    return payload.configs;
+  }
+
+  protected serializeForPublish(cache: Map<number, AiConfig>): Record<string, any> {
+    return { configs: Array.from(cache.entries()) };
+  }
+
+  protected getLogCount(): string {
+    return `${this.cache.size} AI configs`;
+  }
+
+  protected logSyncSuccess(payload: any): void {
+    this.logger.log(`Cache synced: ${payload.configs?.length || 0} configs`);
+  }
+
   async getConfigById(id: string | number): Promise<AiConfig | null> {
-    if (!this.cacheLoaded) {
-      await this.reload();
-    }
+    await this.ensureLoaded();
     const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
     if (isNaN(numericId)) {
       return null;
     }
-    return this.configsCache.get(numericId) || null;
+    return this.cache.get(numericId) || null;
   }
+
   getDirectConfigById(id: string | number): AiConfig | null {
     const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
     if (isNaN(numericId)) {
       return null;
     }
-    return this.configsCache.get(numericId) || null;
+    return this.cache.get(numericId) || null;
   }
 
   async getEvaluateStageConfigId(): Promise<number | null> {
-    if (!this.cacheLoaded) {
-      await this.reload();
-    }
-    for (const config of this.configsCache.values()) {
+    await this.ensureLoaded();
+    const values = Array.from(this.cache.values());
+    for (const config of values) {
       if (config.evaluateStage && config.isEnabled) {
         return config.id;
       }

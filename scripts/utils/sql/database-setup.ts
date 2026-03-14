@@ -51,9 +51,6 @@ export async function ensureDatabaseExists(): Promise<void> {
       );
       if (result[0].length === 0) {
         await tempKnex.raw(`CREATE DATABASE IF NOT EXISTS \`${connectionConfig.database}\``);
-        console.log(`✅ MySQL: Created database ${connectionConfig.database}`);
-      } else {
-        console.log(`✅ MySQL: Database ${connectionConfig.database} already exists`);
       }
     } else if (DB_TYPE === 'postgres') {
       const result = await tempKnex.raw(
@@ -62,9 +59,6 @@ export async function ensureDatabaseExists(): Promise<void> {
       );
       if (result.rows.length === 0) {
         await tempKnex.raw(`CREATE DATABASE "${connectionConfig.database}" WITH ENCODING 'UTF8'`);
-        console.log(`✅ Postgres: Created database ${connectionConfig.database}`);
-      } else {
-        console.log(`✅ Postgres: Database ${connectionConfig.database} already exists`);
       }
     }
   } finally {

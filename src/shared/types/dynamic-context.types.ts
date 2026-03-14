@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { UploadedFileInfo } from './file-management.interface';
+import { UploadedFileInfo } from './file-management.types';
 
 export interface TDynamicContext {
   $body?: any;
@@ -113,3 +113,57 @@ export interface RequestWithRouteData extends Request {
   user?: any;
   file?: any; // Multer file object
 }
+
+// GraphQL Context (simpler version for GraphQL resolvers)
+export type TGqlDynamicContext = {
+  $repos: any;
+  $args: any;
+  $user: any;
+  $helpers: {
+    [key: string]: any;
+  };
+  $req: Request & {
+    [key: string]: any;
+  };
+  $throw: {
+    '400': (msg: string) => never;
+    '401': (msg?: string) => never;
+    '403': (msg?: string) => never;
+    '404': (resource: string, id?: string) => never;
+    '409': (resource: string, field: string, value: string) => never;
+    '422': (msg: string, details?: any) => never;
+    '429': (limit: number, window: string) => never;
+    '500': (msg: string, details?: any) => never;
+    '503': (service: string) => never;
+  };
+  $error?: any;
+  $result?: any;
+  $data?: any;
+  $share?: {
+    $data?: any;
+    [key: string]: any;
+  };
+  $api?: {
+    request: {
+      method: string;
+      url: string;
+      timestamp: string;
+      correlationId: string;
+      userAgent?: string;
+      ip?: string;
+    };
+    response?: {
+      statusCode: number;
+      responseTime: number;
+      timestamp: string;
+    };
+    error?: {
+      message: string;
+      stack: string;
+      name: string;
+      timestamp: string;
+      statusCode: number;
+      details: any;
+    };
+  };
+};

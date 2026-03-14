@@ -7,7 +7,7 @@ import { QueryEngine } from '../../../../infrastructure/query-engine/services/qu
 import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../../shared/types';
 import {
   formatErrorForUser,
   shouldEscalateToHuman,
@@ -15,7 +15,7 @@ import {
   getRecoveryStrategy,
 } from '../error-recovery.helper';
 import { executeCheckPermission } from './check-permission.executor';
-import { BatchDynamicRepositoryExecutorDependencies } from '../types';
+import { BatchDynamicRepositoryExecutorDependencies } from '../../types';
 const logger = new Logger('BatchDynamicRepositoryExecutor');
 export async function executeBatchDynamicRepository(
   args: {

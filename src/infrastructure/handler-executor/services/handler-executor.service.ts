@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { PackageCacheService } from '../../cache/services/package-cache.service';
 import { ChildProcessManager } from '../utils/child-process-manager';
 import { wrapCtx } from '../utils/wrap-ctx';

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Response, NextFunction } from 'express';
 import * as multer from 'multer';
-import { RequestWithRouteData } from '../interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../types';
 @Injectable()
 export class FileUploadMiddleware implements NestMiddleware {
   private upload = multer({

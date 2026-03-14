@@ -2,7 +2,7 @@ import { All, Controller, Req } from '@nestjs/common';
 import { DynamicService } from '../services/dynamic.service';
 import { Request } from 'express';
 
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 
 @Controller()
 export class DynamicController {

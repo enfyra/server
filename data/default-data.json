@@ -468,12 +468,12 @@
     ],
     "menu_definition": [
         {
-            "type": "Dropdown Menu",
+            "type": "Menu",
             "label": "Dashboard",
             "icon": "lucide:layout-dashboard",
             "path": "/dashboard",
             "isEnabled": true,
-            "isSystem": false,
+            "isSystem": true,
             "description": "Main dashboard",
             "order": 1,
             "permission": {

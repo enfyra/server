@@ -61,8 +61,8 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
   }
 }
 @Injectable()
-export class CoreInitMongoService {
-  private readonly logger = new Logger(CoreInitMongoService.name);
+export class MetadataProvisionMongoService {
+  private readonly logger = new Logger(MetadataProvisionMongoService.name);
   constructor(
     private readonly queryBuilder: QueryBuilderService,
   ) {}

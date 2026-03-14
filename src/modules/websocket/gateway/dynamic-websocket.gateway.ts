@@ -8,7 +8,9 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { Server, Socket } from 'socket.io';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -28,7 +30,7 @@ interface SocketData extends Socket {
 @WebSocketGateway({
   cors: { origin: '*' },
 })
-export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnApplicationBootstrap {
+export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
@@ -52,11 +54,9 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     this.logger.log('WebSocket Gateway initialized');
     this.subscribeToCacheSync();
   }
-  async onApplicationBootstrap() {
-    this.logger.log('WebSocket Gateway onApplicationBootstrap, waiting for cache to load...');
-    setTimeout(async () => {
-      await this.registerGateways();
-    }, 1000);
+  @OnEvent(CACHE_EVENTS.WEBSOCKET_LOADED)
+  async onWebsocketCacheLoaded() {
+    await this.registerGateways();
   }
   private subscribeToCacheSync() {
     this.redisPubSubService.subscribeWithHandler(
@@ -67,7 +67,6 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
           try {
             const payload = JSON.parse(message);
             const gateways: any[] = payload.gateways || [];
-            this.logger.log(`Received websocket cache sync with ${gateways.length} gateways`);
             const newPaths = new Set(gateways.map((g: any) => g.path));
             const oldPaths = new Set(this.registeredGateways);
             this.updateGatewayConfigs(gateways);
@@ -78,7 +77,6 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
                 namespace.removeAllListeners();
                 this.registeredGateways.delete(path);
                 this.gatewayConfigsByPath.delete(path);
-                this.logger.log(`Removed gateway ${path}, disconnected clients`);
               }
             }
             for (const gateway of gateways) {
@@ -87,7 +85,6 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
                 this.registeredGateways.add(gateway.path);
               }
             }
-            this.logger.log(`Cache sync done: ${this.registeredGateways.size} gateways, clients kept connected`);
           } catch (error) {
             this.logger.error('Failed to process websocket cache sync:', error);
           }

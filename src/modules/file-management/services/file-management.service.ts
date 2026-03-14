@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import {
   FileUploadDto,
   ProcessedFileInfo,
-} from '../../../shared/interfaces/file-management.interface';
+} from '../../../shared/types';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';

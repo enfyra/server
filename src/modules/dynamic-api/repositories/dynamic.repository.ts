@@ -5,7 +5,7 @@ import { TableHandlerService } from '../../table-management/services/table-handl
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { SystemProtectionService } from '../services/system-protection.service';
 import { TableValidationService } from '../services/table-validation.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 

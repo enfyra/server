@@ -7,7 +7,7 @@ import { QueryEngine } from '../../../infrastructure/query-engine/services/query
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../../shared/types';
 import { IConversation, IConversationCreate, IConversationUpdate } from '../interfaces/conversation.interface';
 import { IMessage, IMessageCreate } from '../interfaces/message.interface';
 @Injectable()

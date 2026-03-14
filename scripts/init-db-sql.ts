@@ -24,6 +24,11 @@ import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
 
 dotenv.config();
 
+interface SnapshotOld {
+  tables?: string[];
+  deletedTables?: string[];
+}
+
 
 
 
@@ -32,7 +37,7 @@ dotenv.config();
 
 export async function initializeDatabaseSql(): Promise<void> {
   const DB_TYPE = process.env.DB_TYPE || 'mysql';
-  
+
   let connectionConfig: {
     host: string;
     port: number;
@@ -42,8 +47,7 @@ export async function initializeDatabaseSql(): Promise<void> {
   };
 
   const DB_URI = process.env.DB_URI;
-  console.log(`🔍 DB_URI: ${DB_URI ? DB_URI.replace(/:[^:@]+@/, ':****@') : 'NOT SET'}`);
-  
+
   if (DB_URI) {
     try {
       const parsed = parseDatabaseUri(DB_URI);
@@ -54,7 +58,6 @@ export async function initializeDatabaseSql(): Promise<void> {
         password: parsed.password,
         database: parsed.database,
       };
-      console.log(`✅ Parsed from URI: host=${connectionConfig.host}, port=${connectionConfig.port}, user=${connectionConfig.user}, password=${connectionConfig.password ? '****' : 'EMPTY'}, database=${connectionConfig.database}`);
     } catch (error) {
       console.error('❌ Failed to parse DB_URI:', error);
       throw error;
@@ -67,7 +70,6 @@ export async function initializeDatabaseSql(): Promise<void> {
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'enfyra',
     };
-    console.log(`⚠️ Using legacy env vars: host=${connectionConfig.host}, port=${connectionConfig.port}, user=${connectionConfig.user}, password=${connectionConfig.password ? '****' : 'EMPTY'}, database=${connectionConfig.database}`);
   }
 
   await ensureDatabaseExists();
@@ -99,20 +101,37 @@ export async function initializeDatabaseSql(): Promise<void> {
       }
     }
 
+    const snapshotOldPath = path.resolve(process.cwd(), 'data/snapshot-migration.json');
+    let snapshotOld: SnapshotOld = { tables: [], deletedTables: [] };
+    if (fs.existsSync(snapshotOldPath)) {
+      try {
+        snapshotOld = JSON.parse(fs.readFileSync(snapshotOldPath, 'utf8'));
+      } catch (e) {
+        console.warn('⚠️ Failed to parse snapshot-migration.json, using empty structure');
+      }
+    }
+
+    if (snapshotOld.deletedTables && snapshotOld.deletedTables.length > 0) {
+      console.log(`🗑️ Processing ${snapshotOld.deletedTables.length} table(s) to delete...`);
+      for (const tableName of snapshotOld.deletedTables) {
+        const exists = await knexInstance.schema.hasTable(tableName);
+        if (exists) {
+          console.log(`  Dropping table: ${tableName}`);
+          await knexInstance.schema.dropTableIfExists(tableName);
+          console.log(`  ✅ Dropped table: ${tableName}`);
+        } else {
+          console.log(`  ⏩ Table ${tableName} does not exist, skipping`);
+        }
+      }
+    }
+
     const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
 
-    console.log('📖 Loaded snapshot.json');
-
     const schemas = parseSnapshotToSchema(snapshot);
-
-    console.log(`📊 Found ${schemas.length} tables to create`);
-
-    console.log('🚀 Creating/syncing all tables...');
 
     await createAllTables(knexInstance, schemas, DB_TYPE);
 
-    console.log('\n🔄 Syncing tables with snapshot...');
     for (const schema of schemas) {
       const exists = await knexInstance.schema.hasTable(schema.tableName);
       if (exists) {
@@ -122,7 +141,7 @@ export async function initializeDatabaseSql(): Promise<void> {
 
     await syncJunctionTables(knexInstance, schemas);
 
-    console.log('\n🎉 Database initialization/sync completed!');
+    console.log('✅ Database initialized');
   } catch (error) {
     console.error('❌ Error during database initialization:', error);
     throw error;

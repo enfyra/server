@@ -1,20 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { CoreInitSqlService } from './core-init-sql.service';
-import { CoreInitMongoService } from './core-init-mongo.service';
+import { MetadataProvisionSqlService } from './metadata-provision-sql.service';
+import { MetadataProvisionMongoService } from './metadata-provision-mongo.service';
 import * as path from 'path';
 
 @Injectable()
-export class CoreInitService {
-  private readonly logger = new Logger(CoreInitService.name);
+export class MetadataProvisionService {
+  private readonly logger = new Logger(MetadataProvisionService.name);
   private readonly dbType: string;
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
     private readonly configService: ConfigService,
-    private readonly coreInitSqlService: CoreInitSqlService,
-    private readonly coreInitMongoService: CoreInitMongoService,
+    private readonly metadataProvisionSqlService: MetadataProvisionSqlService,
+    private readonly metadataProvisionMongoService: MetadataProvisionMongoService,
   ) {
     this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
   }
@@ -43,9 +43,9 @@ export class CoreInitService {
     const snapshot = await import(path.resolve('data/snapshot.json'));
 
     if (this.queryBuilder.isMongoDb()) {
-      return this.coreInitMongoService.createInitMetadata(snapshot);
+      return this.metadataProvisionMongoService.createInitMetadata(snapshot);
     }
 
-    return this.coreInitSqlService.createInitMetadata(snapshot);
+    return this.metadataProvisionSqlService.createInitMetadata(snapshot);
   }
 }

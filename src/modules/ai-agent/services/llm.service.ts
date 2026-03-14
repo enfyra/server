@@ -5,7 +5,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { IToolCall, IToolResult } from '../interfaces/message.interface';
 import { createLLMContext } from '../utils/context.helper';
 import { StreamEvent } from '../interfaces/stream-event.interface';
-import { LLMMessage, LLMResponse } from '../utils/types';
+import { LLMMessage, LLMResponse } from '../types';
 import { LLMProviderService } from './llm-provider.service';
 import { LLMToolFactoryService } from './llm-tool-factory.service';
 import { convertToLangChainMessages } from '../utils/message-converter.helper';

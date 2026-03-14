@@ -4,7 +4,7 @@ import { QueryBuilderService } from '../query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
 import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
 import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynamic.repository';
-import { TDynamicContext } from '../../shared/interfaces/dynamic-context.interface';
+import { TDynamicContext } from '../../shared/types';
 import { QueryEngine } from '../query-engine/services/query-engine.service';
 import { RouteCacheService } from '../cache/services/route-cache.service';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';

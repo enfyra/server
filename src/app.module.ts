@@ -10,7 +10,7 @@ import { AuthModule } from './core/auth/auth.module';
 import { JwtAuthGuard } from './core/auth/guards/jwt-auth.guard';
 import { RoleGuard } from './core/auth/guards/role.guard';
 import { JwtStrategy } from './core/auth/services/jwt.strategy';
-import { BootstrapModule } from './core/bootstrap/bootstrap.module';
+import { ProvisionModule } from './core/bootstrap/provision.module';
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
 import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
 import { CacheModule } from './infrastructure/cache/cache.module';
@@ -52,7 +52,7 @@ import { ExtensionDefinitionModule } from './modules/extension-definition/extens
     EventEmitterModule.forRoot(),
     KnexModule,
     MongoModule,
-    BootstrapModule,
+    ProvisionModule,
     QueryBuilderModule,
     ExceptionsModule,
     TableModule,

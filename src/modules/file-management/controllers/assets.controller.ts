@@ -2,7 +2,7 @@ import { Controller, Get, Req, Res, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { FileAssetsService } from '../services/file-assets.service';
 import { Public } from '../../../shared/decorators/public-route.decorator';
-import { RequestWithRouteData } from '../../../shared/interfaces/dynamic-context.interface';
+import { RequestWithRouteData } from '../../../shared/types';
 
 @Controller('assets')
 export class AssetsController {
