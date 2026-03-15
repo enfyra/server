@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { BaseTableProcessor } from '../processors/base-table-processor';
+import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
+
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     const now = new Date();
@@ -153,6 +155,8 @@ export class MetadataProvisionMongoService {
     }
     this.logger.log('Step 3: Upserting relations...');
     const processedInverseRelations = new Set<string>();
+    const relationRenameMap = loadRelationRenameMap();
+    const relationColl = db.collection('relation_definition');
     if (!relationDef || !relationDef.columns) {
       throw new Error('relation_definition not found in snapshot');
     }
@@ -167,6 +171,32 @@ export class MetadataProvisionMongoService {
         const directRelationRecord = this.buildRecordFromColumns(rel, relationDef.columns);
         directRelationRecord[sourceTableFieldName] = tableId;
         directRelationRecord[targetTableFieldName] = targetTableId;
+        const oldPropertyName = relationRenameMap[tableName]?.[rel.propertyName];
+        if (oldPropertyName) {
+          const existing = await relationColl.findOne({
+            [sourceTableFieldName]: tableId,
+            propertyName: oldPropertyName,
+          });
+          if (existing) {
+            const updatePayload: any = { propertyName: rel.propertyName, type: rel.type };
+            if (rel.inversePropertyName !== undefined) updatePayload.inversePropertyName = rel.inversePropertyName;
+            if (rel.isNullable !== undefined) updatePayload.isNullable = rel.isNullable;
+            if (rel.isSystem !== undefined) updatePayload.isSystem = rel.isSystem;
+            if (rel.isUpdatable !== undefined) updatePayload.isUpdatable = rel.isUpdatable;
+            if (rel.description !== undefined) updatePayload.description = rel.description;
+            updatePayload.updatedAt = new Date();
+            await relationColl.updateOne(
+              { _id: existing._id },
+              { $set: updatePayload },
+            );
+            this.logger.log(`Relation rename (Mongo): ${tableName}.${oldPropertyName} → ${rel.propertyName}`);
+            if (rel.inversePropertyName) {
+              const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
+              processedInverseRelations.add(inverseKey);
+            }
+            continue;
+          }
+        }
         const directResult = await relationProcessor.processMongo([directRelationRecord], db, 'relation_definition');
         if (rel.inversePropertyName) {
           const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
