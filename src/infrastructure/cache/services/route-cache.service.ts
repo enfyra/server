@@ -77,10 +77,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         'handlers.method.*',
         'routePermissions.*',
         'routePermissions.role.*',
-        'preHook.*',
-        'preHook.methods.method',
-        'postHook.*',
-        'postHook.methods.method',
+        'preHooks.*',
+        'preHooks.methods.method',
+        'postHooks.*',
+        'postHooks.methods.method',
         'publishedMethods.*',
         'availableMethods.*',
         'targetTables.*',
@@ -130,19 +130,19 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private mergeHooks(route: any, globalPreHooks: any[], globalPostHooks: any[], isMongoDB: boolean): void {
-    const enabledRoutePreHooks = Array.isArray(route.preHook)
-      ? route.preHook.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
+    const enabledRoutePreHooks = Array.isArray(route.preHooks)
+      ? route.preHooks.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
       : [];
 
     const allPreHooks = [...globalPreHooks, ...enabledRoutePreHooks];
-    route.preHook = this.uniqueHooks(allPreHooks, isMongoDB);
+    route.preHooks = this.uniqueHooks(allPreHooks, isMongoDB);
 
-    const enabledRoutePostHooks = Array.isArray(route.postHook)
-      ? route.postHook.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
+    const enabledRoutePostHooks = Array.isArray(route.postHooks)
+      ? route.postHooks.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
       : [];
 
     const allPostHooks = [...globalPostHooks, ...enabledRoutePostHooks];
-    route.postHook = this.uniqueHooks(allPostHooks, isMongoDB);
+    route.postHooks = this.uniqueHooks(allPostHooks, isMongoDB);
   }
 
   private uniqueHooks(hooks: any[], isMongoDB: boolean): any[] {
@@ -164,16 +164,16 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       }
     }
 
-    if (route.preHook && Array.isArray(route.preHook)) {
-      for (const hook of route.preHook) {
+    if (route.preHooks && Array.isArray(route.preHooks)) {
+      for (const hook of route.preHooks) {
         if (hook.code) {
           hook.code = transformCode(hook.code);
         }
       }
     }
 
-    if (route.postHook && Array.isArray(route.postHook)) {
-      for (const hook of route.postHook) {
+    if (route.postHooks && Array.isArray(route.postHooks)) {
+      for (const hook of route.postHooks) {
         if (hook.code) {
           hook.code = transformCode(hook.code);
         }

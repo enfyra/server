@@ -116,7 +116,7 @@ export class FileController {
             storageConfig: this.fileManagementService.createIdReference(storageConfigId),
             description: currentFile.description,
             folder: body.folder ? (typeof body.folder === 'object' ? body.folder : { id: body.folder }) : currentFile.folder,
-            uploaded_by: currentFile.uploaded_by,
+            uploadedBy: currentFile.uploadedBy,
             status: currentFile.status,
           };
 
@@ -155,7 +155,7 @@ export class FileController {
             location: currentFile.location,
             description: processedFile.description,
             folder: currentFile.folder,
-            uploaded_by: currentFile.uploaded_by,
+            uploadedBy: currentFile.uploadedBy,
             status: currentFile.status,
             storageConfig: processedFile.storage_config_id
               ? this.fileManagementService.createIdReference(processedFile.storage_config_id)

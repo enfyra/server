@@ -101,7 +101,7 @@ export class UpdateFileDto {
   permissions?: any;
 
   @IsOptional()
-  uploaded_by?: any;
+  uploadedBy?: any;
 
   @IsOptional()
   @Transform(({ value }) => {

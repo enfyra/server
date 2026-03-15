@@ -1,7 +1,11 @@
 import { Knex } from 'knex';
 import { Db } from 'mongodb';
 import { SchemaMigrationDef, TableMigrationDef, ColumnModifyDef, RelationModifyDef } from '../../src/shared/types/schema-migration.types';
-import { getForeignKeyColumnName } from '../../src/infrastructure/knex/utils/naming-helpers';
+import {
+  getForeignKeyColumnName,
+  getJunctionTableName,
+  getJunctionColumnNames,
+} from '../../src/infrastructure/knex/utils/naming-helpers';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -92,10 +96,87 @@ async function applySqlTableMigration(
     await applySqlRelationModifications(knex, tableName, migration.relationsToModify, dbType);
   }
 
-  // Handle relation removals
   if (migration.relationsToRemove?.length > 0) {
+    if (
+      tableName === 'file_permission_definition' &&
+      migration.relationsToRemove.includes('allowedUsers')
+    ) {
+      await migrateFilePermissionAllowedUsersToJunction(knex, dbType);
+    }
     await applySqlRelationRemovals(knex, tableName, migration.relationsToRemove);
   }
+}
+
+async function migrateFilePermissionAllowedUsersToJunction(
+  knex: Knex,
+  dbType: string
+): Promise<void> {
+  const tableName = 'file_permission_definition';
+  const fkColumn = getForeignKeyColumnName('allowedUsers');
+  const hasOldColumn = await knex.schema.hasColumn(tableName, fkColumn);
+  if (!hasOldColumn) return;
+
+  const junctionTableName = getJunctionTableName(
+    tableName,
+    'allowedUsers',
+    'user_definition'
+  );
+  const { sourceColumn, targetColumn } = getJunctionColumnNames(
+    tableName,
+    'allowedUsers',
+    'user_definition'
+  );
+
+  const exists = await knex.schema.hasTable(junctionTableName);
+  if (exists) {
+    console.log(`  ⏩ Junction ${junctionTableName} already exists, skipping data migration`);
+    return;
+  }
+
+  console.log(`  📦 Migrating file_permission_definition.allowedUsers to junction ${junctionTableName}`);
+  const pkType = await getPrimaryKeyType(knex, tableName);
+  const targetPkType = await getPrimaryKeyType(knex, 'user_definition');
+
+  await knex.schema.createTable(junctionTableName, (table) => {
+    if (pkType === 'uuid') {
+      table.uuid(sourceColumn).notNullable();
+    } else {
+      table.integer(sourceColumn).unsigned().notNullable();
+    }
+    if (targetPkType === 'uuid') {
+      table.uuid(targetColumn).notNullable();
+    } else {
+      table.integer(targetColumn).unsigned().notNullable();
+    }
+    table.primary([sourceColumn, targetColumn]);
+    table.foreign(sourceColumn).references('id').inTable(tableName);
+    table.foreign(targetColumn).references('id').inTable('user_definition');
+  });
+
+  const rows = await knex(tableName).select('id', fkColumn).whereNotNull(fkColumn);
+  for (const row of rows) {
+    await knex(junctionTableName).insert({
+      [sourceColumn]: row.id,
+      [targetColumn]: row[fkColumn],
+    });
+  }
+  console.log(`  ✅ Created junction and migrated ${rows.length} row(s): ${junctionTableName}`);
+}
+
+async function getPrimaryKeyType(knex: Knex, tableName: string): Promise<'int' | 'uuid'> {
+  const result = await knex(tableName).limit(1).select(knex.raw('1 as _'));
+  const tableInfo = await knex.raw(
+    knex.client.config.client === 'pg'
+      ? `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = 'id'`
+      : `SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'id'`,
+    [tableName]
+  );
+  const rows = knex.client.config.client === 'pg' ? (tableInfo as any).rows : (tableInfo as any)[0];
+  if (rows?.length > 0) {
+    const dt = (rows[0].data_type || rows[0].DATA_TYPE || '').toLowerCase();
+    if (dt.includes('uuid')) return 'uuid';
+  }
+  return 'int';
 }
 
 /**
@@ -457,9 +538,33 @@ async function applyMongoCollectionMigration(
     }
   }
 
-  // Handle relation removals
   if (migration.relationsToRemove?.length > 0) {
-    for (const relName of migration.relationsToRemove) {
+    const toRemove = [...migration.relationsToRemove];
+    if (
+      collectionName === 'file_permission_definition' &&
+      toRemove.includes('allowedUsers')
+    ) {
+      try {
+        const cursor = collection.find({
+          allowedUsers: { $exists: true, $not: { $type: 'array' } },
+        });
+        let count = 0;
+        for await (const doc of cursor) {
+          await collection.updateOne(
+            { _id: doc._id },
+            { $set: { allowedUsers: Array.isArray(doc.allowedUsers) ? doc.allowedUsers : [doc.allowedUsers] } }
+          );
+          count++;
+        }
+        if (count > 0) {
+          console.log(`  📦 Converted allowedUsers to array (${count} documents)`);
+        }
+        toRemove.splice(toRemove.indexOf('allowedUsers'), 1);
+      } catch {
+        toRemove.splice(toRemove.indexOf('allowedUsers'), 1);
+      }
+    }
+    for (const relName of toRemove) {
       try {
         const result = await collection.updateMany(
           { [relName]: { $exists: true } },

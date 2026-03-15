@@ -46,14 +46,15 @@ export class FileAssetsService {
           fileId: { _eq: fileId },
           isEnabled: { _eq: true }
         },
+        deep: {
+          allowedUsers: { fields: ['id', 'email'] },
+          role: { fields: ['id', 'name'] },
+        },
       });
       const permissions = permissionsResult.data;
 
       for (const perm of permissions) {
-        if (perm.userId) {
-          perm.allowedUsers = await this.queryBuilder.findOneWhere('user_definition', { id: perm.userId });
-        }
-        if (perm.roleId) {
+        if (perm.roleId && !perm.role) {
           perm.role = await this.queryBuilder.findOneWhere('role_definition', { id: perm.roleId });
         }
       }
