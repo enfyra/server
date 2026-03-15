@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
+import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
+
 @Injectable()
 export class MetadataProvisionSqlService {
   private readonly logger = new Logger(MetadataProvisionSqlService.name);
@@ -174,15 +176,27 @@ export class MetadataProvisionSqlService {
           }
         }
       }
+      const relationRenameMap = loadRelationRenameMap();
       for (const { tableName, tableId, relation: rel, isInverse } of allRelationsToProcess) {
         const targetId = tableNameToId[rel.targetTable];
         if (!targetId) continue;
-        const existingRel = await trx('relation_definition')
+        let existingRel = await trx('relation_definition')
           .where('sourceTableId', tableId)
           .where('propertyName', rel.propertyName)
           .first();
+        if (!existingRel && relationRenameMap[tableName]?.[rel.propertyName]) {
+          const oldPropertyName = relationRenameMap[tableName][rel.propertyName];
+          existingRel = await trx('relation_definition')
+            .where('sourceTableId', tableId)
+            .where('propertyName', oldPropertyName)
+            .first();
+          if (existingRel) {
+            this.logger.log(`Relation rename: ${tableName}.${oldPropertyName} → ${rel.propertyName}, will update`);
+          }
+        }
         if (existingRel) {
           const needsUpdate =
+            rel.propertyName !== existingRel.propertyName ||
             (rel.isNullable !== undefined && rel.isNullable !== existingRel.isNullable) ||
             (rel.inversePropertyName !== existingRel.inversePropertyName) ||
             (rel.type !== undefined && rel.type !== existingRel.type) ||
@@ -190,6 +204,7 @@ export class MetadataProvisionSqlService {
             (rel.isUpdatable !== undefined && rel.isUpdatable !== existingRel.isUpdatable);
           if (needsUpdate) {
             const updateData: any = {};
+            updateData.propertyName = rel.propertyName;
             if (rel.isNullable !== undefined) updateData.isNullable = rel.isNullable;
             updateData.inversePropertyName = rel.inversePropertyName || null;
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
