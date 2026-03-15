@@ -1,4 +1,40 @@
 {
-  "tables": [],
+  "tables": [
+    {
+      "_unique": { "name": { "_eq": "route_definition" } },
+      "relationsToModify": [
+        { "from": { "propertyName": "preHook" }, "to": { "propertyName": "preHooks" } },
+        { "from": { "propertyName": "postHook" }, "to": { "propertyName": "postHooks" } }
+      ]
+    },
+    {
+      "_unique": { "name": { "_eq": "pre_hook_definition" } },
+      "relationsToModify": [
+        { "from": { "propertyName": "route", "inversePropertyName": "preHook" }, "to": { "propertyName": "route", "inversePropertyName": "preHooks" } }
+      ]
+    },
+    {
+      "_unique": { "name": { "_eq": "post_hook_definition" } },
+      "relationsToModify": [
+        { "from": { "propertyName": "route", "inversePropertyName": "postHook" }, "to": { "propertyName": "route", "inversePropertyName": "postHooks" } }
+      ]
+    },
+    {
+      "_unique": { "name": { "_eq": "file_definition" } },
+      "relationsToModify": [
+        { "from": { "propertyName": "uploaded_by" }, "to": { "propertyName": "uploadedBy" } }
+      ]
+    },
+    {
+      "_unique": { "name": { "_eq": "method_definition" } },
+      "relationsToModify": [
+        { "from": { "propertyName": "route_permissions" }, "to": { "propertyName": "routePermissions" } }
+      ]
+    },
+    {
+      "_unique": { "name": { "_eq": "file_permission_definition" } },
+      "relationsToRemove": ["allowedUsers"]
+    }
+  ],
   "tablesToDrop": []
 }

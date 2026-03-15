@@ -102,8 +102,8 @@ export interface RequestWithRouteData extends Request {
     params: any;
     handler: string;
     handlers?: any[];
-    preHook: any[];
-    postHook: any[];
+    preHooks: any[];
+    postHooks: any[];
     isPublished: boolean;
     mainTable?: any;
     targetTables?: any[];

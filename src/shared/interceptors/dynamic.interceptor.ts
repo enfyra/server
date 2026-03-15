@@ -19,7 +19,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
     next: CallHandler<T>,
   ): Promise<Observable<any>> {
     const req = context.switchToHttp().getRequest();
-    const preHooks = req.routeData?.preHook;
+    const preHooks = req.routeData?.preHooks;
     if (preHooks?.length) {
       for (const hook of preHooks) {
         if (!hook.code) continue;
@@ -62,7 +62,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
         if (res.headersSent) {
           return undefined;
         }
-        const postHooks = req.routeData?.postHook;
+        const postHooks = req.routeData?.postHooks;
         if (postHooks?.length) {
           for (const hook of postHooks) {
             if (!hook.code) continue;
@@ -108,7 +108,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           statusCode: error.status || 500,
           details: error.details || {},
         };
-        const postHooks = req.routeData?.postHook;
+        const postHooks = req.routeData?.postHooks;
         if (postHooks?.length) {
           for (const hook of postHooks) {
             if (!hook.code) continue;

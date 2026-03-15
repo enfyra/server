@@ -216,7 +216,7 @@ export class FileManagementService {
           location: processedFile.location,
           description: processedFile.description || null,
           folder: folderData,
-          uploaded_by: options.userId
+          uploadedBy: options.userId
             ? this.createIdReference(options.userId)
             : null,
           storageConfig: processedFile.storage_config_id

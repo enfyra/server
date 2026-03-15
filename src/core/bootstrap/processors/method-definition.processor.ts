@@ -14,7 +14,7 @@ export class MethodDefinitionProcessor extends BaseTableProcessor {
       };
       if (isMongoDB) {
         if (!transformed.routes) transformed.routes = [];
-        if (!transformed.route_permissions) transformed.route_permissions = [];
+        if (!transformed.routePermissions) transformed.routePermissions = [];
         const now = new Date();
         if (!transformed.createdAt) transformed.createdAt = now;
         if (!transformed.updatedAt) transformed.updatedAt = now;

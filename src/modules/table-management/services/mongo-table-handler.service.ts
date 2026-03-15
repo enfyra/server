@@ -394,8 +394,8 @@ export class MongoTableHandlerService {
             availableMethods: allMethodIds,
             routePermissions: [],
             handlers: [],
-            preHook: [],
-            postHook: [],
+            preHooks: [],
+            postHooks: [],
           },
         });
         this.logger.log(`Route /${body.name} created for collection ${body.name} (${allMethodIds.length} available methods)`);

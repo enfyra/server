@@ -261,6 +261,7 @@ export class MetadataMigrationService {
 
     for (const mod of modifications) {
       const hasChanges = mod.to.propertyName !== mod.from.propertyName ||
+        (mod.to.inversePropertyName !== undefined && mod.to.inversePropertyName !== mod.from.inversePropertyName) ||
         (mod.to.isNullable !== undefined && mod.to.isNullable !== mod.from.isNullable) ||
         (mod.to.isUpdatable !== undefined && mod.to.isUpdatable !== mod.from.isUpdatable) ||
         (mod.to.onDelete !== undefined);
@@ -272,12 +273,16 @@ export class MetadataMigrationService {
       const oldName = mod.from.propertyName;
 
       try {
+        const filter: any = {
+          [sourceTableField]: { _eq: tableId },
+          propertyName: { _eq: oldName },
+        };
+        if (mod.from.inversePropertyName !== undefined) {
+          filter.inversePropertyName = { _eq: mod.from.inversePropertyName };
+        }
         const relationResult = await this.queryBuilder.select({
           tableName: 'relation_definition',
-          filter: {
-            [sourceTableField]: { _eq: tableId },
-            propertyName: { _eq: oldName },
-          },
+          filter,
           limit: 1,
         });
 
@@ -293,6 +298,9 @@ export class MetadataMigrationService {
 
         if (mod.to.propertyName !== mod.from.propertyName) {
           updateData.propertyName = mod.to.propertyName;
+        }
+        if (mod.to.inversePropertyName !== undefined && mod.to.inversePropertyName !== mod.from.inversePropertyName) {
+          updateData.inversePropertyName = mod.to.inversePropertyName;
         }
         if (mod.to.isNullable !== undefined && mod.to.isNullable !== mod.from.isNullable) {
           updateData.isNullable = mod.to.isNullable;

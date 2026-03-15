@@ -176,8 +176,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
         });
       };
 
-      const filteredPreHooks = filterHooks(route.preHook);
-      const filteredPostHooks = filterHooks(route.postHook);
+      const filteredPreHooks = filterHooks(route.preHooks);
+      const filteredPostHooks = filterHooks(route.postHooks);
 
       req.routeData = {
         ...route,
@@ -185,8 +185,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
           route.handlers.find((handler) => handler.method?.method === method)
             ?.logic ?? null,
         params,
-        preHook: filteredPreHooks,
-        postHook: filteredPostHooks,
+        preHooks: filteredPreHooks,
+        postHooks: filteredPostHooks,
         isPublished:
           route.publishedMethods?.some(
             (pubMethod: any) => pubMethod.method === req.method,

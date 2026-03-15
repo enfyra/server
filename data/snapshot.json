@@ -679,7 +679,7 @@
                 "description": "HTTP/GraphQL methods this route supports"
             },
             {
-                "propertyName": "preHook",
+                "propertyName": "preHooks",
                 "type": "one-to-many",
                 "targetTable": "pre_hook_definition",
                 "isSystem": true,
@@ -688,7 +688,7 @@
                 "description": "Pre-hooks that run before route execution"
             },
             {
-                "propertyName": "postHook",
+                "propertyName": "postHooks",
                 "type": "one-to-many",
                 "targetTable": "post_hook_definition",
                 "isSystem": true,
@@ -931,7 +931,7 @@
                 "type": "many-to-one",
                 "targetTable": "route_definition",
                 "isSystem": true,
-                "inversePropertyName": "preHook",
+                "inversePropertyName": "preHooks",
                 "description": "Route this hook is attached to (null when isGlobal is true)"
             },
             {
@@ -1024,7 +1024,7 @@
                 "type": "many-to-one",
                 "targetTable": "route_definition",
                 "isSystem": true,
-                "inversePropertyName": "postHook",
+                "inversePropertyName": "postHooks",
                 "description": "Route this hook is attached to (null when isGlobal is true)"
             },
             {
@@ -1153,7 +1153,7 @@
         ],
         "relations": [
             {
-                "propertyName": "route_permissions",
+                "propertyName": "routePermissions",
                 "type": "many-to-many",
                 "targetTable": "route_permission_definition",
                 "isSystem": true,
@@ -1588,7 +1588,7 @@
                 "description": "Folder containing this file"
             },
             {
-                "propertyName": "uploaded_by",
+                "propertyName": "uploadedBy",
                 "type": "many-to-one",
                 "targetTable": "user_definition",
                 "isNullable": true,
@@ -1611,8 +1611,7 @@
         "uniques": [
             [
                 "file",
-                "role",
-                "allowedUsers"
+                "role"
             ]
         ],
         "columns": [
@@ -1675,8 +1674,10 @@
             },
             {
                 "propertyName": "allowedUsers",
-                "type": "many-to-one",
+                "type": "many-to-many",
                 "targetTable": "user_definition",
+                "isSystem": true,
+                "inversePropertyName": "allowedFilePermissions",
                 "isNullable": true,
                 "description": "Specific users who have this permission"
             }
