@@ -54,16 +54,168 @@ Run schema migration:
 npx ts-node scripts/init-db.ts
 ```
 
-### Deleting Tables (`data/snapshot-migration.json`)
+### Schema Migration (`data/snapshot-migration.json`)
 
-To delete tables that are no longer needed:
+For dangerous operations (remove, modify/rename). Adding is handled automatically by `snapshot.json`.
 
 ```json
 {
-  "tables": [],
-  "deletedTables": ["old_table_name", "deprecated_table"]
+  "tables": [
+    {
+      "_unique": { "name": { "_eq": "users" } },
+      "columnsToModify": [
+        { "from": { "name": "email" }, "to": { "name": "userEmail" } }
+      ],
+      "columnsToRemove": ["deprecated_field"],
+      "relationsToModify": [
+        { "from": { "propertyName": "oldRelation" }, "to": { "propertyName": "newRelation" } }
+      ],
+      "relationsToRemove": ["deprecated_relation"]
+    }
+  ],
+  "tablesToDrop": ["old_table_name"]
 }
 ```
+
+**Operations:**
+
+| Field | Description | Data Loss Risk |
+|-------|-------------|----------------|
+| `columnsToModify` | Rename or change column properties | Low (rename preserves data) |
+| `columnsToRemove` | Remove columns | **HIGH** |
+| `relationsToModify` | Rename or change relation properties | Low |
+| `relationsToRemove` | Remove relations (drops FK column) | **HIGH** |
+| `tablesToDrop` | Drop entire tables | **HIGH** |
+
+**Flow:**
+1. Physical DB changes (init-db script or app bootstrap)
+2. Metadata updates (provision service)
+3. Both read from same `snapshot-migration.json` → consistent
+
+#### Usage Examples
+
+**1. Rename a column (preserves data)**
+
+```json
+{
+  "tables": [{
+    "_unique": { "name": { "_eq": "users" } },
+    "columnsToModify": [
+      { "from": { "name": "email" }, "to": { "name": "userEmail" } }
+    ]
+  }]
+}
+```
+
+Result: Column `email` renamed to `userEmail`, data preserved.
+
+**2. Change column properties**
+
+```json
+{
+  "tables": [{
+    "_unique": { "name": { "_eq": "users" } },
+    "columnsToModify": [
+      {
+        "from": { "name": "status", "isNullable": true },
+        "to": { "name": "status", "isNullable": false }
+      }
+    ]
+  }]
+}
+```
+
+Result: Column `status` becomes NOT NULL.
+
+**3. Remove deprecated column (⚠️ data loss)**
+
+```json
+{
+  "tables": [{
+    "_unique": { "name": { "_eq": "users" } },
+    "columnsToRemove": ["old_legacy_field"]
+  }]
+}
+```
+
+Result: Column `old_legacy_field` dropped, all data in this column lost.
+
+**4. Rename a relation (preserves FK data)**
+
+```json
+{
+  "tables": [{
+    "_unique": { "name": { "_eq": "orders" } },
+    "relationsToModify": [
+      { "from": { "propertyName": "approvedBy" }, "to": { "propertyName": "approver" } }
+    ]
+  }]
+}
+```
+
+Result: FK column `approvedById` renamed to `approverId`, data preserved.
+
+**5. Remove a relation (⚠️ FK data loss)**
+
+```json
+{
+  "tables": [{
+    "_unique": { "name": { "_eq": "orders" } },
+    "relationsToRemove": ["legacyRelation"]
+  }]
+}
+```
+
+Result: FK column dropped, all FK references lost.
+
+**6. Drop entire table (⚠️ all data lost)**
+
+```json
+{
+  "tablesToDrop": ["deprecated_table", "legacy_data"]
+}
+```
+
+Result: Tables completely removed from database.
+
+#### When to Use
+
+| Scenario | File to Modify |
+|----------|---------------|
+| Add new table | `snapshot.json` |
+| Add new column | `snapshot.json` |
+| Add new relation | `snapshot.json` |
+| Rename column | `snapshot-migration.json` |
+| Remove column | `snapshot-migration.json` |
+| Rename relation | `snapshot-migration.json` |
+| Remove relation | `snapshot-migration.json` |
+| Drop table | `snapshot-migration.json` |
+
+#### How It Works
+
+```
+┌─────────────────────────────────────┐
+│     snapshot-migration.json         │
+│         (single source)             │
+└──────────────┬──────────────────────┘
+               │
+       ┌───────┴───────┐
+       ▼               ▼
+┌──────────────┐ ┌──────────────────┐
+│  init-db.ts  │ │  provision service│
+│              │ │  (app bootstrap)  │
+│ Physical DB  │ │   Metadata DB     │
+│  (tables,    │ │  (table_def,      │
+│   columns,   │ │   column_def,     │
+│   FKs)       │ │   relation_def)   │
+└──────────────┘ └──────────────────┘
+       │               │
+       └───────┬───────┘
+               ▼
+         ✅ Consistent
+```
+
+Both physical DB and metadata are updated from the same source, ensuring consistency.
 
 ### Data Migration (`data/data-migration.json`)
 
@@ -93,9 +245,9 @@ Migrate existing data when the system is already initialized:
    - System sets `isInit = true`
 
 2. **Subsequent Starts** (`isInit = true`):
-   - Schema is synced from `snapshot.json`
+   - Schema is synced from `snapshot.json` (auto-add new columns/relations)
+   - Schema migrations run from `snapshot-migration.json` (remove/modify)
    - Data migrations run from `data-migration.json`
-   - Tables in `snapshot-migration.json` → `deletedTables` are dropped
 
 ### Supported Databases
 

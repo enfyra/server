@@ -137,10 +137,39 @@ export function generateModifyColumnSQL(
         const isNewInteger =
           newType === 'integer' ||
           newType === 'int' ||
-          newType === 'bigint';
+          newType === 'bigint' ||
+          newType === 'smallint';
+
+        const isNewNumeric =
+          newType === 'numeric' ||
+          newType === 'decimal' ||
+          newType === 'real' ||
+          newType === 'double precision' ||
+          newType === 'float';
+
+        const isNewDate =
+          newType === 'date';
+
+        const isNewTimestamp =
+          newType === 'timestamp' ||
+          newType === 'timestamp without time zone' ||
+          newType === 'timestamp with time zone' ||
+          newType === 'timestamptz';
+
+        const isNewBoolean =
+          newType === 'boolean' ||
+          newType === 'bool';
 
         if (isOldString && isNewInteger) {
           alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::INTEGER`;
+        } else if (isOldString && isNewNumeric) {
+          alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::NUMERIC`;
+        } else if (isOldString && isNewDate) {
+          alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::DATE`;
+        } else if (isOldString && isNewTimestamp) {
+          alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::TIMESTAMP`;
+        } else if (isOldString && isNewBoolean) {
+          alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING (${column}::TEXT = 'true' OR ${column}::TEXT = '1' OR ${column}::TEXT = 't')`;
         }
       }
 

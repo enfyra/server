@@ -26,6 +26,7 @@ export interface RelationDef {
   mappedBy?: string;
   isNullable?: boolean;
   isSystem?: boolean;
+  isUpdatable?: boolean;
   isInverseEager?: boolean;
 }
 

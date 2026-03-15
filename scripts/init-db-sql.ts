@@ -21,13 +21,13 @@ import {
 } from './utils/sql/junction-tables';
 import { syncTable } from './utils/sql/migrations';
 import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
+import {
+  loadSchemaMigration,
+  hasSchemaMigrations,
+  applySqlSchemaMigrations,
+} from './utils/schema-migration';
 
 dotenv.config();
-
-interface SnapshotOld {
-  tables?: string[];
-  deletedTables?: string[];
-}
 
 
 
@@ -101,28 +101,12 @@ export async function initializeDatabaseSql(): Promise<void> {
       }
     }
 
-    const snapshotOldPath = path.resolve(process.cwd(), 'data/snapshot-migration.json');
-    let snapshotOld: SnapshotOld = { tables: [], deletedTables: [] };
-    if (fs.existsSync(snapshotOldPath)) {
-      try {
-        snapshotOld = JSON.parse(fs.readFileSync(snapshotOldPath, 'utf8'));
-      } catch (e) {
-        console.warn('⚠️ Failed to parse snapshot-migration.json, using empty structure');
-      }
-    }
+    const schemaMigration = loadSchemaMigration();
 
-    if (snapshotOld.deletedTables && snapshotOld.deletedTables.length > 0) {
-      console.log(`🗑️ Processing ${snapshotOld.deletedTables.length} table(s) to delete...`);
-      for (const tableName of snapshotOld.deletedTables) {
-        const exists = await knexInstance.schema.hasTable(tableName);
-        if (exists) {
-          console.log(`  Dropping table: ${tableName}`);
-          await knexInstance.schema.dropTableIfExists(tableName);
-          console.log(`  ✅ Dropped table: ${tableName}`);
-        } else {
-          console.log(`  ⏩ Table ${tableName} does not exist, skipping`);
-        }
-      }
+    // Apply schema migrations (dangerous operations: remove, modify)
+    if (hasSchemaMigrations(schemaMigration)) {
+      console.log('📋 Applying schema migrations from snapshot-migration.json...');
+      await applySqlSchemaMigrations(knexInstance, schemaMigration);
     }
 
     const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');

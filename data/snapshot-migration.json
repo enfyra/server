@@ -1,4 +1,4 @@
 {
   "tables": [],
-  "deletedTables": []
+  "tablesToDrop": []
 }

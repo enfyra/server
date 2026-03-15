@@ -157,6 +157,7 @@ export class MetadataProvisionSqlService {
               inversePropertyName: rel.propertyName,
               isSystem: rel.isSystem,
               isNullable: rel.isNullable,
+              isUpdatable: rel.isUpdatable,
             };
             if (inverseType === 'many-to-many') {
               const junctionTableName = getJunctionTableName(name, rel.propertyName, rel.targetTable);
@@ -185,12 +186,14 @@ export class MetadataProvisionSqlService {
             (rel.isNullable !== undefined && rel.isNullable !== existingRel.isNullable) ||
             (rel.inversePropertyName !== existingRel.inversePropertyName) ||
             (rel.type !== undefined && rel.type !== existingRel.type) ||
-            (targetId !== undefined && targetId !== existingRel.targetTableId);
+            (targetId !== undefined && targetId !== existingRel.targetTableId) ||
+            (rel.isUpdatable !== undefined && rel.isUpdatable !== existingRel.isUpdatable);
           if (needsUpdate) {
             const updateData: any = {};
             if (rel.isNullable !== undefined) updateData.isNullable = rel.isNullable;
             updateData.inversePropertyName = rel.inversePropertyName || null;
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
+            if (rel.isUpdatable !== undefined) updateData.isUpdatable = rel.isUpdatable;
             if (rel.type !== undefined) updateData.type = rel.type;
             if (targetId !== undefined) updateData.targetTableId = targetId;
             if (rel.type === 'many-to-many') {
@@ -214,6 +217,7 @@ export class MetadataProvisionSqlService {
             inversePropertyName: rel.inversePropertyName,
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
+            isUpdatable: rel.isUpdatable !== false,
             description: rel.description,
             sourceTableId: tableId,
             targetTableId: targetId,

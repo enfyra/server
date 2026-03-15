@@ -119,6 +119,7 @@
                 "type": "many-to-one",
                 "targetTable": "table_definition",
                 "isSystem": true,
+                "isUpdatable": false,
                 "inversePropertyName": "columns",
                 "isInverseEager": true,
                 "description": "The table that this column belongs to"
@@ -233,6 +234,14 @@
                 "type": "simple-json",
                 "isSystem": true,
                 "description": "Additional metadata for the relation"
+            },
+            {
+                "name": "isUpdatable",
+                "type": "boolean",
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": true,
+                "description": "Whether this relation can be updated. When false, the foreign key column will be protected from updates."
             }
         ],
         "relations": [
@@ -241,6 +250,7 @@
                 "type": "many-to-one",
                 "targetTable": "table_definition",
                 "isSystem": true,
+                "isUpdatable": false,
                 "inversePropertyName": "relations",
                 "isInverseEager": true,
                 "description": "The table where this relation is defined"
@@ -250,6 +260,7 @@
                 "type": "many-to-one",
                 "targetTable": "table_definition",
                 "isSystem": true,
+                "isUpdatable": false,
                 "isNullable": false,
                 "description": "The table that this relation points to"
             }

@@ -9,12 +9,12 @@ import {
   RelationDef,
   TableDef,
 } from '../src/shared/types/database-init.types';
+import {
+  loadSchemaMigration,
+  hasSchemaMigrations,
+  applyMongoSchemaMigrations,
+} from './utils/schema-migration';
 dotenv.config();
-
-interface SnapshotOld {
-  tables?: string[];
-  deletedTables?: string[];
-}
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {
     int: 'int',
@@ -243,28 +243,12 @@ export async function initializeDatabaseMongo(): Promise<void> {
       return;
     }
 
-    const snapshotOldPath = path.resolve(process.cwd(), 'data/snapshot-migration.json');
-    let snapshotOld: SnapshotOld = { tables: [], deletedTables: [] };
-    if (fs.existsSync(snapshotOldPath)) {
-      try {
-        snapshotOld = JSON.parse(fs.readFileSync(snapshotOldPath, 'utf8'));
-      } catch (e) {
-        console.warn('⚠️ Failed to parse snapshot-migration.json, using empty structure');
-      }
-    }
+    const schemaMigration = loadSchemaMigration();
 
-    if (snapshotOld.deletedTables && snapshotOld.deletedTables.length > 0) {
-      console.log(`🗑️ Processing ${snapshotOld.deletedTables.length} collection(s) to delete...`);
-      for (const collectionName of snapshotOld.deletedTables) {
-        const collections = await db.listCollections({ name: collectionName }).toArray();
-        if (collections.length > 0) {
-          console.log(`  Dropping collection: ${collectionName}`);
-          await db.dropCollection(collectionName);
-          console.log(`  ✅ Dropped collection: ${collectionName}`);
-        } else {
-          console.log(`  ⏩ Collection ${collectionName} does not exist, skipping`);
-        }
-      }
+    // Apply schema migrations (dangerous operations: remove, modify)
+    if (hasSchemaMigrations(schemaMigration)) {
+      console.log('📋 Applying schema migrations from snapshot-migration.json...');
+      await applyMongoSchemaMigrations(db, schemaMigration);
     }
 
     const snapshotPath = path.resolve(process.cwd(), 'data/snapshot.json');

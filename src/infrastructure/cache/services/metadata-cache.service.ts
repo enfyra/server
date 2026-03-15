@@ -194,7 +194,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         const relations: any[] = [];
         for (const rel of relationsData) {
-          const relBooleanFields = ['isNullable', 'isSystem'];
+          const relBooleanFields = ['isNullable', 'isSystem', 'isUpdatable'];
           for (const field of relBooleanFields) {
             if (rel[field] !== undefined && rel[field] !== null) {
               rel[field] = rel[field] === 1 || rel[field] === true;
@@ -288,8 +288,14 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
                     ...actualFkColumn,
                     isForeignKey: true,
                     relationPropertyName: rel.propertyName,
+                    isUpdatable: rel.isUpdatable !== false,
                     description: `FK column for ${rel.propertyName} relation`
                   });
+                }
+              } else {
+                const explicitFkColumn = combinedColumns.find(col => col.name === fkColumn);
+                if (explicitFkColumn && rel.isUpdatable === false) {
+                  explicitFkColumn.isUpdatable = false;
                 }
               }
             }

@@ -443,9 +443,24 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     if (!tableMetadata || !tableMetadata.columns) return data;
 
     const filteredData = { ...data };
-    
+
     for (const column of tableMetadata.columns) {
       if (column.isHidden === true && column.name in filteredData && filteredData[column.name] === null) {
+        delete filteredData[column.name];
+      }
+    }
+
+    return filteredData;
+  }
+
+  async stripNonUpdatableFields(collectionName: string, data: any): Promise<any> {
+    const tableMetadata = await this.metadataCache.getTableMetadata(collectionName);
+    if (!tableMetadata || !tableMetadata.columns) return data;
+
+    const filteredData = { ...data };
+
+    for (const column of tableMetadata.columns) {
+      if (column.isUpdatable === false && column.name in filteredData) {
         delete filteredData[column.name];
       }
     }
@@ -466,17 +481,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const objectId = new ObjectId(id);
 
     const oldRecord = await this.findOne(collectionName, { _id: objectId });
-    
+
     const dataParsed = await this.parseJsonFields(collectionName, data);
     const dataWithRelations = await this.processNestedRelations(collectionName, dataParsed);
     const dataWithoutInverse = await this.stripInverseRelations(collectionName, dataWithRelations);
     const dataWithoutHiddenNulls = await this.stripHiddenNullFields(collectionName, dataWithoutInverse);
-    const dataWithTimestamp = this.applyUpdateTimestamp(dataWithoutHiddenNulls);
+    const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(collectionName, dataWithoutHiddenNulls);
+    const dataWithTimestamp = this.applyUpdateTimestamp(dataWithoutNonUpdatable);
 
     await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
 
     await this.updateInverseRelationsOnUpdate(collectionName, objectId, oldRecord, dataWithRelations);
-    
+
     return this.findOne(collectionName, { _id: objectId });
   }
 

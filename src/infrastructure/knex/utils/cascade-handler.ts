@@ -8,12 +8,18 @@ import type { MetadataCacheService } from '../../cache/services/metadata-cache.s
  * - One-to-many: null-out removed children, update FK for existing ids, insert new children
  * - Many-to-one: clear FK when null, link existing ids/values, create related row when object lacks id
  * - One-to-one (owner side): link existing id or create related entity then update parent FK
+ *
+ * Supports recursive cascade - nested relations are processed through insertWithCascade/updateWithCascade
  */
 export class CascadeHandler {
   constructor(
     private knexInstance: Knex,
     private metadataCacheService: MetadataCacheService,
     private logger: Logger,
+    private stripUnknownColumns?: (tableName: string, data: any) => Promise<any>,
+    private stripNonUpdatableFields?: (tableName: string, data: any) => Promise<any>,
+    private insertWithCascade?: (tableName: string, data: any, trx?: Knex | Knex.Transaction) => Promise<any>,
+    private updateWithCascade?: (tableName: string, recordId: any, data: any, trx?: Knex | Knex.Transaction) => Promise<void>,
   ) {}
 
   async handleCascadeRelations(
@@ -243,7 +249,7 @@ export class CascadeHandler {
             };
 
             this.logger.log(`     Creating new item with ${foreignKeyColumn}=${recordId}`);
-            await knex(targetTableName).insert(newItem);
+            await this.insertRecordAndGetId(targetTableName, newItem, knex);
 
             createCount++;
           }
@@ -428,8 +434,25 @@ export class CascadeHandler {
   ): Promise<any> {
     if (!targetTableName || !data) return null;
 
-    const newRecord = { ...data };
+    let newRecord = { ...data };
     delete newRecord.id;
+
+    if (this.insertWithCascade) {
+      const result = await this.insertWithCascade(targetTableName, newRecord, knexOrTrx);
+      if (result && result.id) {
+        return result.id;
+      }
+      if (result && result._id) {
+        return result._id;
+      }
+      if (typeof result === 'number' || typeof result === 'string') {
+        return result;
+      }
+    }
+
+    if (this.stripUnknownColumns) {
+      newRecord = await this.stripUnknownColumns(targetTableName, newRecord);
+    }
 
     const knex = knexOrTrx || this.knexInstance;
     const clientName = (knex?.client as any)?.config?.client || '';
@@ -454,5 +477,24 @@ export class CascadeHandler {
     }
 
     return newId ?? null;
+  }
+
+  private async prepareUpdateData(
+    targetTableName: string,
+    data: any,
+  ): Promise<any> {
+    if (!data || typeof data !== 'object') return data;
+
+    let updateData = { ...data };
+
+    if (this.stripUnknownColumns) {
+      updateData = await this.stripUnknownColumns(targetTableName, updateData);
+    }
+
+    if (this.stripNonUpdatableFields) {
+      updateData = await this.stripNonUpdatableFields(targetTableName, updateData);
+    }
+
+    return updateData;
   }
 }
