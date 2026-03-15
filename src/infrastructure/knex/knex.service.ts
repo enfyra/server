@@ -141,6 +141,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       this.knexInstance,
       this.metadataCacheService,
       this.logger,
+      (tableName, data) => this.stripUnknownColumns(tableName, data),
+      (tableName, data) => this.stripNonUpdatableFields(tableName, data),
+      (tableName, data, trx) => this.insertWithCascade(tableName, data, trx),
+      (tableName, recordId, data, trx) => this.updateWithCascade(tableName, recordId, data, trx),
     );
     this.fieldStripper = new FieldStripper(this.metadataCacheService);
     this.relationTransformer = new RelationTransformer(

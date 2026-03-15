@@ -6,6 +6,7 @@ import { MetadataProvisionMongoService } from './services/metadata-provision-mon
 import { DataProvisionService } from './services/data-provision.service';
 import { BootstrapScriptService } from './services/bootstrap-script.service';
 import { DataMigrationService } from './services/data-migration.service';
+import { MetadataMigrationService } from './services/metadata-migration.service';
 
 import { UserDefinitionProcessor } from './processors/user-definition.processor';
 import { MenuDefinitionProcessor } from './processors/menu-definition.processor';
@@ -32,6 +33,7 @@ import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-
     MetadataProvisionMongoService,
     DataProvisionService,
     DataMigrationService,
+    MetadataMigrationService,
     UserDefinitionProcessor,
     MenuDefinitionProcessor,
     RouteDefinitionProcessor,
@@ -49,6 +51,6 @@ import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-
     WebsocketEventDefinitionProcessor,
     BootstrapScriptService,
   ],
-  exports: [ProvisionService, MetadataProvisionService, DataProvisionService, BootstrapScriptService, DataMigrationService],
+  exports: [ProvisionService, MetadataProvisionService, DataProvisionService, BootstrapScriptService, DataMigrationService, MetadataMigrationService],
 })
 export class ProvisionModule {}

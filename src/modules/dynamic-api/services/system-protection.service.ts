@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { isEqual } from 'lodash';
 import { CommonService } from '../../../shared/common/services/common.service';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+
 @Injectable()
 export class SystemProtectionService {
   constructor(
     private commonService: CommonService,
-    private queryBuilder: QueryBuilderService,
     private metadataCache: MetadataCacheService,
   ) {}
+
   private async getAllRelationFieldsWithInverse(tableName: string): Promise<string[]> {
     try {
       const metadata = await this.metadataCache.getMetadata();
@@ -36,6 +36,7 @@ export class SystemProtectionService {
       return [];
     }
   }
+
   private stripRelations(data: any, relationFields: string[]): any {
     if (!data || typeof data !== 'object') return data;
     const result: any = {};
@@ -46,6 +47,7 @@ export class SystemProtectionService {
     }
     return result;
   }
+
   private getChangedFields(
     data: any,
     existing: any,
@@ -60,23 +62,31 @@ export class SystemProtectionService {
       return isChanged;
     });
   }
+
   private getAllowedFields(base: string[]): string[] {
     return [...new Set([...base, 'createdAt', 'updatedAt'])];
   }
-  private async reloadIfSystem(existing: any, tableName: string): Promise<any> {
-    if (!existing?.isSystem) return existing;
-    const relations = await this.getAllRelationFieldsWithInverse(tableName);
-    const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const existingId = existing._id || existing.id;
-    const full = await this.queryBuilder.findOneWhere(tableName, { [idField]: existingId });
-    if (!full) throw new Error('Full system record not found');
-    if (tableName === 'table_definition') {
-      const fullId = full._id || full.id;
-      full.columns = await this.queryBuilder.findWhere('column_definition', { tableId: fullId });
-      full.relations = await this.queryBuilder.findWhere('relation_definition', { sourceTableId: fullId });
+
+  private async enrichTableDefinitionData(existing: any): Promise<any> {
+    if (!existing?.name) return existing;
+
+    const metadata = await this.metadataCache.getMetadata();
+    const tableMeta = metadata.tables.get(existing.name);
+
+    if (!tableMeta) return existing;
+
+    const enriched = { ...existing };
+
+    if (!enriched.columns || enriched.columns.length === 0) {
+      enriched.columns = tableMeta.columns || [];
     }
-    return full;
+    if (!enriched.relations || enriched.relations.length === 0) {
+      enriched.relations = tableMeta.relations || [];
+    }
+
+    return enriched;
   }
+
   private async assertRelationSystemRecordsNotRemoved(
     tableName: string,
     existing: any,
@@ -110,6 +120,7 @@ export class SystemProtectionService {
       }
     }
   }
+
   async assertSystemSafe({
     operation,
     tableName,
@@ -123,21 +134,29 @@ export class SystemProtectionService {
     existing?: any;
     currentUser?: any;
   }) {
-    const fullExisting = await this.reloadIfSystem(existing, tableName);
+    let fullExisting = existing;
+
+    if (existing?.isSystem && tableName === 'table_definition') {
+      fullExisting = await this.enrichTableDefinitionData(existing);
+    }
+
     const relationFields = await this.getAllRelationFieldsWithInverse(tableName);
     const changedFields = this.getChangedFields(
       data,
       fullExisting,
       relationFields,
     );
+
     if (operation === 'create') {
       const jsonFields = await this.getJsonFields(tableName);
       const dataWithoutJson = this.excludeJsonFields(data, jsonFields);
       this.commonService.assertNoSystemFlagDeep([dataWithoutJson]);
     }
+
     if (operation === 'delete' && fullExisting?.isSystem) {
       throw new Error('Cannot delete system record!');
     }
+
     if (operation === 'update' && fullExisting?.isSystem) {
       await this.assertRelationSystemRecordsNotRemoved(
         tableName,
@@ -145,6 +164,7 @@ export class SystemProtectionService {
         data,
       );
     }
+
     if (tableName === 'route_definition' && fullExisting?.isSystem) {
       const allowed = this.getAllowedFields([
         'description',
@@ -171,6 +191,7 @@ export class SystemProtectionService {
           throw new Error('Cannot add or modify system route handlers');
       }
     }
+
     if (tableName === 'pre_hook_definition' || tableName === 'post_hook_definition') {
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create system hook');
@@ -200,6 +221,7 @@ export class SystemProtectionService {
           throw new Error(`Cannot change 'methods' of system hook`);
       }
     }
+
     if (tableName === 'user_definition') {
       const isRoot = fullExisting?.isRootAdmin;
       if (operation === 'delete' && isRoot)
@@ -217,6 +239,7 @@ export class SystemProtectionService {
           throw new Error('Only Root Admin can modify themselves');
       }
     }
+
     if (tableName === 'table_definition') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem)
@@ -296,6 +319,7 @@ export class SystemProtectionService {
         }
       }
     }
+
     if (tableName === 'menu_definition') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem) {
@@ -332,6 +356,7 @@ export class SystemProtectionService {
         }
       }
     }
+
     if (tableName === 'extension_definition') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem) {
@@ -380,6 +405,7 @@ export class SystemProtectionService {
         }
       }
     }
+
     if (tableName === 'storage_config_definition') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'update' && isSystem) {
@@ -393,6 +419,7 @@ export class SystemProtectionService {
       }
     }
   }
+
   private async getJsonFields(tableName: string): Promise<string[]> {
     try {
       const metadata = await this.metadataCache.getMetadata();
@@ -405,6 +432,7 @@ export class SystemProtectionService {
       return [];
     }
   }
+
   private excludeJsonFields(data: any, jsonFields: string[]): any {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       return data;

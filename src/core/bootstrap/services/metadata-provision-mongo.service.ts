@@ -184,6 +184,7 @@ export class MetadataProvisionMongoService {
               inversePropertyName: rel.propertyName,
               isNullable: rel.isNullable !== false,
               isSystem: rel.isSystem || false,
+              isUpdatable: rel.isUpdatable !== false,
             };
             const inverseRelationRecord = this.buildRecordFromColumns(inverseData, relationDef.columns);
             inverseRelationRecord[sourceTableFieldName] = targetTableId;

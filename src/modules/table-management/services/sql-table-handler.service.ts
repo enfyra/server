@@ -342,6 +342,7 @@ export class SqlTableHandlerService {
             inversePropertyName: rel.inversePropertyName,
             isNullable: rel.isNullable ?? true,
             isSystem: rel.isSystem || false,
+            isUpdatable: rel.isUpdatable ?? true,
             description: rel.description,
             sourceTableId: tableId,
           };
@@ -643,6 +644,7 @@ export class SqlTableHandlerService {
               inversePropertyName: rel.inversePropertyName,
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
+              isUpdatable: rel.isUpdatable ?? true,
               description: rel.description,
               sourceTableId: id,
             };

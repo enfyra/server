@@ -177,7 +177,7 @@ process.on('message', async (msg: any) => {
 
     const wrappedCode = `"use strict";
 return (async () => {
-process.env = null    
+process.env = {};
 ${processedCode}
 })();`;
 

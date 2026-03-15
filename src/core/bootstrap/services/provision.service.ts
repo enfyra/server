@@ -3,6 +3,7 @@ import { CommonService } from '../../../shared/common/services/common.service';
 import { DataProvisionService } from './data-provision.service';
 import { MetadataProvisionService } from './metadata-provision.service';
 import { DataMigrationService } from './data-migration.service';
+import { MetadataMigrationService } from './metadata-migration.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class ProvisionService implements OnModuleInit {
     private readonly dataProvisionService: DataProvisionService,
     private readonly metadataProvisionService: MetadataProvisionService,
     private readonly dataMigrationService: DataMigrationService,
+    private readonly metadataMigrationService: MetadataMigrationService,
     private readonly queryBuilder: QueryBuilderService,
   ) {}
 
@@ -82,6 +84,10 @@ export class ProvisionService implements OnModuleInit {
 
       this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
     } else {
+      if (this.metadataMigrationService.hasMigrations()) {
+        this.logger.log('Running metadata migrations from snapshot-migration.json...');
+        await this.metadataMigrationService.runMigrations();
+      }
       if (this.dataMigrationService.hasMigrations()) {
         this.logger.log('Running data migrations from data-migration.json...');
         await this.dataMigrationService.runMigrations();

@@ -180,6 +180,10 @@ export class CreateRelationDto {
   isSystem?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  isUpdatable?: boolean;
+
+  @IsOptional()
   @IsString()
   junctionTableName?: string;
 

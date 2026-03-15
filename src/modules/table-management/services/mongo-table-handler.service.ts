@@ -354,6 +354,7 @@ export class MongoTableHandlerService {
               inversePropertyName: rel.inversePropertyName,
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
+              isUpdatable: rel.isUpdatable ?? true,
               description: rel.description,
             });
             const relId = typeof relationRecord._id === 'string' ? new ObjectId(relationRecord._id) : relationRecord._id;
@@ -597,6 +598,7 @@ export class MongoTableHandlerService {
             inversePropertyName: rel.inversePropertyName,
             isNullable: rel.isNullable ?? true,
             isSystem: rel.isSystem || false,
+            isUpdatable: rel.isUpdatable ?? true,
             description: rel.description,
           };
           let relObjectId;
