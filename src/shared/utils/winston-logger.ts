@@ -15,7 +15,7 @@ const EXCLUDED_CONTEXTS = [
   'NestApplication',
 ];
 
-const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
+const LOG_DIR = path.join(process.cwd(), 'logs');
 
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
