@@ -39,7 +39,7 @@ export class LogReaderService {
   private readonly logDir: string;
 
   constructor() {
-    this.logDir = process.env.LOG_DIR || path.join(process.cwd(), 'logs');
+    this.logDir = path.join(process.cwd(), 'logs');
   }
 
   private parseLogLine(line: string): ParsedLogEntry | null {
@@ -83,7 +83,8 @@ export class LogReaderService {
     const logFiles: LogFile[] = [];
 
     for (const file of files) {
-      if (file.startsWith('.') || (!file.endsWith('.log') && !file.endsWith('.gz'))) {
+      // Skip hidden files, non-log files, compressed files, and PM2 logs
+      if (file.startsWith('.') || (!file.endsWith('.log') && !file.endsWith('.gz')) || file.startsWith('pm2-')) {
         continue;
       }
 
