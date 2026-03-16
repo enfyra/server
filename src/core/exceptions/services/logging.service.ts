@@ -1,4 +1,5 @@
-import { Injectable, Logger, LoggerService } from '@nestjs/common';
+import { Injectable, LoggerService } from '@nestjs/common';
+import { winstonLogger } from '../../../shared/utils/winston-logger';
 
 export interface LogContext {
   correlationId?: string;
@@ -20,7 +21,6 @@ export interface LogLevel {
 
 @Injectable()
 export class LoggingService implements LoggerService {
-  private readonly logger = new Logger(LoggingService.name);
   private correlationId: string | null = null;
   private context: LogContext = {};
 
@@ -38,43 +38,34 @@ export class LoggingService implements LoggerService {
     this.context = {};
   }
 
-  private createLogData(message: string, data?: any): any {
-    const logData: any = {
-      message,
-      timestamp: new Date().toISOString(),
-      ...this.context,
-    };
+  private createLogMeta(data?: any): any {
+    const meta: any = { ...this.context };
 
     if (data) {
-      logData.data = data;
+      meta.data = data;
     }
 
-    return logData;
+    return meta;
   }
 
   error(message: string, data?: any): void {
-    const logData = this.createLogData(message, data);
-    this.logger.error(logData);
+    winstonLogger.error(message, this.createLogMeta(data));
   }
 
   warn(message: string, data?: any): void {
-    const logData = this.createLogData(message, data);
-    this.logger.warn(logData);
+    winstonLogger.warn(message, this.createLogMeta(data));
   }
 
   log(message: string, data?: any): void {
-    const logData = this.createLogData(message, data);
-    this.logger.log(logData);
+    winstonLogger.info(message, this.createLogMeta(data));
   }
 
   debug(message: string, data?: any): void {
-    const logData = this.createLogData(message, data);
-    this.logger.debug(logData);
+    winstonLogger.debug(message, this.createLogMeta(data));
   }
 
   verbose(message: string, data?: any): void {
-    const logData = this.createLogData(message, data);
-    this.logger.verbose(logData);
+    winstonLogger.verbose(message, this.createLogMeta(data));
   }
 
   logResponse(
@@ -85,15 +76,13 @@ export class LoggingService implements LoggerService {
     userId?: string,
     requestData?: any,
   ): void {
-    const { userId: _, ...cleanRequestData } = requestData || {};
-
     this.log('API Response', {
       method,
       url,
       statusCode,
       responseTime: `${responseTime}ms`,
       userId,
-      ...cleanRequestData,
+      ...requestData,
     });
   }
 

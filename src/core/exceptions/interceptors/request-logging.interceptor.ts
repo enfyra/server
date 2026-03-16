@@ -9,6 +9,8 @@ import { tap } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import { LoggingService } from '../services/logging.service';
 
+const SLOW_REQUEST_THRESHOLD_MS = 2000;
+
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
   constructor(private readonly loggingService: LoggingService) {}
@@ -24,8 +26,6 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     this.loggingService.setContext({
       method: request.method,
       url: request.url,
-      userAgent: request.headers['user-agent'],
-      ip: request.ip || request.connection.remoteAddress,
       userId: (request as any).user?.id,
     });
 
@@ -35,18 +35,21 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       tap({
         next: () => {
           const responseTime = Date.now() - startTime;
-          this.loggingService.logResponse(
-            request.method,
-            request.url,
-            response.statusCode,
-            responseTime,
-            (request as any).user?.id,
-            {
-              query: request.query,
-              body: this.sanitizeBody(request.body),
-              headers: this.sanitizeHeaders(request.headers),
-            },
-          );
+          const statusCode = response.statusCode;
+
+          if (statusCode >= 400 || responseTime > SLOW_REQUEST_THRESHOLD_MS) {
+            this.loggingService.logResponse(
+              request.method,
+              request.url,
+              statusCode,
+              responseTime,
+              (request as any).user?.id,
+              {
+                query: Object.keys(request.query).length > 0 ? request.query : undefined,
+              },
+            );
+          }
+
           this.loggingService.clearContext();
         },
         error: () => {
@@ -63,39 +66,5 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     }
 
     return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  private sanitizeBody(body: any): any {
-    if (!body || typeof body !== 'object') {
-      return body;
-    }
-
-    const sanitized = { ...body };
-    const sensitiveFields = ['password', 'token', 'secret', 'key', 'authorization'];
-
-    for (const field of sensitiveFields) {
-      if (sanitized[field]) {
-        sanitized[field] = '[REDACTED]';
-      }
-    }
-
-    return sanitized;
-  }
-
-  private sanitizeHeaders(headers: any): any {
-    if (!headers || typeof headers !== 'object') {
-      return headers;
-    }
-
-    const sanitized = { ...headers };
-    const sensitiveHeaders = ['authorization', 'cookie', 'x-api-key'];
-
-    for (const header of sensitiveHeaders) {
-      if (sanitized[header]) {
-        sanitized[header] = '[REDACTED]';
-      }
-    }
-
-    return sanitized;
   }
 }
