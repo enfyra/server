@@ -5,5 +5,11 @@
       "type": "Menu",
       "isSystem": true
     }
+  ],
+  "route_definition": [
+    {
+      "_unique": { "path": { "_eq": "/package_definition" } },
+      "publishedMethods": ["GET"]
+    }
   ]
 }

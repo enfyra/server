@@ -8,6 +8,8 @@ interface InitOld {
   _deletedTables?: string[];
 }
 
+const RELATION_FIELD_PREFIXES = ['publishedMethods', 'availableMethods'];
+
 @Injectable()
 export class DataMigrationService {
   private readonly logger = new Logger(DataMigrationService.name);
@@ -104,13 +106,17 @@ export class DataMigrationService {
         }
 
         const existingId = existing.data[0][idField];
-        const newRecord = this.transformRecord(oldRecord);
+        const { newRecord, relationUpdates } = this.transformRecord(tableName, oldRecord);
 
         await this.queryBuilder.update({
           table: tableName,
           where: [{ field: idField, operator: '=', value: existingId }],
           data: newRecord,
         });
+
+        if (Object.keys(relationUpdates).length > 0) {
+          await this.updateRelations(tableName, existingId, relationUpdates);
+        }
 
         migratedCount++;
         this.logger.debug(`Migrated record in ${tableName}`);
@@ -126,9 +132,39 @@ export class DataMigrationService {
     return migratedCount;
   }
 
-  private transformRecord(oldRecord: any): any {
+  private transformRecord(_tableName: string, oldRecord: any): { newRecord: any; relationUpdates: any } {
     const { _unique, ...data } = oldRecord;
-    return data;
+    const relationUpdates: any = {};
+
+    for (const field of RELATION_FIELD_PREFIXES) {
+      if (data[field] && Array.isArray(data[field])) {
+        relationUpdates[field] = data[field];
+        delete data[field];
+      }
+    }
+
+    return { newRecord: data, relationUpdates };
+  }
+
+  private async updateRelations(tableName: string, recordId: any, relationUpdates: any): Promise<void> {
+    if (tableName === 'route_definition') {
+      for (const [field, methodNames] of Object.entries(relationUpdates)) {
+        if (field === 'publishedMethods' || field === 'availableMethods') {
+          const result = await this.queryBuilder.select({
+            tableName: 'method_definition',
+            filter: { method: { _in: methodNames as string[] } },
+            fields: ['id'],
+          });
+          const methodIds = result.data.map((m: any) => m.id);
+          if (methodIds.length > 0) {
+            await this.queryBuilder.updateById('route_definition', recordId, {
+              [field]: methodIds,
+            });
+            this.logger.log(`Linked ${methodIds.length} ${field} to route`);
+          }
+        }
+      }
+    }
   }
 
   private getUniqueFilter(_tableName: string, record: any): any | null {

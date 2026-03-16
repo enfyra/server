@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "1.5.11",
+  "version": "1.6.0",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
@@ -78,6 +78,8 @@
     "uuid": "^11.1.0",
     "vite": "^7.3.1",
     "vue": "^3.5.30",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.19.0",
     "zod": "^4.1.12"
   },
