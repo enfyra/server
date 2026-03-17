@@ -91,26 +91,28 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   private async ensurePackagesInstalled(): Promise<void> {
     const packagesWithVersion = await this.loadPackagesWithVersion();
 
-    for (const pkg of packagesWithVersion) {
+    const installPromises = packagesWithVersion.map(async (pkg) => {
       const isInstalled = await this.packageManagementService.isPackageInstalled(pkg.name);
 
       if (!isInstalled) {
-        this.logger.log(`Package ${pkg.name} not found in package.json, installing...`);
+        this.logger.log(`Package ${pkg.name} not found, installing in background...`);
 
-        try {
-          await this.packageManagementService.installPackage({
-            name: pkg.name,
-            type: 'Server',
-            version: pkg.version,
+        this.packageManagementService.installPackage({
+          name: pkg.name,
+          type: 'Server',
+          version: pkg.version,
+        })
+          .then(() => {
+            this.logger.log(`Successfully installed package ${pkg.name}@${pkg.version}`);
+          })
+          .catch((error) => {
+            this.logger.error(`Failed to install package ${pkg.name}:`, error.message);
           });
-
-          this.logger.log(`Successfully installed package ${pkg.name}@${pkg.version}`);
-        } catch (error) {
-          this.logger.error(`Failed to install package ${pkg.name}:`, error.message);
-          throw error;
-        }
       }
-    }
+    });
+
+    // Don't wait for installations to complete - let them run in background
+    await Promise.all(installPromises);
   }
 
   private async loadPackagesWithVersion(): Promise<Array<{ name: string; version: string }>> {
