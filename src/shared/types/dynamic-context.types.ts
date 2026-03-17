@@ -1,6 +1,31 @@
 import { Request, Response } from 'express';
 import { UploadedFileInfo } from './file-management.types';
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+  retryAfter: number;
+  limit: number;
+  window: number;
+}
+
+export interface RateLimitOptions {
+  maxRequests: number;
+  perSeconds: number;
+}
+
+export interface RateLimitHelper {
+  check: (key: string, options: RateLimitOptions) => Promise<RateLimitResult>;
+  byIp: (options: RateLimitOptions) => Promise<RateLimitResult>;
+  byUser: (options: RateLimitOptions) => Promise<RateLimitResult>;
+  byRoute: (options: RateLimitOptions) => Promise<RateLimitResult>;
+  byIpGlobal: (options: RateLimitOptions) => Promise<RateLimitResult>;
+  byUserGlobal: (options: RateLimitOptions) => Promise<RateLimitResult>;
+  reset: (key: string) => Promise<void>;
+  status: (key: string, options: RateLimitOptions) => Promise<RateLimitResult>;
+}
+
 export interface TDynamicContext {
   $body?: any;
   $data?: any;
@@ -15,6 +40,7 @@ export interface TDynamicContext {
       compare?: (p: string, h: string) => Promise<boolean>;
     };
     autoSlug?: (text: string) => string;
+    $rateLimit?: RateLimitHelper;
     $uploadFile?: (options: {
       originalname?: string;
       filename?: string;

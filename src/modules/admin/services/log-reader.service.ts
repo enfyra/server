@@ -1,11 +1,11 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
+import * as readline from 'readline';
 import * as path from 'path';
 
 export interface LogFile {
   name: string;
   size: number;
-  lineCount: number;
   createdAt: Date;
   lastModified: Date;
   compressed: boolean;
@@ -27,11 +27,13 @@ export interface LogContent {
   file: string;
   lines: ParsedLogEntry[];
   rawLines?: string[];
-  totalLines: number;
   page: number;
   pageSize: number;
   hasMore: boolean;
 }
+
+const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 1000;
 
 @Injectable()
 export class LogReaderService {
@@ -74,6 +76,24 @@ export class LogReaderService {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
+  private matchesFilter(line: string, filter?: string, level?: string, id?: string, correlationId?: string): boolean {
+    if (!filter && !level && !id && !correlationId) return true;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return filter ? line.toLowerCase().includes(filter.toLowerCase()) : false;
+    }
+
+    if (id && parsed.id !== id) return false;
+    if (correlationId && parsed.correlationId !== correlationId && parsed.context?.correlationId !== correlationId) return false;
+    if (level && parsed.level !== level) return false;
+    if (filter && !line.toLowerCase().includes(filter.toLowerCase())) return false;
+
+    return true;
+  }
+
   getLogFiles(): LogFile[] {
     if (!fs.existsSync(this.logDir)) {
       return [];
@@ -93,16 +113,9 @@ export class LogReaderService {
         const stats = fs.statSync(filePath);
         const isCompressed = file.endsWith('.gz');
 
-        let lineCount = 0;
-        if (!isCompressed && stats.size > 0) {
-          const content = fs.readFileSync(filePath, 'utf-8');
-          lineCount = content.split('\n').filter(line => line.trim()).length;
-        }
-
         logFiles.push({
           name: file,
           size: stats.size,
-          lineCount,
           createdAt: stats.birthtime,
           lastModified: stats.mtime,
           compressed: isCompressed,
@@ -115,16 +128,16 @@ export class LogReaderService {
     return logFiles.sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
   }
 
-  getLogContent(
+  async getLogContent(
     filename: string,
     page: number = 1,
-    pageSize: number = 100,
+    pageSize: number = DEFAULT_PAGE_SIZE,
     filter?: string,
     level?: string,
     id?: string,
     correlationId?: string,
     raw: boolean = false,
-  ): LogContent {
+  ): Promise<LogContent> {
     const filePath = path.join(this.logDir, filename);
 
     if (!fs.existsSync(filePath)) {
@@ -135,73 +148,64 @@ export class LogReaderService {
       throw new BadRequestException('Cannot read compressed log files directly');
     }
 
-    const content = fs.readFileSync(filePath, 'utf-8');
-    let rawLines = content.split('\n').filter(line => line.trim());
-
     // Smart detection: if id starts with "req_", treat it as correlationId
     if (id && id.startsWith('req_')) {
       correlationId = id;
       id = undefined;
     }
 
-    if (id) {
-      rawLines = rawLines.filter(line => {
-        try {
-          const parsed = JSON.parse(line);
-          return parsed.id === id;
-        } catch {
-          return false;
+    // Clamp pageSize
+    pageSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
+
+    // Use streaming to read file efficiently
+    const matchingLines: string[] = [];
+    const fetchCount = (page * pageSize) + 1; // Fetch one extra to determine hasMore
+
+    await new Promise<void>((resolve, reject) => {
+      const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+      const rl = readline.createInterface({
+        input: fileStream,
+        crlfDelay: Infinity,
+      });
+
+      rl.on('line', (line) => {
+        if (!line.trim()) return;
+        if (this.matchesFilter(line, filter, level, id, correlationId)) {
+          matchingLines.push(line);
+          // Stop reading if we have enough
+          if (matchingLines.length >= fetchCount) {
+            rl.close();
+            fileStream.destroy();
+          }
         }
       });
-    }
 
-    if (correlationId) {
-      rawLines = rawLines.filter(line => {
-        try {
-          const parsed = JSON.parse(line);
-          return parsed.correlationId === correlationId ||
-                 parsed.context?.correlationId === correlationId;
-        } catch {
-          return false;
-        }
-      });
-    }
+      rl.on('close', () => resolve());
+      rl.on('error', (err) => reject(err));
+    });
 
-    if (level) {
-      rawLines = rawLines.filter(line => {
-        const parsed = this.parseLogLine(line);
-        return parsed?.level === level;
-      });
-    }
+    // Reverse to show newest first
+    matchingLines.reverse();
 
-    if (filter) {
-      const filterLower = filter.toLowerCase();
-      rawLines = rawLines.filter(line => line.toLowerCase().includes(filterLower));
-    }
-
-    const totalLines = rawLines.length;
-    rawLines = rawLines.reverse();
     const startIndex = (page - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-    const paginatedRawLines = rawLines.slice(startIndex, endIndex);
+    const hasMore = matchingLines.length > page * pageSize;
+    const paginatedLines = matchingLines.slice(startIndex, startIndex + pageSize);
 
-    const lines = raw ? undefined : paginatedRawLines.map(line => this.parseLogLine(line)).filter(Boolean);
+    const lines = raw ? undefined : paginatedLines.map(line => this.parseLogLine(line)).filter(Boolean);
 
     return {
       file: filename,
       lines: lines || [],
-      rawLines: raw ? paginatedRawLines : undefined,
-      totalLines,
+      rawLines: raw ? paginatedLines : undefined,
       page,
       pageSize,
-      hasMore: endIndex < totalLines,
+      hasMore,
     };
   }
 
   getLogStats(): {
     totalSize: number;
     totalSizeFormatted: string;
-    totalLines: number;
     fileCount: number;
     oldestFile?: string;
     newestFile?: string;
@@ -209,11 +213,10 @@ export class LogReaderService {
     const files = this.getLogFiles();
 
     if (files.length === 0) {
-      return { totalSize: 0, totalSizeFormatted: '0 B', totalLines: 0, fileCount: 0 };
+      return { totalSize: 0, totalSizeFormatted: '0 B', fileCount: 0 };
     }
 
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
-    const totalLines = files.reduce((sum, f) => sum + f.lineCount, 0);
     const uncompressed = files.filter(f => !f.compressed);
 
     const sortedByDate = [...uncompressed].sort(
@@ -223,7 +226,6 @@ export class LogReaderService {
     return {
       totalSize,
       totalSizeFormatted: this.formatBytes(totalSize),
-      totalLines,
       fileCount: files.length,
       oldestFile: sortedByDate[0]?.name,
       newestFile: sortedByDate[sortedByDate.length - 1]?.name,
