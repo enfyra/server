@@ -76,7 +76,6 @@ const createRotateTransport = (
     maxFiles,
     level,
     format: logFormat,
-    zippedArchive: true,
   });
 
   // Prevent listener accumulation

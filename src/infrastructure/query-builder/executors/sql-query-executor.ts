@@ -95,13 +95,31 @@ export class SqlQueryExecutor {
       });
     }
 
-    if (options.page && options.limit) {
-      const page = typeof options.page === 'string' ? parseInt(options.page, 10) : options.page;
-      const limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
-      queryOptions.offset = (page - 1) * limit;
-      queryOptions.limit = limit;
-    } else if (options.limit) {
-      queryOptions.limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
+    const rawLimit =
+      options.limit === undefined || options.limit === null
+        ? undefined
+        : (typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit);
+
+    const normalizedLimit =
+      rawLimit === undefined || Number.isNaN(rawLimit)
+        ? undefined
+        : (rawLimit < 0 ? 0 : rawLimit);
+
+    const rawPage =
+      options.page === undefined || options.page === null
+        ? undefined
+        : (typeof options.page === 'string' ? parseInt(options.page, 10) : options.page);
+
+    const normalizedPage =
+      rawPage === undefined || Number.isNaN(rawPage)
+        ? undefined
+        : rawPage;
+
+    if (normalizedPage && normalizedLimit !== undefined) {
+      queryOptions.offset = (normalizedPage - 1) * normalizedLimit;
+      queryOptions.limit = normalizedLimit;
+    } else if (normalizedLimit !== undefined) {
+      queryOptions.limit = normalizedLimit;
     }
 
     let mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];

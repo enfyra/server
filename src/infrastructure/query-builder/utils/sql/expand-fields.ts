@@ -1,7 +1,7 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../knex/utils/naming-helpers';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
-import { buildNestedSubquery, buildCTEStrategy } from './nested-subquery-builder';
+import { buildNestedSubquery, buildCTEStrategy, buildOwnerCTEStrategy } from './nested-subquery-builder';
 import { quoteIdentifier, getEmptyJsonArray } from '../../../knex/utils/migration/sql-dialect';
 
 interface FieldExpansionResult {
@@ -115,7 +115,10 @@ export async function expandFieldsToJoinsAndSelect(
   }
 
   const cteClauses: string[] = [];
-  const useCTE = (dbType === 'postgres' || dbType === 'mysql') && limit !== undefined && limit > 0 && orderByClause;
+  const useCTE =
+    (dbType === 'postgres' || dbType === 'mysql') &&
+    limit !== undefined &&
+    !!orderByClause;
 
   let limitedCTEName: string | null = null;
   if (useCTE) {
@@ -135,8 +138,8 @@ export async function expandFieldsToJoinsAndSelect(
       });
       orderByInCTE = parts.join(' ');
     }
-    const limitSQL = limit ? `LIMIT ${limit}` : '';
-    const offsetSQL = offset ? `OFFSET ${offset}` : '';
+    const limitSQL = limit !== undefined && limit !== null && limit > 0 ? `LIMIT ${limit}` : '';
+    const offsetSQL = offset !== undefined && offset !== null && offset > 0 ? `OFFSET ${offset}` : '';
     const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const pkColumn = baseMeta ? getPrimaryKeyColumn(baseMeta as any) : null;
     const pkName = pkColumn?.name || 'id';
@@ -167,6 +170,40 @@ export async function expandFieldsToJoinsAndSelect(
 
       const mapping = `(CASE WHEN ${fkRef} IS NULL THEN NULL ELSE ${jsonObjectFunc}('id', ${fkRef}) END) as ${quotedRelation}`;
       select.push(mapping);
+    } else if (useCTE && limitedCTEName && isOwnerRelation) {
+      const cteClause = await buildOwnerCTEStrategy(
+        tableName,
+        baseMeta as any,
+        relationName,
+        nestedFields,
+        dbType,
+        metadataGetter as any,
+        sortOptions,
+        limitedCTEName,
+      );
+
+      if (cteClause) {
+        cteClauses.push(cteClause);
+        const cteName = `${relationName}_agg`;
+        const quotedCTEName = quoteIdentifier(cteName, dbType);
+        const quotedRelation = quoteIdentifier(relationName, dbType);
+        const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
+        select.push(`${quotedCTEName}.${quotedRelationInCTE} as ${quotedRelation}`);
+      } else {
+        const subquery = await buildNestedSubquery(
+          tableName,
+          baseMeta as any,
+          relationName,
+          nestedFields,
+          dbType,
+          metadataGetter as any,
+          sortOptions,
+        );
+
+        if (subquery) {
+          select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
+        }
+      }
     } else if (useCTE && limitedCTEName && (relation.type === 'one-to-many' || relation.type === 'many-to-many')) {
       const cteClause = await buildCTEStrategy(
         tableName,

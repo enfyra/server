@@ -13,6 +13,7 @@ export function buildTableSchema(
   knex: Knex,
 ): void {
   const { definition } = schema;
+  const indexedColumns = new Set<string>();
 
   for (const col of definition.columns) {
     let column: Knex.ColumnBuilder;
@@ -115,6 +116,7 @@ export function buildTableSchema(
       }
 
       const foreignKeyColumn = getForeignKeyColumnName(relation.propertyName);
+      indexedColumns.add(foreignKeyColumn);
 
       const targetPkType = getPrimaryKeyType(schemas, relation.targetTable);
 
@@ -155,6 +157,7 @@ export function buildTableSchema(
           }
           return fieldName;
         });
+        for (const c of columnNames) indexedColumns.add(c);
         table.unique(columnNames);
       }
     }
@@ -170,13 +173,24 @@ export function buildTableSchema(
           }
           return fieldName;
         });
+        for (const c of columnNames) indexedColumns.add(c);
         table.index(columnNames);
       }
     }
   }
 
+  for (const col of definition.columns) {
+    if (col.name === 'id') continue;
+    if (!col.name.endsWith('Id')) continue;
+    if (indexedColumns.has(col.name)) continue;
+    table.index([col.name]);
+    indexedColumns.add(col.name);
+  }
+
   table.index(['createdAt']);
+  indexedColumns.add('createdAt');
   table.index(['updatedAt']);
+  indexedColumns.add('updatedAt');
   table.index(['createdAt', 'updatedAt']);
 
   const timestampFields = definition.columns.filter(col =>
@@ -185,6 +199,7 @@ export function buildTableSchema(
 
   for (const field of timestampFields) {
     table.index([field.name]);
+    indexedColumns.add(field.name);
   }
 }
 
