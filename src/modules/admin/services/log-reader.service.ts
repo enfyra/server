@@ -8,7 +8,6 @@ export interface LogFile {
   size: number;
   createdAt: Date;
   lastModified: Date;
-  compressed: boolean;
 }
 
 export interface ParsedLogEntry {
@@ -41,7 +40,29 @@ export class LogReaderService {
   private readonly logDir: string;
 
   constructor() {
-    this.logDir = path.join(process.cwd(), 'logs');
+    this.logDir = path.resolve(process.cwd(), 'logs');
+  }
+
+  /**
+   * Validate that the requested file path is within the log directory.
+   * Prevents path traversal attacks (e.g., "../../../etc/passwd").
+   */
+  private validateFilePath(filename: string): string {
+    // Resolve the absolute path
+    const resolvedPath = path.resolve(this.logDir, filename);
+
+    // Check that the resolved path is within the log directory
+    if (!resolvedPath.startsWith(this.logDir + path.sep) && resolvedPath !== this.logDir) {
+      this.logger.warn(`Path traversal attempt blocked: ${filename}`);
+      throw new BadRequestException('Invalid file path');
+    }
+
+    // Additional validation: reject path separators in filename
+    if (filename.includes('..') || path.isAbsolute(filename)) {
+      throw new BadRequestException('Invalid file path');
+    }
+
+    return resolvedPath;
   }
 
   private parseLogLine(line: string): ParsedLogEntry | null {
@@ -104,21 +125,19 @@ export class LogReaderService {
 
     for (const file of files) {
       // Skip hidden files, non-log files, compressed files, and PM2 logs
-      if (file.startsWith('.') || (!file.endsWith('.log') && !file.endsWith('.gz')) || file.startsWith('pm2-')) {
+      if (file.startsWith('.') || !file.endsWith('.log') || file.startsWith('pm2-')) {
         continue;
       }
 
       const filePath = path.join(this.logDir, file);
       try {
         const stats = fs.statSync(filePath);
-        const isCompressed = file.endsWith('.gz');
 
         logFiles.push({
           name: file,
           size: stats.size,
           createdAt: stats.birthtime,
           lastModified: stats.mtime,
-          compressed: isCompressed,
         });
       } catch (error) {
         this.logger.warn(`Failed to read log file: ${file}`);
@@ -138,14 +157,10 @@ export class LogReaderService {
     correlationId?: string,
     raw: boolean = false,
   ): Promise<LogContent> {
-    const filePath = path.join(this.logDir, filename);
+    const filePath = this.validateFilePath(filename);
 
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException(`Log file not found: ${filename}`);
-    }
-
-    if (filename.endsWith('.gz')) {
-      throw new BadRequestException('Cannot read compressed log files directly');
     }
 
     // Smart detection: if id starts with "req_", treat it as correlationId
@@ -217,9 +232,8 @@ export class LogReaderService {
     }
 
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
-    const uncompressed = files.filter(f => !f.compressed);
 
-    const sortedByDate = [...uncompressed].sort(
+    const sortedByDate = [...files].sort(
       (a, b) => a.lastModified.getTime() - b.lastModified.getTime()
     );
 
@@ -233,14 +247,10 @@ export class LogReaderService {
   }
 
   tailLog(filename: string, lines: number = 50, raw: boolean = false): { lines: (ParsedLogEntry | string)[] } {
-    const filePath = path.join(this.logDir, filename);
+    const filePath = this.validateFilePath(filename);
 
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException(`Log file not found: ${filename}`);
-    }
-
-    if (filename.endsWith('.gz')) {
-      throw new BadRequestException('Cannot read compressed log files directly');
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');

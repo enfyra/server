@@ -140,7 +140,7 @@ export class ErrorHandler {
     code: string,
     additionalData?: any,
   ): void {
-    this.logger.error(`Handler Executor ${errorType}`, {
+    this.logger.error(errorType, {
       message,
       code: code.substring(0, 100),
       ...additionalData,
