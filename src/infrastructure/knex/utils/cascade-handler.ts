@@ -31,19 +31,15 @@ export class CascadeHandler {
     const knex = knexOrTrx || this.knexInstance;
     const contextData = cascadeContextMap.get(tableName);
     if (!contextData) {
-      this.logger.log(`[handleCascadeRelations] No context for table: ${tableName}`);
       return;
     }
 
     const originalRelationData = contextData.relationData || contextData;
 
-    this.logger.log(`[handleCascadeRelations] Table: ${tableName}, RecordId: ${recordId}, Relation keys: ${Object.keys(originalRelationData).join(', ')}`);
-
     const metadata = await this.metadataCacheService.getMetadata();
     const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
 
     if (!tableMetadata?.relations) {
-      this.logger.log(`   No relations in metadata`);
       cascadeContextMap.delete(tableName);
       return;
     }
@@ -53,7 +49,6 @@ export class CascadeHandler {
       : Object.values(tableMetadata.relations || {});
 
     if (relations.length === 0) {
-      this.logger.log(`   No relations to process`);
       cascadeContextMap.delete(tableName);
       return;
     }
@@ -76,12 +71,12 @@ export class CascadeHandler {
         }
 
         if (!foreignKeyColumn) {
-          this.logger.warn(`   Missing FK column for ${relName}`);
+          this.logger.warn(`Missing FK column for ${relName}`);
           continue;
         }
 
         if (!targetTableName) {
-          this.logger.warn(`   Unable to resolve target table for ${relName}`);
+          this.logger.warn(`Unable to resolve target table for ${relName}`);
           continue;
         }
 
@@ -92,13 +87,11 @@ export class CascadeHandler {
         };
 
         if (relValue == null) {
-          this.logger.log(`   Clearing ${foreignKeyColumn} on ${tableName}#${recordId}`);
           await assignForeignKey(null);
           continue;
         }
 
         if (typeof relValue === 'number' || typeof relValue === 'string') {
-          this.logger.log(`   Assigning primitive ${foreignKeyColumn}=${relValue}`);
           await assignForeignKey(relValue);
           continue;
         }
@@ -107,24 +100,21 @@ export class CascadeHandler {
 
         if (valueObject && typeof valueObject === 'object') {
           if (valueObject.id != null) {
-            this.logger.log(`   Linking existing ${relName} id=${valueObject.id}`);
             await assignForeignKey(valueObject.id);
             continue;
           }
 
-          this.logger.log(`   Creating new ${relName} for ${tableName}#${recordId}`);
           const newId = await this.insertRecordAndGetId(targetTableName, valueObject, knex);
           if (newId == null) {
-            this.logger.warn(`   Failed to capture new ${relName} id`);
+            this.logger.warn(`Failed to capture new ${relName} id`);
             continue;
           }
 
           await assignForeignKey(newId);
-          this.logger.log(`   Linked new ${relName} id=${newId}`);
           continue;
         }
 
-        this.logger.warn(`   Unsupported value for ${relName}`);
+        this.logger.warn(`Unsupported value for ${relName}`);
         continue;
       }
 
@@ -139,8 +129,6 @@ export class CascadeHandler {
       }
 
       if (relation.type === 'many-to-many') {
-        this.logger.log(`   Processing M2M relation: ${relName} with ${relValue.length} items`);
-
         const junctionTable = relation.junctionTableName;
         const sourceColumn = relation.junctionSourceColumn;
         const targetColumn = relation.junctionTargetColumn;
@@ -150,12 +138,12 @@ export class CascadeHandler {
         }
 
         if (!junctionTable || !sourceColumn || !targetColumn) {
-          this.logger.warn(`     Missing M2M metadata`);
+          this.logger.warn(`Missing M2M metadata`);
           continue;
         }
 
         if (!targetTableName) {
-          this.logger.warn(`     Missing target table for M2M relation ${relName}`);
+          this.logger.warn(`Missing target table for M2M relation ${relName}`);
           continue;
         }
 
@@ -166,20 +154,17 @@ export class CascadeHandler {
             if ('id' in item && item.id != null) {
               ids.push(item.id);
             } else {
-              this.logger.log(`     Creating related record for ${relName}`);
               const newId = await this.insertRecordAndGetId(targetTableName, item, knex);
               if (newId != null) {
                 ids.push(newId);
               } else {
-                this.logger.warn(`     Failed to create related record for ${relName}`);
+                this.logger.warn(`Failed to create related record for ${relName}`);
               }
             }
           } else {
             ids.push(item);
           }
         }
-
-        this.logger.log(`     Junction: ${junctionTable}, IDs: [${ids.join(', ')}]`);
 
         await knex(junctionTable)
           .where(sourceColumn, recordId)
@@ -192,23 +177,16 @@ export class CascadeHandler {
           }));
 
           await knex(junctionTable).insert(junctionRecords);
-          this.logger.log(`     Synced ${junctionRecords.length} M2M junction records`);
-        } else {
-          this.logger.log(`     Cleared all M2M links for ${relName}`);
         }
 
       } else if (relation.type === 'one-to-many') {
-        this.logger.log(`   Processing O2M relation: ${relName} with ${relValue.length} items`);
-
         const targetTableName = relation.targetTableName || relation.targetTable;
         const foreignKeyColumn = relation.foreignKeyColumn;
 
         if (!targetTableName || !foreignKeyColumn) {
-          this.logger.warn(`     Missing O2M metadata`);
+          this.logger.warn(`Missing O2M metadata`);
           continue;
         }
-
-        this.logger.log(`     Target: ${targetTableName}, FK: ${foreignKeyColumn}`);
 
         const existingItems = await knex(targetTableName)
           .where(foreignKeyColumn, recordId)
@@ -217,58 +195,38 @@ export class CascadeHandler {
         const existingIds = existingItems.map((item: any) => item.id);
         const incomingIds = relValue.filter((item: any) => item?.id).map((item: any) => item.id);
 
-        this.logger.log(`     Existing IDs: [${existingIds.join(', ')}]`);
-        this.logger.log(`     Incoming IDs: [${incomingIds.join(', ')}]`);
-
         const idsToRemove = existingIds.filter(id => !incomingIds.includes(id));
 
         if (idsToRemove.length > 0) {
-          this.logger.log(`     Setting FK = NULL for removed items: [${idsToRemove.join(', ')}]`);
-
           await knex(targetTableName)
             .whereIn('id', idsToRemove)
             .update({ [foreignKeyColumn]: null });
         }
 
-        let updateCount = 0;
-        let createCount = 0;
-
         for (const item of relValue) {
           if (item?.id) {
-            this.logger.log(`     Updating item id=${item.id}, set ${foreignKeyColumn}=${recordId}`);
-
             await knex(targetTableName)
               .where('id', item.id)
               .update({ [foreignKeyColumn]: recordId });
-
-            updateCount++;
           } else {
             const newItem = {
               ...item,
               [foreignKeyColumn]: recordId,
             };
 
-            this.logger.log(`     Creating new item with ${foreignKeyColumn}=${recordId}`);
             await this.insertRecordAndGetId(targetTableName, newItem, knex);
-
-            createCount++;
           }
         }
 
-        this.logger.log(`     O2M complete: ${idsToRemove.length} removed (FK=NULL), ${updateCount} updated, ${createCount} created`);
       } else if (relation.type === 'one-to-one') {
-        this.logger.log(`   Processing O2O relation: ${relName}`);
-
         const targetTableName = relation.targetTableName || relation.targetTable;
         const foreignKeyColumn = relation.foreignKeyColumn;
         const isInverse = relation.isInverse;
 
         if (!targetTableName || !foreignKeyColumn) {
-          this.logger.warn(`     Missing O2O metadata`);
+          this.logger.warn(`Missing O2O metadata`);
           continue;
         }
-
-        this.logger.log(`     Target: ${targetTableName}, FK: ${foreignKeyColumn}`);
 
         const items = (Array.isArray(relValue) ? relValue : [relValue]).filter((item: any) => item != null);
 
@@ -277,8 +235,6 @@ export class CascadeHandler {
             await knex(targetTableName)
               .where(foreignKeyColumn, recordId)
               .update({ [foreignKeyColumn]: null });
-
-            this.logger.log(`     Cleared inverse O2O links for ${tableName}#${recordId}`);
             continue;
           }
 
@@ -296,7 +252,7 @@ export class CascadeHandler {
             }
 
             if (ownerId == null) {
-              this.logger.warn(`     Unable to resolve owner id for inverse O2O ${relName}`);
+              this.logger.warn(`Unable to resolve owner id for inverse O2O ${relName}`);
               continue;
             }
 
@@ -305,8 +261,6 @@ export class CascadeHandler {
             await knex(targetTableName)
               .where('id', ownerId)
               .update({ [foreignKeyColumn]: recordId });
-
-            this.logger.log(`     Linked inverse owner ${ownerId} -> ${recordId}`);
           }
 
           if (linkedOwnerIds.length > 0) {
@@ -316,7 +270,6 @@ export class CascadeHandler {
               .update({ [foreignKeyColumn]: null });
           }
 
-          this.logger.log(`     Inverse O2O complete: ${linkedOwnerIds.length} owners linked`);
           continue;
         }
 
@@ -326,30 +279,22 @@ export class CascadeHandler {
           }
 
           if (item.id != null) {
-            this.logger.log(`     Linking to existing item id=${item.id}, set ${foreignKeyColumn}=${item.id}`);
-
             await knex(tableName)
               .where('id', recordId)
               .update({ [foreignKeyColumn]: item.id });
           } else {
-            this.logger.log(`     Creating new related entity in ${targetTableName}`);
-
             const newRelatedId = await this.insertRecordAndGetId(targetTableName, item, knex);
 
             if (newRelatedId == null) {
-              this.logger.warn(`     Failed to create related entity for ${relName}`);
+              this.logger.warn(`Failed to create related entity for ${relName}`);
               continue;
             }
-
-            this.logger.log(`     Created related entity with id=${newRelatedId}, updating parent ${foreignKeyColumn}=${newRelatedId}`);
 
             await knex(tableName)
               .where('id', recordId)
               .update({ [foreignKeyColumn]: newRelatedId });
           }
         }
-
-        this.logger.log(`     O2O complete: cascade created/linked related entity`);
       }
     }
 

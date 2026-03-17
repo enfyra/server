@@ -21,7 +21,7 @@ export class LogController {
   }
 
   @Get(':filename')
-  getLogContent(
+  async getLogContent(
     @Param('filename') filename: string,
     @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
     @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize: number = 100,
@@ -30,7 +30,7 @@ export class LogController {
     @Query('id') id?: string,
     @Query('correlationId') correlationId?: string,
     @Query('raw') raw?: string,
-  ): LogContent {
+  ): Promise<LogContent> {
     return this.logReaderService.getLogContent(filename, page, pageSize, filter, level, id, correlationId, raw === 'true');
   }
 

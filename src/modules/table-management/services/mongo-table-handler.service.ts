@@ -620,15 +620,17 @@ export class MongoTableHandlerService {
       }
 
       if (body.isSingleRecord === true && !exists.isSingleRecord) {
-        this.logger.log(`Collection changed to single-record mode. Checking for existing record...`);
         const db = this.mongoService.getDb();
-        const existingRecord = await db.collection(exists.name).findOne();
-        if (!existingRecord) {
+        const count = await db.collection(exists.name).countDocuments();
+
+        if (count === 0) {
           const defaultRecord = generateDefaultRecord(newMetadata?.columns || []);
           await db.collection(exists.name).insertOne(defaultRecord);
-          this.logger.log(`   Default record created for collection ${exists.name}`);
-        } else {
-          this.logger.log(`   Record already exists in collection ${exists.name}, skipping default creation`);
+        } else if (count > 1) {
+          const firstRecord = await db.collection(exists.name).find().sort({ _id: 1 }).limit(1).toArray();
+          if (firstRecord[0]?._id) {
+            await db.collection(exists.name).deleteMany({ _id: { $ne: firstRecord[0]._id } });
+          }
         }
       }
 

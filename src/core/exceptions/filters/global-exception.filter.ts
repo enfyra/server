@@ -12,6 +12,8 @@ import {
   CustomException,
   isCustomException,
   getErrorCode,
+  ScriptExecutionException,
+  ScriptTimeoutException,
 } from '../custom-exceptions';
 export interface ErrorResponse {
   success: false;
@@ -133,6 +135,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     correlationId: string,
     statusCode: number,
   ): void {
+    // Skip logging for script execution errors - already logged by handler executor
+    if (exception instanceof ScriptExecutionException || exception instanceof ScriptTimeoutException) {
+      return;
+    }
+
     const logData = {
       correlationId,
       method: request.method,

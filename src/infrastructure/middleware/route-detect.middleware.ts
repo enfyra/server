@@ -16,6 +16,7 @@ import { autoSlug } from '../../shared/utils/auto-slug.helper';
 import { CacheService } from '../cache/services/cache.service';
 import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
 import { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
+import { RateLimitService } from '../cache/services/rate-limit.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
@@ -34,6 +35,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private bcryptService: BcryptService,
     private uploadFileHelper: UploadFileHelper,
     private websocketGateway: DynamicWebSocketGateway,
+    private rateLimitService: RateLimitService,
     private eventEmitter: EventEmitter2,
   ) {}
 
@@ -111,6 +113,61 @@ export class RouteDetectMiddleware implements NestMiddleware {
       context.$logs = (...args: any[]) => {
         context.$share.$logs.push(...args);
       };
+
+      const routePath = matchedRoute.route.path || req.baseUrl;
+      const createRateLimitHelper = () => {
+        const check = async (key: string, options: { maxRequests: number; perSeconds: number }) => {
+          return this.rateLimitService.check(key, options);
+        };
+
+        const byIp = async (options: { maxRequests: number; perSeconds: number }) => {
+          const key = `ip:${realClientIP}:${routePath}`;
+          return check(key, options);
+        };
+
+        const byUser = async (options: { maxRequests: number; perSeconds: number }) => {
+          const userId = req.user?.id || 'anonymous';
+          const key = `user:${userId}:${routePath}`;
+          return check(key, options);
+        };
+
+        const byRoute = async (options: { maxRequests: number; perSeconds: number }) => {
+          const key = `route:${routePath}`;
+          return check(key, options);
+        };
+
+        const byIpGlobal = async (options: { maxRequests: number; perSeconds: number }) => {
+          const key = `ip:${realClientIP}`;
+          return check(key, options);
+        };
+
+        const byUserGlobal = async (options: { maxRequests: number; perSeconds: number }) => {
+          const userId = req.user?.id || 'anonymous';
+          const key = `user:${userId}`;
+          return check(key, options);
+        };
+
+        const reset = async (key: string) => {
+          return this.rateLimitService.reset(key);
+        };
+
+        const status = async (key: string, options: { maxRequests: number; perSeconds: number }) => {
+          return this.rateLimitService.status(key, options);
+        };
+
+        return {
+          check,
+          byIp,
+          byUser,
+          byRoute,
+          byIpGlobal,
+          byUserGlobal,
+          reset,
+          status,
+        };
+      };
+
+      context.$helpers.$rateLimit = createRateLimitHelper();
 
       if (req.file) {
         context.$uploadedFile = {

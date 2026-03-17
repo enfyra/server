@@ -368,7 +368,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 **Context available (route handler only):**
 - @BODY: request body | @PARAMS: route params | @QUERY: query (filter, fields, limit, sort, page, meta). Use @QUERY.filter (not where) | @USER: logged-in user
 - #<table_name>: repos from route.targetTables. API: .find({ filter, limit }) → { data: [...] }; .create({ data: {...} }) → { data: [record], count?: 1 }; .update({ id, data: {...} }) → { data: [record] }; .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object. To get single record: created?.data?.[0], updated?.data?.[0].
-- @HELPERS: bcrypt via @HELPERS.$bcrypt.hash(plain), @HELPERS.$bcrypt.compare(plain, hash). Use @HELPERS.$bcrypt - NEVER $bcrypt.
+- @HELPERS: bcrypt via @HELPERS.$bcrypt.hash(plain), @HELPERS.$bcrypt.compare(plain, hash). Use @HELPERS.$bcrypt - NEVER $bcrypt. Rate limiting via @HELPERS.$rateLimit.byIp({maxRequests:100, perSeconds:60}), .byUser, .byRoute, .check(key, options). Returns {allowed, remaining, retryAfter}.
 - @RES: response | @CACHE | @THROW4xx/5xx | @UPLOADED_FILE
 
 **PREFER template syntax:** @BODY, #user_definition, @THROW404 instead of $ctx.$body, $ctx.$repos.main, etc.
@@ -435,6 +435,19 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 **CRITICAL – methods is REQUIRED:** Hook runs ONLY when request method (GET/POST/etc.) matches hook's methods. If methods is empty, hook NEVER runs.
 
 **CRITICAL – Test before save:** MUST run_handler_test before create/update hook. Use table from route's targetTables. On error: follow fixGuidance + nextSteps, fix, retry.
+
+**Rate Limiting (pre-hook protection):**
+- Use @HELPERS.$rateLimit to protect APIs from abuse. Returns {allowed, remaining, retryAfter, limit, window}.
+- Templates: byIp (per IP per route), byUser (per user per route), byRoute (global per route), byIpGlobal (per IP all routes), byUserGlobal (per user all routes), check(key, options) (custom key).
+- Options: {maxRequests: number, perSeconds: number}
+- Example (limit 100 req/min by IP):
+  const result = await @HELPERS.$rateLimit.byIp({maxRequests:100, perSeconds:60});
+  if (!result.allowed) { @THROW['429']("Rate limit exceeded. Try again in " + result.retryAfter + "s"); }
+- Example (skip for admins):
+  if (!@USER?.isRootAdmin) { const r = await @HELPERS.$rateLimit.byIp({maxRequests:100, perSeconds:60}); if (!r.allowed) @THROW['429']("Rate limit exceeded"); }
+- Example (login protection):
+  const result = await @HELPERS.$rateLimit.byIp({maxRequests:5, perSeconds:60});
+  if (!result.allowed) { @THROW['429']("Too many login attempts. Try again in " + result.retryAfter + "s"); }
 
 **RLS pre-hook example (filter by current user):**
 if (!@USER) return { error: "Unauthorized" };

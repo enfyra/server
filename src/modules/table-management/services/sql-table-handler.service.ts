@@ -724,19 +724,20 @@ export class SqlTableHandlerService {
         await trx.commit();
 
         if (body.isSingleRecord === true && !exists.isSingleRecord) {
-          this.logger.log(`\nTable changed to single-record mode. Checking for existing record...`);
           const knex = this.queryBuilder.getKnex();
-          const existingRecord = await knex(exists.name).first();
-          if (!existingRecord) {
+          const recordCount = await knex(exists.name).count('* as count').first();
+          const count = Number(recordCount?.count || 0);
+
+          if (count === 0) {
             const fullMetadata = await this.getFullTableMetadataInTransaction(
               await knex.transaction(),
               exists.id,
             );
             const defaultRecord = generateDefaultRecord(fullMetadata?.columns || []);
             await knex(exists.name).insert(defaultRecord);
-            this.logger.log(`   Default record created for table ${exists.name}`);
-          } else {
-            this.logger.log(`   Record already exists in table ${exists.name}, skipping default creation`);
+          } else if (count > 1) {
+            const firstRecord = await knex(exists.name).orderBy('id', 'asc').first('id');
+            await knex(exists.name).where('id', '!=', firstRecord.id).delete();
           }
         }
 
