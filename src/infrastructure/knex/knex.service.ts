@@ -12,6 +12,8 @@ import { RelationTransformer } from './utils/relation-transformer';
 import { parseDatabaseUri } from './utils/uri-parser';
 import { ReplicationManager } from './services/replication-manager.service';
 
+import { getForeignKeyColumnName } from './utils/naming-helpers';
+
 @Injectable()
 export class KnexService implements OnModuleInit, OnModuleDestroy {
   private knexInstance: Knex;
@@ -272,6 +274,49 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
       await this.syncManyToManyRelations(tableName, data);
       return this.transformRelationsToFK(tableName, data);
+    });
+
+    this.addHook('beforeUpdate', async (tableName, data) => {
+      if (!data?.id) return data;
+
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.uniques || !tableMetadata?.relations) return data;
+
+      const uniques = Array.isArray(tableMetadata.uniques)
+        ? tableMetadata.uniques
+        : Object.values(tableMetadata.uniques || {});
+
+      for (const relation of tableMetadata.relations) {
+        if (!['one-to-one', 'many-to-one'].includes(relation.type)) continue;
+        if (relation.isInverse || relation.mappedBy) continue;
+
+        const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.propertyName);
+        if (!fkColumn || !(fkColumn in data) || data[fkColumn] == null) continue;
+
+        // Check if this FK column has a unique constraint
+        // Support both propertyName (e.g., "menu") and FK column name (e.g., "menuId") in uniques
+        const hasUnique = uniques.some((u: any) => {
+          const cols = Array.isArray(u) ? u : [u];
+          return cols.some((col: string) => {
+            const colFk = col.endsWith('Id') ? col : getForeignKeyColumnName(col);
+            return colFk === fkColumn || col === relation.propertyName;
+          });
+        });
+
+        if (!hasUnique) continue;
+
+        // Clear the FK from any existing record that holds it
+        const result = await this.knexInstance(tableName)
+          .where(fkColumn, data[fkColumn])
+          .whereNot('id', data.id)
+          .update({ [fkColumn]: null });
+
+        if (result > 0) {
+          this.logger.log(`[beforeUpdate] Cleared ${result} record(s) with ${fkColumn}=${data[fkColumn]} for unique constraint`);
+        }
+      }
+
+      return data;
     });
 
     this.addHook('beforeUpdate', (tableName, data) => {

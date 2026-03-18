@@ -191,7 +191,6 @@ export function buildTableSchema(
   indexedColumns.add('createdAt');
   table.index(['updatedAt']);
   indexedColumns.add('updatedAt');
-  table.index(['createdAt', 'updatedAt']);
 
   const timestampFields = definition.columns.filter(col =>
     col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
