@@ -150,7 +150,7 @@ export class SqlQueryExecutor {
           }).join(', ')} ${mainTableSorts[0].direction.toUpperCase()}`
         : undefined;
 
-      if (queryOptions.limit && orderByClause && (this.dbType === 'postgres' || this.dbType === 'mysql')) {
+      if (queryOptions.limit !== undefined && orderByClause && (this.dbType === 'postgres' || this.dbType === 'mysql')) {
         const metadata = this.metadata?.tables?.get(queryOptions.table);
         if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
           if (metadata) {
