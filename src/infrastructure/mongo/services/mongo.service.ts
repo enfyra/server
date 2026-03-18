@@ -186,20 +186,24 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const dataWithoutInverse = await this.stripInverseRelations(collectionName, dataWithRelations);
     const dataWithTimestamps = this.applyTimestamps(dataWithoutInverse);
 
+    // Clear unique FK holders before insert to prevent unique constraint violations
+    // Use a dummy ObjectId since we don't have the real one yet
+    await this.clearUniqueFKHolders(collectionName, new ObjectId(), dataWithTimestamps);
+
     let result;
     let insertedId;
     try {
       result = await collection.insertOne(dataWithTimestamps);
       insertedId = result.insertedId;
     } catch (err: any) {
-      const errorMessage = err.errInfo?.details?.details 
+      const errorMessage = err.errInfo?.details?.details
         ? JSON.stringify(err.errInfo.details.details, null, 2)
-        : err.errInfo 
+        : err.errInfo
         ? JSON.stringify(err.errInfo, null, 2)
         : err.message || 'Unknown validation error';
-      
+
       console.error(`[insertOne] Validation error for ${collectionName}:`, errorMessage);
-      
+
       const validationError = new Error(
         `MongoDB validation failed for ${collectionName}: ${errorMessage}`
       );
@@ -489,6 +493,9 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(collectionName, dataWithoutHiddenNulls);
     const dataWithTimestamp = this.applyUpdateTimestamp(dataWithoutNonUpdatable);
 
+    // Clear unique FK holders before update to prevent unique constraint violations
+    await this.clearUniqueFKHolders(collectionName, objectId, dataWithTimestamp);
+
     await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
 
     await this.updateInverseRelationsOnUpdate(collectionName, objectId, oldRecord, dataWithRelations);
@@ -570,6 +577,62 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   async count(collectionName: string, filter: any = {}): Promise<number> {
     const collection = this.collection(collectionName);
     return collection.countDocuments(filter);
+  }
+
+  private async clearUniqueFKHolders(
+    collectionName: string,
+    recordId: ObjectId,
+    data: any,
+  ): Promise<void> {
+    const metadata = await this.metadataCache.lookupTableByName(collectionName);
+    if (!metadata?.relations) {
+      return;
+    }
+
+    for (const relation of metadata.relations) {
+      if (!['one-to-one', 'many-to-one'].includes(relation.type)) continue;
+      if (relation.isInverse || relation.mappedBy) continue;
+
+      const fieldName = relation.propertyName;
+      const hasUnique = this.hasUniqueConstraintOnField(metadata, fieldName);
+
+      if (!hasUnique) continue;
+
+      const newValue = data[fieldName];
+      if (newValue == null) continue;
+
+      const newId = newValue instanceof ObjectId
+        ? newValue
+        : new ObjectId(newValue);
+
+      await this.getDb().collection(collectionName).updateMany(
+        {
+          [fieldName]: newId,
+          _id: { $ne: recordId },
+        },
+        { $set: { [fieldName]: null } },
+      );
+    }
+  }
+
+  private hasUniqueConstraintOnField(metadata: any, fieldName: string): boolean {
+    if (!metadata?.uniques) return false;
+
+    const uniques = Array.isArray(metadata.uniques)
+      ? metadata.uniques
+      : Object.values(metadata.uniques || {});
+
+    for (const unique of uniques) {
+      const fields = Array.isArray(unique) ? unique : [unique];
+      if (fields.length === 1 && fields[0] === fieldName) {
+        return true;
+      }
+      if (fields.includes(fieldName)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private extractDbName(uri: string): string {

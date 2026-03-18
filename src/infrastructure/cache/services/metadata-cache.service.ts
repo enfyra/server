@@ -27,7 +27,9 @@ export interface EnfyraMetadata {
 @Injectable()
 export class MetadataCacheService implements OnApplicationBootstrap, OnModuleInit {
   private readonly logger = new Logger(`${COLOR}MetadataCache${RESET}`);
-  private inMemoryCache: EnfyraMetadata | null = null; // In-memory cache to avoid Redis calls
+  private inMemoryCache: EnfyraMetadata | null = null;
+  private isLoading: boolean = false;
+  private loadingPromise: Promise<void> | null = null;
   private messageHandler: ((channel: string, message: string) => void) | null = null;
 
   constructor(
@@ -450,6 +452,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {
+    if (this.isLoading && this.loadingPromise) {
+      await this.loadingPromise;
+    }
     if (this.inMemoryCache) {
       return this.inMemoryCache;
     }
@@ -463,30 +468,42 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   async reload(): Promise<void> {
+    if (this.isLoading && this.loadingPromise) {
+      return this.loadingPromise;
+    }
+
     const instanceId = this.instanceService.getInstanceId();
 
-    try {
-      const acquired = await this.cacheService.acquire(
-        METADATA_RELOAD_LOCK_KEY,
-        instanceId,
-        REDIS_TTL.RELOAD_LOCK_TTL
-      );
-
-      if (!acquired) {
-        return;
-      }
-
+    this.isLoading = true;
+    this.loadingPromise = (async () => {
       try {
-        const metadata = await this.loadMetadataFromDb();
-        await this.publish(metadata);
-        this.inMemoryCache = metadata;
+        const acquired = await this.cacheService.acquire(
+          METADATA_RELOAD_LOCK_KEY,
+          instanceId,
+          REDIS_TTL.RELOAD_LOCK_TTL
+        );
+
+        if (!acquired) {
+          return;
+        }
+
+        try {
+          const metadata = await this.loadMetadataFromDb();
+          await this.publish(metadata);
+          this.inMemoryCache = metadata;
+        } finally {
+          await this.cacheService.release(METADATA_RELOAD_LOCK_KEY, instanceId);
+        }
+      } catch (error) {
+        this.logger.error('Failed to reload metadata cache:', error);
+        throw error;
       } finally {
-        await this.cacheService.release(METADATA_RELOAD_LOCK_KEY, instanceId);
+        this.isLoading = false;
+        this.loadingPromise = null;
       }
-    } catch (error) {
-      this.logger.error('Failed to reload metadata cache:', error);
-      throw error;
-    }
+    })();
+
+    return this.loadingPromise;
   }
 
   private async publish(metadata: EnfyraMetadata): Promise<void> {
@@ -541,17 +558,5 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
   isLoaded(): boolean {
     return this.inMemoryCache !== null;
-  }
-
-  async waitForLoad(timeoutMs: number = 30000): Promise<boolean> {
-    const startTime = Date.now();
-    while (!this.isLoaded()) {
-      if (Date.now() - startTime > timeoutMs) {
-        this.logger.error('Timeout waiting for metadata to load');
-        return false;
-      }
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    return true;
   }
 }

@@ -7,7 +7,7 @@ import type { MetadataCacheService } from '../../cache/services/metadata-cache.s
  * - Many-to-many: sync junction table by replacing links with provided ids
  * - One-to-many: null-out removed children, update FK for existing ids, insert new children
  * - Many-to-one: clear FK when null, link existing ids/values, create related row when object lacks id
- * - One-to-one (owner side): link existing id or create related entity then update parent FK
+ * - One-to-one (owner side): clear existing FK holder if unique constraint, then link existing id or create related entity
  *
  * Supports recursive cascade - nested relations are processed through insertWithCascade/updateWithCascade
  */

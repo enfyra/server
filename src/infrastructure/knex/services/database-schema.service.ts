@@ -163,11 +163,40 @@ export class DatabaseSchemaService {
       .where('tablename', tableName)
       .where('schemaname', 'public');
 
+    // Parse uniques and indexes from pg_indexes
+    const uniques: string[][] = [];
+    const regularIndexes: string[][] = [];
+
+    for (const idx of indexes) {
+      // Skip primary key indexes
+      if (idx.indexname.endsWith('_pkey') || idx.indexname === `pk_${tableName}`) {
+        continue;
+      }
+
+      // Check if unique by indexdef containing 'UNIQUE'
+      const isUnique = idx.indexdef?.includes('UNIQUE') || idx.indexname.includes('_unique');
+
+      // Extract column names from indexdef
+      // Format: CREATE UNIQUE INDEX "indexname" ON "tablename" ("col1", "col2")
+      const columnsMatch = idx.indexdef?.match(/\(([^)]+)\)/);
+      if (columnsMatch) {
+        const columns = columnsMatch[1]
+          .split(',')
+          .map((col: string) => col.trim().replace(/"/g, ''));
+
+        if (isUnique) {
+          uniques.push(columns);
+        } else {
+          regularIndexes.push(columns);
+        }
+      }
+    }
+
     return {
       name: tableName,
       isSystem: false,
-      uniques: [],
-      indexes: [],
+      uniques,
+      indexes: regularIndexes,
       columns: transformedColumns,
       relations: []
     };
