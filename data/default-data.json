@@ -94,6 +94,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
+            "publishedMethods": ["POST"],
             "availableMethods": ["POST"]
         },
          {
@@ -102,6 +103,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
+            "publishedMethods": ["POST"],
             "availableMethods": ["POST"]
         },
          {
@@ -110,6 +112,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
+            "publishedMethods": ["POST"],
             "availableMethods": ["POST"]
         },
         {
@@ -136,6 +139,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
+            "publishedMethods": ["GET", "PATCH"],
             "availableMethods": ["GET", "PATCH"]
         },
         {
@@ -236,6 +240,15 @@
             "isSystem": true,
             "icon": "lucide:file",
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
+            "path": "/assets/:id",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:image",
+            "description": "Get file assets by ID",
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/file_permission_definition",
@@ -358,6 +371,24 @@
             "icon": "lucide:sync",
             "description": "Sync metadata with physical database",
             "availableMethods": ["POST"]
+        },
+        {
+            "path": "/metadata",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:database",
+            "description": "Get all table metadata from cache",
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
+        },
+        {
+            "path": "/metadata/:name",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:table",
+            "description": "Get single table metadata from cache",
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET"]
         },
         {
             "path": "/api-docs",

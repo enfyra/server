@@ -7,7 +7,6 @@ import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
 import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/naming-helpers';
 import {
-  METADATA_CACHE_KEY,
   METADATA_CACHE_SYNC_EVENT_KEY,
   METADATA_RELOAD_LOCK_KEY,
   REDIS_TTL,
@@ -15,7 +14,7 @@ import {
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { ObjectId } from 'mongodb';
 
-const COLOR = '\x1b[36m'; // Cyan
+const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
 
 export interface EnfyraMetadata {

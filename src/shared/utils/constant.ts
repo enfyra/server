@@ -1,7 +1,6 @@
 export const HIDDEN_FIELD_KEY = 'hidden_field';
 export const GLOBAL_SETTINGS_KEY = 'global-settings';
 export const METADATA_CACHE_KEY = 'metadata:all';
-export const IS_PUBLIC_KEY = 'isPublic';
 
 export const BOOTSTRAP_SCRIPT_RELOAD_EVENT_KEY = 'enfyra:bootstrap-script-reload';
 export const BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY = 'bootstrap-script-execution';
