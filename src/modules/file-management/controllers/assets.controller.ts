@@ -1,7 +1,6 @@
 import { Controller, Get, Req, Res, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { FileAssetsService } from '../services/file-assets.service';
-import { Public } from '../../../shared/decorators/public-route.decorator';
 import { RequestWithRouteData } from '../../../shared/types';
 
 @Controller('assets')
@@ -10,7 +9,6 @@ export class AssetsController {
 
   constructor(private readonly fileAssetsService: FileAssetsService) {}
 
-  @Public()
   @Get(':id')
   async getAsset(
     @Req() req: RequestWithRouteData,

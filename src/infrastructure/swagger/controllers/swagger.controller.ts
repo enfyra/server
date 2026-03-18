@@ -1,11 +1,9 @@
 import { Controller, Get, Res } from '@nestjs/common';
-import { Public } from '../../../shared/decorators/public-route.decorator';
 import { SwaggerService } from '../services/swagger.service';
 import { Response } from 'express';
 @Controller('api-docs')
 export class SwaggerController {
   constructor(private readonly swaggerService: SwaggerService) {}
-  @Public()
   @Get()
   getSwaggerUI(@Res() res: Response) {
     const spec = this.swaggerService.getCurrentSpec();

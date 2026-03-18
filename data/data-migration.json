@@ -10,6 +10,34 @@
     {
       "_unique": { "path": { "_eq": "/package_definition" } },
       "publishedMethods": ["GET"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/auth/login" } },
+      "publishedMethods": ["POST"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/auth/logout" } },
+      "publishedMethods": ["POST"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/auth/refresh-token" } },
+      "publishedMethods": ["POST"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/me" } },
+      "publishedMethods": ["GET", "PATCH"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/assets/:id" } },
+      "publishedMethods": ["GET"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/metadata" } },
+      "publishedMethods": ["GET"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/metadata/:name" } },
+      "publishedMethods": ["GET"]
     }
   ]
 }

@@ -2,7 +2,6 @@ import { Controller, Get, Param, Query, Res, BadRequestException } from '@nestjs
 import { Response } from 'express';
 import { OAuthService } from '../services/oauth.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
-import { Public } from '../../../shared/decorators/public-route.decorator';
 
 @Controller('auth')
 export class OAuthController {
@@ -11,7 +10,6 @@ export class OAuthController {
     private readonly oauthConfigCache: OAuthConfigCacheService,
   ) {}
 
-  @Public()
   @Get(':provider')
   async oauthLogin(
     @Param('provider') provider: string,
@@ -32,7 +30,6 @@ export class OAuthController {
     return res.redirect(authUrl);
   }
 
-  @Public()
   @Get(':provider/callback')
   async oauthCallback(
     @Param('provider') provider: string,
