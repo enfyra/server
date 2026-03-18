@@ -7,9 +7,7 @@ export class MetadataController {
 
   @Get()
   async getAllMetadata() {
-    await this.metadataCacheService.waitForLoad(30000);
-
-    const metadata = this.metadataCacheService.getDirectMetadata();
+    const metadata = await this.metadataCacheService.getMetadata();
     if (!metadata) {
       throw new NotFoundException('Metadata not available');
     }
@@ -19,9 +17,7 @@ export class MetadataController {
 
   @Get(':name')
   async getTableMetadata(@Param('name') name: string) {
-    await this.metadataCacheService.waitForLoad(30000);
-
-    const table = await this.metadataCacheService.lookupTableByName(name);
+    const table = await this.metadataCacheService.getTableMetadata(name);
     if (!table) {
       throw new NotFoundException(`Table '${name}' not found`);
     }
