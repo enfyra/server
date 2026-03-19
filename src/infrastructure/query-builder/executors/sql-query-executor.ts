@@ -93,6 +93,8 @@ export class SqlQueryExecutor {
         }
         return { field: trimmed, direction: 'asc' as const };
       });
+    } else {
+      queryOptions.sort = [{ field: 'id', direction: 'asc' as const }];
     }
 
     const rawLimit =
@@ -123,13 +125,10 @@ export class SqlQueryExecutor {
     }
 
     let mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
-    let relationSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
 
     if (queryOptions.sort) {
       for (const sortOpt of queryOptions.sort) {
-        if (sortOpt.field.includes('.')) {
-          relationSorts.push(sortOpt);
-        } else {
+        if (!sortOpt.field.includes('.')) {
           mainTableSorts.push({
             ...sortOpt,
             field: `${queryOptions.table}.${sortOpt.field}`,
@@ -338,7 +337,6 @@ export class SqlQueryExecutor {
       const expandedResult = await this.expandFieldsToSelect(
         queryOptions.table,
         queryOptions.fields,
-        relationSorts,
         queryOptions.limit,
         orderByClause,
         whereClauseForCTE,
@@ -823,7 +821,6 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
   private async expandFieldsToSelect(
     tableName: string,
     fields: string[],
-    sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
     limit?: number,
     orderByClause?: string,
     whereClause?: string,
@@ -859,7 +856,6 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         fields,
         metadataGetter,
         this.dbType,
-        sortOptions,
         undefined,
         limit,
         orderByClause,

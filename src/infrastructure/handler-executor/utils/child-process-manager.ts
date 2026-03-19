@@ -33,16 +33,11 @@ export class ChildProcessManager {
     reject: (error: any) => void,
     pool: any,
   ): NodeJS.Timeout {
-    return setTimeout(async () => {
+    return setTimeout(() => {
       if (isDone.value) return;
       isDone.value = true;
       child.removeAllListeners();
       child.kill('SIGKILL');
-      try {
-        await pool.destroy(child);
-      } catch (e) {
-        this.logger.warn('Failed to destroy child on timeout', e);
-      }
       reject(new ScriptTimeoutException(timeoutMs, code));
     }, timeoutMs);
   }
@@ -223,7 +218,12 @@ export class ChildProcessManager {
               type: 'call_result',
               callId: msg.callId,
               error: true,
-              errorResponse: err.response,
+              errorResponse: {
+                message: err.message || 'Unknown error',
+                name: err.name || 'Error',
+                statusCode: err.statusCode,
+                response: err.response,
+              },
             });
           }
         }
@@ -236,7 +236,6 @@ export class ChildProcessManager {
           Object.assign(ctx, mergedCtx);
         }
         clearTimeout(timeout);
-        await pool.release(child);
         const deserializedData = this.deserializeBuffers(msg.data);
         resolve(deserializedData);
       }

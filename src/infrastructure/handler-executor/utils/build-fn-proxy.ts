@@ -1,4 +1,4 @@
-import { pendingCalls } from '../runner';
+import { pendingCalls, addPendingCall } from '../runner';
 function serializeBuffers(obj: any): any {
   if (Buffer.isBuffer(obj)) {
     return {
@@ -78,16 +78,7 @@ export function buildCallableFunctionProxy(path: string) {
 }
 function waitForParentResponse(callId: string, path: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    pendingCalls.set(callId, {
-      resolve: (value: any) => {
-        pendingCalls.delete(callId);
-        resolve(value);
-      },
-      reject: (error: any) => {
-        pendingCalls.delete(callId);
-        reject(error);
-      },
-    });
+    addPendingCall(callId, resolve, reject, path);
   });
 }
 export function buildResponseProxy(): any {

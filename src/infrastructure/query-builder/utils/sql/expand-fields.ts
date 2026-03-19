@@ -28,19 +28,12 @@ export async function expandFieldsToJoinsAndSelect(
   fields: string[],
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   dbType: DatabaseType,
-  sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
   listTables?: () => Promise<string[]>,
   limit?: number,
   orderByClause?: string,
   whereClause?: string,
   offset?: number,
 ): Promise<FieldExpansionResult> {
-  function findSortForPath(pathPrefix: string): { field: string; direction: 'asc' | 'desc' } | null {
-    const found = sortOptions.find(s => s.field.startsWith(pathPrefix + '.') || s.field === pathPrefix);
-    if (!found) return null;
-    return found;
-  }
-
   const select: string[] = [];
 
   const baseMeta = await metadataGetter(tableName);
@@ -178,7 +171,6 @@ export async function expandFieldsToJoinsAndSelect(
         nestedFields,
         dbType,
         metadataGetter as any,
-        sortOptions,
         limitedCTEName,
       );
 
@@ -197,7 +189,6 @@ export async function expandFieldsToJoinsAndSelect(
           nestedFields,
           dbType,
           metadataGetter as any,
-          sortOptions,
         );
 
         if (subquery) {
@@ -212,7 +203,6 @@ export async function expandFieldsToJoinsAndSelect(
         nestedFields,
         dbType,
         metadataGetter as any,
-        sortOptions,
         limitedCTEName,
       );
 
@@ -232,7 +222,6 @@ export async function expandFieldsToJoinsAndSelect(
           nestedFields,
           dbType,
           metadataGetter as any,
-          sortOptions,
         );
 
         if (subquery) {
@@ -247,7 +236,6 @@ export async function expandFieldsToJoinsAndSelect(
         nestedFields,
         dbType,
         metadataGetter as any,
-        sortOptions,
       );
 
       if (subquery) {

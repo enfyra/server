@@ -49,7 +49,92 @@ function restoreStringsAndComments(code: string, placeholders: Array<{ placehold
   return result;
 }
 
-export const pendingCalls = new Map();
+interface PendingCall {
+  resolve: (value: any) => void;
+  reject: (error: any) => void;
+  timeoutId: NodeJS.Timeout;
+  createdAt: number;
+  methodName: string;
+}
+
+export const pendingCalls = new Map<string, PendingCall>();
+
+const PENDING_CALL_TIMEOUT = 30000;
+const PENDING_CALL_MAX_AGE = 60000;
+
+export function addPendingCall(callId: string, resolve: (value: any) => void, reject: (error: any) => void, methodName: string): void {
+  const timeoutId = setTimeout(() => {
+    if (pendingCalls.has(callId)) {
+      pendingCalls.delete(callId);
+      reject(new Error(`Call ${methodName} (${callId}) timed out after ${PENDING_CALL_TIMEOUT}ms`));
+    }
+  }, PENDING_CALL_TIMEOUT);
+
+  pendingCalls.set(callId, {
+    resolve,
+    reject,
+    timeoutId,
+    createdAt: Date.now(),
+    methodName,
+  });
+}
+
+export function resolvePendingCall(callId: string, result: any, error?: any): void {
+  const pending = pendingCalls.get(callId);
+  if (pending) {
+    clearTimeout(pending.timeoutId);
+    pendingCalls.delete(callId);
+    if (error) {
+      pending.reject(error);
+    } else {
+      pending.resolve(result);
+    }
+  }
+}
+
+function cleanupStalePendingCalls(): void {
+  const now = Date.now();
+  const staleCallIds: string[] = [];
+
+  for (const [callId, pending] of pendingCalls) {
+    if (now - pending.createdAt > PENDING_CALL_MAX_AGE) {
+      staleCallIds.push(callId);
+    }
+  }
+
+  for (const callId of staleCallIds) {
+    const pending = pendingCalls.get(callId);
+    if (pending) {
+      clearTimeout(pending.timeoutId);
+      pending.reject(new Error(`Call ${pending.methodName} expired after ${PENDING_CALL_MAX_AGE}ms`));
+      pendingCalls.delete(callId);
+    }
+  }
+}
+
+setInterval(cleanupStalePendingCalls, 10000);
+
+function clearAllPendingCalls(reason: string): void {
+  for (const [callId, pending] of pendingCalls) {
+    clearTimeout(pending.timeoutId);
+    pending.reject(new Error(`Process exiting: ${reason}`));
+  }
+  pendingCalls.clear();
+}
+
+process.on('exit', () => {
+  clearAllPendingCalls('process_exit');
+});
+
+process.on('SIGTERM', () => {
+  clearAllPendingCalls('sigterm');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  clearAllPendingCalls('sigint');
+  process.exit(0);
+});
 
 process.on('unhandledRejection', (reason: any) => {
   console.warn('[Fire-and-forget] Unhandled proxy call rejection:', reason?.message || reason);
@@ -100,16 +185,29 @@ process.on('uncaughtException', (error: any) => {
 });
 
 process.on('message', async (msg: any) => {
+  // Handle memory usage query from health check
+  if (msg.type === 'get_memory_usage') {
+    const memory = process.memoryUsage();
+    const memoryMB = Math.round(memory.heapUsed / 1024 / 1024);
+    process.send({
+      type: 'memory_usage_response',
+      memoryMB,
+      memoryDetails: {
+        heapUsed: memory.heapUsed,
+        heapTotal: memory.heapTotal,
+        external: memory.external,
+        rss: memory.rss,
+      },
+    });
+    return;
+  }
+
   if (msg.type === 'call_result') {
     const { callId, result, error, ...others } = msg;
-    const resolver = pendingCalls.get(callId);
-    if (resolver) {
-      pendingCalls.delete(callId);
-      if (error) {
-        resolver.reject({ ...error, ...others });
-      } else {
-        resolver.resolve(result);
-      }
+    if (error) {
+      resolvePendingCall(callId, null, { ...error, ...others });
+    } else {
+      resolvePendingCall(callId, result);
     }
   }
   if (msg.type === 'execute') {

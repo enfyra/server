@@ -407,7 +407,6 @@ export class QueryBuilderService {
   private async expandFieldsToSelect(
     tableName: string,
     fields: string[],
-    sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = []
   ): Promise<string[]> {
     if (!this.metadataCache) {
       return fields;
@@ -433,7 +432,7 @@ export class QueryBuilderService {
     };
 
     try {
-      const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType, sortOptions);
+      const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType);
       return result.select;
     } catch (error) {
       return fields;
