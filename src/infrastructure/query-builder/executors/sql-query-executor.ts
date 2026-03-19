@@ -145,8 +145,8 @@ export class SqlQueryExecutor {
       const orderByClause = mainTableSorts.length > 0
         ? `ORDER BY ${mainTableSorts.map(s => {
             const field = s.field.includes('.') ? s.field : `${queryOptions.table}.${s.field}`;
-            return `${quoteIdentifier(field.split('.')[0], this.dbType)}.${quoteIdentifier(field.split('.')[1] || field, this.dbType)}`;
-          }).join(', ')} ${mainTableSorts[0].direction.toUpperCase()}`
+            return `${quoteIdentifier(field.split('.')[0], this.dbType)}.${quoteIdentifier(field.split('.')[1] || field, this.dbType)} ${s.direction.toUpperCase()}`;
+          }).join(', ')}`
         : undefined;
 
       if (queryOptions.limit !== undefined && orderByClause && (this.dbType === 'postgres' || this.dbType === 'mysql')) {
