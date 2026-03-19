@@ -16,7 +16,6 @@ export async function buildNestedSubquery(
   nestedFields: string[],
   dbType: DatabaseType,
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
-  sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
   nestingLevel: number = 0,
   parentAliasOverride?: string,
   junctionAlias?: string,
@@ -95,7 +94,6 @@ export async function buildNestedSubquery(
       subFields,
       dbType,
       metadataGetter,
-      sortOptions.filter(s => s.field.startsWith(`${relationName}.${subRelName}`)),
       nestingLevel + 1,
       currentAlias,
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel + 1}`,
@@ -109,9 +107,6 @@ export async function buildNestedSubquery(
   if (columns.length === 0) {
     return null;
   }
-
-  const relSort = sortOptions.find(s => s.field === relationName || s.field.startsWith(relationName + '.'));
-  const sortField = relSort?.field.split('.').pop() || '';
 
   const jsonObjectFunc = getJsonObjectFunc(dbType);
   const jsonObject = `${jsonObjectFunc}(${columns.join(',')})`;
@@ -153,12 +148,12 @@ export async function buildNestedSubquery(
       }
     }
 
-    const orderClause = sortField ? ` order by ${nextAlias}.${quoteIdentifier(sortField, dbType)} ${relSort!.direction.toUpperCase()}` : '';
+    const orderByInAgg = ` ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC`;
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
     const leftSide = `${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`;
     const rightSide = `${parentRef}.${quoteIdentifier(parentPkName, dbType)}`;
-    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide}${orderClause})`;
+    return `(select ${jsonArrayAgg}(${jsonObject}${orderByInAgg}), ${emptyArray}) from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide})`;
   } else if (relation.type === 'many-to-many') {
     const junctionTable = relation.junctionTableName;
     if (!junctionTable) {
@@ -178,7 +173,9 @@ export async function buildNestedSubquery(
     const whereLeft = `${jAlias}.${quoteIdentifier(junctionSourceCol, dbType)}`;
     const whereRight = `${parentRef}.${quoteIdentifier(parentPkName, dbType)}`;
 
-    return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} ${jAlias} join ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight})`;
+    const orderByInAgg = ` ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC`;
+
+    return `(select ${jsonArrayAgg}(${jsonObject}${orderByInAgg}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} ${jAlias} join ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight})`;
   }
 
   return null;
@@ -191,7 +188,6 @@ export async function buildOwnerCTEStrategy(
   nestedFields: string[],
   dbType: DatabaseType,
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
-  sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
   limitedCTEName: string,
   parentIdColumn: string = 'id',
 ): Promise<string | null> {
@@ -267,7 +263,6 @@ export async function buildOwnerCTEStrategy(
       subFields,
       dbType,
       metadataGetter,
-      sortOptions.filter(s => s.field.startsWith(`${relationName}.${subRelName}`)),
       1,
       'r',
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
@@ -319,7 +314,6 @@ export async function buildCTEStrategy(
   nestedFields: string[],
   dbType: DatabaseType,
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
-  sortOptions: Array<{ field: string; direction: 'asc' | 'desc' }> = [],
   limitedCTEName: string,
   parentIdColumn: string = 'id',
 ): Promise<string | null> {
@@ -396,7 +390,6 @@ export async function buildCTEStrategy(
       subFields,
       dbType,
       metadataGetter,
-      sortOptions.filter(s => s.field.startsWith(`${relationName}.${subRelName}`)),
       1,
       'r',
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
@@ -444,15 +437,20 @@ export async function buildCTEStrategy(
     }
 
     const quotedFkCol = quoteIdentifier(fkColumn, dbType);
+    const quotedTargetPk = quoteIdentifier(targetPkName, dbType);
     const cteName = `${relationName}_agg`;
     const quotedCTEName = quoteIdentifier(cteName, dbType);
     const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
 
+    const orderByClause = (dbType === 'postgres' || dbType === 'mysql')
+      ? ` ORDER BY r.${quotedTargetPk} ASC`
+      : '';
+
     return `${quotedCTEName} AS (
-      SELECT 
+      SELECT
         r.${quotedFkCol} as ${quotedParentIdCol},
-        ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) as ${quotedRelationName}
+        ${jsonArrayAgg}(${jsonObject}${orderByClause}), ${emptyArray}) as ${quotedRelationName}
       FROM ${quotedTargetTable} r
       INNER JOIN ${quotedLimitedCTE} l ON r.${quotedFkCol} = l.${quotedParentId}
       GROUP BY r.${quotedFkCol}
@@ -473,14 +471,18 @@ export async function buildCTEStrategy(
     const quotedCTEName = quoteIdentifier(cteName, dbType);
     const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
-    const quotedIdCol = quoteIdentifier('id', dbType);
+    const quotedTargetPk = quoteIdentifier(targetPkName, dbType);
+
+    const orderByClause = (dbType === 'postgres' || dbType === 'mysql')
+      ? ` ORDER BY r.${quotedTargetPk} ASC`
+      : '';
 
     return `${quotedCTEName} AS (
-      SELECT 
+      SELECT
         j.${quotedJunctionSourceCol} as ${quotedParentIdCol},
-        ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) as ${quotedRelationName}
+        ${jsonArrayAgg}(${jsonObject}${orderByClause}), ${emptyArray}) as ${quotedRelationName}
       FROM ${quotedJunctionTable} j
-      INNER JOIN ${quotedTargetTable} r ON j.${quotedJunctionTargetCol} = r.${quoteIdentifier(targetPkName, dbType)}
+      INNER JOIN ${quotedTargetTable} r ON j.${quotedJunctionTargetCol} = r.${quotedTargetPk}
       INNER JOIN ${quotedLimitedCTE} l ON j.${quotedJunctionSourceCol} = l.${quotedParentId}
       GROUP BY j.${quotedJunctionSourceCol}
     )`;

@@ -165,10 +165,6 @@ export class ErrorHandler {
     child.removeAllListeners();
     clearTimeout(timeout);
 
-    pool.destroy(child).catch((err: any) => {
-      this.logger.warn('Failed to destroy dead child process', err);
-    });
-
     this.logError(errorType, message, code, additionalData);
     reject(error);
     return true;

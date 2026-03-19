@@ -53,28 +53,38 @@ export class ProvisionService implements OnModuleInit {
       sort: [sortField],
       limit: 1,
     });
-    let setting = settingsResult.data[0] || null;
+    const setting = settingsResult.data[0] || null;
 
     if (!setting || !setting.isInit) {
       this.logger.log('First time initialization...');
 
       await this.metadataProvisionService.createInitMetadata();
 
+      if (this.metadataMigrationService.hasMigrations()) {
+        this.logger.log('Running metadata migrations from snapshot-migration.json...');
+        await this.metadataMigrationService.runMigrations();
+      }
+
       await this.dataProvisionService.insertAllDefaultRecords();
+
+      if (this.dataMigrationService.hasMigrations()) {
+        this.logger.log('Running data migrations from data-migration.json...');
+        await this.dataMigrationService.runMigrations();
+      }
 
       const settings2Result = await this.queryBuilder.select({
         tableName: 'setting_definition',
         sort: [sortField],
         limit: 1,
       });
-      setting = settings2Result.data[0] || null;
+      const newSetting = settings2Result.data[0] || null;
 
-      if (!setting) {
+      if (!newSetting) {
         this.logger.error('Setting record not found after initialization');
         throw new Error('Setting record not found. DataProvisionService may have failed.');
       }
 
-      const settingId = setting._id || setting.id;
+      const settingId = newSetting._id || newSetting.id;
       const idField = isMongoDB ? '_id' : 'id';
       await this.queryBuilder.update({
         table: 'setting_definition',
@@ -84,14 +94,6 @@ export class ProvisionService implements OnModuleInit {
 
       this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
     } else {
-      if (this.metadataMigrationService.hasMigrations()) {
-        this.logger.log('Running metadata migrations from snapshot-migration.json...');
-        await this.metadataMigrationService.runMigrations();
-      }
-      if (this.dataMigrationService.hasMigrations()) {
-        this.logger.log('Running data migrations from data-migration.json...');
-        await this.dataMigrationService.runMigrations();
-      }
       this.logger.log(`System ready in ${Date.now() - start}ms`);
     }
   }

@@ -109,6 +109,8 @@ export class MongoQueryExecutor {
         }
         return { field: trimmed, direction: 'asc' as const };
       });
+    } else {
+      queryOptions.sort = [{ field: 'id', direction: 'asc' as const }];
     }
 
     if (options.page && options.limit) {
