@@ -197,6 +197,11 @@ export class SqlTableHandlerService {
         tableName: body?.name,
       });
     }
+    if (!body.columns || !Array.isArray(body.columns) || body.columns.length === 0) {
+      throw new ValidationException('Table must have at least one column.', {
+        tableName: body?.name,
+      });
+    }
     this.validateRelations(body.relations);
     const knex = this.queryBuilder.getKnex();
     let trx;
