@@ -2,19 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
-import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { PackageManagementService } from '../../../modules/package-management/services/package-management.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import {
-  PACKAGE_CACHE_SYNC_EVENT_KEY,
-  PACKAGE_RELOAD_LOCK_KEY,
-} from '../../../shared/utils/constant';
+import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 
 const PACKAGE_CONFIG: CacheConfig = {
   syncEventKey: PACKAGE_CACHE_SYNC_EVENT_KEY,
-  lockKey: PACKAGE_RELOAD_LOCK_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
   colorCode: '\x1b[35m',
   cacheName: 'PackageCache',
@@ -25,12 +20,11 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
     redisPubSubService: RedisPubSubService,
-    cacheService: CacheService,
     instanceService: InstanceService,
     eventEmitter: EventEmitter2,
     private readonly packageManagementService: PackageManagementService,
   ) {
-    super(PACKAGE_CONFIG, redisPubSubService, cacheService, instanceService, eventEmitter);
+    super(PACKAGE_CONFIG, redisPubSubService, instanceService, eventEmitter);
   }
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)

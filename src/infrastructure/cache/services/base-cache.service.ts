@@ -1,32 +1,29 @@
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { RedisPubSubService } from './redis-pubsub.service';
-import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { REDIS_TTL } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 type CacheIdentifier = (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
 
 export interface CacheConfig {
   syncEventKey: string;
-  lockKey: string;
   cacheIdentifier: CacheIdentifier;
   colorCode: string;
   cacheName: string;
-  lockTtl?: number;
 }
 
 export abstract class BaseCacheService<T> {
   protected readonly logger: Logger;
   protected cache!: T;
   protected cacheLoaded = false;
+  protected isLoading = false;
+  protected loadingPromise: Promise<void> | null = null;
   private messageHandler: ((channel: string, message: string) => void) | null = null;
 
   constructor(
     protected readonly config: CacheConfig,
     protected readonly redisPubSubService: RedisPubSubService,
-    protected readonly cacheService: CacheService,
     protected readonly instanceService: InstanceService,
     protected readonly eventEmitter?: EventEmitter2,
   ) {
@@ -37,9 +34,9 @@ export abstract class BaseCacheService<T> {
   private setupSubscription(): void {
     if (this.messageHandler) return;
 
-    this.messageHandler = (channel: string, message: string) => {
+    this.messageHandler = async (channel: string, message: string) => {
       if (channel === this.config.syncEventKey) {
-        this.handleIncomingMessage(message);
+        await this.handleIncomingMessage(message);
       }
     };
 
@@ -49,7 +46,7 @@ export abstract class BaseCacheService<T> {
     );
   }
 
-  private handleIncomingMessage(message: string): void {
+  private async handleIncomingMessage(message: string): Promise<void> {
     try {
       const payload = JSON.parse(message);
       const myInstanceId = this.instanceService.getInstanceId();
@@ -58,39 +55,24 @@ export abstract class BaseCacheService<T> {
         return;
       }
 
-      this.logger.log(`Received cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-
-      const data = this.deserializeSyncData(payload);
-      this.handleSyncData(data);
-      this.cacheLoaded = true;
-
-      // Emit loaded event to trigger dependent services on this instance
-      this.emitLoadedEvent();
-
-      this.logSyncSuccess(payload);
+      if (payload.type === 'RELOAD_SIGNAL') {
+        this.logger.log(`Received reload signal from instance ${payload.instanceId.slice(0, 8)}..., reloading from DB`);
+        await this.reload();
+      }
     } catch (error) {
       this.logger.error('Failed to parse cache sync message:', error);
     }
   }
 
   async reload(): Promise<void> {
-    const instanceId = this.instanceService.getInstanceId();
+    if (this.isLoading && this.loadingPromise) {
+      return this.loadingPromise;
+    }
 
-    try {
-      const lockTtl = this.config.lockTtl ?? REDIS_TTL.RELOAD_LOCK_TTL;
-      const acquired = await this.cacheService.acquire(
-        this.config.lockKey,
-        instanceId,
-        lockTtl
-      );
-
-      if (!acquired) {
-        this.logger.log('Another instance is reloading, waiting for broadcast...');
-        return;
-      }
-
+    this.isLoading = true;
+    this.loadingPromise = (async () => {
       try {
-        const start = Date.now();
+        await this.publishReloadSignal();
 
         await this.beforeLoad();
 
@@ -100,27 +82,28 @@ export abstract class BaseCacheService<T> {
 
         await this.afterTransform(this.cache);
 
-        await this.publish(this.cache);
-
         this.cacheLoaded = true;
 
         this.emitLoadedEvent();
 
-        this.logger.log(`Loaded ${this.getLogCount()} in ${Date.now() - start}ms`);
+        this.logger.log(`Loaded ${this.getLogCount()} from database`);
+      } catch (error) {
+        this.logger.error('Failed to reload cache:', error);
+        throw error;
       } finally {
-        await this.cacheService.release(this.config.lockKey, instanceId);
+        this.isLoading = false;
+        this.loadingPromise = null;
       }
-    } catch (error) {
-      this.logger.error('Failed to reload cache:', error);
-      throw error;
-    }
+    })();
+
+    return this.loadingPromise;
   }
 
-  private async publish(data: T): Promise<void> {
+  private async publishReloadSignal(): Promise<void> {
     try {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),
-        ...this.serializeForPublish(data),
+        type: 'RELOAD_SIGNAL',
         timestamp: Date.now(),
       };
       await this.redisPubSubService.publish(
@@ -128,7 +111,7 @@ export abstract class BaseCacheService<T> {
         JSON.stringify(payload)
       );
     } catch (error) {
-      this.logger.error('Failed to publish cache sync:', error);
+      this.logger.error('Failed to publish reload signal:', error);
     }
   }
 
@@ -150,7 +133,11 @@ export abstract class BaseCacheService<T> {
     return { data };
   }
 
-  protected emitLoadedEvent(): void {}
+  protected emitLoadedEvent(): void {
+    if (this.eventEmitter) {
+      this.eventEmitter.emit(`${this.config.cacheIdentifier}_LOADED`);
+    }
+  }
 
   protected getLogCount(): string {
     return `${this.getCount()} items`;

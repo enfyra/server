@@ -2,13 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
-import { CacheService } from './cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import {
-  ROUTE_CACHE_SYNC_EVENT_KEY,
-  ROUTE_RELOAD_LOCK_KEY,
-} from '../../../shared/utils/constant';
+import { ROUTE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 import { transformCode } from '../../handler-executor/code-transformer';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
@@ -16,7 +12,6 @@ import { MetadataCacheService } from './metadata-cache.service';
 
 const ROUTE_CONFIG: CacheConfig = {
   syncEventKey: ROUTE_CACHE_SYNC_EVENT_KEY,
-  lockKey: ROUTE_RELOAD_LOCK_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.ROUTE,
   colorCode: '\x1b[31m',
   cacheName: 'RouteCache',
@@ -36,11 +31,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     private readonly queryBuilder: QueryBuilderService,
     private readonly metadataCacheService: MetadataCacheService,
     redisPubSubService: RedisPubSubService,
-    cacheService: CacheService,
     instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(ROUTE_CONFIG, redisPubSubService, cacheService, instanceService, eventEmitter);
+    super(ROUTE_CONFIG, redisPubSubService, instanceService, eventEmitter);
     this.routeEngine = new EnfyraRouteEngine(false);
     this.cache = { routes: [], methods: [] };
   }
