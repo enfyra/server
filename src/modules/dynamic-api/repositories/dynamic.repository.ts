@@ -247,6 +247,7 @@ export class DynamicRepository {
   }
 
   private async reload() {
+    await new Promise(resolve => setTimeout(resolve, 750));
     this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
       tableName: this.tableName,
       action: 'reload',
