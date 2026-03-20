@@ -21,15 +21,43 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     tableName: string,
     context?: any,
   ): Promise<UpsertResult> {
-    const transformedRecords = await this.transformRecords(records, { ...context, knex });
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    // Process in order: Dropdown Menus first, then Menu items
-    const dropdownMenus = transformedRecords.filter(r => r.type === 'Dropdown Menu');
-    const menuItems = transformedRecords.filter(r => r.type === 'Menu');
+    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
+    const menuItems = records.filter(r => r.type === 'Menu');
 
-    for (const record of [...dropdownMenus, ...menuItems]) {
+    // Phase 1: Process Dropdown Menus in order (no parent first, then with parent)
+    const dropdownsWithoutParent = dropdownMenus.filter(r => !r.parent);
+    const dropdownsWithParent = dropdownMenus.filter(r => r.parent);
+
+    const transformedDropdownsWithoutParent = await this.transformRecords(dropdownsWithoutParent, { ...context, knex });
+    for (const record of transformedDropdownsWithoutParent) {
+      try {
+        const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
+        if (result.created) totalCreated++;
+        if (result.skipped) totalSkipped++;
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+      }
+    }
+
+    const transformedDropdownsWithParent = await this.transformRecords(dropdownsWithParent, { ...context, knex });
+    for (const record of transformedDropdownsWithParent) {
+      try {
+        const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
+        if (result.created) totalCreated++;
+        if (result.skipped) totalSkipped++;
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+      }
+    }
+
+    // Phase 2: Transform and insert Menu items (now parent Dropdown Menus exist in DB)
+    const transformedMenuItems = await this.transformRecords(menuItems, { ...context, knex });
+    for (const record of transformedMenuItems) {
       try {
         const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
         if (result.created) totalCreated++;
@@ -106,16 +134,43 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       return { created: 0, skipped: 0 };
     }
 
-    const transformedRecords = await this.transformRecords(records, context);
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    // Process in order: Dropdown Menus first, then Menu items without parent, then with parent
-    const dropdownMenus = transformedRecords.filter(r => r.type === 'Dropdown Menu');
-    const otherMenuItems = transformedRecords.filter(r => r.type === 'Menu' && !r.parent);
-    const menuItemsWithParent = transformedRecords.filter(r => r.type === 'Menu' && r.parent);
+    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
+    const menuItems = records.filter(r => r.type === 'Menu');
 
-    for (const record of [...dropdownMenus, ...otherMenuItems, ...menuItemsWithParent]) {
+    // Phase 1: Process Dropdown Menus in order (no parent first, then with parent)
+    const dropdownsWithoutParent = dropdownMenus.filter(r => !r.parent);
+    const dropdownsWithParent = dropdownMenus.filter(r => r.parent);
+
+    const transformedDropdownsWithoutParent = await this.transformRecords(dropdownsWithoutParent, context);
+    for (const record of transformedDropdownsWithoutParent) {
+      try {
+        const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
+        if (result.created) totalCreated++;
+        if (result.skipped) totalSkipped++;
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+      }
+    }
+
+    const transformedDropdownsWithParent = await this.transformRecords(dropdownsWithParent, context);
+    for (const record of transformedDropdownsWithParent) {
+      try {
+        const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
+        if (result.created) totalCreated++;
+        if (result.skipped) totalSkipped++;
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+      }
+    }
+
+    // Phase 2: Transform and insert Menu items (now parent Dropdown Menus exist in DB)
+    const transformedMenuItems = await this.transformRecords(menuItems, context);
+    for (const record of transformedMenuItems) {
       try {
         const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
         if (result.created) totalCreated++;
