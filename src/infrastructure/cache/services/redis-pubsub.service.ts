@@ -1,6 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { RedisService } from '@liaoliaots/nestjs-redis';
 import Redis from 'ioredis';
 
 @Injectable()
@@ -9,24 +8,27 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   public sub: Redis;
   private subscribedChannels = new Map<string, Array<(channel: string, message: string) => void>>();
   private nodeName: string | null = null;
+  private redisUri: string;
 
   constructor(
     private configService: ConfigService,
-    private redisService: RedisService,
-  ) {}
+  ) {
+    this.redisUri = this.configService.get<string>('REDIS_URI');
+  }
 
   async onModuleInit() {
     try {
-      this.pub = this.redisService.getOrNil();
+      this.pub = new Redis(this.redisUri);
+      this.sub = new Redis(this.redisUri);
 
-      if (!this.pub) {
-        throw new Error(
-          'Redis connection not available - getOrNil() returned null',
-        );
-      }
-
-      this.sub = new Redis(this.configService.get<string>('REDIS_URI'));
-      await Promise.all([this.pub.ping(), this.sub.ping()]);
+      await Promise.all([
+        this.pub.ping(),
+        new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Redis sub timeout')), 5000);
+          this.sub.once('ready', () => { clearTimeout(timeout); resolve(); });
+          this.sub.once('error', (err) => { clearTimeout(timeout); reject(err); });
+        })
+      ]);
 
       this.sub.on('message', (channel: string, message: string) => {
         const handlers = this.subscribedChannels.get(channel);
@@ -37,11 +39,8 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
         }
       });
     } catch (error) {
-      console.error(
-        '[RedisPubSub] Failed to initialize Redis connections:',
-        error,
-      );
-      throw new Error(`RedisPubSub initialization failed: ${error.message}`);
+      console.error('[RedisPubSub] Failed to initialize:', error);
+      throw error;
     }
   }
 
@@ -61,7 +60,14 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.subscribedChannels.set(decoratedChannel, [handler]);
-    this.sub.subscribe(decoratedChannel);
+
+    this.sub.subscribe(decoratedChannel)
+      .then((count) => {
+        console.log(`[RedisPubSub] Subscribed to ${decoratedChannel} (${count})`);
+      })
+      .catch((err) => {
+        console.error(`[RedisPubSub] Subscribe error for ${decoratedChannel}:`, err.message);
+      });
 
     return true;
   }
