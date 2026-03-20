@@ -222,7 +222,7 @@ export class SchemaMigrationLockService {
 
   private async buildLockedError(knex: KnexLike): Promise<DatabaseException> {
     const info = await this.readLockInfo(knex);
-    return new DatabaseException('Schema đang được cập nhật, vui lòng thử lại sau.', {
+    return new DatabaseException('Schema is being updated, please try again later.', {
       reason: 'schema_locked',
       lockedBy: info?.lockedBy || null,
       lockedAt: info?.lockedAt || null,

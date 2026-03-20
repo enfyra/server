@@ -127,7 +127,7 @@ export class MongoSchemaMigrationLockService {
 
   private async buildLockedError(collection: Collection<SchemaMigrationLockDocument>): Promise<DatabaseException> {
     const doc = await collection.findOne({ _id: this.documentId });
-    return new DatabaseException('Schema đang được cập nhật, vui lòng thử lại sau.', {
+    return new DatabaseException('Schema is being updated, please try again later.', {
       reason: 'schema_locked',
       lockedBy: doc?.lockedBy || null,
       lockedAt: doc?.lockedAt || null,

@@ -93,9 +93,9 @@ import { ExtensionDefinitionModule } from './modules/extension-definition/extens
     AiAgentModule,
     WebsocketModule,
     ExtensionDefinitionModule,
-    DynamicModule,
-    HandlerExecutorModule,
     GraphqlModule,
+    HandlerExecutorModule,
+    DynamicModule,
   ],
   providers: [
     JwtStrategy,
