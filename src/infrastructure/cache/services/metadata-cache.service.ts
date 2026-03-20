@@ -1,16 +1,11 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { CacheService } from './cache.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
 import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/naming-helpers';
-import {
-  METADATA_CACHE_SYNC_EVENT_KEY,
-  METADATA_RELOAD_LOCK_KEY,
-  REDIS_TTL,
-} from '../../../shared/utils/constant';
+import { METADATA_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { ObjectId } from 'mongodb';
 
@@ -35,7 +30,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   constructor(
     @Inject(forwardRef(() => QueryBuilderService))
     private readonly queryBuilder: QueryBuilderService,
-    private readonly cacheService: CacheService,
     private readonly redisPubSubService: RedisPubSubService,
     private readonly instanceService: InstanceService,
     private readonly databaseSchemaService: DatabaseSchemaService,
@@ -74,19 +68,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             return;
           }
 
-          this.logger.log(`Received metadata cache sync from instance ${payload.instanceId.slice(0, 8)}...`);
-
-          const metadata: EnfyraMetadata = {
-            tables: new Map(Object.entries(payload.metadata.tables)),
-            tablesList: payload.metadata.tablesList,
-            version: payload.metadata.version,
-            timestamp: new Date(payload.metadata.timestamp),
-          };
-
-          this.inMemoryCache = metadata;
-
-          // Emit event to trigger dependent caches on this instance
-          this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
+          if (payload.type === 'RELOAD_SIGNAL') {
+            this.logger.log(`Received reload signal from instance ${payload.instanceId.slice(0, 8)}..., reloading from DB`);
+            this.forceReloadFromDb();
+          }
         } catch (error) {
           this.logger.error('Failed to parse metadata cache sync message:', error);
         }
@@ -97,6 +82,16 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       METADATA_CACHE_SYNC_EVENT_KEY,
       this.messageHandler
     );
+  }
+
+  private async forceReloadFromDb(): Promise<void> {
+    try {
+      const metadata = await this.loadMetadataFromDb();
+      this.inMemoryCache = metadata;
+      this.logger.log('Metadata reloaded from DB (forced)');
+    } catch (error) {
+      this.logger.error('Failed to force reload metadata:', error);
+    }
   }
 
   /**
@@ -472,28 +467,16 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       return this.loadingPromise;
     }
 
-    const instanceId = this.instanceService.getInstanceId();
-
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        const acquired = await this.cacheService.acquire(
-          METADATA_RELOAD_LOCK_KEY,
-          instanceId,
-          REDIS_TTL.RELOAD_LOCK_TTL
-        );
+        await this.publishReloadSignal();
 
-        if (!acquired) {
-          return;
-        }
+        const metadata = await this.loadMetadataFromDb();
 
-        try {
-          const metadata = await this.loadMetadataFromDb();
-          await this.publish(metadata);
-          this.inMemoryCache = metadata;
-        } finally {
-          await this.cacheService.release(METADATA_RELOAD_LOCK_KEY, instanceId);
-        }
+        this.inMemoryCache = metadata;
+
+        this.logger.log('Metadata reloaded from database');
       } catch (error) {
         this.logger.error('Failed to reload metadata cache:', error);
         throw error;
@@ -506,16 +489,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     return this.loadingPromise;
   }
 
-  private async publish(metadata: EnfyraMetadata): Promise<void> {
+  private async publishReloadSignal(): Promise<void> {
     try {
       const payload = {
         instanceId: this.instanceService.getInstanceId(),
-        metadata: {
-          tables: Object.fromEntries(metadata.tables),
-          tablesList: metadata.tablesList,
-          version: metadata.version,
-          timestamp: metadata.timestamp,
-        },
+        type: 'RELOAD_SIGNAL',
         timestamp: Date.now(),
       };
 
@@ -524,7 +502,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         JSON.stringify(payload),
       );
     } catch (error) {
-      this.logger.error('Failed to publish metadata cache sync:', error);
+      this.logger.error('Failed to publish reload signal:', error);
     }
   }
 
