@@ -110,6 +110,10 @@ export class AuthService {
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
     const session = await this.queryBuilder.findOneWhere('session_definition', { [sessionIdField]: sessionId });
 
+    if (!req.user) {
+      throw new BadRequestException(`Logout failed!`);
+    }
+
     const userIdToCheck = this.queryBuilder.isMongoDb() ? req.user._id : req.user.id;
     const sessionUserId = this.queryBuilder.isMongoDb() ? (session?.user?._id || session?.user) : session?.userId;
     

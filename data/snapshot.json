@@ -28,10 +28,24 @@
             },
             {
                 "name": "type",
-                "type": "varchar",
+                "type": "enum",
                 "isNullable": false,
                 "isSystem": true,
-                "description": "Data type of the column (varchar, int, boolean, etc.)"
+                "options": [
+                    "int",
+                    "varchar",
+                    "text",
+                    "boolean",
+                    "uuid",
+                    "bigint",
+                    "date",
+                    "enum",
+                    "simple-json",
+                    "code",
+                    "array-select",
+                    "richtext"
+                ],
+                "description": "Data type of the column"
             },
             {
                 "name": "isGenerated",
@@ -593,6 +607,13 @@
                 "type": "varchar",
                 "isSystem": true,
                 "description": "Favicon URL or path for the project/application"
+            },
+            {
+                "name": "corsAllowedOrigins",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Allowed CORS origins (array of domain URLs)"
             }
         ],
         "relations": []

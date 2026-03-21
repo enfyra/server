@@ -1,6 +1,31 @@
 {
   "tables": [
     {
+      "_unique": { "name": { "_eq": "column_definition" } },
+      "columnsToModify": [
+        {
+          "from": { "type": "varchar" },
+          "to": {
+            "type": "enum",
+            "options": [
+              "int",
+              "varchar",
+              "text",
+              "boolean",
+              "uuid",
+              "bigint",
+              "date",
+              "enum",
+              "simple-json",
+              "code",
+              "array-select",
+              "richtext"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "_unique": { "name": { "_eq": "route_definition" } },
       "relationsToModify": [
         { "from": { "propertyName": "preHook" }, "to": { "propertyName": "preHooks" } },
