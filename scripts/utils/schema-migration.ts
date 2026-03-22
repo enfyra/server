@@ -186,6 +186,20 @@ function hasColumnChanges(mod: ColumnModifyDef): boolean {
   // Check name change
   if (mod.from.name !== mod.to.name) return true;
 
+  // Check type change
+  if (mod.from.type !== undefined && mod.to.type !== undefined) {
+    if (mod.from.type !== mod.to.type) return true;
+  }
+
+  // Check options change (for enum types)
+  if (mod.from.options !== undefined && mod.to.options !== undefined) {
+    const fromOptions = Array.isArray(mod.from.options) ? mod.from.options : [];
+    const toOptions = Array.isArray(mod.to.options) ? mod.to.options : [];
+    if (fromOptions.length !== toOptions.length || !fromOptions.every((v, i) => v === toOptions[i])) {
+      return true;
+    }
+  }
+
   // Check nullable change
   if (mod.from.isNullable !== undefined && mod.to.isNullable !== undefined) {
     if (mod.from.isNullable !== mod.to.isNullable) return true;
@@ -251,6 +265,82 @@ async function applySqlColumnModifications(
     const hasColumn = await knex.schema.hasColumn(tableName, targetColumn);
 
     if (hasColumn) {
+      // Handle type change (including varchar/text to enum conversion)
+      if (mod.from.type !== undefined && mod.to.type !== undefined && mod.from.type !== mod.to.type) {
+        if (mod.to.type === 'enum' && Array.isArray(mod.to.options)) {
+          console.log(`  ✏️  Converting column type: ${targetColumn} from ${mod.from.type} to ENUM...`);
+          const enumValues = mod.to.options.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(', ');
+          const newEnumType = `${tableName}_${targetColumn}_enum`;
+
+          if (dbType === 'pg') {
+            // Get current default if exists
+            const defaultResult = await knex.raw(`
+              SELECT column_default, is_nullable
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = ?
+                AND column_name = ?
+            `, [tableName, targetColumn]);
+            const currentDefault = defaultResult.rows[0]?.column_default;
+            const isNullable = defaultResult.rows[0]?.is_nullable === 'YES';
+
+            // Drop default if exists
+            if (currentDefault) {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" DROP DEFAULT`);
+            }
+
+            // Convert to text first if not already
+            const currentTypeResult = await knex.raw(`
+              SELECT data_type, udt_name
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = ?
+                AND column_name = ?
+            `, [tableName, targetColumn]);
+            const currentType = currentTypeResult.rows[0]?.udt_name || currentTypeResult.rows[0]?.data_type;
+
+            if (currentType !== 'text') {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" TYPE text USING "${targetColumn}"::text`);
+            }
+
+            // Create ENUM type and apply
+            await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
+            await knex.raw(`CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`);
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" TYPE "${newEnumType}" USING "${targetColumn}"::"${newEnumType}"`);
+
+            // Restore default if needed
+            if (currentDefault) {
+              let defaultVal = currentDefault;
+              if (defaultVal && defaultVal.includes('::')) {
+                defaultVal = defaultVal.split('::')[0];
+              }
+              defaultVal = defaultVal?.replace(/^'|'$/g, '');
+              if (defaultVal && mod.to.options.includes(defaultVal)) {
+                await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`);
+              }
+            }
+
+            // Set nullable if needed
+            if (mod.to.isNullable === false) {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" SET NOT NULL`);
+            } else if (isNullable && mod.from.isNullable === false) {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${targetColumn}" DROP NOT NULL`);
+            }
+
+          } else {
+            // MySQL
+            const nullable = mod.to.isNullable === false ? 'NOT NULL' : 'NULL';
+            const defaultValue = mod.to.defaultValue ? `DEFAULT '${mod.to.defaultValue}'` : '';
+            await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${targetColumn}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim());
+          }
+
+          console.log(`  ✅ Converted ${targetColumn} to ENUM(${mod.to.options.join(', ')})`);
+        } else {
+          // Other type conversions
+          console.log(`  ✏️  Type change detected: ${mod.from.type} → ${mod.to.type} for ${targetColumn}`);
+        }
+      }
+
       // Handle nullable change
       if (mod.from.isNullable !== undefined && mod.to.isNullable !== undefined) {
         if (mod.from.isNullable !== mod.to.isNullable) {
