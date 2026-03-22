@@ -43,7 +43,8 @@
                     "simple-json",
                     "code",
                     "array-select",
-                    "richtext"
+                    "richtext",
+                    "float"
                 ],
                 "description": "Data type of the column"
             },
