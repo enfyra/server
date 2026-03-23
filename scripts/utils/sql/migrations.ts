@@ -2,7 +2,7 @@ import { Knex } from 'knex';
 import { getForeignKeyColumnName } from '../../../src/infrastructure/knex/utils/naming-helpers';
 import { KnexTableSchema } from '../../../src/shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
-import { compareSchemas, getCurrentDatabaseSchema, isTypeCompatible } from './schema-comparison';
+import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
 export async function applyColumnMigrations(
   knex: Knex,
   tableName: string,

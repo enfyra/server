@@ -21,6 +21,7 @@ export const CACHE_IDENTIFIERS = {
   PACKAGE: 'package',
   BOOTSTRAP: 'bootstrap',
   OAUTH_CONFIG: 'oauth-config',
+  FOLDER_TREE: 'folder-tree',
 } as const;
 
 type CacheIdentifier = (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
@@ -56,6 +57,7 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   websocket_event_definition: [CACHE_IDENTIFIERS.WEBSOCKET],
   package_definition: [CACHE_IDENTIFIERS.PACKAGE],
   bootstrap_script_definition: [CACHE_IDENTIFIERS.BOOTSTRAP],
+  folder_definition: [CACHE_IDENTIFIERS.FOLDER_TREE],
 };
 
 export function shouldReloadCache(tableName: string, cacheIdentifier: CacheIdentifier): boolean {
