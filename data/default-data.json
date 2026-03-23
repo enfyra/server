@@ -231,6 +231,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:folder-tree",
+            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {

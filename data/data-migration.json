@@ -38,6 +38,10 @@
     {
       "_unique": { "path": { "_eq": "/metadata/:name" } },
       "publishedMethods": ["GET"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/folder_definition/tree" } },
+      "publishedMethods": ["GET"]
     }
   ]
 }
