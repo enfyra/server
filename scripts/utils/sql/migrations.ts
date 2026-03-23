@@ -163,24 +163,10 @@ export async function applyColumnMigrations(
     } else {
       for (const { column: col, changes } of diff.columnsToModify) {
         if (col.type === 'enum' && Array.isArray(col.options) && changes.includes('type')) {
-          console.log(`    Converting ${col.name} from varchar/text to ENUM...`);
           const newEnumType = `${tableName}_${col.name}_enum`;
           const newEnumValues = col.options || [];
 
-          const defaultResult = await knex.raw(`
-            SELECT column_default
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = ?
-              AND column_name = ?
-          `, [tableName, col.name]);
-          const currentDefault = defaultResult.rows[0]?.column_default;
-          const hasDefault = !!currentDefault;
-
-          if (hasDefault) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`);
-          }
-
+          // Check actual current type in database
           const currentTypeResult = await knex.raw(`
             SELECT data_type, udt_name
             FROM information_schema.columns
@@ -190,33 +176,61 @@ export async function applyColumnMigrations(
           `, [tableName, col.name]);
           const currentType = currentTypeResult.rows[0]?.udt_name || currentTypeResult.rows[0]?.data_type;
 
-          if (currentType !== 'text') {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
+          // Skip if already an ENUM type
+          if (currentType && currentType.endsWith('_enum')) {
+            console.log(`    ⏩ Column ${col.name} is already ENUM (${currentType}), skipping migration`);
+            continue;
           }
 
-          const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(', ');
-          await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
-          await knex.raw(`CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`);
-          await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`);
+          console.log(`    Converting ${col.name} from ${currentType || 'varchar/text'} to ENUM...`);
 
-          if (hasDefault) {
-            let defaultVal = currentDefault;
-            if (defaultVal && defaultVal.includes('::')) {
-              defaultVal = defaultVal.split('::')[0];
-            }
-            defaultVal = defaultVal?.replace(/^'|'$/g, '');
-            if (col.defaultValue) {
-              defaultVal = col.defaultValue;
-            }
-            if (defaultVal) {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`);
-            }
-          } else if (col.defaultValue) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`);
-          }
+          try {
+            const defaultResult = await knex.raw(`
+              SELECT column_default
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = ?
+                AND column_name = ?
+            `, [tableName, col.name]);
+            const currentDefault = defaultResult.rows[0]?.column_default;
+            const hasDefault = !!currentDefault;
 
-          if (col.isNullable === false) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`);
+            if (hasDefault) {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`);
+            }
+
+            if (currentType !== 'text') {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
+            }
+
+            const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(', ');
+            await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
+            await knex.raw(`CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`);
+            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`);
+
+            if (hasDefault) {
+              let defaultVal = currentDefault;
+              if (defaultVal && defaultVal.includes('::')) {
+                defaultVal = defaultVal.split('::')[0];
+              }
+              defaultVal = defaultVal?.replace(/^'|'$/g, '');
+              if (col.defaultValue) {
+                defaultVal = col.defaultValue;
+              }
+              if (defaultVal) {
+                await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`);
+              }
+            } else if (col.defaultValue) {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`);
+            }
+
+            if (col.isNullable === false) {
+              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`);
+            }
+
+            console.log(`    ✅ Converted ${col.name} to ENUM(${col.options.join(', ')})`);
+          } catch (error) {
+            console.log(`    ⚠️  Failed to convert ${col.name} to ENUM: ${error.message}`);
           }
 
           continue;
