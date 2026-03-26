@@ -1,4 +1,4 @@
-import { Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import {
   ScriptTimeoutException,
   ScriptExecutionException,
@@ -22,8 +22,6 @@ import {
 } from '../../../core/exceptions/custom-exceptions';
 
 export class ErrorHandler {
-  private static readonly logger = new Logger(ErrorHandler.name);
-
   static createException(
     errorPath?: string,
     statusCode?: number,
@@ -132,19 +130,6 @@ export class ErrorHandler {
       code,
       details,
     );
-  }
-
-  static logError(
-    errorType: string,
-    message: string,
-    code: string,
-    additionalData?: any,
-  ): void {
-    this.logger.error(errorType, {
-      message,
-      code: code.substring(0, 100),
-      ...additionalData,
-    });
   }
 
 }
