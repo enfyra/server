@@ -426,6 +426,7 @@ export class SqlQueryExecutor {
       : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
 
     const needsFilterCount = metaParts.includes('filterCount') || metaParts.includes('*');
+    const needsTotalCount = metaParts.includes('totalCount') || metaParts.includes('*');
 
     let filterCountBaseQuery: string | null = null;
 
@@ -522,9 +523,13 @@ export class SqlQueryExecutor {
         }
       }
 
+      const totalCountSelect = needsTotalCount
+        ? `, (SELECT COUNT(*) FROM ${quotedTable}) as __total_count__`
+        : '';
+
       rawSQLQuery = `
 WITH ${cteClauses.join(',\n')}
-SELECT ${selectSQL}
+SELECT ${selectSQL}${totalCountSelect}
 FROM ${quotedLimitedCTE}
 INNER JOIN ${quotedTable} ${tableAlias} ON ${quotedLimitedCTE}.${quotedPkName} = ${tableAlias}.${quotedPkName}
 ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
@@ -542,6 +547,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
 
     if (needsFilterCount) {
       query.select(this.knex.raw('COUNT(*) OVER() as __filter_count__'));
+      }
+
+    if (needsTotalCount) {
+      const quotedTbl = quoteIdentifier(queryOptions.table, this.dbType);
+      query.select(this.knex.raw(`(SELECT COUNT(*) FROM ${quotedTbl}) as __total_count__`));
       }
     }
 
@@ -606,12 +616,6 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     }
 
     let totalCount = 0;
-
-    if (metaParts.includes('totalCount') || metaParts.includes('*')) {
-      const totalQuery = this.knex(queryOptions.table);
-      const totalResult = await totalQuery.count('* as count').first();
-      totalCount = Number(totalResult?.count || 0);
-    }
 
     if (this.debugLog) {
       if (useCTE && rawSQLQuery) {
@@ -697,6 +701,13 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
 
       results.forEach((row: any) => {
         delete row.__filter_count__;
+      });
+    }
+
+    if (needsTotalCount && results.length > 0 && results[0].__total_count__ !== undefined) {
+      totalCount = Number(results[0].__total_count__ || 0);
+      results.forEach((row: any) => {
+        delete row.__total_count__;
       });
     }
 

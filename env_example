@@ -89,15 +89,6 @@ ADMIN_PASSWORD=1234
 PACKAGE_MANAGER=yarn
 
 ############################################
-# Handler Executor (child pool) - optional
-############################################
-# Max old space (MB) per child process
-HANDLER_EXECUTOR_MAX_MEMORY=512
-# Min/Max pool size
-HANDLER_EXECUTOR_POOL_MIN=2
-HANDLER_EXECUTOR_POOL_MAX=4
-
-############################################
 # Swagger / Public Base URL - required
 ############################################
 # Full backend URL exposed to clients (e.g. behind proxy)
