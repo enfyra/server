@@ -9,7 +9,9 @@ import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-
 import { separateFilters, applyRelationFilters, buildRelationSubquery } from '../utils/sql/relation-filter.util';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 import { getPrimaryKeyColumn } from '../../knex/utils/metadata-loader';
+import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
 import { KnexService } from '../../knex/knex.service';
+import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 
 export class SqlQueryExecutor {
   private readonly logger = new Logger(SqlQueryExecutor.name);
@@ -32,7 +34,9 @@ export class SqlQueryExecutor {
     meta?: string;
     deep?: Record<string, any>;
     debugLog?: any[];
+    debugMode?: boolean;
     metadata?: any;
+    plan?: QueryPlan;
   }): Promise<any> {
     this.metadata = options.metadata;
     const debugLog = options.debugLog || [];
@@ -61,7 +65,7 @@ export class SqlQueryExecutor {
             if (op === '_eq') operator = '=';
             else if (op === '_neq') operator = '!=';
             else if (op === '_in') operator = 'in';
-            else if (op === '_not_in') operator = 'not in';
+            else if (op === '_not_in' || op === '_nin') operator = 'not in';
             else if (op === '_gt') operator = '>';
             else if (op === '_gte') operator = '>=';
             else if (op === '_lt') operator = '<';
@@ -124,15 +128,41 @@ export class SqlQueryExecutor {
       queryOptions.limit = normalizedLimit;
     }
 
-    let mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
+    const resolvedSortItems: ResolvedSortItem[] = options.plan?.sortItems ?? (queryOptions.sort ?? []).map(s => ({
+      joinId: null,
+      field: s.field,
+      direction: s.direction,
+      fullPath: s.field,
+    }));
 
-    if (queryOptions.sort) {
-      for (const sortOpt of queryOptions.sort) {
-        if (!sortOpt.field.includes('.')) {
-          mainTableSorts.push({
-            ...sortOpt,
-            field: `${queryOptions.table}.${sortOpt.field}`,
-          });
+    const planLimitedCteSortJoin = options.plan?.limitedCteSortJoin ?? null;
+    const usePlanCTE = options.plan?.sqlStrategy === 'cte-flat' || options.plan?.sqlStrategy === 'cte-aggregate';
+
+    const mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
+    const relationSortSubqueries: Array<{ sql: string; direction: 'asc' | 'desc' }> = [];
+
+    for (const item of resolvedSortItems) {
+      if (item.joinId === null) {
+        if (item.field.includes('.') && !options.plan) {
+          const prefix = item.field.split('.')[0];
+          const tblMeta = this.metadata?.tables?.get(queryOptions.table);
+          const isRelField = tblMeta?.relations?.some((r: any) => r.propertyName === prefix);
+          if (isRelField) continue;
+        }
+        mainTableSorts.push({
+          field: item.field.includes('.') ? item.field : `${queryOptions.table}.${item.field}`,
+          direction: item.direction,
+        });
+      } else {
+        if (usePlanCTE && planLimitedCteSortJoin && item.joinId === planLimitedCteSortJoin.id) {
+          continue;
+        }
+        const joinSpec = options.plan?.joins.find(j => j.id === item.joinId);
+        if (joinSpec && (joinSpec.relationType === 'many-to-one' || joinSpec.relationType === 'one-to-one')) {
+          const subquerySql = this.buildRelationSortSubquery(joinSpec.relationMeta, item.field, queryOptions.table);
+          if (subquerySql) {
+            relationSortSubqueries.push({ sql: subquerySql, direction: item.direction });
+          }
         }
       }
     }
@@ -142,14 +172,40 @@ export class SqlQueryExecutor {
     let whereClauseForCTE: string | undefined = undefined;
 
     if (queryOptions.fields && queryOptions.fields.length > 0) {
-      const orderByClause = mainTableSorts.length > 0
-        ? `ORDER BY ${mainTableSorts.map(s => {
-            const field = s.field.includes('.') ? s.field : `${queryOptions.table}.${s.field}`;
-            return `${quoteIdentifier(field.split('.')[0], this.dbType)}.${quoteIdentifier(field.split('.')[1] || field, this.dbType)} ${s.direction.toUpperCase()}`;
-          }).join(', ')}`
-        : undefined;
+      const orderByParts: string[] = [];
+      for (const s of mainTableSorts) {
+        const field = s.field.includes('.') ? s.field : `${queryOptions.table}.${s.field}`;
+        orderByParts.push(
+          `${quoteIdentifier(field.split('.')[0], this.dbType)}.${quoteIdentifier(field.split('.')[1] || field, this.dbType)} ${s.direction.toUpperCase()}`
+        );
+      }
+      for (const rs of relationSortSubqueries) {
+        orderByParts.push(`${rs.sql} ${rs.direction.toUpperCase()}`);
+      }
+      const orderByClause = orderByParts.length > 0 ? `ORDER BY ${orderByParts.join(', ')}` : undefined;
 
-      if (queryOptions.limit !== undefined && orderByClause && (this.dbType === 'postgres' || this.dbType === 'mysql')) {
+      let builtLimitedCteSortJoin: any = undefined;
+      if (usePlanCTE && planLimitedCteSortJoin) {
+        const sortItem = resolvedSortItems.find(s => s.joinId === planLimitedCteSortJoin.id);
+        if (sortItem) {
+          const joinMap = new Map((options.plan!.joins ?? []).map((j: any) => [j.id, j]));
+          const chain: any[] = [];
+          let cur: any = planLimitedCteSortJoin;
+          while (cur) {
+            chain.unshift(cur);
+            cur = cur.parentJoinId ? joinMap.get(cur.parentJoinId) : undefined;
+          }
+          const steps = chain.map((joinSpec: any) => {
+            const fkCol = joinSpec.relationMeta?.foreignKeyColumn || joinSpec.propertyName + 'Id';
+            const targetMeta = this.metadata?.tables?.get(joinSpec.targetTable);
+            const pkCol = targetMeta?.columns?.find((c: any) => c.isPrimary)?.name || 'id';
+            return { targetTable: joinSpec.targetTable, fkCol, pkCol };
+          });
+          builtLimitedCteSortJoin = { steps, sortField: sortItem.field, direction: sortItem.direction };
+        }
+      }
+
+      if (queryOptions.limit !== undefined && (orderByClause || builtLimitedCteSortJoin) && (this.dbType === 'postgres' || this.dbType === 'mysql')) {
         const metadata = this.metadata?.tables?.get(queryOptions.table);
         if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
           if (metadata) {
@@ -227,7 +283,7 @@ export class SqlQueryExecutor {
                           return String(v);
                         }).join(', ');
                         parts.push(`${quotedField} IN (${inSql})`);
-                      } else if (op === '_not_in') {
+                      } else if (op === '_not_in' || op === '_nin') {
                         const notInValues = Array.isArray(val) ? val : [val];
                         const notInSql = notInValues.map(v => {
                           if (typeof v === 'string') {
@@ -341,6 +397,7 @@ export class SqlQueryExecutor {
         orderByClause,
         whereClauseForCTE,
         queryOptions.offset,
+        builtLimitedCteSortJoin,
       );
       queryOptions.select = [...(queryOptions.select || []), ...expandedResult.select];
       cteClauses = expandedResult.cteClauses || [];
@@ -426,22 +483,25 @@ export class SqlQueryExecutor {
         return `LEFT JOIN ${quotedCTEName} ON ${tableAlias}.${quotedPkName} = ${quotedCTEName}.${quotedParentId}`;
       }).join(' ');
 
-      const orderBySQL = mainTableSorts.length > 0
-        ? `ORDER BY ${mainTableSorts.map(s => {
-            let field = s.field;
-            if (field.includes('.')) {
-              const parts = field.split('.');
-              if (parts[0] === queryOptions.table) {
-                field = `${tableAlias}.${quoteIdentifier(parts[1], this.dbType)}`;
-              } else {
-                field = field.replace(new RegExp(`^${queryOptions.table}\\.`, 'g'), `${tableAlias}.`);
-              }
-            } else {
-              field = `${tableAlias}.${quoteIdentifier(field, this.dbType)}`;
-            }
-            return `${field} ${s.direction.toUpperCase()}`;
-          }).join(', ')}`
-        : '';
+      const orderBySQLParts: string[] = [];
+      for (const s of mainTableSorts) {
+        let field = s.field;
+        if (field.includes('.')) {
+          const parts = field.split('.');
+          if (parts[0] === queryOptions.table) {
+            field = `${tableAlias}.${quoteIdentifier(parts[1], this.dbType)}`;
+          } else {
+            field = field.replace(new RegExp(`^${queryOptions.table}\\.`, 'g'), `${tableAlias}.`);
+          }
+        } else {
+          field = `${tableAlias}.${quoteIdentifier(field, this.dbType)}`;
+        }
+        orderBySQLParts.push(`${field} ${s.direction.toUpperCase()}`);
+      }
+      for (const rs of relationSortSubqueries) {
+        orderBySQLParts.push(`${rs.sql} ${rs.direction.toUpperCase()}`);
+      }
+      const orderBySQL = orderBySQLParts.length > 0 ? `ORDER BY ${orderBySQLParts.join(', ')}` : '';
 
       const quotedLimitedCTE = quoteIdentifier(limitedCTEName, this.dbType);
 
@@ -528,6 +588,9 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         query = query.orderBy(sortField, sortOpt.direction);
       }
     }
+    for (const rs of relationSortSubqueries) {
+      query = query.orderByRaw(`${rs.sql} ${rs.direction.toUpperCase()}`);
+    }
 
     if (queryOptions.groupBy) {
       query = query.groupBy(queryOptions.groupBy);
@@ -558,12 +621,30 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
           sql: rawSQLQuery,
         });
       } else {
-      this.debugLog.push({
-        type: 'SQL Query',
-        table: queryOptions.table,
-        sql: query.toSQL().toNative(),
-      });
+        this.debugLog.push({
+          type: 'SQL Query',
+          table: queryOptions.table,
+          sql: query.toSQL().toNative(),
+        });
+      }
     }
+
+    if (options.debugMode) {
+      const sqlString = useCTE && rawSQLQuery ? rawSQLQuery : query.toSQL().toNative().sql;
+      let explain: any;
+      try {
+        if (useCTE && rawSQLQuery) {
+          const explainResult = await this.knex.raw(`EXPLAIN ${rawSQLQuery}`);
+          explain = this.dbType === 'postgres' ? (explainResult as any).rows : (explainResult as any)[0];
+        } else {
+          const native = query.toSQL().toNative();
+          const explainResult = await this.knex.raw(`EXPLAIN ${native.sql}`, native.bindings);
+          explain = this.dbType === 'postgres' ? (explainResult as any).rows : (explainResult as any)[0];
+        }
+      } catch (e) {
+        explain = { error: String(e) };
+      }
+      return { sql: sqlString, explain };
     }
 
     let results: any[];
@@ -825,6 +906,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     orderByClause?: string,
     whereClause?: string,
     offset?: number,
+    limitedCteSortJoin?: any,
   ): Promise<{ select: string[]; cteClauses?: string[] }> {
     if (!this.metadata) {
       return { select: fields };
@@ -861,11 +943,32 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         orderByClause,
         whereClause,
         offset,
+        limitedCteSortJoin,
       );
       return { select: expanded.select, cteClauses: expanded.cteClauses };
     } catch (error) {
       return { select: fields };
     }
+  }
+
+  private buildRelationSortSubquery(
+    relationMeta: any,
+    sortField: string,
+    parentTable: string,
+  ): string | null {
+    const targetTable = relationMeta.targetTableName || relationMeta.targetTable;
+    if (!targetTable) return null;
+
+    const fkCol = relationMeta.foreignKeyColumn || getForeignKeyColumnName(targetTable);
+    if (!fkCol) return null;
+
+    const q = (s: string) => quoteIdentifier(s, this.dbType);
+
+    const targetMeta = this.metadata?.tables?.get(targetTable);
+    const pkCol = targetMeta ? getPrimaryKeyColumn(targetMeta) : null;
+    const targetPk = pkCol?.name || 'id';
+
+    return `(SELECT ${q(targetTable)}.${q(sortField)} FROM ${q(targetTable)} WHERE ${q(targetTable)}.${q(targetPk)} = ${q(parentTable)}.${q(fkCol)})`;
   }
 
   private async buildRelationSubqueryForCTE(

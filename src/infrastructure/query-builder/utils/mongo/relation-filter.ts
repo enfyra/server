@@ -25,7 +25,7 @@ export async function buildRelationLookupPipeline(
             if (op === '_eq') operator = '=';
             else if (op === '_neq') operator = '!=';
             else if (op === '_in') operator = 'in';
-            else if (op === '_not_in') operator = 'not in';
+            else if (op === '_not_in' || op === '_nin') operator = 'not in';
             else if (op === '_gt') operator = '>';
             else if (op === '_gte') operator = '>=';
             else if (op === '_lt') operator = '<';
@@ -313,7 +313,7 @@ export async function applyMixedFilters(
             if (op === '_eq') operator = '=';
             else if (op === '_neq') operator = '!=';
             else if (op === '_in') operator = 'in';
-            else if (op === '_not_in') operator = 'not in';
+            else if (op === '_not_in' || op === '_nin') operator = 'not in';
             else if (op === '_gt') operator = '>';
             else if (op === '_gte') operator = '>=';
             else if (op === '_lt') operator = '<';

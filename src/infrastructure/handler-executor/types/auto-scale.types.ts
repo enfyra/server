@@ -35,6 +35,6 @@ export const AUTO_SCALE_CONFIG: AutoScaleConfig = {
   scaleUpMinPending: 3,
   scaleDownUtilizationThreshold: 0.3,
   scaleDownDuration: 60000,
-  scaleUpCooldown: 5000,
+  scaleUpCooldown: 500,
   scaleDownCooldown: 30000,
 };

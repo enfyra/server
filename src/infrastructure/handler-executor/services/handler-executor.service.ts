@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TDynamicContext } from '../../../shared/types';
 import { PackageCacheService } from '../../cache/services/package-cache.service';
@@ -8,6 +8,8 @@ import { ExecutorPoolService } from './executor-pool.service';
 
 @Injectable()
 export class HandlerExecutorService {
+  private readonly logger = new Logger(HandlerExecutorService.name);
+
   constructor(
     private executorPoolService: ExecutorPoolService,
     private packageCacheService: PackageCacheService,
@@ -69,7 +71,9 @@ export class HandlerExecutorService {
         ChildProcessManager.sendExecuteMessage(child, wrapCtx(ctx), code, packages);
       } catch (error) {
         healthService.recordError(child, error.message || 'Unknown error');
-        pool.release(child).catch(() => {});
+        pool.release(child).catch((releaseErr) => {
+          this.logger.error(`pool.release failed after setup error (pid=${child.pid}): ${releaseErr?.message}`);
+        });
         reject(error);
       }
     });
@@ -81,7 +85,9 @@ export class HandlerExecutorService {
     healthService: any,
   ): Promise<void> {
     if (!child.connected || child.killed) {
-      await pool.destroy(child).catch(() => {});
+      await pool.destroy(child).catch((err) => {
+        this.logger.error(`pool.destroy failed for dead process (pid=${child.pid}): ${err?.message}`);
+      });
       return;
     }
 
@@ -90,9 +96,13 @@ export class HandlerExecutorService {
     if (shouldRecycle) {
       const metadata = healthService.getAllMetadata().get(child);
       healthService.logRecycle(child.pid, reasons, metadata);
-      await pool.destroy(child).catch(() => {});
+      await pool.destroy(child).catch((err) => {
+        this.logger.error(`pool.destroy failed during recycle (pid=${child.pid}): ${err?.message}`);
+      });
     } else {
-      await pool.release(child).catch(() => {});
+      await pool.release(child).catch((err) => {
+        this.logger.error(`pool.release failed (pid=${child.pid}): ${err?.message}`);
+      });
     }
   }
 }

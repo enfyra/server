@@ -37,6 +37,7 @@ export class ChildProcessManager {
       if (isDone.value) return;
       isDone.value = true;
       child.removeAllListeners();
+      child.stderr?.removeAllListeners?.();
       child.kill('SIGKILL');
       reject(new ScriptTimeoutException(timeoutMs, code));
     }, timeoutMs);
@@ -54,6 +55,7 @@ export class ChildProcessManager {
     const activeStreams = new Map<string, { started: boolean }>();
     let stderrOutput = '';
     if (child.stderr) {
+      child.stderr.removeAllListeners('data');
       child.stderr.on('data', (data: Buffer) => {
         stderrOutput += data.toString();
       });
@@ -231,6 +233,7 @@ export class ChildProcessManager {
       if (msg.type === 'done') {
         isDone.value = true;
         child.removeAllListeners();
+        child.stderr?.removeAllListeners?.();
         if (msg.ctx) {
           const mergedCtx = smartMergeContext(ctx, msg.ctx);
           Object.assign(ctx, mergedCtx);

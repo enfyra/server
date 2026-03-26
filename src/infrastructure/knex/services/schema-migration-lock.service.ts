@@ -142,9 +142,7 @@ export class SchemaMigrationLockService {
       });
       await baseKnex(this.tableName).insert({ id: 1, isLocked: false });
     } else {
-      const columnInfo = await baseKnex(this.tableName)
-        .columnInfo()
-        .catch(() => ({} as Record<string, any>));
+      const columnInfo = await baseKnex(this.tableName).columnInfo();
 
       if (!columnInfo.createdAt) {
         await baseKnex.schema.alterTable(this.tableName, (table) => {

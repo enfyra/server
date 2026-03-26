@@ -4,6 +4,18 @@ import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
 import { buildNestedSubquery, buildCTEStrategy, buildOwnerCTEStrategy } from './nested-subquery-builder';
 import { quoteIdentifier, getEmptyJsonArray } from '../../../knex/utils/migration/sql-dialect';
 
+export interface LimitedCteSortJoinStep {
+  targetTable: string;
+  fkCol: string;
+  pkCol: string;
+}
+
+export interface LimitedCteSortJoin {
+  steps: LimitedCteSortJoinStep[];
+  sortField: string;
+  direction: 'asc' | 'desc';
+}
+
 interface FieldExpansionResult {
   select: string[];
   cteClauses?: string[];
@@ -33,6 +45,7 @@ export async function expandFieldsToJoinsAndSelect(
   orderByClause?: string,
   whereClause?: string,
   offset?: number,
+  limitedCteSortJoin?: LimitedCteSortJoin,
 ): Promise<FieldExpansionResult> {
   const select: string[] = [];
 
@@ -111,7 +124,7 @@ export async function expandFieldsToJoinsAndSelect(
   const useCTE =
     (dbType === 'postgres' || dbType === 'mysql') &&
     limit !== undefined &&
-    !!orderByClause;
+    (!!orderByClause || !!limitedCteSortJoin);
 
   let limitedCTEName: string | null = null;
   if (useCTE) {
@@ -137,8 +150,34 @@ export async function expandFieldsToJoinsAndSelect(
     const pkColumn = baseMeta ? getPrimaryKeyColumn(baseMeta as any) : null;
     const pkName = pkColumn?.name || 'id';
     const quotedPkCol = quoteIdentifier(pkName, dbType);
+
+    let sortJoinFragment = '';
+    let effectiveOrderBy = orderByInCTE;
+
+    if (limitedCteSortJoin) {
+      let lastRef = quotedTable;
+      for (let i = 0; i < limitedCteSortJoin.steps.length; i++) {
+        const step = limitedCteSortJoin.steps[i];
+        const stepAlias = i === 0 ? 's_sort' : `s_sort_${i}`;
+        const qTarget = quoteIdentifier(step.targetTable, dbType);
+        const qPk = quoteIdentifier(step.pkCol, dbType);
+        const qFk = quoteIdentifier(step.fkCol, dbType);
+        sortJoinFragment += ` LEFT JOIN ${qTarget} ${stepAlias} ON ${stepAlias}.${qPk} = ${lastRef}.${qFk}`;
+        lastRef = stepAlias;
+      }
+      const finalAlias = limitedCteSortJoin.steps.length === 1 ? 's_sort' : `s_sort_${limitedCteSortJoin.steps.length - 1}`;
+      const qSortField = quoteIdentifier(limitedCteSortJoin.sortField, dbType);
+      const sortOrderBy = `ORDER BY ${finalAlias}.${qSortField} ${limitedCteSortJoin.direction.toUpperCase()}`;
+      if (orderByInCTE) {
+        effectiveOrderBy = `${sortOrderBy}, ${orderByInCTE.replace(/^ORDER BY /i, '')}`;
+      } else {
+        effectiveOrderBy = sortOrderBy;
+      }
+    }
+
+    const selectPk = sortJoinFragment ? `${quotedTable}.${quotedPkCol}` : quotedPkCol;
     cteClauses.push(`${quotedLimitedCTE} AS (
-      SELECT ${quotedPkCol} FROM ${quotedTable}${wherePart}${orderByInCTE ? ' ' + orderByInCTE : ''}${limitSQL ? ' ' + limitSQL : ''}${offsetSQL ? ' ' + offsetSQL : ''}
+      SELECT ${selectPk} FROM ${quotedTable}${sortJoinFragment}${wherePart}${effectiveOrderBy ? ' ' + effectiveOrderBy : ''}${limitSQL ? ' ' + limitSQL : ''}${offsetSQL ? ' ' + offsetSQL : ''}
     )`);
   }
 

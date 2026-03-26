@@ -246,8 +246,9 @@ async function applyFiltersToSubquery(
               } else if (idFilter._in !== undefined) {
                 const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
                 query.whereIn(fkColumn, inValues);
-              } else if (idFilter._not_in !== undefined) {
-                const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+              } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
+                const raw = idFilter._not_in ?? idFilter._nin;
+                const notInValues = Array.isArray(raw) ? raw : [raw];
                 query.whereNotIn(fkColumn, notInValues);
               }
             }
@@ -309,8 +310,9 @@ async function applyFiltersToSubquery(
                 const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
                 const inStr = inValues.map(v => escapeSqlString(v, dbType)).join(', ');
                 subqueries.push(`${fkColumn} IN (${inStr})`);
-              } else if (idFilter._not_in !== undefined) {
-                const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+              } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
+                const raw = idFilter._not_in ?? idFilter._nin;
+                const notInValues = Array.isArray(raw) ? raw : [raw];
                 const notInStr = notInValues.map(v => escapeSqlString(v, dbType)).join(', ');
                 subqueries.push(`${fkColumn} NOT IN (${notInStr})`);
               }
@@ -397,8 +399,9 @@ async function applyFiltersToSubquery(
             } else if (idFilter._in !== undefined) {
               const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
               query.whereNotIn(fkColumn, inValues);
-            } else if (idFilter._not_in !== undefined) {
-              const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+            } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
+              const raw = idFilter._not_in ?? idFilter._nin;
+              const notInValues = Array.isArray(raw) ? raw : [raw];
               query.whereIn(fkColumn, notInValues);
             }
           }
@@ -453,8 +456,9 @@ async function applyFiltersToSubquery(
           } else if (idFilter._in !== undefined) {
             const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
             query.whereIn(fkColumn, inValues);
-          } else if (idFilter._not_in !== undefined) {
-            const notInValues = Array.isArray(idFilter._not_in) ? idFilter._not_in : [idFilter._not_in];
+          } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
+            const raw = idFilter._not_in ?? idFilter._nin;
+            const notInValues = Array.isArray(raw) ? raw : [raw];
             query.whereNotIn(fkColumn, notInValues);
           }
         }

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { fork, ChildProcess } from 'child_process';
 import { createPool, Pool } from 'generic-pool';
 import * as path from 'path';
@@ -9,6 +9,7 @@ import { AUTO_SCALE_CONFIG, PoolMetrics } from '../types/auto-scale.types';
 
 @Injectable()
 export class ExecutorPoolService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ExecutorPoolService.name);
   private executorPool: Pool<ChildProcess>;
   private healthService: ChildProcessHealthService;
   private healthLogger: ExecutorHealthLogger;
@@ -40,6 +41,7 @@ export class ExecutorPoolService implements OnModuleInit, OnModuleDestroy {
       destroy: async (child: ChildProcess): Promise<void> => {
         this.healthService.unregisterProcess(child);
         child.removeAllListeners();
+        (child as any).stderr?.removeAllListeners?.();
         child.kill();
       },
 
@@ -102,7 +104,9 @@ export class ExecutorPoolService implements OnModuleInit, OnModuleDestroy {
 
     for (const [child] of allMetadata) {
       destroyPromises.push(
-        this.executorPool.destroy(child).catch(() => {}),
+        this.executorPool.destroy(child).catch((err) => {
+          this.logger.error(`recycleAll: pool.destroy failed (pid=${(child as any).pid}): ${err?.message}`);
+        }),
       );
     }
 
@@ -136,10 +140,14 @@ export class ExecutorPoolService implements OnModuleInit, OnModuleDestroy {
     if (decision.direction === 'down') {
       const idleProcess = this.getIdleProcess();
       if (idleProcess) {
-        await this.executorPool.destroy(idleProcess).catch(() => {});
-        this.autoScaleService.setMaxSize(decision.targetSize);
-        this.healthLogger.logScaleDown(decision.currentSize, decision.targetSize, decision.reason);
-        return { scaled: true, direction: 'down', reason: decision.reason };
+        try {
+          await this.executorPool.destroy(idleProcess);
+          this.autoScaleService.setMaxSize(decision.targetSize);
+          this.healthLogger.logScaleDown(decision.currentSize, decision.targetSize, decision.reason);
+          return { scaled: true, direction: 'down', reason: decision.reason };
+        } catch (err) {
+          this.logger.error(`scale-down: pool.destroy failed (pid=${(idleProcess as any).pid}): ${(err as Error)?.message}`);
+        }
       }
     }
 

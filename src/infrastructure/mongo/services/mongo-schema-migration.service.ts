@@ -13,7 +13,7 @@ export class MongoSchemaMigrationService {
     @Inject(forwardRef(() => QueryBuilderService))
     private readonly queryBuilderService: QueryBuilderService,
   ) {}
-  private getBsonType(type: string): BsonType {
+  private sqlTypeToBsonType(type: string): BsonType {
     const typeMap: Record<string, BsonType> = {
       'string': 'string',
       'text': 'string',
@@ -50,7 +50,7 @@ export class MongoSchemaMigrationService {
       if (col.name === '_id' || col.name === 'createdAt' || col.name === 'updatedAt') {
         continue;
       }
-      const bsonType = this.getBsonType(col.type);
+      const bsonType = this.sqlTypeToBsonType(col.type);
       properties[col.name] = {
         bsonType: col.isNullable ? [bsonType, 'null'] : bsonType,
         description: col.description || col.name,

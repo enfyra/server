@@ -8,12 +8,14 @@ import { whereToMongoFilter, convertLogicalFilterToMongo } from '../utils/mongo/
 import { expandFieldsMongo } from '../utils/mongo/expand-fields';
 import { buildNestedLookupPipeline, addProjectionStage } from '../utils/mongo/pipeline-builder';
 import { applyMixedFilters } from '../utils/mongo/relation-filter';
+import { QueryPlan } from '../planner/query-plan.types';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
   private readonly db: Db;
   private metadata: any;
-  private dbType: string = 'mongodb';
+  private dbType: string;
+  private lastBuiltPipeline: any[] | null = null;
 
   constructor(private readonly mongoService: any) {
     this.db = mongoService.getDb();
@@ -29,9 +31,11 @@ export class MongoQueryExecutor {
     meta?: string;
     deep?: Record<string, any>;
     debugLog?: any[];
+    debugMode?: boolean;
     pipeline?: any[];
     metadata?: any;
     dbType?: string;
+    plan?: QueryPlan;
   }): Promise<any> {
     this.metadata = options.metadata;
     this.dbType = options.dbType || 'mongodb';
@@ -74,7 +78,7 @@ export class MongoQueryExecutor {
               if (op === '_eq') operator = '=';
               else if (op === '_neq') operator = '!=';
               else if (op === '_in') operator = 'in';
-              else if (op === '_not_in') operator = 'not in';
+              else if (op === '_not_in' || op === '_nin') operator = 'not in';
               else if (op === '_gt') operator = '>';
               else if (op === '_gte') operator = '>=';
               else if (op === '_lt') operator = '<';
@@ -158,7 +162,20 @@ export class MongoQueryExecutor {
       }
     }
 
+    this.lastBuiltPipeline = null;
     const results = await this.selectLegacy(queryOptions);
+
+    if (options.debugMode) {
+      const builtPipeline = this.lastBuiltPipeline ?? [];
+      let explain: any;
+      try {
+        const collection = this.db.collection(options.tableName);
+        explain = await collection.aggregate(builtPipeline).explain();
+      } catch (e) {
+        explain = { error: String(e) };
+      }
+      return { data: results, debug: [{ pipeline: builtPipeline, explain }] };
+    }
 
     if (hasRelationFilters && (metaParts.includes('filterCount') || metaParts.includes('*'))) {
       queryOptions.mongoCountOnly = true;
@@ -199,17 +216,6 @@ export class MongoQueryExecutor {
       });
     }
 
-    if (options.sort) {
-      options.sort = options.sort.map(sortOpt => {
-        if (!sortOpt.field.includes('.')) {
-          return {
-            ...sortOpt,
-            field: `${options.table}.${sortOpt.field}`,
-          };
-        }
-        return sortOpt;
-      });
-    }
 
     const collection = this.db.collection(options.table);
 
@@ -251,17 +257,17 @@ export class MongoQueryExecutor {
       pipeline.push({ $match: options.mongoLogicalFilter });
     }
 
+    const hasSortOnRelation = options.sort?.some(s => {
+      if (!s.field.includes('.')) return false;
+      const relName = s.field.split('.')[0];
+      return options.mongoFieldsExpanded?.relations?.some(r => r.propertyName === relName) ?? false;
+    }) ?? false;
+
+    const sortAfterJoins = hasRelationFilters || hasSortOnRelation;
+
     if (!options.mongoFieldsExpanded) {
       if (options.sort) {
-        const sortSpec: any = {};
-        for (const sortOpt of options.sort) {
-          let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
-          if (fieldName === 'id') {
-            fieldName = '_id';
-          }
-          sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
-        }
-        pipeline.push({ $sort: sortSpec });
+        pipeline.push({ $sort: this.buildMongoSortSpec(options.sort) });
       }
 
       if (options.mongoCountOnly) {
@@ -302,17 +308,9 @@ export class MongoQueryExecutor {
 
     const { scalarFields, relations } = options.mongoFieldsExpanded;
 
-    if (!hasRelationFilters) {
+    if (!sortAfterJoins) {
       if (options.sort) {
-        const sortSpec: any = {};
-        for (const sortOpt of options.sort) {
-          let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
-          if (fieldName === 'id') {
-            fieldName = '_id';
-          }
-          sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
-        }
-        pipeline.push({ $sort: sortSpec });
+        pipeline.push({ $sort: this.buildMongoSortSpec(options.sort) });
       }
 
       if (!options.mongoCountOnly) {
@@ -403,17 +401,9 @@ export class MongoQueryExecutor {
       }
     }
 
-    if (hasRelationFilters) {
+    if (sortAfterJoins) {
       if (options.sort) {
-        const sortSpec: any = {};
-        for (const sortOpt of options.sort) {
-          let fieldName = sortOpt.field.includes('.') ? sortOpt.field.split('.').pop() : sortOpt.field;
-          if (fieldName === 'id') {
-            fieldName = '_id';
-          }
-          sortSpec[fieldName] = sortOpt.direction === 'asc' ? 1 : -1;
-        }
-        pipeline.push({ $sort: sortSpec });
+        pipeline.push({ $sort: this.buildMongoSortSpec(options.sort) });
       }
 
       if (!options.mongoCountOnly) {
@@ -440,6 +430,7 @@ export class MongoQueryExecutor {
       });
     }
 
+    this.lastBuiltPipeline = pipeline;
     const results = await collection.aggregate(pipeline).toArray();
 
     if (options.mongoCountOnly) {
@@ -449,65 +440,16 @@ export class MongoQueryExecutor {
     return this.normalizeMongoResults(results);
   }
 
-  private async addProjectionStage(
-    pipeline: any[],
-    options: QueryOptions,
-    scalarFields: string[],
-    relations: any[]
-  ): Promise<void> {
-    const baseMeta = this.metadata?.tables?.get(options.table);
-    const allRelations = baseMeta?.relations || [];
-    const allColumns = baseMeta?.columns || [];
+  private buildMongoSortSpec(sort: Array<{ field: string; direction: 'asc' | 'desc' }>): Record<string, 1 | -1> {
+    const spec: Record<string, 1 | -1> = {};
+    for (const sortOpt of sort) {
+      let mongoField = sortOpt.field;
 
-    const unpopulatedRelations = allRelations.filter(rel =>
-      !relations.some(r => r.propertyName === rel.propertyName)
-    );
+      if (mongoField === 'id') mongoField = '_id';
 
-    const hasWildcard = scalarFields.length === allColumns.length ||
-      (scalarFields.length === 0 && relations.length === 0);
-
-    if (unpopulatedRelations.length > 0 || !hasWildcard) {
-      const projectStage: any = { _id: 1 };
-
-      for (const field of scalarFields) {
-        projectStage[field] = 1;
-      }
-
-      for (const rel of relations) {
-        projectStage[rel.propertyName] = 1;
-      }
-
-      for (const rel of unpopulatedRelations) {
-        const isInverse = rel.type === 'one-to-many' ||
-          (rel.type === 'many-to-many' && rel.mappedBy);
-
-        if (isInverse) {
-          continue; // Inverse relations not stored, skip mapping
-        }
-
-        const isArray = rel.type === 'many-to-many';
-
-        if (isArray) {
-          projectStage[rel.propertyName] = {
-            $map: {
-              input: `$${rel.propertyName}`,
-              as: 'item',
-              in: { _id: '$$item' }
-            }
-          };
-        } else {
-          projectStage[rel.propertyName] = {
-            $cond: {
-              if: { $ne: [`$${rel.propertyName}`, null] },
-              then: { _id: `$${rel.propertyName}` },
-              else: null
-            }
-          };
-        }
-      }
-
-      pipeline.push({ $project: projectStage });
+      spec[mongoField] = sortOpt.direction === 'asc' ? 1 : -1;
     }
+    return spec;
   }
 
   private checkIfFilterContainsIsNull(filter: any): boolean {
