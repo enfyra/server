@@ -6,7 +6,7 @@ import { CacheModule } from '../cache/cache.module';
 @Global()
 @Module({
   imports: [CacheModule],
-  providers: [HandlerExecutorService, ExecutorPoolService],
-  exports: [HandlerExecutorService, ExecutorPoolService],
+  providers: [ExecutorPoolService, HandlerExecutorService],
+  exports: [HandlerExecutorService],
 })
 export class HandlerExecutorModule {}

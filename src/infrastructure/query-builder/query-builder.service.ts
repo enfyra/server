@@ -10,9 +10,9 @@ import {
   DeleteOptions,
   CountOptions,
 } from '../../shared/types/query-builder.types';
-import { expandFieldsToJoinsAndSelect } from './utils/sql/expand-fields';
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
+import { QueryPlanner } from './planner/query-planner';
 
 let ObjectId: any;
 try {
@@ -164,9 +164,22 @@ export class QueryBuilderService {
   }): Promise<any> {
     const metadata = this.metadataCache.getDirectMetadata();
 
+    const planner = new QueryPlanner();
+    const plan = planner.plan({
+      tableName: options.tableName,
+      fields: options.fields,
+      filter: options.filter,
+      sort: options.sort,
+      page: options.page,
+      limit: options.limit,
+      meta: options.meta,
+      metadata,
+      dbType: this.dbType as any,
+    });
+
     if (this.dbType === 'mongodb') {
       const executor = new MongoQueryExecutor(this.mongoService);
-      return executor.execute({ ...options, metadata, dbType: this.dbType });
+      return executor.execute({ ...options, metadata, dbType: this.dbType, plan });
     }
 
     const executor = new SqlQueryExecutor(
@@ -174,7 +187,7 @@ export class QueryBuilderService {
       this.dbType as 'postgres' | 'mysql' | 'sqlite',
       this.knexService,
     );
-    return executor.execute({ ...options, metadata });
+    return executor.execute({ ...options, metadata, plan });
   }
 
 
@@ -401,42 +414,6 @@ export class QueryBuilderService {
 
   isSql(): boolean {
     return ['mysql', 'postgres'].includes(this.dbType);
-  }
-
-
-  private async expandFieldsToSelect(
-    tableName: string,
-    fields: string[],
-  ): Promise<string[]> {
-    if (!this.metadataCache) {
-      return fields;
-    }
-
-    const allMetadata = await this.metadataCache.getMetadata();
-
-    const metadataGetter = async (tName: string) => {
-      try {
-        const tableMeta = allMetadata.tables.get(tName);
-        if (!tableMeta) {
-          return null;
-        }
-
-        return {
-          name: tableMeta.name,
-          columns: tableMeta.columns || [],
-          relations: tableMeta.relations || [],
-        };
-      } catch (error) {
-        return null;
-      }
-    };
-
-    try {
-      const result = await expandFieldsToJoinsAndSelect(tableName, fields, metadataGetter, this.dbType);
-      return result.select;
-    } catch (error) {
-      return fields;
-    }
   }
 }
 

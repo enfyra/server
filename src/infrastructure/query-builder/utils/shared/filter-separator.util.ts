@@ -25,7 +25,7 @@ function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
         if (!hasOperator) {
           return true;
         }
-        const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in'];
+        const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in', '_nin'];
         if (keys.length === 1 && idOperators.includes(keys[0])) {
           return true;
         }
@@ -60,7 +60,7 @@ export function separateFilters(
         const keys = Object.keys(value);
         const hasOperator = keys.some(k => k.startsWith('_'));
         if (hasOperator) {
-          const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in'];
+          const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in', '_nin'];
           if (keys.length === 1 && idOperators.includes(keys[0])) {
             relationFilters[key] = {
               id: value

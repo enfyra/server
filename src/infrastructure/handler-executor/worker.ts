@@ -1,53 +1,19 @@
+import { parentPort, isMainThread } from 'worker_threads';
 import {
   buildCallableFunctionProxy,
   buildFunctionProxy,
   buildResponseProxy,
-} from './utils/build-fn-proxy';
+} from './utils/ipc-proxy';
 
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-
-function stripStringsAndComments(code: string) {
-  const placeholders: Array<{ placeholder: string; original: string }> = [];
-  let counter = 0;
-
-  const combinedRegex = /(`(?:[^`\\]|\\.)*`)|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')|(\/\*[\s\S]*?\*\/)|(\/\/.*$)/gm;
-
-  const result = code.replace(combinedRegex, (match, template, doubleQuote, singleQuote, multiComment, singleComment) => {
-    let placeholder: string;
-
-    if (template) {
-      placeholder = `__TEMPLATE_${counter++}__`;
-      placeholders.push({ placeholder, original: template });
-    } else if (doubleQuote) {
-      placeholder = `__STRING_${counter++}__`;
-      placeholders.push({ placeholder, original: doubleQuote });
-    } else if (singleQuote) {
-      placeholder = `__STRING_${counter++}__`;
-      placeholders.push({ placeholder, original: singleQuote });
-    } else if (multiComment) {
-      placeholder = `__COMMENT_${counter++}__`;
-      placeholders.push({ placeholder, original: multiComment });
-    } else if (singleComment) {
-      placeholder = `__COMMENT_${counter++}__`;
-      placeholders.push({ placeholder, original: singleComment });
-    } else {
-      placeholder = match;
-    }
-
-    return placeholder;
-  });
-
-  return { result, placeholders };
+if (isMainThread) {
+  throw new Error('Must be run as a Worker thread');
 }
 
-function restoreStringsAndComments(code: string, placeholders: Array<{ placeholder: string; original: string }>) {
-  let result = code;
-  for (let i = placeholders.length - 1; i >= 0; i--) {
-    const { placeholder, original } = placeholders[i];
-    result = result.replace(placeholder, original);
-  }
-  return result;
-}
+(process as any).send = (data: any): void => {
+  const msg = JSON.parse(JSON.stringify(data, (_, v) => (typeof v === 'function' ? undefined : v)));
+  parentPort!.postMessage(msg);
+};
+
 
 interface PendingCall {
   resolve: (value: any) => void;
@@ -115,7 +81,7 @@ function cleanupStalePendingCalls(): void {
 setInterval(cleanupStalePendingCalls, 10000);
 
 function clearAllPendingCalls(reason: string): void {
-  for (const [callId, pending] of pendingCalls) {
+  for (const [, pending] of pendingCalls) {
     clearTimeout(pending.timeoutId);
     pending.reject(new Error(`Process exiting: ${reason}`));
   }
@@ -124,16 +90,6 @@ function clearAllPendingCalls(reason: string): void {
 
 process.on('exit', () => {
   clearAllPendingCalls('process_exit');
-});
-
-process.on('SIGTERM', () => {
-  clearAllPendingCalls('sigterm');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  clearAllPendingCalls('sigint');
-  process.exit(0);
 });
 
 process.on('unhandledRejection', (reason: any) => {
@@ -184,12 +140,11 @@ process.on('uncaughtException', (error: any) => {
   setTimeout(() => process.exit(1), 100);
 });
 
-process.on('message', async (msg: any) => {
-  // Handle memory usage query from health check
+parentPort!.on('message', async (msg: any) => {
   if (msg.type === 'get_memory_usage') {
     const memory = process.memoryUsage();
     const memoryMB = Math.round(memory.heapUsed / 1024 / 1024);
-    process.send({
+    process.send?.({
       type: 'memory_usage_response',
       memoryMB,
       memoryDetails: {
@@ -210,6 +165,7 @@ process.on('message', async (msg: any) => {
       resolvePendingCall(callId, result);
     }
   }
+
   if (msg.type === 'execute') {
     const originalRepos = msg.ctx.$repos || {};
     const packages = msg.packages;
@@ -242,11 +198,11 @@ process.on('message', async (msg: any) => {
     if (ctx.$uploadedFile?.buffer) {
       const bufData = ctx.$uploadedFile.buffer;
       let bufferArray: number[] = null;
-      
+
       if (Buffer.isBuffer(bufData)) {
         bufferArray = Array.from(bufData);
       } else if (bufData && typeof bufData === 'object') {
-      if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
+        if (bufData.type === 'Buffer' && Array.isArray(bufData.data)) {
           bufferArray = bufData.data;
         } else {
           const keys = Object.keys(bufData);
@@ -260,7 +216,7 @@ process.on('message', async (msg: any) => {
           }
         }
       }
-      
+
       if (bufferArray) {
         ctx.$uploadedFile.buffer = {
           type: 'Buffer',
@@ -271,19 +227,16 @@ process.on('message', async (msg: any) => {
       }
     }
 
-    let processedCode = msg.code;
+    const processedCode = msg.code;
 
-    const wrappedCode = `"use strict";
-return (async () => {
-process.env = {};
-${processedCode}
-})();`;
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const wrappedCode = `"use strict";\nreturn (async () => {\nprocess.env = {};\n${processedCode}\n})();`;
 
     try {
       const asyncFn = new AsyncFunction('$ctx', wrappedCode);
       const result = await asyncFn(ctx);
 
-      process.send({
+      process.send?.({
         type: 'done',
         data: result,
         ctx,
@@ -291,16 +244,13 @@ ${processedCode}
     } catch (error) {
       let errorLine = null;
       let codeContext = '';
-
       let codeContextArray: string[] = [];
 
       try {
         const stackMatch = error.stack?.match(/<anonymous>:(\d+)/);
         if (stackMatch) {
           const transformedLine = parseInt(stackMatch[1]);
-
           const wrapperLinesBefore = 4;
-
           errorLine = transformedLine - wrapperLinesBefore;
 
           if (errorLine > 0) {
@@ -312,8 +262,7 @@ ${processedCode}
               .slice(startLine, endLine)
               .map((line: string, idx: number) => {
                 const lineNum = startLine + idx + 1;
-                const isErrorLine = lineNum === errorLine;
-                const marker = isErrorLine ? '>' : ' ';
+                const marker = lineNum === errorLine ? '>' : ' ';
                 return `${marker} ${lineNum}. ${line}`;
               });
 
@@ -355,11 +304,11 @@ ${processedCode}
       console.error(error.stack);
       console.error('');
 
-      let errorMessage = error.errorResponse?.message ?? error.message ?? 'Unknown error';
-      let errorName = error.errorResponse?.name ?? error.name;
-      let statusCode = error.errorResponse?.statusCode ?? error.statusCode;
+      const errorMessage = error.errorResponse?.message ?? error.message ?? 'Unknown error';
+      const errorName = error.errorResponse?.name ?? error.name;
+      const statusCode = error.errorResponse?.statusCode ?? error.statusCode;
 
-      process.send({
+      process.send?.({
         type: 'error',
         error: {
           message: errorMessage,
@@ -373,7 +322,4 @@ ${processedCode}
       });
     }
   }
-});
-
-process.on('error', (_err) => {
 });

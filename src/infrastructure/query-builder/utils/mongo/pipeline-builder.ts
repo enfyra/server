@@ -18,7 +18,7 @@ export async function buildNestedLookupPipeline(
       if (typeof value === 'object' && value !== null) {
         const firstKey = Object.keys(value)[0];
         const FIELD_OPERATORS = [
-          '_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_in', '_not_in',
+          '_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_in', '_not_in', '_nin',
           '_contains', '_starts_with', '_ends_with', '_between',
           '_is_null', '_is_not_null'
         ];

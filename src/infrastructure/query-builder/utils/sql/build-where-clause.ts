@@ -13,6 +13,7 @@ const FIELD_OPERATORS = [
   '_lte',
   '_in',
   '_not_in',
+  '_nin',
   '_contains',
   '_starts_with',
   '_ends_with',
@@ -135,6 +136,7 @@ function applyFieldCondition(
       }
       break;
     case '_not_in':
+    case '_nin':
       let notInValues = value;
       if (!Array.isArray(notInValues)) {
         notInValues = typeof notInValues === 'string' && notInValues.includes(',')

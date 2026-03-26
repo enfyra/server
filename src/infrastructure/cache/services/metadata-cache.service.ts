@@ -129,18 +129,26 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         let uniques = [];
         let indexes = [];
-        if (table.uniques && typeof table.uniques === 'string') {
-          try {
-            uniques = JSON.parse(table.uniques);
-          } catch (e) {
-            this.logger.warn(`Failed to parse uniques for table ${table.name}`);
+        if (table.uniques) {
+          if (typeof table.uniques === 'string') {
+            try {
+              uniques = JSON.parse(table.uniques);
+            } catch (e) {
+              this.logger.warn(`Failed to parse uniques for table ${table.name}`);
+            }
+          } else if (Array.isArray(table.uniques)) {
+            uniques = table.uniques;
           }
         }
-        if (table.indexes && typeof table.indexes === 'string') {
-          try {
-            indexes = JSON.parse(table.indexes);
-          } catch (e) {
-            this.logger.warn(`Failed to parse indexes for table ${table.name}`);
+        if (table.indexes) {
+          if (typeof table.indexes === 'string') {
+            try {
+              indexes = JSON.parse(table.indexes);
+            } catch (e) {
+              this.logger.warn(`Failed to parse indexes for table ${table.name}`);
+            }
+          } else if (Array.isArray(table.indexes)) {
+            indexes = table.indexes;
           }
         }
 
@@ -337,8 +345,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         const metadata: any = {
           ...tableData,
-          uniques: uniques.length > 0 ? uniques : (actualSchema?.uniques || []),
-          indexes: indexes.length > 0 ? indexes : (actualSchema?.indexes || []),
+          uniques,
+          indexes,
           columns: combinedColumns,
           relations,
         };

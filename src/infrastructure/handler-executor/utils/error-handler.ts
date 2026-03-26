@@ -147,26 +147,4 @@ export class ErrorHandler {
     });
   }
 
-  static handleChildError(
-    isDoneRef: { value: boolean },
-    child: any,
-    timeout: NodeJS.Timeout,
-    pool: any,
-    error: any,
-    errorType: string,
-    message: string,
-    code: string,
-    reject: (error: any) => void,
-    additionalData?: any,
-  ): boolean {
-    if (isDoneRef.value) return true;
-
-    isDoneRef.value = true;
-    child.removeAllListeners();
-    clearTimeout(timeout);
-
-    this.logError(errorType, message, code, additionalData);
-    reject(error);
-    return true;
-  }
 }

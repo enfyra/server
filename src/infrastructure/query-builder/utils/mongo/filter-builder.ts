@@ -211,6 +211,7 @@ export function applyOperatorToMatch(
       matchCondition[field] = { $in: convertedInValues };
       break;
     case '_not_in':
+    case '_nin':
       let notInValues = value;
       if (!Array.isArray(notInValues)) {
         notInValues = typeof notInValues === 'string' && notInValues.includes(',')
