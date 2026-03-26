@@ -163,7 +163,7 @@ export async function generateSQLFromDiff(
     }
     if (col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date') {
       const indexName = `idx_${tableName}_${col.name}`;
-      sqlStatements.push(generateAddIndexSQL(tableName, indexName, [col.name], dbType));
+      sqlStatements.push(generateAddIndexSQL(tableName, indexName, [col.name, 'id'], dbType));
       logger.log(`  Added index on datetime column: ${col.name}`);
     }
   }
@@ -208,8 +208,9 @@ export async function generateSQLFromDiff(
     const cols = Array.isArray(indexGroup) ? indexGroup : (indexGroup?.value || []);
     if (cols.length === 0) continue;
     const indexName = `idx_${tableName}_${cols.join('_')}`;
-    sqlStatements.push(generateAddIndexSQL(tableName, indexName, cols, dbType));
-    logger.log(`  Add index ${indexName} (columns: ${cols.join(', ')})`);
+    const physicalCols = cols.includes('id') ? cols : [...cols, 'id'];
+    sqlStatements.push(generateAddIndexSQL(tableName, indexName, physicalCols, dbType));
+    logger.log(`  Add index ${indexName} (columns: ${physicalCols.join(', ')})`);
   }
   for (const crossOp of crossTableOps) {
     if (crossOp.operation === 'createColumn') {

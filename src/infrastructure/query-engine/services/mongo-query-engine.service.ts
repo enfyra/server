@@ -32,7 +32,6 @@ export class MongoQueryEngine {
     } = options;
 
     const normalizedFields = fields || '*';
-    const debugLog: any[] = [];
 
     const result = await this.queryBuilder.select({
       tableName,
@@ -42,15 +41,8 @@ export class MongoQueryEngine {
       page,
       limit,
       meta,
-      debugLog,
+      debugMode,
     });
-
-    if (debugMode) {
-      return {
-        ...result,
-        debug: debugLog,
-      };
-    }
 
     return result;
   }

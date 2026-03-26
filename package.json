@@ -55,7 +55,6 @@
     "class-validator": "^0.14.2",
     "cors": "^2.8.5",
     "dotenv": "latest",
-    "generic-pool": "^3.9.0",
     "graphql": "^16.11.0",
     "graphql-yoga": "^5.13.5",
     "ioredis": "^5.9.2",

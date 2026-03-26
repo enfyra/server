@@ -163,6 +163,8 @@ export function buildTableSchema(
     }
   }
 
+  const tableName = schema.tableName;
+
   if (definition.indexes && definition.indexes.length > 0) {
     for (const indexGroup of definition.indexes) {
       if (Array.isArray(indexGroup) && indexGroup.length > 0) {
@@ -174,7 +176,8 @@ export function buildTableSchema(
           return fieldName;
         });
         for (const c of columnNames) indexedColumns.add(c);
-        table.index(columnNames);
+        const physicalCols = columnNames.includes('id') ? columnNames : [...columnNames, 'id'];
+        table.index(physicalCols, `idx_${tableName}_${columnNames.join('_')}`);
       }
     }
   }
@@ -183,13 +186,13 @@ export function buildTableSchema(
     if (col.name === 'id') continue;
     if (!col.name.endsWith('Id')) continue;
     if (indexedColumns.has(col.name)) continue;
-    table.index([col.name]);
+    table.index([col.name, 'id'], `idx_${tableName}_${col.name}`);
     indexedColumns.add(col.name);
   }
 
-  table.index(['createdAt']);
+  table.index(['createdAt', 'id'], `idx_${tableName}_createdAt`);
   indexedColumns.add('createdAt');
-  table.index(['updatedAt']);
+  table.index(['updatedAt', 'id'], `idx_${tableName}_updatedAt`);
   indexedColumns.add('updatedAt');
 
   const timestampFields = definition.columns.filter(col =>
@@ -197,7 +200,7 @@ export function buildTableSchema(
   );
 
   for (const field of timestampFields) {
-    table.index([field.name]);
+    table.index([field.name, 'id'], `idx_${tableName}_${field.name}`);
     indexedColumns.add(field.name);
   }
 }

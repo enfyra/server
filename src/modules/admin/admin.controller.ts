@@ -236,7 +236,12 @@ export class AdminController {
         await this.sqlSchemaMigrationService.createTable(metadata);
         this.logger.log(`Created table ${tableName} from metadata`);
       } else {
-        await this.sqlSchemaMigrationService.updateTable(tableName, physicalSchema, metadata);
+        const physicalSchemaForDiff = {
+          ...physicalSchema,
+          indexes: metadata.indexes || [],
+          uniques: metadata.uniques || [],
+        };
+        await this.sqlSchemaMigrationService.updateTable(tableName, physicalSchemaForDiff, metadata);
         this.logger.log(`Updated table ${tableName} from metadata`);
       }
       await this.metadataCacheService.reload();

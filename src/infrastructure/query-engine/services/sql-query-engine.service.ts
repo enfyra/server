@@ -27,7 +27,6 @@ export class SqlQueryEngine {
   }): Promise<any> {
     try {
       const fields = options.fields || '*';
-      const debugLog: any[] = [];
 
       const result = await this.queryBuilder.select({
         tableName: options.tableName,
@@ -38,15 +37,8 @@ export class SqlQueryEngine {
         limit: options.limit,
         meta: options.meta,
         deep: options.deep,
-        debugLog: debugLog,
+        debugMode: options.debugMode,
       });
-
-      if (options.debugMode) {
-        return {
-          ...result,
-          debug: debugLog,
-        };
-      }
 
       return result;
     } catch (error) {

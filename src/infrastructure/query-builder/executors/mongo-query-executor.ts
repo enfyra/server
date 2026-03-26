@@ -174,7 +174,7 @@ export class MongoQueryExecutor {
       } catch (e) {
         explain = { error: String(e) };
       }
-      return { data: results, debug: [{ pipeline: builtPipeline, explain }] };
+      return { pipeline: builtPipeline, explain };
     }
 
     if (hasRelationFilters && (metaParts.includes('filterCount') || metaParts.includes('*'))) {
