@@ -1699,7 +1699,6 @@
                 "type": "many-to-many",
                 "targetTable": "user_definition",
                 "isSystem": true,
-                "inversePropertyName": "allowedFilePermissions",
                 "isNullable": true,
                 "description": "Specific users who have this permission"
             }
