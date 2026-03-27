@@ -5,6 +5,14 @@ import { PackageCacheService } from '../../cache/services/package-cache.service'
 import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException, ScriptExecutionException } from '../../../core/exceptions/custom-exceptions';
 
+const BLOCKED_MODULES = new Set([
+  'child_process', 'cluster', 'dgram', 'dns', 'net', 'tls',
+  'vm', 'worker_threads', 'v8', 'perf_hooks', 'trace_events',
+  'inspector', 'async_hooks',
+]);
+
+const FILESYSTEM_MODULES = new Set(['fs', 'fs/promises', 'path', 'os']);
+
 @Injectable()
 export class VmExecutorService {
   private readonly logger = new Logger(VmExecutorService.name);
@@ -13,6 +21,7 @@ export class VmExecutorService {
 
   async run(code: string, ctx: TDynamicContext, timeoutMs: number): Promise<any> {
     const packages = await this.packageCacheService.getPackages();
+    const allowedPackages = new Set(packages);
 
     const pkgs: Record<string, any> = {};
     for (const packageName of packages) {
@@ -24,6 +33,30 @@ export class VmExecutorService {
     (ctx as any).$pkgs = pkgs;
 
     const $throw = this.buildThrowProxy(code);
+
+    const safeRequire = (moduleName: string) => {
+      if (BLOCKED_MODULES.has(moduleName)) {
+        throw new Error(`Module "${moduleName}" is not allowed in handlers`);
+      }
+      if (FILESYSTEM_MODULES.has(moduleName)) {
+        throw new Error(`Module "${moduleName}" is not allowed in handlers. Use $helpers for file operations`);
+      }
+      if (allowedPackages.has(moduleName)) {
+        return require(moduleName);
+      }
+      try {
+        return require(moduleName);
+      } catch {
+        throw new Error(`Module "${moduleName}" not found. Install it via Settings → Packages`);
+      }
+    };
+
+    const safeProcess = {
+      env: {},
+      version: process.version,
+      platform: process.platform,
+      nextTick: process.nextTick.bind(process),
+    };
 
     const sandbox = {
       $ctx: { ...ctx, $throw },
@@ -59,7 +92,8 @@ export class VmExecutorService {
       decodeURIComponent,
       encodeURI,
       decodeURI,
-      require,
+      require: safeRequire,
+      process: safeProcess,
     };
 
     const vmContext = vm.createContext(sandbox);
