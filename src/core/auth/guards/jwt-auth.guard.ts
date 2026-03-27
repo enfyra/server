@@ -16,11 +16,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return null;
     }
     req.user = user;
-    if (req.routeData?.context?.$repos) {
-      for (const repo of Object.values(req.routeData?.context?.$repos) as any) {
-        repo.currentUser = user;
-      }
-    }
     if (req.routeData) {
       req.routeData.context.$user = user;
     }

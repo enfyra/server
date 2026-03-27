@@ -103,9 +103,9 @@ export async function executeBatchDynamicRepository(
   const ROUTE_DEFINITION_MAINTABLE_ERROR = {
     error: true,
     errorCode: 'INVALID_ROUTE_DEFINITION_PAYLOAD',
-    message: 'Agent MUST NOT set mainTable on route_definition. Use targetTables only.',
-    userMessage: `❌ **Invalid route_definition payload**: You must NOT include mainTable or mainTableId when creating/updating route_definition.\n\n📋 **Correct format**: Use targetTables only. Example: { path: "/register", targetTables: [{id: tableId}], isEnabled: true }.\n\n💡 **Note**: mainTable is system-managed. Link tables via targetTables: [{id: tableId}].`,
-    suggestion: 'Remove mainTable and mainTableId from the payload. Use targetTables to link tables the handler needs.',
+    message: 'Agent MUST NOT set mainTable on route_definition. mainTable is system-managed.',
+    userMessage: `❌ **Invalid route_definition payload**: You must NOT include mainTable or mainTableId when creating/updating route_definition.\n\n📋 **Correct format**: Example: { path: "/register", isEnabled: true }.\n\n💡 **Note**: mainTable is system-managed. Handlers can access any table via #table_name.`,
+    suggestion: 'Remove mainTable and mainTableId from the payload.',
   };
 
   try {

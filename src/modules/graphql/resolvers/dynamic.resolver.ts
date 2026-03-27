@@ -1,39 +1,25 @@
 import {
   BadRequestException,
-  forwardRef,
-  Inject,
   Injectable,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { throwGqlError } from '../utils/throw-error';
 import { ConfigService } from '@nestjs/config';
-import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-convertor';
-import { TableHandlerService } from '../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { JwtService } from '@nestjs/jwt';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
-import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
+import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 @Injectable()
 export class DynamicResolver {
   constructor(
-    @Inject(forwardRef(() => TableHandlerService))
-    private tableHandlerService: TableHandlerService,
-    private queryEngine: QueryEngine,
     private jwtService: JwtService,
     private queryBuilder: QueryBuilderService,
-    private metadataCacheService: MetadataCacheService,
     private handlerExecutorService: HandlerExecutorService,
     private routeCacheService: RouteCacheService,
-    private systemProtectionService: SystemProtectionService,
-    private tableValidationService: TableValidationService,
+    private repoRegistryService: RepoRegistryService,
     private configService: ConfigService,
-    private eventEmitter: EventEmitter2,
   ) {}
   async dynamicResolver(
     tableName: string,
@@ -48,7 +34,7 @@ export class DynamicResolver {
     context: any,
     info: any,
   ) {
-    const { mainTable, targetTables, user } = await this.middleware(
+    const { mainTable, user } = await this.middleware(
       tableName,
       context,
       info,
@@ -93,26 +79,7 @@ export class DynamicResolver {
       $logs: () => {},
       $share: {},
     };
-    const dynamicFindEntries = await Promise.all(
-      [mainTable, ...targetTables].map(async (table) => {
-        const dynamicRepo = new DynamicRepository({
-          context: handlerCtx,
-          tableName: table.name,
-          tableHandlerService: this.tableHandlerService,
-          queryBuilder: this.queryBuilder,
-          metadataCacheService: this.metadataCacheService,
-          queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
-          tableValidationService: this.tableValidationService,
-          eventEmitter: this.eventEmitter,
-        });
-        await dynamicRepo.init();
-        const name =
-          table.name === mainTable.name ? 'main' : (table.alias ?? table.name);
-        return [name, dynamicRepo];
-      }),
-    );
-    handlerCtx.$repos = Object.fromEntries(dynamicFindEntries);
+    handlerCtx.$repos = this.repoRegistryService.createReposProxy(handlerCtx, mainTable?.name);
     try {
       const defaultHandler = `return await $ctx.$repos.main.find();`;
       const result = await this.handlerExecutorService.run(
@@ -140,7 +107,7 @@ export class DynamicResolver {
       const tableName = match[2];
       const { matchedRoute: currentRoute, user } = await this.middleware(tableName, context, info);
       await this.canPassMutation(currentRoute, context.req?.headers?.authorization);
-      const handlerCtx = {
+      const handlerCtx: any = {
         $user: user ?? null,
         $repos: {},
         $req: context.request,
@@ -149,39 +116,7 @@ export class DynamicResolver {
         $logs: () => {},
         $share: {},
       };
-      const dynamicRepo = new DynamicRepository({
-        context: handlerCtx,
-        tableName: tableName,
-        queryEngine: this.queryEngine,
-        queryBuilder: this.queryBuilder,
-        metadataCacheService: this.metadataCacheService,
-        tableHandlerService: this.tableHandlerService,
-        systemProtectionService: this.systemProtectionService,
-        tableValidationService: this.tableValidationService,
-        eventEmitter: this.eventEmitter,
-      });
-      await dynamicRepo.init();
-      const dynamicFindEntries = [
-        ['main', dynamicRepo],
-        ...(currentRoute.targetTables || []).map((table: any) => [
-          table.name,
-          new DynamicRepository({
-            context: handlerCtx,
-            tableName: table.name,
-            queryEngine: this.queryEngine,
-            queryBuilder: this.queryBuilder,
-            metadataCacheService: this.metadataCacheService,
-            tableHandlerService: this.tableHandlerService,
-            systemProtectionService: this.systemProtectionService,
-            tableValidationService: this.tableValidationService,
-            eventEmitter: this.eventEmitter,
-          }),
-        ]),
-      ];
-      for (const [, repo] of dynamicFindEntries) {
-        await (repo as DynamicRepository).init();
-      }
-      handlerCtx.$repos = Object.fromEntries(dynamicFindEntries);
+      handlerCtx.$repos = this.repoRegistryService.createReposProxy(handlerCtx, tableName);
       let defaultHandler: string;
       switch (operation) {
         case 'create':
@@ -228,7 +163,6 @@ export class DynamicResolver {
       matchedRoute: currentRoute,
       user,
       mainTable: currentRoute.mainTable,
-      targetTables: currentRoute.targetTables,
     };
   }
   private async canPass(currentRoute: any, accessToken: string) {

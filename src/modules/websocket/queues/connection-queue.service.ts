@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { TDynamicContext } from '../../../shared/types';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
+import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -22,6 +23,7 @@ export class ConnectionQueueService extends WorkerHost {
   constructor(
     private readonly handlerExecutor: HandlerExecutorService,
     private readonly websocketGateway: DynamicWebSocketGateway,
+    private readonly repoRegistryService: RepoRegistryService,
   ) {
     super();
   }
@@ -47,7 +49,7 @@ export class ConnectionQueueService extends WorkerHost {
       $params: {},
       $query: {},
       $user: userId ? { id: userId } : null,
-      $repos: {},
+      $repos: {} as any,
       $req: {
         method: 'WS_CONNECT',
         url: gatewayPath,
@@ -66,6 +68,8 @@ export class ConnectionQueueService extends WorkerHost {
       },
       $socket: socketProxy,
     };
+
+    ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
 
     const result = await this.handlerExecutor.run(script, ctx, timeout);
 

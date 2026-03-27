@@ -132,7 +132,6 @@ export interface RequestWithRouteData extends Request {
     postHooks: any[];
     isPublished: boolean;
     mainTable?: any;
-    targetTables?: any[];
     route?: any;
     res?: Response;
   };

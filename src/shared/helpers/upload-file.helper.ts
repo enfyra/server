@@ -9,10 +9,9 @@ export class UploadFileHelper {
   private getFileRepo(context: TDynamicContext) {
     const fileRepo = context.$repos?.file_definition || context.$repos?.main;
     if (!fileRepo) {
-      const availableRepos = context.$repos ? Object.keys(context.$repos) : [];
       throw new Error(
-        `File repository not found in context. Available repos: ${availableRepos.join(', ') || 'none'}. ` +
-        `Context has $repos: ${!!context.$repos}, $repos type: ${typeof context.$repos}`
+        `File repository not found in context. ` +
+        `Ensure table "file_definition" exists in metadata.`
       );
     }
     return fileRepo;

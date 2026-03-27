@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { TDynamicContext } from '../../../shared/types';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
+import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 
 export interface EventJobData {
   socketId: string;
@@ -24,6 +25,7 @@ export class EventQueueService extends WorkerHost {
   constructor(
     private readonly handlerExecutor: HandlerExecutorService,
     private readonly websocketGateway: DynamicWebSocketGateway,
+    private readonly repoRegistryService: RepoRegistryService,
   ) {
     super();
   }
@@ -67,6 +69,8 @@ export class EventQueueService extends WorkerHost {
       },
       $socket: socketProxy,
     };
+
+    ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
 
     const result = await this.handlerExecutor.run(script, ctx, timeout);
 

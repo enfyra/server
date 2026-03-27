@@ -127,7 +127,7 @@ Multiple tables: find_records with name._in, then delete ONE at a time: delete_t
   const crudWriteOpsContent = `**CRUD Write Operations**
 
 **CASCADE-first (create/update from root):**
-- Prefer create/update parent with nested child relations over separate child-table calls. Fewer tools, atomic. Example: update route_definition with handlers: [{method:{id},logic}], targetTables: [{id}], publishedMethods: [{id}] in one update_records – do NOT create route_handler_definition separately then update route.
+- Prefer create/update parent with nested child relations over separate child-table calls. Fewer tools, atomic. Example: update route_definition with handlers: [{method:{id},logic}], publishedMethods: [{id}] in one update_records – do NOT create route_handler_definition separately then update route.
 
 **CREATE Records - Workflow:**
 1. get_table_details({"tableName":["product"]}) → Check required fields & relations
@@ -306,11 +306,11 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **CRITICAL - NEVER invent routes. ALWAYS query route_definition table first.**
 
-**$repos in route handler – targetTables only, NEVER mainTable:**
-- Agent MUST NEVER set mainTable. create_records/update_records route_definition: use targetTables ONLY. NEVER include mainTable.
-- Handler uses #<table_name> from targetTables. Prefer #table_name over #main.
+**$repos in route handler:**
+- Agent MUST NEVER set mainTable. mainTable is system-managed.
+- Handler can access any table via #<table_name>. Prefer #table_name over #main.
 
-**CASCADE-first for routes:** Update route_definition with nested handlers, targetTables, publishedMethods, preHooks, postHooks in one update_records. Do NOT create route_handler_definition, pre_hook_definition, post_hook_definition separately.
+**CASCADE-first for routes:** Update route_definition with nested handlers, publishedMethods, preHooks, postHooks in one update_records. Do NOT create route_handler_definition, pre_hook_definition, post_hook_definition separately.
 
 **Making route PUBLIC:** update_records route_definition with data: {publishedMethods: [{id: getMethodId}, ...existing]}. Do NOT create route_permission_definition.
 
@@ -356,9 +356,9 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
   const handlerOpsContent = `**Route Handler Operations**
 
 **CRITICAL - Agent MUST NEVER set mainTable:**
-- NEVER include mainTable in create_records or update_records for route_definition. Agent has NO permission.
-- Link tables handler needs via targetTables ONLY: targetTables: [{id: tableId}]. Example: find_records table_definition filter name._eq "user_definition" → tableId → targetTables: [{id: tableId}].
-- WRONG: create_records route_definition with mainTable. RIGHT: create_records with path, targetTables, isEnabled - NO mainTable.
+- NEVER include mainTable in create_records or update_records for route_definition. mainTable is system-managed.
+- Handlers can access any table via #<table_name> without needing to link tables to routes.
+- WRONG: create_records route_definition with mainTable. RIGHT: create_records with path, isEnabled - NO mainTable.
 
 **CRITICAL - Use #table_name, NOT #main:**
 - ALWAYS use #<table_name> (e.g. #user_definition, #products) in handler logic. NEVER use #main.
@@ -367,7 +367,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **Context available (route handler only):**
 - @BODY: request body | @PARAMS: route params | @QUERY: query (filter, fields, limit, sort, page, meta). Use @QUERY.filter (not where) | @USER: logged-in user
-- #<table_name>: repos from route.targetTables. API: .find({ filter, limit }) → { data: [...] }; .create({ data: {...} }) → { data: [record], count?: 1 }; .update({ id, data: {...} }) → { data: [record] }; .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object. To get single record: created?.data?.[0], updated?.data?.[0].
+- #<table_name>: repos for any table. API: .find({ filter, limit }) → { data: [...] }; .create({ data: {...} }) → { data: [record], count?: 1 }; .update({ id, data: {...} }) → { data: [record] }; .delete({ id }). CRITICAL: create/update require { data: object }, NOT raw object. To get single record: created?.data?.[0], updated?.data?.[0].
 - @HELPERS: bcrypt via @HELPERS.$bcrypt.hash(plain), @HELPERS.$bcrypt.compare(plain, hash). Use @HELPERS.$bcrypt - NEVER $bcrypt. Rate limiting via @HELPERS.$rateLimit.byIp({maxRequests:100, perSeconds:60}), .byUser, .byRoute, .check(key, options). Returns {allowed, remaining, retryAfter}.
 - @RES: response | @CACHE | @THROW4xx/5xx | @UPLOADED_FILE
 
@@ -382,8 +382,8 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 - NEVER test update or delete on existing records. Create a new record via create_records, then test update/delete on that new record, then delete_records to cleanup.
 
 **Workflow - PREFER CASCADE (update from route, not separate child tables):**
-- Update route_definition with nested handlers, preHooks, postHooks, targetTables, publishedMethods in one update_records. Do NOT create route_handler_definition/pre_hook_definition separately.
-- Example: update_records route_definition updates: [{id: routeId, data: {handlers: [{method: {id: postMethodId}, logic: "..."}], publishedMethods: [{id: getMethodId}], targetTables: [{id: tableId}]}}]
+- Update route_definition with nested handlers, preHooks, postHooks, publishedMethods in one update_records. Do NOT create route_handler_definition/pre_hook_definition separately.
+- Example: update_records route_definition updates: [{id: routeId, data: {handlers: [{method: {id: postMethodId}, logic: "..."}], publishedMethods: [{id: getMethodId}]}}]
 
 **Workflow - NEW table + handler (e.g. posts with RLS):**
 1. create_tables for table (route AUTO-CREATED). 2. find_records route_definition path._eq "/posts" → routeId. 3. find_records method_definition (GET, POST). 4. run_handler_test. 5. update_records route_definition with data: {handlers: [{method:{id}, logic}], preHooks: [{...}]} – CASCADE from route.
@@ -393,7 +393,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **Workflow - CUSTOM route (path different from /{table_name}, e.g. /register):**
 - Only create route_definition when path is NOT /{table_name}. For /{table_name}, route is auto-created - Do NOT create.
-- When creating: path, targetTables: [{id: tableId}], isEnabled: true. NEVER mainTable. Example: find_records table_definition filter name._eq "user_definition" → id → create_records route_definition dataArray: [{ path: "/register", targetTables: [{id: tableId}], isEnabled: true }].
+- When creating: path, isEnabled: true. NEVER mainTable. Example: create_records route_definition dataArray: [{ path: "/register", isEnabled: true }]. Handlers can access any table via #table_name.
 
 **Logic structure:** return { data: ... } or throw. Example: return #user_definition.find({ filter: {}, limit: 10 }); Use #table_name, never #main.
 
@@ -434,7 +434,7 @@ Match user term to table names (e.g., "courses" → "courses", "category" → "c
 
 **CRITICAL – methods is REQUIRED:** Hook runs ONLY when request method (GET/POST/etc.) matches hook's methods. If methods is empty, hook NEVER runs.
 
-**CRITICAL – Test before save:** MUST run_handler_test before create/update hook. Use table from route's targetTables. On error: follow fixGuidance + nextSteps, fix, retry.
+**CRITICAL – Test before save:** MUST run_handler_test before create/update hook. On error: follow fixGuidance + nextSteps, fix, retry.
 
 **Rate Limiting (pre-hook protection):**
 - Use @HELPERS.$rateLimit to protect APIs from abuse. Returns {allowed, remaining, retryAfter, limit, window}.

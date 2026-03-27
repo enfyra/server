@@ -77,7 +77,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         'postHooks.methods.method',
         'publishedMethods.*',
         'availableMethods.*',
-        'targetTables.*',
       ],
     });
 
@@ -91,10 +90,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     for (const route of routes) {
       this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
-
-      if (!route.targetTables) {
-        route.targetTables = [];
-      }
 
       this.transformRouteCode(route);
     }

@@ -1,15 +1,8 @@
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { QueryBuilderService } from '../query-builder/query-builder.service';
 import { JwtService } from '@nestjs/jwt';
-import { TableHandlerService } from '../../modules/table-management/services/table-handler.service';
-import { DynamicRepository } from '../../modules/dynamic-api/repositories/dynamic.repository';
 import { TDynamicContext } from '../../shared/types';
-import { QueryEngine } from '../query-engine/services/query-engine.service';
 import { RouteCacheService } from '../cache/services/route-cache.service';
-import { MetadataCacheService } from '../cache/services/metadata-cache.service';
-import { SystemProtectionService } from '../../modules/dynamic-api/services/system-protection.service';
-import { TableValidationService } from '../../modules/dynamic-api/services/table-validation.service';
+import { RepoRegistryService } from '../cache/services/repo-registry.service';
 import { BcryptService } from '../../core/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
@@ -23,31 +16,20 @@ export class RouteDetectMiddleware implements NestMiddleware {
   private readonly logger = new Logger(RouteDetectMiddleware.name);
 
   constructor(
-    private queryBuilder: QueryBuilderService,
     private jwtService: JwtService,
-    private queryEngine: QueryEngine,
-    private tableHandlerService: TableHandlerService,
     private routeCacheService: RouteCacheService,
-    private metadataCacheService: MetadataCacheService,
-    private systemProtectionService: SystemProtectionService,
-    private tableValidationService: TableValidationService,
+    private repoRegistryService: RepoRegistryService,
     private cacheService: CacheService,
     private bcryptService: BcryptService,
     private uploadFileHelper: UploadFileHelper,
     private websocketGateway: DynamicWebSocketGateway,
     private rateLimitService: RateLimitService,
-    private eventEmitter: EventEmitter2,
   ) {}
 
   async use(req: any, res: any, next: (error?: any) => void) {
     const method = req.method;
     const routeEngine = this.routeCacheService.getRouteEngine();
     const matchedRoute = routeEngine.find(method, req.baseUrl);
-    const systemTables = [
-      'table_definition',
-      'column_definition',
-      'relation_definition',
-    ];
 
     const isMethodAvailable = (route: any) => {
       const methods = route?.availableMethods;
@@ -180,40 +162,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
         };
       }
 
-      const dynamicFindEntries = await Promise.all(
-        [
-          matchedRoute.route.mainTable,
-          ...matchedRoute.route.targetTables?.filter(
-            (route) => !systemTables.includes(route?.name),
-          ),
-        ]?.filter(table => table?.name)?.map(async (table) => {
-          const dynamicRepo = new DynamicRepository({
-            context: null,
-            tableName: table.name,
-            tableHandlerService: this.tableHandlerService,
-            queryBuilder: this.queryBuilder,
-            queryEngine: this.queryEngine,
-            metadataCacheService: this.metadataCacheService,
-            systemProtectionService: this.systemProtectionService,
-            tableValidationService: this.tableValidationService,
-            eventEmitter: this.eventEmitter,
-          });
-          await dynamicRepo.init();
-          const name = table?.alias ?? table?.name;
-          return [`${name}`, dynamicRepo];
-        }),
-      );
-
-      context.$repos = Object.fromEntries(dynamicFindEntries);
-      Object.values(context.$repos).forEach((repo: any) => {
-        repo.context = context;
-      });
-
-      const mainTableName =
-        matchedRoute.route.mainTable?.alias ?? matchedRoute.route?.mainTable?.name;
-      if (context.$repos[mainTableName]) {
-        context.$repos.main = context.$repos[mainTableName];
-      }
+      const mainTableName = matchedRoute.route.mainTable?.name;
+      context.$repos = this.repoRegistryService.createReposProxy(context, mainTableName);
 
       try {
         context.$helpers.$uploadFile = this.uploadFileHelper.createUploadFileHelper(context);

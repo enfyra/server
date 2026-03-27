@@ -806,15 +806,6 @@ export class SqlTableHandlerService {
           .where({ mainTableId: id })
           .delete();
         this.logger.log(`Deleted ${deletedRoutes} routes with mainTableId = ${id}`);
-        const junctionTableName = 'route_definition_targetTables_table_definition';
-        if (await trx.schema.hasTable(junctionTableName)) {
-          const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
-          const fkColumn = getForeignKeyColumnName('table_definition');
-          await trx(junctionTableName)
-            .where({ [fkColumn]: id })
-            .delete();
-          this.logger.log(`Deleted junction records for table ${id}`);
-        }
         const allRelations = await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })

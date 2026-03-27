@@ -679,13 +679,6 @@
         ],
         "relations": [
             {
-                "propertyName": "targetTables",
-                "type": "many-to-many",
-                "targetTable": "table_definition",
-                "isSystem": true,
-                "description": "Additional tables that this route can access"
-            },
-            {
                 "propertyName": "mainTable",
                 "type": "many-to-one",
                 "targetTable": "table_definition",
@@ -2358,15 +2351,7 @@
                 "description": "Timeout in milliseconds for connection handler execution. If not set, uses default system timeout."
             }
         ],
-        "relations": [
-            {
-                "propertyName": "targetTables",
-                "type": "many-to-many",
-                "targetTable": "table_definition",
-                "isSystem": true,
-                "description": "Tables that this websocket gateway can access in handlers"
-            }
-        ]
+        "relations": []
     },
     "websocket_event_definition": {
         "name": "websocket_event_definition",

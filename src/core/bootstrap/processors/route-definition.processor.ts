@@ -21,7 +21,6 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           const now = new Date();
           if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
-          if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
         }
         if (record.mainTable) {
           if (isMongoDB) {
