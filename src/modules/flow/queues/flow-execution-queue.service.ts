@@ -13,6 +13,8 @@ import { executeStepCore } from '../utils/step-executor.util';
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
 const MAX_FLOW_DEPTH = 10;
+const MAX_STEP_TIMEOUT = 300000;
+const MAX_PAYLOAD_SIZE = 1024 * 1024;
 
 @Processor('flow-execution', { concurrency: 20 })
 export class FlowExecutionQueueService extends WorkerHost {
@@ -35,6 +37,10 @@ export class FlowExecutionQueueService extends WorkerHost {
       throw new Error(`Max flow nesting depth (${MAX_FLOW_DEPTH}) exceeded for flow ${flowName || flowId}`);
     }
 
+    if (payload && JSON.stringify(payload).length > MAX_PAYLOAD_SIZE) {
+      throw new Error(`Flow payload exceeds maximum size of ${MAX_PAYLOAD_SIZE} bytes`);
+    }
+
     const flow = flowName
       ? await this.flowCacheService.getFlowByName(flowName)
       : await this.flowCacheService.getFlowById(flowId);
@@ -44,7 +50,7 @@ export class FlowExecutionQueueService extends WorkerHost {
     }
 
     if (visitedFlowIds.includes(flow.id)) {
-      throw new Error(`Circular flow detected: flow "${flow.name}" (${flow.id}) already in chain [${visitedFlowIds.join(' → ')}]`);
+      throw new Error(`Circular flow detected: flow "${flow.name}" (${flow.id}) already visited`);
     }
 
     const currentVisited = [...visitedFlowIds, flow.id];
@@ -66,7 +72,7 @@ export class FlowExecutionQueueService extends WorkerHost {
         completedSteps: result.completedSteps,
       });
 
-      this.cleanupOldExecutions(flow).catch(() => {});
+      this.cleanupOldExecutions(flow).catch((err) => this.logger.warn(`Cleanup failed for flow ${flow.name}: ${err.message}`));
       return { success: true, executionId, context: result.context };
     } catch (error) {
       await this.updateExecution(executionId, {
@@ -76,7 +82,7 @@ export class FlowExecutionQueueService extends WorkerHost {
         error: { message: error.message, stack: error.stack },
       });
 
-      this.cleanupOldExecutions(flow).catch(() => {});
+      this.cleanupOldExecutions(flow).catch((err) => this.logger.warn(`Cleanup failed for flow ${flow.name}: ${err.message}`));
       throw error;
     }
   }
@@ -84,19 +90,27 @@ export class FlowExecutionQueueService extends WorkerHost {
   private async cleanupOldExecutions(flow: FlowDefinition): Promise<void> {
     const maxExecutions = flow.maxExecutions || 100;
     try {
-      const allResult = await this.queryBuilder.select({
+      const countResult = await this.queryBuilder.select({
         tableName: 'flow_execution_definition',
         filter: { flow: { _eq: flow.id } },
-        sort: ['-startedAt'],
         fields: ['id'],
-        limit: -1,
+        limit: 1,
+        meta: 'total_count',
       });
-      const all = allResult.data || [];
-      if (all.length > maxExecutions) {
-        const toDelete = all.slice(maxExecutions);
-        for (const row of toDelete) {
-          await this.queryBuilder.deleteById('flow_execution_definition', row.id || row._id);
-        }
+      const total = countResult.meta?.total_count || 0;
+      if (total <= maxExecutions) return;
+
+      const deleteCount = Math.min(total - maxExecutions, 200);
+      const oldResult = await this.queryBuilder.select({
+        tableName: 'flow_execution_definition',
+        filter: { flow: { _eq: flow.id } },
+        sort: ['startedAt'],
+        fields: ['id'],
+        limit: deleteCount,
+      });
+      const toDelete = oldResult.data || [];
+      for (const row of toDelete) {
+        await this.queryBuilder.deleteById('flow_execution_definition', row.id || row._id);
       }
     } catch (err) {
       this.logger.warn(`Failed to cleanup old executions for flow ${flow.name}: ${err.message}`);
@@ -235,7 +249,8 @@ export class FlowExecutionQueueService extends WorkerHost {
   }
 
   private async executeStep(step: FlowStep, ctx: TDynamicContext, flowTimeout: number, visitedFlowIds: (number | string)[] = []): Promise<any> {
-    const timeout = step.timeout || flowTimeout || 5000;
+    const raw = step.timeout || flowTimeout || 5000;
+    const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT);
     const config = step.config || {};
 
     if (step.type === 'trigger_flow') {

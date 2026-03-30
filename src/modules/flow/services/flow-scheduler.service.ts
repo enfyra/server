@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { parseExpression } from 'cron-parser';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
@@ -36,6 +37,12 @@ export class FlowSchedulerService {
         const cron = flow.triggerConfig?.cron;
         if (!cron) {
           this.logger.warn(`Flow "${flow.name}" has schedule trigger but no cron expression`);
+          continue;
+        }
+        try {
+          parseExpression(cron);
+        } catch {
+          this.logger.warn(`Flow "${flow.name}" has invalid cron expression: ${cron}`);
           continue;
         }
 
