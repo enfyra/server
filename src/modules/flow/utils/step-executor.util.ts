@@ -23,11 +23,6 @@ function clampTimeout(value: unknown, defaultMs: number, maxMs: number): number 
   return Math.min(n, maxMs);
 }
 
-function clampSleepMs(value: unknown): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SLEEP_MS;
-  return Math.min(Math.max(n, 1), MAX_SLEEP_MS);
-}
 
 function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
@@ -50,40 +45,41 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-async function validateHttpUrl(url: string): Promise<void> {
+async function validateHttpUrl(rawUrl: string): Promise<URL> {
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = new URL(rawUrl);
   } catch {
-    throw new Error(`Invalid URL: ${url}`);
+    throw new Error('Invalid URL provided for HTTP step');
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`URL protocol must be http or https, got: ${parsed.protocol}`);
   }
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
   if (BLOCKED_HOSTNAMES.has(hostname.toLowerCase())) {
-    throw new Error(`HTTP requests to ${hostname} are not allowed`);
+    throw new Error('HTTP requests to this host are not allowed');
   }
   if (!hostname.includes('.') || hostname.endsWith('.local')) {
-    throw new Error(`HTTP requests to internal hosts are not allowed: ${hostname}`);
+    throw new Error('HTTP requests to internal hosts are not allowed');
   }
   if (net.isIP(hostname)) {
     if (isPrivateIp(hostname)) {
-      throw new Error(`HTTP requests to private IP addresses are not allowed: ${hostname}`);
+      throw new Error('HTTP requests to private IP addresses are not allowed');
     }
-    return;
+    return parsed;
   }
   try {
     const addresses = await dns.promises.resolve4(hostname).catch(() => [] as string[]);
     const addresses6 = await dns.promises.resolve6(hostname).catch(() => [] as string[]);
     for (const addr of [...addresses, ...addresses6]) {
       if (isPrivateIp(addr)) {
-        throw new Error(`HTTP requests to hosts resolving to private IPs are not allowed: ${hostname} -> ${addr}`);
+        throw new Error('HTTP requests to hosts resolving to private IPs are not allowed');
       }
     }
   } catch (err) {
     if (err.message?.includes('not allowed')) throw err;
   }
+  return parsed;
 }
 
 export interface StepExecOptions {
@@ -132,10 +128,10 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
 
     case 'http': {
       if (!config.url) throw new Error('Step config missing required field: url');
-      await validateHttpUrl(config.url);
+      const safeUrl = await validateHttpUrl(config.url);
       const httpTimeoutMs = clampTimeout(config.timeout || timeout, DEFAULT_HTTP_TIMEOUT, MAX_HTTP_TIMEOUT);
       const controller = new AbortController();
-      const httpTimeout = setTimeout(() => controller.abort(), httpTimeoutMs);
+      const httpTimer = setTimeout(() => controller.abort(), httpTimeoutMs);
       try {
         const method = config.method || 'GET';
         const hasBody = !['GET', 'DELETE'].includes(method) && config.body !== undefined;
@@ -143,7 +139,7 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
         if (hasBody && !Object.keys(headers).some(k => k.toLowerCase() === 'content-type')) {
           headers['Content-Type'] = 'application/json';
         }
-        const response = await fetch(config.url, {
+        const response = await fetch(safeUrl.href, {
           method,
           headers,
           body: hasBody ? JSON.stringify(config.body) : undefined,
@@ -153,16 +149,17 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
         const data = contentType.includes('json') ? await response.json() : await response.text();
         return { status: response.status, data };
       } catch (err) {
-        if (err.name === 'AbortError') throw new Error(`HTTP request to ${config.url} timed out after ${httpTimeoutMs}ms`);
+        if (err.name === 'AbortError') throw new Error(`HTTP request timed out after ${httpTimeoutMs}ms`);
         throw err;
       } finally {
-        clearTimeout(httpTimeout);
+        clearTimeout(httpTimer);
       }
     }
 
     case 'sleep': {
-      const sleepMs = clampSleepMs(config.ms);
-      await new Promise((r) => setTimeout(r, sleepMs));
+      const rawMs = Number(config.ms);
+      const sleepMs = (Number.isFinite(rawMs) && rawMs > 0) ? Math.min(rawMs, 60000) : 1000;
+      await new Promise<void>((resolve) => { setTimeout(resolve, sleepMs); });
       return { slept: sleepMs };
     }
 
