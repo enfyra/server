@@ -35,7 +35,7 @@ export abstract class BaseCacheService<T> {
     if (this.messageHandler) return;
 
     this.messageHandler = async (channel: string, message: string) => {
-      if (channel === this.config.syncEventKey) {
+      if (this.redisPubSubService.isChannelForBase(channel, this.config.syncEventKey)) {
         await this.handleIncomingMessage(message);
       }
     };

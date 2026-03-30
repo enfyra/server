@@ -93,6 +93,7 @@ import { FlowModule } from './modules/flow/flow.module';
           password: configService.get('REDIS_PASSWORD'),
           url: configService.get('REDIS_URI'),
         },
+        prefix: configService.get('NODE_NAME') || 'bull',
       }),
     }),
     CacheModule,

@@ -20,7 +20,6 @@ export const SYSTEM_QUEUES = {
   WS_CONNECTION: 'sys_ws-connection',
   WS_EVENT: 'sys_ws-event',
   FLOW_EXECUTION: 'sys_flow-execution',
-  PACKAGE_INSTALL: 'sys_package-install',
 } as const;
 
 export const REDIS_TTL = {

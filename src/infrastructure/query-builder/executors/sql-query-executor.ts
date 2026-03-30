@@ -209,161 +209,13 @@ export class SqlQueryExecutor {
         const metadata = this.metadata?.tables?.get(queryOptions.table);
         if (originalFilter && (hasLogicalOperators(originalFilter) || Object.keys(originalFilter).length > 0)) {
           if (metadata) {
-            const { hasRelations, relationFilters, fieldFilters } = separateFilters(originalFilter, metadata);
-
-            if (!hasRelations) {
-              const buildWhereFromFilter = (filter: any, tablePrefix: string): string[] => {
-                const parts: string[] = [];
-                for (const [field, value] of Object.entries(filter)) {
-                  if (field === '_and' && Array.isArray(value)) {
-                    const andParts = value.map(f => {
-                      const subParts = buildWhereFromFilter(f, tablePrefix);
-                      return subParts.length > 0 ? `(${subParts.join(' AND ')})` : null;
-                    }).filter(p => p !== null);
-                    if (andParts.length > 0) {
-                      parts.push(`(${andParts.join(' AND ')})`);
-                    }
-                  } else if (field === '_or' && Array.isArray(value)) {
-                    const orParts = value.map(f => {
-                      const subParts = buildWhereFromFilter(f, tablePrefix);
-                      return subParts.length > 0 ? `(${subParts.join(' AND ')})` : null;
-                    }).filter(p => p !== null);
-                    if (orParts.length > 0) {
-                      parts.push(`(${orParts.join(' OR ')})`);
-                    }
-                  } else if (field === '_not' && typeof value === 'object' && value !== null) {
-                    const notParts = buildWhereFromFilter(value, tablePrefix);
-                    if (notParts.length > 0) {
-                      parts.push(`NOT (${notParts.join(' AND ')})`);
-                    }
-                  } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                    for (const [op, val] of Object.entries(value)) {
-                      const quotedField = `${quoteIdentifier(tablePrefix, this.dbType)}.${quoteIdentifier(field, this.dbType)}`;
-                      let sqlValue: string;
-                      if (val === null) {
-                        sqlValue = 'NULL';
-                      } else if (typeof val === 'string') {
-                        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                        const column = metadata.columns.find(c => c.name === field);
-                        const isUUID = column && (column.type?.toLowerCase() === 'uuid' || column.type?.toLowerCase().includes('uuid'));
-                        if (isUUID && uuidPattern.test(val) && this.dbType === 'postgres') {
-                          sqlValue = `'${val}'::uuid`;
-                        } else {
-                          sqlValue = `'${val.replace(/'/g, "''")}'`;
-                        }
-                      } else if (typeof val === 'boolean') {
-                        sqlValue = val ? 'true' : 'false';
-                      } else if (typeof val === 'number') {
-                        sqlValue = String(val);
-                      } else {
-                        sqlValue = `'${String(val).replace(/'/g, "''")}'`;
-                      }
-                      if (op === '_eq') {
-                        parts.push(`${quotedField} = ${sqlValue}`);
-                      } else if (op === '_neq') {
-                        parts.push(`${quotedField} != ${sqlValue}`);
-                      } else if (op === '_gt') {
-                        parts.push(`${quotedField} > ${sqlValue}`);
-                      } else if (op === '_gte') {
-                        parts.push(`${quotedField} >= ${sqlValue}`);
-                      } else if (op === '_lt') {
-                        parts.push(`${quotedField} < ${sqlValue}`);
-                      } else if (op === '_lte') {
-                        parts.push(`${quotedField} <= ${sqlValue}`);
-                      } else if (op === '_is_null') {
-                        parts.push(`${quotedField} IS NULL`);
-                      } else if (op === '_is_not_null') {
-                        parts.push(`${quotedField} IS NOT NULL`);
-                      } else if (op === '_in') {
-                        const inValues = Array.isArray(val) ? val : [val];
-                        const inSql = inValues.map(v => {
-                          if (typeof v === 'string') {
-                            return `'${v.replace(/'/g, "''")}'`;
-                          }
-                          return String(v);
-                        }).join(', ');
-                        parts.push(`${quotedField} IN (${inSql})`);
-                      } else if (op === '_not_in' || op === '_nin') {
-                        const notInValues = Array.isArray(val) ? val : [val];
-                        const notInSql = notInValues.map(v => {
-                          if (typeof v === 'string') {
-                            return `'${v.replace(/'/g, "''")}'`;
-                          }
-                          return String(v);
-                        }).join(', ');
-                        parts.push(`${quotedField} NOT IN (${notInSql})`);
-                      } else if (op === '_contains') {
-                        const escapedVal = String(val).replace(/'/g, "''");
-                        if (this.dbType === 'postgres') {
-                          parts.push(`lower(unaccent(${quotedField})) ILIKE '%' || lower(unaccent('${escapedVal}')) || '%'`);
-                        } else {
-                          parts.push(`lower(${quotedField}) LIKE '%${escapedVal.toLowerCase()}%'`);
-                        }
-                      } else if (op === '_starts_with') {
-                        const escapedVal = String(val).replace(/'/g, "''");
-                        if (this.dbType === 'postgres') {
-                          parts.push(`lower(unaccent(${quotedField})) ILIKE lower(unaccent('${escapedVal}')) || '%'`);
-                        } else {
-                          parts.push(`lower(${quotedField}) LIKE '${escapedVal.toLowerCase()}%'`);
-                        }
-                      } else if (op === '_ends_with') {
-                        const escapedVal = String(val).replace(/'/g, "''");
-                        if (this.dbType === 'postgres') {
-                          parts.push(`lower(unaccent(${quotedField})) ILIKE '%' || lower(unaccent('${escapedVal}'))`);
-                        } else {
-                          parts.push(`lower(${quotedField}) LIKE '%${escapedVal.toLowerCase()}'`);
-                        }
-                      } else if (op === '_between') {
-                        if (Array.isArray(val) && val.length === 2) {
-                          const v1 = typeof val[0] === 'string' ? `'${val[0].replace(/'/g, "''")}'` : String(val[0]);
-                          const v2 = typeof val[1] === 'string' ? `'${val[1].replace(/'/g, "''")}'` : String(val[1]);
-                          parts.push(`${quotedField} BETWEEN ${v1} AND ${v2}`);
-                        }
-                      }
-                    }
-                  } else {
-                    const quotedField = `${quoteIdentifier(tablePrefix, this.dbType)}.${quoteIdentifier(field, this.dbType)}`;
-                    let sqlValue: string;
-                    if (value === null) {
-                      sqlValue = 'NULL';
-                    } else if (typeof value === 'string') {
-                      sqlValue = `'${value.replace(/'/g, "''")}'`;
-                    } else if (typeof value === 'boolean') {
-                      sqlValue = value ? 'true' : 'false';
-                    } else {
-                      sqlValue = String(value);
-                    }
-                    parts.push(`${quotedField} = ${sqlValue}`);
-                  }
-                }
-                return parts;
-              };
-              const whereParts = buildWhereFromFilter(originalFilter, queryOptions.table);
-              if (whereParts.length > 0) {
-                whereClauseForCTE = `WHERE ${whereParts.join(' AND ')}`;
-              }
-            } else if (hasRelations && Object.keys(relationFilters).length > 0) {
-              const relationSubqueries: string[] = [];
-
-              for (const [relName, relFilter] of Object.entries(relationFilters)) {
-                try {
-                  const subquery = await this.buildRelationSubqueryForCTE(
-                    queryOptions.table,
-                    relName,
-                    relFilter,
-                    metadata,
-                  );
-                  if (subquery) {
-                    relationSubqueries.push(`EXISTS (${subquery})`);
-                  }
-                } catch (error) {
-                  this.logger.warn(`Failed to build relation subquery for ${relName}: ${error.message}`);
-                }
-              }
-
-              if (relationSubqueries.length > 0) {
-                whereClauseForCTE = `WHERE ${relationSubqueries.join(' AND ')}`;
-              }
+            const sqlExpr = await this.compileFilterToSqlWhereExpression(
+              originalFilter,
+              queryOptions.table,
+              metadata,
+            );
+            if (sqlExpr) {
+              whereClauseForCTE = `WHERE ${sqlExpr}`;
             }
           }
         } else if (queryOptions.where && queryOptions.where.length > 0) {
@@ -980,6 +832,220 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     const targetPk = pkCol?.name || 'id';
 
     return `(SELECT ${q(targetTable)}.${q(sortField)} FROM ${q(targetTable)} WHERE ${q(targetTable)}.${q(targetPk)} = ${q(parentTable)}.${q(fkCol)})`;
+  }
+
+  private buildSqlWherePartsFromFieldAst(filter: any, tablePrefix: string, tableMeta: any): string[] {
+    const parts: string[] = [];
+    const metadata = tableMeta;
+    if (!filter || typeof filter !== 'object') {
+      return parts;
+    }
+    for (const [field, value] of Object.entries(filter)) {
+      if (field === '_and' && Array.isArray(value)) {
+        const andParts = value
+          .map(f => {
+            const subParts = this.buildSqlWherePartsFromFieldAst(f, tablePrefix, tableMeta);
+            return subParts.length > 0 ? `(${subParts.join(' AND ')})` : null;
+          })
+          .filter((p): p is string => p !== null);
+        if (andParts.length > 0) {
+          parts.push(`(${andParts.join(' AND ')})`);
+        }
+      } else if (field === '_or' && Array.isArray(value)) {
+        const orParts = value
+          .map(f => {
+            const subParts = this.buildSqlWherePartsFromFieldAst(f, tablePrefix, tableMeta);
+            return subParts.length > 0 ? `(${subParts.join(' AND ')})` : null;
+          })
+          .filter((p): p is string => p !== null);
+        if (orParts.length > 0) {
+          parts.push(`(${orParts.join(' OR ')})`);
+        }
+      } else if (field === '_not' && typeof value === 'object' && value !== null) {
+        const notParts = this.buildSqlWherePartsFromFieldAst(value, tablePrefix, tableMeta);
+        if (notParts.length > 0) {
+          parts.push(`NOT (${notParts.join(' AND ')})`);
+        }
+      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        for (const [op, val] of Object.entries(value)) {
+          const quotedField = `${quoteIdentifier(tablePrefix, this.dbType)}.${quoteIdentifier(field, this.dbType)}`;
+          let sqlValue: string;
+          if (val === null) {
+            sqlValue = 'NULL';
+          } else if (typeof val === 'string') {
+            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const column = metadata.columns?.find((c: any) => c.name === field);
+            const isUUID =
+              column &&
+              (column.type?.toLowerCase() === 'uuid' || column.type?.toLowerCase().includes('uuid'));
+            if (isUUID && uuidPattern.test(val) && this.dbType === 'postgres') {
+              sqlValue = `'${val}'::uuid`;
+            } else {
+              sqlValue = `'${val.replace(/'/g, "''")}'`;
+            }
+          } else if (typeof val === 'boolean') {
+            sqlValue = val ? 'true' : 'false';
+          } else if (typeof val === 'number') {
+            sqlValue = String(val);
+          } else {
+            sqlValue = `'${String(val).replace(/'/g, "''")}'`;
+          }
+          if (op === '_eq') {
+            parts.push(`${quotedField} = ${sqlValue}`);
+          } else if (op === '_neq') {
+            parts.push(`${quotedField} != ${sqlValue}`);
+          } else if (op === '_gt') {
+            parts.push(`${quotedField} > ${sqlValue}`);
+          } else if (op === '_gte') {
+            parts.push(`${quotedField} >= ${sqlValue}`);
+          } else if (op === '_lt') {
+            parts.push(`${quotedField} < ${sqlValue}`);
+          } else if (op === '_lte') {
+            parts.push(`${quotedField} <= ${sqlValue}`);
+          } else if (op === '_is_null') {
+            parts.push(`${quotedField} IS NULL`);
+          } else if (op === '_is_not_null') {
+            parts.push(`${quotedField} IS NOT NULL`);
+          } else if (op === '_in') {
+            const inValues = Array.isArray(val) ? val : [val];
+            const inSql = inValues
+              .map(v => {
+                if (typeof v === 'string') {
+                  return `'${v.replace(/'/g, "''")}'`;
+                }
+                return String(v);
+              })
+              .join(', ');
+            parts.push(`${quotedField} IN (${inSql})`);
+          } else if (op === '_not_in' || op === '_nin') {
+            const notInValues = Array.isArray(val) ? val : [val];
+            const notInSql = notInValues
+              .map(v => {
+                if (typeof v === 'string') {
+                  return `'${v.replace(/'/g, "''")}'`;
+                }
+                return String(v);
+              })
+              .join(', ');
+            parts.push(`${quotedField} NOT IN (${notInSql})`);
+          } else if (op === '_contains') {
+            const escapedVal = String(val).replace(/'/g, "''");
+            if (this.dbType === 'postgres') {
+              parts.push(
+                `lower(unaccent(${quotedField})) ILIKE '%' || lower(unaccent('${escapedVal}')) || '%'`,
+              );
+            } else if (this.dbType === 'mysql') {
+              parts.push(
+                `lower(unaccent(${quotedField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent('${escapedVal}')) COLLATE utf8mb4_general_ci, '%')`,
+              );
+            } else {
+              parts.push(`lower(${quotedField}) LIKE '%${escapedVal.toLowerCase()}%'`);
+            }
+          } else if (op === '_starts_with') {
+            const escapedVal = String(val).replace(/'/g, "''");
+            if (this.dbType === 'postgres') {
+              parts.push(
+                `lower(unaccent(${quotedField})) ILIKE lower(unaccent('${escapedVal}')) || '%'`,
+              );
+            } else if (this.dbType === 'mysql') {
+              parts.push(
+                `lower(unaccent(${quotedField})) COLLATE utf8mb4_general_ci LIKE CONCAT(lower(unaccent('${escapedVal}')) COLLATE utf8mb4_general_ci, '%')`,
+              );
+            } else {
+              parts.push(`lower(${quotedField}) LIKE '${escapedVal.toLowerCase()}%'`);
+            }
+          } else if (op === '_ends_with') {
+            const escapedVal = String(val).replace(/'/g, "''");
+            if (this.dbType === 'postgres') {
+              parts.push(
+                `lower(unaccent(${quotedField})) ILIKE '%' || lower(unaccent('${escapedVal}'))`,
+              );
+            } else if (this.dbType === 'mysql') {
+              parts.push(
+                `lower(unaccent(${quotedField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent('${escapedVal}')) COLLATE utf8mb4_general_ci)`,
+              );
+            } else {
+              parts.push(`lower(${quotedField}) LIKE '%${escapedVal.toLowerCase()}'`);
+            }
+          } else if (op === '_between') {
+            if (Array.isArray(val) && val.length === 2) {
+              const v1 =
+                typeof val[0] === 'string' ? `'${val[0].replace(/'/g, "''")}'` : String(val[0]);
+              const v2 =
+                typeof val[1] === 'string' ? `'${val[1].replace(/'/g, "''")}'` : String(val[1]);
+              parts.push(`${quotedField} BETWEEN ${v1} AND ${v2}`);
+            }
+          }
+        }
+      } else {
+        const quotedField = `${quoteIdentifier(tablePrefix, this.dbType)}.${quoteIdentifier(field, this.dbType)}`;
+        let sqlValue: string;
+        if (value === null) {
+          sqlValue = 'NULL';
+        } else if (typeof value === 'string') {
+          sqlValue = `'${value.replace(/'/g, "''")}'`;
+        } else if (typeof value === 'boolean') {
+          sqlValue = value ? 'true' : 'false';
+        } else {
+          sqlValue = String(value);
+        }
+        parts.push(`${quotedField} = ${sqlValue}`);
+      }
+    }
+    return parts;
+  }
+
+  private async compileFilterToSqlWhereExpression(
+    filter: any,
+    tableName: string,
+    tableMeta: any,
+  ): Promise<string | null> {
+    if (!filter || typeof filter !== 'object') {
+      return null;
+    }
+    if (filter._and && Array.isArray(filter._and)) {
+      const chunks: string[] = [];
+      for (const c of filter._and) {
+        const e = await this.compileFilterToSqlWhereExpression(c, tableName, tableMeta);
+        if (e) {
+          chunks.push(e);
+        }
+      }
+      return chunks.length ? `(${chunks.join(' AND ')})` : null;
+    }
+    if (filter._or && Array.isArray(filter._or)) {
+      const chunks: string[] = [];
+      for (const c of filter._or) {
+        const e = await this.compileFilterToSqlWhereExpression(c, tableName, tableMeta);
+        if (e) {
+          chunks.push(e);
+        }
+      }
+      return chunks.length ? `(${chunks.join(' OR ')})` : null;
+    }
+    if (filter._not && typeof filter._not === 'object' && filter._not !== null && !Array.isArray(filter._not)) {
+      const inner = await this.compileFilterToSqlWhereExpression(filter._not, tableName, tableMeta);
+      return inner ? `NOT (${inner})` : null;
+    }
+    const { fieldFilters, relationFilters } = separateFilters(filter, tableMeta);
+    const chunks: string[] = [];
+    if (Object.keys(fieldFilters).length > 0) {
+      chunks.push(...this.buildSqlWherePartsFromFieldAst(fieldFilters, tableName, tableMeta));
+    }
+    for (const [relName, relFilter] of Object.entries(relationFilters)) {
+      try {
+        const subquery = await this.buildRelationSubqueryForCTE(tableName, relName, relFilter, tableMeta);
+        if (subquery) {
+          chunks.push(`EXISTS (${subquery})`);
+        }
+      } catch (error: any) {
+        this.logger.warn(`Failed to build relation subquery for ${relName}: ${error.message}`);
+      }
+    }
+    if (chunks.length === 0) {
+      return null;
+    }
+    return chunks.length === 1 ? chunks[0] : `(${chunks.join(' AND ')})`;
   }
 
   private async buildRelationSubqueryForCTE(

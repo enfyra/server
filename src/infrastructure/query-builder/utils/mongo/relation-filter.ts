@@ -141,6 +141,32 @@ export async function applyRelationFilters(
   }
 }
 
+function isM2oFkNullOnlyFilter(tableMeta: any, relName: string, relFilter: any): boolean {
+  const relation = tableMeta.relations?.find((r: any) => r.propertyName === relName);
+  if (
+    !relation ||
+    (relation.type !== 'many-to-one' && relation.type !== 'one-to-one') ||
+    !relation.foreignKeyColumn ||
+    typeof relFilter !== 'object' ||
+    relFilter === null ||
+    Array.isArray(relFilter)
+  ) {
+    return false;
+  }
+  const keys = Object.keys(relFilter);
+  if (
+    keys.length === 1 &&
+    keys[0] === 'id' &&
+    typeof relFilter.id === 'object' &&
+    relFilter.id !== null &&
+    !Array.isArray(relFilter.id)
+  ) {
+    const ik = Object.keys(relFilter.id);
+    return ik.length > 0 && ik.every(k => k === '_is_null' || k === '_is_not_null');
+  }
+  return keys.length > 0 && keys.every(k => k === '_is_null' || k === '_is_not_null');
+}
+
 export async function applyMixedFilters(
   metadata: any,
   pipeline: any[],
@@ -187,7 +213,6 @@ export async function applyMixedFilters(
     const fieldConditions: any[] = [];
     const relationConditions: Array<{ relationName: string; filter: any }> = [];
 
-    let hasRelations = false;
     for (const condition of filter._or) {
       const separated = separateFilters(condition, tableMeta);
 
@@ -196,12 +221,16 @@ export async function applyMixedFilters(
       }
 
       if (Object.keys(separated.relationFilters).length > 0) {
-        hasRelations = true;
         for (const [relName, relFilter] of Object.entries(separated.relationFilters)) {
+          if (isM2oFkNullOnlyFilter(tableMeta, relName, relFilter)) {
+            continue;
+          }
           relationConditions.push({ relationName: relName, filter: relFilter });
         }
       }
     }
+
+    const hasRelations = relationConditions.length > 0;
 
     if (hasRelations) {
       const lookupFields: string[] = [];
@@ -264,6 +293,18 @@ export async function applyMixedFilters(
             $gt: [{ $size: `$${lookupField}` }, 0]
           }
         });
+      }
+
+      for (const condition of filter._or) {
+        const separated = separateFilters(condition, tableMeta);
+        const relEntries = Object.entries(separated.relationFilters);
+        if (
+          Object.keys(separated.fieldFilters).length === 0 &&
+          relEntries.length > 0 &&
+          relEntries.every(([relName, relFilter]) => isM2oFkNullOnlyFilter(tableMeta, relName, relFilter))
+        ) {
+          orConditions.push(convertLogicalFilterToMongo(metadata, condition, tableName, dbType));
+        }
       }
 
       if (orConditions.length > 0) {

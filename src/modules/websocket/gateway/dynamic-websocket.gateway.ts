@@ -16,6 +16,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { createAdapter } from '@socket.io/redis-adapter';
+import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
 import { WEBSOCKET_CACHE_SYNC_EVENT_KEY, SYSTEM_QUEUES } from '../../../shared/utils/constant';
@@ -50,7 +52,32 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     });
   }
   private readonly jwtService: JwtService;
+
+  private setupRedisAdapter(server: Server) {
+    const redisUri = this.configService.get('REDIS_URI');
+    const redisHost = this.configService.get('REDIS_HOST') || 'localhost';
+    const redisPort = this.configService.get<number>('REDIS_PORT') || 6379;
+    const redisDb = this.configService.get<number>('REDIS_DB') || 0;
+    const redisPassword = this.configService.get('REDIS_PASSWORD');
+    const nodeName = this.configService.get('NODE_NAME') || '';
+    const keyPrefix = nodeName ? `${nodeName}:socket.io:` : 'socket.io:';
+
+    const redisOptions = redisUri
+      ? { lazyConnect: true }
+      : { host: redisHost, port: redisPort, db: redisDb, password: redisPassword, lazyConnect: true };
+
+    const pubClient = redisUri ? new Redis(redisUri, redisOptions) : new Redis(redisOptions);
+    const subClient = pubClient.duplicate();
+
+    pubClient.connect().catch((err) => this.logger.error('Redis adapter pub client error:', err));
+    subClient.connect().catch((err) => this.logger.error('Redis adapter sub client error:', err));
+
+    server.adapter(createAdapter(pubClient, subClient, { key: keyPrefix }));
+    this.logger.log(`Redis adapter configured (prefix: ${keyPrefix})`);
+  }
+
   afterInit(server: Server) {
+    this.setupRedisAdapter(server);
     this.logger.log('WebSocket Gateway initialized');
     this.subscribeToCacheSync();
   }

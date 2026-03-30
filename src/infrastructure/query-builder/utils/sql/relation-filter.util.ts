@@ -6,6 +6,10 @@ import { separateFilters } from '../shared/filter-separator.util';
 
 export { separateFilters };
 
+function quotedFkRef(tableName: string, fkCol: string, dbType: string): string {
+  return `${quoteIdentifier(tableName, dbType)}.${quoteIdentifier(fkCol, dbType)}`;
+}
+
 function escapeSqlString(value: any, dbType: string): string {
   if (value === null || value === undefined) {
     return 'NULL';
@@ -36,6 +40,192 @@ function normalizeBoolean(value: any): boolean | null {
   if (value === true || value === 'true') return true;
   if (value === false || value === 'false') return false;
   return null;
+}
+
+async function collectRelationSqlFragments(
+  knex: Knex,
+  tableName: string,
+  metadata: TableMetadata,
+  dbType: string,
+  getMetadata: ((tableName: string) => Promise<TableMetadata | null>) | undefined,
+  relationFilters: Record<string, any>,
+): Promise<string[]> {
+  const subqueries: string[] = [];
+  for (const [nestedRelName, nestedRelFilter] of Object.entries(relationFilters)) {
+    const nestedSubquerySql = await buildRelationSubquery(
+      knex,
+      tableName,
+      nestedRelName,
+      nestedRelFilter,
+      metadata,
+      dbType,
+      getMetadata,
+    );
+
+    if (nestedSubquerySql !== null) {
+      subqueries.push(`EXISTS (${nestedSubquerySql})`);
+    } else {
+      const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
+      if (relation && relation.foreignKeyColumn) {
+        const fkColumn = quotedFkRef(tableName, relation.foreignKeyColumn, dbType);
+        const filterObj = nestedRelFilter as any;
+        const idFilter = filterObj.id;
+
+        if (idFilter && typeof idFilter === 'object') {
+          const isNullValue = normalizeBoolean(idFilter._is_null);
+          const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
+
+          if (isNullValue === true) {
+            subqueries.push(`${fkColumn} IS NULL`);
+          } else if (isNullValue === false) {
+            subqueries.push(`${fkColumn} IS NOT NULL`);
+          } else if (isNotNullValue === true) {
+            subqueries.push(`${fkColumn} IS NOT NULL`);
+          } else if (isNotNullValue === false) {
+            subqueries.push(`${fkColumn} IS NULL`);
+          } else if (idFilter._eq !== undefined) {
+            const escapedValue = escapeSqlString(idFilter._eq, dbType);
+            subqueries.push(`${fkColumn} = ${escapedValue}`);
+          } else if (idFilter._neq !== undefined) {
+            const escapedValue = escapeSqlString(idFilter._neq, dbType);
+            subqueries.push(`${fkColumn} != ${escapedValue}`);
+          } else if (idFilter._in !== undefined) {
+            const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
+            const inStr = inValues.map(v => escapeSqlString(v, dbType)).join(', ');
+            subqueries.push(`${fkColumn} IN (${inStr})`);
+          } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
+            const raw = idFilter._not_in ?? idFilter._nin;
+            const notInValues = Array.isArray(raw) ? raw : [raw];
+            const notInStr = notInValues.map(v => escapeSqlString(v, dbType)).join(', ');
+            subqueries.push(`${fkColumn} NOT IN (${notInStr})`);
+          }
+        }
+      }
+    }
+  }
+  return subqueries;
+}
+
+type OrConjunctPart =
+  | { fieldFilters: any; subqueries: string[] }
+  | { idSubquery: Knex.QueryBuilder };
+
+function needsIdSubqueryPath(c: any): boolean {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) {
+    return false;
+  }
+  if (c._and && Array.isArray(c._and)) {
+    return true;
+  }
+  if (c._or && Array.isArray(c._or)) {
+    return true;
+  }
+  if (c._not !== undefined && c._not !== null) {
+    return true;
+  }
+  return false;
+}
+
+async function buildOrBranchGroups(
+  branches: any[],
+  knex: Knex,
+  tableName: string,
+  metadata: TableMetadata,
+  dbType: string,
+  getMetadata?: (tableName: string) => Promise<TableMetadata | null>,
+): Promise<Array<Array<OrConjunctPart>>> {
+  const orBranchGroups: Array<Array<OrConjunctPart>> = [];
+
+  for (const condition of branches) {
+    if (condition._and && Array.isArray(condition._and) && condition._and.length > 0) {
+      const group: OrConjunctPart[] = [];
+      for (const c of condition._and) {
+        if (needsIdSubqueryPath(c)) {
+          const sub = knex(tableName).select(`${tableName}.id`);
+          await applyFiltersToSubquery(knex, sub, c, tableName, metadata, dbType, getMetadata);
+          group.push({ idSubquery: sub });
+        } else {
+          const { fieldFilters, relationFilters } = separateFilters(c, metadata);
+          const subqueries = await collectRelationSqlFragments(
+            knex,
+            tableName,
+            metadata,
+            dbType,
+            getMetadata,
+            relationFilters,
+          );
+          group.push({ fieldFilters, subqueries });
+        }
+      }
+      orBranchGroups.push(group);
+    } else {
+      if (needsIdSubqueryPath(condition)) {
+        const sub = knex(tableName).select(`${tableName}.id`);
+        await applyFiltersToSubquery(knex, sub, condition, tableName, metadata, dbType, getMetadata);
+        orBranchGroups.push([{ idSubquery: sub }]);
+      } else {
+        const { fieldFilters, relationFilters } = separateFilters(condition, metadata);
+        const subqueries = await collectRelationSqlFragments(
+          knex,
+          tableName,
+          metadata,
+          dbType,
+          getMetadata,
+          relationFilters,
+        );
+        orBranchGroups.push([{ fieldFilters, subqueries }]);
+      }
+    }
+  }
+  return orBranchGroups;
+}
+
+function applyOrConjunctPart(
+  qb: Knex.QueryBuilder,
+  part: OrConjunctPart,
+  tableName: string,
+  metadata: TableMetadata,
+  dbType: string,
+): void {
+  if ('idSubquery' in part && part.idSubquery) {
+    qb.whereIn(`${tableName}.id`, part.idSubquery);
+    return;
+  }
+  const pf = part as { fieldFilters: any; subqueries: string[] };
+  if (Object.keys(pf.fieldFilters).length === 0 && pf.subqueries.length === 0) {
+    return;
+  }
+  qb.where(function (this: Knex.QueryBuilder) {
+    if (Object.keys(pf.fieldFilters).length > 0) {
+      buildWhereClause(this, pf.fieldFilters, tableName, dbType, metadata);
+    }
+    for (const sq of pf.subqueries) {
+      this.whereRaw(sq);
+    }
+  });
+}
+
+function applyOrBranchGroupsAsWhereOr(
+  qb: Knex.QueryBuilder,
+  orBranchGroups: Array<Array<OrConjunctPart>>,
+  tableName: string,
+  metadata: TableMetadata,
+  dbType: string,
+): void {
+  let firstBranch = true;
+  for (const partGroup of orBranchGroups) {
+    const branchFn = function (this: Knex.QueryBuilder) {
+      for (const part of partGroup) {
+        applyOrConjunctPart(this, part, tableName, metadata, dbType);
+      }
+    };
+    if (firstBranch) {
+      qb.where(branchFn);
+      firstBranch = false;
+    } else {
+      qb.orWhere(branchFn);
+    }
+  }
 }
 
 function buildJoinCondition(
@@ -201,160 +391,92 @@ async function applyFiltersToSubquery(
 
   if (filter._and && Array.isArray(filter._and)) {
     for (const condition of filter._and) {
-      const { fieldFilters, relationFilters } = separateFilters(condition, metadata);
-
-      query.where(function() {
-        if (Object.keys(fieldFilters).length > 0) {
-          buildWhereClause(this, fieldFilters, tableName, dbType, metadata);
-        }
-      });
-
-      for (const [nestedRelName, nestedRelFilter] of Object.entries(relationFilters)) {
-        const nestedSubquerySql = await buildRelationSubquery(
+      if (condition._or && Array.isArray(condition._or) && condition._or.length > 0) {
+        const orBranchGroups = await buildOrBranchGroups(
+          condition._or,
           knex,
           tableName,
-          nestedRelName,
-          nestedRelFilter,
           metadata,
           dbType,
           getMetadata,
         );
-
-        if (nestedSubquerySql === null) {
-          const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
-          if (relation && relation.foreignKeyColumn) {
-            const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
-            const filterObj = nestedRelFilter as any;
-            const idFilter = filterObj.id;
-            
-            if (idFilter && typeof idFilter === 'object') {
-              const isNullValue = normalizeBoolean(idFilter._is_null);
-              const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
-              
-            if (isNullValue === true) {
-              query.whereNull(fkColumn);
-            } else if (isNullValue === false) {
-              query.whereNotNull(fkColumn);
-            } else if (isNotNullValue === true) {
-              query.whereNotNull(fkColumn);
-            } else if (isNotNullValue === false) {
-              query.whereNull(fkColumn);
-              } else if (idFilter._eq !== undefined) {
-                query.where(fkColumn, '=', idFilter._eq);
-              } else if (idFilter._neq !== undefined) {
-                query.where(fkColumn, '!=', idFilter._neq);
-              } else if (idFilter._in !== undefined) {
-                const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
-                query.whereIn(fkColumn, inValues);
-              } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
-                const raw = idFilter._not_in ?? idFilter._nin;
-                const notInValues = Array.isArray(raw) ? raw : [raw];
-                query.whereNotIn(fkColumn, notInValues);
-              }
-            }
-          }
-        } else {
-          query.whereRaw(`EXISTS (${nestedSubquerySql})`);
+        query.where(function() {
+          applyOrBranchGroupsAsWhereOr(this, orBranchGroups, tableName, metadata, dbType);
+        });
+      } else if (condition._and && Array.isArray(condition._and) && condition._and.length > 0) {
+        for (const c of condition._and) {
+          await applyFiltersToSubquery(knex, query, c, tableName, metadata, dbType, getMetadata);
         }
+      } else {
+        await applyFiltersToSubquery(knex, query, condition, tableName, metadata, dbType, getMetadata);
       }
     }
     return;
   }
 
   if (filter._or && Array.isArray(filter._or)) {
-    const orParts: Array<{fieldFilters: any, subqueries: string[]}> = [];
-
-    for (const condition of filter._or) {
-      const { fieldFilters, relationFilters } = separateFilters(condition, metadata);
-      const subqueries: string[] = [];
-
-      for (const [nestedRelName, nestedRelFilter] of Object.entries(relationFilters)) {
-        const nestedSubquerySql = await buildRelationSubquery(
-          knex,
-          tableName,
-          nestedRelName,
-          nestedRelFilter,
-          metadata,
-          dbType,
-          getMetadata,
-        );
-
-        if (nestedSubquerySql !== null) {
-          subqueries.push(`EXISTS (${nestedSubquerySql})`);
-        } else {
-          const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
-          if (relation && relation.foreignKeyColumn) {
-            const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
-            const filterObj = nestedRelFilter as any;
-            const idFilter = filterObj.id;
-            
-            if (idFilter && typeof idFilter === 'object') {
-              const isNullValue = normalizeBoolean(idFilter._is_null);
-              const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
-              
-            if (isNullValue === true) {
-              subqueries.push(`${fkColumn} IS NULL`);
-            } else if (isNullValue === false) {
-              subqueries.push(`${fkColumn} IS NOT NULL`);
-            } else if (isNotNullValue === true) {
-              subqueries.push(`${fkColumn} IS NOT NULL`);
-            } else if (isNotNullValue === false) {
-              subqueries.push(`${fkColumn} IS NULL`);
-              } else if (idFilter._eq !== undefined) {
-                const escapedValue = escapeSqlString(idFilter._eq, dbType);
-                subqueries.push(`${fkColumn} = ${escapedValue}`);
-              } else if (idFilter._neq !== undefined) {
-                const escapedValue = escapeSqlString(idFilter._neq, dbType);
-                subqueries.push(`${fkColumn} != ${escapedValue}`);
-              } else if (idFilter._in !== undefined) {
-                const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
-                const inStr = inValues.map(v => escapeSqlString(v, dbType)).join(', ');
-                subqueries.push(`${fkColumn} IN (${inStr})`);
-              } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
-                const raw = idFilter._not_in ?? idFilter._nin;
-                const notInValues = Array.isArray(raw) ? raw : [raw];
-                const notInStr = notInValues.map(v => escapeSqlString(v, dbType)).join(', ');
-                subqueries.push(`${fkColumn} NOT IN (${notInStr})`);
-              }
-            }
-          }
-        }
-      }
-
-      orParts.push({ fieldFilters, subqueries });
-    }
-
+    const orBranchGroups = await buildOrBranchGroups(
+      filter._or,
+      knex,
+      tableName,
+      metadata,
+      dbType,
+      getMetadata,
+    );
     query.where(function() {
-      for (let i = 0; i < orParts.length; i++) {
-        const part = orParts[i];
-
-        if (i === 0) {
-          this.where(function() {
-            if (Object.keys(part.fieldFilters).length > 0) {
-              buildWhereClause(this, part.fieldFilters, tableName, dbType, metadata);
-            }
-            for (const subquerySql of part.subqueries) {
-              this.whereRaw(subquerySql);
-            }
-          });
-        } else {
-          this.orWhere(function() {
-            if (Object.keys(part.fieldFilters).length > 0) {
-              buildWhereClause(this, part.fieldFilters, tableName, dbType, metadata);
-            }
-            for (const subquerySql of part.subqueries) {
-              this.whereRaw(subquerySql);
-            }
-          });
-        }
-      }
+      applyOrBranchGroupsAsWhereOr(this, orBranchGroups, tableName, metadata, dbType);
     });
-
     return;
   }
 
   if (filter._not) {
-    const { fieldFilters, relationFilters } = separateFilters(filter._not, metadata);
+    const inner = filter._not;
+
+    if (inner._and && Array.isArray(inner._and) && inner._and.length > 0) {
+      const prepared: OrConjunctPart[] = [];
+      for (const condition of inner._and) {
+        if (needsIdSubqueryPath(condition)) {
+          const sub = knex(tableName).select(`${tableName}.id`);
+          await applyFiltersToSubquery(knex, sub, condition, tableName, metadata, dbType, getMetadata);
+          prepared.push({ idSubquery: sub });
+        } else {
+          const { fieldFilters, relationFilters } = separateFilters(condition, metadata);
+          const subqueries = await collectRelationSqlFragments(
+            knex,
+            tableName,
+            metadata,
+            dbType,
+            getMetadata,
+            relationFilters,
+          );
+          prepared.push({ fieldFilters, subqueries });
+        }
+      }
+
+      query.whereNot(function() {
+        for (const part of prepared) {
+          applyOrConjunctPart(this, part, tableName, metadata, dbType);
+        }
+      });
+      return;
+    }
+
+    if (inner._or && Array.isArray(inner._or) && inner._or.length > 0) {
+      const orBranchGroups = await buildOrBranchGroups(
+        inner._or,
+        knex,
+        tableName,
+        metadata,
+        dbType,
+        getMetadata,
+      );
+      query.whereNot(function() {
+        applyOrBranchGroupsAsWhereOr(this, orBranchGroups, tableName, metadata, dbType);
+      });
+      return;
+    }
+
+    const { fieldFilters, relationFilters } = separateFilters(inner, metadata);
 
     query.whereNot(function() {
       if (Object.keys(fieldFilters).length > 0) {
@@ -376,7 +498,7 @@ async function applyFiltersToSubquery(
       if (nestedSubquerySql === null) {
         const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
         if (relation && relation.foreignKeyColumn) {
-          const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
+          const fkQ = quotedFkRef(tableName, relation.foreignKeyColumn, dbType);
           const filterObj = nestedRelFilter as any;
           const idFilter = filterObj.id;
           
@@ -385,24 +507,24 @@ async function applyFiltersToSubquery(
             const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
             
           if (isNullValue === true) {
-            query.whereNotNull(fkColumn);
+            query.whereRaw(`${fkQ} IS NOT NULL`);
           } else if (isNullValue === false) {
-            query.whereNull(fkColumn);
+            query.whereRaw(`${fkQ} IS NULL`);
           } else if (isNotNullValue === true) {
-            query.whereNull(fkColumn);
+            query.whereRaw(`${fkQ} IS NULL`);
           } else if (isNotNullValue === false) {
-            query.whereNotNull(fkColumn);
+            query.whereRaw(`${fkQ} IS NOT NULL`);
             } else if (idFilter._eq !== undefined) {
-              query.where(fkColumn, '!=', idFilter._eq);
+              query.whereRaw(`${fkQ} != ?`, [idFilter._eq]);
             } else if (idFilter._neq !== undefined) {
-              query.where(fkColumn, '=', idFilter._neq);
+              query.whereRaw(`${fkQ} = ?`, [idFilter._neq]);
             } else if (idFilter._in !== undefined) {
               const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
-              query.whereNotIn(fkColumn, inValues);
+              query.whereRaw(`${fkQ} NOT IN (${inValues.map(() => '?').join(', ')})`, inValues);
             } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
               const raw = idFilter._not_in ?? idFilter._nin;
               const notInValues = Array.isArray(raw) ? raw : [raw];
-              query.whereIn(fkColumn, notInValues);
+              query.whereRaw(`${fkQ} IN (${notInValues.map(() => '?').join(', ')})`, notInValues);
             }
           }
         }
@@ -431,35 +553,35 @@ async function applyFiltersToSubquery(
     );
 
     if (nestedSubquerySql === null) {
-      const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
-      if (relation && relation.foreignKeyColumn) {
-        const fkColumn = `${tableName}.${relation.foreignKeyColumn}`;
-        const filterObj = nestedRelFilter as any;
-        const idFilter = filterObj.id;
-        
+        const relation = metadata.relations.find(r => r.propertyName === nestedRelName);
+        if (relation && relation.foreignKeyColumn) {
+          const fkQ = quotedFkRef(tableName, relation.foreignKeyColumn, dbType);
+          const filterObj = nestedRelFilter as any;
+          const idFilter = filterObj.id;
+          
         if (idFilter && typeof idFilter === 'object') {
-          const isNullValue = normalizeBoolean(idFilter._is_null);
-          const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
+            const isNullValue = normalizeBoolean(idFilter._is_null);
+            const isNotNullValue = normalizeBoolean(idFilter._is_not_null);
           
         if (isNullValue === true) {
-          query.whereNull(fkColumn);
+          query.whereRaw(`${fkQ} IS NULL`);
         } else if (isNullValue === false) {
-          query.whereNotNull(fkColumn);
+          query.whereRaw(`${fkQ} IS NOT NULL`);
         } else if (isNotNullValue === true) {
-          query.whereNotNull(fkColumn);
+          query.whereRaw(`${fkQ} IS NOT NULL`);
         } else if (isNotNullValue === false) {
-          query.whereNull(fkColumn);
+          query.whereRaw(`${fkQ} IS NULL`);
           } else if (idFilter._eq !== undefined) {
-            query.where(fkColumn, '=', idFilter._eq);
+            query.whereRaw(`${fkQ} = ?`, [idFilter._eq]);
           } else if (idFilter._neq !== undefined) {
-            query.where(fkColumn, '!=', idFilter._neq);
+            query.whereRaw(`${fkQ} != ?`, [idFilter._neq]);
           } else if (idFilter._in !== undefined) {
             const inValues = Array.isArray(idFilter._in) ? idFilter._in : [idFilter._in];
-            query.whereIn(fkColumn, inValues);
+            query.whereRaw(`${fkQ} IN (${inValues.map(() => '?').join(', ')})`, inValues);
           } else if (idFilter._not_in !== undefined || idFilter._nin !== undefined) {
             const raw = idFilter._not_in ?? idFilter._nin;
             const notInValues = Array.isArray(raw) ? raw : [raw];
-            query.whereNotIn(fkColumn, notInValues);
+            query.whereRaw(`${fkQ} NOT IN (${notInValues.map(() => '?').join(', ')})`, notInValues);
           }
         }
       }
