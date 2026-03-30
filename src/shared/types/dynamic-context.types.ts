@@ -120,6 +120,10 @@ export interface TDynamicContext {
     emitToNamespace?: (path: string, event: string, data: any) => void;
     emitToAll?: (event: string, data: any) => void;
   };
+  $flow?: Record<string, any>;
+  $dispatch?: {
+    trigger?: (flowIdOrName: string | number, payload?: any) => Promise<{ jobId: string; flowId: number | string }>;
+  };
 }
 
 export interface RequestWithRouteData extends Request {
@@ -132,7 +136,6 @@ export interface RequestWithRouteData extends Request {
     postHooks: any[];
     isPublished: boolean;
     mainTable?: any;
-    targetTables?: any[];
     route?: any;
     res?: Response;
   };

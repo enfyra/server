@@ -1,7 +1,6 @@
 import { Controller, Post, Param, Body, Logger } from '@nestjs/common';
 import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
-import { SwaggerService } from '../../infrastructure/swagger/services/swagger.service';
 import { GraphqlService } from '../graphql/services/graphql.service';
 import { DatabaseSchemaService } from '../../infrastructure/knex/services/database-schema.service';
 import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
@@ -9,24 +8,25 @@ import { SqlSchemaMigrationService } from '../../infrastructure/knex/services/sq
 import { MongoSchemaMigrationService } from '../../infrastructure/mongo/services/mongo-schema-migration.service';
 import { MongoService } from '../../infrastructure/mongo/services/mongo.service';
 import { dropForeignKeyIfExists } from '../../infrastructure/knex/utils/migration/foreign-key-operations';
+import { FlowService } from '../flow/services/flow.service';
 @Controller('admin')
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
   constructor(
     private readonly metadataCacheService: MetadataCacheService,
     private readonly routeCacheService: RouteCacheService,
-    private readonly swaggerService: SwaggerService,
     private readonly graphqlService: GraphqlService,
     private readonly databaseSchemaService: DatabaseSchemaService,
     private readonly queryBuilderService: QueryBuilderService,
     private readonly sqlSchemaMigrationService: SqlSchemaMigrationService,
     private readonly mongoSchemaMigrationService: MongoSchemaMigrationService,
     private readonly mongoService: MongoService,
+    private readonly flowService: FlowService,
   ) {}
   @Post('reload')
   async reloadAll() {
     const startTime = Date.now();
-    this.logger.log('Starting full reload of metadata, routes, swagger, and GraphQL...');
+    this.logger.log('Starting full reload of metadata, routes, and GraphQL...');
     try {
       this.logger.log('Reloading metadata cache...');
       await this.metadataCacheService.reload();
@@ -34,9 +34,6 @@ export class AdminController {
       this.logger.log('Reloading routes cache...');
       await this.routeCacheService.reload();
       this.logger.log('✓ Routes cache reloaded');
-      this.logger.log('Reloading Swagger spec...');
-      await this.swaggerService.reloadSwagger();
-      this.logger.log('✓ Swagger spec reloaded');
       this.logger.log('Reloading GraphQL schema...');
       await this.graphqlService.reloadSchema();
       this.logger.log('✓ GraphQL schema reloaded');
@@ -46,7 +43,7 @@ export class AdminController {
         success: true,
         message: 'All caches and schemas reloaded successfully',
         duration: `${duration}ms`,
-        reloaded: ['metadata', 'routes', 'swagger', 'graphql']
+        reloaded: ['metadata', 'routes', 'graphql']
       };
     } catch (error) {
       this.logger.error('Error during reload:', error);
@@ -64,12 +61,6 @@ export class AdminController {
     this.logger.log('Reloading routes cache...');
     await this.routeCacheService.reload();
     return { success: true, message: 'Routes cache reloaded' };
-  }
-  @Post('reload/swagger')
-  async reloadSwagger() {
-    this.logger.log('Reloading Swagger spec...');
-    await this.swaggerService.reloadSwagger();
-    return { success: true, message: 'Swagger spec reloaded' };
   }
   @Post('reload/graphql')
   async reloadGraphQL() {
@@ -258,5 +249,26 @@ export class AdminController {
       this.logger.error(`Error syncing table ${tableId}:`, error);
       throw error;
     }
+  }
+  @Post('flow/test-step')
+  async testFlowStep(@Body() body: any) {
+    this.logger.log(`Testing flow step type=${body?.type}...`);
+    const result = await this.flowService.testStep(
+      { type: body.type, config: body.config, timeout: body.timeout },
+      body.mockFlow,
+    );
+    return result;
+  }
+
+  @Post('flow/trigger/:id')
+  async triggerFlow(@Param('id') flowId: string, @Body() body?: any) {
+    this.logger.log(`Triggering flow ${flowId}...`);
+    const result = await this.flowService.trigger(flowId, body?.payload || {}, body?.user || null);
+    return {
+      success: true,
+      message: `Flow triggered`,
+      jobId: result.jobId,
+      flowId: result.flowId,
+    };
   }
 }

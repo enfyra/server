@@ -57,11 +57,18 @@ export class DynamicRepository {
     this.tableMetadata = await this.metadataCacheService.lookupTableByName(this.tableName);
   }
 
+  private async ensureInit() {
+    if (!this.tableMetadata) {
+      this.tableMetadata = await this.metadataCacheService.lookupTableByName(this.tableName);
+    }
+  }
+
   private getIdField(): string {
     return this.queryBuilder.isMongoDb() ? '_id' : 'id';
   }
 
   async find(opt: { filter?: any; where?: any; fields?: string | string[]; limit?: number; sort?: string; meta?: string | string[] } = {}) {
+    await this.ensureInit();
     const debugMode = this.context.$query?.debugMode === 'true' || this.context.$query?.debugMode === true;
     const filterValue = opt?.filter ?? opt?.where ?? this.context.$query?.filter ?? {};
     return await this.queryEngine.find({
@@ -79,6 +86,7 @@ export class DynamicRepository {
   }
 
   async create(opt: { data: any; fields?: string | string[] }) {
+    await this.ensureInit();
     try {
       const { data: body, fields } = opt;
       if (!body || typeof body !== 'object') {
@@ -145,6 +153,7 @@ export class DynamicRepository {
   }
 
   async update(opt: { id: string | number; data: any; fields?: string | string[] }) {
+    await this.ensureInit();
     try {
       const { id, data: body, fields } = opt;
       const existsResult = await this.find({ where: { [this.getIdField()]: { _eq: id } } });
@@ -188,6 +197,7 @@ export class DynamicRepository {
   }
 
   async delete(opt: { id: string | number }) {
+    await this.ensureInit();
     try {
       const { id } = opt;
       const idField = this.getIdField();

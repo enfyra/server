@@ -1,14 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
-import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
-import { TableHandlerService } from '../../../modules/table-management/services/table-handler.service';
-import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
-import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
+import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { InstanceService } from '../../../shared/services/instance.service';
@@ -25,13 +20,9 @@ export class BootstrapScriptService {
 
   constructor(
     private queryBuilder: QueryBuilderService,
-    private metadataCacheService: MetadataCacheService,
     private handlerExecutorService: HandlerExecutorService,
     private cacheService: CacheService,
-    private tableHandlerService: TableHandlerService,
-    private queryEngine: QueryEngine,
-    private systemProtectionService: SystemProtectionService,
-    private tableValidationService: TableValidationService,
+    private repoRegistryService: RepoRegistryService,
     private instanceService: InstanceService,
     private eventEmitter: EventEmitter2,
   ) {}
@@ -140,27 +131,6 @@ export class BootstrapScriptService {
   }
 
   private async executeScript(script: any) {
-    const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
-    const tableDefinitions = tablesResult.data;
-    const dynamicFindEntries = await Promise.all(
-      tableDefinitions.map(async (tableDef) => {
-        const tableName = tableDef.name;
-        const dynamicRepo = new DynamicRepository({
-          context: null,
-          tableName: tableName,
-          tableHandlerService: this.tableHandlerService,
-          queryBuilder: this.queryBuilder,
-          metadataCacheService: this.metadataCacheService,
-          queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
-          tableValidationService: this.tableValidationService,
-          eventEmitter: this.eventEmitter,
-        });
-        await dynamicRepo.init();
-        return [tableName, dynamicRepo];
-      }),
-    );
-    const repos = Object.fromEntries(dynamicFindEntries);
     const ctx: TDynamicContext = {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $logs: (...args: any[]) => {
@@ -170,14 +140,12 @@ export class BootstrapScriptService {
         autoSlug: (text: string) => text.toLowerCase().replace(/\s+/g, '-'),
       },
       $cache: this.cacheService,
-      $repos: repos,
+      $repos: {} as any,
       $share: {
         $logs: [],
       },
     };
-    Object.values(ctx.$repos).forEach((repo: any) => {
-      repo.context = ctx;
-    });
+    ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     const timeoutMs = script.timeout || 30000;
     const executionResult = await this.handlerExecutorService.run(
       script.logic,

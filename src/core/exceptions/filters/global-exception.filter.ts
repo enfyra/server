@@ -158,11 +158,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           : exception,
     };
     if (statusCode >= 500) {
-      this.logger.error('Server Error', logData);
+      this.logger.error({ message: 'Server Error', ...logData });
     } else if (statusCode >= 400) {
-      this.logger.warn('Client Error', logData);
+      this.logger.warn({ message: 'Client Error', ...logData });
     } else {
-      this.logger.log('Other Error', logData);
+      this.logger.log({ message: 'Other Error', ...logData });
     }
   }
   private isGraphQLContext(host: ArgumentsHost): boolean {

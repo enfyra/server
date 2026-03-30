@@ -62,6 +62,33 @@ async function bootstrap() {
       },
     }),
   );
+  const eventEmitter = app.get(EventEmitter2);
+
+  const BOOT_EVENTS = [
+    CACHE_EVENTS.METADATA_LOADED,
+    CACHE_EVENTS.ROUTE_LOADED,
+    CACHE_EVENTS.PACKAGE_LOADED,
+    CACHE_EVENTS.STORAGE_LOADED,
+    CACHE_EVENTS.AI_CONFIG_LOADED,
+    CACHE_EVENTS.OAUTH_CONFIG_LOADED,
+    CACHE_EVENTS.WEBSOCKET_LOADED,
+    CACHE_EVENTS.FLOW_LOADED,
+    CACHE_EVENTS.GRAPHQL_LOADED,
+  ];
+
+  const received = new Set<string>();
+  const systemReadyPromise = new Promise<void>((resolve) => {
+    for (const event of BOOT_EVENTS) {
+      eventEmitter.on(event, () => {
+        received.add(event);
+        if (received.size === BOOT_EVENTS.length) {
+          eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+          resolve();
+        }
+      });
+    }
+  });
+
   const appInitStart = Date.now();
   await app.init();
   logger.log(`App Init (Bootstrap): ${Date.now() - appInitStart}ms`);
@@ -69,13 +96,7 @@ async function bootstrap() {
   await app.listen(configService.get('PORT') || 1105);
   logger.log(`HTTP Listen: ${Date.now() - listenStart}ms`);
 
-  // Wait for system to be fully ready (all caches loaded, GraphQL & Swagger generated)
-  const eventEmitter = app.get(EventEmitter2);
-  await new Promise<void>((resolve) => {
-    eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
-      resolve();
-    });
-  });
+  await systemReadyPromise;
 
   const totalTime = Date.now() - startTime;
   logger.log(`Cold Start completed! Total time: ${totalTime}ms`);

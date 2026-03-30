@@ -18,10 +18,7 @@ export class DynamicService {
   async runHandler(req: RequestWithRouteData) {
     const startTime = Date.now();
     const isTableDefinitionOperation =
-      req.routeData.mainTable?.name === 'table_definition' ||
-      req.routeData.targetTables?.some(
-        (table) => table.name === 'table_definition',
-      );
+      req.routeData.mainTable?.name === 'table_definition';
     try {
       const userHandler = req.routeData.handler?.trim();
       const hasMainTable =

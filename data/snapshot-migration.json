@@ -31,7 +31,8 @@
       "relationsToModify": [
         { "from": { "propertyName": "preHook" }, "to": { "propertyName": "preHooks" } },
         { "from": { "propertyName": "postHook" }, "to": { "propertyName": "postHooks" } }
-      ]
+      ],
+      "relationsToRemove": ["targetTables"]
     },
     {
       "_unique": { "name": { "_eq": "pre_hook_definition" } },
@@ -60,6 +61,10 @@
     {
       "_unique": { "name": { "_eq": "file_permission_definition" } },
       "relationsToRemove": ["allowedUsers"]
+    },
+    {
+      "_unique": { "name": { "_eq": "websocket_definition" } },
+      "relationsToRemove": ["targetTables"]
     }
   ],
   "tablesToDrop": []

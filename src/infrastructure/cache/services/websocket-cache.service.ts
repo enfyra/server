@@ -63,43 +63,26 @@ export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> 
   }
 
   protected async loadFromDb(): Promise<WebSocketGateway[]> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
-
     const result = await this.queryBuilder.select({
       tableName: 'websocket_definition',
       filter: { isEnabled: { _eq: true } },
-      fields: ['*'],
+      fields: ['*', 'events.*'],
     });
-    const gateways = result.data;
 
-    for (const gateway of gateways) {
+    return result.data.map((gateway: any) => {
       if (gateway.connectionHandlerScript) {
         gateway.connectionHandlerScript = transformCode(gateway.connectionHandlerScript);
       }
 
-      const filterValue = isMongoDB ? gateway._id : gateway.id;
-
-      const eventsResult = await this.queryBuilder.select({
-        tableName: 'websocket_event_definition',
-        filter: {
-          _and: [
-            { isEnabled: { _eq: true } },
-            { gateway: { _eq: filterValue } },
-          ],
-        },
-        fields: ['*'],
-      });
-
-      for (const event of eventsResult.data) {
+      gateway.events = (gateway.events || []).filter((e: any) => e.isEnabled);
+      for (const event of gateway.events) {
         if (event.handlerScript) {
           event.handlerScript = transformCode(event.handlerScript);
         }
       }
 
-      gateway.events = eventsResult.data;
-    }
-
-    return gateways;
+      return gateway;
+    });
   }
 
   protected transformData(gateways: WebSocketGateway[]): WebSocketGateway[] {

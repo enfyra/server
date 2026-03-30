@@ -23,6 +23,9 @@ import { RoutePermissionDefinitionProcessor } from './processors/route-permissio
 import { AiConfigDefinitionProcessor } from './processors/ai-config-definition.processor';
 import { WebsocketDefinitionProcessor } from './processors/websocket-definition.processor';
 import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-definition.processor';
+import { FlowDefinitionProcessor } from './processors/flow-definition.processor';
+import { FlowStepDefinitionProcessor } from './processors/flow-step-definition.processor';
+import { FlowExecutionDefinitionProcessor } from './processors/flow-execution-definition.processor';
 
 @Global()
 @Module({
@@ -49,6 +52,9 @@ import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-
     AiConfigDefinitionProcessor,
     WebsocketDefinitionProcessor,
     WebsocketEventDefinitionProcessor,
+    FlowDefinitionProcessor,
+    FlowStepDefinitionProcessor,
+    FlowExecutionDefinitionProcessor,
     BootstrapScriptService,
   ],
   exports: [ProvisionService, MetadataProvisionService, DataProvisionService, BootstrapScriptService, DataMigrationService, MetadataMigrationService],

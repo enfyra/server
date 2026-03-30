@@ -26,7 +26,6 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
           const now = new Date();
           if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
-          if (!transformedRecord.targetTables) transformedRecord.targetTables = [];
         }
 
         return transformedRecord;

@@ -574,7 +574,7 @@ CRITICAL - Relations Format:
 - Format: {"propertyName": {id: value}} - Example: {"role": {id: 1}}, {"category": {id: 19}}
 - NEVER include isSystem, isRootAdmin in dataArray - they have defaults; for registration/signup, set server-side in handler logic
 
-CRITICAL - route_definition: NEVER include mainTable in dataArray. Use targetTables only: { path, targetTables: [{id: tableId}], isEnabled: true }. mainTable is system-managed, agent MUST NOT set it.
+CRITICAL - route_definition: NEVER include mainTable in dataArray. mainTable is system-managed, agent MUST NOT set it. Example: { path: "/register", isEnabled: true }.
 
 CRITICAL - DO NOT Include ID in Create Operations:
 - NEVER include "id" field in data - including id will cause errors
@@ -641,7 +641,7 @@ CRITICAL - Relations Format:
 - Use propertyName from relations[].propertyName (e.g. "role", "category"). NEVER use foreignKeyColumn (roleId, categoryId)
 - Format: {"propertyName": {id: value}} - Example: {"role": {id: 1}}
 
-CRITICAL - route_definition: NEVER include mainTable in updates. Use targetTables only when linking tables. mainTable is system-managed, agent MUST NOT set it.
+CRITICAL - route_definition: NEVER include mainTable in updates. mainTable is system-managed, agent MUST NOT set it.
 
 Inputs:
 - table (required): Name of the table to update records in

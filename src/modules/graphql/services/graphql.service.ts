@@ -2,7 +2,7 @@ import { printSchema } from 'graphql';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { createYoga } from 'graphql-yoga';
 import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
@@ -22,6 +22,7 @@ export class GraphqlService {
     private metadataCache: MetadataCacheService,
     private routeCacheService: RouteCacheService,
     private dynamicResolver: DynamicResolver,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -84,6 +85,7 @@ export class GraphqlService {
       });
 
       this.logger.log(`Generated schema with ${tablesWithGql.size} types in ${Date.now() - start}ms`);
+      this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
     } catch (error) {
       this.logger.error('Failed to reload GraphQL schema:', error.message);
       throw error;
