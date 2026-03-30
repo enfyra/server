@@ -82,7 +82,8 @@ export class FlowService {
     };
 
     const config = step.config || {};
-    const timeout = step.timeout || 5000;
+    const rawTimeout = Number(step.timeout);
+    const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(rawTimeout, 60000) : 5000;
 
     try {
       let result: any;
