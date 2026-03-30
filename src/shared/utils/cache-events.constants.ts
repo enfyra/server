@@ -7,6 +7,7 @@ export const CACHE_EVENTS = {
   OAUTH_CONFIG_LOADED: 'cache:oauth-config:loaded',
   WEBSOCKET_LOADED: 'cache:websocket:loaded',
   PACKAGE_LOADED: 'cache:package:loaded',
+  FLOW_LOADED: 'cache:flow:loaded',
   SYSTEM_READY: 'system:ready',
 } as const;
 
@@ -14,7 +15,6 @@ export const CACHE_IDENTIFIERS = {
   METADATA: 'metadata',
   ROUTE: 'route',
   GRAPHQL: 'graphql',
-  SWAGGER: 'swagger',
   STORAGE: 'storage',
   AI_CONFIG: 'ai-config',
   WEBSOCKET: 'websocket',
@@ -22,6 +22,7 @@ export const CACHE_IDENTIFIERS = {
   BOOTSTRAP: 'bootstrap',
   OAUTH_CONFIG: 'oauth-config',
   FOLDER_TREE: 'folder-tree',
+  FLOW: 'flow',
 } as const;
 
 type CacheIdentifier = (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
@@ -29,7 +30,6 @@ type CacheIdentifier = (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS
 const ROUTE_GROUP: CacheIdentifier[] = [
   CACHE_IDENTIFIERS.ROUTE,
   CACHE_IDENTIFIERS.GRAPHQL,
-  CACHE_IDENTIFIERS.SWAGGER,
 ];
 
 const METADATA_GROUP: CacheIdentifier[] = [
@@ -58,6 +58,8 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   package_definition: [CACHE_IDENTIFIERS.PACKAGE],
   bootstrap_script_definition: [CACHE_IDENTIFIERS.BOOTSTRAP],
   folder_definition: [CACHE_IDENTIFIERS.FOLDER_TREE],
+  flow_definition: [CACHE_IDENTIFIERS.FLOW],
+  flow_step_definition: [CACHE_IDENTIFIERS.FLOW],
 };
 
 export function shouldReloadCache(tableName: string, cacheIdentifier: CacheIdentifier): boolean {

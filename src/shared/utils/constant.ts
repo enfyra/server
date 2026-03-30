@@ -13,17 +13,8 @@ export const AI_AGENT_CANCEL_CHANNEL = 'enfyra:ai-agent-cancel';
 export const WEBSOCKET_CACHE_SYNC_EVENT_KEY = 'enfyra:websocket-cache-sync';
 export const OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:oauth-config-cache-sync';
 
-export const METADATA_RELOAD_LOCK_KEY = 'metadata:reload:lock';
-export const ROUTE_RELOAD_LOCK_KEY = 'routes:reload:lock';
-export const PACKAGE_RELOAD_LOCK_KEY = 'packages:reload:lock';
-export const STORAGE_CONFIG_RELOAD_LOCK_KEY = 'storage-config:reload:lock';
-export const AI_CONFIG_RELOAD_LOCK_KEY = 'ai-config:reload:lock';
-export const WEBSOCKET_RELOAD_LOCK_KEY = 'websocket:reload:lock';
-export const OAUTH_CONFIG_RELOAD_LOCK_KEY = 'oauth-config:reload:lock';
-export const SESSION_CLEANUP_LOCK_KEY = 'session:cleanup:lock';
 
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,
   RELOAD_LOCK_TTL: 30000,
-  SESSION_CLEANUP_LOCK_TTL: 3600000,
 } as const;

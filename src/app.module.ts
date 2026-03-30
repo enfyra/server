@@ -32,7 +32,6 @@ import { RouteDetectMiddleware } from './infrastructure/middleware/route-detect.
 import { FileManagementModule } from './modules/file-management/file-management.module';
 import { PackageManagementModule } from './modules/package-management/package-management.module';
 import { PackageManagementService } from './modules/package-management/services/package-management.service';
-import { SwaggerModule as EnfyraSwaggerModule } from './infrastructure/swagger/swagger.module';
 import { KnexModule } from './infrastructure/knex/knex.module';
 import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
@@ -41,6 +40,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { WebsocketModule } from './modules/websocket/websocket.module';
 import { ExtensionDefinitionModule } from './modules/extension-definition/extension-definition.module';
+import { FlowModule } from './modules/flow/flow.module';
 
 @Global()
 @Module({
@@ -88,10 +88,10 @@ import { ExtensionDefinitionModule } from './modules/extension-definition/extens
     FileManagementModule,
     PackageManagementModule,
     MeModule,
-    EnfyraSwaggerModule,
     AdminModule,
     AiAgentModule,
     WebsocketModule,
+    FlowModule,
     ExtensionDefinitionModule,
     GraphqlModule,
     HandlerExecutorModule,

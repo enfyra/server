@@ -5,6 +5,8 @@ import { HandlerExecutorService } from '../../../infrastructure/handler-executor
 import { TDynamicContext } from '../../../shared/types';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
+import { FlowService } from '../../flow/services/flow.service';
+import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -24,6 +26,7 @@ export class ConnectionQueueService extends WorkerHost {
     private readonly handlerExecutor: HandlerExecutorService,
     private readonly websocketGateway: DynamicWebSocketGateway,
     private readonly repoRegistryService: RepoRegistryService,
+    private readonly flowService: FlowService,
   ) {
     super();
   }
@@ -39,7 +42,7 @@ export class ConnectionQueueService extends WorkerHost {
       $body: clientInfo || {},
       $data: clientInfo || {},
       $statusCode: undefined,
-      $throw: this.createThrowHandlers(),
+      $throw: ScriptErrorFactory.createThrowHandlers(),
       $logs: (...args: any[]) => {
         const logsArray = (ctx.$share?.$logs as any[]) || [];
         logsArray.push(...args);
@@ -70,6 +73,10 @@ export class ConnectionQueueService extends WorkerHost {
     };
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
+    ctx.$dispatch = {
+      trigger: (flowIdOrName: string | number, payload?: any) =>
+        this.flowService.trigger(flowIdOrName, payload, userId ? { id: userId } : null),
+    };
 
     const result = await this.handlerExecutor.run(script, ctx, timeout);
 
@@ -89,20 +96,6 @@ export class ConnectionQueueService extends WorkerHost {
   @OnWorkerEvent('error')
   onError(error: Error) {
     this.logger.error(`Connection queue error:`, error);
-  }
-
-  private createThrowHandlers() {
-    return {
-      '400': (msg: string) => { throw new Error(`Bad Request: ${msg}`); },
-      '401': (msg: string) => { throw new Error(`Unauthorized: ${msg}`); },
-      '403': (msg: string) => { throw new Error(`Forbidden: ${msg}`); },
-      '404': (msg: string) => { throw new Error(`Not Found: ${msg}`); },
-      '409': (msg: string) => { throw new Error(`Conflict: ${msg}`); },
-      '422': (msg: string) => { throw new Error(`Unprocessable Entity: ${msg}`); },
-      '429': (msg: string) => { throw new Error(`Too Many Requests: ${msg}`); },
-      '500': (msg: string) => { throw new Error(`Internal Server Error: ${msg}`); },
-      '503': (msg: string) => { throw new Error(`Service Unavailable: ${msg}`); },
-    };
   }
 
   private createSocketProxy(gatewayPath: string, socketId: string) {

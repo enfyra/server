@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { AuthService } from './services/auth.service';
 import { AuthController } from './controllers/auth.controller';
 import { OAuthController } from './controllers/oauth.controller';
@@ -9,7 +10,22 @@ import { OAuthService } from './services/oauth.service';
 
 @Global()
 @Module({
-  imports: [ScheduleModule.forRoot()],
+  imports: [
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get('REDIS_HOST') || 'localhost',
+          port: configService.get<number>('REDIS_PORT') || 6379,
+          db: configService.get<number>('REDIS_DB') || 0,
+          password: configService.get('REDIS_PASSWORD'),
+          url: configService.get('REDIS_URI'),
+        },
+      }),
+    }),
+    BullModule.registerQueue({ name: 'session-cleanup' }),
+  ],
   controllers: [AuthController, OAuthController],
   providers: [
     AuthService,

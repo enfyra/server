@@ -120,6 +120,10 @@ export interface TDynamicContext {
     emitToNamespace?: (path: string, event: string, data: any) => void;
     emitToAll?: (event: string, data: any) => void;
   };
+  $flow?: Record<string, any>;
+  $dispatch?: {
+    trigger?: (flowIdOrName: string | number, payload?: any) => Promise<{ jobId: string; flowId: number | string }>;
+  };
 }
 
 export interface RequestWithRouteData extends Request {

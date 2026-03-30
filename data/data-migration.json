@@ -1,4 +1,7 @@
 {
+  "_deletedRecords": [
+    { "table": "route_definition", "filter": { "path": { "_eq": "/api-docs" } } }
+  ],
   "menu_definition": [
     {
       "_unique": { "path": { "_eq": "/dashboard" } },

@@ -6,6 +6,7 @@ import * as path from 'path';
 interface InitOld {
   [tableName: string]: any | any[];
   _deletedTables?: string[];
+  _deletedRecords?: { table: string; filter: Record<string, any> }[];
 }
 
 const RELATION_FIELD_PREFIXES = ['publishedMethods', 'availableMethods'];
@@ -39,7 +40,7 @@ export class DataMigrationService {
   hasMigrations(): boolean {
     if (!this.initOld) return false;
     const dataKeys = Object.keys(this.initOld).filter(k => !k.startsWith('_'));
-    return dataKeys.length > 0 || (this.initOld._deletedTables && this.initOld._deletedTables.length > 0);
+    return dataKeys.length > 0 || (this.initOld._deletedTables && this.initOld._deletedTables.length > 0) || (this.initOld._deletedRecords && this.initOld._deletedRecords.length > 0);
   }
 
   async runMigrations(): Promise<void> {
@@ -52,6 +53,10 @@ export class DataMigrationService {
 
     if (this.initOld!._deletedTables && this.initOld!._deletedTables.length > 0) {
       await this.deleteTableData(this.initOld!._deletedTables);
+    }
+
+    if (this.initOld!._deletedRecords && this.initOld!._deletedRecords.length > 0) {
+      await this.deleteRecords(this.initOld!._deletedRecords);
     }
 
     let totalMigrated = 0;
@@ -75,6 +80,33 @@ export class DataMigrationService {
         this.logger.log(`Deleted all data from ${tableName}`);
       } catch (error) {
         this.logger.warn(`Failed to delete data from ${tableName}: ${error.message}`);
+      }
+    }
+  }
+
+  private async deleteRecords(records: { table: string; filter: Record<string, any> }[]): Promise<void> {
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const idField = isMongoDB ? '_id' : 'id';
+
+    for (const { table, filter } of records) {
+      try {
+        const existing = await this.queryBuilder.select({
+          tableName: table,
+          filter,
+          limit: -1,
+          fields: [idField],
+        });
+
+        for (const row of existing.data || []) {
+          await this.queryBuilder.deleteById(table, row[idField]);
+        }
+
+        const count = existing.data?.length || 0;
+        if (count > 0) {
+          this.logger.log(`Deleted ${count} record(s) from ${table}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to delete records from ${table}: ${error.message}`);
       }
     }
   }

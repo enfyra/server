@@ -21,6 +21,9 @@ import { RoutePermissionDefinitionProcessor } from '../processors/route-permissi
 import { AiConfigDefinitionProcessor } from '../processors/ai-config-definition.processor';
 import { WebsocketDefinitionProcessor } from '../processors/websocket-definition.processor';
 import { WebsocketEventDefinitionProcessor } from '../processors/websocket-event-definition.processor';
+import { FlowDefinitionProcessor } from '../processors/flow-definition.processor';
+import { FlowStepDefinitionProcessor } from '../processors/flow-step-definition.processor';
+import { FlowExecutionDefinitionProcessor } from '../processors/flow-execution-definition.processor';
 import { GenericTableProcessor } from '../processors/generic-table.processor';
 
 const initJson = JSON.parse(
@@ -55,6 +58,9 @@ export class DataProvisionService {
     private readonly aiConfigProcessor: AiConfigDefinitionProcessor,
     private readonly websocketDefinitionProcessor: WebsocketDefinitionProcessor,
     private readonly websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor,
+    private readonly flowDefinitionProcessor: FlowDefinitionProcessor,
+    private readonly flowStepDefinitionProcessor: FlowStepDefinitionProcessor,
+    private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor,
   ) {
     this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
     this.initializeProcessors();
@@ -76,6 +82,9 @@ export class DataProvisionService {
     this.processors.set('route_permission_definition', this.routePermissionProcessor);
     this.processors.set('websocket_definition', this.websocketDefinitionProcessor);
     this.processors.set('websocket_event_definition', this.websocketEventDefinitionProcessor);
+    this.processors.set('flow_definition', this.flowDefinitionProcessor);
+    this.processors.set('flow_step_definition', this.flowStepDefinitionProcessor);
+    this.processors.set('flow_execution_definition', this.flowExecutionDefinitionProcessor);
 
     const allTables = Object.keys(initJson);
     const registeredTables = Array.from(this.processors.keys());

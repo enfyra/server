@@ -374,6 +374,22 @@
             "availableMethods": ["POST"]
         },
         {
+            "path": "/admin/flow/test-step",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:flask-conical",
+            "description": "Test a single flow step",
+            "availableMethods": ["POST"]
+        },
+        {
+            "path": "/admin/flow/trigger/:id",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:play",
+            "description": "Trigger a flow execution",
+            "availableMethods": ["POST"]
+        },
+        {
             "path": "/metadata",
             "isEnabled": true,
             "isSystem": true,
@@ -388,15 +404,6 @@
             "isSystem": true,
             "icon": "lucide:table",
             "description": "Get single table metadata from cache",
-            "publishedMethods": ["GET"],
-            "availableMethods": ["GET"]
-        },
-        {
-            "path": "/api-docs",
-            "isEnabled": true,
-            "isSystem": true,
-            "icon": "lucide:book-open",
-            "description": "Swagger API Documentation",
             "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
@@ -479,6 +486,30 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:link",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+        },
+        {
+            "path": "/flow_definition",
+            "mainTable": "flow_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:workflow",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+        },
+        {
+            "path": "/flow_step_definition",
+            "mainTable": "flow_step_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:git-branch",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+        },
+        {
+            "path": "/flow_execution_definition",
+            "mainTable": "flow_execution_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:play-circle",
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         }
     ],
@@ -670,6 +701,17 @@
         },
         {
             "type": "Menu",
+            "label": "API Tester",
+            "icon": "lucide:flask-conical",
+            "path": "/settings/api-tester",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Test API endpoints",
+            "order": 5,
+            "parent": "Settings"
+        },
+        {
+            "type": "Menu",
             "label": "WebSockets",
             "icon": "lucide:radio-tower",
             "path": "/settings/websockets",
@@ -686,6 +728,29 @@
                             { "route": "/websocket_definition", "actions": ["create"] },
                             { "route": "/websocket_definition", "actions": ["update"] },
                             { "route": "/websocket_definition", "actions": ["delete"] }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Flows",
+            "icon": "lucide:workflow",
+            "path": "/settings/flows",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Flow management",
+            "order": 7,
+            "parent": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/flow_definition", "actions": ["read"] },
+                    {
+                        "or": [
+                            { "route": "/flow_definition", "actions": ["create"] },
+                            { "route": "/flow_definition", "actions": ["update"] },
+                            { "route": "/flow_definition", "actions": ["delete"] }
                         ]
                     }
                 ]

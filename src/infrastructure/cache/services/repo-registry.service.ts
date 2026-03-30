@@ -14,6 +14,7 @@ import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 export class RepoRegistryService {
   private readonly logger = new Logger(RepoRegistryService.name);
   private aliasToName = new Map<string, string>();
+  private initialized = false;
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
@@ -27,10 +28,6 @@ export class RepoRegistryService {
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.rebuildAliasMap();
-  }
-
-  private async rebuildAliasMap() {
     const tables = await this.metadataCacheService.getAllTablesMetadata();
     const newMap = new Map<string, string>();
     for (const table of tables) {
@@ -40,11 +37,28 @@ export class RepoRegistryService {
       }
     }
     this.aliasToName = newMap;
-    this.logger.log(`Alias map rebuilt: ${newMap.size} entries`);
+    this.initialized = true;
+  }
+
+  private ensureInitialized() {
+    if (this.initialized) return;
+    if (!this.metadataCacheService.isLoaded()) return;
+    const metadata = this.metadataCacheService.getDirectMetadata();
+    if (!metadata?.tablesList) return;
+    const newMap = new Map<string, string>();
+    for (const table of metadata.tablesList) {
+      newMap.set(table.name, table.name);
+      if (table.alias && table.alias !== table.name) {
+        newMap.set(table.alias, table.name);
+      }
+    }
+    this.aliasToName = newMap;
+    this.initialized = true;
   }
 
   resolveTableName(nameOrAlias: string): string | null {
-    return this.aliasToName.get(nameOrAlias) || null;
+    this.ensureInitialized();
+    return this.aliasToName.get(nameOrAlias) ?? null;
   }
 
   createReposProxy(context: TDynamicContext, mainTableName?: string): Record<string, any> {

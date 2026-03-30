@@ -11,10 +11,11 @@ import { OAuthConfigCacheService } from './services/oauth-config-cache.service';
 import { RateLimitService } from './services/rate-limit.service';
 import { FolderTreeCacheService } from './services/folder-tree-cache.service';
 import { RepoRegistryService } from './services/repo-registry.service';
+import { FlowCacheService } from './services/flow-cache.service';
 
 @Global()
 @Module({
-  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService],
-  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService],
+  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService],
+  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService],
 })
 export class CacheModule {}

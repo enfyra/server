@@ -10,6 +10,7 @@ import { CacheService } from '../cache/services/cache.service';
 import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
 import { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
 import { RateLimitService } from '../cache/services/rate-limit.service';
+import { FlowService } from '../../modules/flow/services/flow.service';
 
 @Injectable()
 export class RouteDetectMiddleware implements NestMiddleware {
@@ -24,6 +25,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
     private uploadFileHelper: UploadFileHelper,
     private websocketGateway: DynamicWebSocketGateway,
     private rateLimitService: RateLimitService,
+    private flowService: FlowService,
   ) {}
 
   async use(req: any, res: any, next: (error?: any) => void) {
@@ -164,6 +166,11 @@ export class RouteDetectMiddleware implements NestMiddleware {
 
       const mainTableName = matchedRoute.route.mainTable?.name;
       context.$repos = this.repoRegistryService.createReposProxy(context, mainTableName);
+
+      context.$dispatch = {
+        trigger: (flowIdOrName: string | number, payload?: any) =>
+          this.flowService.trigger(flowIdOrName, payload, req.user),
+      };
 
       try {
         context.$helpers.$uploadFile = this.uploadFileHelper.createUploadFileHelper(context);

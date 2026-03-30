@@ -2428,5 +2428,298 @@
                 "description": "Gateway this event belongs to"
             }
         ]
+    },
+    "flow_definition": {
+        "name": "flow_definition",
+        "description": "Defines automated workflows with triggers, steps, and execution logic",
+        "isSystem": true,
+        "uniques": [["name"]],
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "isPrimary": true,
+                "isGenerated": true,
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Primary key identifier"
+            },
+            {
+                "name": "name",
+                "type": "varchar",
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Unique name of the flow"
+            },
+            {
+                "name": "description",
+                "type": "text",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Description of what the flow does"
+            },
+            {
+                "name": "icon",
+                "type": "varchar",
+                "isNullable": true,
+                "isSystem": true,
+                "defaultValue": "lucide:workflow",
+                "description": "Icon identifier for UI display"
+            },
+            {
+                "name": "triggerType",
+                "type": "enum",
+                "options": ["schedule", "manual"],
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Type of trigger: schedule (cron) or manual (user-initiated via UI/API/handler)"
+            },
+            {
+                "name": "triggerConfig",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "JSON config for the trigger (cron expression, event table/action, webhook path)"
+            },
+            {
+                "name": "timeout",
+                "type": "int",
+                "isNullable": true,
+                "isSystem": true,
+                "defaultValue": 30000,
+                "description": "Maximum execution time in milliseconds for the entire flow"
+            },
+            {
+                "name": "isEnabled",
+                "type": "boolean",
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": true,
+                "description": "Whether the flow is active"
+            },
+            {
+                "name": "isSystem",
+                "type": "boolean",
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": false,
+                "description": "Whether this is a system-defined flow"
+            },
+            {
+                "name": "maxExecutions",
+                "type": "int",
+                "isNullable": true,
+                "isSystem": true,
+                "defaultValue": 100,
+                "description": "Maximum number of execution history records to keep per flow"
+            }
+        ],
+        "relations": []
+    },
+    "flow_step_definition": {
+        "name": "flow_step_definition",
+        "description": "Defines individual steps within a flow",
+        "isSystem": true,
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "isPrimary": true,
+                "isGenerated": true,
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Primary key identifier"
+            },
+            {
+                "name": "key",
+                "type": "varchar",
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Unique key within the flow used to reference this step result in the data chain"
+            },
+            {
+                "name": "stepOrder",
+                "type": "int",
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": 0,
+                "description": "Execution order of the step within the flow"
+            },
+            {
+                "name": "type",
+                "type": "enum",
+                "options": ["script", "condition", "query", "create", "update", "delete", "http", "trigger_flow", "sleep", "log"],
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Type of operation this step performs"
+            },
+            {
+                "name": "config",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "JSON config for the step (code, URL, table, filter, etc.)"
+            },
+            {
+                "name": "timeout",
+                "type": "int",
+                "isNullable": true,
+                "isSystem": true,
+                "defaultValue": 5000,
+                "description": "Maximum execution time in milliseconds for this step"
+            },
+            {
+                "name": "onError",
+                "type": "enum",
+                "options": ["stop", "skip", "retry"],
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": "stop",
+                "description": "Error handling strategy: stop flow, skip step, or retry"
+            },
+            {
+                "name": "retryAttempts",
+                "type": "int",
+                "isNullable": true,
+                "isSystem": true,
+                "defaultValue": 0,
+                "description": "Number of retry attempts when onError is retry"
+            },
+            {
+                "name": "isEnabled",
+                "type": "boolean",
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": true,
+                "description": "Whether the step is active"
+            },
+            {
+                "name": "branch",
+                "type": "enum",
+                "options": ["true", "false"],
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Which branch of the parent condition (true or false)"
+            }
+        ],
+        "relations": [
+            {
+                "propertyName": "flow",
+                "type": "many-to-one",
+                "targetTable": "flow_definition",
+                "isSystem": true,
+                "inversePropertyName": "steps",
+                "isNullable": false,
+                "description": "Flow this step belongs to"
+            },
+            {
+                "propertyName": "parent",
+                "type": "many-to-one",
+                "targetTable": "flow_step_definition",
+                "isSystem": true,
+                "inversePropertyName": "children",
+                "isNullable": true,
+                "description": "Parent condition step (null = root level)"
+            }
+        ]
+    },
+    "flow_execution_definition": {
+        "name": "flow_execution_definition",
+        "description": "Stores execution history and state for flow runs",
+        "isSystem": true,
+        "columns": [
+            {
+                "name": "id",
+                "type": "int",
+                "isPrimary": true,
+                "isGenerated": true,
+                "isNullable": false,
+                "isSystem": true,
+                "description": "Primary key identifier"
+            },
+            {
+                "name": "status",
+                "type": "enum",
+                "options": ["pending", "running", "completed", "failed", "cancelled"],
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": "pending",
+                "description": "Current execution status"
+            },
+            {
+                "name": "payload",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Input data from the trigger"
+            },
+            {
+                "name": "context",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Full data chain state ($trigger, $last, step results)"
+            },
+            {
+                "name": "completedSteps",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Array of completed step keys for resumability"
+            },
+            {
+                "name": "currentStep",
+                "type": "varchar",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Key of the currently executing step"
+            },
+            {
+                "name": "error",
+                "type": "simple-json",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Error details if execution failed"
+            },
+            {
+                "name": "startedAt",
+                "type": "date",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "When the execution started"
+            },
+            {
+                "name": "completedAt",
+                "type": "date",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "When the execution completed"
+            },
+            {
+                "name": "duration",
+                "type": "int",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Execution duration in milliseconds"
+            }
+        ],
+        "relations": [
+            {
+                "propertyName": "flow",
+                "type": "many-to-one",
+                "targetTable": "flow_definition",
+                "isSystem": true,
+                "isNullable": false,
+                "description": "Flow that was executed"
+            },
+            {
+                "propertyName": "triggeredBy",
+                "type": "many-to-one",
+                "targetTable": "user_definition",
+                "isSystem": true,
+                "isNullable": true,
+                "description": "User who triggered the execution (null for cron/event triggers)"
+            }
+        ]
     }
 }
