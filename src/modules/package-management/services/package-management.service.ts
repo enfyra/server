@@ -153,32 +153,51 @@ export class PackageManagementService {
         cmd: error.cmd
       });
 
-      // Detect yarn cache corruption and clear it before retry
+      // Detect cache corruption and clear it before retry
       const errorMsg = error.message + ' ' + (error.stderr || '');
       const isCacheCorruption = errorMsg.includes('corrupt') ||
-        (errorMsg.includes('ENOENT') && errorMsg.includes('.cache/yarn')) ||
-        errorMsg.includes('Extracting tar content');
+        errorMsg.includes('Extracting tar content') ||
+        errorMsg.includes('ENOENT') ||
+        errorMsg.includes('EINTEGRITY') ||
+        errorMsg.includes('invalid package') ||
+        errorMsg.includes('unexpected end of file') ||
+        errorMsg.includes('zlib');
 
-      if (packageManager === 'yarn' && isCacheCorruption) {
-        console.log('Detected yarn cache corruption, clearing cache...');
+      if (isCacheCorruption) {
+        console.log(`Detected ${packageManager} cache corruption, clearing cache...`);
         try {
-          await execAsync('yarn cache clean', { cwd: process.cwd(), timeout: 60000 });
-          // Also clear the physical cache directory
-          const cachePaths = [
-            path.join(process.cwd(), '.yarn', 'cache'),
-            path.join(require('os').homedir(), '.cache', 'yarn'),
-            '/home/node/.cache/yarn',
-          ];
-          for (const cachePath of cachePaths) {
-            try {
-              await fs.rm(cachePath, { recursive: true, force: true });
-              console.log(`Cleared yarn cache at: ${cachePath}`);
-            } catch (e) {
-              // Ignore if path doesn't exist
+          if (packageManager === 'yarn') {
+            await execAsync('yarn cache clean', { cwd: process.cwd(), timeout: 60000 });
+            const cachePaths = [
+              path.join(process.cwd(), '.yarn', 'cache'),
+              path.join(require('os').homedir(), '.cache', 'yarn'),
+              '/home/node/.cache/yarn',
+            ];
+            for (const cachePath of cachePaths) {
+              try {
+                await fs.rm(cachePath, { recursive: true, force: true });
+                console.log(`Cleared yarn cache at: ${cachePath}`);
+              } catch (e) { /* ignore */ }
             }
+          } else if (packageManager === 'npm') {
+            await execAsync('npm cache clean --force', { cwd: process.cwd(), timeout: 60000 });
+            const npmCachePath = require('os').homedir() + '/.npm/_cacache';
+            try {
+              await fs.rm(npmCachePath, { recursive: true, force: true });
+              console.log(`Cleared npm cache at: ${npmCachePath}`);
+            } catch (e) { /* ignore */ }
+          } else if (packageManager === 'pnpm') {
+            await execAsync('pnpm store prune', { cwd: process.cwd(), timeout: 60000 });
+          } else if (packageManager === 'bun') {
+            // Bun doesn't have a dedicated cache clean command
+            const bunCachePath = path.join(require('os').homedir(), '.bun', 'install', 'cache');
+            try {
+              await fs.rm(bunCachePath, { recursive: true, force: true });
+              console.log(`Cleared bun cache at: ${bunCachePath}`);
+            } catch (e) { /* ignore */ }
           }
         } catch (cacheError) {
-          console.warn('Failed to clear yarn cache:', cacheError.message);
+          console.warn(`Failed to clear ${packageManager} cache:`, cacheError.message);
         }
       }
 
