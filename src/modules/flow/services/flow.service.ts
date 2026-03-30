@@ -81,9 +81,10 @@ export class FlowService {
         ({ triggered: true, flowIdOrName, payload: triggerPayload, note: 'test mode' }),
     };
 
+    const MAX_TEST_TIMEOUT = 5000;
     const config = step.config || {};
     const rawTimeout = Number(step.timeout);
-    const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(rawTimeout, 60000) : 5000;
+    const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(rawTimeout, MAX_TEST_TIMEOUT) : MAX_TEST_TIMEOUT;
 
     try {
       let result: any;

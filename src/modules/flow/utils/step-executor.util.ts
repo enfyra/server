@@ -1,3 +1,5 @@
+import * as dns from 'dns';
+import * as net from 'net';
 import { TDynamicContext } from '../../../shared/types';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
 import { transformCode } from '../../../infrastructure/handler-executor/code-transformer';
@@ -21,7 +23,34 @@ function clampTimeout(value: unknown, defaultMs: number, maxMs: number): number 
   return Math.min(n, maxMs);
 }
 
-function validateHttpUrl(url: string): void {
+function clampSleepMs(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SLEEP_MS;
+  return Math.min(Math.max(n, 1), MAX_SLEEP_MS);
+}
+
+function isPrivateIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    if (parts[0] === 127) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0) return true;
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const normalized = ip.toLowerCase();
+    if (normalized === '::1') return true;
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+    if (normalized.startsWith('fe80')) return true;
+    return false;
+  }
+  return false;
+}
+
+async function validateHttpUrl(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -32,14 +61,28 @@ function validateHttpUrl(url: string): void {
     throw new Error(`URL protocol must be http or https, got: ${parsed.protocol}`);
   }
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
-  if (BLOCKED_HOSTNAMES.has(hostname)) {
+  if (BLOCKED_HOSTNAMES.has(hostname.toLowerCase())) {
     throw new Error(`HTTP requests to ${hostname} are not allowed`);
   }
   if (!hostname.includes('.') || hostname.endsWith('.local')) {
     throw new Error(`HTTP requests to internal hosts are not allowed: ${hostname}`);
   }
-  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname)) {
-    throw new Error(`HTTP requests to private IP ranges are not allowed: ${hostname}`);
+  if (net.isIP(hostname)) {
+    if (isPrivateIp(hostname)) {
+      throw new Error(`HTTP requests to private IP addresses are not allowed: ${hostname}`);
+    }
+    return;
+  }
+  try {
+    const addresses = await dns.promises.resolve4(hostname).catch(() => [] as string[]);
+    const addresses6 = await dns.promises.resolve6(hostname).catch(() => [] as string[]);
+    for (const addr of [...addresses, ...addresses6]) {
+      if (isPrivateIp(addr)) {
+        throw new Error(`HTTP requests to hosts resolving to private IPs are not allowed: ${hostname} -> ${addr}`);
+      }
+    }
+  } catch (err) {
+    if (err.message?.includes('not allowed')) throw err;
   }
 }
 
@@ -89,7 +132,7 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
 
     case 'http': {
       if (!config.url) throw new Error('Step config missing required field: url');
-      validateHttpUrl(config.url);
+      await validateHttpUrl(config.url);
       const httpTimeoutMs = clampTimeout(config.timeout || timeout, DEFAULT_HTTP_TIMEOUT, MAX_HTTP_TIMEOUT);
       const controller = new AbortController();
       const httpTimeout = setTimeout(() => controller.abort(), httpTimeoutMs);
@@ -118,7 +161,7 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
     }
 
     case 'sleep': {
-      const sleepMs = clampTimeout(config.ms, DEFAULT_SLEEP_MS, MAX_SLEEP_MS);
+      const sleepMs = clampSleepMs(config.ms);
       await new Promise((r) => setTimeout(r, sleepMs));
       return { slept: sleepMs };
     }
