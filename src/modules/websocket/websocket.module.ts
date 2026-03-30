@@ -10,6 +10,7 @@ import { QueryBuilderModule } from '../../infrastructure/query-builder/query-bui
 import { CacheModule } from '../../infrastructure/cache/cache.module';
 import { HandlerExecutorModule } from '../../infrastructure/handler-executor/handler-executor.module';
 import { WebsocketEmitService } from './services/websocket-emit.service';
+import { SYSTEM_QUEUES } from '../../shared/utils/constant';
 
 @Global()
 @Module({
@@ -32,7 +33,7 @@ import { WebsocketEmitService } from './services/websocket-emit.service';
     }),
     BullModule.registerQueue(
       {
-        name: 'ws-connection',
+        name: SYSTEM_QUEUES.WS_CONNECTION,
         defaultJobOptions: {
           attempts: 0,
           removeOnComplete: { count: 100, age: 3600 },
@@ -40,7 +41,7 @@ import { WebsocketEmitService } from './services/websocket-emit.service';
         },
       },
       {
-        name: 'ws-event',
+        name: SYSTEM_QUEUES.WS_EVENT,
         defaultJobOptions: {
           attempts: 0,
           removeOnComplete: { count: 100, age: 3600 },

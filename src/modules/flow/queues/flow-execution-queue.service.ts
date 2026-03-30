@@ -9,6 +9,7 @@ import { TDynamicContext } from '../../../shared/types';
 import { FlowDefinition, FlowStep, FlowJobData } from '../../../shared/types/flow.types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -16,7 +17,7 @@ const MAX_FLOW_DEPTH = 10;
 const MAX_STEP_TIMEOUT = 300000;
 const MAX_PAYLOAD_SIZE = 1024 * 1024;
 
-@Processor('flow-execution', { concurrency: 20 })
+@Processor(SYSTEM_QUEUES.FLOW_EXECUTION, { concurrency: 20 })
 export class FlowExecutionQueueService extends WorkerHost {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
 
@@ -25,7 +26,7 @@ export class FlowExecutionQueueService extends WorkerHost {
     private readonly repoRegistryService: RepoRegistryService,
     private readonly flowCacheService: FlowCacheService,
     private readonly queryBuilder: QueryBuilderService,
-    @InjectQueue('flow-execution') private readonly flowQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION) private readonly flowQueue: Queue,
   ) {
     super();
   }

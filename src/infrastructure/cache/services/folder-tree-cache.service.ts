@@ -5,9 +5,10 @@ import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import { FOLDER_TREE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
-  syncEventKey: 'folder-tree-cache-sync',
+  syncEventKey: FOLDER_TREE_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.FOLDER_TREE,
   colorCode: '\x1b[36m',
   cacheName: 'FolderTreeCache',

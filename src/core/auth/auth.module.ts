@@ -7,6 +7,7 @@ import { OAuthController } from './controllers/oauth.controller';
 import { BcryptService } from './services/bcrypt.service';
 import { SessionCleanupService } from './services/session-cleanup.service';
 import { OAuthService } from './services/oauth.service';
+import { SYSTEM_QUEUES } from '../../shared/utils/constant';
 
 @Global()
 @Module({
@@ -24,7 +25,7 @@ import { OAuthService } from './services/oauth.service';
         },
       }),
     }),
-    BullModule.registerQueue({ name: 'session-cleanup' }),
+    BullModule.registerQueue({ name: SYSTEM_QUEUES.SESSION_CLEANUP }),
   ],
   controllers: [AuthController, OAuthController],
   providers: [

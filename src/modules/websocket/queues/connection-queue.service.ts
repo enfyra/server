@@ -7,6 +7,7 @@ import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -18,7 +19,7 @@ export interface ConnectionJobData {
   timeout: number;
 }
 
-@Processor('ws-connection', { concurrency: 50 })
+@Processor(SYSTEM_QUEUES.WS_CONNECTION, { concurrency: 50 })
 export class ConnectionQueueService extends WorkerHost {
   private readonly logger = new Logger(ConnectionQueueService.name);
 

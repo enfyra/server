@@ -7,10 +7,9 @@ import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { transformCode } from '../../handler-executor/code-transformer';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
+import { FLOW_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 export type { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
-
-const FLOW_CACHE_SYNC_EVENT_KEY = 'enfyra:flow:sync';
 
 const FLOW_CONFIG: CacheConfig = {
   syncEventKey: FLOW_CACHE_SYNC_EVENT_KEY,

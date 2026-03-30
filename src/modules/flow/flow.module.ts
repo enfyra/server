@@ -7,6 +7,7 @@ import { FlowExecutionQueueService } from './queues/flow-execution-queue.service
 import { CacheModule } from '../../infrastructure/cache/cache.module';
 import { HandlerExecutorModule } from '../../infrastructure/handler-executor/handler-executor.module';
 import { QueryBuilderModule } from '../../infrastructure/query-builder/query-builder.module';
+import { SYSTEM_QUEUES } from '../../shared/utils/constant';
 
 @Global()
 @Module({
@@ -28,7 +29,7 @@ import { QueryBuilderModule } from '../../infrastructure/query-builder/query-bui
       }),
     }),
     BullModule.registerQueue({
-      name: 'flow-execution',
+      name: SYSTEM_QUEUES.FLOW_EXECUTION,
       defaultJobOptions: {
         attempts: 1,
         removeOnComplete: { count: 200, age: 3600 * 24 },

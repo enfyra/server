@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 const execAsync = promisify(exec);
 
@@ -32,6 +35,19 @@ interface InstallationResult {
 
 @Injectable()
 export class PackageManagementService {
+  private readonly logger = new Logger(PackageManagementService.name);
+
+  constructor(
+    @InjectQueue(SYSTEM_QUEUES.PACKAGE_INSTALL) private readonly installQueue: Queue,
+  ) {}
+
+  async queueInstall(name: string, version: string): Promise<void> {
+    await this.installQueue.add(`install_${name}`, { name, version }, {
+      jobId: `pkg_${name}`,
+    });
+    this.logger.log(`Queued installation for ${name}@${version}`);
+  }
+
   private getPackageManager(): string {
     const envPkgManager = process.env.PACKAGE_MANAGER;
     if (envPkgManager) {

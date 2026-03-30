@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 import { parseExpression } from 'cron-parser';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 @Injectable()
 export class FlowSchedulerService {
@@ -12,7 +13,7 @@ export class FlowSchedulerService {
   private registeredSchedulers = new Set<string>();
 
   constructor(
-    @InjectQueue('flow-execution') private readonly flowQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION) private readonly flowQueue: Queue,
     private readonly flowCacheService: FlowCacheService,
   ) {}
 

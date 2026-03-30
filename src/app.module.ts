@@ -31,7 +31,6 @@ import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware
 import { RouteDetectMiddleware } from './infrastructure/middleware/route-detect.middleware';
 import { FileManagementModule } from './modules/file-management/file-management.module';
 import { PackageManagementModule } from './modules/package-management/package-management.module';
-import { PackageManagementService } from './modules/package-management/services/package-management.service';
 import { KnexModule } from './infrastructure/knex/knex.module';
 import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
@@ -101,7 +100,6 @@ import { FlowModule } from './modules/flow/flow.module';
     JwtStrategy,
     RedisPubSubService,
     SqlFunctionService,
-    PackageManagementService,
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -116,7 +114,6 @@ import { FlowModule } from './modules/flow/flow.module';
     QueryBuilderModule,
     JwtModule,
     RedisPubSubService,
-    PackageManagementService,
     CacheModule,
     DatabaseSchemaService,
   ],

@@ -8,13 +8,14 @@ import { RepoRegistryService } from '../../../infrastructure/cache/services/repo
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 @Injectable()
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
 
   constructor(
-    @InjectQueue('flow-execution') private readonly flowQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION) private readonly flowQueue: Queue,
     private readonly flowCacheService: FlowCacheService,
     private readonly handlerExecutor: HandlerExecutorService,
     private readonly repoRegistryService: RepoRegistryService,

@@ -18,7 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
-import { WEBSOCKET_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
+import { WEBSOCKET_CACHE_SYNC_EVENT_KEY, SYSTEM_QUEUES } from '../../../shared/utils/constant';
 interface SocketData extends Socket {
   data: {
     user?: { id: number | string };
@@ -38,9 +38,9 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
   private gatewayConfigsByPath = new Map<string, any>();
   constructor(
     private readonly configService: ConfigService,
-    @InjectQueue('ws-connection')
+    @InjectQueue(SYSTEM_QUEUES.WS_CONNECTION)
     private readonly connectionQueue: Queue,
-    @InjectQueue('ws-event')
+    @InjectQueue(SYSTEM_QUEUES.WS_EVENT)
     private readonly eventQueue: Queue,
     private readonly websocketCache: WebsocketCacheService,
     private readonly redisPubSubService: RedisPubSubService,
