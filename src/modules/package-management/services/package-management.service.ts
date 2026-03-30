@@ -153,6 +153,35 @@ export class PackageManagementService {
         cmd: error.cmd
       });
 
+      // Detect yarn cache corruption and clear it before retry
+      const errorMsg = error.message + ' ' + (error.stderr || '');
+      const isCacheCorruption = errorMsg.includes('corrupt') ||
+        (errorMsg.includes('ENOENT') && errorMsg.includes('.cache/yarn')) ||
+        errorMsg.includes('Extracting tar content');
+
+      if (packageManager === 'yarn' && isCacheCorruption) {
+        console.log('Detected yarn cache corruption, clearing cache...');
+        try {
+          await execAsync('yarn cache clean', { cwd: process.cwd(), timeout: 60000 });
+          // Also clear the physical cache directory
+          const cachePaths = [
+            path.join(process.cwd(), '.yarn', 'cache'),
+            path.join(require('os').homedir(), '.cache', 'yarn'),
+            '/home/node/.cache/yarn',
+          ];
+          for (const cachePath of cachePaths) {
+            try {
+              await fs.rm(cachePath, { recursive: true, force: true });
+              console.log(`Cleared yarn cache at: ${cachePath}`);
+            } catch (e) {
+              // Ignore if path doesn't exist
+            }
+          }
+        } catch (cacheError) {
+          console.warn('Failed to clear yarn cache:', cacheError.message);
+        }
+      }
+
       try {
         let registryCommand: string;
         if (packageManager === 'bun') {
