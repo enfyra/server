@@ -59,7 +59,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     }
 
     this.messageHandler = async (channel: string, message: string) => {
-      if (channel === METADATA_CACHE_SYNC_EVENT_KEY) {
+      if (this.redisPubSubService.isChannelForBase(channel, METADATA_CACHE_SYNC_EVENT_KEY)) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();

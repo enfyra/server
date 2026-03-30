@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import * as os from 'os';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 
 const execAsync = promisify(exec);
+
+const MACHINE_LOCK_KEY_PREFIX = 'pkg-install';
+const MACHINE_LOCK_TTL = 5 * 60 * 1000;
+const LOCK_WAIT_TIMEOUT = 6 * 60 * 1000;
+const LOCK_POLL_INTERVAL = 1000;
 
 interface PackageInstallRequest {
   name: string;
@@ -36,14 +40,39 @@ interface InstallationResult {
 @Injectable()
 export class PackageManagementService {
   private readonly logger = new Logger(PackageManagementService.name);
+  private readonly machineId: string;
 
   constructor(
-    @InjectQueue(SYSTEM_QUEUES.PACKAGE_INSTALL) private readonly installQueue: Queue,
-  ) {}
+    private readonly cacheService: CacheService,
+  ) {
+    this.machineId = os.hostname();
+  }
 
-  async queueInstall(name: string, version: string): Promise<void> {
-    await this.installQueue.add(`install_${name}`, { name, version });
-    this.logger.log(`Queued installation for ${name}@${version}`);
+  private getMachineLockKey(): string {
+    return `${MACHINE_LOCK_KEY_PREFIX}:${this.machineId}`;
+  }
+
+  async acquireMachineLock(): Promise<boolean> {
+    const deadline = Date.now() + LOCK_WAIT_TIMEOUT;
+    while (Date.now() < deadline) {
+      const acquired = await this.cacheService.acquire(
+        this.getMachineLockKey(),
+        this.machineId,
+        MACHINE_LOCK_TTL,
+      );
+      if (acquired) return true;
+      await new Promise((r) => setTimeout(r, LOCK_POLL_INTERVAL));
+    }
+    this.logger.warn('Failed to acquire machine lock after timeout');
+    return false;
+  }
+
+  async releaseMachineLock(): Promise<void> {
+    await this.cacheService.release(this.getMachineLockKey(), this.machineId);
+  }
+
+  async renewMachineLock(): Promise<void> {
+    await this.cacheService.set(this.getMachineLockKey(), this.machineId, MACHINE_LOCK_TTL);
   }
 
   private getPackageManager(): string {
@@ -52,24 +81,99 @@ export class PackageManagementService {
       return envPkgManager;
     }
 
-    const fs = require('fs');
-    const path = require('path');
+    const fsSync = require('fs');
+    const pathSync = require('path');
 
-    if (fs.existsSync(path.join(process.cwd(), 'bun.lockb'))) {
+    if (fsSync.existsSync(pathSync.join(process.cwd(), 'bun.lockb'))) {
       return 'bun';
     }
-    if (fs.existsSync(path.join(process.cwd(), 'yarn.lock'))) {
+    if (fsSync.existsSync(pathSync.join(process.cwd(), 'yarn.lock'))) {
       return 'yarn';
     }
-    if (fs.existsSync(path.join(process.cwd(), 'package-lock.json'))) {
+    if (fsSync.existsSync(pathSync.join(process.cwd(), 'package-lock.json'))) {
       return 'npm';
     }
-    if (fs.existsSync(path.join(process.cwd(), 'pnpm-lock.yaml'))) {
+    if (fsSync.existsSync(pathSync.join(process.cwd(), 'pnpm-lock.yaml'))) {
       return 'pnpm';
     }
 
     return 'npm';
   }
+
+  async installBatch(packages: Array<{ name: string; version: string }>): Promise<void> {
+    if (packages.length === 0) return;
+
+    const packageManager = this.getPackageManager();
+    const specs = packages.map((p) =>
+      p.version === 'latest' ? p.name : `${p.name}@${p.version}`,
+    );
+    const specStr = specs.join(' ');
+
+    let command: string;
+    if (packageManager === 'bun') {
+      command = `bun add ${specStr}`;
+    } else if (packageManager === 'yarn') {
+      command = `yarn add ${specStr}`;
+    } else if (packageManager === 'pnpm') {
+      command = `pnpm add ${specStr}`;
+    } else {
+      command = `npm install ${specStr} --legacy-peer-deps`;
+    }
+
+    const timeout = Math.max(60000, packages.length * 30000);
+
+    try {
+      this.logger.log(`Batch installing ${packages.length} packages: ${specStr}`);
+      const { stderr } = await execAsync(command, {
+        cwd: process.cwd(),
+        timeout,
+      });
+
+      if (stderr && !stderr.includes('WARN') && !stderr.includes('warning')) {
+        this.logger.warn(`Batch install stderr: ${stderr.substring(0, 500)}`);
+      }
+
+      this.logger.log(`Batch install completed for ${packages.length} packages`);
+    } catch (error) {
+      this.logger.error(`Batch install failed: ${error.message}`);
+      this.logger.log('Falling back to individual installs...');
+
+      for (const pkg of packages) {
+        try {
+          await this.installServerPackage(pkg.name, pkg.version, '');
+        } catch (e) {
+          this.logger.error(`Individual install failed for ${pkg.name}: ${e.message}`);
+        }
+      }
+    }
+  }
+
+  async uninstallOrphan(packageNames: string[]): Promise<void> {
+    if (packageNames.length === 0) return;
+
+    const packageManager = this.getPackageManager();
+    const nameStr = packageNames.join(' ');
+
+    let command: string;
+    if (packageManager === 'bun') {
+      command = `bun remove ${nameStr}`;
+    } else if (packageManager === 'yarn') {
+      command = `yarn remove ${nameStr}`;
+    } else if (packageManager === 'pnpm') {
+      command = `pnpm remove ${nameStr}`;
+    } else {
+      command = `npm uninstall ${nameStr} --legacy-peer-deps`;
+    }
+
+    try {
+      this.logger.log(`Cleaning up orphan packages: ${nameStr}`);
+      await execAsync(command, { cwd: process.cwd(), timeout: 120000 });
+      this.logger.log(`Orphan cleanup completed`);
+    } catch (error) {
+      this.logger.warn(`Orphan cleanup failed (non-critical): ${error.message}`);
+    }
+  }
+
   async installPackage(
     request: PackageInstallRequest,
   ): Promise<InstallationResult> {
@@ -142,7 +246,6 @@ export class PackageManagementService {
       command = `npm install ${packageSpec} --legacy-peer-deps ${flags}`.trim();
     }
 
-
     try {
       const { stderr } = await execAsync(command, {
         cwd: process.cwd(),
@@ -167,7 +270,6 @@ export class PackageManagementService {
         cmd: error.cmd
       });
 
-      // Detect cache corruption and clear it before retry
       const errorMsg = error.message + ' ' + (error.stderr || '');
       const isCacheCorruption = errorMsg.includes('corrupt') ||
         errorMsg.includes('Extracting tar content') ||
@@ -203,7 +305,6 @@ export class PackageManagementService {
           } else if (packageManager === 'pnpm') {
             await execAsync('pnpm store prune', { cwd: process.cwd(), timeout: 60000 });
           } else if (packageManager === 'bun') {
-            // Bun doesn't have a dedicated cache clean command
             const bunCachePath = path.join(require('os').homedir(), '.bun', 'install', 'cache');
             try {
               await fs.rm(bunCachePath, { recursive: true, force: true });
@@ -248,7 +349,6 @@ export class PackageManagementService {
     }
   }
 
-
   private async uninstallServerPackage(name: string): Promise<void> {
     const packageManager = this.getPackageManager();
 
@@ -263,13 +363,11 @@ export class PackageManagementService {
       command = `npm uninstall ${name} --legacy-peer-deps`;
     }
 
-
     try {
       const { stderr } = await execAsync(command, {
         cwd: process.cwd(),
         timeout: 120000,
       });
-
 
       if (stderr && !stderr.includes('WARN') && !stderr.includes('warning') && !stderr.includes('not found')) {
         throw new Error(stderr);
@@ -294,7 +392,6 @@ export class PackageManagementService {
       throw new Error(`npm uninstall failed: ${errorMsg}`);
     }
   }
-
 
   async getPackageInfo(
     packageName: string,
@@ -418,23 +515,11 @@ export class PackageManagementService {
     }
   }
 
-
-  async isPackageInstalled(packageName: string): Promise<boolean> {
+  isPackageInstalled(packageName: string): boolean {
     try {
-      const projectPackageJsonPath = path.join(process.cwd(), 'package.json');
-      const packageJsonContent = await fs.readFile(projectPackageJsonPath, 'utf-8');
-      const packageJson = JSON.parse(packageJsonContent);
-
-      const allDependencies = {
-        ...(packageJson.dependencies || {}),
-        ...(packageJson.devDependencies || {}),
-        ...(packageJson.peerDependencies || {}),
-        ...(packageJson.optionalDependencies || {}),
-      };
-
-      return packageName in allDependencies;
-    } catch (error) {
-      console.error(`Error checking package installation status for ${packageName}:`, error);
+      require.resolve(packageName);
+      return true;
+    } catch {
       return false;
     }
   }

@@ -93,6 +93,17 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     return `${channel}:${nodeName}`;
   }
 
+  isChannelForBase(receivedChannel: string, baseChannel: string): boolean {
+    if (receivedChannel === baseChannel) {
+      return true;
+    }
+    const nodeName = this.getNodeName();
+    if (!nodeName) {
+      return false;
+    }
+    return receivedChannel === `${baseChannel}:${nodeName}`;
+  }
+
   private getNodeName(): string | null {
     if (this.nodeName !== null) {
       return this.nodeName;
