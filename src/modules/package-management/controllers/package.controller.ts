@@ -218,10 +218,13 @@ export class PackageController {
         return result;
       }
 
-      await this.packageManagementService.uninstallPackage({
-        name: packageRecord.name,
-        type: packageRecord.type,
-      });
+      const isInstalled = await this.packageManagementService.isPackageInstalled(packageRecord.name);
+      if (isInstalled) {
+        await this.packageManagementService.uninstallPackage({
+          name: packageRecord.name,
+          type: packageRecord.type,
+        });
+      }
 
       const result = await packageRepo.delete({ id });
 

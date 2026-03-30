@@ -1,5 +1,4 @@
 import { Global, Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { FlowService } from './services/flow.service';
 import { FlowSchedulerService } from './services/flow-scheduler.service';
@@ -15,19 +14,6 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
     QueryBuilderModule,
     CacheModule,
     HandlerExecutorModule,
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get('REDIS_HOST') || 'localhost',
-          port: configService.get<number>('REDIS_PORT') || 6379,
-          db: configService.get<number>('REDIS_DB') || 0,
-          password: configService.get('REDIS_PASSWORD'),
-          url: configService.get('REDIS_URI'),
-        },
-      }),
-    }),
     BullModule.registerQueue({
       name: SYSTEM_QUEUES.FLOW_EXECUTION,
       defaultJobOptions: {
