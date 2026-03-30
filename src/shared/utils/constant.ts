@@ -12,7 +12,16 @@ export const AI_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:ai-config-cache-sync';
 export const AI_AGENT_CANCEL_CHANNEL = 'enfyra:ai-agent-cancel';
 export const WEBSOCKET_CACHE_SYNC_EVENT_KEY = 'enfyra:websocket-cache-sync';
 export const OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:oauth-config-cache-sync';
+export const FLOW_CACHE_SYNC_EVENT_KEY = 'enfyra:flow-cache-sync';
+export const FOLDER_TREE_CACHE_SYNC_EVENT_KEY = 'enfyra:folder-tree-cache-sync';
 
+export const SYSTEM_QUEUES = {
+  SESSION_CLEANUP: 'sys_session-cleanup',
+  WS_CONNECTION: 'sys_ws-connection',
+  WS_EVENT: 'sys_ws-event',
+  FLOW_EXECUTION: 'sys_flow-execution',
+  PACKAGE_INSTALL: 'sys_package-install',
+} as const;
 
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,

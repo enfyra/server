@@ -2,17 +2,18 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 const BATCH_SIZE = 20;
 
 @Injectable()
-@Processor('session-cleanup', { concurrency: 1 })
+@Processor(SYSTEM_QUEUES.SESSION_CLEANUP, { concurrency: 1 })
 export class SessionCleanupService extends WorkerHost implements OnModuleInit {
   private readonly logger = new Logger(SessionCleanupService.name);
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    @InjectQueue('session-cleanup') private readonly cleanupQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.SESSION_CLEANUP) private readonly cleanupQueue: Queue,
   ) {
     super();
   }
