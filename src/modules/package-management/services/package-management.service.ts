@@ -42,9 +42,7 @@ export class PackageManagementService {
   ) {}
 
   async queueInstall(name: string, version: string): Promise<void> {
-    await this.installQueue.add(`install_${name}`, { name, version }, {
-      jobId: `pkg_${name}`,
-    });
+    await this.installQueue.add(`install_${name}`, { name, version });
     this.logger.log(`Queued installation for ${name}@${version}`);
   }
 

@@ -12,19 +12,6 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
 @Global()
 @Module({
   imports: [
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get('REDIS_HOST') || 'localhost',
-          port: configService.get<number>('REDIS_PORT') || 6379,
-          db: configService.get<number>('REDIS_DB') || 0,
-          password: configService.get('REDIS_PASSWORD'),
-          url: configService.get('REDIS_URI'),
-        },
-      }),
-    }),
     BullModule.registerQueue({ name: SYSTEM_QUEUES.SESSION_CLEANUP }),
   ],
   controllers: [AuthController, OAuthController],
