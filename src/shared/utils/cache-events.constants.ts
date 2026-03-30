@@ -8,6 +8,7 @@ export const CACHE_EVENTS = {
   WEBSOCKET_LOADED: 'cache:websocket:loaded',
   PACKAGE_LOADED: 'cache:package:loaded',
   FLOW_LOADED: 'cache:flow:loaded',
+  GRAPHQL_LOADED: 'cache:graphql:loaded',
   SYSTEM_READY: 'system:ready',
 } as const;
 

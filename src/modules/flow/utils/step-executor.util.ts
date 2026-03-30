@@ -3,6 +3,45 @@ import { HandlerExecutorService } from '../../../infrastructure/handler-executor
 import { transformCode } from '../../../infrastructure/handler-executor/code-transformer';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;
+const MAX_HTTP_TIMEOUT = 60000;
+const MAX_SLEEP_MS = 60000;
+const DEFAULT_SLEEP_MS = 1000;
+
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '[::1]',
+  '::1',
+]);
+
+function clampTimeout(value: unknown, defaultMs: number, maxMs: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return defaultMs;
+  return Math.min(n, maxMs);
+}
+
+function validateHttpUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`URL protocol must be http or https, got: ${parsed.protocol}`);
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+  if (BLOCKED_HOSTNAMES.has(hostname)) {
+    throw new Error(`HTTP requests to ${hostname} are not allowed`);
+  }
+  if (!hostname.includes('.') || hostname.endsWith('.local')) {
+    throw new Error(`HTTP requests to internal hosts are not allowed: ${hostname}`);
+  }
+  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname)) {
+    throw new Error(`HTTP requests to private IP ranges are not allowed: ${hostname}`);
+  }
+}
 
 export interface StepExecOptions {
   type: string;
@@ -50,8 +89,9 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
 
     case 'http': {
       if (!config.url) throw new Error('Step config missing required field: url');
+      validateHttpUrl(config.url);
+      const httpTimeoutMs = clampTimeout(config.timeout || timeout, DEFAULT_HTTP_TIMEOUT, MAX_HTTP_TIMEOUT);
       const controller = new AbortController();
-      const httpTimeoutMs = config.timeout || timeout || DEFAULT_HTTP_TIMEOUT;
       const httpTimeout = setTimeout(() => controller.abort(), httpTimeoutMs);
       try {
         const method = config.method || 'GET';
@@ -77,9 +117,11 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
       }
     }
 
-    case 'sleep':
-      await new Promise((r) => setTimeout(r, config.ms || 1000));
-      return { slept: config.ms || 1000 };
+    case 'sleep': {
+      const sleepMs = clampTimeout(config.ms, DEFAULT_SLEEP_MS, MAX_SLEEP_MS);
+      await new Promise((r) => setTimeout(r, sleepMs));
+      return { slept: sleepMs };
+    }
 
     case 'log': {
       const msg = config.message || JSON.stringify((ctx as any).$flow?.$last);
