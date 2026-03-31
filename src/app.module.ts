@@ -11,6 +11,7 @@ import { AuthModule } from './core/auth/auth.module';
 import { JwtAuthGuard } from './core/auth/guards/jwt-auth.guard';
 import { RoleGuard } from './core/auth/guards/role.guard';
 import { JwtStrategy } from './core/auth/services/jwt.strategy';
+import { PolicyModule } from './core/policy/policy.module';
 import { ProvisionModule } from './core/bootstrap/provision.module';
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
 import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
@@ -53,6 +54,7 @@ import { FlowModule } from './modules/flow/flow.module';
     KnexModule,
     MongoModule,
     ProvisionModule,
+    PolicyModule,
     QueryBuilderModule,
     ExceptionsModule,
     TableModule,

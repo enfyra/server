@@ -4,6 +4,9 @@ import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services
 import { SchemaMigrationLockService } from '../../../infrastructure/knex/services/schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
+import { PolicyService } from '../../../core/policy/policy.service';
+import { TDynamicContext } from '../../../shared/types';
+import { isPolicyDeny } from '../../../core/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
@@ -28,6 +31,7 @@ export class SqlTableHandlerService {
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
     private schemaMigrationLockService: SchemaMigrationLockService,
+    private policyService: PolicyService,
   ) {}
   private validateRelations(relations: any[]) {
     for (const relation of relations || []) {
@@ -182,8 +186,20 @@ export class SqlTableHandlerService {
       );
     }
   }
-  async createTable(body: CreateTableDto) {
-    return await this.runWithSchemaLock(`table:create:${body?.name || 'unknown'}`, () => this.createTableInternal(body));
+  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+    const decision = await this.policyService.checkSchemaMigration({
+      operation: 'create',
+      tableName: 'table_definition',
+      data: body,
+      currentUser: context?.$user,
+    });
+    if (isPolicyDeny(decision)) {
+      throw new ValidationException(decision.message);
+    }
+    return await this.runWithSchemaLock(
+      `table:create:${body?.name || 'unknown'}`,
+      () => this.createTableInternal(body),
+    );
   }
   private async createTableInternal(body: CreateTableDto) {
     this.logger.log(`CREATE TABLE: ${body?.name} (${body.columns?.length || 0} columns, ${body.relations?.length || 0} relations)`);
@@ -480,10 +496,17 @@ export class SqlTableHandlerService {
       );
     }
   }
-  async updateTable(id: string | number, body: CreateTableDto) {
-    return await this.runWithSchemaLock(`table:update:${id}`, () => this.updateTableInternal(id, body));
+  async updateTable(id: string | number, body: CreateTableDto, context?: TDynamicContext) {
+    return await this.runWithSchemaLock(
+      `table:update:${id}`,
+      () => this.updateTableInternal(id, body, context),
+    );
   }
-  private async updateTableInternal(id: string | number, body: CreateTableDto) {
+  private async updateTableInternal(
+    id: string | number,
+    body: CreateTableDto,
+    context?: TDynamicContext,
+  ) {
     const knex = this.queryBuilder.getKnex();
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
@@ -720,11 +743,26 @@ export class SqlTableHandlerService {
               `Failed to reload metadata after transaction for table ${exists.name}`,
             );
           }
-          await this.schemaMigrationService.updateTable(
-            exists.name,
-            oldMetadata,
-            updatedFullMetadata,
-          );
+          const decision = await this.policyService.checkSchemaMigration({
+            operation: 'update',
+            tableName: exists.name,
+            data: body,
+            currentUser: context?.$user,
+            beforeMetadata: oldMetadata,
+            afterMetadata: updatedFullMetadata,
+            requestContext: context,
+          });
+          if (isPolicyDeny(decision)) {
+            throw new ValidationException(decision.message, decision.details);
+          }
+
+          if (decision.details?.schemaChanged === true) {
+            await this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetadata,
+              updatedFullMetadata,
+            );
+          }
         }
         await trx.commit();
 
@@ -747,7 +785,7 @@ export class SqlTableHandlerService {
         }
 
         this.logger.log(
-          `Table updated: ${exists.name} (metadata + physical schema)`,
+          `Table updated: ${exists.name}`,
         );
         return { id: exists.id, name: exists.name };
       } catch (innerError) {
@@ -779,10 +817,13 @@ export class SqlTableHandlerService {
         );
       }
   }
-  async delete(id: string | number) {
-    return await this.runWithSchemaLock(`table:delete:${id}`, () => this.deleteTableInternal(id));
+  async delete(id: string | number, context?: TDynamicContext) {
+    return await this.runWithSchemaLock(
+      `table:delete:${id}`,
+      () => this.deleteTableInternal(id, context),
+    );
   }
-  private async deleteTableInternal(id: string | number) {
+  private async deleteTableInternal(id: string | number, context?: TDynamicContext) {
     const knex = this.queryBuilder.getKnex();
     return await knex.transaction(async (trx) => {
       try {
@@ -802,6 +843,15 @@ export class SqlTableHandlerService {
           );
         }
         const tableName = exists.name;
+        const decision = await this.policyService.checkSchemaMigration({
+          operation: 'delete',
+          tableName,
+          currentUser: context?.$user,
+          requestContext: context,
+        });
+        if (isPolicyDeny(decision)) {
+          throw new ValidationException(decision.message, decision.details);
+        }
         const deletedRoutes = await trx('route_definition')
           .where({ mainTableId: id })
           .delete();

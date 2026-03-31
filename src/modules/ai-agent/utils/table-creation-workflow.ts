@@ -5,7 +5,7 @@ import { MetadataCacheService } from '../../../infrastructure/cache/services/met
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
@@ -74,7 +74,7 @@ export class TableCreationWorkflow {
     private readonly queryBuilder: QueryBuilderService,
     private readonly tableHandlerService: TableHandlerService,
     private readonly queryEngine: QueryEngine,
-    private readonly systemProtectionService: SystemProtectionService,
+    private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly eventEmitter: EventEmitter2,
   ) {
@@ -122,7 +122,7 @@ export class TableCreationWorkflow {
         queryBuilder: this.queryBuilder,
         tableHandlerService: this.tableHandlerService,
         queryEngine: this.queryEngine,
-        systemProtectionService: this.systemProtectionService,
+        policyService: this.policyService,
         tableValidationService: this.tableValidationService,
         eventEmitter: this.eventEmitter,
       }, state.context);
@@ -213,7 +213,7 @@ export class TableCreationWorkflow {
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
           queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
+          policyService: this.policyService,
           tableValidationService: this.tableValidationService,
           eventEmitter: this.eventEmitter,
         },
@@ -334,7 +334,7 @@ export class TableCreationWorkflow {
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
           queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
+          policyService: this.policyService,
           tableValidationService: this.tableValidationService,
           eventEmitter: this.eventEmitter,
         },
@@ -430,7 +430,7 @@ export class TableCreationWorkflow {
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
           queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
+          policyService: this.policyService,
           tableValidationService: this.tableValidationService,
           eventEmitter: this.eventEmitter,
         },

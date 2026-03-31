@@ -5,7 +5,6 @@ import { QueryBuilderService } from '../../../../infrastructure/query-builder/qu
 import { TableHandlerService } from '../../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
 import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
-import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../../shared/types';
 import {
@@ -42,7 +41,7 @@ export async function executeBatchDynamicRepository(
     tableHandlerService,
     queryEngine,
     metadataCacheService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     eventEmitter,
   } = deps;
@@ -53,7 +52,7 @@ export async function executeBatchDynamicRepository(
     tableHandlerService,
     queryEngine,
     metadataCacheService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     eventEmitter,
   });

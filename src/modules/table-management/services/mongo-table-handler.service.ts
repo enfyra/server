@@ -5,6 +5,9 @@ import { MongoService } from '../../../infrastructure/mongo/services/mongo.servi
 import { MongoSchemaMigrationLockService } from '../../../infrastructure/mongo/services/mongo-schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
+import { PolicyService } from '../../../core/policy/policy.service';
+import { TDynamicContext } from '../../../shared/types';
+import { isPolicyDeny } from '../../../core/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
@@ -25,6 +28,7 @@ export class MongoTableHandlerService {
     private schemaMigrationLockService: MongoSchemaMigrationLockService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
+    private policyService: PolicyService,
   ) {}
   private validateRelations(relations: any[]) {
     for (const relation of relations || []) {
@@ -215,7 +219,16 @@ export class MongoTableHandlerService {
     }
     this.logger.log('✨ All relation fields dropped. Will be recreated by runtime logic.');
   }
-  async createTable(body: CreateTableDto) {
+  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+    const decision = await this.policyService.checkSchemaMigration({
+      operation: 'create',
+      tableName: 'table_definition',
+      data: body,
+      currentUser: context?.$user,
+    });
+    if (isPolicyDeny(decision)) {
+      throw new ValidationException(decision.message);
+    }
     return await this.runWithSchemaLock(`mongo:create:${body?.name || 'unknown'}`, async () => {
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
@@ -435,7 +448,7 @@ export class MongoTableHandlerService {
     }
     });
   }
-  async updateTable(id: any, body: CreateTableDto) {
+  async updateTable(id: any, body: CreateTableDto, context?: TDynamicContext) {
     return await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
@@ -616,7 +629,22 @@ export class MongoTableHandlerService {
       const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
       const newMetadata = await this.getFullTableMetadata(id);
       if (oldMetadata && newMetadata) {
-        await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
+        const decision = await this.policyService.checkSchemaMigration({
+          operation: 'update',
+          tableName: exists.name,
+          data: body,
+          currentUser: context?.$user,
+          beforeMetadata: oldMetadata,
+          afterMetadata: newMetadata,
+          requestContext: context,
+        });
+        if (isPolicyDeny(decision)) {
+          throw new ValidationException(decision.message, decision.details);
+        }
+
+        if (decision.details?.schemaChanged === true) {
+          await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
+        }
       }
 
       if (body.isSingleRecord === true && !exists.isSingleRecord) {
@@ -654,7 +682,7 @@ export class MongoTableHandlerService {
     }
     });
   }
-  async delete(id: string | number) {
+  async delete(id: string | number, context?: TDynamicContext) {
     return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
     try {
       const { ObjectId } = require('mongodb');
@@ -673,6 +701,15 @@ export class MongoTableHandlerService {
         );
       }
       const collectionName = exists.name;
+      const decision = await this.policyService.checkSchemaMigration({
+        operation: 'delete',
+        tableName: collectionName,
+        currentUser: context?.$user,
+        requestContext: context,
+      });
+      if (isPolicyDeny(decision)) {
+        throw new ValidationException(decision.message, decision.details);
+      }
       const routes = await this.queryBuilder.findWhere('route_definition', {
         mainTable: tableId,
       });

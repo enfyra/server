@@ -366,14 +366,6 @@
             "availableMethods": ["POST"]
         },
         {
-            "path": "/admin/metadata-sync/:id",
-            "isEnabled": true,
-            "isSystem": true,
-            "icon": "lucide:sync",
-            "description": "Sync metadata with physical database",
-            "availableMethods": ["POST"]
-        },
-        {
             "path": "/admin/flow/test-step",
             "isEnabled": true,
             "isSystem": true,

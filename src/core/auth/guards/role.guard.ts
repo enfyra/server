@@ -4,28 +4,23 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { PolicyService } from '../../policy/policy.service';
+import { isPolicyDeny } from '../../policy/policy.types';
 
 @Injectable()
 export class RoleGuard implements CanActivate {
+  constructor(private readonly policyService: PolicyService) {}
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
-    const isPublished = req.routeData?.publishedMethods?.some(
-      (m: any) => m.method === req.method
-    );
-    if (isPublished) return true;
-    if (!req.user) throw new UnauthorizedException();
-    if (req.user.isRootAdmin) return true;
-    if (!req.routeData?.routePermissions) return false;
-    const canPass = req.routeData.routePermissions.find(
-      (permission: any) => {
-        const hasMethodAccess = permission.methods.some((item: any) => item.method === req.method);
-        if (!hasMethodAccess) return false;
-        if (permission?.allowedUsers?.some((user: any) => user?.id === req.user.id)) {
-          return true;
-        }
-        return permission?.role?.id === req.user.role.id;
-      }
-    );
-    return !!canPass;
+    const decision = this.policyService.checkRequestAccess({
+      method: req.method,
+      routeData: req.routeData,
+      user: req.user,
+    });
+
+    if (decision.allow) return true;
+    if (isPolicyDeny(decision) && decision.statusCode === 401) throw new UnauthorizedException();
+    return false;
   }
 }

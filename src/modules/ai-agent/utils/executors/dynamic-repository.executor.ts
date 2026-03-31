@@ -90,7 +90,7 @@ export async function executeDynamicRepository(
     tableHandlerService,
     queryEngine,
     metadataCacheService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     eventEmitter,
   } = deps;
@@ -101,7 +101,7 @@ export async function executeDynamicRepository(
     tableHandlerService,
     queryEngine,
     metadataCacheService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     eventEmitter,
   });

@@ -4,7 +4,6 @@ import { MetadataCacheService } from '../../../../infrastructure/cache/services/
 import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
 import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../../shared/types';
 import { executeCheckPermission } from './check-permission.executor';
@@ -25,7 +24,7 @@ async function executeDeleteSingleTable(
     queryBuilder: deps.queryBuilder,
     tableHandlerService: deps.tableHandlerService,
     queryEngine: deps.queryEngine,
-    systemProtectionService: deps.systemProtectionService,
+    policyService: deps.policyService,
     tableValidationService: deps.tableValidationService,
     metadataCacheService: deps.metadataCacheService,
     eventEmitter: deps.eventEmitter,

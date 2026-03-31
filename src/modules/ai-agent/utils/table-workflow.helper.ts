@@ -4,7 +4,7 @@ import { MetadataCacheService } from '../../../infrastructure/cache/services/met
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 
@@ -15,7 +15,7 @@ export interface TableRepoDeps {
   queryBuilder: QueryBuilderService;
   tableHandlerService: TableHandlerService;
   queryEngine: QueryEngine;
-  systemProtectionService: SystemProtectionService;
+  policyService: PolicyService;
   tableValidationService: TableValidationService;
   eventEmitter: EventEmitter2;
 }
@@ -28,7 +28,7 @@ export function createTableDefinitionRepository(deps: TableRepoDeps, context: TD
     tableHandlerService: deps.tableHandlerService,
     queryEngine: deps.queryEngine,
     metadataCacheService: deps.metadataCacheService,
-    systemProtectionService: deps.systemProtectionService,
+    policyService: deps.policyService,
     tableValidationService: deps.tableValidationService,
     eventEmitter: deps.eventEmitter,
   });

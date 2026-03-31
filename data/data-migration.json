@@ -1,6 +1,7 @@
 {
   "_deletedRecords": [
-    { "table": "route_definition", "filter": { "path": { "_eq": "/api-docs" } } }
+    { "table": "route_definition", "filter": { "path": { "_eq": "/api-docs" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/metadata-sync/:id" } } }
   ],
   "menu_definition": [
     {

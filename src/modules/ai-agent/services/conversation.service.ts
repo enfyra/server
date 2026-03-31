@@ -5,7 +5,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { IConversation, IConversationCreate, IConversationUpdate } from '../interfaces/conversation.interface';
@@ -18,7 +18,7 @@ export class ConversationService {
     private readonly tableHandlerService: TableHandlerService,
     private readonly queryEngine: QueryEngine,
     private readonly metadataCacheService: MetadataCacheService,
-    private readonly systemProtectionService: SystemProtectionService,
+    private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -75,7 +75,7 @@ export class ConversationService {
       tableHandlerService: this.tableHandlerService,
       queryEngine: this.queryEngine,
       metadataCacheService: this.metadataCacheService,
-      systemProtectionService: this.systemProtectionService,
+      policyService: this.policyService,
       tableValidationService: this.tableValidationService,
       eventEmitter: this.eventEmitter,
     });
