@@ -10,8 +10,10 @@ export type FetchHelper = (
     body?: any;
     timeoutMs?: number;
     maxBytes?: number;
+    maxRequests?: number;
+    maxTotalBytes?: number;
+    maxRedirects?: number;
     responseType?: 'json' | 'text' | 'arrayBuffer';
-    allowPrivateIp?: boolean;
   },
 ) => Promise<any>;
 
@@ -87,16 +89,28 @@ async function assertNetworkAllowed(url: URL, allowPrivateIp?: boolean) {
 export function createFetchHelper(defaults?: {
   timeoutMs?: number;
   maxBytes?: number;
+  maxRequests?: number;
+  maxTotalBytes?: number;
+  maxRedirects?: number;
   allowPrivateIp?: boolean;
 }): FetchHelper {
   const defaultTimeoutMs = defaults?.timeoutMs ?? 8000;
   const defaultMaxBytes = defaults?.maxBytes ?? 1024 * 1024;
+  const defaultMaxRequests = defaults?.maxRequests ?? 10;
+  const defaultMaxTotalBytes = defaults?.maxTotalBytes ?? 2 * 1024 * 1024;
+  const defaultMaxRedirects = defaults?.maxRedirects ?? 3;
   const defaultAllowPrivateIp = defaults?.allowPrivateIp ?? false;
+  let requestCount = 0;
+  let totalBytes = 0;
 
   return async (url: string, options) => {
-    const finalUrl = buildUrl(url, options?.query);
-    const u = new URL(finalUrl);
-    await assertNetworkAllowed(u, options?.allowPrivateIp ?? defaultAllowPrivateIp);
+    const maxRequests = options?.maxRequests ?? defaultMaxRequests;
+    const maxTotalBytes = options?.maxTotalBytes ?? defaultMaxTotalBytes;
+    const maxRedirects = options?.maxRedirects ?? defaultMaxRedirects;
+    if (requestCount + 1 > maxRequests) {
+      throw new Error(`Fetch request limit exceeded (${maxRequests})`);
+    }
+    requestCount += 1;
 
     const timeoutMs = options?.timeoutMs ?? defaultTimeoutMs;
     const maxBytes = options?.maxBytes ?? defaultMaxBytes;
@@ -115,14 +129,38 @@ export function createFetchHelper(defaults?: {
       }
     }
 
-    try {
-      const res = await fetch(finalUrl, {
-        method: options?.method || (body !== undefined ? 'POST' : 'GET'),
+    const method = options?.method || (body !== undefined ? 'POST' : 'GET');
+
+    const fetchOnce = async (finalUrl: string) => {
+      const u = new URL(finalUrl);
+      await assertNetworkAllowed(u, defaultAllowPrivateIp);
+      return fetch(finalUrl, {
+        method,
         headers,
         body,
         signal: controller.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       } as any);
+    };
+
+    try {
+      let finalUrl = buildUrl(url, options?.query);
+      let res = await fetchOnce(finalUrl);
+
+      let redirects = 0;
+      while (res.status >= 300 && res.status < 400) {
+        if (redirects + 1 > maxRedirects) {
+          throw new Error(`Too many redirects (${maxRedirects})`);
+        }
+        const location = res.headers?.get?.('location') || '';
+        if (!location) {
+          throw new Error(`Redirect with no location (${res.status})`);
+        }
+        const nextUrl = new URL(location, finalUrl).toString();
+        redirects += 1;
+        finalUrl = nextUrl;
+        res = await fetchOnce(finalUrl);
+      }
 
       const contentLength = Number(res.headers?.get?.('content-length') || 0);
       if (contentLength && contentLength > maxBytes) {
@@ -132,6 +170,10 @@ export function createFetchHelper(defaults?: {
       const ab = await res.arrayBuffer();
       if (ab.byteLength > maxBytes) {
         throw new Error(`Response too large (${ab.byteLength} bytes)`);
+      }
+      totalBytes += ab.byteLength;
+      if (totalBytes > maxTotalBytes) {
+        throw new Error(`Fetch total bytes limit exceeded (${maxTotalBytes} bytes)`);
       }
 
       if (!res.ok) {

@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { isEqual } from 'lodash';
-import { createHash, randomUUID } from 'node:crypto';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import type { Redis } from 'ioredis';
+import { createHash } from 'node:crypto';
 import { CommonService } from '../../shared/common/services/common.service';
 import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
 import {
@@ -14,13 +12,10 @@ import {
 
 @Injectable()
 export class PolicyService {
-  private readonly redis: Redis | null;
   constructor(
     private readonly commonService: CommonService,
     private readonly metadataCache: MetadataCacheService,
-    private readonly redisService: RedisService,
   ) {
-    this.redis = this.redisService.getOrNil();
   }
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
@@ -88,108 +83,21 @@ export class PolicyService {
   async checkSchemaMigration(ctx: TPolicySchemaMigrationContext): Promise<TPolicyDecision> {
     const tableName = (ctx.tableName || '').trim();
 
-    const getConfirm = (): string => {
-      const q = ctx.requestContext?.$query;
-      const v = q?.schemaConfirm ?? q?.schema_confirm;
-      return typeof v === 'string' ? v.trim() : '';
-    };
-
-    const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toUpperCase();
-
-    const getHeader = (name: string): string => {
-      const headers: any = ctx.requestContext?.$req?.headers;
-      if (!headers) return '';
-      const raw = headers[name] ?? headers[name.toLowerCase()];
-      if (typeof raw === 'string') return raw;
-      if (Array.isArray(raw) && typeof raw[0] === 'string') return raw[0];
-      return '';
-    };
-
-    const getConfirmHash = (): string => {
-      const header = getHeader('x-schema-confirm-hash');
-      if (header) return String(header).trim().toLowerCase();
+    const getClientHash = (): string => {
       const q = ctx.requestContext?.$query;
       const v = q?.schemaConfirmHash ?? q?.schema_confirm_hash;
       return typeof v === 'string' ? v.trim().toLowerCase() : '';
-    };
-
-    const getConfirmToken = (): string => {
-      const header = getHeader('x-schema-confirm-token');
-      if (header) return String(header).trim();
-      const q = ctx.requestContext?.$query;
-      const v = q?.schemaConfirmToken ?? q?.schema_confirm_token;
-      return typeof v === 'string' ? v.trim() : '';
     };
 
     const buildHash = (payload: any): string => {
       return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
     };
 
-    const ttlMs = 5 * 60 * 1000;
-    const tokenKey = (token: string) => `schema_confirm:${token}`;
-
-    const issueChallenge = async (details: any) => {
-      const requiredConfirmHash = buildHash(details.canonical);
-      const confirmToken = this.redis ? randomUUID() : null;
-      if (confirmToken) {
-        await this.redis.set(tokenKey(confirmToken), requiredConfirmHash, 'PX', ttlMs);
-      }
-      return {
-        allow: false as const,
-        statusCode: 422 as const,
-        code: 'SCHEMA_CONFIRM_REQUIRED',
-        message: 'Destructive schema change requires confirmation.',
-        details: {
-          ...details.public,
-          requiredConfirmHash,
-          confirmToken,
-          confirmTtlMs: ttlMs,
-        },
-      };
-    };
-
-    const verifyChallenge = async (requiredConfirmHash: string): Promise<boolean> => {
-      if (!this.redis) return false;
-      const confirmToken = getConfirmToken();
-      const confirmHash = getConfirmHash();
-      if (!confirmToken || !confirmHash) return false;
-      const stored = await this.redis.get(tokenKey(confirmToken));
-      if (!stored) return false;
-      const ok = String(stored).toLowerCase() === String(requiredConfirmHash).toLowerCase()
-        && String(confirmHash).toLowerCase() === String(requiredConfirmHash).toLowerCase();
-      if (ok) {
-        await this.redis.del(tokenKey(confirmToken));
-      }
-      return ok;
-    };
-
-    const verifyPhraseFallback = (expected: string): boolean => {
-      const got = normalize(getConfirm());
-      return got === expected;
-    };
+    if (ctx.operation === 'create') {
+      return { allow: true, details: { schemaChanged: true, isDestructive: false } };
+    }
 
     if (ctx.operation === 'delete') {
-      const expected = normalize(`DELETE TABLE ${tableName}`);
-      const canonicalPayload = {
-        version: 1,
-        operation: 'delete',
-        tableName,
-      };
-      const requiredConfirmHash = buildHash(canonicalPayload);
-      const okHash = await verifyChallenge(requiredConfirmHash);
-      const okPhrase = verifyPhraseFallback(expected);
-      if (!okHash && !okPhrase) {
-        return await issueChallenge({
-          canonical: canonicalPayload,
-          public: {
-            expectedConfirm: expected,
-            operation: 'delete',
-            tableName,
-            schemaChanged: true,
-            isDestructive: true,
-          },
-        });
-      }
       return { allow: true, details: { schemaChanged: true, isDestructive: true } };
     }
 
@@ -280,12 +188,48 @@ export class PolicyService {
       .filter((c: any) => !aCols.some((x: any) => x.key === c.key))
       .map((c: any) => c.name);
 
+    const addedColumns = aCols
+      .filter((c: any) => !bCols.some((x: any) => x.key === c.key))
+      .map((c: any) => c.name);
+
+    const renamedColumns = aCols
+      .filter((c: any) => bCols.some((x: any) => x.key === c.key))
+      .map((c: any) => {
+        const beforeCol = bCols.find((x: any) => x.key === c.key);
+        return { from: safeStr(beforeCol?.name), to: safeStr(c.name) };
+      })
+      .filter((x: any) => x.from && x.to && x.from !== x.to);
+
+    const changedColumns = aCols
+      .filter((c: any) => bCols.some((x: any) => x.key === c.key))
+      .filter((c: any) => {
+        const beforeCol = bCols.find((x: any) => x.key === c.key);
+        if (!beforeCol) return false;
+        const bCopy = { ...beforeCol, name: '' };
+        const aCopy = { ...c, name: '' };
+        return !isEqual(bCopy, aCopy);
+      })
+      .map((c: any) => c.name)
+      .filter(Boolean);
+
     const relKey = (r: any) => `${r.propertyName}|${r.type}|${r.targetTableName}|${r.inversePropertyName}|${r.foreignKeyColumn}|${r.junctionTableName}`;
     const bRelKeys = new Set(bRels.map(relKey));
     const aRelKeys = new Set(aRels.map(relKey));
     const removedRelations = Array.from(bRelKeys).filter((k) => !aRelKeys.has(k));
+    const addedRelations = Array.from(aRelKeys).filter((k) => !bRelKeys.has(k));
 
     const isDestructive = removedColumns.length > 0 || removedRelations.length > 0;
+
+    const itemKey = (x: any) => JSON.stringify(x);
+    const bUKeys = new Set(Array.isArray(bU) ? bU.map(itemKey) : []);
+    const aUKeys = new Set(Array.isArray(aU) ? aU.map(itemKey) : []);
+    const removedUniques = Array.from(bUKeys).filter((k) => !aUKeys.has(k));
+    const addedUniques = Array.from(aUKeys).filter((k) => !bUKeys.has(k));
+
+    const bIKeys = new Set(Array.isArray(bI) ? bI.map(itemKey) : []);
+    const aIKeys = new Set(Array.isArray(aI) ? aI.map(itemKey) : []);
+    const removedIndexes = Array.from(bIKeys).filter((k) => !aIKeys.has(k));
+    const addedIndexes = Array.from(aIKeys).filter((k) => !bIKeys.has(k));
 
     const canonicalPayload = {
       version: 1,
@@ -295,37 +239,56 @@ export class PolicyService {
       after: { name: safeStr(after?.name), columns: aCols, relations: aRels, uniques: aU, indexes: aI },
       removedColumns,
       removedRelations,
+      addedColumns,
+      renamedColumns,
+      changedColumns,
+      addedRelations,
+      removedUniques,
+      addedUniques,
+      removedIndexes,
+      addedIndexes,
     };
     const requiredConfirmHash = buildHash(canonicalPayload);
 
-    if (isDestructive) {
-      const expected = normalize(`APPLY SCHEMA CHANGES ${tableName}`);
-      const okHash = await verifyChallenge(requiredConfirmHash);
-      const okPhrase = verifyPhraseFallback(expected);
-      if (!okHash && !okPhrase) {
-        return await issueChallenge({
-          canonical: canonicalPayload,
-          public: {
-            expectedConfirm: expected,
-            tableName,
-            operation: ctx.operation,
-            schemaChanged: true,
-            isDestructive: true,
-            removedColumns,
-            removedRelationsCount: removedRelations.length,
-          },
-        });
-      }
+    const diffDetails = {
+      tableName,
+      operation: ctx.operation,
+      schemaChanged: true,
+      isDestructive,
+      removedColumns,
+      addedColumns,
+      renamedColumns,
+      changedColumns,
+      removedRelationsCount: removedRelations.length,
+      addedRelationsCount: addedRelations.length,
+      removedUniques,
+      addedUniques,
+      removedIndexes,
+      addedIndexes,
+      requiredConfirmHash,
+    };
+
+    const clientHash = getClientHash();
+    if (!clientHash) {
+      return {
+        allow: false,
+        preview: true as const,
+        details: diffDetails,
+      };
+    }
+    if (clientHash !== requiredConfirmHash) {
+      return {
+        allow: false,
+        statusCode: 422 as const,
+        code: 'SCHEMA_CONFIRM_HASH_MISMATCH',
+        message: 'Schema confirm hash does not match.',
+        details: diffDetails,
+      };
     }
 
     return {
       allow: true,
-      details: {
-        schemaChanged: true,
-        isDestructive,
-        removedColumns,
-        removedRelationsCount: removedRelations.length,
-      },
+      details: diffDetails,
     };
   }
 
@@ -623,6 +586,29 @@ export class PolicyService {
             );
           }
         }
+      }
+    }
+
+    if (tableName === 'websocket_definition' && fullExisting?.isSystem) {
+      const allowed = this.getAllowedFields([
+        'description',
+        'connectionHandlerScript',
+        'connectionHandlerTimeout',
+      ]);
+      const disallowed = changedFields.filter((f) => !allowed.includes(f));
+      if (disallowed.length > 0) {
+        throw new Error(
+          `Cannot modify system WebSocket gateway (only allowed: ${allowed.join(', ')}): ${disallowed.join(', ')}`,
+        );
+      }
+      if ('isEnabled' in data) {
+        throw new Error('Cannot change isEnabled of system WebSocket gateway');
+      }
+      if ('path' in data) {
+        throw new Error('Cannot change path of system WebSocket gateway');
+      }
+      if ('requireAuth' in data) {
+        throw new Error('Cannot change requireAuth of system WebSocket gateway');
       }
     }
 

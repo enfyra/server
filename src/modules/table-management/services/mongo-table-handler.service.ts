@@ -7,7 +7,7 @@ import { MetadataCacheService } from '../../../infrastructure/cache/services/met
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { PolicyService } from '../../../core/policy/policy.service';
 import { TDynamicContext } from '../../../shared/types';
-import { isPolicyDeny } from '../../../core/policy/policy.types';
+import { isPolicyDeny, isPolicyPreview } from '../../../core/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
@@ -481,6 +481,32 @@ export class MongoTableHandlerService {
       if (body.relations && body.relations.length > 0) {
         await this.validateNoDuplicateInverseRelation(queryId, exists.name, body.relations);
       }
+      const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
+      let schemaDecision: any = null;
+      if (oldMetadata) {
+        const afterMetadata = {
+          name: body.name ?? exists.name,
+          columns: body.columns ?? oldMetadata?.columns ?? [],
+          relations: body.relations ?? oldMetadata?.relations ?? [],
+          uniques: body.uniques ?? exists.uniques ?? oldMetadata?.uniques,
+          indexes: body.indexes ?? exists.indexes ?? oldMetadata?.indexes,
+        };
+        schemaDecision = await this.policyService.checkSchemaMigration({
+          operation: 'update',
+          tableName: exists.name,
+          data: body,
+          currentUser: context?.$user,
+          beforeMetadata: oldMetadata,
+          afterMetadata,
+          requestContext: context,
+        });
+        if (isPolicyPreview(schemaDecision)) {
+          return { _preview: true, ...schemaDecision.details };
+        }
+        if (isPolicyDeny(schemaDecision)) {
+          throw new ValidationException(schemaDecision.message, schemaDecision.details);
+        }
+      }
       const updateData: any = {};
       if ('name' in body) updateData.name = body.name;
       if ('alias' in body) updateData.alias = body.alias;
@@ -626,25 +652,10 @@ export class MongoTableHandlerService {
           relationIds.push(relObjectId);
         }
       }
-      const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
-      const newMetadata = await this.getFullTableMetadata(id);
-      if (oldMetadata && newMetadata) {
-        const decision = await this.policyService.checkSchemaMigration({
-          operation: 'update',
-          tableName: exists.name,
-          data: body,
-          currentUser: context?.$user,
-          beforeMetadata: oldMetadata,
-          afterMetadata: newMetadata,
-          requestContext: context,
-        });
-        if (isPolicyDeny(decision)) {
-          throw new ValidationException(decision.message, decision.details);
-        }
+      const finalMetadata = await this.getFullTableMetadata(id);
 
-        if (decision.details?.schemaChanged === true) {
-          await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
-        }
+      if (schemaDecision?.details?.schemaChanged === true && oldMetadata && finalMetadata) {
+        await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, finalMetadata);
       }
 
       if (body.isSingleRecord === true && !exists.isSingleRecord) {
@@ -652,7 +663,7 @@ export class MongoTableHandlerService {
         const count = await db.collection(exists.name).countDocuments();
 
         if (count === 0) {
-          const defaultRecord = generateDefaultRecord(newMetadata?.columns || []);
+          const defaultRecord = generateDefaultRecord(finalMetadata?.columns || []);
           await db.collection(exists.name).insertOne(defaultRecord);
         } else if (count > 1) {
           const firstRecord = await db.collection(exists.name).find().sort({ _id: 1 }).limit(1).toArray();
@@ -663,7 +674,7 @@ export class MongoTableHandlerService {
       }
 
       this.logger.log(`Collection updated: ${exists.name} (metadata + validation + indexes)`);
-      return newMetadata;
+      return finalMetadata;
     } catch (error) {
       this.loggingService.error('Collection update failed', {
         context: 'updateTable',

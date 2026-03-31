@@ -6,7 +6,7 @@ import { MetadataCacheService } from '../../../infrastructure/cache/services/met
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { PolicyService } from '../../../core/policy/policy.service';
 import { TDynamicContext } from '../../../shared/types';
-import { isPolicyDeny } from '../../../core/policy/policy.types';
+import { isPolicyDeny, isPolicyPreview } from '../../../core/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
@@ -752,6 +752,10 @@ export class SqlTableHandlerService {
             afterMetadata: updatedFullMetadata,
             requestContext: context,
           });
+          if (isPolicyPreview(decision)) {
+            await trx.rollback();
+            return { _preview: true, ...decision.details };
+          }
           if (isPolicyDeny(decision)) {
             throw new ValidationException(decision.message, decision.details);
           }

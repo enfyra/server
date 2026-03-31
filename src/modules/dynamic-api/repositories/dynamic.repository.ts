@@ -190,6 +190,9 @@ export class DynamicRepository {
       }
       if (this.tableName === 'table_definition') {
         const table: any = await this.tableHandlerService.updateTable(id, body, this.context);
+        if (table?._preview) {
+          return { data: [table] };
+        }
         const tableId = table._id || table.id;
         await this.reload();
         return this.find({ where: { [this.getIdField()]: { _eq: tableId } }, fields });

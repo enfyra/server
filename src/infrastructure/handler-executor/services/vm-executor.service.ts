@@ -5,6 +5,10 @@ import { PackageCacheService } from '../../cache/services/package-cache.service'
 import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException, ScriptExecutionException } from '../../../core/exceptions/custom-exceptions';
 
+const DEFAULT_LOG_LIMIT_ENTRIES = 200;
+const DEFAULT_LOG_LIMIT_BYTES = 64 * 1024;
+const DEFAULT_RESULT_LIMIT_BYTES = 256 * 1024;
+
 const BLOCKED_MODULES = new Set([
   'assert',
   'assert/strict',
@@ -70,6 +74,59 @@ export class VmExecutorService {
   private readonly logger = new Logger(VmExecutorService.name);
 
   constructor(private packageCacheService: PackageCacheService) {}
+
+  private safeJsonSize(value: any, maxBytes: number): { ok: true; bytes: number } | { ok: false; bytes: number } {
+    const seen = new WeakSet<object>();
+    const replacer = (_k: string, v: any) => {
+      if (typeof v === 'object' && v !== null) {
+        if (seen.has(v)) return '[Circular]';
+        seen.add(v);
+      }
+      if (typeof v === 'bigint') return v.toString();
+      if (typeof v === 'function') return '[Function]';
+      return v;
+    };
+    try {
+      const s = JSON.stringify(value, replacer);
+      const bytes = Buffer.byteLength(s || '', 'utf8');
+      if (bytes > maxBytes) return { ok: false, bytes };
+      return { ok: true, bytes };
+    } catch {
+      return { ok: true, bytes: 0 };
+    }
+  }
+
+  private createCappedLogger(ctx: TDynamicContext, limits: { maxEntries: number; maxBytes: number }) {
+    const share = (ctx.$share = ctx.$share || ({} as any));
+    const logs = (share.$logs = Array.isArray(share.$logs) ? share.$logs : []);
+    let totalBytes = 0;
+    try {
+      totalBytes = Buffer.byteLength(JSON.stringify(logs).slice(0, limits.maxBytes), 'utf8');
+    } catch {
+      totalBytes = 0;
+    }
+
+    return (...args: any[]) => {
+      if (logs.length >= limits.maxEntries) {
+        throw new Error(`Log limit exceeded (${limits.maxEntries} entries)`);
+      }
+      const size = this.safeJsonSize(args, limits.maxBytes);
+      const addBytes = size.ok ? size.bytes : limits.maxBytes + 1;
+      if (totalBytes + addBytes > limits.maxBytes) {
+        throw new Error(`Log limit exceeded (${limits.maxBytes} bytes)`);
+      }
+      logs.push(...args);
+      totalBytes += addBytes;
+    };
+  }
+
+  private freezeShallow<T extends object>(obj: T): T {
+    try {
+      return Object.freeze(obj);
+    } catch {
+      return obj;
+    }
+  }
 
   async run(code: string, ctx: TDynamicContext, timeoutMs: number): Promise<any> {
     const packages = await this.packageCacheService.getPackages();
@@ -139,8 +196,30 @@ export class VmExecutorService {
       throw new Error('setInterval is not allowed in handlers');
     };
 
+    const cappedLogs = this.createCappedLogger(ctx, {
+      maxEntries: DEFAULT_LOG_LIMIT_ENTRIES,
+      maxBytes: DEFAULT_LOG_LIMIT_BYTES,
+    });
+
+    const frozenHelpers = this.freezeShallow({ ...(ctx.$helpers || {}) });
+    const frozenReq = this.freezeShallow({ ...(ctx.$req as any) });
+    const frozenApi = this.freezeShallow({
+      ...(ctx.$api as any),
+      request: this.freezeShallow({ ...((ctx.$api as any)?.request || {}) }),
+    } as any);
+    const frozenSocket = this.freezeShallow({ ...(ctx.$socket as any) } as any);
+    const frozenThrow = this.freezeShallow($throw as any);
+
     const sandbox: any = {
-      $ctx: { ...ctx, $throw },
+      $ctx: {
+        ...ctx,
+        $throw: frozenThrow,
+        $helpers: frozenHelpers,
+        $req: frozenReq as any,
+        $api: frozenApi,
+        $socket: frozenSocket,
+        $logs: cappedLogs,
+      },
       console: safeConsole,
       Buffer,
       setTimeout,
@@ -188,8 +267,23 @@ export class VmExecutorService {
 
       const result = await this.withAsyncTimeout(resultPromise, Number(timeoutMs) || 30000, code);
 
-      Object.assign(ctx, sandbox.$ctx);
+      const resultSize = this.safeJsonSize(result, DEFAULT_RESULT_LIMIT_BYTES);
+      if (!resultSize.ok) {
+        throw new Error(`Result too large (${resultSize.bytes} bytes)`);
+      }
+
+      const outCtx = sandbox.$ctx as TDynamicContext;
+      if (outCtx && typeof outCtx === 'object') {
+        if (outCtx.$body !== undefined) ctx.$body = outCtx.$body;
+        if (outCtx.$query !== undefined) ctx.$query = outCtx.$query;
+        if (outCtx.$params !== undefined) ctx.$params = outCtx.$params;
+        if (outCtx.$data !== undefined) ctx.$data = outCtx.$data;
+        if (outCtx.$statusCode !== undefined) (ctx as any).$statusCode = (outCtx as any).$statusCode;
+        if (outCtx.$share) ctx.$share = outCtx.$share;
+      }
+
       delete (ctx as any).$throw;
+      delete (ctx as any).$pkgs;
 
       return result;
     } catch (error) {
@@ -234,6 +328,15 @@ export class VmExecutorService {
         code,
         details,
       );
+    } finally {
+      try {
+        if (ctx?.$share?.$logs && Array.isArray(ctx.$share.$logs)) {
+          if (ctx.$share.$logs.length > DEFAULT_LOG_LIMIT_ENTRIES) {
+            ctx.$share.$logs = ctx.$share.$logs.slice(0, DEFAULT_LOG_LIMIT_ENTRIES);
+          }
+        }
+      } catch {
+      }
     }
   }
 
