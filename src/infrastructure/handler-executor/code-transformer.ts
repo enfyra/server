@@ -2,6 +2,7 @@ const MAPPINGS: Record<string, string> = {
   '@CACHE': '$ctx.$cache',
   '@REPOS': '$ctx.$repos',
   '@HELPERS': '$ctx.$helpers',
+  '@FETCH': '$ctx.$helpers.$fetch',
   '@LOGS': '$ctx.$logs',
   '@BODY': '$ctx.$body',
   '@DATA': '$ctx.$data',

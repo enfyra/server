@@ -8,8 +8,10 @@ import { RepoRegistryService } from '../../../infrastructure/cache/services/repo
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 
 export interface EventJobData {
+  requestId: string;
   socketId: string;
   userId: number | string | null;
   eventName: string;
@@ -35,7 +37,7 @@ export class EventQueueService extends WorkerHost {
   }
 
   async process(job: Job<EventJobData>): Promise<any> {
-    const { socketId, userId, eventName, payload, gatewayPath, script, timeout } = job.data;
+    const { requestId, socketId, userId, eventName, payload, gatewayPath, script, timeout } = job.data;
 
     this.logger.debug(`Processing event ${eventName} for socket ${socketId} on ${gatewayPath}`);
 
@@ -74,15 +76,35 @@ export class EventQueueService extends WorkerHost {
       $socket: socketProxy,
     };
 
+    ctx.$helpers.$fetch = createFetchHelper();
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     ctx.$dispatch = {
       trigger: (flowIdOrName: string | number, payload?: any) =>
         this.flowService.trigger(flowIdOrName, payload, userId ? { id: userId } : null),
     };
 
-    const result = await this.handlerExecutor.run(script, ctx, timeout);
-
-    return { success: true, result };
+    try {
+      const result = await this.handlerExecutor.run(script, ctx, timeout);
+      socketProxy.send('ws:result', {
+        requestId,
+        eventName,
+        success: true,
+        result,
+        logs: ctx.$share?.$logs || [],
+      });
+      return { success: true, requestId, eventName };
+    } catch (error: any) {
+      socketProxy.send('ws:error', {
+        requestId,
+        eventName,
+        success: false,
+        code: error?.errorCode || error?.code || 'WS_HANDLER_ERROR',
+        message: error?.message || 'Websocket handler failed',
+        logs: ctx.$share?.$logs || [],
+        details: error?.details,
+      });
+      return { success: false, requestId, eventName };
+    }
   }
 
   @OnWorkerEvent('completed')

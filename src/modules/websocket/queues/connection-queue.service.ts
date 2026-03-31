@@ -8,6 +8,7 @@ import { RepoRegistryService } from '../../../infrastructure/cache/services/repo
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -73,6 +74,7 @@ export class ConnectionQueueService extends WorkerHost {
       $socket: socketProxy,
     };
 
+    ctx.$helpers.$fetch = createFetchHelper();
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     ctx.$dispatch = {
       trigger: (flowIdOrName: string | number, payload?: any) =>

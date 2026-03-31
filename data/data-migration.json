@@ -1,7 +1,8 @@
 {
   "_deletedRecords": [
     { "table": "route_definition", "filter": { "path": { "_eq": "/api-docs" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/metadata-sync/:id" } } }
+    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/metadata-sync/:id" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/flow/test-step" } } }
   ],
   "menu_definition": [
     {
@@ -46,6 +47,10 @@
     {
       "_unique": { "path": { "_eq": "/folder_definition/tree" } },
       "publishedMethods": ["GET"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/admin/test/run" } },
+      "isEnabled": true
     }
   ]
 }

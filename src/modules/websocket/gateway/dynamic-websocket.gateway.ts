@@ -16,6 +16,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
@@ -233,8 +234,12 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       this.logger.debug(`Socket ${socket.id} joined room ${roomName}`);
       for (const event of gatewayData.events) {
         const eventName = event.eventName;
-        socket.on(eventName, async (payload) => {
+        socket.on(eventName, async (payload, ack) => {
           this.logger.debug(`Event ${eventName} received from ${socket.id} on ${gatewayData.path}`);
+          const requestId = randomUUID();
+          if (typeof ack === 'function') {
+            ack({ queued: true, requestId, eventName });
+          }
           try {
             const freshGateway = await this.websocketCache.getGatewayByPath(gatewayData.path);
             const freshEvent = freshGateway?.events?.find((e: any) => e.eventName === eventName);
@@ -242,11 +247,15 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
 
             if (!script) {
               this.logger.warn(`No handler for event ${eventName} on ${gatewayData.path}`);
+              if (typeof ack === 'function') {
+                ack({ queued: false, requestId, eventName, error: { code: 'NO_HANDLER', message: 'No handler configured' } });
+              }
               return;
             }
             await this.eventQueue.add(
               `ws-event-${gatewayData.id}-${eventName}`,
               {
+                requestId,
                 socketId: socket.id,
                 userId: socket.data.userId || null,
                 eventName,
@@ -271,7 +280,10 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
             );
           } catch (error) {
             this.logger.error(`Event handler failed for ${eventName}:`, error);
-            socket.emit('error', { event: eventName, message: error.message });
+            if (typeof ack === 'function') {
+              ack({ queued: false, requestId, eventName, error: { code: 'QUEUE_ERROR', message: error?.message || 'Failed to queue event' } });
+            }
+            socket.emit('ws:error', { requestId, eventName, code: 'QUEUE_ERROR', message: error?.message || 'Failed to queue event' });
           }
         });
       }

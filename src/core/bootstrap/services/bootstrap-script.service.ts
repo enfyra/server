@@ -7,6 +7,7 @@ import { RepoRegistryService } from '../../../infrastructure/cache/services/repo
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   REDIS_TTL
@@ -145,6 +146,7 @@ export class BootstrapScriptService {
         $logs: [],
       },
     };
+    ctx.$helpers.$fetch = createFetchHelper();
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     const timeoutMs = script.timeout || 30000;
     const executionResult = await this.handlerExecutorService.run(

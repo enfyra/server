@@ -366,11 +366,11 @@
             "availableMethods": ["POST"]
         },
         {
-            "path": "/admin/flow/test-step",
+            "path": "/admin/test/run",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:flask-conical",
-            "description": "Test a single flow step",
+            "description": "Run a safe test execution (flows/websocket)",
             "availableMethods": ["POST"]
         },
         {

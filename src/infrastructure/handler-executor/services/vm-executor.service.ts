@@ -6,12 +6,64 @@ import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException, ScriptExecutionException } from '../../../core/exceptions/custom-exceptions';
 
 const BLOCKED_MODULES = new Set([
-  'child_process', 'cluster', 'dgram', 'dns', 'net', 'tls',
-  'vm', 'worker_threads', 'v8', 'perf_hooks', 'trace_events',
-  'inspector', 'async_hooks',
+  'assert',
+  'assert/strict',
+  'async_hooks',
+  'child_process',
+  'cluster',
+  'console',
+  'dgram',
+  'diagnostics_channel',
+  'dns',
+  'domain',
+  'events',
+  'fs',
+  'fs/promises',
+  'http',
+  'http2',
+  'https',
+  'inspector',
+  'module',
+  'net',
+  'os',
+  'path',
+  'perf_hooks',
+  'process',
+  'punycode',
+  'querystring',
+  'readline',
+  'repl',
+  'stream',
+  'stream/promises',
+  'stream/web',
+  'string_decoder',
+  'sys',
+  'timers',
+  'timers/promises',
+  'tls',
+  'trace_events',
+  'tty',
+  'url',
+  'util',
+  'v8',
+  'vm',
+  'wasi',
+  'worker_threads',
+  'zlib',
 ]);
 
-const FILESYSTEM_MODULES = new Set(['fs', 'fs/promises', 'path', 'os']);
+const NETWORK_DENYLIST_PACKAGES = new Set([
+  'axios',
+  'node-fetch',
+  'undici',
+  'got',
+  'superagent',
+  'request',
+  'needle',
+  'node-libcurl',
+  'ws',
+  'socket.io-client',
+]);
 
 @Injectable()
 export class VmExecutorService {
@@ -34,20 +86,38 @@ export class VmExecutorService {
 
     const $throw = this.buildThrowProxy(code);
 
-    const safeRequire = (moduleName: string) => {
+    const normalizeModuleName = (raw: string) => {
+      const name = String(raw || '').trim();
+      return name.startsWith('node:') ? name.slice('node:'.length) : name;
+    };
+
+    const safeRequire = (rawModuleName: string) => {
+      const moduleName = normalizeModuleName(rawModuleName);
+
+      if (!moduleName) {
+        throw new Error('Module name is required');
+      }
+
       if (BLOCKED_MODULES.has(moduleName)) {
         throw new Error(`Module "${moduleName}" is not allowed in handlers`);
       }
-      if (FILESYSTEM_MODULES.has(moduleName)) {
-        throw new Error(`Module "${moduleName}" is not allowed in handlers. Use $helpers for file operations`);
+
+      if (!allowedPackages.has(moduleName)) {
+        throw new Error(
+          `Module "${moduleName}" is not allowed in handlers. Install/enable it via Settings → Packages`,
+        );
       }
-      if (allowedPackages.has(moduleName)) {
-        return require(moduleName);
+
+      for (const denied of NETWORK_DENYLIST_PACKAGES) {
+        if (moduleName === denied || moduleName.startsWith(`${denied}/`)) {
+          throw new Error(`Module "${moduleName}" is not allowed in handlers. Use $fetch instead`);
+        }
       }
+
       try {
         return require(moduleName);
-      } catch {
-        throw new Error(`Module "${moduleName}" not found. Install it via Settings → Packages`);
+      } catch (e: any) {
+        throw new Error(`Module "${moduleName}" failed to load: ${e?.message || 'unknown error'}`);
       }
     };
 
@@ -58,32 +128,29 @@ export class VmExecutorService {
       nextTick: process.nextTick.bind(process),
     };
 
-    const sandbox = {
+    const safeConsole = {
+      log: (...args: any[]) => console.log(...args),
+      info: (...args: any[]) => console.info(...args),
+      warn: (...args: any[]) => console.warn(...args),
+      error: (...args: any[]) => console.error(...args),
+    };
+
+    const safeSetInterval = () => {
+      throw new Error('setInterval is not allowed in handlers');
+    };
+
+    const sandbox: any = {
       $ctx: { ...ctx, $throw },
-      console,
+      console: safeConsole,
       Buffer,
       setTimeout,
-      setInterval,
+      setInterval: safeSetInterval,
       clearTimeout,
       clearInterval,
       Date,
       JSON,
       Math,
       RegExp,
-      Array,
-      Object,
-      String,
-      Number,
-      Boolean,
-      Error,
-      TypeError,
-      RangeError,
-      Promise,
-      Map,
-      Set,
-      WeakMap,
-      WeakSet,
-      Symbol,
       parseInt,
       parseFloat,
       isNaN,
@@ -94,9 +161,14 @@ export class VmExecutorService {
       decodeURI,
       require: safeRequire,
       process: safeProcess,
+      fetch: undefined,
+      WebSocket: undefined,
     };
+    sandbox.$fetch = (...args: any[]) => sandbox.$ctx?.$helpers?.$fetch?.(...args);
 
-    const vmContext = vm.createContext(sandbox);
+    const vmContext = vm.createContext(sandbox, {
+      codeGeneration: { strings: false, wasm: false },
+    });
 
     const wrappedCode = `
       (async () => {
