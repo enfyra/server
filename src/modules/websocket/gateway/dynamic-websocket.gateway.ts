@@ -21,6 +21,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
+import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { WEBSOCKET_CACHE_SYNC_EVENT_KEY, SYSTEM_QUEUES } from '../../../shared/utils/constant';
 interface SocketData extends Socket {
   data: {
@@ -47,6 +48,7 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     private readonly eventQueue: Queue,
     private readonly websocketCache: WebsocketCacheService,
     private readonly redisPubSubService: RedisPubSubService,
+    private readonly builtInRegistry: BuiltInSocketRegistry,
   ) {
     this.jwtService = new JwtService({
       secret: this.configService.get('SECRET_KEY'),
@@ -152,7 +154,8 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
         return next(new Error('Gateway not configured'));
       }
       if (gateway.requireAuth) {
-        const { token } = socket.handshake.auth;
+        const authHeader = socket.handshake.headers?.authorization;
+        const token = socket.handshake.auth?.token || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null);
         if (!token) {
           const err = new Error('Authentication token required');
           (err as any).data = { code: 'AUTH_REQUIRED', path };
@@ -194,7 +197,8 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       }
       const userId = socket.data.userId || socket.id;
       this.logger.debug(`Client connected to ${gatewayData.path}: ${socket.id} (user: ${userId})`);
-      if (gatewayData.connectionHandlerScript) {
+      const connectionScript = this.builtInRegistry.getConnectionScript(path) ?? gatewayData.connectionHandlerScript;
+      if (connectionScript) {
         try {
           await this.connectionQueue.add(
             `${gatewayData.path}:${socket.id}`,
@@ -208,7 +212,7 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
               },
               gatewayId: gatewayData.id,
               gatewayPath: gatewayData.path,
-              script: gatewayData.connectionHandlerScript,
+              script: connectionScript,
               timeout: gatewayData.connectionHandlerTimeout,
             },
             {
@@ -241,9 +245,14 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
             ack({ queued: true, requestId, eventName });
           }
           try {
-            const freshGateway = await this.websocketCache.getGatewayByPath(gatewayData.path);
-            const freshEvent = freshGateway?.events?.find((e: any) => e.eventName === eventName);
-            const script = freshEvent?.handlerScript ?? event.handlerScript;
+            const builtInScript = this.builtInRegistry.getEventScript(path, eventName);
+            let script = builtInScript;
+            let freshEvent: any = event;
+            if (!script) {
+              const freshGateway = await this.websocketCache.getGatewayByPath(gatewayData.path);
+              freshEvent = freshGateway?.events?.find((e: any) => e.eventName === eventName) ?? event;
+              script = freshEvent?.handlerScript ?? event.handlerScript;
+            }
 
             if (!script) {
               this.logger.warn(`No handler for event ${eventName} on ${gatewayData.path}`);

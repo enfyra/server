@@ -1018,8 +1018,26 @@
             "order": 3,
             "parent": "Packages"
         }
+    ],
+    "websocket_definition": [
+        {
+            "path": "/admin",
+            "isEnabled": true,
+            "isSystem": true,
+            "requireAuth": true,
+            "description": "Built-in admin UI real-time gateway",
+            "connectionHandlerTimeout": 5000
+        }
+    ],
+    "websocket_event_definition": [
+        {
+            "gateway": "/admin",
+            "eventName": "ping",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Health check ping",
+            "timeout": 5000
+        }
     ]
 }
-
-
 
