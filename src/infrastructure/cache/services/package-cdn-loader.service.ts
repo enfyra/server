@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { pathToFileURL } from 'url';
 
-const CDN_BASE = process.env.PACKAGE_CDN_URL?.replace(/\/+$/, '') || 'https://esm.sh';
+const CDN_BASE = 'https://esm.sh';
 const CACHE_DIR = path.join(os.tmpdir(), 'enfyra-pkg-cache');
 
 @Injectable()
