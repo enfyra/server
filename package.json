@@ -67,7 +67,6 @@
     "mongodb": "^6.20.0",
     "multer": "latest",
     "mysql2": "^3.14.1",
-    "node-ssh": "13.2.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.16.1",

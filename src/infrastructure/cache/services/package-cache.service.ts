@@ -7,6 +7,8 @@ import { PackageManagementService } from '../../../modules/package-management/se
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
+import { pkgLog } from '../../../modules/package-management/services/package-operation-logger';
 
 const PACKAGE_CONFIG: CacheConfig = {
   syncEventKey: PACKAGE_CACHE_SYNC_EVENT_KEY,
@@ -14,6 +16,9 @@ const PACKAGE_CONFIG: CacheConfig = {
   colorCode: '\x1b[35m',
   cacheName: 'PackageCache',
 };
+
+const ADMIN_WS_PATH = '/admin';
+const SYSTEM_EVENT_PREFIX = '$system:package';
 
 @Injectable()
 export class PackageCacheService extends BaseCacheService<string[]> {
@@ -23,6 +28,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     instanceService: InstanceService,
     eventEmitter: EventEmitter2,
     private readonly packageManagementService: PackageManagementService,
+    private readonly websocketGateway: DynamicWebSocketGateway,
   ) {
     super(PACKAGE_CONFIG, redisPubSubService, instanceService, eventEmitter);
   }
@@ -36,22 +42,27 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
     if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
+      pkgLog('CacheService', `Cache invalidation for ${payload.tableName} (${payload.action})`);
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reload();
     }
   }
 
   protected async loadFromDb(): Promise<string[]> {
+    pkgLog('CacheService', `loadFromDb: querying status=installed, type=Server, isEnabled=true`);
     const result = await this.queryBuilder.select({
       tableName: 'package_definition',
       fields: ['name'],
       filter: {
         isEnabled: true,
         type: 'Server',
+        status: 'installed',
       },
     });
 
-    return result.data.map((p: any) => p.name);
+    const names = result.data.map((p: any) => p.name);
+    pkgLog('CacheService', `loadFromDb: ${names.length} packages`, names);
+    return names;
   }
 
   protected transformData(packages: string[]): string[] {
@@ -79,27 +90,98 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   protected async afterTransform(): Promise<void> {
+    pkgLog('CacheService', `afterTransform: firing ensurePackagesInstalled + ensurePackagesCleanedUp (non-blocking)`);
+    this.ensurePackagesInstalled().catch((error) => {
+      pkgLog('CacheService', `ensurePackagesInstalled UNCAUGHT`, error.message);
+      this.logger.error(`Package install failed (non-blocking): ${error.message}`);
+    });
+
+    this.ensurePackagesCleanedUp().catch((error) => {
+      pkgLog('CacheService', `ensurePackagesCleanedUp UNCAUGHT`, error.message);
+      this.logger.error(`Package cleanup failed (non-blocking): ${error.message}`);
+    });
+  }
+
+  private emitEvent(event: string, data: any) {
+    pkgLog('CacheService', `emitEvent: ${event}`, data);
     try {
-      await this.ensurePackagesInstalled();
-      await this.ensurePackagesCleanedUp();
+      this.websocketGateway.emitToNamespace(
+        ADMIN_WS_PATH,
+        `${SYSTEM_EVENT_PREFIX}:${event}`,
+        data,
+      );
     } catch (error) {
-      this.logger.error(`Package sync failed (non-blocking): ${error.message}`);
+      pkgLog('CacheService', `emitEvent FAILED: ${event}`, error.message);
+      this.logger.warn(`Failed to emit WS event ${event}: ${error.message}`);
+    }
+  }
+
+  private async updatePackageStatus(
+    id: string | number,
+    status: string,
+    extra?: Record<string, any>,
+  ) {
+    pkgLog('CacheService', `updatePackageStatus id=${id} → ${status}`, extra);
+    try {
+      await this.queryBuilder.update({
+        table: 'package_definition',
+        where: [{ field: 'id', operator: '=', value: id }],
+        data: { status, ...extra },
+      });
+      pkgLog('CacheService', `updatePackageStatus id=${id} → ${status} OK`);
+    } catch (error) {
+      pkgLog('CacheService', `updatePackageStatus id=${id} → ${status} FAILED`, error.message);
+      this.logger.error(
+        `Failed to update status to ${status} for package ${id}: ${error.message}`,
+      );
     }
   }
 
   private async ensurePackagesInstalled(): Promise<void> {
-    const packagesWithVersion = await this.loadPackagesWithVersion();
+    const packagesWithMeta = await this.loadPackagesForSync();
+    pkgLog('CacheService', `ensurePackagesInstalled: found ${packagesWithMeta.length} enabled Server packages`, packagesWithMeta.map(p => ({ name: p.name, status: p.status, id: p.id })));
 
-    const missing = packagesWithVersion.filter(
+    const candidates = packagesWithMeta.filter(
+      (pkg) => pkg.status === 'installed' || pkg.status === 'failed',
+    );
+    pkgLog('CacheService', `ensurePackagesInstalled: ${candidates.length} candidates (installed/failed only)`, candidates.map(p => p.name));
+
+    const missing = candidates.filter(
       (pkg) => !this.packageManagementService.isPackageInstalled(pkg.name),
     );
 
-    if (missing.length === 0) return;
+    pkgLog('CacheService', `ensurePackagesInstalled: ${missing.length} missing from node_modules`, missing.map(p => p.name));
+
+    if (missing.length === 0) {
+      pkgLog('CacheService', `ensurePackagesInstalled: nothing to do`);
+      return;
+    }
 
     this.logger.log(`${missing.length} packages missing, acquiring machine lock...`);
+    pkgLog('CacheService', `Acquiring machine lock for ${missing.length} packages...`);
+
+    for (const pkg of missing) {
+      await this.updatePackageStatus(pkg.id, 'installing', { lastError: null });
+    }
+
+    this.emitEvent('installing', {
+      packages: missing.map((p) => ({ id: p.id, name: p.name })),
+    });
+
     const locked = await this.packageManagementService.acquireMachineLock();
+    pkgLog('CacheService', `Machine lock acquired: ${locked}`);
     if (!locked) {
       this.logger.warn('Could not acquire machine lock, skipping package install');
+      for (const pkg of missing) {
+        await this.updatePackageStatus(pkg.id, 'failed', {
+          lastError: 'Could not acquire machine lock',
+        });
+      }
+      this.emitEvent('failed', {
+        packages: missing.map((p) => ({ id: p.id, name: p.name })),
+        error: 'Could not acquire machine lock',
+        operation: 'install',
+      });
       return;
     }
 
@@ -107,18 +189,87 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       const stillMissing = missing.filter(
         (pkg) => !this.packageManagementService.isPackageInstalled(pkg.name),
       );
+      pkgLog('CacheService', `After lock, stillMissing: ${stillMissing.length}`, stillMissing.map(p => p.name));
 
       if (stillMissing.length === 0) {
         this.logger.log('All packages already installed (by another instance)');
+        pkgLog('CacheService', `All installed by another instance`);
+        for (const pkg of missing) {
+          await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
+        }
+        await this.reload();
+        this.emitEvent('installed', {
+          packages: missing.map((p) => ({ id: p.id, name: p.name })),
+        });
         return;
       }
 
       this.logger.log(`Installing ${stillMissing.length} missing packages...`);
-      await this.packageManagementService.installBatch(stillMissing);
+      pkgLog('CacheService', `installBatch START`, stillMissing.map(p => ({ name: p.name, version: p.version, timeoutMs: (p.installTimeout || 60) * 1000 })));
 
-      await this.packageManagementService.renewMachineLock();
+      try {
+        await this.packageManagementService.installBatch(
+          stillMissing.map((p) => ({
+            name: p.name,
+            version: p.version,
+            timeoutMs: (p.installTimeout || 60) * 1000,
+          })),
+        );
+        pkgLog('CacheService', `installBatch OK`);
+
+        await this.packageManagementService.renewMachineLock();
+
+        for (const pkg of stillMissing) {
+          const isNowInstalled =
+            this.packageManagementService.isPackageInstalled(pkg.name);
+          pkgLog('CacheService', `Post-batch check: ${pkg.name} installed=${isNowInstalled}`);
+          if (isNowInstalled) {
+            await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
+            this.emitEvent('installed', { id: pkg.id, name: pkg.name });
+          } else {
+            await this.updatePackageStatus(pkg.id, 'failed', {
+              lastError: 'Package not found in node_modules after batch install',
+            });
+            this.emitEvent('failed', {
+              id: pkg.id,
+              name: pkg.name,
+              error: 'Package not found in node_modules after batch install',
+              operation: 'install',
+            });
+          }
+        }
+
+        await this.reload();
+        pkgLog('CacheService', `Cache reloaded after batch install`);
+      } catch (batchError) {
+        pkgLog('CacheService', `installBatch FAILED`, batchError.message);
+        this.logger.error(`Batch install failed: ${batchError.message}`);
+
+        for (const pkg of stillMissing) {
+          const isNowInstalled =
+            this.packageManagementService.isPackageInstalled(pkg.name);
+          pkgLog('CacheService', `Post-batch-fail check: ${pkg.name} installed=${isNowInstalled}`);
+          if (isNowInstalled) {
+            await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
+            this.emitEvent('installed', { id: pkg.id, name: pkg.name });
+          } else {
+            await this.updatePackageStatus(pkg.id, 'failed', {
+              lastError: batchError.message,
+            });
+            this.emitEvent('failed', {
+              id: pkg.id,
+              name: pkg.name,
+              error: batchError.message,
+              operation: 'install',
+            });
+          }
+        }
+
+        await this.reload();
+      }
     } finally {
       await this.packageManagementService.releaseMachineLock();
+      pkgLog('CacheService', `Machine lock released`);
     }
   }
 
@@ -140,6 +291,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       ? localPackages.filter((name) => allDbPackages.has(name) && !dbPackages.has(name))
       : [];
 
+    pkgLog('CacheService', `ensurePackagesCleanedUp: ${orphans.length} orphans`, orphans);
+
     if (orphans.length === 0) return;
 
     this.logger.log(`Found ${orphans.length} orphan packages to clean up: ${orphans.join(', ')}`);
@@ -149,6 +302,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
     try {
       await this.packageManagementService.uninstallOrphan(orphans);
+      pkgLog('CacheService', `Orphan cleanup OK`);
     } finally {
       await this.packageManagementService.releaseMachineLock();
     }
@@ -167,10 +321,12 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     }
   }
 
-  private async loadPackagesWithVersion(): Promise<Array<{ name: string; version: string }>> {
+  private async loadPackagesForSync(): Promise<
+    Array<{ id: string | number; name: string; version: string; installTimeout: number; status: string }>
+  > {
     const result = await this.queryBuilder.select({
       tableName: 'package_definition',
-      fields: ['name', 'version'],
+      fields: ['id', 'name', 'version', 'installTimeout', 'status'],
       filter: {
         isEnabled: true,
         type: 'Server',
@@ -178,8 +334,11 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     });
 
     return result.data.map((p: any) => ({
+      id: p.id || p._id,
       name: p.name,
       version: p.version || 'latest',
+      installTimeout: p.installTimeout || 60,
+      status: p.status || 'installed',
     }));
   }
 

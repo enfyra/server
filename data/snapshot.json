@@ -1765,6 +1765,30 @@
                 "isSystem": true,
                 "defaultValue": false,
                 "description": "Whether this is a core system package"
+            },
+            {
+                "name": "status",
+                "type": "enum",
+                "isNullable": false,
+                "isSystem": true,
+                "options": ["installing", "updating", "uninstalling", "installed", "failed"],
+                "defaultValue": "installed",
+                "description": "Current lifecycle status of the package"
+            },
+            {
+                "name": "installTimeout",
+                "type": "int",
+                "isNullable": false,
+                "isSystem": true,
+                "defaultValue": 60,
+                "description": "Install timeout in seconds"
+            },
+            {
+                "name": "lastError",
+                "type": "text",
+                "isNullable": true,
+                "isSystem": true,
+                "description": "Last error message from install/update/uninstall operation"
             }
         ],
         "relations": [

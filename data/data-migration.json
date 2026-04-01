@@ -14,7 +14,8 @@
   "route_definition": [
     {
       "_unique": { "path": { "_eq": "/package_definition" } },
-      "publishedMethods": ["GET"]
+      "publishedMethods": ["GET"],
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
     },
     {
       "_unique": { "path": { "_eq": "/auth/login" } },
