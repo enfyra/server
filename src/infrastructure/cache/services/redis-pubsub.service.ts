@@ -19,7 +19,16 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     try {
       this.pub = new Redis(this.redisUri);
-      this.sub = new Redis(this.redisUri);
+      this.sub = new Redis(this.redisUri, {
+        enableReadyCheck: false,
+      });
+
+      this.pub.on('error', (err) => {
+        console.error('[RedisPubSub] pub connection error:', err.message);
+      });
+      this.sub.on('error', (err) => {
+        console.error('[RedisPubSub] sub connection error:', err.message);
+      });
 
       await Promise.all([
         this.pub.ping(),
@@ -112,6 +121,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() {
     try {
       this.sub?.disconnect();
+      this.pub?.disconnect();
     } catch (error) {
       console.error('[RedisPubSub] Error during cleanup:', error);
     }
