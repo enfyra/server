@@ -357,7 +357,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
       const context = cascadeContextMap.get(tableName);
       if (!context) {
-        this.logger.log(`[afterUpdate] No cascade context found for table: ${tableName}`);
+        this.logger.debug(`[afterUpdate] No cascade context found for table: ${tableName}`);
         return result;
       }
 
