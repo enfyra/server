@@ -59,7 +59,7 @@ const consoleFormat = winston.format.combine(
 let crashTransport: DailyRotateFile | null = null;
 const getCrashTransport = (): DailyRotateFile => {
   if (!crashTransport) {
-    crashTransport = createRotateTransport('crash', undefined, '30d');
+    crashTransport = createRotateTransport('crash', undefined, '7d');
   }
   return crashTransport;
 };
@@ -85,8 +85,8 @@ const createRotateTransport = (
 };
 
 const transports: winston.transport[] = [
-  createRotateTransport('app', undefined, '14d'),
-  createRotateTransport('error', 'error', '30d'),
+  createRotateTransport('app', undefined, '7d'),
+  createRotateTransport('error', 'error', '14d'),
 ];
 
 const consoleTransport = new winston.transports.Console({

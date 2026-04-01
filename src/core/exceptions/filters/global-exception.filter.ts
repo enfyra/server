@@ -140,29 +140,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    const errorMessage = exception instanceof Error ? exception.message : String(exception);
+    const errorName = exception instanceof Error ? exception.name : 'UnknownError';
     const logData = {
       correlationId,
       method: request.method,
       url: request.url,
       statusCode,
-      userAgent: request.headers['user-agent'],
-      ip: request.ip,
+      errorName,
       userId: (request as any).user?.id,
-      error:
-        exception instanceof Error
-          ? {
-              name: exception.name,
-              message: exception.message,
-              stack: exception.stack,
-            }
-          : exception,
+      stack: exception instanceof Error ? exception.stack : undefined,
     };
     if (statusCode >= 500) {
-      this.logger.error({ message: 'Server Error', ...logData });
+      this.logger.error({ message: `[${statusCode}] ${errorMessage}`, ...logData });
     } else if (statusCode >= 400) {
-      this.logger.warn({ message: 'Client Error', ...logData });
+      this.logger.warn({ message: `[${statusCode}] ${errorMessage}`, ...logData });
     } else {
-      this.logger.log({ message: 'Other Error', ...logData });
+      this.logger.log({ message: `[${statusCode}] ${errorMessage}`, ...logData });
     }
   }
   private isGraphQLContext(host: ArgumentsHost): boolean {
