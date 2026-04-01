@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { TDynamicContext } from '../../../../shared/types';
-import { GetHintExecutorDependencies, HintContent } from '../../types';
+import { TDynamicContext } from '../../../shared/types';
+import { GetHintExecutorDependencies, HintContent } from '../types';
 
 const logger = new Logger('GetHintExecutor');
 

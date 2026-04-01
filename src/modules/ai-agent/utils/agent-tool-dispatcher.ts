@@ -5,23 +5,24 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { ConversationService } from '../services/conversation.service';
-import { executeGetTableDetails } from './executors/get-table-details.executor';
-import { executeGetHint } from './executors/get-hint.executor';
-import { executeCreateTables } from './executors/create-tables.executor';
-import { executeUpdateTables } from './executors/update-tables.executor';
-import { executeDeleteTables } from './executors/delete-tables.executor';
-import { executeUpdateTask } from './executors/update-task.executor';
-import { executeGetTask } from './executors/get-task.executor';
-import { executeDynamicRepository } from './executors/dynamic-repository.executor';
-import { executeBatchDynamicRepository } from './executors/batch-dynamic-repository.executor';
-import { executeRunHandlerTest } from './executors/run-handler-test.executor';
+import { executeGetTableDetails } from '../executors/get-table-details.executor';
+import { executeGetHint } from '../executors/get-hint.executor';
+import { executeCreateTables } from '../executors/create-tables.executor';
+import { executeUpdateTables } from '../executors/update-tables.executor';
+import { executeDeleteTables } from '../executors/delete-tables.executor';
+import { executeUpdateTask } from '../executors/update-task.executor';
+import { executeGetTask } from '../executors/get-task.executor';
+import { executeDynamicRepository } from '../executors/dynamic-repository.executor';
+import { executeBatchDynamicRepository } from '../executors/batch-dynamic-repository.executor';
+import { executeRunHandlerTest } from '../executors/run-handler-test.executor';
+import { executeGetEnfyraDoc } from '../executors/get-enfyra-doc.executor';
 
-export class ToolExecutor {
-  private readonly logger = new Logger(ToolExecutor.name);
+export class AgentToolDispatcher {
+  private readonly logger = new Logger(AgentToolDispatcher.name);
 
   constructor(
     private readonly metadataCacheService: MetadataCacheService,
@@ -29,7 +30,7 @@ export class ToolExecutor {
     private readonly tableHandlerService: TableHandlerService,
     private readonly queryEngine: QueryEngine,
     private readonly routeCacheService: RouteCacheService,
-    private readonly systemProtectionService: SystemProtectionService,
+    private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly conversationService: ConversationService,
     private readonly eventEmitter: EventEmitter2,
@@ -63,7 +64,7 @@ export class ToolExecutor {
       args = JSON.parse(argsStr);
     } catch (e: any) {
       this.logger.error(
-        `[ToolExecutor] Failed to parse args for ${name}`,
+        `[AgentToolDispatcher] Failed to parse args for ${name}`,
         {
           toolCallId: toolCall.id,
           toolName: name,
@@ -83,7 +84,7 @@ export class ToolExecutor {
       tableHandlerService: this.tableHandlerService,
       queryEngine: this.queryEngine,
       routeCacheService: this.routeCacheService,
-      systemProtectionService: this.systemProtectionService,
+      policyService: this.policyService,
       tableValidationService: this.tableValidationService,
       eventEmitter: this.eventEmitter,
     };
@@ -97,6 +98,9 @@ export class ToolExecutor {
           queryBuilder: this.queryBuilder,
         });
         break;
+      case 'get_enfyra_doc':
+        result = await executeGetEnfyraDoc(args);
+        break;
       case 'create_tables':
         result = await executeCreateTables(args, context, abortSignal, baseDeps);
         break;
@@ -104,7 +108,6 @@ export class ToolExecutor {
         result = await executeUpdateTables(args, context, abortSignal, baseDeps);
         break;
       case 'delete_tables':
-        this.logger.debug(`[ToolExecutor] DEBUG delete_tables: rawArgs=${argsStr}, parsedIds=${JSON.stringify(args?.ids)}`);
         result = await executeDeleteTables(args, context, abortSignal, baseDeps);
         break;
       case 'update_task':
@@ -118,9 +121,6 @@ export class ToolExecutor {
         });
         break;
       case 'find_records':
-        if (args?.table === 'table_definition') {
-          this.logger.debug(`[ToolExecutor] DEBUG find_records table_definition: filter=${JSON.stringify(args?.filter ?? args?.where)}, limit=${args?.limit}`);
-        }
         result = await executeDynamicRepository(
           { ...args, operation: 'find' },
           context,

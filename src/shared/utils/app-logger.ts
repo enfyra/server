@@ -3,13 +3,17 @@ import { winstonLogger, shouldLog } from './winston-logger';
 
 @Injectable()
 export class AppLogger implements LoggerService {
+  private extractObjectMessage(message: Record<string, any>, fallback: string): { msg: string; meta: Record<string, any> } {
+    const { message: msg, ...rest } = message;
+    return { msg: msg || fallback, meta: rest };
+  }
+
   log(message: any, context?: string) {
     if (!shouldLog(context)) return;
 
     if (typeof message === 'object' && message !== null) {
-      const msg = (message as Record<string, any>).message || 'Log';
-      const meta = { context, ...message };
-      winstonLogger.info(msg, meta);
+      const { msg, meta } = this.extractObjectMessage(message, 'Log');
+      winstonLogger.info(msg, { context, ...meta });
     } else {
       winstonLogger.info(String(message), { context });
     }
@@ -19,12 +23,11 @@ export class AppLogger implements LoggerService {
     if (!shouldLog(context)) return;
 
     if (typeof message === 'object' && message !== null) {
-      const msg = (message as Record<string, any>).message || 'Error';
-      const meta = { context, ...message };
-      winstonLogger.error(msg, meta);
+      const { msg, meta } = this.extractObjectMessage(message, 'Error');
+      winstonLogger.error(msg, { context, ...meta });
     } else if (trace && typeof trace === 'object') {
-      const meta = { context, ...(trace as Record<string, any>) };
-      winstonLogger.error(String(message), meta);
+      const { message: _msg, ...rest } = trace as Record<string, any>;
+      winstonLogger.error(String(message), { context, ...rest });
     } else {
       winstonLogger.error(String(message), { context, trace });
     }
@@ -34,9 +37,8 @@ export class AppLogger implements LoggerService {
     if (!shouldLog(context)) return;
 
     if (typeof message === 'object' && message !== null) {
-      const msg = (message as Record<string, any>).message || 'Warning';
-      const meta = { context, ...message };
-      winstonLogger.warn(msg, meta);
+      const { msg, meta } = this.extractObjectMessage(message, 'Warning');
+      winstonLogger.warn(msg, { context, ...meta });
     } else {
       winstonLogger.warn(String(message), { context });
     }
@@ -46,9 +48,8 @@ export class AppLogger implements LoggerService {
     if (!shouldLog(context)) return;
 
     if (typeof message === 'object' && message !== null) {
-      const msg = (message as Record<string, any>).message || 'Debug';
-      const meta = { context, ...message };
-      winstonLogger.debug(msg, meta);
+      const { msg, meta } = this.extractObjectMessage(message, 'Debug');
+      winstonLogger.debug(msg, { context, ...meta });
     } else {
       winstonLogger.debug(String(message), { context });
     }
@@ -58,9 +59,8 @@ export class AppLogger implements LoggerService {
     if (!shouldLog(context)) return;
 
     if (typeof message === 'object' && message !== null) {
-      const msg = (message as Record<string, any>).message || 'Verbose';
-      const meta = { context, ...message };
-      winstonLogger.verbose(msg, meta);
+      const { msg, meta } = this.extractObjectMessage(message, 'Verbose');
+      winstonLogger.verbose(msg, { context, ...meta });
     } else {
       winstonLogger.verbose(String(message), { context });
     }
@@ -70,12 +70,11 @@ export class AppLogger implements LoggerService {
     if (!shouldLog(context)) return;
 
     if (typeof message === 'object' && message !== null) {
-      const msg = (message as Record<string, any>).message || 'Fatal';
-      const meta = { context, fatal: true, ...message };
-      winstonLogger.error(msg, meta);
+      const { msg, meta } = this.extractObjectMessage(message, 'Fatal');
+      winstonLogger.error(msg, { context, fatal: true, ...meta });
     } else if (trace && typeof trace === 'object') {
-      const meta = { context, fatal: true, ...(trace as Record<string, any>) };
-      winstonLogger.error(String(message), meta);
+      const { message: _msg, ...rest } = trace as Record<string, any>;
+      winstonLogger.error(String(message), { context, fatal: true, ...rest });
     } else {
       winstonLogger.error(String(message), { context, trace, fatal: true });
     }

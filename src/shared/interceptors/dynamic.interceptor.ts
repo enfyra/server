@@ -26,9 +26,9 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
         try {
           const code = hook.code;
           const preHookTimeout = hook.timeout !== null && hook.timeout !== undefined
-            ? hook.timeout
-            : this.configService.get<number>('DEFAULT_PREHOOK_TIMEOUT');
-          if (preHookTimeout === null || preHookTimeout === undefined) {
+            ? Number(hook.timeout)
+            : Number(this.configService.get('DEFAULT_PREHOOK_TIMEOUT') ?? 30000);
+          if (!preHookTimeout) {
             throw new Error('PreHook timeout must be set either in hook definition (timeout) or in environment variable (DEFAULT_PREHOOK_TIMEOUT)');
           }
           const result = await this.handlerExecurtorService.run(
@@ -69,9 +69,9 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             try {
               const code = hook.code;
               const postHookTimeout = hook.timeout !== null && hook.timeout !== undefined
-                ? hook.timeout
-                : this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT');
-              if (postHookTimeout === null || postHookTimeout === undefined) {
+                ? Number(hook.timeout)
+                : Number(this.configService.get('DEFAULT_AFTERHOOK_TIMEOUT') ?? 30000);
+              if (!postHookTimeout) {
                 throw new Error('PostHook timeout must be set either in hook definition (timeout) or in environment variable (DEFAULT_AFTERHOOK_TIMEOUT)');
               }
               req.routeData.context.$data = data;
@@ -115,9 +115,9 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
             try {
               const code = hook.code;
               const postHookTimeout = hook.timeout !== null && hook.timeout !== undefined
-                ? hook.timeout
-                : this.configService.get<number>('DEFAULT_AFTERHOOK_TIMEOUT');
-              if (postHookTimeout === null || postHookTimeout === undefined) {
+                ? Number(hook.timeout)
+                : Number(this.configService.get('DEFAULT_AFTERHOOK_TIMEOUT') ?? 30000);
+              if (!postHookTimeout) {
                 throw new Error('PostHook timeout must be set either in hook definition (timeout) or in environment variable (DEFAULT_AFTERHOOK_TIMEOUT)');
               }
               req.routeData.context.$data = null;

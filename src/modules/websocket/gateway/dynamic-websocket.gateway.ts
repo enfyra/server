@@ -1,12 +1,9 @@
 import {
   WebSocketGateway,
   WebSocketServer,
-  SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
   OnGatewayInit,
-  ConnectedSocket,
-  MessageBody,
 } from '@nestjs/websockets';
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -16,10 +13,12 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
+import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { WEBSOCKET_CACHE_SYNC_EVENT_KEY, SYSTEM_QUEUES } from '../../../shared/utils/constant';
 interface SocketData extends Socket {
   data: {
@@ -46,6 +45,7 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     private readonly eventQueue: Queue,
     private readonly websocketCache: WebsocketCacheService,
     private readonly redisPubSubService: RedisPubSubService,
+    private readonly builtInRegistry: BuiltInSocketRegistry,
   ) {
     this.jwtService = new JwtService({
       secret: this.configService.get('SECRET_KEY'),
@@ -151,7 +151,8 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
         return next(new Error('Gateway not configured'));
       }
       if (gateway.requireAuth) {
-        const { token } = socket.handshake.auth;
+        const authHeader = socket.handshake.headers?.authorization;
+        const token = socket.handshake.auth?.token || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null);
         if (!token) {
           const err = new Error('Authentication token required');
           (err as any).data = { code: 'AUTH_REQUIRED', path };
@@ -191,9 +192,8 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
         socket.disconnect(true);
         return;
       }
-      const userId = socket.data.userId || socket.id;
-      this.logger.debug(`Client connected to ${gatewayData.path}: ${socket.id} (user: ${userId})`);
-      if (gatewayData.connectionHandlerScript) {
+      const connectionScript = this.builtInRegistry.getConnectionScript(path) ?? gatewayData.connectionHandlerScript;
+      if (connectionScript) {
         try {
           await this.connectionQueue.add(
             `${gatewayData.path}:${socket.id}`,
@@ -207,7 +207,7 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
               },
               gatewayId: gatewayData.id,
               gatewayPath: gatewayData.path,
-              script: gatewayData.connectionHandlerScript,
+              script: connectionScript,
               timeout: gatewayData.connectionHandlerTimeout,
             },
             {
@@ -230,23 +230,34 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       }
       const roomName = socket.data.userId ? `user_${socket.data.userId}` : `user_${socket.id}`;
       socket.join(roomName);
-      this.logger.debug(`Socket ${socket.id} joined room ${roomName}`);
       for (const event of gatewayData.events) {
         const eventName = event.eventName;
-        socket.on(eventName, async (payload) => {
-          this.logger.debug(`Event ${eventName} received from ${socket.id} on ${gatewayData.path}`);
+        socket.on(eventName, async (payload, ack) => {
+          const requestId = randomUUID();
+          if (typeof ack === 'function') {
+            ack({ queued: true, requestId, eventName });
+          }
           try {
-            const freshGateway = await this.websocketCache.getGatewayByPath(gatewayData.path);
-            const freshEvent = freshGateway?.events?.find((e: any) => e.eventName === eventName);
-            const script = freshEvent?.handlerScript ?? event.handlerScript;
+            const builtInScript = this.builtInRegistry.getEventScript(path, eventName);
+            let script = builtInScript;
+            let freshEvent: any = event;
+            if (!script) {
+              const freshGateway = await this.websocketCache.getGatewayByPath(gatewayData.path);
+              freshEvent = freshGateway?.events?.find((e: any) => e.eventName === eventName) ?? event;
+              script = freshEvent?.handlerScript ?? event.handlerScript;
+            }
 
             if (!script) {
               this.logger.warn(`No handler for event ${eventName} on ${gatewayData.path}`);
+              if (typeof ack === 'function') {
+                ack({ queued: false, requestId, eventName, error: { code: 'NO_HANDLER', message: 'No handler configured' } });
+              }
               return;
             }
             await this.eventQueue.add(
               `ws-event-${gatewayData.id}-${eventName}`,
               {
+                requestId,
                 socketId: socket.id,
                 userId: socket.data.userId || null,
                 eventName,
@@ -271,18 +282,18 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
             );
           } catch (error) {
             this.logger.error(`Event handler failed for ${eventName}:`, error);
-            socket.emit('error', { event: eventName, message: error.message });
+            if (typeof ack === 'function') {
+              ack({ queued: false, requestId, eventName, error: { code: 'QUEUE_ERROR', message: error?.message || 'Failed to queue event' } });
+            }
+            socket.emit('ws:error', { requestId, eventName, code: 'QUEUE_ERROR', message: error?.message || 'Failed to queue event' });
           }
         });
       }
-      socket.on('disconnect', () => {
-        this.logger.debug(`Client disconnected from ${gatewayData.path}: ${socket.id}`);
-      });
     });
   }
-  async handleConnection(client: Socket) {
+  async handleConnection(_client: Socket) {
   }
-  async handleDisconnect(client: Socket) {
+  async handleDisconnect(_client: Socket) {
   }
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
@@ -296,23 +307,18 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     this.logger.log(`Gateways reloaded. Total registered: ${this.registeredGateways.size}`);
   }
   emitToUser(userId: number | string, event: string, data: any) {
-    this.logger.debug(`Emitting to user_${userId}: ${event} ${JSON.stringify(data)}`);
     this.server.to(`user_${userId}`).emit(event, data);
   }
   emitToRoom(room: string, event: string, data: any) {
-    this.logger.debug(`Emitting to room ${room}: ${event} ${JSON.stringify(data)}`);
     this.server.to(room).emit(event, data);
   }
   emitToNamespace(path: string, event: string, data: any) {
-    this.logger.debug(`Emitting to namespace ${path}: ${event} ${JSON.stringify(data)}`);
     this.server.of(path).emit(event, data);
   }
   emitToSocket(path: string, socketId: string, event: string, data: any) {
-    this.logger.debug(`Emitting to socket ${socketId} on ${path}: ${event}`);
     this.server.of(path).to(socketId).emit(event, data);
   }
   emitToAll(event: string, data: any) {
-    this.logger.debug(`Emitting to all: ${event} ${JSON.stringify(data)}`);
     this.server.emit(event, data);
   }
 }

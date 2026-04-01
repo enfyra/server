@@ -6,8 +6,12 @@
     "deleteOutDir": true,
     "assets": [
       {
-        "include": "**/*.json", 
-        "exclude": "**/node_modules/**" 
+        "include": "**/*.json",
+        "exclude": "**/node_modules/**"
+      },
+      {
+        "include": "infrastructure/handler-executor/workers/*.js",
+        "outDir": "dist/src"
       },
       {
         "include": "data/**/*",

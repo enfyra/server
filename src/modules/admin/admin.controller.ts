@@ -2,13 +2,14 @@ import { Controller, Post, Param, Body, Logger } from '@nestjs/common';
 import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
 import { GraphqlService } from '../graphql/services/graphql.service';
-import { DatabaseSchemaService } from '../../infrastructure/knex/services/database-schema.service';
-import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
-import { SqlSchemaMigrationService } from '../../infrastructure/knex/services/sql-schema-migration.service';
-import { MongoSchemaMigrationService } from '../../infrastructure/mongo/services/mongo-schema-migration.service';
-import { MongoService } from '../../infrastructure/mongo/services/mongo.service';
-import { dropForeignKeyIfExists } from '../../infrastructure/knex/utils/migration/foreign-key-operations';
 import { FlowService } from '../flow/services/flow.service';
+import { HandlerExecutorService } from '../../infrastructure/handler-executor/services/handler-executor.service';
+import { RepoRegistryService } from '../../infrastructure/cache/services/repo-registry.service';
+import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
+import { transformCode } from '../../infrastructure/handler-executor/code-transformer';
+import { createFetchHelper } from '../../shared/helpers/fetch.helper';
+import { TDynamicContext } from '../../shared/types';
+
 @Controller('admin')
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
@@ -16,29 +17,19 @@ export class AdminController {
     private readonly metadataCacheService: MetadataCacheService,
     private readonly routeCacheService: RouteCacheService,
     private readonly graphqlService: GraphqlService,
-    private readonly databaseSchemaService: DatabaseSchemaService,
-    private readonly queryBuilderService: QueryBuilderService,
-    private readonly sqlSchemaMigrationService: SqlSchemaMigrationService,
-    private readonly mongoSchemaMigrationService: MongoSchemaMigrationService,
-    private readonly mongoService: MongoService,
     private readonly flowService: FlowService,
+    private readonly handlerExecutorService: HandlerExecutorService,
+    private readonly repoRegistryService: RepoRegistryService,
   ) {}
   @Post('reload')
   async reloadAll() {
     const startTime = Date.now();
-    this.logger.log('Starting full reload of metadata, routes, and GraphQL...');
     try {
-      this.logger.log('Reloading metadata cache...');
       await this.metadataCacheService.reload();
-      this.logger.log('✓ Metadata cache reloaded');
-      this.logger.log('Reloading routes cache...');
       await this.routeCacheService.reload();
-      this.logger.log('✓ Routes cache reloaded');
-      this.logger.log('Reloading GraphQL schema...');
       await this.graphqlService.reloadSchema();
-      this.logger.log('✓ GraphQL schema reloaded');
       const duration = Date.now() - startTime;
-      this.logger.log(`Full reload completed in ${duration}ms`);
+      this.logger.log(`Admin reload: metadata, routes, graphql OK (${duration}ms)`);
       return {
         success: true,
         message: 'All caches and schemas reloaded successfully',
@@ -52,217 +43,26 @@ export class AdminController {
   }
   @Post('reload/metadata')
   async reloadMetadata() {
-    this.logger.log('Reloading metadata cache...');
     await this.metadataCacheService.reload();
     return { success: true, message: 'Metadata cache reloaded' };
   }
   @Post('reload/routes')
   async reloadRoutes() {
-    this.logger.log('Reloading routes cache...');
     await this.routeCacheService.reload();
     return { success: true, message: 'Routes cache reloaded' };
   }
   @Post('reload/graphql')
   async reloadGraphQL() {
-    this.logger.log('Reloading GraphQL schema...');
     await this.graphqlService.reloadSchema();
     return { success: true, message: 'GraphQL schema reloaded' };
   }
-  @Post('metadata-sync/:id')
-  async syncMetadata(@Param('id') tableId: string | number) {
-    this.logger.log(`Syncing table ID: ${tableId} using metadata as source of truth...`);
-    try {
-      const dbType = this.queryBuilderService.getDatabaseType();
-      const tableDef = await this.queryBuilderService.findOneWhere('table_definition', { id: tableId });
-      if (!tableDef) {
-        throw new Error(`Table with ID ${tableId} not found in metadata`);
-      }
-      const tableName = tableDef.name;
-      this.logger.log(`Table name: ${tableName}, DB type: ${dbType}`);
-      const metadata = await this.metadataCacheService.lookupTableByName(tableName);
-      if (!metadata) {
-        throw new Error(`Table ${tableName} not found in metadata`);
-      }
-      if (dbType === 'mongodb') {
-        const db = this.mongoService.getDb();
-        const collections = await db.listCollections({ name: tableName }).toArray();
-        const collectionExists = collections.length > 0;
-        this.logger.log(`Metadata: ${metadata.columns.length} columns, ${metadata.relations.length} relations`);
-        if (!collectionExists) {
-          await this.mongoSchemaMigrationService.createCollection(metadata);
-          this.logger.log(`Created collection ${tableName} from metadata`);
-        } else {
-          const oldMetadata = { columns: [] };
-          await this.mongoSchemaMigrationService.updateCollection(tableName, oldMetadata, metadata);
-          this.logger.log(`Updated collection ${tableName} from metadata`);
-        }
-        await this.metadataCacheService.reload();
-        return {
-          success: true,
-          message: `Physical database synced from metadata: ${tableName}`,
-          tableId: tableId,
-          tableName: tableName,
-          columns: metadata.columns.length,
-          relations: metadata.relations.length,
-        };
-      }
-      const physicalSchema = await this.databaseSchemaService.getActualTableSchema(tableName);
-      this.logger.log(`Metadata: ${metadata.columns.length} columns, ${metadata.relations.length} relations`);
-      if (physicalSchema) {
-        this.logger.log(`Physical: ${physicalSchema.columns.length} columns, ${physicalSchema.relations.length} relations`);
-      }
-      const deletedItems: { columns: string[], relations: string[], junctionTables: string[] } = {
-        columns: [],
-        relations: [],
-        junctionTables: [],
-      };
-      if (physicalSchema) {
-        const metadataColumnNames = new Set(metadata.columns.map(c => c.name));
-        const metadataRelationFks = new Set(
-          metadata.relations
-            .filter(r => r.type !== 'many-to-many')
-            .map(r => r.foreignKeyColumn || `${r.propertyName}Id`)
-        );
-        const metadataJunctionTables = new Set(
-          metadata.relations
-            .filter(r => r.type === 'many-to-many' && r.junctionTableName)
-            .map(r => r.junctionTableName!)
-        );
-        const systemColumnNames = new Set(
-          metadata.columns.filter(c => c.isSystem === true).map(c => c.name)
-        );
-        for (const col of physicalSchema.columns) {
-          if (!metadataColumnNames.has(col.name) && !systemColumnNames.has(col.name)) {
-            deletedItems.columns.push(col.name);
-            this.logger.log(`  Will delete column: ${col.name} (not in metadata)`);
-          }
-        }
-        for (const rel of physicalSchema.relations) {
-          const fkColumn = rel.foreignKeyColumn || `${rel.propertyName}Id`;
-          if (!metadataRelationFks.has(fkColumn)) {
-            deletedItems.relations.push(fkColumn);
-            this.logger.log(`  Will delete FK column: ${fkColumn} (not in metadata)`);
-          }
-        }
-        const allTables = await this.queryBuilderService.findWhere('table_definition', {});
-        const validTableNames = new Set(allTables.map((t: any) => t.name));
-        const qt = (id: string) => {
-          if (dbType === 'mysql') return `\`${id}\``;
-          return `"${id}"`;
-        };
-        const infoSchema = dbType === 'postgres' ? 'information_schema' : 'INFORMATION_SCHEMA';
-        const tableSchemaCol = dbType === 'postgres' ? 'table_schema' : 'TABLE_SCHEMA';
-        const tableNameCol = dbType === 'postgres' ? 'table_name' : 'TABLE_NAME';
-        const columnNameCol = dbType === 'postgres' ? 'column_name' : 'COLUMN_NAME';
-        for (const colName of deletedItems.columns) {
-          try {
-            await this.sqlSchemaMigrationService.dropColumnDirectly(tableName, colName);
-            this.logger.log(`  Deleted column: ${colName}`);
-          } catch (error) {
-            this.logger.error(`  Failed to delete column ${colName}:`, error.message);
-          }
-        }
-        const knex = this.queryBuilderService.getKnex();
-        for (const fkColumn of deletedItems.relations) {
-          try {
-            await dropForeignKeyIfExists(knex, tableName, fkColumn, dbType);
-            await this.sqlSchemaMigrationService.dropColumnDirectly(tableName, fkColumn);
-            this.logger.log(`  Deleted FK column: ${fkColumn}`);
-          } catch (error) {
-            this.logger.error(`  Failed to delete FK column ${fkColumn}:`, error.message);
-          }
-        }
-        const schemaName = dbType === 'postgres' ? 'public' : knex.client.database();
-        const allPhysicalTables = await knex.raw(`
-          SELECT ${tableNameCol}
-          FROM ${infoSchema}.tables
-          WHERE ${tableSchemaCol} = ?
-        `, [schemaName]);
-        const physicalJunctionTables = (dbType === 'postgres'
-          ? allPhysicalTables.rows
-          : allPhysicalTables[0])
-          .map((t: any) => t[tableNameCol] || t.TABLE_NAME)
-          .filter((name: string) => {
-            if (validTableNames.has(name)) return false;
-            if (name.startsWith('j_')) return true;
-            if (name.includes('_junction_') || name.includes('junction_table')) return true;
-            const parts = name.split('_');
-            if (parts.length >= 3) {
-              const firstPart = parts[0];
-              const lastPart = parts[parts.length - 1];
-              if (validTableNames.has(firstPart) || validTableNames.has(lastPart)) return true;
-              if (name.includes(tableName)) return true;
-            }
-            return false;
-          });
-        for (const junctionTable of physicalJunctionTables) {
-          if (metadataJunctionTables.has(junctionTable)) {
-            continue;
-          }
-          const junctionColumns = await knex(`${infoSchema}.columns`)
-            .select(columnNameCol)
-            .where(tableSchemaCol, schemaName)
-            .where(tableNameCol, junctionTable);
-          const columnNames = junctionColumns.map((c: any) => c[columnNameCol] || c.COLUMN_NAME);
-          const normalizedTableName = tableName.toLowerCase();
-          const hasSourceFk = columnNames.some((col: string) => {
-            const normalizedCol = col.toLowerCase();
-            return normalizedCol.includes(normalizedTableName) ||
-                   normalizedCol.endsWith(`${normalizedTableName}_id`) ||
-                   normalizedCol.endsWith(`${normalizedTableName}id`);
-          });
-          if (hasSourceFk) {
-            deletedItems.junctionTables.push(junctionTable);
-            this.logger.log(`  Will delete junction table: ${junctionTable} (not in metadata)`);
-            try {
-              await this.sqlSchemaMigrationService.dropTable(junctionTable);
-              this.logger.log(`  Deleted junction table: ${junctionTable}`);
-            } catch (error) {
-              this.logger.error(`  Failed to delete junction table ${junctionTable}:`, error.message);
-            }
-          }
-        }
-      }
-      if (!physicalSchema) {
-        await this.sqlSchemaMigrationService.createTable(metadata);
-        this.logger.log(`Created table ${tableName} from metadata`);
-      } else {
-        const physicalSchemaForDiff = {
-          ...physicalSchema,
-          indexes: metadata.indexes || [],
-          uniques: metadata.uniques || [],
-        };
-        await this.sqlSchemaMigrationService.updateTable(tableName, physicalSchemaForDiff, metadata);
-        this.logger.log(`Updated table ${tableName} from metadata`);
-      }
-      await this.metadataCacheService.reload();
-      return {
-        success: true,
-        message: `Physical database synced from metadata: ${tableName}`,
-        tableId: tableId,
-        tableName: tableName,
-        columns: metadata.columns.length,
-        relations: metadata.relations.length,
-        deleted: deletedItems.columns.length > 0 || deletedItems.relations.length > 0 || deletedItems.junctionTables.length > 0 ? deletedItems : undefined,
-      };
-    } catch (error) {
-      this.logger.error(`Error syncing table ${tableId}:`, error);
-      throw error;
-    }
-  }
   @Post('flow/test-step')
   async testFlowStep(@Body() body: any) {
-    this.logger.log(`Testing flow step type=${body?.type}...`);
-    const result = await this.flowService.testStep(
-      { type: body.type, config: body.config, timeout: body.timeout },
-      body.mockFlow,
-    );
-    return result;
+    return this.runTest({ kind: 'flow_step', ...body });
   }
 
   @Post('flow/trigger/:id')
   async triggerFlow(@Param('id') flowId: string, @Body() body?: any) {
-    this.logger.log(`Triggering flow ${flowId}...`);
     const result = await this.flowService.trigger(flowId, body?.payload || {}, body?.user || null);
     return {
       success: true,
@@ -270,5 +70,198 @@ export class AdminController {
       jobId: result.jobId,
       flowId: result.flowId,
     };
+  }
+
+  @Post('websocket/test-event')
+  async testWebsocketEvent(@Body() body: any) {
+    return this.runTest({ kind: 'websocket_event', ...body });
+  }
+
+  @Post('test/run')
+  async runTest(@Body() body: any) {
+    const kind = String(body?.kind || '').trim();
+
+    if (kind === 'flow_step') {
+      return this.flowService.testStep(
+        { type: body.type, config: body.config, timeout: body.timeout },
+        body.mockFlow,
+      );
+    }
+
+    if (kind === 'websocket_event') {
+      const script = String(body?.script || '').trim();
+      const gatewayPath = String(body?.gatewayPath || body?.path || '/__ws_test__').trim();
+      const eventName = String(body?.eventName || '').trim();
+      const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
+      const payload = body?.payload ?? body?.body ?? {};
+      const user = body?.user ?? null;
+      const headers = body?.headers ?? {};
+
+      if (!eventName) {
+        return { success: false, error: { code: 'MISSING_EVENT_NAME', message: 'eventName is required' } };
+      }
+      if (!script) {
+        return { success: false, error: { code: 'MISSING_SCRIPT', message: 'script is required' } };
+      }
+
+      const emitted: Array<{ target: 'socket' | 'namespace' | 'room'; room?: string; event: string; data: any }> = [];
+      const socketProxy = {
+        emit: (event: string, data: any) => emitted.push({ target: 'namespace', event, data }),
+        send: (event: string, data: any) => emitted.push({ target: 'socket', event, data }),
+        join: (room: string) => emitted.push({ target: 'room', room, event: 'join', data: null }),
+        leave: (room: string) => emitted.push({ target: 'room', room, event: 'leave', data: null }),
+        to: (room: string) => ({
+          emit: (event: string, data: any) => emitted.push({ target: 'room', room, event, data }),
+        }),
+        close: () => {},
+        rooms: new Set<string>(),
+      };
+
+      const ctx: TDynamicContext = {
+        $body: payload || {},
+        $data: payload || {},
+        $statusCode: undefined,
+        $throw: ScriptErrorFactory.createThrowHandlers(),
+        $helpers: {
+          $fetch: createFetchHelper(),
+        },
+        $cache: {},
+        $params: {},
+        $query: {},
+        $user: user,
+        $repos: {},
+        $req: {
+          method: 'WS_EVENT_TEST',
+          url: `${gatewayPath}/${eventName}`,
+          headers,
+          user,
+        } as any,
+        $share: { $logs: [] },
+        $api: {
+          request: {
+            method: 'WS_EVENT_TEST',
+            url: `${gatewayPath}/${eventName}`,
+            timestamp: new Date().toISOString(),
+            correlationId: `ws_test_${Date.now()}`,
+          },
+        },
+        $socket: socketProxy as any,
+      };
+
+      ctx.$logs = (...args: any[]) => {
+        ctx.$share?.$logs?.push(...args);
+      };
+
+      ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
+
+      try {
+        const transformed = transformCode(script);
+        const result = await this.handlerExecutorService.run(transformed, ctx, timeoutMs);
+        return {
+          success: true,
+          result,
+          logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
+          emitted,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: {
+            code: error?.errorCode || error?.code || 'TEST_FAILED',
+            message: error?.message || 'Test failed',
+            details: error?.details,
+          },
+          logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
+          emitted,
+        };
+      }
+    }
+
+    if (kind === 'websocket_connection') {
+      const script = String(body?.script || '').trim();
+      const gatewayPath = String(body?.gatewayPath || body?.path || '/__ws_test__').trim();
+      const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
+      const payload = body?.payload ?? body?.body ?? {};
+      const user = body?.user ?? null;
+      const headers = body?.headers ?? {};
+
+      if (!script) {
+        return { success: false, error: { code: 'MISSING_SCRIPT', message: 'script is required' } };
+      }
+
+      const emitted: Array<{ target: 'socket' | 'namespace' | 'room'; room?: string; event: string; data: any }> = [];
+      const socketProxy = {
+        emit: (event: string, data: any) => emitted.push({ target: 'socket', event, data }),
+        send: (event: string, data: any) => emitted.push({ target: 'socket', event, data }),
+        join: (room: string) => emitted.push({ target: 'room', room, event: 'join', data: null }),
+        leave: (room: string) => emitted.push({ target: 'room', room, event: 'leave', data: null }),
+        to: (room: string) => ({
+          emit: (event: string, data: any) => emitted.push({ target: 'room', room, event, data }),
+        }),
+        close: () => {},
+        rooms: new Set<string>(),
+      };
+
+      const ctx: TDynamicContext = {
+        $body: payload || {},
+        $data: payload || {},
+        $statusCode: undefined,
+        $throw: ScriptErrorFactory.createThrowHandlers(),
+        $helpers: {
+          $fetch: createFetchHelper(),
+        },
+        $cache: {},
+        $params: {},
+        $query: {},
+        $user: user,
+        $repos: {},
+        $req: {
+          method: 'WS_CONNECT_TEST',
+          url: gatewayPath,
+          headers,
+          user,
+        } as any,
+        $share: { $logs: [] },
+        $api: {
+          request: {
+            method: 'WS_CONNECT_TEST',
+            url: gatewayPath,
+            timestamp: new Date().toISOString(),
+            correlationId: `ws_connect_test_${Date.now()}`,
+          },
+        },
+        $socket: socketProxy as any,
+      };
+
+      ctx.$logs = (...args: any[]) => {
+        ctx.$share?.$logs?.push(...args);
+      };
+
+      ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
+
+      try {
+        const transformed = transformCode(script);
+        const result = await this.handlerExecutorService.run(transformed, ctx, timeoutMs);
+        return {
+          success: true,
+          result,
+          logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
+          emitted,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: {
+            code: error?.errorCode || error?.code || 'TEST_FAILED',
+            message: error?.message || 'Test failed',
+            details: error?.details,
+          },
+          logs: ctx.$share?.$logs?.length ? ctx.$share.$logs : [],
+          emitted,
+        };
+      }
+    }
+
+    return { success: false, error: { code: 'INVALID_TEST_KIND', message: 'Invalid test kind' } };
   }
 }

@@ -1,31 +1,64 @@
 import {
   Controller,
   Post,
-  Get,
   Patch,
   Delete,
   Param,
   Req,
   Logger,
 } from '@nestjs/common';
-import { PackageManagementService } from '../services/package-management.service';
 import { RequestWithRouteData } from '../../../shared/types';
 import {
   ValidationException,
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
+import { PackageCdnLoaderService } from '../../../infrastructure/cache/services/package-cdn-loader.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DynamicWebSocketGateway } from '../../websocket/gateway/dynamic-websocket.gateway';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+const SYSTEM_EVENT_PREFIX = '$system:package';
 
 @Controller('package_definition')
 export class PackageController {
   private readonly logger = new Logger(PackageController.name);
 
   constructor(
-    private packageManagementService: PackageManagementService,
     private packageCacheService: PackageCacheService,
+    private cdnLoader: PackageCdnLoaderService,
     private queryBuilder: QueryBuilderService,
+    private websocketGateway: DynamicWebSocketGateway,
   ) {}
+
+  private emitEvent(event: string, data: any) {
+    try {
+      this.websocketGateway.emitToNamespace(
+        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+        `${SYSTEM_EVENT_PREFIX}:${event}`,
+        data,
+      );
+    } catch (error) {
+      this.logger.warn(`Failed to emit WS event ${event}: ${error.message}`);
+    }
+  }
+
+  private async updateStatus(
+    id: string | number,
+    status: string,
+    extra?: Record<string, any>,
+  ) {
+    try {
+      await this.queryBuilder.update({
+        table: 'package_definition',
+        where: [{ field: 'id', operator: '=', value: id }],
+        data: { status, ...extra },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to update status to ${status} for package ${id}: ${error.message}`,
+      );
+    }
+  }
 
   @Post()
   async installPackage(@Req() req: RequestWithRouteData) {
@@ -59,82 +92,63 @@ export class PackageController {
       );
     }
 
-    try {
-      if (body.type === 'App') {
-        const savedPackage = await this.queryBuilder.insertAndGet('package_definition', {
-          ...body,
-          version: body.version || '1.0.0',
-          description: body.description || '',
-          isSystem: false,
-        });
-
-        await this.packageCacheService.reload();
-
-        const savedPackageId = savedPackage.id || savedPackage._id;
-        const result = await packageRepo.find({
-          where: { id: { _eq: savedPackageId } },
-        });
-
-        return result;
-      }
-
-      const isAlreadyInstalled =
-        await this.packageManagementService.isPackageInstalled(body.name);
-      this.logger.log(
-        `Package "${body.name}" check result: isAlreadyInstalled = ${isAlreadyInstalled}`,
-      );
-
-      let installationResult;
-
-      if (isAlreadyInstalled) {
-        this.logger.log(
-          `Package "${body.name}" already exists in node_modules, skipping npm install`,
-        );
-        installationResult = await this.packageManagementService.getPackageInfo(
-          body.name,
-        );
-      } else {
-        this.logger.log(
-          `Package "${body.name}" not found in node_modules, proceeding with installation`,
-        );
-        installationResult = await this.packageManagementService.installPackage(
-          {
-            name: body.name,
-            type: body.type,
-            version: body.version || 'latest',
-            flags: body.flags || '',
-          },
-        );
-      }
-
-      try {
-        require(body.name);
-        this.logger.log(`Package "${body.name}" successfully required`);
-      } catch (requireError) {
-        throw new ValidationException(
-          `Package registration failed - unable to require: ${requireError.message}. The package may not be properly installed.`,
-        );
-      }
-
-      const savedPackage = await this.queryBuilder.insertAndGet('package_definition', {
+    const userId = req.routeData?.context?.$user?.id;
+    const savedPackage = await this.queryBuilder.insertAndGet(
+      'package_definition',
+      {
         ...body,
-        version: installationResult.version,
-        description: body.description || installationResult.description || '',
-        isSystem: isAlreadyInstalled ? true : false,
-      });
+        version: body.version || 'latest',
+        description: body.description || '',
+        isSystem: body.isSystem || false,
+        status: 'installing',
+        lastError: null,
+        ...(userId ? { installedBy: { id: userId } } : {}),
+      },
+    );
 
+    const savedPackageId = savedPackage.id || savedPackage._id;
+
+    this.emitEvent('installing', {
+      id: savedPackageId,
+      name: body.name,
+      version: body.version || 'latest',
+    });
+
+    if (body.type === 'Server') {
+      this.executeCdnLoad(savedPackageId, body.name, body.version || 'latest').catch((error) => {
+        this.logger.error(`CDN load failed for ${body.name}: ${error.message}`);
+      });
+    } else {
+      await this.updateStatus(savedPackageId, 'installed');
+      this.emitEvent('installed', {
+        id: savedPackageId,
+        name: body.name,
+        version: body.version || 'latest',
+      });
+    }
+
+    return packageRepo.find({ where: { id: { _eq: savedPackageId } } });
+  }
+
+  private async executeCdnLoad(id: string | number, name: string, version: string) {
+    try {
+      await this.cdnLoader.loadPackage(name, version);
+
+      await this.updateStatus(id, 'installed', { lastError: null });
       await this.packageCacheService.reload();
 
-      const savedPackageId = savedPackage.id || savedPackage._id;
-      const result = await packageRepo.find({
-        where: { id: { _eq: savedPackageId } },
-      });
-
-      return result;
+      this.emitEvent('installed', { id, name, version });
     } catch (error) {
-      throw new ValidationException(
-        `Failed to install package: ${error.message}`,
-      );
+      this.logger.error(`CDN load failed for ${name}: ${error.message}`);
+
+      await this.updateStatus(id, 'failed', { lastError: error.message });
+
+      this.emitEvent('failed', {
+        id,
+        name,
+        error: error.message,
+        operation: 'install',
+      });
     }
   }
 
@@ -166,25 +180,54 @@ export class PackageController {
       return result;
     }
 
-    if (body.version && body.version !== packageRecord.version) {
-      try {
-        await this.packageManagementService.updatePackage({
-          name: packageRecord.name,
-          type: packageRecord.type,
-          currentVersion: packageRecord.version,
-          newVersion: body.version,
-        });
-      } catch (error) {
-        throw new ValidationException(
-          `Failed to update package: ${error.message}`,
-        );
-      }
+    const needsReload = body.version && body.version !== packageRecord.version;
+
+    if (!needsReload) {
+      const result = await packageRepo.update({ id, data: body });
+      await this.packageCacheService.reload();
+      return result;
     }
-    const result = await packageRepo.update({ id, data: body });
 
-    await this.packageCacheService.reload();
+    await this.updateStatus(id, 'updating', { lastError: null });
 
-    return result;
+    this.emitEvent('updating', {
+      id,
+      name: packageRecord.name,
+      from: packageRecord.version,
+      to: body.version,
+    });
+
+    this.executeCdnUpdate(id, packageRecord.name, body.version).catch((error) => {
+      this.logger.error(`CDN update failed for ${packageRecord.name}: ${error.message}`);
+    });
+
+    return packageRepo.find({ where: { id: { _eq: id } } });
+  }
+
+  private async executeCdnUpdate(id: string, name: string, newVersion: string) {
+    try {
+      await this.cdnLoader.invalidatePackage(name, newVersion);
+
+      await this.updateStatus(id, 'installed', {
+        version: newVersion,
+        lastError: null,
+      });
+
+      await this.packageCacheService.reload();
+
+      this.emitEvent('installed', { id, name, version: newVersion });
+    } catch (error) {
+      this.logger.error(`CDN update failed for ${name}: ${error.message}`);
+
+      await this.updateStatus(id, 'failed', { lastError: error.message });
+
+      this.emitEvent('failed', {
+        id,
+        name,
+        error: error.message,
+        operation: 'update',
+      });
+    }
   }
 
   @Delete(':id')
@@ -211,30 +254,14 @@ export class PackageController {
       throw new ValidationException('Cannot uninstall system packages');
     }
 
-    try {
-      if (packageRecord.type === 'App') {
-        const result = await packageRepo.delete({ id });
-        await this.packageCacheService.reload();
-        return result;
-      }
-
-      const isInstalled = await this.packageManagementService.isPackageInstalled(packageRecord.name);
-      if (isInstalled) {
-        await this.packageManagementService.uninstallPackage({
-          name: packageRecord.name,
-          type: packageRecord.type,
-        });
-      }
-
-      const result = await packageRepo.delete({ id });
-
-      await this.packageCacheService.reload();
-
-      return result;
-    } catch (error) {
-      throw new ValidationException(
-        `Failed to uninstall package: ${error.message}`,
-      );
+    if (packageRecord.type === 'Server') {
+      this.cdnLoader.invalidatePackage(packageRecord.name);
     }
+
+    const result = await packageRepo.delete({ id });
+    await this.packageCacheService.reload();
+
+    this.emitEvent('uninstalled', { id, name: packageRecord.name });
+    return result;
   }
 }

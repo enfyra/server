@@ -366,19 +366,11 @@
             "availableMethods": ["POST"]
         },
         {
-            "path": "/admin/metadata-sync/:id",
-            "isEnabled": true,
-            "isSystem": true,
-            "icon": "lucide:sync",
-            "description": "Sync metadata with physical database",
-            "availableMethods": ["POST"]
-        },
-        {
-            "path": "/admin/flow/test-step",
+            "path": "/admin/test/run",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:flask-conical",
-            "description": "Test a single flow step",
+            "description": "Run a safe test execution (flows/websocket)",
             "availableMethods": ["POST"]
         },
         {
@@ -1026,8 +1018,27 @@
             "order": 3,
             "parent": "Packages"
         }
+    ],
+    "websocket_definition": [
+        {
+            "path": "/enfyra-admin",
+            "isEnabled": true,
+            "isSystem": true,
+            "requireAuth": true,
+            "description": "Built-in admin UI real-time gateway",
+            "connectionHandlerTimeout": 5000
+        }
+    ],
+    "websocket_event_definition": [
+        {
+            "gateway": "/enfyra-admin",
+            "eventName": "ping",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Health check ping",
+            "timeout": 5000,
+            "handlerScript": "return { pong: true, timestamp: new Date().toISOString(), userId: $ctx.$user?.id };"
+        }
     ]
 }
-
-
 

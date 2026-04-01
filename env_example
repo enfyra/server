@@ -61,6 +61,7 @@ PORT=1105
 DEFAULT_HANDLER_TIMEOUT=20000
 DEFAULT_PREHOOK_TIMEOUT=20000
 DEFAULT_AFTERHOOK_TIMEOUT=20000
+# isolated-vm: `yarn start` / `start:dev` / `start:prod` already prepend `--no-node-snapshot`. Override or add flags via NODE_OPTIONS in the shell if needed.
 
 ############################################
 # Auth - required
@@ -80,19 +81,6 @@ REFRESH_TOKEN_REMEMBER_EXP=7d
 # Default admin account (created on first init)
 ADMIN_EMAIL=enfyra@admin.com
 ADMIN_PASSWORD=1234
-
-
-############################################
-# Package Manager - optional
-############################################
-# One of: yarn | npm | pnpm
-PACKAGE_MANAGER=yarn
-
-############################################
-# Swagger / Public Base URL - required
-############################################
-# Full backend URL exposed to clients (e.g. behind proxy)
-BACKEND_URL=http://localhost:1105
 
 ############################################
 # Environment - required

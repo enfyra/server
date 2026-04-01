@@ -2,11 +2,8 @@ import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { SqlTableHandlerService } from './sql-table-handler.service';
 import { MongoTableHandlerService } from './mongo-table-handler.service';
 import { CreateTableDto } from '../dto/create-table.dto';
+import { TDynamicContext } from '../../../shared/types';
 
-/**
- * TableHandlerService - Router for database-specific table management
- * Routes to SqlTableHandlerService or MongoTableHandlerService based on DB_TYPE
- */
 @Injectable()
 export class TableHandlerService {
   private logger = new Logger(TableHandlerService.name);
@@ -28,16 +25,16 @@ export class TableHandlerService {
     return this.sqlTableHandler;
   }
 
-  async createTable(body: CreateTableDto) {
-    return this.getHandler().createTable(body);
+  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+    return this.getHandler().createTable(body, context);
   }
 
-  async updateTable(id: string | number, body: CreateTableDto) {
-    return this.getHandler().updateTable(id, body);
+  async updateTable(id: string | number, body: CreateTableDto, context?: TDynamicContext) {
+    return this.getHandler().updateTable(id, body, context);
   }
 
-  async delete(id: string | number) {
-    return this.getHandler().delete(id);
+  async delete(id: string | number, context?: TDynamicContext) {
+    return this.getHandler().delete(id, context);
   }
 }
 

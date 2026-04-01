@@ -9,7 +9,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { IsSafeIdentifier } from '../../../shared/validators/is-safe-identifer.validator';
+import { IsSafeIdentifier } from '../../../shared/validators/is-safe-identifier.validator';
 import { PrimaryKeyValidCheck } from '../validators/primary-key-valid-check.validator';
 
 export class RelationIdDto {

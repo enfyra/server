@@ -5,6 +5,9 @@ import { MongoService } from '../../../infrastructure/mongo/services/mongo.servi
 import { MongoSchemaMigrationLockService } from '../../../infrastructure/mongo/services/mongo-schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
+import { PolicyService } from '../../../core/policy/policy.service';
+import { TDynamicContext } from '../../../shared/types';
+import { isPolicyDeny, isPolicyPreview } from '../../../core/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
@@ -25,6 +28,7 @@ export class MongoTableHandlerService {
     private schemaMigrationLockService: MongoSchemaMigrationLockService,
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
+    private policyService: PolicyService,
   ) {}
   private validateRelations(relations: any[]) {
     for (const relation of relations || []) {
@@ -154,12 +158,10 @@ export class MongoTableHandlerService {
       const db = this.mongoService.getDb();
       for (const { oldName, newName, collectionName } of renamedColumns) {
         try {
-          this.logger.log(`[Background] Renaming field '${oldName}' → '${newName}' in ${collectionName}`);
           const result = await db.collection(collectionName).updateMany(
             { [oldName]: { $exists: true } },
             { $rename: { [oldName]: newName } }
           );
-          this.logger.log(`  [Background] Renamed ${result.modifiedCount} documents in ${collectionName}`);
         } catch (error) {
           this.logger.error(`  [Background] Failed to rename field in ${collectionName}:`, error.message);
         }
@@ -176,7 +178,6 @@ export class MongoTableHandlerService {
     if (!newRelations || newRelations.length === 0) {
       return;
     }
-    this.logger.log(`Dropping relation fields for ${newRelations.length} relation(s) before update`);
     for (const relation of newRelations) {
       let targetTableName: string;
       if (typeof relation.targetTable === 'object' && relation.targetTable.name) {
@@ -203,19 +204,25 @@ export class MongoTableHandlerService {
           {},
           { $unset: { [sourceFieldName]: "" } }
         );
-        this.logger.log(`  Dropped '${sourceFieldName}' from '${sourceTableName}'`);
       }
       if (inverseFieldName && targetTableName) {
         await db.collection(targetTableName).updateMany(
           {},
           { $unset: { [inverseFieldName]: "" } }
         );
-        this.logger.log(`  Dropped '${inverseFieldName}' from '${targetTableName}'`);
       }
     }
-    this.logger.log('✨ All relation fields dropped. Will be recreated by runtime logic.');
   }
-  async createTable(body: CreateTableDto) {
+  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+    const decision = await this.policyService.checkSchemaMigration({
+      operation: 'create',
+      tableName: 'table_definition',
+      data: body,
+      currentUser: context?.$user,
+    });
+    if (isPolicyDeny(decision)) {
+      throw new ValidationException(decision.message);
+    }
     return await this.runWithSchemaLock(`mongo:create:${body?.name || 'unknown'}`, async () => {
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
@@ -246,7 +253,6 @@ export class MongoTableHandlerService {
         this.logger.warn(`Mismatch detected: Physical collection "${body.name}" exists but no metadata found. Dropping physical collection...`);
         try {
           await db.collection(body.name).drop();
-          this.logger.log(`Physical collection "${body.name}" dropped successfully`);
         } catch (dropError) {
           this.logger.error(`Failed to drop physical collection "${body.name}": ${dropError.message}`);
           throw new DatabaseException(
@@ -314,7 +320,6 @@ export class MongoTableHandlerService {
             });
             const colId = typeof columnRecord._id === 'string' ? new ObjectId(columnRecord._id) : columnRecord._id;
             insertedColumnIds.push(colId);
-            this.logger.log(`   Column inserted: ${col.name}`);
           }
         }
       } catch (error) {
@@ -359,7 +364,6 @@ export class MongoTableHandlerService {
             });
             const relId = typeof relationRecord._id === 'string' ? new ObjectId(relationRecord._id) : relationRecord._id;
             insertedRelationIds.push(relId);
-            this.logger.log(`   Relation inserted: ${rel.propertyName}`);
           }
         }
       } catch (error) {
@@ -398,25 +402,20 @@ export class MongoTableHandlerService {
             postHooks: [],
           },
         });
-        this.logger.log(`Route /${body.name} created for collection ${body.name} (${allMethodIds.length} available methods)`);
       }
       const fullMetadata = await this.getFullTableMetadata(tableId);
       await this.schemaMigrationService.createCollection(fullMetadata);
 
       if (body.isSingleRecord) {
-        this.logger.log(`Single-record collection detected. Creating default record...`);
         const db = this.mongoService.getDb();
         const existingRecord = await db.collection(body.name).findOne();
         if (!existingRecord) {
           const defaultRecord = generateDefaultRecord(fullMetadata.columns || []);
           await db.collection(body.name).insertOne(defaultRecord);
-          this.logger.log(`   Default record created for collection ${body.name}`);
         } else {
-          this.logger.log(`   Record already exists in collection ${body.name}, skipping default creation`);
         }
       }
 
-      this.logger.log(`Collection created: ${body.name} (metadata + validation + indexes)`);
       return fullMetadata;
     } catch (error) {
       this.loggingService.error('Collection creation failed', {
@@ -435,7 +434,7 @@ export class MongoTableHandlerService {
     }
     });
   }
-  async updateTable(id: any, body: CreateTableDto) {
+  async updateTable(id: any, body: CreateTableDto, context?: TDynamicContext) {
     return await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
@@ -468,6 +467,32 @@ export class MongoTableHandlerService {
       if (body.relations && body.relations.length > 0) {
         await this.validateNoDuplicateInverseRelation(queryId, exists.name, body.relations);
       }
+      const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
+      let schemaDecision: any = null;
+      if (oldMetadata) {
+        const afterMetadata = {
+          name: body.name ?? exists.name,
+          columns: body.columns ?? oldMetadata?.columns ?? [],
+          relations: body.relations ?? oldMetadata?.relations ?? [],
+          uniques: body.uniques ?? exists.uniques ?? oldMetadata?.uniques,
+          indexes: body.indexes ?? exists.indexes ?? oldMetadata?.indexes,
+        };
+        schemaDecision = await this.policyService.checkSchemaMigration({
+          operation: 'update',
+          tableName: exists.name,
+          data: body,
+          currentUser: context?.$user,
+          beforeMetadata: oldMetadata,
+          afterMetadata,
+          requestContext: context,
+        });
+        if (isPolicyPreview(schemaDecision)) {
+          return { _preview: true, ...schemaDecision.details };
+        }
+        if (isPolicyDeny(schemaDecision)) {
+          throw new ValidationException(schemaDecision.message, schemaDecision.details);
+        }
+      }
       const updateData: any = {};
       if ('name' in body) updateData.name = body.name;
       if ('alias' in body) updateData.alias = body.alias;
@@ -493,7 +518,6 @@ export class MongoTableHandlerService {
               {},
               { $unset: { [deletedCol.name]: "" } }
             );
-            this.logger.log(`  Dropped field '${deletedCol.name}' from all records`);
           }
           await this.queryBuilder.deleteById('column_definition', colId);
         }
@@ -568,7 +592,6 @@ export class MongoTableHandlerService {
                 {},
                 { $unset: { [fieldName]: "" } }
               );
-              this.logger.log(`  Cleaned up relation field '${fieldName}' from all records in ${exists.name}`);
             }
           }
           await this.queryBuilder.deleteById('relation_definition', relId);
@@ -613,10 +636,10 @@ export class MongoTableHandlerService {
           relationIds.push(relObjectId);
         }
       }
-      const oldMetadata = await this.metadataCacheService.lookupTableByName(exists.name);
-      const newMetadata = await this.getFullTableMetadata(id);
-      if (oldMetadata && newMetadata) {
-        await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, newMetadata);
+      const finalMetadata = await this.getFullTableMetadata(id);
+
+      if (schemaDecision?.details?.schemaChanged === true && oldMetadata && finalMetadata) {
+        await this.schemaMigrationService.updateCollection(exists.name, oldMetadata, finalMetadata);
       }
 
       if (body.isSingleRecord === true && !exists.isSingleRecord) {
@@ -624,7 +647,7 @@ export class MongoTableHandlerService {
         const count = await db.collection(exists.name).countDocuments();
 
         if (count === 0) {
-          const defaultRecord = generateDefaultRecord(newMetadata?.columns || []);
+          const defaultRecord = generateDefaultRecord(finalMetadata?.columns || []);
           await db.collection(exists.name).insertOne(defaultRecord);
         } else if (count > 1) {
           const firstRecord = await db.collection(exists.name).find().sort({ _id: 1 }).limit(1).toArray();
@@ -634,8 +657,7 @@ export class MongoTableHandlerService {
         }
       }
 
-      this.logger.log(`Collection updated: ${exists.name} (metadata + validation + indexes)`);
-      return newMetadata;
+      return finalMetadata;
     } catch (error) {
       this.loggingService.error('Collection update failed', {
         context: 'updateTable',
@@ -654,7 +676,7 @@ export class MongoTableHandlerService {
     }
     });
   }
-  async delete(id: string | number) {
+  async delete(id: string | number, context?: TDynamicContext) {
     return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
     try {
       const { ObjectId } = require('mongodb');
@@ -673,13 +695,21 @@ export class MongoTableHandlerService {
         );
       }
       const collectionName = exists.name;
+      const decision = await this.policyService.checkSchemaMigration({
+        operation: 'delete',
+        tableName: collectionName,
+        currentUser: context?.$user,
+        requestContext: context,
+      });
+      if (isPolicyDeny(decision)) {
+        throw new ValidationException(decision.message, decision.details);
+      }
       const routes = await this.queryBuilder.findWhere('route_definition', {
         mainTable: tableId,
       });
       for (const route of routes) {
         await this.queryBuilder.deleteById('route_definition', route._id);
       }
-      this.logger.log(`Deleted ${routes.length} routes with mainTable = ${id}`);
       const relations = await this.queryBuilder.findWhere('relation_definition', {
         sourceTableId: tableId,
       });
@@ -694,7 +724,6 @@ export class MongoTableHandlerService {
       }
       await this.queryBuilder.deleteById('table_definition', tableId);
       await this.schemaMigrationService.dropCollection(collectionName);
-      this.logger.log(`Collection deleted: ${collectionName} (metadata + collection)`);
       return exists;
     } catch (error) {
       this.loggingService.error('Collection deletion failed', {

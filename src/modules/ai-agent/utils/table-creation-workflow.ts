@@ -5,10 +5,10 @@ import { MetadataCacheService } from '../../../infrastructure/cache/services/met
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { collectRelationValidationErrors, collectTableDataValidationErrors, createTableDefinitionRepository } from './table-workflow.helper';
 
 const TableCreationStateAnnotation = Annotation.Root({
@@ -74,7 +74,7 @@ export class TableCreationWorkflow {
     private readonly queryBuilder: QueryBuilderService,
     private readonly tableHandlerService: TableHandlerService,
     private readonly queryEngine: QueryEngine,
-    private readonly systemProtectionService: SystemProtectionService,
+    private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly eventEmitter: EventEmitter2,
   ) {
@@ -115,14 +115,12 @@ export class TableCreationWorkflow {
 
   private async checkTableExists(state: TableCreationState): Promise<Partial<TableCreationState>> {
     try {
-      this.logger.log(`[Workflow] Checking if table exists: ${state.tableName}`);
-
       const repo = createTableDefinitionRepository({
         metadataCacheService: this.metadataCacheService,
         queryBuilder: this.queryBuilder,
         tableHandlerService: this.tableHandlerService,
         queryEngine: this.queryEngine,
-        systemProtectionService: this.systemProtectionService,
+        policyService: this.policyService,
         tableValidationService: this.tableValidationService,
         eventEmitter: this.eventEmitter,
       }, state.context);
@@ -137,8 +135,6 @@ export class TableCreationWorkflow {
 
       const exists = result?.data && result.data.length > 0;
       const existingTableId = exists ? result.data[0].id : undefined;
-
-      this.logger.log(`[Workflow] Table ${state.tableName} exists: ${exists}${existingTableId ? ` (ID: ${existingTableId})` : ''}`);
 
       if (exists) {
         const errorMessage = `Table '${state.tableName}' already exists${existingTableId ? ` (ID: ${existingTableId})` : ''}. Use update_table tool to modify existing tables instead of create_table.`;
@@ -168,8 +164,6 @@ export class TableCreationWorkflow {
 
   private async validateTableData(state: TableCreationState): Promise<Partial<TableCreationState>> {
     try {
-      this.logger.log(`[Workflow] Validating table data for: ${state.tableName}`);
-
       const errors = [
         ...collectTableDataValidationErrors(state.tableData, this.queryBuilder),
         ...collectRelationValidationErrors(state.tableData.relations),
@@ -184,7 +178,6 @@ export class TableCreationWorkflow {
         };
       }
 
-      this.logger.log(`[Workflow] Table data validation passed`);
       return {
         validationPassed: true,
       };
@@ -201,11 +194,8 @@ export class TableCreationWorkflow {
   private async validateTargetTables(state: TableCreationState): Promise<Partial<TableCreationState>> {
     try {
       if (!state.tableData.relations || state.tableData.relations.length === 0) {
-        this.logger.log(`[Workflow] No relations to validate`);
         return {};
       }
-
-      this.logger.log(`[Workflow] Validating target tables for ${state.tableData.relations.length} relation(s)`);
 
       const repo = createTableDefinitionRepository(
         {
@@ -213,7 +203,7 @@ export class TableCreationWorkflow {
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
           queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
+          policyService: this.policyService,
           tableValidationService: this.tableValidationService,
           eventEmitter: this.eventEmitter,
         },
@@ -305,7 +295,6 @@ export class TableCreationWorkflow {
         };
       }
 
-      this.logger.log(`[Workflow] Target tables validated: ${Object.entries(targetTableIds).map(([name, id]) => `${name}→${id}`).join(', ')}`);
       return {
         targetTableIds,
       };
@@ -322,11 +311,8 @@ export class TableCreationWorkflow {
   private async checkFKConflicts(state: TableCreationState): Promise<Partial<TableCreationState>> {
     try {
       if (!state.tableData.relations || state.tableData.relations.length === 0) {
-        this.logger.log(`[Workflow] No relations to check for FK conflicts`);
         return {};
       }
-
-      this.logger.log(`[Workflow] Checking FK conflicts for ${state.tableData.relations.length} relation(s)`);
 
       const repo = createTableDefinitionRepository(
         {
@@ -334,7 +320,7 @@ export class TableCreationWorkflow {
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
           queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
+          policyService: this.policyService,
           tableValidationService: this.tableValidationService,
           eventEmitter: this.eventEmitter,
         },
@@ -391,7 +377,6 @@ export class TableCreationWorkflow {
         };
       }
 
-      this.logger.log(`[Workflow] No FK conflicts detected`);
       return {};
     } catch (error: any) {
       this.logger.error(`[Workflow] Error checking FK conflicts: ${error.message}`);
@@ -405,32 +390,13 @@ export class TableCreationWorkflow {
 
   private async createTable(state: TableCreationState): Promise<Partial<TableCreationState>> {
     try {
-      const hasRelations = state.tableData.relations && state.tableData.relations.length > 0;
-      const relationsInfo = hasRelations 
-        ? ` with ${state.tableData.relations.length} relation(s)` 
-        : '';
-      this.logger.log(`[Workflow] Creating table via DynamicRepository: ${state.tableName}${relationsInfo}`);
-
-      if (hasRelations) {
-        const m2oRelations = state.tableData.relations.filter((r: any) => 
-          r.type === 'many-to-one' || r.type === 'one-to-one'
-        );
-        if (m2oRelations.length > 0) {
-          const targetTables = m2oRelations.map((r: any) => {
-            const target = typeof r.targetTable === 'object' ? r.targetTable.name : 'unknown';
-            return target;
-          }).filter(Boolean);
-          this.logger.log(`[Workflow] Creating table with M2O/O2O relations to: ${targetTables.join(', ')}`);
-        }
-      }
-
       const repo = createTableDefinitionRepository(
         {
           metadataCacheService: this.metadataCacheService,
           queryBuilder: this.queryBuilder,
           tableHandlerService: this.tableHandlerService,
           queryEngine: this.queryEngine,
-          systemProtectionService: this.systemProtectionService,
+          policyService: this.policyService,
           tableValidationService: this.tableValidationService,
           eventEmitter: this.eventEmitter,
         },
@@ -448,9 +414,6 @@ export class TableCreationWorkflow {
         data: createData,
         fields: 'id,name',
       });
-
-      const relationsCreated = hasRelations ? ` with ${state.tableData.relations.length} relation(s)` : '';
-      this.logger.log(`[Workflow] Table created successfully: ${state.tableName}${relationsCreated} (ID: ${result?.data?.[0]?.id || 'unknown'})`);
 
       return {
         result,
@@ -471,7 +434,8 @@ export class TableCreationWorkflow {
     const stopReason = state.stopReason || errorMessages || 'Unknown error';
     this.logger.error(`[Workflow] Error handling: ${stopReason}`);
     if (state.errors.length > 0) {
-      this.logger.error(`[Workflow] Errors: ${JSON.stringify(state.errors, null, 2)}`);
+      const errStr = JSON.stringify(state.errors);
+      this.logger.error(`[Workflow] Errors: ${errStr.length > 600 ? `${errStr.slice(0, 600)}…` : errStr}`);
     } else {
       this.logger.error(`[Workflow] No errors in state, but handleError was called`);
     }

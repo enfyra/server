@@ -49,10 +49,6 @@ export class S3StorageService implements IStorageService {
 
       await s3Client.send(command);
 
-      this.logger.log(
-        `File uploaded to S3: ${config.bucket}/${relativePath}`,
-      );
-
       return {
         location: relativePath,
       };
@@ -75,7 +71,6 @@ export class S3StorageService implements IStorageService {
 
       await s3Client.send(command);
 
-      this.logger.log(`Deleted file from S3: ${config.bucket}/${location}`);
     } catch (error: any) {
       const cloudError = error.message || error.name || 'Unknown error';
       const errorMessage = `Failed to delete from S3: ${cloudError}`;
@@ -101,7 +96,6 @@ export class S3StorageService implements IStorageService {
 
       const stream = response.Body as Readable;
 
-      this.logger.log(`Streaming file from S3: ${config.bucket}/${location}`);
 
       return stream;
     } catch (error: any) {
@@ -136,7 +130,6 @@ export class S3StorageService implements IStorageService {
 
       const buffer = Buffer.concat(chunks);
 
-      this.logger.log(`Downloaded buffer from S3: ${config.bucket}/${location} (${buffer.length} bytes)`);
 
       return buffer;
     } catch (error: any) {
@@ -155,7 +148,6 @@ export class S3StorageService implements IStorageService {
   ): Promise<void> {
     try {
       await this.upload(buffer, location, mimetype, config);
-      this.logger.log(`Replaced file on S3: ${config.bucket}/${location}`);
     } catch (error: any) {
       const cloudError = error.message || error.name || 'Unknown error';
       const errorMessage = `Failed to replace file on S3: ${cloudError}`;

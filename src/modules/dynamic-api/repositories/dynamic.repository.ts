@@ -3,7 +3,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
+import { isPolicyDeny } from '../../../core/policy/policy.types';
 import { TableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
@@ -15,7 +16,7 @@ export class DynamicRepository {
   private queryEngine: QueryEngine;
   private queryBuilder: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
-  private systemProtectionService: SystemProtectionService;
+  private policyService: PolicyService;
   private tableValidationService: TableValidationService;
   private metadataCacheService: MetadataCacheService;
   private eventEmitter: EventEmitter2;
@@ -27,7 +28,7 @@ export class DynamicRepository {
     queryEngine,
     queryBuilder,
     tableHandlerService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     metadataCacheService,
     eventEmitter,
@@ -37,7 +38,7 @@ export class DynamicRepository {
     queryEngine: QueryEngine;
     queryBuilder: QueryBuilderService;
     tableHandlerService: TableHandlerService;
-    systemProtectionService: SystemProtectionService;
+    policyService: PolicyService;
     tableValidationService: TableValidationService;
     metadataCacheService: MetadataCacheService;
     eventEmitter: EventEmitter2;
@@ -47,7 +48,7 @@ export class DynamicRepository {
     this.queryEngine = queryEngine;
     this.queryBuilder = queryBuilder;
     this.tableHandlerService = tableHandlerService;
-    this.systemProtectionService = systemProtectionService;
+    this.policyService = policyService;
     this.tableValidationService = tableValidationService;
     this.metadataCacheService = metadataCacheService;
     this.eventEmitter = eventEmitter;
@@ -97,13 +98,16 @@ export class DynamicRepository {
         tableName: this.tableName,
         tableMetadata: this.tableMetadata,
       });
-      await this.systemProtectionService.assertSystemSafe({
+      const createDecision = await this.policyService.checkMutationSafety({
         operation: 'create',
         tableName: this.tableName,
         data: body,
         existing: null,
         currentUser: this.context.$user,
       });
+      if (isPolicyDeny(createDecision)) {
+        throw new BadRequestException(createDecision.message);
+      }
       if (this.tableName === 'route_definition') {
         this.filterPublishedMethodsToAvailable(body, null);
       }
@@ -116,7 +120,7 @@ export class DynamicRepository {
       }
       if (this.tableName === 'table_definition') {
         body.isSystem = false;
-        const table: any = await this.tableHandlerService.createTable(body);
+        const table: any = await this.tableHandlerService.createTable(body, this.context);
         await this.reload();
         const idValue = table._id || table.id;
         return await this.find({ where: { [this.getIdField()]: { _eq: idValue } }, fields });
@@ -164,13 +168,16 @@ export class DynamicRepository {
         tableName: this.tableName,
         tableMetadata: this.tableMetadata,
       });
-      await this.systemProtectionService.assertSystemSafe({
+      const updateDecision = await this.policyService.checkMutationSafety({
         operation: 'update',
         tableName: this.tableName,
         data: body,
         existing: exists,
         currentUser: this.context.$user,
       });
+      if (isPolicyDeny(updateDecision)) {
+        throw new BadRequestException(updateDecision.message);
+      }
       if (this.tableName === 'route_definition' && body.publishedMethods) {
         this.filterPublishedMethodsToAvailable(body, exists);
       }
@@ -182,7 +189,10 @@ export class DynamicRepository {
         Object.assign(body, processedBody);
       }
       if (this.tableName === 'table_definition') {
-        const table: any = await this.tableHandlerService.updateTable(id, body);
+        const table: any = await this.tableHandlerService.updateTable(id, body, this.context);
+        if (table?._preview) {
+          return { data: [table] };
+        }
         const tableId = table._id || table.id;
         await this.reload();
         return this.find({ where: { [this.getIdField()]: { _eq: tableId } }, fields });
@@ -209,15 +219,18 @@ export class DynamicRepository {
         tableName: this.tableName,
         tableMetadata: this.tableMetadata,
       });
-      await this.systemProtectionService.assertSystemSafe({
+      const deleteDecision = await this.policyService.checkMutationSafety({
         operation: 'delete',
         tableName: this.tableName,
         data: {},
         existing: exists,
         currentUser: this.context.$user,
       });
+      if (isPolicyDeny(deleteDecision)) {
+        throw new BadRequestException(deleteDecision.message);
+      }
       if (this.tableName === 'table_definition') {
-        await this.tableHandlerService.delete(id);
+        await this.tableHandlerService.delete(id, this.context);
         await this.reload();
         return { message: 'Success', statusCode: 200 };
       }

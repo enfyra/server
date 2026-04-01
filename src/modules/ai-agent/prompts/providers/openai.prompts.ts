@@ -1,5 +1,3 @@
-export const OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT = ``;
-
 export const OPENAI_SYSTEM_PROMPT_ADDITION = `
    - Respond in plain language; do NOT force JSON unless the user explicitly asks for JSON
    - Do NOT wrap replies in DSML/function_call/tool_call markup—return the answer directly

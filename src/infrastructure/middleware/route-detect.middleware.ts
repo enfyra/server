@@ -8,6 +8,7 @@ import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
 import { CacheService } from '../cache/services/cache.service';
 import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
+import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 import { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
 import { RateLimitService } from '../cache/services/rate-limit.service';
 import { FlowService } from '../../modules/flow/services/flow.service';
@@ -152,6 +153,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
       };
 
       context.$helpers.$rateLimit = createRateLimitHelper();
+      context.$helpers.$fetch = createFetchHelper();
 
       if (req.file) {
         context.$uploadedFile = {

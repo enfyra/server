@@ -217,6 +217,38 @@ Result: Tables completely removed from database.
 
 Both physical DB and metadata are updated from the same source, ensuring consistency.
 
+### Destructive schema changes via API (confirm-hash)
+
+When changing schema through the API (e.g. updating or deleting a row in `table_definition`), destructive changes are protected by a confirm-hash challenge.
+
+- The server returns **422** with `code = "SCHEMA_CONFIRM_REQUIRED"` and `details` including:
+  - `requiredConfirmHash`
+  - `confirmToken` (short-lived)
+  - `confirmTtlMs`
+  - `removedColumns`, `removedRelationsCount` (when applicable)
+- To proceed, resend the same request with:
+  - `x-schema-confirm-hash: <requiredConfirmHash>`
+  - `x-schema-confirm-token: <confirmToken>`
+
+Example flow:
+
+```bash
+# 1) Attempt destructive update
+curl -X PATCH "http://localhost:1105/api/table_definition/<id>" \
+  -H "Content-Type: application/json" \
+  -d '{"columns":[{"name":"id","type":"int"}]}' 
+
+# 2) Server responds 422 with details.requiredConfirmHash + details.confirmToken
+# 3) Retry with headers
+curl -X PATCH "http://localhost:1105/api/table_definition/<id>" \
+  -H "Content-Type: application/json" \
+  -H "x-schema-confirm-hash: <requiredConfirmHash>" \
+  -H "x-schema-confirm-token: <confirmToken>" \
+  -d '{"columns":[{"name":"id","type":"int"}]}'
+```
+
+For a limited transition period, the legacy `schemaConfirm` phrase may also be accepted, but the UI uses confirm-hash by default.
+
 ### Data Migration (`data/data-migration.json`)
 
 Migrate existing data when the system is already initialized:
@@ -234,8 +266,22 @@ Migrate existing data when the system is already initialized:
 }
 ```
 
+- `_deletedRecords`: Delete specific records by filter (safe way to remove seeded routes/menus/etc. across versions)
 - `_deletedTables`: Array of table names to delete all data from
 - Table entries: Data to migrate, using `_unique` to identify existing records
+
+#### Delete specific records (`_deletedRecords`)
+
+Use `_deletedRecords` when you need to remove a small set of rows (e.g. remove an old seeded `route_definition`) without wiping the entire table.
+
+```json
+{
+  "_deletedRecords": [
+    { "table": "route_definition", "filter": { "path": { "_eq": "/old-route" } } },
+    { "table": "menu_definition", "filter": { "path": { "_eq": "/old-menu" } } }
+  ]
+}
+```
 
 ### Migration Flow
 

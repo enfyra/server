@@ -1,5 +1,3 @@
-export const GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT = `Output ONLY valid JSON: {"tools": ["tool_name", ...]}. NO text, NO markdown (\`\`\`json\`\`\`), NO whitespace. Example: {"tools": ["find_records", "get_table_details"]}`;
-
 export const GOOGLE_SYSTEM_PROMPT_ADDITION = `
    CRITICAL: You must follow the workflow and rules in the prompt.
    - Use exact tool names (case-sensitive, no abbreviations)

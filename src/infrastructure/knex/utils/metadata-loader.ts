@@ -6,7 +6,7 @@ import {
   MetadataCache,
   JunctionTableInfo,
 } from '../types/knex-types';
-import { getJunctionTableName, getForeignKeyColumnName } from './naming-helpers';
+import { getJunctionTableName, getForeignKeyColumnName } from './sql-schema-naming.util';
 export async function loadAllTableMetadata(knex: Knex): Promise<Map<string, TableMetadata>> {
   const tables = await knex('table_definition').select('*');
   const metadataMap = new Map<string, TableMetadata>();

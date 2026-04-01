@@ -98,10 +98,6 @@ export class FileManagementService {
     const relativePath = `uploads/${uniqueFilename}`;
     const fileType = this.getFileType(fileData.mimetype);
 
-    this.logger.log(
-      `Processing file upload: ${fileData.filename} → ${uniqueFilename} (storage config ID: ${storageConfigId || 'default'})`,
-    );
-
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
       
@@ -145,9 +141,6 @@ export class FileManagementService {
         status: 'active',
       };
 
-      this.logger.log(
-        `File processed successfully: ${uniqueFilename} on storage config ${normalizedStorageConfigId} (${storageConfig.type})`,
-      );
       return processedInfo;
     } catch (error) {
       this.logger.error(
@@ -236,9 +229,6 @@ export class FileManagementService {
             processedFile.location,
             processedFile.storage_config_id,
           );
-          this.logger.log(
-            `Successfully rolled back cloud storage upload for ${processedFile.location}`,
-          );
         } catch (rollbackError) {
           this.logger.error(
             `Failed to rollback cloud storage upload for ${processedFile.location}: ${rollbackError.message}`,
@@ -254,16 +244,11 @@ export class FileManagementService {
     location: string,
     storageConfigId?: number | string,
   ): Promise<void> {
-    this.logger.log(
-      `Deleting physical file: ${location} (storage config ID: ${storageConfigId || 'Local Storage'})`,
-    );
-
     try {
       const config = await this.getStorageConfig(storageConfigId);
       const storageService = this.storageFactory.getStorageServiceByConfig(config);
       
       await storageService.delete(location, config);
-      this.logger.log(`Deleted file: ${location}`);
     } catch (error: any) {
       this.logger.error(`Failed to delete physical file: ${location}`, error);
       throw new BadRequestException(
@@ -281,7 +266,6 @@ export class FileManagementService {
       const storageService = this.storageFactory.getStorageServiceByConfig(config);
       
       await storageService.delete(location, config);
-      this.logger.log(`Rolled back file creation: ${location}`);
     } catch (error: any) {
       this.logger.error(`Failed to rollback file creation:`, error);
     }
@@ -309,7 +293,6 @@ export class FileManagementService {
     try {
       if (await this.fileExists(absolutePath)) {
         await fs.promises.copyFile(absolutePath, backupPath);
-        this.logger.log(`File backed up: ${absolutePath} → ${backupPath}`);
         return backupPath;
       }
       throw new Error(`Source file not found: ${absolutePath}`);
@@ -337,10 +320,6 @@ export class FileManagementService {
 
       await fs.promises.unlink(oldAbsolutePath);
       await fs.promises.copyFile(newAbsolutePath, oldAbsolutePath);
-
-      this.logger.log(
-        `File replaced successfully: ${oldAbsolutePath} ← ${newAbsolutePath}`,
-      );
     } catch (error) {
       this.logger.error(`Failed to replace file: ${oldLocation}`, error);
       throw new BadRequestException(`Failed to replace file: ${error.message}`);
@@ -351,7 +330,6 @@ export class FileManagementService {
     try {
       if (await this.fileExists(backupPath)) {
         await fs.promises.unlink(backupPath);
-        this.logger.log(`Backup file deleted: ${backupPath}`);
       }
     } catch (error) {
       this.logger.error(`Failed to delete backup file: ${backupPath}`, error);
@@ -367,9 +345,6 @@ export class FileManagementService {
     try {
       if (await this.fileExists(backupPath)) {
         await fs.promises.copyFile(backupPath, originalAbsolutePath);
-        this.logger.log(
-          `File restored from backup: ${backupPath} → ${originalAbsolutePath}`,
-        );
 
         await this.deleteBackupFile(backupPath);
       } else {

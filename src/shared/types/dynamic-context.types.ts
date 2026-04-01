@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { UploadedFileInfo } from './file-management.types';
+import type { FetchHelper } from '../helpers/fetch.helper';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -65,6 +66,7 @@ export interface TDynamicContext {
       description?: string;
     }) => Promise<any>;
     $deleteFile?: (fileId: string | number) => Promise<any>;
+    $fetch?: FetchHelper;
   };
   $cache?: {
     acquire?: (key: string, value: any, ttlMs: number) => Promise<boolean>;

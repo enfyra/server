@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { throwGqlError } from '../utils/throw-error';
 import { ConfigService } from '@nestjs/config';
-import { convertFieldNodesToFieldPicker } from '../utils/field-string-convertor';
+import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import { JwtService } from '@nestjs/jwt';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';

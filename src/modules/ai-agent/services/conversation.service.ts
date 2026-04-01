@@ -5,7 +5,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { SystemProtectionService } from '../../dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { IConversation, IConversationCreate, IConversationUpdate } from '../interfaces/conversation.interface';
@@ -18,7 +18,7 @@ export class ConversationService {
     private readonly tableHandlerService: TableHandlerService,
     private readonly queryEngine: QueryEngine,
     private readonly metadataCacheService: MetadataCacheService,
-    private readonly systemProtectionService: SystemProtectionService,
+    private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -75,7 +75,7 @@ export class ConversationService {
       tableHandlerService: this.tableHandlerService,
       queryEngine: this.queryEngine,
       metadataCacheService: this.metadataCacheService,
-      systemProtectionService: this.systemProtectionService,
+      policyService: this.policyService,
       tableValidationService: this.tableValidationService,
       eventEmitter: this.eventEmitter,
     });
@@ -165,7 +165,6 @@ export class ConversationService {
     const repo = await this.createRepository('ai_conversation_definition', context);
     const conversationId = typeof id === 'string' && /^\d+$/.test(id) ? parseInt(id, 10) : id;
     await repo.delete({ id: conversationId });
-    this.logger.log(`Deleted conversation ${conversationId}`);
   }
   async getMessages(params: {
     conversationId: string | number;
@@ -191,7 +190,7 @@ export class ConversationService {
     });
     const messages = result.data || [];
     const mappedMessages = await Promise.all(messages.map((msg: any) => {
-      return this.mapMessage(msg, undefined, false);
+      return this.mapMessage(msg, undefined);
     }));
     return mappedMessages;
   }
@@ -203,7 +202,6 @@ export class ConversationService {
     const context = this.createContext(userId);
     const repo = await this.createRepository('ai_message_definition', context);
     await repo.delete({ id: messageId });
-    this.logger.log(`Deleted message ${messageId}`);
   }
   async deleteMessagesBeforeSequence(params: {
     conversationId: string | number;
@@ -225,7 +223,6 @@ export class ConversationService {
       for (const msg of messagesToDelete) {
         await repo.delete({ id: msg.id });
       }
-      this.logger.log(`Deleted ${messagesToDelete.length} old messages from conversation ${conversationId} (before sequence ${beforeSequence})`);
     });
   }
   async updateConversationAndDeleteMessages(params: {
@@ -257,14 +254,13 @@ export class ConversationService {
       for (const msg of messagesToDelete) {
         await messageRepo.delete({ id: msg.id });
       }
-      this.logger.log(`Updated conversation ${conversationId} and deleted ${messagesToDelete.length} old messages (before sequence ${beforeSequence})`);
       return this.mapConversation(updateResult.data[0]);
     });
   }
   async createMessage(params: {
     data: IMessageCreate;
     userId?: string | number;
-    context?: { userMessage?: string; boundTools?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } };
+    context?: { userMessage?: string; routedToolNames?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } };
   }): Promise<IMessage> {
     const { data, userId, context } = params;
     const dbContext = this.createContext(userId);
@@ -297,7 +293,7 @@ export class ConversationService {
       createData.metadata = data.metadata;
     }
     const result = await repo.create({ data: createData });
-    return await this.mapMessage(result.data[0], context, true);
+    return await this.mapMessage(result.data[0], context);
   }
   async getLastSequence(params: {
     conversationId: string | number;
@@ -367,7 +363,10 @@ export class ConversationService {
       updatedAt: new Date(data.updatedAt),
     };
   }
-  private async mapMessage(data: any, context?: { userMessage?: string; boundTools?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } }, debug: boolean = false): Promise<IMessage> {
+  private async mapMessage(
+    data: any,
+    _context?: { userMessage?: string; routedToolNames?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } },
+  ): Promise<IMessage> {
     let toolCalls = null;
     let toolResults = null;
     if (data.toolCalls !== undefined && data.toolCalls !== null) {
@@ -375,7 +374,7 @@ export class ConversationService {
         try {
           toolCalls = JSON.parse(data.toolCalls);
         } catch (e: any) {
-          this.logger.error(`[mapMessage] Failed to parse toolCalls: ${e.message}, stack: ${e.stack}, raw: ${data.toolCalls?.substring(0, 500)}`);
+          this.logger.error(`[mapMessage] Failed to parse toolCalls: ${e.message}, raw: ${data.toolCalls?.substring(0, 120)}`);
         }
       } else {
         toolCalls = data.toolCalls;
@@ -386,7 +385,7 @@ export class ConversationService {
         try {
           toolResults = JSON.parse(data.toolResults);
         } catch (e: any) {
-          this.logger.error(`[mapMessage] Failed to parse toolResults: ${e.message}, stack: ${e.stack}, raw: ${data.toolResults?.substring(0, 500)}`);
+          this.logger.error(`[mapMessage] Failed to parse toolResults: ${e.message}, raw: ${data.toolResults?.substring(0, 120)}`);
         }
       } else {
         toolResults = data.toolResults;
@@ -413,103 +412,6 @@ export class ConversationService {
       metadata: data.metadata || undefined,
       createdAt: new Date(data.createdAt),
     };
-    if (mapped.role === 'assistant' && debug) {
-      let userMessage: string | null = context?.userMessage || null;
-      if (!userMessage && mapped.conversationId && mapped.sequence !== undefined) {
-        try {
-          const userContext = this.createContext();
-          const userRepo = await this.createRepository('ai_message_definition', userContext);
-          const prevUserMsgResult = await userRepo.find({
-            where: {
-              conversation: { id: { _eq: mapped.conversationId } },
-              role: { _eq: 'user' },
-              sequence: { _eq: mapped.sequence - 1 },
-            },
-            fields: 'columns.content',
-            limit: 1,
-          });
-          if (prevUserMsgResult?.data?.[0]?.content) {
-            const content = prevUserMsgResult.data[0].content;
-            userMessage = typeof content === 'string'
-              ? content
-              : JSON.stringify(content);
-          }
-        } catch (e: any) {
-        }
-      }
-      const toolCallsDetails = Array.isArray(mapped.toolCalls) ? mapped.toolCalls.map((tc: any) => {
-        const name = tc.function?.name || tc.name;
-        let args: any = tc.function?.arguments || tc.args || tc.arguments;
-        if (args === undefined || args === null) {
-          args = {};
-        }
-        if (typeof args === 'string') {
-          try {
-            args = JSON.parse(args);
-          } catch (e: any) {
-            args = { _raw: args.substring(0, 200), _parseError: e.message };
-          }
-        }
-        const argsStr = JSON.stringify(args);
-        return {
-          name,
-          id: tc.id,
-          params: argsStr.length > 500 ? argsStr.substring(0, 500) + '...' : argsStr,
-          paramsLength: argsStr.length,
-        };
-      }) : null;
-      const usedTools = toolCallsDetails ? Array.from(new Set(toolCallsDetails.map((tc: any) => tc.name))) : [];
-      const availableTools = context?.boundTools || [];
-      const toolResultsSummary = toolResults ? (() => {
-        const resultsStr = JSON.stringify(toolResults);
-        if (resultsStr.length > 2000) {
-          const summary: any = {
-            totalLength: resultsStr.length,
-            count: Array.isArray(toolResults) ? toolResults.length : 1,
-            truncated: true,
-            preview: resultsStr.substring(0, 500) + '...',
-          };
-          if (Array.isArray(toolResults)) {
-            summary.items = toolResults.map((tr: any, idx: number) => {
-              const trStr = JSON.stringify(tr);
-              return {
-                index: idx,
-                toolCallId: tr.toolCallId,
-                resultLength: trStr.length,
-                hasError: !!tr.result?.error,
-                preview: trStr.substring(0, 200) + (trStr.length > 200 ? '...' : ''),
-              };
-            });
-          }
-          return summary;
-        }
-        return {
-          totalLength: resultsStr.length,
-          count: Array.isArray(toolResults) ? toolResults.length : 1,
-          truncated: false,
-        };
-      })() : null;
-      const agentResponse = typeof mapped.content === 'string' ? mapped.content : JSON.stringify(mapped.content || '');
-      this.logger.debug(`[mapMessage] Assistant message: ${JSON.stringify({
-        id: mapped.id,
-        conversationId: mapped.conversationId,
-        sequence: mapped.sequence,
-        provider: context?.provider || null,
-        userMessage: userMessage?.substring(0, 200) || null,
-        userMessageLength: userMessage?.length || 0,
-        agentResponse: agentResponse.substring(0, 300),
-        agentResponseLength: agentResponse.length,
-        tokenUsage: context?.tokenUsage || null,
-        toolCallsCount: toolCallsDetails?.length || 0,
-        toolCalls: toolCallsDetails,
-        toolResultsCount: toolResults?.length || 0,
-        toolResultsSummary,
-        availableTools: availableTools.length > 0 ? availableTools : null,
-        usedTools: usedTools.length > 0 ? usedTools : null,
-        toolsEfficiency: availableTools.length > 0 ? `${usedTools.length}/${availableTools.length} tools used` : null,
-        createdAt: mapped.createdAt,
-      }, null, 2)}`);
-    }
     return mapped;
   }
 }

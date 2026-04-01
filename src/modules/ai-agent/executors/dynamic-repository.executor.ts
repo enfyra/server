@@ -1,15 +1,15 @@
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { TDynamicContext } from '../../../../shared/types';
+import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
+import { TDynamicContext } from '../../../shared/types';
 import {
   formatErrorForUser,
   shouldEscalateToHuman,
   formatEscalationMessage,
   getRecoveryStrategy,
-} from '../error-recovery.helper';
+} from '../utils/error-recovery.helper';
 import { executeCheckPermission } from './check-permission.executor';
-import { DynamicRepositoryExecutorDependencies } from '../../types';
+import { DynamicRepositoryExecutorDependencies } from '../types';
 const logger = new Logger('DynamicRepositoryExecutor');
 export async function executeDynamicRepository(
   args: {
@@ -38,19 +38,6 @@ export async function executeDynamicRepository(
     args.table = args.table.trim();
   }
   if (!args.table) {
-    logger.debug(JSON.stringify({
-      layer: 'dynamic_repository',
-      stage: 'validation',
-      error: 'MISSING_TABLE',
-      operation: args.operation,
-      argsPreview: (() => {
-        const clone = { ...args };
-        if (clone.data) {
-          clone.data = '[omitted]';
-        }
-        return clone;
-      })(),
-    }));
     return {
       error: true,
       errorCode: 'MISSING_TABLE',
@@ -90,7 +77,7 @@ export async function executeDynamicRepository(
     tableHandlerService,
     queryEngine,
     metadataCacheService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     eventEmitter,
   } = deps;
@@ -101,7 +88,7 @@ export async function executeDynamicRepository(
     tableHandlerService,
     queryEngine,
     metadataCacheService,
-    systemProtectionService,
+    policyService,
     tableValidationService,
     eventEmitter,
   });

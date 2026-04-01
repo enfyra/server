@@ -173,7 +173,6 @@ ${messagesText}`;
         });
       }
 
-      this.logger.log(`Summary created for conversation ${conversationId}. Summary stored in conversation.summary. Total messages summarized: ${messagesToSummarize.length}`);
     } catch (error) {
       this.logger.error('Failed to create conversation summary:', error);
       throw error;

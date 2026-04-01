@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { TDynamicContext } from '../../../../shared/types';
-import { ConversationService } from '../../services/conversation.service';
+import { TDynamicContext } from '../../../shared/types';
+import { ConversationService } from '../services/conversation.service';
 
 export async function executeGetTask(
   args: { conversationId?: string | number },

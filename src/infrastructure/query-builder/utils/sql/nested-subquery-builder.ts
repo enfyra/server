@@ -1,5 +1,5 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../../knex/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
 import { TableMetadata } from '../../../knex/types/knex-types';
 import {

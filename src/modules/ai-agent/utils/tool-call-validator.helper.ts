@@ -1,6 +1,6 @@
 export function validateToolCallArguments(toolName: string, parsedArgs: any): boolean {
   const hasValidArgs = Object.keys(parsedArgs).length > 0;
-  const toolsWithoutArgs = ['list_tables', 'get_table_details', 'get_hint'];
+  const toolsWithoutArgs = ['get_table_details', 'get_hint', 'get_enfyra_doc', 'get_task'];
   const canHaveEmptyArgs = toolsWithoutArgs.includes(toolName);
   return hasValidArgs || canHaveEmptyArgs;
 }

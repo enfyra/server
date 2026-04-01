@@ -4,7 +4,7 @@ import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { QueryEngine } from '../../query-engine/services/query-engine.service';
 import { MetadataCacheService } from './metadata-cache.service';
 import { TableHandlerService } from '../../../modules/table-management/services/table-handler.service';
-import { SystemProtectionService } from '../../../modules/dynamic-api/services/system-protection.service';
+import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
 import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
 import { TDynamicContext } from '../../../shared/types';
@@ -21,7 +21,7 @@ export class RepoRegistryService {
     private readonly queryEngine: QueryEngine,
     private readonly metadataCacheService: MetadataCacheService,
     private readonly tableHandlerService: TableHandlerService,
-    private readonly systemProtectionService: SystemProtectionService,
+    private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -84,7 +84,7 @@ export class RepoRegistryService {
         queryBuilder: self.queryBuilder,
         queryEngine: self.queryEngine,
         metadataCacheService: self.metadataCacheService,
-        systemProtectionService: self.systemProtectionService,
+        policyService: self.policyService,
         tableValidationService: self.tableValidationService,
         eventEmitter: self.eventEmitter,
       });

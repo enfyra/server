@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { ConversationService } from './conversation.service';
 import { LLMService } from './llm.service';
@@ -11,10 +10,10 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { AgentRequestDto } from '../dto/agent-request.dto';
 import { IConversation } from '../interfaces/conversation.interface';
 import { StreamEvent } from '../interfaces/stream-event.interface';
-import { generateTitleFromMessage } from '../utils/conversation-helper';
+import { generateTitleFromMessage } from '../utils/conversation-title.util';
 import { buildLLMMessages } from '../utils/message-builder.helper';
 import { summarizeToolResults } from '../utils/tool-result-summarizer.helper';
-import { selectToolsForRequest } from '../utils/tool-selection.helper';
+import { selectToolsForAgentMessage } from '../utils/agent-tool-router.helper';
 
 @Injectable()
 export class AiAgentService {
@@ -28,7 +27,6 @@ export class AiAgentService {
     private readonly metadataCacheService: MetadataCacheService,
     private readonly aiConfigCacheService: AiConfigCacheService,
     private readonly queryBuilder: QueryBuilderService,
-    private readonly configService: ConfigService,
   ) {}
 
 
@@ -64,8 +62,7 @@ export class AiAgentService {
     let actualInputTokens = 0;
     let actualOutputTokens = 0;
     let actualCacheHitTokens = 0;
-    let selectedToolNames: string[] = [];
-    let evaluateTools: string[] = [];
+    let routedToolNames: string[] = [];
     let streamStartTime = 0;
 
     const cleanup = () => {
@@ -120,14 +117,13 @@ export class AiAgentService {
           : [];
         const durationMs = streamStartTime > 0 ? Date.now() - streamStartTime : undefined;
         const messageMetadata: Record<string, any> = {};
-        if (selectedToolNames?.length) messageMetadata.boundTools = selectedToolNames;
+        if (routedToolNames?.length) messageMetadata.routedToolNames = routedToolNames;
         if (usedToolNames.length) {
           messageMetadata.usedTools = usedToolNames;
           messageMetadata.usedToolsCount = usedToolNames.length;
         }
         if (config?.provider) messageMetadata.provider = config.provider;
         if (config?.model) messageMetadata.model = config.model;
-        if (evaluateTools?.length) messageMetadata.evaluateTools = evaluateTools;
         if (durationMs != null) messageMetadata.durationMs = durationMs;
         if (actualCacheHitTokens > 0) {
           messageMetadata.cacheHitTokens = actualCacheHitTokens;
@@ -379,23 +375,12 @@ export class AiAgentService {
       const latestUserMessage = messages.filter(m => m.role === 'user').pop()?.content || request.message;
       const userMessageStr = typeof latestUserMessage === 'string' ? latestUserMessage : JSON.stringify(latestUserMessage);
 
-      const evaluateConfigId = await this.aiConfigCacheService.getEvaluateStageConfigId();
-      const stage1ConfigId = evaluateConfigId ?? configId;
-
-      const evaluateResult = await this.llmService.evaluateNeedsTools({
-        userMessage: userMessageStr,
-        configId: stage1ConfigId,
-        conversationHistory: messages,
-        conversationSummary: conversation.summary,
-      });
-
-      const selectResult = selectToolsForRequest({
-        evaluateTools: evaluateResult.tools || [],
+      const routerResult = selectToolsForAgentMessage(userMessageStr, {
+        hasConversationHistory: messages.filter((m) => m.role === 'user').length > 1,
         provider: config.provider,
       });
-      selectedToolNames = selectResult.selectedToolNames || [];
-      evaluateTools = evaluateResult.tools || [];
-      const { toolsDefSize, needsTools } = selectResult;
+      routedToolNames = routerResult.routedToolNames || [];
+      const { needsTools } = routerResult;
 
       const llmMessages = await buildLLMMessages({
         conversation,
@@ -403,28 +388,10 @@ export class AiAgentService {
         config,
         user,
         needsTools,
-        selectedToolNames,
+        routedToolNames,
         metadataCacheService: this.metadataCacheService,
         queryBuilder: this.queryBuilder,
-        configService: this.configService,
       });
-
-      const toolMsgs = llmMessages.filter((m: any) => m.tool_calls?.length > 0 || (m.role === 'tool' && m.content));
-      for (const tm of toolMsgs) {
-        if (tm.tool_calls) {
-          for (const tc of tm.tool_calls) {
-            const t = tc as any;
-            const nm = t.function?.name || t.name;
-            const args = t.function?.arguments || t.arguments || '';
-            if (nm === 'delete_tables' || nm === 'find_records') {
-              this.logger.debug(`[AiAgent] DEBUG tool_call in llmMessages: ${nm} args=${typeof args === 'string' ? args?.slice(0, 200) : JSON.stringify(args)?.slice(0, 200)}`);
-            }
-          }
-        }
-        if (tm.role === 'tool' && typeof tm.content === 'string' && (tm.content.includes('delete') || tm.content.includes('table_definition') || tm.content.includes('Found') || tm.content.includes('ALL IDs'))) {
-          this.logger.debug(`[AiAgent] DEBUG tool_result in llmMessages: ${tm.content.slice(0, 350)}...`);
-        }
-      }
 
     let historyCount = 0;
     let toolCallsCount = 0;
@@ -454,7 +421,7 @@ export class AiAgentService {
           abortSignal: abortController.signal,
           user,
           conversationId: conversation.id,
-          selectedToolNames,
+          routedToolNames,
           onEvent: (event) => {
             if (!hasStartedStreaming) {
               hasStartedStreaming = true;
@@ -616,31 +583,11 @@ export class AiAgentService {
 
       cleanup();
 
-      const summary = {
-        conversationId: conversation.id,
-        actualInput: actualInputTokens,
-        actualOutput: actualOutputTokens,
-        historyTurns: historyCount,
-        toolCallsCount: toolCallsCount + (llmResponse?.toolCalls?.length || 0),
-        toolsDefSize: toolsDefSize,
-        selectedToolsCount: selectedToolNames?.length || 0,
-        selectedToolNames: selectedToolNames || [],
-      };
-
       (async () => {
         try {
           let contentToSave = llmResponse.content;
           if (typeof contentToSave !== 'string') {
             contentToSave = JSON.stringify(contentToSave);
-          }
-
-          this.logger.debug(`[AiAgent] DEBUG final LLM content (first 400 chars): ${(contentToSave || '').slice(0, 400)}`);
-          const deleteCalls = (llmResponse.toolCalls || allToolCalls).filter((tc: any) => (tc.function?.name || tc.name) === 'delete_tables');
-          if (deleteCalls.length > 0) {
-            for (const dc of deleteCalls) {
-              const args = dc.function?.arguments || dc.arguments || '';
-              this.logger.debug(`[AiAgent] DEBUG delete_tables tool call in final response: args=${typeof args === 'string' ? args : JSON.stringify(args)}`);
-            }
           }
 
           const assistantSequence = lastSequence + 2;
@@ -666,7 +613,7 @@ export class AiAgentService {
             : [];
           const durationMs = streamStartTime > 0 ? Date.now() - streamStartTime : undefined;
           const messageMetadata: Record<string, any> = {};
-          if (selectedToolNames?.length) messageMetadata.boundTools = selectedToolNames;
+          if (routedToolNames?.length) messageMetadata.routedToolNames = routedToolNames;
           if (usedToolNames.length) {
             messageMetadata.usedTools = usedToolNames;
             messageMetadata.usedToolsCount = usedToolNames.length;
@@ -675,7 +622,6 @@ export class AiAgentService {
           if (config?.provider) messageMetadata.provider = config.provider;
           if (config?.model) messageMetadata.model = config.model;
           if (llmResponse?.toolsAddedOnDemand?.length) messageMetadata.toolsAddedOnDemand = llmResponse.toolsAddedOnDemand;
-          if (evaluateTools?.length) messageMetadata.evaluateTools = evaluateTools;
           if (durationMs != null) messageMetadata.durationMs = durationMs;
           if (actualCacheHitTokens > 0) {
             messageMetadata.cacheHitTokens = actualCacheHitTokens;
@@ -703,7 +649,7 @@ export class AiAgentService {
             userId,
             context: {
               userMessage: userMessageStr,
-              boundTools: selectedToolNames || [],
+              routedToolNames: routedToolNames || [],
               provider: provider,
               tokenUsage: {
                 inputTokens: actualInputTokens > 0 ? actualInputTokens : undefined,

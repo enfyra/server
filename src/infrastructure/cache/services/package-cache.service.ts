@@ -3,10 +3,11 @@ import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { PackageManagementService } from '../../../modules/package-management/services/package-management.service';
+import { PackageCdnLoaderService } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE, PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const PACKAGE_CONFIG: CacheConfig = {
   syncEventKey: PACKAGE_CACHE_SYNC_EVENT_KEY,
@@ -15,6 +16,8 @@ const PACKAGE_CONFIG: CacheConfig = {
   cacheName: 'PackageCache',
 };
 
+const SYSTEM_EVENT_PREFIX = '$system:package';
+
 @Injectable()
 export class PackageCacheService extends BaseCacheService<string[]> {
   constructor(
@@ -22,7 +25,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     redisPubSubService: RedisPubSubService,
     instanceService: InstanceService,
     eventEmitter: EventEmitter2,
-    private readonly packageManagementService: PackageManagementService,
+    private readonly websocketGateway: DynamicWebSocketGateway,
+    private readonly cdnLoader: PackageCdnLoaderService,
   ) {
     super(PACKAGE_CONFIG, redisPubSubService, instanceService, eventEmitter);
   }
@@ -48,6 +52,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       filter: {
         isEnabled: true,
         type: 'Server',
+        status: 'installed',
       },
     });
 
@@ -79,98 +84,79 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   protected async afterTransform(): Promise<void> {
+    this.preloadPackagesFromCdn().catch((error) => {
+      this.logger.error(`CDN preload failed (non-blocking): ${error.message}`);
+    });
+  }
+
+  private emitEvent(event: string, data: any) {
     try {
-      await this.ensurePackagesInstalled();
-      await this.ensurePackagesCleanedUp();
+      this.websocketGateway.emitToNamespace(
+        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+        `${SYSTEM_EVENT_PREFIX}:${event}`,
+        data,
+      );
     } catch (error) {
-      this.logger.error(`Package sync failed (non-blocking): ${error.message}`);
+      this.logger.warn(`Failed to emit WS event ${event}: ${error.message}`);
     }
   }
 
-  private async ensurePackagesInstalled(): Promise<void> {
-    const packagesWithVersion = await this.loadPackagesWithVersion();
+  private async updatePackageStatus(
+    id: string | number,
+    status: string,
+    extra?: Record<string, any>,
+  ) {
+    try {
+      await this.queryBuilder.update({
+        table: 'package_definition',
+        where: [{ field: 'id', operator: '=', value: id }],
+        data: { status, ...extra },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to update status to ${status} for package ${id}: ${error.message}`,
+      );
+    }
+  }
 
-    const missing = packagesWithVersion.filter(
-      (pkg) => !this.packageManagementService.isPackageInstalled(pkg.name),
+  private async preloadPackagesFromCdn(): Promise<void> {
+    const packagesWithMeta = await this.loadPackagesForSync();
+    const toPreload = packagesWithMeta.filter(
+      (pkg) => pkg.status === 'installed' && !this.cdnLoader.isLoaded(pkg.name),
     );
 
-    if (missing.length === 0) return;
+    if (toPreload.length === 0) return;
 
-    this.logger.log(`${missing.length} packages missing, acquiring machine lock...`);
-    const locked = await this.packageManagementService.acquireMachineLock();
-    if (!locked) {
-      this.logger.warn('Could not acquire machine lock, skipping package install');
-      return;
-    }
+    this.logger.log(`Preloading ${toPreload.length} packages from CDN...`);
 
-    try {
-      const stillMissing = missing.filter(
-        (pkg) => !this.packageManagementService.isPackageInstalled(pkg.name),
-      );
+    this.emitEvent('installing', {
+      packages: toPreload.map((p) => ({ id: p.id, name: p.name })),
+    });
 
-      if (stillMissing.length === 0) {
-        this.logger.log('All packages already installed (by another instance)');
-        return;
+    for (const pkg of toPreload) {
+      try {
+        await this.cdnLoader.loadPackage(pkg.name, pkg.version);
+        await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
+        this.emitEvent('installed', { id: pkg.id, name: pkg.name });
+      } catch (error) {
+        this.logger.error(`CDN preload failed for ${pkg.name}: ${error.message}`);
+        await this.updatePackageStatus(pkg.id, 'failed', { lastError: error.message });
+        this.emitEvent('failed', {
+          id: pkg.id,
+          name: pkg.name,
+          error: error.message,
+          operation: 'preload',
+        });
       }
-
-      this.logger.log(`Installing ${stillMissing.length} missing packages...`);
-      await this.packageManagementService.installBatch(stillMissing);
-
-      await this.packageManagementService.renewMachineLock();
-    } finally {
-      await this.packageManagementService.releaseMachineLock();
     }
   }
 
-  private async ensurePackagesCleanedUp(): Promise<void> {
-    const dbPackages = new Set(this.cache);
-
-    let localPackages: string[];
-    try {
-      const projectPkgPath = require('path').join(process.cwd(), 'package.json');
-      const content = require('fs').readFileSync(projectPkgPath, 'utf-8');
-      const pkgJson = JSON.parse(content);
-      localPackages = Object.keys(pkgJson.dependencies || {});
-    } catch {
-      return;
-    }
-
-    const allDbPackages = await this.loadAllDbPackageNames();
-    const orphans = allDbPackages.size > 0
-      ? localPackages.filter((name) => allDbPackages.has(name) && !dbPackages.has(name))
-      : [];
-
-    if (orphans.length === 0) return;
-
-    this.logger.log(`Found ${orphans.length} orphan packages to clean up: ${orphans.join(', ')}`);
-
-    const locked = await this.packageManagementService.acquireMachineLock();
-    if (!locked) return;
-
-    try {
-      await this.packageManagementService.uninstallOrphan(orphans);
-    } finally {
-      await this.packageManagementService.releaseMachineLock();
-    }
-  }
-
-  private async loadAllDbPackageNames(): Promise<Set<string>> {
-    try {
-      const result = await this.queryBuilder.select({
-        tableName: 'package_definition',
-        fields: ['name'],
-        filter: { type: 'Server' },
-      });
-      return new Set(result.data.map((p: any) => p.name));
-    } catch {
-      return new Set();
-    }
-  }
-
-  private async loadPackagesWithVersion(): Promise<Array<{ name: string; version: string }>> {
+  private async loadPackagesForSync(): Promise<
+    Array<{ id: string | number; name: string; version: string; status: string }>
+  > {
     const result = await this.queryBuilder.select({
       tableName: 'package_definition',
-      fields: ['name', 'version'],
+      fields: ['id', 'name', 'version', 'status'],
       filter: {
         isEnabled: true,
         type: 'Server',
@@ -178,9 +164,15 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     });
 
     return result.data.map((p: any) => ({
+      id: p.id || p._id,
       name: p.name,
       version: p.version || 'latest',
+      status: p.status || 'installed',
     }));
+  }
+
+  getCdnLoader(): PackageCdnLoaderService {
+    return this.cdnLoader;
   }
 
   async getPackages(): Promise<string[]> {

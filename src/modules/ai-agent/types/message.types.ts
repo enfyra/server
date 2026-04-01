@@ -10,14 +10,15 @@ export interface LLMMessage {
 }
 
 export interface IMessageMetadata {
-  boundTools?: string[];
+  /** Tools picked by the rule router for this turn (initial bind set). */
+  routedToolNames?: string[];
   usedTools?: string[];
   usedToolsCount?: number;
   toolLoops?: number;
   provider?: string;
   model?: string;
+  /** Tools bound after router pass (on-demand bind during stream). */
   toolsAddedOnDemand?: string[];
-  evaluateTools?: string[];
   durationMs?: number;
   cacheHitTokens?: number;
   cacheHitPct?: number;

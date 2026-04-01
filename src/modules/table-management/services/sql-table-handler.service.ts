@@ -4,6 +4,9 @@ import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services
 import { SchemaMigrationLockService } from '../../../infrastructure/knex/services/schema-migration-lock.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
+import { PolicyService } from '../../../core/policy/policy.service';
+import { TDynamicContext } from '../../../shared/types';
+import { isPolicyDeny, isPolicyPreview } from '../../../core/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
@@ -17,7 +20,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../infrastructure/knex/utils/naming-helpers';
+} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 @Injectable()
 export class SqlTableHandlerService {
@@ -28,6 +31,7 @@ export class SqlTableHandlerService {
     private metadataCacheService: MetadataCacheService,
     private loggingService: LoggingService,
     private schemaMigrationLockService: SchemaMigrationLockService,
+    private policyService: PolicyService,
   ) {}
   private validateRelations(relations: any[]) {
     for (const relation of relations || []) {
@@ -182,11 +186,22 @@ export class SqlTableHandlerService {
       );
     }
   }
-  async createTable(body: CreateTableDto) {
-    return await this.runWithSchemaLock(`table:create:${body?.name || 'unknown'}`, () => this.createTableInternal(body));
+  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+    const decision = await this.policyService.checkSchemaMigration({
+      operation: 'create',
+      tableName: 'table_definition',
+      data: body,
+      currentUser: context?.$user,
+    });
+    if (isPolicyDeny(decision)) {
+      throw new ValidationException(decision.message);
+    }
+    return await this.runWithSchemaLock(
+      `table:create:${body?.name || 'unknown'}`,
+      () => this.createTableInternal(body),
+    );
   }
   private async createTableInternal(body: CreateTableDto) {
-    this.logger.log(`CREATE TABLE: ${body?.name} (${body.columns?.length || 0} columns, ${body.relations?.length || 0} relations)`);
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException('Table name must be lowercase (no uppercase letters).', {
         tableName: body?.name,
@@ -225,7 +240,6 @@ export class SqlTableHandlerService {
         this.logger.warn(`Mismatch detected: Physical table "${body.name}" exists but no metadata found. Dropping physical table...`);
         try {
           await this.schemaMigrationService.dropTable(body.name, [], trx);
-          this.logger.log(`Physical table "${body.name}" dropped successfully`);
         } catch (dropError) {
           await trx.rollback();
           this.logger.error(`Failed to drop physical table "${body.name}": ${dropError.message}`);
@@ -289,7 +303,6 @@ export class SqlTableHandlerService {
         throw error;
       }
       body.isSystem = false;
-      this.logger.log(`\nSaving table metadata to DB...`);
       const dbType = this.queryBuilder.getDatabaseType();
       const insertResult = await trx('table_definition').insert({
         name: body.name,
@@ -301,9 +314,7 @@ export class SqlTableHandlerService {
         indexes: JSON.stringify(body.indexes || []),
       }, dbType === 'postgres' ? ['id'] : undefined);
       const tableId = dbType === 'postgres' ? insertResult[0]?.id : insertResult[0];
-      this.logger.log(`   Table metadata saved (ID: ${tableId})`);
       if (body.columns?.length > 0) {
-        this.logger.log(`\nSaving ${body.columns.length} column(s) metadata...`);
         const columnsToInsert = body.columns.map((col: any) => ({
           name: col.name,
           type: col.type,
@@ -321,10 +332,8 @@ export class SqlTableHandlerService {
           tableId: tableId,
         }));
         await trx('column_definition').insert(columnsToInsert);
-        this.logger.log(`   Column metadata saved`);
       }
       if (body.relations?.length > 0) {
-        this.logger.log(`\nSaving ${body.relations.length} relation(s) metadata...`);
         const targetTableIds = body.relations
           .map((rel: any) => typeof rel.targetTable === 'object' ? rel.targetTable.id : rel.targetTable)
           .filter((id: any) => id != null);
@@ -358,9 +367,6 @@ export class SqlTableHandlerService {
             }
             const junctionTableName = getJunctionTableName(body.name, rel.propertyName, targetTableName);
             const { sourceColumn, targetColumn } = getJunctionColumnNames(body.name, rel.propertyName, targetTableName);
-            this.logger.log(`   M2M: ${rel.propertyName} → ${targetTableName}`);
-            this.logger.log(`      Junction table: ${junctionTableName}`);
-            this.logger.log(`      Columns: ${sourceColumn}, ${targetColumn}`);
             insertData.junctionTableName = junctionTableName;
             insertData.junctionSourceColumn = sourceColumn;
             insertData.junctionTargetColumn = targetColumn;
@@ -372,9 +378,7 @@ export class SqlTableHandlerService {
           relationsToInsert.push(insertData);
         }
         await trx('relation_definition').insert(relationsToInsert);
-        this.logger.log(`   Relation metadata saved`);
       }
-      this.logger.log(`\n🔧 Running physical schema migration...`);
       const existingRoute = await trx('route_definition')
         .where({ path: `/${body.name}` })
         .first();
@@ -398,14 +402,11 @@ export class SqlTableHandlerService {
             await trx(junctionTable).insert(
               methods.map((m: any) => ({ [sourceColumn]: newRoute.id, [targetColumn]: m.id })),
             );
-            this.logger.log(`   Linked ${methods.length} available methods to route /${body.name}`);
           }
         }
-        this.logger.log(`Route /${body.name} created for table ${body.name}`);
       } else {
         this.logger.warn(`Route /${body.name} already exists, skipping route creation`);
       }
-      this.logger.log(`Fetching full table metadata...`);
       const fullMetadata = await this.getFullTableMetadataInTransaction(trx, tableId);
       if (!fullMetadata) {
         throw new Error(`Failed to fetch metadata for table ${body.name}`);
@@ -419,35 +420,23 @@ export class SqlTableHandlerService {
           }
         }
       }
-      this.logger.log(`Calling SqlSchemaMigrationService.createTable()...`);
       await this.schemaMigrationService.createTable(fullMetadata);
       schemaCreated = true;
       createdMetadataSnapshot = fullMetadata;
-      this.logger.log(`\nCommitting transaction...`);
       await trx.commit();
 
       if (body.isSingleRecord) {
-        this.logger.log(`\nSingle-record table detected. Creating default record...`);
         const knex = this.queryBuilder.getKnex();
         const existingRecord = await knex(body.name).first();
         if (!existingRecord) {
           const defaultRecord = generateDefaultRecord(fullMetadata.columns || []);
           await knex(body.name).insert(defaultRecord);
-          this.logger.log(`   Default record created for table ${body.name}`);
         } else {
-          this.logger.log(`   Record already exists in table ${body.name}, skipping default creation`);
         }
       }
 
-      this.logger.log(`\n${'='.repeat(80)}`);
-      this.logger.log(`TABLE CREATED SUCCESSFULLY: ${body.name}`);
-      this.logger.log(`   - Metadata saved to DB`);
-      this.logger.log(`   - Physical schema migrated`);
-      this.logger.log(`   - Route created`);
       if (body.isSingleRecord) {
-        this.logger.log(`   - Default record created (single-record table)`);
       }
-      this.logger.log(`${'='.repeat(80)}\n`);
       return fullMetadata;
     } catch (error) {
       if (trx && !trx.isCompleted()) {
@@ -480,10 +469,17 @@ export class SqlTableHandlerService {
       );
     }
   }
-  async updateTable(id: string | number, body: CreateTableDto) {
-    return await this.runWithSchemaLock(`table:update:${id}`, () => this.updateTableInternal(id, body));
+  async updateTable(id: string | number, body: CreateTableDto, context?: TDynamicContext) {
+    return await this.runWithSchemaLock(
+      `table:update:${id}`,
+      () => this.updateTableInternal(id, body, context),
+    );
   }
-  private async updateTableInternal(id: string | number, body: CreateTableDto) {
+  private async updateTableInternal(
+    id: string | number,
+    body: CreateTableDto,
+    context?: TDynamicContext,
+  ) {
     const knex = this.queryBuilder.getKnex();
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
@@ -720,11 +716,30 @@ export class SqlTableHandlerService {
               `Failed to reload metadata after transaction for table ${exists.name}`,
             );
           }
-          await this.schemaMigrationService.updateTable(
-            exists.name,
-            oldMetadata,
-            updatedFullMetadata,
-          );
+          const decision = await this.policyService.checkSchemaMigration({
+            operation: 'update',
+            tableName: exists.name,
+            data: body,
+            currentUser: context?.$user,
+            beforeMetadata: oldMetadata,
+            afterMetadata: updatedFullMetadata,
+            requestContext: context,
+          });
+          if (isPolicyPreview(decision)) {
+            await trx.rollback();
+            return { _preview: true, ...decision.details };
+          }
+          if (isPolicyDeny(decision)) {
+            throw new ValidationException(decision.message, decision.details);
+          }
+
+          if (decision.details?.schemaChanged === true) {
+            await this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetadata,
+              updatedFullMetadata,
+            );
+          }
         }
         await trx.commit();
 
@@ -746,9 +761,6 @@ export class SqlTableHandlerService {
           }
         }
 
-        this.logger.log(
-          `Table updated: ${exists.name} (metadata + physical schema)`,
-        );
         return { id: exists.id, name: exists.name };
       } catch (innerError) {
         if (trx && !trx.isCompleted()) {
@@ -779,10 +791,13 @@ export class SqlTableHandlerService {
         );
       }
   }
-  async delete(id: string | number) {
-    return await this.runWithSchemaLock(`table:delete:${id}`, () => this.deleteTableInternal(id));
+  async delete(id: string | number, context?: TDynamicContext) {
+    return await this.runWithSchemaLock(
+      `table:delete:${id}`,
+      () => this.deleteTableInternal(id, context),
+    );
   }
-  private async deleteTableInternal(id: string | number) {
+  private async deleteTableInternal(id: string | number, context?: TDynamicContext) {
     const knex = this.queryBuilder.getKnex();
     return await knex.transaction(async (trx) => {
       try {
@@ -802,28 +817,33 @@ export class SqlTableHandlerService {
           );
         }
         const tableName = exists.name;
+        const decision = await this.policyService.checkSchemaMigration({
+          operation: 'delete',
+          tableName,
+          currentUser: context?.$user,
+          requestContext: context,
+        });
+        if (isPolicyDeny(decision)) {
+          throw new ValidationException(decision.message, decision.details);
+        }
         const deletedRoutes = await trx('route_definition')
           .where({ mainTableId: id })
           .delete();
-        this.logger.log(`Deleted ${deletedRoutes} routes with mainTableId = ${id}`);
         const allRelations = await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
           .select('*');
-        this.logger.log(`Found ${allRelations.length} relations involving table ${tableName}`);
         const targetRelations = await trx('relation_definition')
           .where({ targetTableId: id })
           .select('*');
-        this.logger.log(`Found ${targetRelations.length} target relations for table ${tableName}`);
         for (const rel of targetRelations) {
           if (['one-to-many', 'many-to-one', 'one-to-one'].includes(rel.type)) {
             const sourceTable = await trx('table_definition')
               .where({ id: rel.sourceTableId })
               .first();
             if (sourceTable) {
-              const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
+              const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/sql-schema-naming.util');
               const fkColumn = getForeignKeyColumnName(tableName);
-              this.logger.log(`Dropping FK column ${fkColumn} from table ${sourceTable.name}`);
               const columnExists = await trx.schema.hasColumn(sourceTable.name, fkColumn);
               if (columnExists) {
                 try {
@@ -856,26 +876,20 @@ export class SqlTableHandlerService {
                   if (constraintName) {
                     const qt = dbType === 'mysql' ? (id: string) => `\`${id}\`` : (id: string) => `"${id}"`;
                     await trx.raw(`ALTER TABLE ${qt(sourceTable.name)} DROP CONSTRAINT ${qt(constraintName)}`);
-                    this.logger.log(`Dropped FK constraint: ${constraintName} for column ${fkColumn}`);
                   } else {
-                    this.logger.log(`No FK constraint found for column ${fkColumn}, skipping constraint drop`);
                   }
                 } catch (error) {
-                  this.logger.log(`Error dropping FK constraint: ${error.message}`);
                 }
                 try {
                   await trx.schema.alterTable(sourceTable.name, (table) => {
                     table.dropColumn(fkColumn);
                   });
-                  this.logger.log(`Dropped FK column: ${fkColumn} from ${sourceTable.name}`);
                 } catch (error) {
-                  this.logger.log(`Error dropping FK column: ${error.message}`);
                 }
               }
             }
           }
         }
-        this.logger.log(`Checking for ALL FK constraints referencing table ${tableName}...`);
         try {
           const dbType = this.queryBuilder.getDatabaseType();
           let allFkConstraints;
@@ -915,36 +929,27 @@ export class SqlTableHandlerService {
             allFkConstraints = result[0] || [];
           }
           if (allFkConstraints && allFkConstraints.length > 0) {
-            this.logger.log(`Found ${allFkConstraints.length} FK constraints referencing ${tableName}`);
             for (const fk of allFkConstraints) {
-              this.logger.log(`Dropping FK constraint: ${fk.constraint_name} from ${fk.table_name}.${fk.column_name}`);
               try {
                 const qt = dbType === 'mysql' ? (id: string) => `\`${id}\`` : (id: string) => `"${id}"`;
                 await trx.raw(`ALTER TABLE ${qt(fk.table_name)} DROP CONSTRAINT ${qt(fk.constraint_name)}`);
-                this.logger.log(`Dropped FK constraint: ${fk.constraint_name}`);
               } catch (error) {
-                this.logger.log(`Error dropping FK constraint: ${error.message}`);
               }
               try {
                 await trx.schema.alterTable(fk.table_name, (table: any) => {
                   table.dropColumn(fk.column_name);
                 });
-                this.logger.log(`Dropped FK column: ${fk.column_name} from ${fk.table_name}`);
               } catch (error) {
-                this.logger.log(`Error dropping FK column: ${error.message}`);
               }
             }
           } else {
-            this.logger.log(`No FK constraints found referencing ${tableName}`);
           }
         } catch (error) {
-          this.logger.log(`Error checking FK constraints: ${error.message}`);
         }
         await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
           .delete();
-        this.logger.log(`Deleted all relations for table ${id}`);
         await trx('column_definition')
           .where({ tableId: id })
           .delete();
@@ -953,13 +958,11 @@ export class SqlTableHandlerService {
           .delete();
         await this.schemaMigrationService.dropTable(tableName, allRelations, trx);
         await trx.commit();
-        this.logger.log(`Table deleted: ${tableName} (metadata + physical schema)`);
         return exists;
       } catch (error) {
         if (trx && !trx.isCompleted()) {
           try {
             await trx.rollback();
-            this.logger.log(`Transaction rolled back due to error`);
           } catch (rollbackError) {
             this.logger.error(`Failed to rollback transaction: ${rollbackError.message}`);
           }

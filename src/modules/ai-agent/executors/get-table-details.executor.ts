@@ -1,13 +1,12 @@
 import { Logger } from '@nestjs/common';
-import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
-import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
-import { TableHandlerService } from '../../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
-import { SystemProtectionService } from '../../../dynamic-api/services/system-protection.service';
-import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../../shared/types';
-import { formatMetadataCompact } from '../compact-format.helper';
-import { GetTableDetailsExecutorDependencies } from '../../types';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { TableHandlerService } from '../../table-management/services/table-handler.service';
+import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
+import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
+import { TDynamicContext } from '../../../shared/types';
+import { formatMetadataCompact } from '../utils/compact-format.helper';
+import { GetTableDetailsExecutorDependencies } from '../types';
 
 const logger = new Logger('GetTableDetailsExecutor');
 

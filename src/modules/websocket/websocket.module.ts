@@ -9,6 +9,7 @@ import { QueryBuilderModule } from '../../infrastructure/query-builder/query-bui
 import { CacheModule } from '../../infrastructure/cache/cache.module';
 import { HandlerExecutorModule } from '../../infrastructure/handler-executor/handler-executor.module';
 import { WebsocketEmitService } from './services/websocket-emit.service';
+import { BuiltInSocketRegistry } from './services/built-in-socket.registry';
 import { SYSTEM_QUEUES } from '../../shared/utils/constant';
 
 @Global()
@@ -37,6 +38,7 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
     ),
   ],
   providers: [
+    BuiltInSocketRegistry,
     WebsocketGatewayFactory,
     DynamicWebSocketGateway,
     ConnectionQueueService,
@@ -44,6 +46,7 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
     WebsocketEmitService,
   ],
   exports: [
+    BuiltInSocketRegistry,
     WebsocketGatewayFactory,
     DynamicWebSocketGateway,
     WebsocketEmitService,

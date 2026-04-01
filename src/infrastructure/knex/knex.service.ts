@@ -12,7 +12,7 @@ import { RelationTransformer } from './utils/relation-transformer';
 import { parseDatabaseUri } from './utils/uri-parser';
 import { ReplicationManager } from './services/replication-manager.service';
 
-import { getForeignKeyColumnName } from './utils/naming-helpers';
+import { getForeignKeyColumnName } from './utils/sql-schema-naming.util';
 
 @Injectable()
 export class KnexService implements OnModuleInit, OnModuleDestroy {
@@ -311,9 +311,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           .whereNot('id', data.id)
           .update({ [fkColumn]: null });
 
-        if (result > 0) {
-          this.logger.log(`[beforeUpdate] Cleared ${result} record(s) with ${fkColumn}=${data[fkColumn]} for unique constraint`);
-        }
       }
 
       return data;
@@ -357,7 +354,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
       const context = cascadeContextMap.get(tableName);
       if (!context) {
-        this.logger.log(`[afterUpdate] No cascade context found for table: ${tableName}`);
         return result;
       }
 
