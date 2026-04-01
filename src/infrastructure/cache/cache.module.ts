@@ -12,12 +12,11 @@ import { RateLimitService } from './services/rate-limit.service';
 import { FolderTreeCacheService } from './services/folder-tree-cache.service';
 import { RepoRegistryService } from './services/repo-registry.service';
 import { FlowCacheService } from './services/flow-cache.service';
-import { PackageManagementModule } from '../../modules/package-management/package-management.module';
+import { PackageCdnLoaderService } from './services/package-cdn-loader.service';
 
 @Global()
 @Module({
-  imports: [PackageManagementModule],
-  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService],
-  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService],
+  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService, PackageCdnLoaderService],
+  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, AiConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService, PackageCdnLoaderService],
 })
 export class CacheModule {}

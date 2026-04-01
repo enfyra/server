@@ -7,13 +7,13 @@ import {
   Req,
   Logger,
 } from '@nestjs/common';
-import { PackageManagementService } from '../services/package-management.service';
 import { RequestWithRouteData } from '../../../shared/types';
 import {
   ValidationException,
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
+import { PackageCdnLoaderService } from '../../../infrastructure/cache/services/package-cdn-loader.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DynamicWebSocketGateway } from '../../websocket/gateway/dynamic-websocket.gateway';
 
@@ -25,8 +25,8 @@ export class PackageController {
   private readonly logger = new Logger(PackageController.name);
 
   constructor(
-    private packageManagementService: PackageManagementService,
     private packageCacheService: PackageCacheService,
+    private cdnLoader: PackageCdnLoaderService,
     private queryBuilder: QueryBuilderService,
     private websocketGateway: DynamicWebSocketGateway,
   ) {}
@@ -93,73 +93,21 @@ export class PackageController {
       );
     }
 
-    if (body.type === 'App') {
-      const status = body.status || 'installed';
-      const savedPackage = await this.queryBuilder.insertAndGet(
-        'package_definition',
-        {
-          ...body,
-          version: body.version || '1.0.0',
-          description: body.description || '',
-          isSystem: false,
-          status,
-        },
-      );
-
-      await this.packageCacheService.reload();
-
-      const savedPackageId = savedPackage.id || savedPackage._id;
-
-      if (status === 'installing') {
-        this.emitEvent('installing', {
-          id: savedPackageId,
-          name: body.name,
-          version: body.version || '1.0.0',
-        });
-      }
-
-      return packageRepo.find({ where: { id: { _eq: savedPackageId } } });
-    }
-
-    const isAlreadyInstalled =
-      this.packageManagementService.isPackageInstalled(body.name);
-
-    if (isAlreadyInstalled) {
-      const installationResult =
-        await this.packageManagementService.getPackageInfo(body.name);
-
-      const savedPackage = await this.queryBuilder.insertAndGet(
-        'package_definition',
-        {
-          ...body,
-          version: installationResult.version,
-          description:
-            body.description || installationResult.description || '',
-          isSystem: true,
-          status: 'installed',
-        },
-      );
-
-      await this.packageCacheService.reload();
-
-      const savedPackageId = savedPackage.id || savedPackage._id;
-      return packageRepo.find({ where: { id: { _eq: savedPackageId } } });
-    }
-
+    const userId = req.routeData?.context?.$user?.id;
     const savedPackage = await this.queryBuilder.insertAndGet(
       'package_definition',
       {
         ...body,
         version: body.version || 'latest',
         description: body.description || '',
-        isSystem: false,
+        isSystem: body.isSystem || false,
         status: 'installing',
         lastError: null,
+        ...(userId ? { installedBy: { id: userId } } : {}),
       },
     );
 
     const savedPackageId = savedPackage.id || savedPackage._id;
-    const timeout = body.installTimeout || savedPackage.installTimeout || 60;
 
     this.emitEvent('installing', {
       id: savedPackageId,
@@ -167,89 +115,38 @@ export class PackageController {
       version: body.version || 'latest',
     });
 
-    this.executeInstall(savedPackageId, body, timeout).catch((error) => {
-      this.logger.error(
-        `Unexpected error in background install for ${body.name}: ${error.message}`,
-      );
-    });
+    if (body.type === 'Server') {
+      this.executeCdnLoad(savedPackageId, body.name, body.version || 'latest').catch((error) => {
+        this.logger.error(`CDN load failed for ${body.name}: ${error.message}`);
+      });
+    } else {
+      await this.updateStatus(savedPackageId, 'installed');
+      this.emitEvent('installed', {
+        id: savedPackageId,
+        name: body.name,
+        version: body.version || 'latest',
+      });
+    }
 
-    const result = await packageRepo.find({
-      where: { id: { _eq: savedPackageId } },
-    });
-
-    return result;
+    return packageRepo.find({ where: { id: { _eq: savedPackageId } } });
   }
 
-  private emitAppStatusEvent(
-    id: string | number,
-    name: string,
-    body: any,
-    previousRecord: any,
-  ) {
-    const status = body.status;
-    if (status === 'installing' || status === 'updating' || status === 'uninstalling') {
-      this.emitEvent(status, { id, name });
-    } else if (status === 'installed') {
-      this.emitEvent('installed', { id, name, version: body.version || previousRecord.version });
-    } else if (status === 'failed') {
+  private async executeCdnLoad(id: string | number, name: string, version: string) {
+    try {
+      await this.cdnLoader.loadPackage(name, version);
+
+      await this.updateStatus(id, 'installed', { lastError: null });
+      await this.packageCacheService.reload();
+
+      this.emitEvent('installed', { id, name, version });
+    } catch (error) {
+      this.logger.error(`CDN load failed for ${name}: ${error.message}`);
+
+      await this.updateStatus(id, 'failed', { lastError: error.message });
+
       this.emitEvent('failed', {
         id,
         name,
-        error: body.lastError || 'Unknown error',
-        operation: previousRecord.status === 'updating' ? 'update' : 'install',
-      });
-    }
-  }
-
-  private async executeInstall(
-    id: string | number,
-    body: any,
-    timeoutSeconds: number,
-  ) {
-    try {
-      const installationResult =
-        await this.packageManagementService.installPackage({
-          name: body.name,
-          type: body.type,
-          version: body.version || 'latest',
-          flags: body.flags || '',
-          timeoutMs: timeoutSeconds * 1000,
-        });
-
-      try {
-        require(body.name);
-      } catch (requireError) {
-        throw new Error(
-          `Package installed but unable to require: ${requireError.message}`,
-        );
-      }
-
-      await this.updateStatus(id, 'installed', {
-        version: installationResult.version,
-        description:
-          body.description || installationResult.description || '',
-        lastError: null,
-      });
-
-      await this.packageCacheService.reload();
-
-      this.emitEvent('installed', {
-        id,
-        name: body.name,
-        version: installationResult.version,
-      });
-    } catch (error) {
-      this.logger.error(
-        `Install failed for ${body.name}: ${error.message}`,
-      );
-
-      await this.updateStatus(id, 'failed', {
-        lastError: error.message,
-      });
-
-      this.emitEvent('failed', {
-        id,
-        name: body.name,
         error: error.message,
         operation: 'install',
       });
@@ -281,27 +178,18 @@ export class PackageController {
     if (packageRecord.type === 'App') {
       const result = await packageRepo.update({ id, data: body });
       await this.packageCacheService.reload();
-
-      if (body.status && body.status !== packageRecord.status) {
-        this.emitAppStatusEvent(id, packageRecord.name, body, packageRecord);
-      }
-
       return result;
     }
 
-    const needsReinstall =
-      body.version && body.version !== packageRecord.version;
+    const needsReload = body.version && body.version !== packageRecord.version;
 
-    if (!needsReinstall) {
+    if (!needsReload) {
       const result = await packageRepo.update({ id, data: body });
       await this.packageCacheService.reload();
       return result;
     }
 
     await this.updateStatus(id, 'updating', { lastError: null });
-
-    const timeout =
-      body.installTimeout || packageRecord.installTimeout || 60;
 
     this.emitEvent('updating', {
       id,
@@ -310,56 +198,33 @@ export class PackageController {
       to: body.version,
     });
 
-    this.executeUpdate(id, packageRecord, body, timeout).catch((error) => {
-      this.logger.error(
-        `Unexpected error in background update for ${packageRecord.name}: ${error.message}`,
-      );
+    this.executeCdnUpdate(id, packageRecord.name, body.version).catch((error) => {
+      this.logger.error(`CDN update failed for ${packageRecord.name}: ${error.message}`);
     });
 
-    const result = await packageRepo.find({ where: { id: { _eq: id } } });
-    return result;
+    return packageRepo.find({ where: { id: { _eq: id } } });
   }
 
-  private async executeUpdate(
-    id: string,
-    packageRecord: any,
-    body: any,
-    timeoutSeconds: number,
-  ) {
+  private async executeCdnUpdate(id: string, name: string, newVersion: string) {
     try {
-      const installationResult =
-        await this.packageManagementService.updatePackage({
-          name: packageRecord.name,
-          type: packageRecord.type,
-          currentVersion: packageRecord.version,
-          newVersion: body.version,
-          timeoutMs: timeoutSeconds * 1000,
-        });
+      await this.cdnLoader.invalidatePackage(name, newVersion);
 
       await this.updateStatus(id, 'installed', {
-        version: installationResult.version,
+        version: newVersion,
         lastError: null,
       });
 
       await this.packageCacheService.reload();
 
-      this.emitEvent('installed', {
-        id,
-        name: packageRecord.name,
-        version: installationResult.version,
-      });
+      this.emitEvent('installed', { id, name, version: newVersion });
     } catch (error) {
-      this.logger.error(
-        `Update failed for ${packageRecord.name}: ${error.message}`,
-      );
+      this.logger.error(`CDN update failed for ${name}: ${error.message}`);
 
-      await this.updateStatus(id, 'failed', {
-        lastError: error.message,
-      });
+      await this.updateStatus(id, 'failed', { lastError: error.message });
 
       this.emitEvent('failed', {
         id,
-        name: packageRecord.name,
+        name,
         error: error.message,
         operation: 'update',
       });
@@ -390,67 +255,14 @@ export class PackageController {
       throw new ValidationException('Cannot uninstall system packages');
     }
 
-    if (packageRecord.type === 'App') {
-      const result = await packageRepo.delete({ id });
-      await this.packageCacheService.reload();
-      this.emitEvent('uninstalled', { id, name: packageRecord.name });
-      return result;
+    if (packageRecord.type === 'Server') {
+      this.cdnLoader.invalidatePackage(packageRecord.name);
     }
 
-    await this.updateStatus(id, 'uninstalling', { lastError: null });
+    const result = await packageRepo.delete({ id });
+    await this.packageCacheService.reload();
 
-    this.emitEvent('uninstalling', { id, name: packageRecord.name });
-
-    this.executeUninstall(id, packageRecord, packageRepo).catch((error) => {
-      this.logger.error(
-        `Unexpected error in background uninstall for ${packageRecord.name}: ${error.message}`,
-      );
-    });
-
-    const result = await packageRepo.find({ where: { id: { _eq: id } } });
+    this.emitEvent('uninstalled', { id, name: packageRecord.name });
     return result;
-  }
-
-  private async executeUninstall(
-    id: string,
-    packageRecord: any,
-    packageRepo: any,
-  ) {
-    try {
-      const isInstalled =
-        this.packageManagementService.isPackageInstalled(packageRecord.name);
-      if (isInstalled) {
-        try {
-          await this.packageManagementService.uninstallPackage({
-            name: packageRecord.name,
-            type: packageRecord.type,
-          });
-        } catch (uninstallError) {
-          this.logger.warn(
-            `Failed to uninstall ${packageRecord.name} from node_modules (proceeding with DB cleanup): ${uninstallError.message}`,
-          );
-        }
-      }
-
-      await packageRepo.delete({ id });
-      await this.packageCacheService.reload();
-
-      this.emitEvent('uninstalled', { id, name: packageRecord.name });
-    } catch (error) {
-      this.logger.error(
-        `Uninstall failed for ${packageRecord.name}: ${error.message}`,
-      );
-
-      await this.updateStatus(id, 'failed', {
-        lastError: error.message,
-      });
-
-      this.emitEvent('failed', {
-        id,
-        name: packageRecord.name,
-        error: error.message,
-        operation: 'uninstall',
-      });
-    }
   }
 }

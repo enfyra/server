@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as vm from 'vm';
 import { TDynamicContext } from '../../../shared/types';
 import { PackageCacheService } from '../../cache/services/package-cache.service';
+import { PackageCdnLoaderService } from '../../cache/services/package-cdn-loader.service';
 import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException, ScriptExecutionException } from '../../../core/exceptions/custom-exceptions';
 
@@ -73,7 +74,10 @@ const NETWORK_DENYLIST_PACKAGES = new Set([
 export class VmExecutorService {
   private readonly logger = new Logger(VmExecutorService.name);
 
-  constructor(private packageCacheService: PackageCacheService) {}
+  constructor(
+    private packageCacheService: PackageCacheService,
+    private cdnLoader: PackageCdnLoaderService,
+  ) {}
 
   private safeJsonSize(value: any, maxBytes: number): { ok: true; bytes: number } | { ok: false; bytes: number } {
     const seen = new WeakSet<object>();
@@ -130,14 +134,12 @@ export class VmExecutorService {
 
   async run(code: string, ctx: TDynamicContext, timeoutMs: number): Promise<any> {
     const packages = await this.packageCacheService.getPackages();
-    const allowedPackages = new Set(packages);
+    const loadedModules = this.cdnLoader.getLoadedPackages();
 
     const pkgs: Record<string, any> = {};
     for (const packageName of packages) {
-      try {
-        pkgs[packageName] = require(packageName);
-      } catch {
-      }
+      const mod = loadedModules.get(packageName);
+      if (mod) pkgs[packageName] = mod;
     }
     (ctx as any).$pkgs = pkgs;
 
@@ -159,23 +161,19 @@ export class VmExecutorService {
         throw new Error(`Module "${moduleName}" is not allowed in handlers`);
       }
 
-      if (!allowedPackages.has(moduleName)) {
-        throw new Error(
-          `Module "${moduleName}" is not allowed in handlers. Install/enable it via Settings → Packages`,
-        );
-      }
-
       for (const denied of NETWORK_DENYLIST_PACKAGES) {
         if (moduleName === denied || moduleName.startsWith(`${denied}/`)) {
           throw new Error(`Module "${moduleName}" is not allowed in handlers. Use $fetch instead`);
         }
       }
 
-      try {
-        return require(moduleName);
-      } catch (e: any) {
-        throw new Error(`Module "${moduleName}" failed to load: ${e?.message || 'unknown error'}`);
+      const mod = loadedModules.get(moduleName);
+      if (!mod) {
+        throw new Error(
+          `Module "${moduleName}" is not available. Install/enable it via Settings → Packages`,
+        );
       }
+      return mod;
     };
 
     const safeProcess = {
@@ -230,6 +228,25 @@ export class VmExecutorService {
       JSON,
       Math,
       RegExp,
+      Array,
+      Object,
+      Map,
+      Set,
+      WeakMap,
+      WeakSet,
+      Promise,
+      Error,
+      TypeError,
+      RangeError,
+      SyntaxError,
+      URIError,
+      Symbol,
+      Proxy,
+      Reflect,
+      URL,
+      URLSearchParams,
+      TextEncoder,
+      TextDecoder,
       parseInt,
       parseFloat,
       isNaN,
@@ -238,6 +255,8 @@ export class VmExecutorService {
       decodeURIComponent,
       encodeURI,
       decodeURI,
+      queueMicrotask,
+      structuredClone,
       require: safeRequire,
       process: safeProcess,
       fetch: undefined,

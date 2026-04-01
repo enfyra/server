@@ -61,6 +61,7 @@ PORT=1105
 DEFAULT_HANDLER_TIMEOUT=20000
 DEFAULT_PREHOOK_TIMEOUT=20000
 DEFAULT_AFTERHOOK_TIMEOUT=20000
+# isolated-vm: `yarn start` / `start:dev` / `start:prod` already prepend `--no-node-snapshot`. Override or add flags via NODE_OPTIONS in the shell if needed.
 
 ############################################
 # Auth - required

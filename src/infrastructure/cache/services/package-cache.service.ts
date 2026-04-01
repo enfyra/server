@@ -3,7 +3,7 @@ import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { PackageManagementService } from '../../../modules/package-management/services/package-management.service';
+import { PackageCdnLoaderService } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
@@ -26,8 +26,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     redisPubSubService: RedisPubSubService,
     instanceService: InstanceService,
     eventEmitter: EventEmitter2,
-    private readonly packageManagementService: PackageManagementService,
     private readonly websocketGateway: DynamicWebSocketGateway,
+    private readonly cdnLoader: PackageCdnLoaderService,
   ) {
     super(PACKAGE_CONFIG, redisPubSubService, instanceService, eventEmitter);
   }
@@ -85,12 +85,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   protected async afterTransform(): Promise<void> {
-    this.ensurePackagesInstalled().catch((error) => {
-      this.logger.error(`Package install failed (non-blocking): ${error.message}`);
-    });
-
-    this.ensurePackagesCleanedUp().catch((error) => {
-      this.logger.error(`Package cleanup failed (non-blocking): ${error.message}`);
+    this.preloadPackagesFromCdn().catch((error) => {
+      this.logger.error(`CDN preload failed (non-blocking): ${error.message}`);
     });
   }
 
@@ -124,175 +120,44 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     }
   }
 
-  private async ensurePackagesInstalled(): Promise<void> {
+  private async preloadPackagesFromCdn(): Promise<void> {
     const packagesWithMeta = await this.loadPackagesForSync();
-
-    const candidates = packagesWithMeta.filter(
-      (pkg) => pkg.status === 'installed' || pkg.status === 'failed',
+    const toPreload = packagesWithMeta.filter(
+      (pkg) => pkg.status === 'installed' && !this.cdnLoader.isLoaded(pkg.name),
     );
 
-    const missing = candidates.filter(
-      (pkg) => !this.packageManagementService.isPackageInstalled(pkg.name),
-    );
+    if (toPreload.length === 0) return;
 
-    if (missing.length === 0) return;
-
-    this.logger.log(`${missing.length} packages missing, acquiring machine lock...`);
-
-    for (const pkg of missing) {
-      await this.updatePackageStatus(pkg.id, 'installing', { lastError: null });
-    }
+    this.logger.log(`Preloading ${toPreload.length} packages from CDN...`);
 
     this.emitEvent('installing', {
-      packages: missing.map((p) => ({ id: p.id, name: p.name })),
+      packages: toPreload.map((p) => ({ id: p.id, name: p.name })),
     });
 
-    const locked = await this.packageManagementService.acquireMachineLock();
-    if (!locked) {
-      this.logger.warn('Could not acquire machine lock, skipping package install');
-      for (const pkg of missing) {
-        await this.updatePackageStatus(pkg.id, 'failed', {
-          lastError: 'Could not acquire machine lock',
-        });
-      }
-      this.emitEvent('failed', {
-        packages: missing.map((p) => ({ id: p.id, name: p.name })),
-        error: 'Could not acquire machine lock',
-        operation: 'install',
-      });
-      return;
-    }
-
-    try {
-      const stillMissing = missing.filter(
-        (pkg) => !this.packageManagementService.isPackageInstalled(pkg.name),
-      );
-
-      if (stillMissing.length === 0) {
-        this.logger.log('All packages already installed (by another instance)');
-        for (const pkg of missing) {
-          await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
-        }
-        await this.reload();
-        this.emitEvent('installed', {
-          packages: missing.map((p) => ({ id: p.id, name: p.name })),
-        });
-        return;
-      }
-
-      this.logger.log(`Installing ${stillMissing.length} missing packages...`);
-
+    for (const pkg of toPreload) {
       try {
-        await this.packageManagementService.installBatch(
-          stillMissing.map((p) => ({
-            name: p.name,
-            version: p.version,
-            timeoutMs: (p.installTimeout || 60) * 1000,
-          })),
-        );
-
-        await this.packageManagementService.renewMachineLock();
-
-        for (const pkg of stillMissing) {
-          const isNowInstalled =
-            this.packageManagementService.isPackageInstalled(pkg.name);
-          if (isNowInstalled) {
-            await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
-            this.emitEvent('installed', { id: pkg.id, name: pkg.name });
-          } else {
-            await this.updatePackageStatus(pkg.id, 'failed', {
-              lastError: 'Package not found in node_modules after batch install',
-            });
-            this.emitEvent('failed', {
-              id: pkg.id,
-              name: pkg.name,
-              error: 'Package not found in node_modules after batch install',
-              operation: 'install',
-            });
-          }
-        }
-
-        await this.reload();
-      } catch (batchError) {
-        this.logger.error(`Batch install failed: ${batchError.message}`);
-
-        for (const pkg of stillMissing) {
-          const isNowInstalled =
-            this.packageManagementService.isPackageInstalled(pkg.name);
-          if (isNowInstalled) {
-            await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
-            this.emitEvent('installed', { id: pkg.id, name: pkg.name });
-          } else {
-            await this.updatePackageStatus(pkg.id, 'failed', {
-              lastError: batchError.message,
-            });
-            this.emitEvent('failed', {
-              id: pkg.id,
-              name: pkg.name,
-              error: batchError.message,
-              operation: 'install',
-            });
-          }
-        }
-
-        await this.reload();
+        await this.cdnLoader.loadPackage(pkg.name, pkg.version);
+        await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
+        this.emitEvent('installed', { id: pkg.id, name: pkg.name });
+      } catch (error) {
+        this.logger.error(`CDN preload failed for ${pkg.name}: ${error.message}`);
+        await this.updatePackageStatus(pkg.id, 'failed', { lastError: error.message });
+        this.emitEvent('failed', {
+          id: pkg.id,
+          name: pkg.name,
+          error: error.message,
+          operation: 'preload',
+        });
       }
-    } finally {
-      await this.packageManagementService.releaseMachineLock();
-    }
-  }
-
-  private async ensurePackagesCleanedUp(): Promise<void> {
-    const dbPackages = new Set(this.cache);
-
-    let localPackages: string[];
-    try {
-      const projectPkgPath = require('path').join(process.cwd(), 'package.json');
-      const content = require('fs').readFileSync(projectPkgPath, 'utf-8');
-      const pkgJson = JSON.parse(content);
-      localPackages = Object.keys(pkgJson.dependencies || {});
-    } catch {
-      return;
-    }
-
-    const allDbPackages = await this.loadAllDbPackageNames();
-    const orphans = allDbPackages.size > 0
-      ? localPackages.filter((name) => allDbPackages.has(name) && !dbPackages.has(name))
-      : [];
-
-    if (orphans.length === 0) return;
-
-    this.logger.log(`Found ${orphans.length} orphan packages to clean up: ${orphans.join(', ')}`);
-
-    const locked = await this.packageManagementService.acquireMachineLock();
-    if (!locked) return;
-
-    try {
-      await this.packageManagementService.uninstallOrphan(orphans);
-    } finally {
-      await this.packageManagementService.releaseMachineLock();
-    }
-  }
-
-  private async loadAllDbPackageNames(): Promise<Set<string>> {
-    try {
-      const result = await this.queryBuilder.select({
-        tableName: 'package_definition',
-        fields: ['name'],
-        filter: { type: 'Server' },
-      });
-      return new Set(result.data.map((p: any) => p.name));
-    } catch {
-      return new Set();
     }
   }
 
   private async loadPackagesForSync(): Promise<
-    Array<{ id: string | number; name: string; version: string; installTimeout: number; status: string }>
+    Array<{ id: string | number; name: string; version: string; status: string }>
   > {
     const result = await this.queryBuilder.select({
       tableName: 'package_definition',
-      fields: ['id', 'name', 'version', 'installTimeout', 'status'],
+      fields: ['id', 'name', 'version', 'status'],
       filter: {
         isEnabled: true,
         type: 'Server',
@@ -303,9 +168,12 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       id: p.id || p._id,
       name: p.name,
       version: p.version || 'latest',
-      installTimeout: p.installTimeout || 60,
       status: p.status || 'installed',
     }));
+  }
+
+  getCdnLoader(): PackageCdnLoaderService {
+    return this.cdnLoader;
   }
 
   async getPackages(): Promise<string[]> {
