@@ -92,11 +92,14 @@ async function bootstrap() {
   const appInitStart = Date.now();
   await app.init();
   logger.log(`App Init (Bootstrap): ${Date.now() - appInitStart}ms`);
+
+  const readyStart = Date.now();
+  await systemReadyPromise;
+  logger.log(`System caches ready: ${Date.now() - readyStart}ms`);
+
   const listenStart = Date.now();
   await app.listen(configService.get('PORT') || 1105);
   logger.log(`HTTP Listen: ${Date.now() - listenStart}ms`);
-
-  await systemReadyPromise;
 
   const totalTime = Date.now() - startTime;
   logger.log(`Cold Start completed! Total time: ${totalTime}ms`);
