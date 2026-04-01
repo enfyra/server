@@ -158,12 +158,10 @@ export class MongoTableHandlerService {
       const db = this.mongoService.getDb();
       for (const { oldName, newName, collectionName } of renamedColumns) {
         try {
-          this.logger.log(`[Background] Renaming field '${oldName}' → '${newName}' in ${collectionName}`);
           const result = await db.collection(collectionName).updateMany(
             { [oldName]: { $exists: true } },
             { $rename: { [oldName]: newName } }
           );
-          this.logger.log(`  [Background] Renamed ${result.modifiedCount} documents in ${collectionName}`);
         } catch (error) {
           this.logger.error(`  [Background] Failed to rename field in ${collectionName}:`, error.message);
         }
@@ -180,7 +178,6 @@ export class MongoTableHandlerService {
     if (!newRelations || newRelations.length === 0) {
       return;
     }
-    this.logger.log(`Dropping relation fields for ${newRelations.length} relation(s) before update`);
     for (const relation of newRelations) {
       let targetTableName: string;
       if (typeof relation.targetTable === 'object' && relation.targetTable.name) {
@@ -207,17 +204,14 @@ export class MongoTableHandlerService {
           {},
           { $unset: { [sourceFieldName]: "" } }
         );
-        this.logger.log(`  Dropped '${sourceFieldName}' from '${sourceTableName}'`);
       }
       if (inverseFieldName && targetTableName) {
         await db.collection(targetTableName).updateMany(
           {},
           { $unset: { [inverseFieldName]: "" } }
         );
-        this.logger.log(`  Dropped '${inverseFieldName}' from '${targetTableName}'`);
       }
     }
-    this.logger.log('✨ All relation fields dropped. Will be recreated by runtime logic.');
   }
   async createTable(body: CreateTableDto, context?: TDynamicContext) {
     const decision = await this.policyService.checkSchemaMigration({
@@ -259,7 +253,6 @@ export class MongoTableHandlerService {
         this.logger.warn(`Mismatch detected: Physical collection "${body.name}" exists but no metadata found. Dropping physical collection...`);
         try {
           await db.collection(body.name).drop();
-          this.logger.log(`Physical collection "${body.name}" dropped successfully`);
         } catch (dropError) {
           this.logger.error(`Failed to drop physical collection "${body.name}": ${dropError.message}`);
           throw new DatabaseException(
@@ -327,7 +320,6 @@ export class MongoTableHandlerService {
             });
             const colId = typeof columnRecord._id === 'string' ? new ObjectId(columnRecord._id) : columnRecord._id;
             insertedColumnIds.push(colId);
-            this.logger.log(`   Column inserted: ${col.name}`);
           }
         }
       } catch (error) {
@@ -372,7 +364,6 @@ export class MongoTableHandlerService {
             });
             const relId = typeof relationRecord._id === 'string' ? new ObjectId(relationRecord._id) : relationRecord._id;
             insertedRelationIds.push(relId);
-            this.logger.log(`   Relation inserted: ${rel.propertyName}`);
           }
         }
       } catch (error) {
@@ -411,25 +402,20 @@ export class MongoTableHandlerService {
             postHooks: [],
           },
         });
-        this.logger.log(`Route /${body.name} created for collection ${body.name} (${allMethodIds.length} available methods)`);
       }
       const fullMetadata = await this.getFullTableMetadata(tableId);
       await this.schemaMigrationService.createCollection(fullMetadata);
 
       if (body.isSingleRecord) {
-        this.logger.log(`Single-record collection detected. Creating default record...`);
         const db = this.mongoService.getDb();
         const existingRecord = await db.collection(body.name).findOne();
         if (!existingRecord) {
           const defaultRecord = generateDefaultRecord(fullMetadata.columns || []);
           await db.collection(body.name).insertOne(defaultRecord);
-          this.logger.log(`   Default record created for collection ${body.name}`);
         } else {
-          this.logger.log(`   Record already exists in collection ${body.name}, skipping default creation`);
         }
       }
 
-      this.logger.log(`Collection created: ${body.name} (metadata + validation + indexes)`);
       return fullMetadata;
     } catch (error) {
       this.loggingService.error('Collection creation failed', {
@@ -532,7 +518,6 @@ export class MongoTableHandlerService {
               {},
               { $unset: { [deletedCol.name]: "" } }
             );
-            this.logger.log(`  Dropped field '${deletedCol.name}' from all records`);
           }
           await this.queryBuilder.deleteById('column_definition', colId);
         }
@@ -607,7 +592,6 @@ export class MongoTableHandlerService {
                 {},
                 { $unset: { [fieldName]: "" } }
               );
-              this.logger.log(`  Cleaned up relation field '${fieldName}' from all records in ${exists.name}`);
             }
           }
           await this.queryBuilder.deleteById('relation_definition', relId);
@@ -673,7 +657,6 @@ export class MongoTableHandlerService {
         }
       }
 
-      this.logger.log(`Collection updated: ${exists.name} (metadata + validation + indexes)`);
       return finalMetadata;
     } catch (error) {
       this.loggingService.error('Collection update failed', {
@@ -727,7 +710,6 @@ export class MongoTableHandlerService {
       for (const route of routes) {
         await this.queryBuilder.deleteById('route_definition', route._id);
       }
-      this.logger.log(`Deleted ${routes.length} routes with mainTable = ${id}`);
       const relations = await this.queryBuilder.findWhere('relation_definition', {
         sourceTableId: tableId,
       });
@@ -742,7 +724,6 @@ export class MongoTableHandlerService {
       }
       await this.queryBuilder.deleteById('table_definition', tableId);
       await this.schemaMigrationService.dropCollection(collectionName);
-      this.logger.log(`Collection deleted: ${collectionName} (metadata + collection)`);
       return exists;
     } catch (error) {
       this.loggingService.error('Collection deletion failed', {

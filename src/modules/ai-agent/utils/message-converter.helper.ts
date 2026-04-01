@@ -26,12 +26,11 @@ export function convertToLangChainMessages(messages: LLMMessage[]): any[] {
           
           if (typeof toolArgs === 'string') {
             try {
-              if (toolArgs.length > 0 && !toolArgs.trim().endsWith('}') && !toolArgs.trim().endsWith(']')) {
-                logger.error(`[convertToLangChainMessages] Tool args string appears truncated: length=${toolArgs.length}, last 100 chars: ${toolArgs.substring(Math.max(0, toolArgs.length - 100))}`);
-              }
               toolArgs = JSON.parse(toolArgs);
             } catch (e) {
-              logger.error(`[convertToLangChainMessages] Failed to parse tool args for ${toolName}: ${e}, argsLength=${toolArgs?.length || 0}, first 500 chars: ${toolArgs?.substring(0, 500)}, last 100 chars: ${toolArgs?.substring(Math.max(0, (toolArgs?.length || 0) - 100))}`);
+              logger.warn(
+                `[MessageConverter] tool args parse failed: ${toolName}, len=${toolArgs?.length ?? 0}`,
+              );
               toolArgs = {};
             }
           }

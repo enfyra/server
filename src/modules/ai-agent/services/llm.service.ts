@@ -373,7 +373,7 @@ export class LLMService {
           }
           const toolName = tc.function?.name || tc.name;
           if (!toolName) {
-            this.logger.error(`[LLM Stream] Tool name is undefined. Full tool call: ${JSON.stringify(tc)}`);
+            this.logger.error(`[LLM Stream] Tool name is undefined (tool call omitted from log)`);
             continue;
           }
           if (!validToolNames.has(toolName)) {
@@ -383,11 +383,6 @@ export class LLMService {
               tools = this.llmToolFactoryService.createTools(context, abortSignal, currentBoundToolNames);
               llmWithTools = (llm as any).bindTools(tools);
               validToolNames = new Set(currentBoundToolNames);
-              this.logger.log(`[LLM Stream] Bound missing tool "${toolName}" on demand`, {
-                provider: config.provider,
-                conversationId,
-                newTools: currentBoundToolNames,
-              });
             } else {
               const ToolMessage = require('@langchain/core/messages').ToolMessage;
               const toolCallId = tc.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -570,20 +565,9 @@ export class LLMService {
                 }
               } else {
                 const availableToolsList = tools.map((t: any) => t.name);
-                this.logger.warn('[LLMService-chatStream] tool not available for conversation', {
-                  provider: config.provider,
-                  conversationId,
-                  requestedTool: toolName,
-                  availableTools: availableToolsList,
-                  boundToolNames: currentBoundToolNames,
-                });
-                this.logger.warn('[LLMService-chatStream] tool not in current tool list', {
-                  provider: config.provider,
-                  conversationId,
-                  requestedTool: toolName,
-                  availableTools: availableToolsList,
-                  boundToolNames: currentBoundToolNames,
-                });
+                this.logger.warn(
+                  `[LLMService-chatStream] tool not available: ${toolName} (conversation ${conversationId ?? 'n/a'})`,
+                );
                 const errorResult = {
                   error: true,
                   errorCode: 'TOOL_NOT_FOUND',
@@ -612,20 +596,6 @@ export class LLMService {
             if (abortSignal?.aborted) {
               throw new Error('Request aborted by client');
             }
-            const toolLogBase = {
-              layer: 'llm_tool',
-              provider: config.provider,
-              conversationId: conversationId || null,
-              toolCallId: toolId,
-              toolName,
-            };
-            const argsPreview = (() => {
-              try {
-                return JSON.stringify(parsedArgs).substring(0, 500);
-              } catch {
-                return String(parsedArgs || '').substring(0, 500);
-              }
-            })();
             const toolResult = await tool.func(parsedArgs);
             if (abortSignal?.aborted) {
               throw new Error('Request aborted by client');
@@ -641,13 +611,9 @@ export class LLMService {
               const failCount = (failedToolCalls.get(failKey) || 0) + 1;
               failedToolCalls.set(failKey, failCount);
               if (failCount >= 3) {
-                this.logger.error('[LLMService-chatStream] infinite loop detected', {
-                  provider: config.provider,
-                  conversationId,
-                  toolName,
-                  failCount,
-                  message: 'Same tool call failed 3 times with same arguments',
-                });
+                this.logger.error(
+                  `[LLMService-chatStream] infinite loop: ${toolName} failed ${failCount}x (conversation ${conversationId ?? 'n/a'})`,
+                );
                 const toolsAddedOnDemand = currentBoundToolNames.filter((t) => !initialBoundToolNames.includes(t));
                 return {
                   content: `Error: Unable to complete the task. The AI agent tried calling "${toolName}" ${failCount} times with the same arguments but it kept failing. Last error: ${resultObj.message || 'Unknown error'}. Please try rephrasing your question or contact support.`,
@@ -679,23 +645,9 @@ export class LLMService {
               );
             }
           } catch (error: any) {
-            this.logger.error('[LLMService-chatStream] tool execution failed', {
-              provider: config.provider,
-              conversationId,
-              toolName,
-              toolCallId: toolId,
-              message: error?.message || String(error),
-            });
-            const errorPayload = {
-              layer: 'llm_tool',
-              provider: config.provider,
-              conversationId: conversationId || null,
-              toolCallId: toolId,
-              toolName,
-              stage: 'error',
-              message: error?.message || String(error),
-            };
-            this.logger.error(`[LLMTool] ${JSON.stringify(errorPayload)}`);
+            this.logger.error(
+              `[LLMService-chatStream] tool execution failed: ${toolName} — ${error?.message || String(error)}`,
+            );
             const errorResult = { error: error.message || String(error) };
             allToolResults.push({
               toolCallId: toolId,

@@ -31,10 +31,6 @@ export class GCSStorageService implements IStorageService {
         },
       });
 
-      this.logger.log(
-        `File uploaded to GCS: gs://${config.bucket}/${relativePath}`,
-      );
-
       return {
         location: relativePath,
       };
@@ -61,7 +57,6 @@ export class GCSStorageService implements IStorageService {
 
       await file.delete({ ignoreNotFound: true });
 
-      this.logger.log(`Deleted file from GCS: gs://${config.bucket}/${location}`);
     } catch (error: any) {
       const cloudError = error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to delete from GCS: ${cloudError}`;
@@ -90,7 +85,6 @@ export class GCSStorageService implements IStorageService {
 
       const stream = file.createReadStream();
 
-      this.logger.log(`Streaming file from GCS: gs://${config.bucket}/${location}`);
 
       return stream;
     } catch (error: any) {
@@ -121,7 +115,6 @@ export class GCSStorageService implements IStorageService {
 
       const [buffer] = await file.download();
 
-      this.logger.log(`Downloaded buffer from GCS: gs://${config.bucket}/${location} (${buffer.length} bytes)`);
 
       return buffer;
     } catch (error: any) {
@@ -156,7 +149,6 @@ export class GCSStorageService implements IStorageService {
         },
       });
 
-      this.logger.log(`Replaced file on GCS: gs://${config.bucket}/${location}`);
     } catch (error: any) {
       const cloudError = error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to replace file on GCS: ${cloudError}`;

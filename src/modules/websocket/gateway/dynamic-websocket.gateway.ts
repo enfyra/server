@@ -192,8 +192,6 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
         socket.disconnect(true);
         return;
       }
-      const userId = socket.data.userId || socket.id;
-      this.logger.debug(`Client connected to ${gatewayData.path}: ${socket.id} (user: ${userId})`);
       const connectionScript = this.builtInRegistry.getConnectionScript(path) ?? gatewayData.connectionHandlerScript;
       if (connectionScript) {
         try {
@@ -232,11 +230,9 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       }
       const roomName = socket.data.userId ? `user_${socket.data.userId}` : `user_${socket.id}`;
       socket.join(roomName);
-      this.logger.debug(`Socket ${socket.id} joined room ${roomName}`);
       for (const event of gatewayData.events) {
         const eventName = event.eventName;
         socket.on(eventName, async (payload, ack) => {
-          this.logger.debug(`Event ${eventName} received from ${socket.id} on ${gatewayData.path}`);
           const requestId = randomUUID();
           if (typeof ack === 'function') {
             ack({ queued: true, requestId, eventName });
@@ -293,14 +289,11 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
           }
         });
       }
-      socket.on('disconnect', () => {
-        this.logger.debug(`Client disconnected from ${gatewayData.path}: ${socket.id}`);
-      });
     });
   }
-  async handleConnection(client: Socket) {
+  async handleConnection(_client: Socket) {
   }
-  async handleDisconnect(client: Socket) {
+  async handleDisconnect(_client: Socket) {
   }
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
@@ -314,23 +307,18 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     this.logger.log(`Gateways reloaded. Total registered: ${this.registeredGateways.size}`);
   }
   emitToUser(userId: number | string, event: string, data: any) {
-    this.logger.debug(`Emitting to user_${userId}: ${event} ${JSON.stringify(data)}`);
     this.server.to(`user_${userId}`).emit(event, data);
   }
   emitToRoom(room: string, event: string, data: any) {
-    this.logger.debug(`Emitting to room ${room}: ${event} ${JSON.stringify(data)}`);
     this.server.to(room).emit(event, data);
   }
   emitToNamespace(path: string, event: string, data: any) {
-    this.logger.debug(`Emitting to namespace ${path}: ${event} ${JSON.stringify(data)}`);
     this.server.of(path).emit(event, data);
   }
   emitToSocket(path: string, socketId: string, event: string, data: any) {
-    this.logger.debug(`Emitting to socket ${socketId} on ${path}: ${event}`);
     this.server.of(path).to(socketId).emit(event, data);
   }
   emitToAll(event: string, data: any) {
-    this.logger.debug(`Emitting to all: ${event} ${JSON.stringify(data)}`);
     this.server.emit(event, data);
   }
 }

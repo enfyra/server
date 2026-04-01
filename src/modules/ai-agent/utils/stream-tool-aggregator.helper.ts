@@ -159,9 +159,10 @@ export function parseRedactedToolCalls(fullContent: string): any[] {
         const argsString = match[2].trim();
         toolArgs = JSON.parse(argsString);
       } catch (parseError: any) {
-        logger.error(`[LLM Stream] ❌ Failed to parse tool args for ${toolName}: ${parseError.message}`);
-        logger.error(`[LLM Stream] ❌ argsString.length=${match[2]?.trim().length}, first 500 chars: ${match[2]?.substring(0, 500)}`);
-        logger.error(`[LLM Stream] ❌ last 100 chars: ${match[2]?.substring(Math.max(0, (match[2]?.length || 0) - 100))}`);
+        const raw = match[2]?.trim() || '';
+        logger.warn(
+          `[LLM Stream] parse tool args failed: ${toolName} (${parseError.message}) len=${raw.length}`,
+        );
       }
 
       return {
@@ -176,8 +177,7 @@ export function parseRedactedToolCalls(fullContent: string): any[] {
       };
     });
   } catch (e: any) {
-    logger.error(`[LLM Stream] Failed to parse tool calls from fullContent: ${e.message}`);
-    logger.error(`[LLM Stream] Error stack: ${e.stack}`);
+    logger.warn(`[LLM Stream] parse redacted tool calls failed: ${e.message}`);
     return [];
   }
 }

@@ -125,7 +125,6 @@ export class PackageManagementService {
     const timeout = Math.max(60000, packages.length * 30000);
 
     try {
-      this.logger.log(`Batch installing ${packages.length} packages: ${specStr}`);
       const { stderr } = await execAsync(command, {
         cwd: process.cwd(),
         timeout,
@@ -135,10 +134,8 @@ export class PackageManagementService {
         this.logger.warn(`Batch install stderr: ${stderr.substring(0, 500)}`);
       }
 
-      this.logger.log(`Batch install completed for ${packages.length} packages`);
     } catch (error) {
       this.logger.error(`Batch install failed: ${error.message}`);
-      this.logger.log('Falling back to individual installs...');
 
       for (const pkg of packages) {
         try {
@@ -168,9 +165,7 @@ export class PackageManagementService {
     }
 
     try {
-      this.logger.log(`Cleaning up orphan packages: ${nameStr}`);
       await execAsync(command, { cwd: process.cwd(), timeout: 120000 });
-      this.logger.log(`Orphan cleanup completed`);
     } catch (error) {
       this.logger.warn(`Orphan cleanup failed (non-critical): ${error.message}`);
     }
@@ -285,7 +280,7 @@ export class PackageManagementService {
         errorMsg.includes('zlib');
 
       if (isCacheCorruption) {
-        console.log(`Detected ${packageManager} cache corruption, clearing cache...`);
+        this.logger.warn(`${packageManager} cache corruption suspected; clearing cache`);
         try {
           if (packageManager === 'yarn') {
             await execAsync('yarn cache clean', { cwd: process.cwd(), timeout: 60000 });
@@ -297,7 +292,6 @@ export class PackageManagementService {
             for (const cachePath of cachePaths) {
               try {
                 await fs.rm(cachePath, { recursive: true, force: true });
-                console.log(`Cleared yarn cache at: ${cachePath}`);
               } catch (e) { /* ignore */ }
             }
           } else if (packageManager === 'npm') {
@@ -305,7 +299,6 @@ export class PackageManagementService {
             const npmCachePath = require('os').homedir() + '/.npm/_cacache';
             try {
               await fs.rm(npmCachePath, { recursive: true, force: true });
-              console.log(`Cleared npm cache at: ${npmCachePath}`);
             } catch (e) { /* ignore */ }
           } else if (packageManager === 'pnpm') {
             await execAsync('pnpm store prune', { cwd: process.cwd(), timeout: 60000 });
@@ -313,11 +306,10 @@ export class PackageManagementService {
             const bunCachePath = path.join(require('os').homedir(), '.bun', 'install', 'cache');
             try {
               await fs.rm(bunCachePath, { recursive: true, force: true });
-              console.log(`Cleared bun cache at: ${bunCachePath}`);
             } catch (e) { /* ignore */ }
           }
         } catch (cacheError) {
-          console.warn(`Failed to clear ${packageManager} cache:`, cacheError.message);
+          this.logger.warn(`Failed to clear ${packageManager} cache: ${(cacheError as Error).message}`);
         }
       }
 
@@ -348,7 +340,7 @@ export class PackageManagementService {
           description: packageInfo.description,
         };
       } catch (registryError) {
-        console.error(`Official registry install also failed:`, registryError.message);
+        this.logger.error(`Registry fallback install failed for ${name}: ${(registryError as Error).message}`);
         throw new Error(`All ${packageManager} install attempts failed for ${name}. Try running '${packageManager} add ${name}' manually in terminal to diagnose.`);
       }
     }
@@ -389,9 +381,6 @@ export class PackageManagementService {
         (error.code === 1 && error.stdout === '' && error.stderr === '');
 
       if (isPackageNotFound) {
-        console.log(
-          `Package ${name} not found in node_modules, skipping uninstall`,
-        );
         return;
       }
       throw new Error(`npm uninstall failed: ${errorMsg}`);

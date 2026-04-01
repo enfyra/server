@@ -38,19 +38,6 @@ export async function executeDynamicRepository(
     args.table = args.table.trim();
   }
   if (!args.table) {
-    logger.debug(JSON.stringify({
-      layer: 'dynamic_repository',
-      stage: 'validation',
-      error: 'MISSING_TABLE',
-      operation: args.operation,
-      argsPreview: (() => {
-        const clone = { ...args };
-        if (clone.data) {
-          clone.data = '[omitted]';
-        }
-        return clone;
-      })(),
-    }));
     return {
       error: true,
       errorCode: 'MISSING_TABLE',

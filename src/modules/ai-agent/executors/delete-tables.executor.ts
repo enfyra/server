@@ -79,8 +79,6 @@ export async function executeDeleteTables(
     };
   }
 
-  logger.debug(`[delete_tables] DEBUG: received ids=${JSON.stringify(args.ids)}, count=${args.ids.length}`);
-
   const permissionCache: Map<string, any> =
     ((context as any).__permissionCache as Map<string, any>) ||
     (((context as any).__permissionCache = new Map<string, any>()) as Map<string, any>);

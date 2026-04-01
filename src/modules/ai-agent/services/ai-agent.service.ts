@@ -393,23 +393,6 @@ export class AiAgentService {
         queryBuilder: this.queryBuilder,
       });
 
-      const toolMsgs = llmMessages.filter((m: any) => m.tool_calls?.length > 0 || (m.role === 'tool' && m.content));
-      for (const tm of toolMsgs) {
-        if (tm.tool_calls) {
-          for (const tc of tm.tool_calls) {
-            const t = tc as any;
-            const nm = t.function?.name || t.name;
-            const args = t.function?.arguments || t.arguments || '';
-            if (nm === 'delete_tables' || nm === 'find_records') {
-              this.logger.debug(`[AiAgent] DEBUG tool_call in llmMessages: ${nm} args=${typeof args === 'string' ? args?.slice(0, 200) : JSON.stringify(args)?.slice(0, 200)}`);
-            }
-          }
-        }
-        if (tm.role === 'tool' && typeof tm.content === 'string' && (tm.content.includes('delete') || tm.content.includes('table_definition') || tm.content.includes('Found') || tm.content.includes('ALL IDs'))) {
-          this.logger.debug(`[AiAgent] DEBUG tool_result in llmMessages: ${tm.content.slice(0, 350)}...`);
-        }
-      }
-
     let historyCount = 0;
     let toolCallsCount = 0;
     for (const msg of llmMessages) {
@@ -605,15 +588,6 @@ export class AiAgentService {
           let contentToSave = llmResponse.content;
           if (typeof contentToSave !== 'string') {
             contentToSave = JSON.stringify(contentToSave);
-          }
-
-          this.logger.debug(`[AiAgent] DEBUG final LLM content (first 400 chars): ${(contentToSave || '').slice(0, 400)}`);
-          const deleteCalls = (llmResponse.toolCalls || allToolCalls).filter((tc: any) => (tc.function?.name || tc.name) === 'delete_tables');
-          if (deleteCalls.length > 0) {
-            for (const dc of deleteCalls) {
-              const args = dc.function?.arguments || dc.arguments || '';
-              this.logger.debug(`[AiAgent] DEBUG delete_tables tool call in final response: args=${typeof args === 'string' ? args : JSON.stringify(args)}`);
-            }
           }
 
           const assistantSequence = lastSequence + 2;

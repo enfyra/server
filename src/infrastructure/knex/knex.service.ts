@@ -311,9 +311,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           .whereNot('id', data.id)
           .update({ [fkColumn]: null });
 
-        if (result > 0) {
-          this.logger.log(`[beforeUpdate] Cleared ${result} record(s) with ${fkColumn}=${data[fkColumn]} for unique constraint`);
-        }
       }
 
       return data;
@@ -357,7 +354,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
       const context = cascadeContextMap.get(tableName);
       if (!context) {
-        this.logger.debug(`[afterUpdate] No cascade context found for table: ${tableName}`);
         return result;
       }
 

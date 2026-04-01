@@ -61,10 +61,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
     this.subscribedChannels.set(decoratedChannel, [handler]);
 
-    this.sub.subscribe(decoratedChannel)
-      .then((count) => {
-        console.log(`[RedisPubSub] Subscribed to ${decoratedChannel} (${count})`);
-      })
+    this.sub.subscribe(decoratedChannel).then(() => undefined)
       .catch((err) => {
         console.error(`[RedisPubSub] Subscribe error for ${decoratedChannel}:`, err.message);
       });
