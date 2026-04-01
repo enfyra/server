@@ -131,11 +131,15 @@ $ctx.$pkgs = $pkgs;
 
 const __applyOpts = { result: { promise: true, copy: true } };
 
+function __unwrapMainThreadPayload(v) {
+  if (v !== null && typeof v === 'object' && v.__e === 'u') return undefined;
+  if (v !== null && typeof v === 'object' && v.__e === 'v') return __unwrapMainThreadPayload(v.d);
+  return v;
+}
+
 function __parseMainThreadResult(s) {
-  const w = JSON.parse(s);
-  if (w !== null && typeof w === 'object' && w.__e === 'u') return undefined;
-  if (w !== null && typeof w === 'object' && w.__e === 'v') return w.d;
-  throw new Error('Invalid main-thread bridge payload');
+  const w = typeof s === 'string' ? JSON.parse(s) : s;
+  return __unwrapMainThreadPayload(w);
 }
 
 $ctx.$repos = new Proxy({}, {
