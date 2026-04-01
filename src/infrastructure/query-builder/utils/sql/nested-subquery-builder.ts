@@ -120,7 +120,7 @@ export async function buildNestedSubquery(
   const parentPkName = parentPkColumn?.name || 'id';
 
   if (relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse)) {
-    const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
+    const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relationName);
     const leftSide = `${nextAlias}.${quoteIdentifier(targetPkName, dbType)}`;
     const rightSide = `${parentRef}.${quoteIdentifier(fkColumn, dbType)}`;
     return `(select ${jsonObject} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
@@ -291,7 +291,7 @@ export async function buildOwnerCTEStrategy(
   const targetPkName = targetPkColumn?.name || 'id';
   const quotedTargetPk = quoteIdentifier(targetPkName, dbType);
 
-  const fkColumn = relation.foreignKeyColumn || `${relationName}Id`;
+  const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relationName);
   const quotedFkCol = quoteIdentifier(fkColumn, dbType);
 
   return `${quoteIdentifier(`${relationName}_agg`, dbType)} AS (

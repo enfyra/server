@@ -177,7 +177,7 @@ export class SqlSchemaMigrationService {
           if (systemTables.includes(targetTableName)) {
             throw new Error(`Relation '${rel.propertyName}' (${rel.type}) from table '${tableMetadata.name}' cannot target system table '${targetTableName}'. This indicates an invalid targetTableId: ${rel.targetTableId}. Please verify the target table ID is correct.`);
           }
-          const fkColumn = `${rel.propertyName}Id`;
+          const fkColumn = getForeignKeyColumnName(rel.propertyName);
           const targetPkType = targetPkTypes.get(targetTableName) || 'integer';
           const dbType = this.queryBuilderService.getDatabaseType();
           const fkCol = this.createFKColumn(table, fkColumn, targetPkType, dbType);
@@ -238,7 +238,7 @@ export class SqlSchemaMigrationService {
         this.logger.error(`Invalid targetTableName for relation ${rel.propertyName}: ${targetTable}. Skipping FK constraint.`);
         continue;
       }
-      const fkColumn = `${rel.propertyName}Id`;
+      const fkColumn = getForeignKeyColumnName(rel.propertyName);
       const targetTableExists = await knex.schema.hasTable(targetTable);
       if (!targetTableExists) {
         this.logger.error(`Skipping FK constraint ${fkColumn} -> ${targetTable}: target table does not exist. This may indicate invalid relation metadata.`);
@@ -299,7 +299,7 @@ export class SqlSchemaMigrationService {
           throw new Error(`One-to-many relation '${rel.propertyName}' in table '${tableName}' MUST have targetTableName or targetTable`);
         }
         const sourceTable = tableName;
-        const fkColumn = `${rel.inversePropertyName}Id`;
+        const fkColumn = getForeignKeyColumnName(rel.inversePropertyName);
         const sourcePkType = await this.getPrimaryKeyType(sourceTable);
         const dbType = this.queryBuilderService.getDatabaseType();
         const maxRetries = 3;

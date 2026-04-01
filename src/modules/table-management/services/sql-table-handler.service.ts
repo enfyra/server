@@ -146,7 +146,7 @@ export class SqlTableHandlerService {
     }
     for (const rel of relations || []) {
       if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-        const fkColumn = `${rel.propertyName}Id`;
+        const fkColumn = getForeignKeyColumnName(rel.propertyName);
         if (allColumnNames.has(fkColumn)) {
           duplicates.push(`${fkColumn} (FK for ${rel.propertyName})`);
         }

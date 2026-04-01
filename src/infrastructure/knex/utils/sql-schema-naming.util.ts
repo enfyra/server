@@ -34,8 +34,7 @@ export function getJunctionTableName(
   return `j_${hash}_${sourceAbbr}_${propAbbr}_${targetAbbr}`;
 }
 export function getForeignKeyColumnName(tableNameOrProperty: string): string {
-  const camelCase = tableNameOrProperty.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-  return `${camelCase}Id`;
+  return `${tableNameOrProperty}Id`;
 }
 export function getJunctionColumnNames(
   sourceTable: string,

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { getForeignKeyColumnName } from './sql-schema-naming.util';
 export class RelationTransformer {
   constructor(
     private metadataCacheService: MetadataCacheService,
@@ -25,7 +26,7 @@ export class RelationTransformer {
       const relValue = transformed[relName];
       switch (relation.type) {
         case 'many-to-one': {
-          const fkColumn = relation.foreignKeyColumn || `${relName}Id`;
+          const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relName);
           if (relValue === null) {
             transformed[fkColumn] = null;
           } else if (typeof relValue === 'object' && relValue.id !== undefined) {
@@ -44,7 +45,7 @@ export class RelationTransformer {
             delete transformed[relName];
             break;
           }
-          const fkColumn = relation.foreignKeyColumn || `${relName}Id`;
+          const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relName);
           if (relValue === null) {
             transformed[fkColumn] = null;
           } else if (typeof relValue === 'object') {

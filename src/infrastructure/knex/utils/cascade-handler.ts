@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { getForeignKeyColumnName } from './sql-schema-naming.util';
 
 /**
  * Cascade rules:
@@ -63,7 +64,7 @@ export class CascadeHandler {
       const relValue = originalRelationData[relName];
 
       if (relation.type === 'many-to-one') {
-        const foreignKeyColumn = relation.foreignKeyColumn || `${relName}Id`;
+        const foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relName);
         let targetTableName = relation.targetTableName || relation.targetTable;
 
         if (!targetTableName) {

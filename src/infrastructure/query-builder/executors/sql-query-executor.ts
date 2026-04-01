@@ -196,7 +196,7 @@ export class SqlQueryExecutor {
             cur = cur.parentJoinId ? joinMap.get(cur.parentJoinId) : undefined;
           }
           const steps = chain.map((joinSpec: any) => {
-            const fkCol = joinSpec.relationMeta?.foreignKeyColumn || joinSpec.propertyName + 'Id';
+            const fkCol = joinSpec.relationMeta?.foreignKeyColumn || getForeignKeyColumnName(joinSpec.propertyName);
             const targetMeta = this.metadata?.tables?.get(joinSpec.targetTable);
             const pkCol = targetMeta?.columns?.find((c: any) => c.isPrimary)?.name || 'id';
             return { targetTable: joinSpec.targetTable, fkCol, pkCol };
