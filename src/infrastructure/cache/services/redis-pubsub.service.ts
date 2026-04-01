@@ -23,6 +23,13 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
         enableReadyCheck: false,
       });
 
+      this.pub.on('error', (err) => {
+        console.error('[RedisPubSub] pub connection error:', err.message);
+      });
+      this.sub.on('error', (err) => {
+        console.error('[RedisPubSub] sub connection error:', err.message);
+      });
+
       await Promise.all([
         this.pub.ping(),
         new Promise<void>((resolve, reject) => {
