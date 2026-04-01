@@ -94,6 +94,7 @@ export class PackageController {
     }
 
     if (body.type === 'App') {
+      const status = body.status || 'installed';
       const savedPackage = await this.queryBuilder.insertAndGet(
         'package_definition',
         {
@@ -101,13 +102,22 @@ export class PackageController {
           version: body.version || '1.0.0',
           description: body.description || '',
           isSystem: false,
-          status: body.status || 'installed',
+          status,
         },
       );
 
       await this.packageCacheService.reload();
 
       const savedPackageId = savedPackage.id || savedPackage._id;
+
+      if (status === 'installing') {
+        this.emitEvent('installing', {
+          id: savedPackageId,
+          name: body.name,
+          version: body.version || '1.0.0',
+        });
+      }
+
       return packageRepo.find({ where: { id: { _eq: savedPackageId } } });
     }
 
@@ -168,6 +178,27 @@ export class PackageController {
     });
 
     return result;
+  }
+
+  private emitAppStatusEvent(
+    id: string | number,
+    name: string,
+    body: any,
+    previousRecord: any,
+  ) {
+    const status = body.status;
+    if (status === 'installing' || status === 'updating' || status === 'uninstalling') {
+      this.emitEvent(status, { id, name });
+    } else if (status === 'installed') {
+      this.emitEvent('installed', { id, name, version: body.version || previousRecord.version });
+    } else if (status === 'failed') {
+      this.emitEvent('failed', {
+        id,
+        name,
+        error: body.lastError || 'Unknown error',
+        operation: previousRecord.status === 'updating' ? 'update' : 'install',
+      });
+    }
   }
 
   private async executeInstall(
@@ -250,6 +281,11 @@ export class PackageController {
     if (packageRecord.type === 'App') {
       const result = await packageRepo.update({ id, data: body });
       await this.packageCacheService.reload();
+
+      if (body.status && body.status !== packageRecord.status) {
+        this.emitAppStatusEvent(id, packageRecord.name, body, packageRecord);
+      }
+
       return result;
     }
 
@@ -357,6 +393,7 @@ export class PackageController {
     if (packageRecord.type === 'App') {
       const result = await packageRepo.delete({ id });
       await this.packageCacheService.reload();
+      this.emitEvent('uninstalled', { id, name: packageRecord.name });
       return result;
     }
 
