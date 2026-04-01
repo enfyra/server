@@ -5,7 +5,7 @@ import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { PackageCdnLoaderService } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE, PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
@@ -16,7 +16,6 @@ const PACKAGE_CONFIG: CacheConfig = {
   cacheName: 'PackageCache',
 };
 
-const ADMIN_WS_PATH = '/admin';
 const SYSTEM_EVENT_PREFIX = '$system:package';
 
 @Injectable()
@@ -93,7 +92,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   private emitEvent(event: string, data: any) {
     try {
       this.websocketGateway.emitToNamespace(
-        ADMIN_WS_PATH,
+        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         `${SYSTEM_EVENT_PREFIX}:${event}`,
         data,
       );

@@ -11,6 +11,7 @@ export const STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:storage-config-cache-
 export const AI_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:ai-config-cache-sync';
 export const AI_AGENT_CANCEL_CHANNEL = 'enfyra:ai-agent-cancel';
 export const WEBSOCKET_CACHE_SYNC_EVENT_KEY = 'enfyra:websocket-cache-sync';
+export const ENFYRA_ADMIN_WEBSOCKET_NAMESPACE = '/enfyra-admin';
 export const OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY = 'enfyra:oauth-config-cache-sync';
 export const FLOW_CACHE_SYNC_EVENT_KEY = 'enfyra:flow-cache-sync';
 export const FOLDER_TREE_CACHE_SYNC_EVENT_KEY = 'enfyra:folder-tree-cache-sync';

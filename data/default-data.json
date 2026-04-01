@@ -1021,7 +1021,7 @@
     ],
     "websocket_definition": [
         {
-            "path": "/admin",
+            "path": "/enfyra-admin",
             "isEnabled": true,
             "isSystem": true,
             "requireAuth": true,
@@ -1031,12 +1031,13 @@
     ],
     "websocket_event_definition": [
         {
-            "gateway": "/admin",
+            "gateway": "/enfyra-admin",
             "eventName": "ping",
             "isEnabled": true,
             "isSystem": true,
             "description": "Health check ping",
-            "timeout": 5000
+            "timeout": 5000,
+            "handlerScript": "return { pong: true, timestamp: new Date().toISOString(), userId: $ctx.$user?.id };"
         }
     ]
 }

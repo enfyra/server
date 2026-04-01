@@ -16,8 +16,7 @@ import { PackageCacheService } from '../../../infrastructure/cache/services/pack
 import { PackageCdnLoaderService } from '../../../infrastructure/cache/services/package-cdn-loader.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DynamicWebSocketGateway } from '../../websocket/gateway/dynamic-websocket.gateway';
-
-const ADMIN_WS_PATH = '/admin';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 const SYSTEM_EVENT_PREFIX = '$system:package';
 
 @Controller('package_definition')
@@ -34,7 +33,7 @@ export class PackageController {
   private emitEvent(event: string, data: any) {
     try {
       this.websocketGateway.emitToNamespace(
-        ADMIN_WS_PATH,
+        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         `${SYSTEM_EVENT_PREFIX}:${event}`,
         data,
       );
