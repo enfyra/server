@@ -5,7 +5,6 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
-import { pkgLog } from './package-operation-logger';
 
 const execAsync = promisify(exec);
 
@@ -56,7 +55,6 @@ export class PackageManagementService {
   }
 
   async acquireMachineLock(): Promise<boolean> {
-    pkgLog('PkgMgmt', `acquireMachineLock: attempting (machineId=${this.machineId})`);
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT;
     while (Date.now() < deadline) {
       const acquired = await this.cacheService.acquire(
@@ -64,19 +62,14 @@ export class PackageManagementService {
         this.machineId,
         MACHINE_LOCK_TTL,
       );
-      if (acquired) {
-        pkgLog('PkgMgmt', `acquireMachineLock: ACQUIRED`);
-        return true;
-      }
+      if (acquired) return true;
       await new Promise((r) => setTimeout(r, LOCK_POLL_INTERVAL));
     }
-    pkgLog('PkgMgmt', `acquireMachineLock: TIMEOUT`);
     this.logger.warn('Failed to acquire machine lock after timeout');
     return false;
   }
 
   async releaseMachineLock(): Promise<void> {
-    pkgLog('PkgMgmt', `releaseMachineLock`);
     await this.cacheService.release(this.getMachineLockKey(), this.machineId);
   }
 
@@ -132,7 +125,6 @@ export class PackageManagementService {
     const timeout = Math.max(60000, packages.length * 30000);
 
     try {
-      pkgLog('PkgMgmt', `installBatch: ${command} (timeout=${timeout}ms)`);
       this.logger.log(`Batch installing ${packages.length} packages: ${specStr}`);
       const { stderr } = await execAsync(command, {
         cwd: process.cwd(),
@@ -140,24 +132,18 @@ export class PackageManagementService {
       });
 
       if (stderr && !stderr.includes('WARN') && !stderr.includes('warning')) {
-        pkgLog('PkgMgmt', `installBatch stderr`, stderr.substring(0, 500));
         this.logger.warn(`Batch install stderr: ${stderr.substring(0, 500)}`);
       }
 
-      pkgLog('PkgMgmt', `installBatch OK: ${packages.length} packages`);
       this.logger.log(`Batch install completed for ${packages.length} packages`);
     } catch (error) {
-      pkgLog('PkgMgmt', `installBatch FAILED`, { error: error.message, stderr: error.stderr?.substring(0, 500) });
       this.logger.error(`Batch install failed: ${error.message}`);
       this.logger.log('Falling back to individual installs...');
 
       for (const pkg of packages) {
         try {
-          pkgLog('PkgMgmt', `Individual install: ${pkg.name}@${pkg.version}`);
           await this.installServerPackage(pkg.name, pkg.version, '', pkg.timeoutMs);
-          pkgLog('PkgMgmt', `Individual install OK: ${pkg.name}`);
         } catch (e) {
-          pkgLog('PkgMgmt', `Individual install FAILED: ${pkg.name}`, e.message);
           this.logger.error(`Individual install failed for ${pkg.name}: ${e.message}`);
         }
       }
@@ -194,7 +180,6 @@ export class PackageManagementService {
     request: PackageInstallRequest,
   ): Promise<InstallationResult> {
     const { name, type, version = 'latest', flags = '', timeoutMs } = request;
-    pkgLog('PkgMgmt', `installPackage`, { name, type, version, flags, timeoutMs });
 
     if (type === 'App') {
       return {
@@ -254,7 +239,6 @@ export class PackageManagementService {
     const packageManager = this.getPackageManager();
     const packageSpec = version === 'latest' ? name : `${name}@${version}`;
     const installTimeout = timeoutMs || 60000;
-    pkgLog('PkgMgmt', `installServerPackage: ${packageSpec} (pm=${packageManager}, timeout=${installTimeout}ms)`);
 
     let command: string;
     if (packageManager === 'bun') {
@@ -371,7 +355,6 @@ export class PackageManagementService {
   }
 
   private async uninstallServerPackage(name: string): Promise<void> {
-    pkgLog('PkgMgmt', `uninstallServerPackage: ${name}`);
     const packageManager = this.getPackageManager();
 
     let command: string;
