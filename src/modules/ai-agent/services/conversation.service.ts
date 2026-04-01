@@ -264,7 +264,7 @@ export class ConversationService {
   async createMessage(params: {
     data: IMessageCreate;
     userId?: string | number;
-    context?: { userMessage?: string; boundTools?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } };
+    context?: { userMessage?: string; routedToolNames?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } };
   }): Promise<IMessage> {
     const { data, userId, context } = params;
     const dbContext = this.createContext(userId);
@@ -367,7 +367,7 @@ export class ConversationService {
       updatedAt: new Date(data.updatedAt),
     };
   }
-  private async mapMessage(data: any, context?: { userMessage?: string; boundTools?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } }, debug: boolean = false): Promise<IMessage> {
+  private async mapMessage(data: any, context?: { userMessage?: string; routedToolNames?: string[]; provider?: string; tokenUsage?: { inputTokens?: number; outputTokens?: number } }, debug: boolean = false): Promise<IMessage> {
     let toolCalls = null;
     let toolResults = null;
     if (data.toolCalls !== undefined && data.toolCalls !== null) {
@@ -459,7 +459,7 @@ export class ConversationService {
         };
       }) : null;
       const usedTools = toolCallsDetails ? Array.from(new Set(toolCallsDetails.map((tc: any) => tc.name))) : [];
-      const availableTools = context?.boundTools || [];
+      const availableTools = context?.routedToolNames || [];
       const toolResultsSummary = toolResults ? (() => {
         const resultsStr = JSON.stringify(toolResults);
         if (resultsStr.length > 2000) {

@@ -1,14 +1,14 @@
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
-import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
-import { TableHandlerService } from '../../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
-import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../../shared/types';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { TableHandlerService } from '../../table-management/services/table-handler.service';
+import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
+import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
+import { TDynamicContext } from '../../../shared/types';
 import { executeCheckPermission } from './check-permission.executor';
-import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { DeleteTablesExecutorDependencies } from '../../types';
+import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
+import { DeleteTablesExecutorDependencies } from '../types';
 
 const logger = new Logger('DeleteTablesExecutor');
 

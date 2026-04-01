@@ -12,7 +12,7 @@ import { JwtAuthGuard } from './core/auth/guards/jwt-auth.guard';
 import { RoleGuard } from './core/auth/guards/role.guard';
 import { JwtStrategy } from './core/auth/services/jwt.strategy';
 import { PolicyModule } from './core/policy/policy.module';
-import { ProvisionModule } from './core/bootstrap/provision.module';
+import { BootstrapProvisionModule } from './core/bootstrap/bootstrap-provision.module';
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
 import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
 import { CacheModule } from './infrastructure/cache/cache.module';
@@ -20,10 +20,10 @@ import { HandlerExecutorModule } from './infrastructure/handler-executor/handler
 import { QueryEngineModule } from './infrastructure/query-engine/query-engine.module';
 import { RedisPubSubService } from './infrastructure/cache/services/redis-pubsub.service';
 import { SqlFunctionService } from './infrastructure/sql/services/sql-function.service';
-import { DynamicModule } from './modules/dynamic-api/dynamic.module';
+import { DynamicApiModule } from './modules/dynamic-api/dynamic-api.module';
 import { GraphqlModule } from './modules/graphql/graphql.module';
-import { MeModule } from './modules/me/me.module';
-import { TableModule } from './modules/table-management/table.module';
+import { CurrentUserModule } from './modules/me/current-user.module';
+import { TableManagementModule } from './modules/table-management/table-management.module';
 import { CommonModule } from './shared/common/common.module';
 import { NotFoundDetectGuard } from './shared/guards/not-found-detect.guard';
 import { DynamicInterceptor } from './shared/interceptors/dynamic.interceptor';
@@ -53,11 +53,11 @@ import { FlowModule } from './modules/flow/flow.module';
     EventEmitterModule.forRoot({ maxListeners: 30 }),
     KnexModule,
     MongoModule,
-    ProvisionModule,
+    BootstrapProvisionModule,
     PolicyModule,
     QueryBuilderModule,
     ExceptionsModule,
-    TableModule,
+    TableManagementModule,
     CommonModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -103,7 +103,7 @@ import { FlowModule } from './modules/flow/flow.module';
     AuthModule,
     FileManagementModule,
     PackageManagementModule,
-    MeModule,
+    CurrentUserModule,
     AdminModule,
     AiAgentModule,
     WebsocketModule,
@@ -111,7 +111,7 @@ import { FlowModule } from './modules/flow/flow.module';
     ExtensionDefinitionModule,
     GraphqlModule,
     HandlerExecutorModule,
-    DynamicModule,
+    DynamicApiModule,
   ],
   providers: [
     JwtStrategy,

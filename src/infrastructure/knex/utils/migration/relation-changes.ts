@@ -4,7 +4,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../naming-helpers';
+} from '../sql-schema-naming.util';
 
 const logger = new Logger('RelationChanges');
 

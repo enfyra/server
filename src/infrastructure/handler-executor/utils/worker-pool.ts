@@ -99,6 +99,9 @@ export class WorkerPool {
       case 'cacheCall':
         this.onCacheCall(pooled, msg);
         break;
+      case 'dispatchCall':
+        this.onDispatchCall(pooled, msg);
+        break;
     }
   }
 
@@ -194,6 +197,31 @@ export class WorkerPool {
       pooled.worker.postMessage({ type: 'callResult', callId: msg.callId, result: encodeMainThreadToIsolate(result) });
     } catch (error) {
       pooled.worker.postMessage({ type: 'callError', callId: msg.callId, error: error.message });
+    }
+  }
+
+  private async onDispatchCall(pooled: PooledWorker, msg: any) {
+    const task = this.pendingTasks.get(msg.id);
+    if (!task) return;
+
+    try {
+      const args = JSON.parse(msg.argsJson);
+      const fn = task.ctx?.$dispatch?.[msg.method];
+      if (typeof fn !== 'function') {
+        throw new Error(`$dispatch.${msg.method} is not available`);
+      }
+      const result = await fn(...args);
+      pooled.worker.postMessage({
+        type: 'callResult',
+        callId: msg.callId,
+        result: encodeMainThreadToIsolate(result),
+      });
+    } catch (error) {
+      pooled.worker.postMessage({
+        type: 'callError',
+        callId: msg.callId,
+        error: (error as Error).message,
+      });
     }
   }
 

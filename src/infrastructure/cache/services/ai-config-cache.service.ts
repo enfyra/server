@@ -25,7 +25,6 @@ export interface AiConfig {
   summaryThreshold: number;
   llmTimeout: number;
   maxToolIterations?: number;
-  evaluateStage?: boolean;
   description?: string;
 }
 
@@ -72,7 +71,6 @@ export class AiConfigCacheService extends BaseCacheService<Map<number, AiConfig>
       summaryThreshold: config.summaryThreshold || 20,
       llmTimeout: config.llmTimeout || 30000,
       maxToolIterations: config.maxToolIterations ?? 10,
-      evaluateStage: config.evaluateStage === true,
       description: config.description,
     }));
   }
@@ -122,14 +120,4 @@ export class AiConfigCacheService extends BaseCacheService<Map<number, AiConfig>
     return this.cache.get(numericId) || null;
   }
 
-  async getEvaluateStageConfigId(): Promise<number | null> {
-    await this.ensureLoaded();
-    const values = Array.from(this.cache.values());
-    for (const config of values) {
-      if (config.evaluateStage && config.isEnabled) {
-        return config.id;
-      }
-    }
-    return null;
-  }
 }

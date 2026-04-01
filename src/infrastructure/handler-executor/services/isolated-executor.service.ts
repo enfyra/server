@@ -35,7 +35,18 @@ export class IsolatedExecutorService implements OnApplicationBootstrap, OnApplic
     const packages = await this.packageCacheService.getPackages();
     const pkgSources = this.cdnLoader.getPackageSources(packages);
 
-    const snapshot = {
+    const cloneJson = (v: unknown): unknown => {
+      if (v === undefined) return undefined;
+      try {
+        return JSON.parse(
+          JSON.stringify(v, (_k, val) => (typeof val === 'bigint' ? String(val) : val)),
+        );
+      } catch {
+        return {};
+      }
+    };
+
+    const snapshot: Record<string, unknown> = {
       $body: ctx.$body,
       $query: ctx.$query,
       $params: ctx.$params,
@@ -46,6 +57,10 @@ export class IsolatedExecutorService implements OnApplicationBootstrap, OnApplic
       $api: { request: ctx.$api?.request },
       $uploadedFile: ctx.$uploadedFile,
     };
+    const flow = (ctx as any).$flow;
+    if (flow !== undefined && flow !== null) {
+      snapshot.$flow = cloneJson(flow);
+    }
 
     appendIsolatedExecutorRuntimeLog({
       event: 'isolated_run_start',
@@ -91,6 +106,15 @@ export class IsolatedExecutorService implements OnApplicationBootstrap, OnApplic
     if (changes.$data !== undefined) ctx.$data = changes.$data;
     if (changes.$statusCode !== undefined) (ctx as any).$statusCode = changes.$statusCode;
     if (changes.$share !== undefined) ctx.$share = changes.$share;
+    if (
+      changes.$flow !== undefined &&
+      changes.$flow !== null &&
+      typeof changes.$flow === 'object' &&
+      (ctx as any).$flow != null &&
+      typeof (ctx as any).$flow === 'object'
+    ) {
+      Object.assign((ctx as any).$flow, changes.$flow);
+    }
 
     delete (ctx as any).$pkgs;
 

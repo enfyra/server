@@ -1,42 +1,26 @@
-import { EVALUATE_TOOL_SELECTION_BASE_PROMPT } from './base/evaluate-tool-selection.base';
 import { SYSTEM_PROMPT_BASE } from './base/system-prompt.base';
-import { OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT, OPENAI_SYSTEM_PROMPT_ADDITION } from './providers/openai.prompts';
-import { ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT, ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
-import { GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT, GOOGLE_SYSTEM_PROMPT_ADDITION } from './providers/google.prompts';
+import { OPENAI_SYSTEM_PROMPT_ADDITION } from './providers/openai.prompts';
+import { ANTHROPIC_SYSTEM_PROMPT_ADDITION } from './providers/anthropic.prompts';
+import { GOOGLE_SYSTEM_PROMPT_ADDITION } from './providers/google.prompts';
 import { BuildSystemPromptParams } from '../types';
 
 type Provider = 'OpenAI' | 'Anthropic' | 'Google';
 
 interface ProviderPrompts {
-  evaluateNeedsTools: string;
   systemPromptAddition: string;
 }
 
 const PROVIDER_PROMPTS: Record<Provider, ProviderPrompts> = {
   OpenAI: {
-    evaluateNeedsTools: OPENAI_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: OPENAI_SYSTEM_PROMPT_ADDITION,
   },
   Anthropic: {
-    evaluateNeedsTools: ANTHROPIC_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: ANTHROPIC_SYSTEM_PROMPT_ADDITION,
   },
   Google: {
-    evaluateNeedsTools: GOOGLE_EVALUATE_NEEDS_TOOLS_PROMPT,
     systemPromptAddition: GOOGLE_SYSTEM_PROMPT_ADDITION,
   },
 };
-
-export function buildEvaluateToolSelectionPrompt(provider: string): string {
-  const normalizedProvider = (provider || 'OpenAI') as Provider;
-  const providerPrompts = PROVIDER_PROMPTS[normalizedProvider] || PROVIDER_PROMPTS.OpenAI;
-  const providerSpecific = providerPrompts.evaluateNeedsTools;
-  const basePrompt = EVALUATE_TOOL_SELECTION_BASE_PROMPT;
-  if (providerSpecific) {
-    return `${providerSpecific}\n\n${basePrompt}`;
-  }
-  return basePrompt;
-}
 
 export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   const {
@@ -124,11 +108,9 @@ CRITICAL - Use conversation context: The user's message may be a follow-up (e.g.
   if (needsTools) {
     prompt += `\n\n**Handler/Hook code syntax:** Use @USER (NOT context.user), @QUERY (NOT query), @BODY. Wrong: context.user, query.filter – these fail at runtime.
 
-**get_hint – call BEFORE acting when unsure:**
-1. Check hint categories: handler_operations, hook_operations, table_schema_operations, crud_write_operations, routes_endpoints, bootstrap_operations, websocket_operations, menu_operations, extension_operations, ui_vibe, etc.
-2. If the task involves something you might need to guess (handler/hook code syntax, cascade workflow, RLS, relations format, route/handler setup, menu creation, extension/Vue SFC creation) → a relevant category likely exists.
-3. Call get_hint with that category FIRST to get detailed workflow and rules, then execute. Do NOT guess or improvise when hints exist.
-4. When stuck mid-workflow: also call get_hint to fix and continue.`;
+**Docs when unsure (save tokens):**
+1. Call get_enfyra_doc with no args → list section ids; then section or sections for REST/routes/GraphQL/extension rules (MCP-aligned).
+2. For long workflows use get_hint with a category (handler_operations, routes_endpoints, extension_operations, crud_write_operations, …). Prefer get_enfyra_doc first for factual API rules.`;
   }
 
   prompt += `\n\n**When user asks for API path/endpoint:**\n- Describe format: {YOUR_APP_URL}/api/{path}\n- Example: route path "/test" → enfyra.io/api/test or https://your-domain.com/api/test\n- Example: route path "/foo-baz" → your-domain.com/api/foo-baz\n- Replace YOUR_APP_URL with their actual domain. Do NOT hardcode a specific URL.`;

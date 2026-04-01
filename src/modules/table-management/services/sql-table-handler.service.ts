@@ -20,7 +20,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../infrastructure/knex/utils/naming-helpers';
+} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 @Injectable()
 export class SqlTableHandlerService {
@@ -875,7 +875,7 @@ export class SqlTableHandlerService {
               .where({ id: rel.sourceTableId })
               .first();
             if (sourceTable) {
-              const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/naming-helpers');
+              const { getForeignKeyColumnName } = await import('../../../infrastructure/knex/utils/sql-schema-naming.util');
               const fkColumn = getForeignKeyColumnName(tableName);
               this.logger.log(`Dropping FK column ${fkColumn} from table ${sourceTable.name}`);
               const columnExists = await trx.schema.hasColumn(sourceTable.name, fkColumn);

@@ -7,4 +7,4 @@ import { MeController } from './controllers/me.controller';
   providers: [MeService],
   exports: [MeService],
 })
-export class MeModule {}
+export class CurrentUserModule {}

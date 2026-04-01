@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { TDynamicContext } from '../../../../shared/types';
-import { ConversationService } from '../../services/conversation.service';
+import { TDynamicContext } from '../../../shared/types';
+import { ConversationService } from '../services/conversation.service';
 
-import { UpdateTaskExecutorDependencies } from '../../types';
+import { UpdateTaskExecutorDependencies } from '../types';
 
 export async function executeUpdateTask(
   args: {

@@ -9,4 +9,4 @@ import { TableValidationService } from './services/table-validation.service';
   providers: [DynamicService, TableValidationService],
   exports: [DynamicService, TableValidationService],
 })
-export class DynamicModule {}
+export class DynamicApiModule {}

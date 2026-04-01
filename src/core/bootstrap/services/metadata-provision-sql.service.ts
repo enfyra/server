@@ -2,7 +2,7 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
-import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
+import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
 
 @Injectable()

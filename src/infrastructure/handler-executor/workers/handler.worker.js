@@ -118,6 +118,13 @@ async function handleExecute(msg) {
       new ivm.Reference(async (method, argsJson) => callMain(id, 'cacheCall', { method, argsJson })),
     );
 
+    await jail.set(
+      '__dispatchCallRef',
+      new ivm.Reference(async (method, argsJson) =>
+        callMain(id, 'dispatchCall', { method, argsJson }),
+      ),
+    );
+
     const pkgSetupLines = loadedPkgNames
       .map((p) => `$pkgs[${JSON.stringify(p.name)}] = __pkg_${p.safeName};`)
       .join('\n');
@@ -180,6 +187,13 @@ $ctx.$cache = new Proxy({}, {
   }
 });
 
+$ctx.$dispatch = new Proxy({}, {
+  get: (_, method) => async (...args) => {
+    const r = await __dispatchCallRef.apply(undefined, [String(method), JSON.stringify(args)], __applyOpts);
+    return __parseMainThreadResult(r);
+  }
+});
+
 $ctx.$throw = new Proxy({}, {
   get: (_, status) => (message, details) => {
     const err = new Error(message);
@@ -234,6 +248,7 @@ const console = {
       $data: safeClone($ctx.$data),
       $statusCode: $ctx.$statusCode,
       $share: safeClone($ctx.$share),
+      $flow: safeClone($ctx.$flow),
     }
   };
   if (!valueAbsent) out.value = safeClone(__result);

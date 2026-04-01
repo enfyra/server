@@ -5,7 +5,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/infrastructure/knex/utils/naming-helpers';
+} from '../../src/infrastructure/knex/utils/sql-schema-naming.util';
 import * as fs from 'fs';
 import * as path from 'path';
 

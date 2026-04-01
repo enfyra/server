@@ -10,7 +10,7 @@ import {
   getShortFkName,
   getShortIndexName,
   getShortPkName,
-} from '../../knex/utils/naming-helpers';
+} from '../../knex/utils/sql-schema-naming.util';
 import { addColumnToTable, hasColumnChanged } from '../utils/migration/column-operations';
 import {
   dropForeignKeyIfExists,

@@ -8,7 +8,7 @@ import { QueryEngine } from '../../../infrastructure/query-engine/services/query
 import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { collectRelationValidationErrors, collectTableDataValidationErrors, createTableDefinitionRepository } from './table-workflow.helper';
 
 const TableCreationStateAnnotation = Annotation.Root({

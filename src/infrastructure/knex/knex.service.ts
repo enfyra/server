@@ -12,7 +12,7 @@ import { RelationTransformer } from './utils/relation-transformer';
 import { parseDatabaseUri } from './utils/uri-parser';
 import { ReplicationManager } from './services/replication-manager.service';
 
-import { getForeignKeyColumnName } from './utils/naming-helpers';
+import { getForeignKeyColumnName } from './utils/sql-schema-naming.util';
 
 @Injectable()
 export class KnexService implements OnModuleInit, OnModuleDestroy {

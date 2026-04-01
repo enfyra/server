@@ -59,4 +59,4 @@ import { FlowExecutionDefinitionProcessor } from './processors/flow-execution-de
   ],
   exports: [ProvisionService, MetadataProvisionService, DataProvisionService, BootstrapScriptService, DataMigrationService, MetadataMigrationService],
 })
-export class ProvisionModule {}
+export class BootstrapProvisionModule {}

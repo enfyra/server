@@ -1,4 +1,4 @@
-import { COMMON_TOOLS, type ToolDefinition } from './llm-tools-definitions.helper';
+import { COMMON_TOOLS, type ToolDefinition } from './agent-tool-definitions';
 
 function toAnthropicFormat(tools: ToolDefinition[]) {
   return tools.map((tool) => ({

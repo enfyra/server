@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { z } from 'zod';
-import { ToolExecutor } from '../utils/tool-executor.helper';
+import { AgentToolDispatcher } from '../utils/agent-tool-dispatcher';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
@@ -16,7 +16,7 @@ import { BcryptService } from '../../../core/auth/services/bcrypt.service';
 
 @Injectable()
 export class LLMToolFactoryService {
-  private readonly toolExecutor: ToolExecutor;
+  private readonly agentToolDispatcher: AgentToolDispatcher;
 
   constructor(
     private readonly metadataCacheService: MetadataCacheService,
@@ -32,7 +32,7 @@ export class LLMToolFactoryService {
     private readonly configService: ConfigService,
     private readonly bcryptService: BcryptService,
   ) {
-    this.toolExecutor = new ToolExecutor(
+    this.agentToolDispatcher = new AgentToolDispatcher(
       this.metadataCacheService,
       this.queryBuilder,
       this.tableHandlerService,
@@ -92,15 +92,17 @@ export class LLMToolFactoryService {
     return z.object(zodObj);
   }
 
-  createTools(context: any, abortSignal?: AbortSignal, selectedToolNames?: string[]): any[] {
+  createTools(context: any, abortSignal?: AbortSignal, boundToolNames?: string[]): any[] {
     const toolDefFile = require('../utils/llm-tools.helper');
     const COMMON_TOOLS = toolDefFile.COMMON_TOOLS || [];
 
-    if (!selectedToolNames || selectedToolNames.length === 0) {
+    if (!boundToolNames || boundToolNames.length === 0) {
       return [];
     }
 
-    const toolsToCreate = COMMON_TOOLS.filter((tool: any) => selectedToolNames.includes(tool.name));
+    const toolsToCreate = COMMON_TOOLS.filter((tool: any) => boundToolNames.includes(tool.name)).sort((a: any, b: any) =>
+      String(a.name).localeCompare(String(b.name)),
+    );
 
     return toolsToCreate.map((toolDef: any) => {
       const zodSchema = this.convertParametersToZod(toolDef.parameters);
@@ -122,7 +124,7 @@ export class LLMToolFactoryService {
             },
           };
 
-          const result = await this.toolExecutor.executeTool(toolCall, context, abortSignal);
+          const result = await this.agentToolDispatcher.executeTool(toolCall, context, abortSignal);
           return JSON.stringify(result);
         },
       };

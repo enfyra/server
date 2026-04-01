@@ -9,4 +9,4 @@ import { MongoTableHandlerService } from './services/mongo-table-handler.service
   providers: [TableHandlerService, SqlTableHandlerService, MongoTableHandlerService],
   exports: [TableHandlerService],
 })
-export class TableModule {}
+export class TableManagementModule {}

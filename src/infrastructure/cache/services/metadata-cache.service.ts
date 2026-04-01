@@ -4,7 +4,7 @@ import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
-import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/naming-helpers';
+import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/sql-schema-naming.util';
 import { METADATA_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { ObjectId } from 'mongodb';

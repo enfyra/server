@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import { IConversation } from '../interfaces/conversation.interface';
 import { buildSystemPrompt } from '../prompts/prompt-builder';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
@@ -10,20 +9,19 @@ export async function buildSystemPromptForLLM(params: {
   user?: any;
   latestUserMessage?: string;
   needsTools?: boolean;
-  selectedToolNames?: string[];
+  routedToolNames?: string[];
   metadataCacheService: MetadataCacheService;
   queryBuilder: QueryBuilderService;
-  configService: ConfigService;
 }): Promise<string> {
-  const { conversation, user, latestUserMessage, needsTools = true, config, selectedToolNames, metadataCacheService, queryBuilder, configService } = params;
+  const { conversation, user, latestUserMessage, needsTools = true, config, routedToolNames, metadataCacheService, queryBuilder } = params;
   const provider = config?.provider || 'OpenAI';
 
   let tablesList: string | undefined;
-  const needsTableListForReference = needsTools && selectedToolNames && (
-    selectedToolNames.includes('create_tables') ||
-    selectedToolNames.includes('update_tables') ||
-    selectedToolNames.includes('delete_tables') ||
-    selectedToolNames.includes('find_records')
+  const needsTableListForReference = needsTools && routedToolNames && (
+    routedToolNames.includes('create_tables') ||
+    routedToolNames.includes('update_tables') ||
+    routedToolNames.includes('delete_tables') ||
+    routedToolNames.includes('find_records')
   );
   if (needsTableListForReference) {
     const metadata = await metadataCacheService.getMetadata();

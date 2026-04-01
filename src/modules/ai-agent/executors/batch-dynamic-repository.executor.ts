@@ -1,20 +1,20 @@
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DynamicRepository } from '../../../dynamic-api/repositories/dynamic.repository';
-import { QueryBuilderService } from '../../../../infrastructure/query-builder/query-builder.service';
-import { TableHandlerService } from '../../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../../infrastructure/query-engine/services/query-engine.service';
-import { MetadataCacheService } from '../../../../infrastructure/cache/services/metadata-cache.service';
-import { TableValidationService } from '../../../dynamic-api/services/table-validation.service';
-import { TDynamicContext } from '../../../../shared/types';
+import { DynamicRepository } from '../../dynamic-api/repositories/dynamic.repository';
+import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { TableHandlerService } from '../../table-management/services/table-handler.service';
+import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { TableValidationService } from '../../dynamic-api/services/table-validation.service';
+import { TDynamicContext } from '../../../shared/types';
 import {
   formatErrorForUser,
   shouldEscalateToHuman,
   formatEscalationMessage,
   getRecoveryStrategy,
-} from '../error-recovery.helper';
+} from '../utils/error-recovery.helper';
 import { executeCheckPermission } from './check-permission.executor';
-import { BatchDynamicRepositoryExecutorDependencies } from '../../types';
+import { BatchDynamicRepositoryExecutorDependencies } from '../types';
 const logger = new Logger('BatchDynamicRepositoryExecutor');
 export async function executeBatchDynamicRepository(
   args: {

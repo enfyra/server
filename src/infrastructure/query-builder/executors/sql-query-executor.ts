@@ -9,7 +9,7 @@ import { buildWhereClause, hasLogicalOperators } from '../utils/sql/build-where-
 import { separateFilters, applyRelationFilters, buildRelationSubquery } from '../utils/sql/relation-filter.util';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 import { getPrimaryKeyColumn } from '../../knex/utils/metadata-loader';
-import { getForeignKeyColumnName } from '../../knex/utils/naming-helpers';
+import { getForeignKeyColumnName } from '../../knex/utils/sql-schema-naming.util';
 import { KnexService } from '../../knex/knex.service';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 

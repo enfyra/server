@@ -2196,7 +2196,7 @@
                 "type": "simple-json",
                 "isNullable": true,
                 "isSystem": true,
-                "description": "Debug metadata. boundTools, usedTools, usedToolsCount, toolLoops, provider, model, toolsAddedOnDemand, evaluateTools, durationMs, cacheHitTokens, cacheHitPct for assistant messages."
+                "description": "Debug metadata. routedToolNames, usedTools, usedToolsCount, toolLoops, provider, model, toolsAddedOnDemand, durationMs, cacheHitTokens, cacheHitPct for assistant messages."
             }
         ],
         "relations": [
