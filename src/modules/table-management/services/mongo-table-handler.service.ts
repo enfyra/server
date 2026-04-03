@@ -18,6 +18,7 @@ import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { generateDefaultRecord } from '../utils/generate-default-record';
+import { DEFAULT_REST_HANDLER_LOGIC } from '../../../core/bootstrap/utils/canonical-table-route.util';
 @Injectable()
 export class MongoTableHandlerService {
   private logger = new Logger(MongoTableHandlerService.name);
@@ -405,21 +406,15 @@ export class MongoTableHandlerService {
         const newRouteId = insertedRoute?.data?.[0]?._id ?? insertedRoute?.data?.[0]?.id;
         if (newRouteId) {
           const allMethods = (methodsResult.data || []);
-          const defaultHandlers = {
-            GET: 'return await @REPOS.main.find();',
-            POST: 'return await @REPOS.main.create({ data: @BODY });',
-            PATCH: 'return await @REPOS.main.update({ id: @PARAMS.id, data: @BODY });',
-            DELETE: 'return await @REPOS.main.delete({ id: @PARAMS.id });',
-          };
           for (const m of allMethods) {
             const methodName = m.method;
-            if (!defaultHandlers[methodName]) continue;
+            if (!DEFAULT_REST_HANDLER_LOGIC[methodName]) continue;
             await this.queryBuilder.insert({
               table: 'route_handler_definition',
               data: {
                 route: newRouteId,
                 method: m._id ?? m.id,
-                logic: defaultHandlers[methodName],
+                logic: DEFAULT_REST_HANDLER_LOGIC[methodName],
                 timeout: 30000,
               },
             });

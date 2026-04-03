@@ -22,6 +22,7 @@ import {
   getJunctionColumnNames,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
+import { DEFAULT_REST_HANDLER_LOGIC } from '../../../core/bootstrap/utils/canonical-table-route.util';
 @Injectable()
 export class SqlTableHandlerService {
   private logger = new Logger(SqlTableHandlerService.name);
@@ -407,17 +408,11 @@ export class SqlTableHandlerService {
           }
           const httpMethods = methods.filter((m: any) => ['GET', 'POST', 'PATCH', 'DELETE'].includes(m.method));
           if (httpMethods.length > 0) {
-            const defaultHandlers = {
-              GET: 'return await @REPOS.main.find();',
-              POST: 'return await @REPOS.main.create({ data: @BODY });',
-              PATCH: 'return await @REPOS.main.update({ id: @PARAMS.id, data: @BODY });',
-              DELETE: 'return await @REPOS.main.delete({ id: @PARAMS.id });',
-            };
             await trx('route_handler_definition').insert(
               httpMethods.map((m: any) => ({
                 routeId: newRoute.id,
                 methodId: m.id,
-                logic: defaultHandlers[m.method] || null,
+                logic: DEFAULT_REST_HANDLER_LOGIC[m.method] || null,
                 timeout: 30000,
               })),
             );
