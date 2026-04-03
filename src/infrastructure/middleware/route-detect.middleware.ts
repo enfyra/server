@@ -45,7 +45,6 @@ export class RouteDetectMiddleware implements NestMiddleware {
       const realClientIP = this.detectClientIP(req);
       const context: TDynamicContext = {
         $body: req.routeData?.context?.$body || req.body || {},
-        $statusCode: undefined,
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $helpers: {
           $jwt: (payload: any, exp: string) =>

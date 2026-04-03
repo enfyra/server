@@ -46,7 +46,6 @@ export class EventQueueService extends WorkerHost {
     const ctx: TDynamicContext = {
       $body: payload || {},
       $data: payload || {},
-      $statusCode: undefined,
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $logs: (...args: any[]) => {
         const logsArray = (ctx.$share?.$logs as any[]) || [];

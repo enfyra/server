@@ -3,7 +3,6 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { throwGqlError } from '../utils/throw-error';
-import { ConfigService } from '@nestjs/config';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import { JwtService } from '@nestjs/jwt';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
@@ -19,7 +18,6 @@ export class DynamicResolver {
     private handlerExecutorService: HandlerExecutorService,
     private routeCacheService: RouteCacheService,
     private repoRegistryService: RepoRegistryService,
-    private configService: ConfigService,
   ) {}
   async dynamicResolver(
     tableName: string,
@@ -85,7 +83,7 @@ export class DynamicResolver {
       const result = await this.handlerExecutorService.run(
         defaultHandler,
         handlerCtx,
-        this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
+        30000,
       );
       return result;
     } catch (error) {
@@ -134,7 +132,7 @@ export class DynamicResolver {
       const result = await this.handlerExecutorService.run(
         defaultHandler,
         handlerCtx,
-        this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000),
+        30000,
       );
       if (result && result.data && Array.isArray(result.data)) {
         return result.data[0];

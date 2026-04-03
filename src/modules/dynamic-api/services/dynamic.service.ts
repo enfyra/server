@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   ScriptExecutionException,
   BusinessLogicException,
@@ -13,41 +12,62 @@ export class DynamicService {
   constructor(
     private handlerExecutorService: HandlerExecutorService,
     private loggingService: LoggingService,
-    private configService: ConfigService,
   ) {}
   async runHandler(req: RequestWithRouteData) {
-    const startTime = Date.now();
     const isTableDefinitionOperation =
       req.routeData.mainTable?.name === 'table_definition';
     try {
-      const userHandler = req.routeData.handler?.trim();
-      const hasMainTable =
-        req.routeData.mainTable && req.routeData.context.$repos?.main;
-      const defaultHandler = hasMainTable
-        ? this.getDefaultHandler(req.method)
-        : null;
-      if (!userHandler && !defaultHandler) {
+      const handler = req.routeData.handler?.trim();
+      if (!handler) {
         throw new BusinessLogicException(
           `No handler configured for method '${req.method}' on route '${req.routeData.route?.path || req.url}'`,
-          { method: req.method, route: req.routeData.route?.path }
+          { method: req.method, route: req.routeData.route?.path },
         );
       }
-      const scriptCode = userHandler || defaultHandler;
-      const routeHandler = req.routeData.handlers?.find(
-        (handler) => handler.method?.method === req.method
-      );
-      const timeoutMs = routeHandler?.timeout || this.configService.get<number>('DEFAULT_HANDLER_TIMEOUT', 5000);
+
       const res = req.routeData.res;
       if (res) {
         req.routeData.context.$res = res;
       }
-      const result = await this.handlerExecutorService.run(
-        scriptCode,
-        req.routeData.context,
-        timeoutMs,
+
+      this.handlerExecutorService.register(req, {
+        code: handler,
+        type: 'handler',
+      });
+
+      const postHooks = req.routeData?.postHooks;
+      if (postHooks?.length) {
+        for (const hook of postHooks) {
+          if (!hook.code) continue;
+          this.handlerExecutorService.register(req, {
+            code: hook.code,
+            type: 'postHook',
+          });
+        }
+      }
+
+      const routeHandler = req.routeData.handlers?.find(
+        (h) => h.method?.method === req.method,
       );
+      const timeoutMs = routeHandler?.timeout || undefined;
+
+      const { value, shortCircuit } = await this.handlerExecutorService.runBatch(req, timeoutMs);
+
       delete req.routeData.context.$res;
-      return result;
+
+      if (shortCircuit) {
+        const httpRes = req.routeData.res;
+        if (httpRes && !httpRes.headersSent) {
+          httpRes.status(200).json(
+            req.routeData.context.$share.$logs.length
+              ? { result: value, logs: req.routeData.context.$share.$logs }
+              : value,
+          );
+        }
+        return undefined;
+      }
+
+      return value;
     } catch (error) {
       this.loggingService.error('Handler execution failed', {
         context: 'runHandler',
@@ -72,18 +92,6 @@ export class DynamicService {
           isTableOperation: isTableDefinitionOperation,
         },
       );
-    }
-  }
-  private getDefaultHandler(method: string): string {
-    switch (method) {
-      case 'DELETE':
-        return `return await $ctx.$repos.main.delete({ id: $ctx.$params.id });`;
-      case 'POST':
-        return `return await $ctx.$repos.main.create({ data: $ctx.$body });`;
-      case 'PATCH':
-        return `return await $ctx.$repos.main.update({ id: $ctx.$params.id, data: $ctx.$body });`;
-      default:
-        return `return await $ctx.$repos.main.find();`;
     }
   }
 }

@@ -36,12 +36,14 @@
     },
     {
       "_unique": { "name": { "_eq": "pre_hook_definition" } },
+      "columnsToRemove": ["timeout"],
       "relationsToModify": [
         { "from": { "propertyName": "route", "inversePropertyName": "preHook" }, "to": { "propertyName": "route", "inversePropertyName": "preHooks" } }
       ]
     },
     {
       "_unique": { "name": { "_eq": "post_hook_definition" } },
+      "columnsToRemove": ["timeout"],
       "relationsToModify": [
         { "from": { "propertyName": "route", "inversePropertyName": "postHook" }, "to": { "propertyName": "route", "inversePropertyName": "postHooks" } }
       ]

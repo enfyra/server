@@ -6,7 +6,6 @@ const MAPPINGS: Record<string, string> = {
   '@LOGS': '$ctx.$logs',
   '@BODY': '$ctx.$body',
   '@DATA': '$ctx.$data',
-  '@STATUS': '$ctx.$statusCode',
   '@PARAMS': '$ctx.$params',
   '@QUERY': '$ctx.$query',
   '@USER': '$ctx.$user',

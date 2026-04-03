@@ -489,7 +489,7 @@
         {
             "isEnabled": true,
             "isGlobal": true,
-            "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
+            "code": "@DATA = { ...@DATA, message: 'Success'}",
             "name": "Default response",
             "isSystem":false,
             "methods": ["GET", "POST", "PATCH", "DELETE"]

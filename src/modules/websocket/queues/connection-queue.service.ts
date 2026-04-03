@@ -43,7 +43,6 @@ export class ConnectionQueueService extends WorkerHost {
     const ctx: TDynamicContext = {
       $body: clientInfo || {},
       $data: clientInfo || {},
-      $statusCode: undefined,
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $logs: (...args: any[]) => {
         const logsArray = (ctx.$share?.$logs as any[]) || [];
