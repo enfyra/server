@@ -386,7 +386,7 @@ export class MongoTableHandlerService {
           fields: ['id'],
         });
         const allMethodIds = (methodsResult.data || []).map((m: any) => m._id ?? m.id);
-        await this.queryBuilder.insert({
+        const insertedRoute = await this.queryBuilder.insert({
           table: 'route_definition',
           data: {
             path: `/${body.name}`,
@@ -402,6 +402,29 @@ export class MongoTableHandlerService {
             postHooks: [],
           },
         });
+        const newRouteId = insertedRoute?.data?.[0]?._id ?? insertedRoute?.data?.[0]?.id;
+        if (newRouteId) {
+          const allMethods = (methodsResult.data || []);
+          const defaultHandlers = {
+            GET: 'return await @REPOS.main.find();',
+            POST: 'return await @REPOS.main.create({ data: @BODY });',
+            PATCH: 'return await @REPOS.main.update({ id: @PARAMS.id, data: @BODY });',
+            DELETE: 'return await @REPOS.main.delete({ id: @PARAMS.id });',
+          };
+          for (const m of allMethods) {
+            const methodName = m.method;
+            if (!defaultHandlers[methodName]) continue;
+            await this.queryBuilder.insert({
+              table: 'route_handler_definition',
+              data: {
+                route: newRouteId,
+                method: m._id ?? m.id,
+                logic: defaultHandlers[methodName],
+                timeout: 30000,
+              },
+            });
+          }
+        }
       }
       const fullMetadata = await this.getFullTableMetadata(tableId);
       await this.schemaMigrationService.createCollection(fullMetadata);

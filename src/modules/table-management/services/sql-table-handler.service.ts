@@ -394,13 +394,32 @@ export class SqlTableHandlerService {
           .where({ path: `/${body.name}` })
           .first();
         if (newRoute?.id) {
-          const methods = await trx('method_definition').select('id');
-          const junctionTable = getJunctionTableName('route_definition', 'availableMethods', 'method_definition');
-          const { sourceColumn, targetColumn } = getJunctionColumnNames('route_definition', 'availableMethods', 'method_definition');
-          const hasJunction = await trx.schema.hasTable(junctionTable);
-          if (hasJunction && methods?.length > 0) {
-            await trx(junctionTable).insert(
-              methods.map((m: any) => ({ [sourceColumn]: newRoute.id, [targetColumn]: m.id })),
+          const methods = await trx('method_definition').select('id', 'method');
+          const routeTableMeta = await this.metadataCacheService.getTableMetadata('route_definition');
+          const availableMethodsRel = routeTableMeta?.relations?.find((r: any) => r.propertyName === 'availableMethods');
+          if (availableMethodsRel?.junctionTableName && methods?.length > 0) {
+            await trx(availableMethodsRel.junctionTableName).insert(
+              methods.map((m: any) => ({
+                [availableMethodsRel.junctionSourceColumn]: newRoute.id,
+                [availableMethodsRel.junctionTargetColumn]: m.id,
+              })),
+            );
+          }
+          const httpMethods = methods.filter((m: any) => ['GET', 'POST', 'PATCH', 'DELETE'].includes(m.method));
+          if (httpMethods.length > 0) {
+            const defaultHandlers = {
+              GET: 'return await @REPOS.main.find();',
+              POST: 'return await @REPOS.main.create({ data: @BODY });',
+              PATCH: 'return await @REPOS.main.update({ id: @PARAMS.id, data: @BODY });',
+              DELETE: 'return await @REPOS.main.delete({ id: @PARAMS.id });',
+            };
+            await trx('route_handler_definition').insert(
+              httpMethods.map((m: any) => ({
+                routeId: newRoute.id,
+                methodId: m.id,
+                logic: defaultHandlers[m.method] || null,
+                timeout: 30000,
+              })),
             );
           }
         }

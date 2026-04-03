@@ -30,7 +30,6 @@ export interface RateLimitHelper {
 export interface TDynamicContext {
   $body?: any;
   $data?: any;
-  $statusCode?: number;
   $throw?: any;
   $error?: any;
   $logs?: (...args: any[]) => void;

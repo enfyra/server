@@ -201,12 +201,27 @@ async function createIndexes(
     }
   }
 }
+async function backfillDefaults(db: Db, tableDef: TableDef): Promise<void> {
+  const collection = db.collection(tableDef.name);
+  for (const col of tableDef.columns) {
+    if (col.defaultValue !== undefined && col.defaultValue !== null) {
+      const result = await collection.updateMany(
+        { [col.name]: { $exists: false } },
+        { $set: { [col.name]: col.defaultValue } },
+      );
+      if (result.modifiedCount > 0) {
+        console.log(`  Backfilled ${result.modifiedCount} rows: ${tableDef.name}.${col.name} = ${col.defaultValue}`);
+      }
+    }
+  }
+}
 async function createCollection(db: Db, tableDef: TableDef, allTables: Record<string, TableDef>): Promise<void> {
   const collectionName = tableDef.name;
   console.log(`📝 Creating collection: ${collectionName}`);
   const collections = await db.listCollections({ name: collectionName }).toArray();
   if (collections.length > 0) {
     console.log(`⏩ Collection already exists: ${collectionName}`);
+    await backfillDefaults(db, tableDef);
     return;
   }
   const METADATA_TABLES = ['table_definition', 'column_definition', 'relation_definition'];

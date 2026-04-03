@@ -120,7 +120,6 @@ export class AdminController {
       const ctx: TDynamicContext = {
         $body: payload || {},
         $data: payload || {},
-        $statusCode: undefined,
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $helpers: {
           $fetch: createFetchHelper(),
@@ -205,7 +204,6 @@ export class AdminController {
       const ctx: TDynamicContext = {
         $body: payload || {},
         $data: payload || {},
-        $statusCode: undefined,
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $helpers: {
           $fetch: createFetchHelper(),

@@ -20,6 +20,12 @@
       "isSystem": true
     }
   ],
+  "post_hook_definition": [
+    {
+      "_unique": { "name": { "_eq": "Default response" } },
+      "code": "@DATA = { ...@DATA, message: 'Success'}"
+    }
+  ],
   "route_definition": [
     {
       "_unique": { "path": { "_eq": "/package_definition" } },

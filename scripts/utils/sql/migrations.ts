@@ -84,6 +84,11 @@ export async function applyColumnMigrations(
         }
       }
     });
+    for (const col of diff.columnsToAdd) {
+      if (col.defaultValue !== undefined && col.defaultValue !== null) {
+        await knex(tableName).whereNull(col.name).update({ [col.name]: col.defaultValue });
+      }
+    }
   }
   if (diff.columnsToRemove.length > 0) {
   }

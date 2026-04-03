@@ -5,8 +5,9 @@ import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
 import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/sql-schema-naming.util';
-import { METADATA_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
+import { METADATA_CACHE_SYNC_EVENT_KEY, ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 import { ObjectId } from 'mongodb';
 
 const COLOR = '\x1b[36m';
@@ -34,6 +35,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     private readonly instanceService: InstanceService,
     private readonly databaseSchemaService: DatabaseSchemaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly websocketGateway: DynamicWebSocketGateway,
   ) {}
 
   async onModuleInit() {
@@ -455,9 +457,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {
-    if (this.isLoading && this.loadingPromise) {
-      await this.loadingPromise;
-    }
     if (this.inMemoryCache) {
       return this.inMemoryCache;
     }
@@ -485,6 +484,14 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         this.inMemoryCache = metadata;
 
         this.logger.log('Metadata reloaded from database');
+
+        try {
+          this.websocketGateway.emitToNamespace(
+            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+            '$system:metadata:reloaded',
+            { timestamp: Date.now() },
+          );
+        } catch {}
       } catch (error) {
         this.logger.error('Failed to reload metadata cache:', error);
         throw error;

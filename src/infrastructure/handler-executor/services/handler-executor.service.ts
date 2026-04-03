@@ -1,37 +1,42 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 import { TDynamicContext } from '../../../shared/types';
-import { VmExecutorService } from './vm-executor.service';
-import { IsolatedExecutorService } from './isolated-executor.service';
+import { IsolatedExecutorService, CodeBlock } from './isolated-executor.service';
+
+export type { CodeBlock } from './isolated-executor.service';
+
+export const DEFAULT_TIMEOUT_MS = 30000;
 
 @Injectable()
 export class HandlerExecutorService {
-  private readonly logger = new Logger(HandlerExecutorService.name);
-  private readonly useIsolated: boolean;
-
   constructor(
-    private readonly configService: ConfigService,
-    private readonly vmExecutorService: VmExecutorService,
     private readonly isolatedExecutorService: IsolatedExecutorService,
-  ) {
-    const executorMode = process.env.HANDLER_EXECUTOR || 'isolated';
-    this.useIsolated = executorMode !== 'vm';
+  ) {}
 
-    if (this.useIsolated) {
-      this.logger.log('Using isolated executor (worker_threads + isolated-vm)');
-    } else {
-      this.logger.warn('Using vm executor (node:vm fallback) — lower security');
+  register(req: any, block: CodeBlock): void {
+    if (!req.routeData.__codeBlocks) {
+      req.routeData.__codeBlocks = [];
     }
+    req.routeData.__codeBlocks.push(block);
+  }
+
+  async runBatch(req: any, timeoutMs?: number): Promise<{ value: any; shortCircuit: boolean }> {
+    const blocks: CodeBlock[] = req.routeData.__codeBlocks || [];
+    if (blocks.length === 0) {
+      return { value: undefined, shortCircuit: false };
+    }
+
+    return this.isolatedExecutorService.runBatch(
+      blocks,
+      req.routeData.context,
+      timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    );
   }
 
   async run(
     code: string,
     ctx: TDynamicContext,
-    timeoutMs: number = Number(this.configService.get('DEFAULT_HANDLER_TIMEOUT') ?? 30000),
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ): Promise<any> {
-    if (this.useIsolated) {
-      return this.isolatedExecutorService.run(code, ctx, timeoutMs);
-    }
-    return this.vmExecutorService.run(code, ctx, timeoutMs);
+    return this.isolatedExecutorService.run(code, ctx, timeoutMs);
   }
 }
