@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
-import { getForeignKeyColumnName } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+import {
+  DEFAULT_REST_HANDLER_LOGIC,
+  isCanonicalTableRoutePath,
+  REST_HANDLER_METHOD_NAMES,
+} from '../utils/canonical-table-route.util';
 @Injectable()
 export class RouteDefinitionProcessor extends BaseTableProcessor {
   constructor(private readonly queryBuilder: QueryBuilderService) {
@@ -113,6 +117,55 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           `   🔗 Linked ${methodIds.length} available methods to route ${record.path}`,
         );
       }
+    }
+    await this.ensureDefaultCrudHandlers(record, isMongoDB);
+  }
+
+  private async ensureDefaultCrudHandlers(record: any, isMongoDB: boolean): Promise<void> {
+    const path = record.path;
+    const mainTableFk = isMongoDB ? record.mainTable : record.mainTableId;
+    if (!mainTableFk) return;
+
+    const tableRow = await this.queryBuilder.findById('table_definition', mainTableFk);
+    const tableName = tableRow?.name;
+    if (!tableName || !isCanonicalTableRoutePath(path, tableName)) return;
+
+    const available = record._availableMethods;
+    if (!Array.isArray(available) || available.length === 0) return;
+
+    const routeId = isMongoDB ? record._id : record.id;
+    if (!routeId) return;
+
+    for (const methodName of REST_HANDLER_METHOD_NAMES) {
+      if (!available.includes(methodName)) continue;
+      const logic = DEFAULT_REST_HANDLER_LOGIC[methodName];
+      if (!logic) continue;
+
+      const methodRow = await this.queryBuilder.findOneWhere('method_definition', {
+        method: methodName,
+      });
+      if (!methodRow) continue;
+
+      const methodKeyId = isMongoDB ? methodRow._id ?? methodRow.id : methodRow.id;
+
+      const existing = isMongoDB
+        ? await this.queryBuilder.findOneWhere('route_handler_definition', {
+            route: routeId,
+            method: methodKeyId,
+          })
+        : await this.queryBuilder.findOneWhere('route_handler_definition', {
+            routeId,
+            methodId: methodKeyId,
+          });
+
+      if (existing) continue;
+
+      const data = isMongoDB
+        ? { route: routeId, method: methodKeyId, logic, timeout: 30000 }
+        : { routeId, methodId: methodKeyId, logic, timeout: 30000 };
+
+      await this.queryBuilder.insert({ table: 'route_handler_definition', data });
+      this.logger.log(`   Default ${methodName} handler → ${path}`);
     }
   }
   getUniqueIdentifier(record: any): object {

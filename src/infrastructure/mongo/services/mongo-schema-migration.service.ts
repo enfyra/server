@@ -332,6 +332,9 @@ export class MongoSchemaMigrationService {
           name: `${collectionName}_${unique.join('_')}_unique`,
           partialFilterExpression: this.createPartialFilterForUnique(unique),
         });
+        if (unique.length > 0) {
+          indexedFields.add(unique[0]);
+        }
       }
       for (const index of indexes) {
         const indexSpec: any = {};
