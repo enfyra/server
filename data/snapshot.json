@@ -1771,7 +1771,13 @@
                 "type": "enum",
                 "isNullable": false,
                 "isSystem": true,
-                "options": ["installing", "updating", "uninstalling", "installed", "failed"],
+                "options": [
+                    "installing",
+                    "updating",
+                    "uninstalling",
+                    "installed",
+                    "failed"
+                ],
                 "defaultValue": "installed",
                 "description": "Current lifecycle status of the package"
             },
@@ -2020,289 +2026,6 @@
             }
         ]
     },
-    "ai_conversation_definition": {
-        "name": "ai_conversation_definition",
-        "description": "Stores AI agent conversation sessions. Each conversation contains multiple messages and can have a summary for long conversations.",
-        "isSystem": true,
-        "indexes": [
-            [
-                "user"
-            ],
-            [
-                "config"
-            ]
-        ],
-        "columns": [
-            {
-                "name": "id",
-                "type": "int",
-                "isPrimary": true,
-                "isGenerated": true,
-                "isNullable": false,
-                "isSystem": true,
-                "description": "Primary key identifier"
-            },
-            {
-                "name": "title",
-                "type": "varchar",
-                "isNullable": false,
-                "isSystem": true,
-                "description": "Conversation title (auto-generated from first message)"
-            },
-            {
-                "name": "messageCount",
-                "type": "int",
-                "isNullable": false,
-                "isSystem": true,
-                "defaultValue": 0,
-                "description": "Cached count of messages in this conversation (user + assistant messages)"
-            },
-            {
-                "name": "summary",
-                "type": "text",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Summary of old messages (created when conversation exceeds threshold)"
-            },
-            {
-                "name": "lastSummaryAt",
-                "type": "date",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Timestamp when summary was last created or updated"
-            },
-            {
-                "name": "lastActivityAt",
-                "type": "date",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Timestamp of the last activity in this conversation (updated when new messages are added)"
-            },
-            {
-                "name": "task",
-                "type": "simple-json",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Current active task for this conversation. Format: { type: string, status: 'pending'|'in_progress'|'completed'|'cancelled'|'failed', priority?: number, data?: any, result?: any, error?: string, createdAt?: Date, updatedAt?: Date }"
-            }
-        ],
-        "relations": [
-            {
-                "propertyName": "user",
-                "type": "many-to-one",
-                "targetTable": "user_definition",
-                "isSystem": true,
-                "isNullable": true,
-                "description": "User who owns this conversation"
-            },
-            {
-                "propertyName": "config",
-                "type": "many-to-one",
-                "targetTable": "ai_config_definition",
-                "isSystem": true,
-                "isNullable": false,
-                "description": "AI configuration (provider, model) used for this conversation",
-                "onDelete": "CASCADE"
-            },
-            {
-                "propertyName": "messages",
-                "type": "one-to-many",
-                "targetTable": "ai_message_definition",
-                "isSystem": true,
-                "inversePropertyName": "conversation",
-                "isInverseEager": false,
-                "description": "Messages in this conversation"
-            }
-        ]
-    },
-    "ai_message_definition": {
-        "name": "ai_message_definition",
-        "description": "Stores individual messages in AI agent conversations. Includes user messages, assistant responses, and tool calls/results.",
-        "isSystem": true,
-        "indexes": [
-            [
-                "conversation"
-            ],
-            [
-                "sequence"
-            ]
-        ],
-        "columns": [
-            {
-                "name": "id",
-                "type": "int",
-                "isPrimary": true,
-                "isGenerated": true,
-                "isNullable": false,
-                "isSystem": true,
-                "description": "Primary key identifier"
-            },
-            {
-                "name": "role",
-                "type": "enum",
-                "isNullable": false,
-                "isSystem": true,
-                "options": [
-                    "user",
-                    "assistant",
-                    "system"
-                ],
-                "description": "Message role: user (from user), assistant (from LLM), system (system prompts)"
-            },
-            {
-                "name": "content",
-                "type": "text",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Message content. Null if assistant message has tool_calls (will have content in final response)"
-            },
-            {
-                "name": "toolCalls",
-                "type": "simple-json",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Tool calls made by LLM. Format: [{ id: 'call_abc123', type: 'function', function: { name: '...', arguments: '...' } }]"
-            },
-            {
-                "name": "toolResults",
-                "type": "simple-json",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Tool execution results. Format: [{ toolCallId: 'call_abc123', result: {...}, status: 'success'|'error' }]. Must match tool_call_id with toolCalls. status derived from result.error when saving."
-            },
-            {
-                "name": "sequence",
-                "type": "int",
-                "isNullable": false,
-                "isSystem": true,
-                "description": "Message sequence number within conversation (incremental)"
-            },
-            {
-                "name": "inputTokens",
-                "type": "int",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Token count consumed as input for this assistant message (LLM request)"
-            },
-            {
-                "name": "outputTokens",
-                "type": "int",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Token count produced as output for this assistant message (LLM response)"
-            },
-            {
-                "name": "metadata",
-                "type": "simple-json",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Debug metadata. routedToolNames, usedTools, usedToolsCount, toolLoops, provider, model, toolsAddedOnDemand, durationMs, cacheHitTokens, cacheHitPct for assistant messages."
-            }
-        ],
-        "relations": [
-            {
-                "propertyName": "conversation",
-                "type": "many-to-one",
-                "targetTable": "ai_conversation_definition",
-                "isSystem": true,
-                "isNullable": false,
-                "description": "Conversation this message belongs to",
-                "onDelete": "CASCADE"
-            }
-        ]
-    },
-    "ai_config_definition": {
-        "name": "ai_config_definition",
-        "description": "Stores AI agent configuration settings. Supports OpenAI-compatible (via baseUrl), Anthropic (Claude), Google (Gemini).",
-        "isSystem": true,
-        "columns": [
-            {
-                "name": "id",
-                "type": "int",
-                "isPrimary": true,
-                "isGenerated": true,
-                "isNullable": false,
-                "isSystem": true,
-                "description": "Primary key identifier"
-            },
-            {
-                "name": "provider",
-                "type": "enum",
-                "isNullable": false,
-                "isSystem": true,
-                "options": [
-                    "OpenAI",
-                    "Anthropic",
-                    "Google"
-                ],
-                "defaultValue": "OpenAI",
-                "description": "AI provider (OpenAI-compatible via baseUrl, Anthropic, or Google)"
-            },
-            {
-                "name": "apiKey",
-                "type": "varchar",
-                "isNullable": true,
-                "isSystem": true,
-                "isHidden": true,
-                "description": "API key for the AI provider (sensitive, hidden from API responses)"
-            },
-            {
-                "name": "model",
-                "type": "varchar",
-                "isNullable": true,
-                "isSystem": true,
-                "defaultValue": "gpt-4o-mini",
-                "description": "Model name to use"
-            },
-            {
-                "name": "baseUrl",
-                "type": "varchar",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Custom API base URL for providers that support overriding endpoint"
-            },
-            {
-                "name": "isEnabled",
-                "type": "boolean",
-                "isNullable": false,
-                "isSystem": true,
-                "defaultValue": true,
-                "description": "Whether AI agent is enabled"
-            },
-            {
-                "name": "maxConversationMessages",
-                "type": "int",
-                "isNullable": false,
-                "isSystem": true,
-                "defaultValue": 10,
-                "description": "Maximum number of messages to include in LLM context (default: 10)"
-            },
-            {
-                "name": "llmTimeout",
-                "type": "int",
-                "isNullable": false,
-                "isSystem": true,
-                "defaultValue": 30000,
-                "description": "LLM API timeout in milliseconds (default: 30000 - 30 seconds)"
-            },
-            {
-                "name": "maxToolIterations",
-                "type": "int",
-                "isNullable": false,
-                "isSystem": true,
-                "defaultValue": 10,
-                "description": "Maximum number of tool execution loops per LLM response (default: 10)"
-            },
-            {
-                "name": "description",
-                "type": "text",
-                "isNullable": true,
-                "isSystem": true,
-                "description": "Description of the AI configuration"
-            }
-        ],
-        "relations": []
-    },
     "websocket_definition": {
         "name": "websocket_definition",
         "description": "Defines WebSocket gateway namespaces for real-time communication",
@@ -2457,7 +2180,11 @@
         "name": "flow_definition",
         "description": "Defines automated workflows with triggers, steps, and execution logic",
         "isSystem": true,
-        "uniques": [["name"]],
+        "uniques": [
+            [
+                "name"
+            ]
+        ],
         "columns": [
             {
                 "name": "id",
@@ -2493,7 +2220,10 @@
             {
                 "name": "triggerType",
                 "type": "enum",
-                "options": ["schedule", "manual"],
+                "options": [
+                    "schedule",
+                    "manual"
+                ],
                 "isNullable": false,
                 "isSystem": true,
                 "description": "Type of trigger: schedule (cron) or manual (user-initiated via UI/API/handler)"
@@ -2572,7 +2302,18 @@
             {
                 "name": "type",
                 "type": "enum",
-                "options": ["script", "condition", "query", "create", "update", "delete", "http", "trigger_flow", "sleep", "log"],
+                "options": [
+                    "script",
+                    "condition",
+                    "query",
+                    "create",
+                    "update",
+                    "delete",
+                    "http",
+                    "trigger_flow",
+                    "sleep",
+                    "log"
+                ],
                 "isNullable": false,
                 "isSystem": true,
                 "description": "Type of operation this step performs"
@@ -2595,7 +2336,11 @@
             {
                 "name": "onError",
                 "type": "enum",
-                "options": ["stop", "skip", "retry"],
+                "options": [
+                    "stop",
+                    "skip",
+                    "retry"
+                ],
                 "isNullable": false,
                 "isSystem": true,
                 "defaultValue": "stop",
@@ -2620,7 +2365,10 @@
             {
                 "name": "branch",
                 "type": "enum",
-                "options": ["true", "false"],
+                "options": [
+                    "true",
+                    "false"
+                ],
                 "isNullable": true,
                 "isSystem": true,
                 "description": "Which branch of the parent condition (true or false)"
@@ -2664,7 +2412,13 @@
             {
                 "name": "status",
                 "type": "enum",
-                "options": ["pending", "running", "completed", "failed", "cancelled"],
+                "options": [
+                    "pending",
+                    "running",
+                    "completed",
+                    "failed",
+                    "cancelled"
+                ],
                 "isNullable": false,
                 "isSystem": true,
                 "defaultValue": "pending",

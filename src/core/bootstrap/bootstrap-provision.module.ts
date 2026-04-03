@@ -20,7 +20,6 @@ import { ExtensionDefinitionProcessor } from './processors/extension-definition.
 import { FolderDefinitionProcessor } from './processors/folder-definition.processor';
 import { BootstrapScriptDefinitionProcessor } from './processors/bootstrap-script-definition.processor';
 import { RoutePermissionDefinitionProcessor } from './processors/route-permission-definition.processor';
-import { AiConfigDefinitionProcessor } from './processors/ai-config-definition.processor';
 import { WebsocketDefinitionProcessor } from './processors/websocket-definition.processor';
 import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-definition.processor';
 import { FlowDefinitionProcessor } from './processors/flow-definition.processor';
@@ -49,7 +48,6 @@ import { FlowExecutionDefinitionProcessor } from './processors/flow-execution-de
     FolderDefinitionProcessor,
     BootstrapScriptDefinitionProcessor,
     RoutePermissionDefinitionProcessor,
-    AiConfigDefinitionProcessor,
     WebsocketDefinitionProcessor,
     WebsocketEventDefinitionProcessor,
     FlowDefinitionProcessor,
