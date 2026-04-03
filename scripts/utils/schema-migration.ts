@@ -49,7 +49,15 @@ export async function applySqlSchemaMigrations(
     for (const tableName of migration.tablesToDrop) {
       const exists = await knex.schema.hasTable(tableName);
       if (exists) {
-        await knex.schema.dropTableIfExists(tableName);
+        if (dbType === 'pg' || dbType === 'postgres' || dbType === 'postgresql') {
+          await knex.raw(`DROP TABLE IF EXISTS "${tableName}" CASCADE`);
+        } else if (dbType === 'mysql' || dbType === 'mysql2' || dbType === 'mariadb') {
+          await knex.raw('SET FOREIGN_KEY_CHECKS = 0');
+          await knex.schema.dropTableIfExists(tableName);
+          await knex.raw('SET FOREIGN_KEY_CHECKS = 1');
+        } else {
+          await knex.schema.dropTableIfExists(tableName);
+        }
         console.log(`  ✅ Dropped table: ${tableName}`);
       } else {
         console.log(`  ⏩ Table ${tableName} does not exist, skipping`);

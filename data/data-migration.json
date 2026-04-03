@@ -2,7 +2,16 @@
   "_deletedRecords": [
     { "table": "route_definition", "filter": { "path": { "_eq": "/api-docs" } } },
     { "table": "route_definition", "filter": { "path": { "_eq": "/admin/metadata-sync/:id" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/flow/test-step" } } }
+    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/flow/test-step" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/ai_config_definition" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/ai_conversation_definition" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/ai_message_definition" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/chat" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/chat/stream" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/cancel" } } },
+    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai" } } },
+    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/chat" } } },
+    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/config" } } }
   ],
   "menu_definition": [
     {

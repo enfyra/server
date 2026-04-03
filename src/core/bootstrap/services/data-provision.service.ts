@@ -18,7 +18,6 @@ import { ExtensionDefinitionProcessor } from '../processors/extension-definition
 import { FolderDefinitionProcessor } from '../processors/folder-definition.processor';
 import { BootstrapScriptDefinitionProcessor } from '../processors/bootstrap-script-definition.processor';
 import { RoutePermissionDefinitionProcessor } from '../processors/route-permission-definition.processor';
-import { AiConfigDefinitionProcessor } from '../processors/ai-config-definition.processor';
 import { WebsocketDefinitionProcessor } from '../processors/websocket-definition.processor';
 import { WebsocketEventDefinitionProcessor } from '../processors/websocket-event-definition.processor';
 import { FlowDefinitionProcessor } from '../processors/flow-definition.processor';
@@ -55,7 +54,6 @@ export class DataProvisionService {
     private readonly folderProcessor: FolderDefinitionProcessor,
     private readonly bootstrapScriptProcessor: BootstrapScriptDefinitionProcessor,
     private readonly routePermissionProcessor: RoutePermissionDefinitionProcessor,
-    private readonly aiConfigProcessor: AiConfigDefinitionProcessor,
     private readonly websocketDefinitionProcessor: WebsocketDefinitionProcessor,
     private readonly websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor,
     private readonly flowDefinitionProcessor: FlowDefinitionProcessor,
@@ -78,7 +76,6 @@ export class DataProvisionService {
     this.processors.set('extension_definition', this.extensionProcessor);
     this.processors.set('folder_definition', this.folderProcessor);
     this.processors.set('bootstrap_script_definition', this.bootstrapScriptProcessor);
-    this.processors.set('ai_config_definition', this.aiConfigProcessor);
     this.processors.set('route_permission_definition', this.routePermissionProcessor);
     this.processors.set('websocket_definition', this.websocketDefinitionProcessor);
     this.processors.set('websocket_event_definition', this.websocketEventDefinitionProcessor);

@@ -38,7 +38,6 @@ import { MongoModule } from './infrastructure/mongo/mongo.module';
 import { QueryBuilderModule } from './infrastructure/query-builder/query-builder.module';
 import { DatabaseSchemaService } from './infrastructure/knex/services/database-schema.service';
 import { AdminModule } from './modules/admin/admin.module';
-import { AiAgentModule } from './modules/ai-agent/ai-agent.module';
 import { WebsocketModule } from './modules/websocket/websocket.module';
 import { ExtensionDefinitionModule } from './modules/extension-definition/extension-definition.module';
 import { FlowModule } from './modules/flow/flow.module';
@@ -105,7 +104,6 @@ import { FlowModule } from './modules/flow/flow.module';
     PackageManagementModule,
     CurrentUserModule,
     AdminModule,
-    AiAgentModule,
     WebsocketModule,
     FlowModule,
     ExtensionDefinitionModule,
