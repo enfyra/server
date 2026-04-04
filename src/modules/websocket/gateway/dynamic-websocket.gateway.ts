@@ -152,7 +152,13 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
       }
       if (gateway.requireAuth) {
         const authHeader = socket.handshake.headers?.authorization;
-        const token = socket.handshake.auth?.token || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null);
+        const cookieHeader = socket.handshake.headers?.cookie;
+        const cookieToken = cookieHeader
+          ?.split(';')
+          .map((c) => c.trim())
+          .find((c) => c.startsWith('accessToken='))
+          ?.slice('accessToken='.length) || null;
+        const token = socket.handshake.auth?.token || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null) || cookieToken;
         if (!token) {
           const err = new Error('Authentication token required');
           (err as any).data = { code: 'AUTH_REQUIRED', path };

@@ -96,16 +96,23 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     }
   }
 
-  /**
-   * Listen for cache invalidation events.
-   * When a table that affects metadata is modified, reload the cache.
-   * The reload() method handles Redis Pub/Sub to sync other instances.
-   */
+  private reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private reloadDebounceResolvers: Array<() => void> = [];
+
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
     if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.METADATA)) {
       this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
-      await this.reload();
+      return new Promise<void>((resolve) => {
+        this.reloadDebounceResolvers.push(resolve);
+        if (this.reloadDebounceTimer) clearTimeout(this.reloadDebounceTimer);
+        this.reloadDebounceTimer = setTimeout(async () => {
+          this.reloadDebounceTimer = null;
+          const resolvers = this.reloadDebounceResolvers.splice(0);
+          await this.reload();
+          resolvers.forEach((r) => r());
+        }, 50);
+      });
     }
   }
 
@@ -479,6 +486,14 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       try {
         await this.publishReloadSignal();
 
+        try {
+          this.websocketGateway.emitToNamespace(
+            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+            '$system:metadata:reload',
+            { status: 'pending' },
+          );
+        } catch {}
+
         const metadata = await this.loadMetadataFromDb();
 
         this.inMemoryCache = metadata;
@@ -488,8 +503,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         try {
           this.websocketGateway.emitToNamespace(
             ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-            '$system:metadata:reloaded',
-            { timestamp: Date.now() },
+            '$system:metadata:reload',
+            { status: 'done' },
           );
         } catch {}
       } catch (error) {
