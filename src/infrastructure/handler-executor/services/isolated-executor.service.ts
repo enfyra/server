@@ -162,9 +162,7 @@ export class IsolatedExecutorService {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (code !== 0) {
-          reject(new Error(`Worker exited with code ${code}`));
-        }
+        reject(new Error(`Worker exited unexpectedly with code ${code}`));
       });
 
       worker.postMessage({ type: messageType, id, ...payload });
@@ -259,7 +257,6 @@ export class IsolatedExecutorService {
       if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, code);
       }
-      if (error.constructor?.name?.includes('Exception')) throw error;
       throw ErrorHandler.createException(undefined, error.statusCode || error.status, error.message || 'Unknown error', code, {});
     }
 
@@ -290,7 +287,6 @@ export class IsolatedExecutorService {
       if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, '(batch execution)');
       }
-      if (error.constructor?.name?.includes('Exception')) throw error;
       throw ErrorHandler.createException(undefined, error.statusCode || error.status, error.message || 'Unknown error', '(batch execution)', {});
     }
 
