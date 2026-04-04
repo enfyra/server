@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   ScriptExecutionException,
   BusinessLogicException,
+  isCustomException,
 } from '../../../core/exceptions/custom-exceptions';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
@@ -51,9 +52,15 @@ export class DynamicService {
       );
       const timeoutMs = routeHandler?.timeout || undefined;
 
-      const { value, shortCircuit } = await this.handlerExecutorService.runBatch(req, timeoutMs);
-
-      delete req.routeData.context.$res;
+      let value: any;
+      let shortCircuit = false;
+      try {
+        const result = await this.handlerExecutorService.runBatch(req, timeoutMs);
+        value = result.value;
+        shortCircuit = result.shortCircuit;
+      } finally {
+        delete req.routeData.context.$res;
+      }
 
       if (shortCircuit) {
         const httpRes = req.routeData.res;
@@ -79,7 +86,7 @@ export class DynamicService {
         isTableOperation: isTableDefinitionOperation,
         userId: req.user?.id,
       });
-      if (error.constructor.name.includes('Exception')) {
+      if (isCustomException(error)) {
         throw error;
       }
       throw new ScriptExecutionException(
