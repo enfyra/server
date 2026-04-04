@@ -7,7 +7,7 @@ export type { CodeBlock } from './isolated-executor.service';
 export const DEFAULT_TIMEOUT_MS = 30000;
 
 @Injectable()
-export class HandlerExecutorService {
+export class ExecutorEngineService {
   constructor(
     private readonly isolatedExecutorService: IsolatedExecutorService,
   ) {}

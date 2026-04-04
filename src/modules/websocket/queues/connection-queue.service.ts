@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Processor, OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { TDynamicContext } from '../../../shared/types';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
@@ -25,7 +25,7 @@ export class ConnectionQueueService extends WorkerHost {
   private readonly logger = new Logger(ConnectionQueueService.name);
 
   constructor(
-    private readonly handlerExecutor: HandlerExecutorService,
+    private readonly handlerExecutor: ExecutorEngineService,
     private readonly websocketGateway: DynamicWebSocketGateway,
     private readonly repoRegistryService: RepoRegistryService,
     private readonly flowService: FlowService,

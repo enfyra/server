@@ -6,7 +6,7 @@ import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import { JwtService } from '@nestjs/jwt';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
@@ -15,7 +15,7 @@ export class DynamicResolver {
   constructor(
     private jwtService: JwtService,
     private queryBuilder: QueryBuilderService,
-    private handlerExecutorService: HandlerExecutorService,
+    private handlerExecutorService: ExecutorEngineService,
     private routeCacheService: RouteCacheService,
     private repoRegistryService: RepoRegistryService,
   ) {}

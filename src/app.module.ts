@@ -16,7 +16,7 @@ import { BootstrapProvisionModule } from './core/bootstrap/bootstrap-provision.m
 import { ExceptionsModule } from './core/exceptions/exceptions.module';
 import { RequestLoggingInterceptor } from './core/exceptions/interceptors/request-logging.interceptor';
 import { CacheModule } from './infrastructure/cache/cache.module';
-import { HandlerExecutorModule } from './infrastructure/handler-executor/handler-executor.module';
+import { ExecutorEngineModule } from './infrastructure/executor-engine/executor-engine.module';
 import { QueryEngineModule } from './infrastructure/query-engine/query-engine.module';
 import { RedisPubSubService } from './infrastructure/cache/services/redis-pubsub.service';
 import { SqlFunctionService } from './infrastructure/sql/services/sql-function.service';
@@ -108,7 +108,7 @@ import { FlowModule } from './modules/flow/flow.module';
     FlowModule,
     ExtensionDefinitionModule,
     GraphqlModule,
-    HandlerExecutorModule,
+    ExecutorEngineModule,
     DynamicApiModule,
   ],
   providers: [

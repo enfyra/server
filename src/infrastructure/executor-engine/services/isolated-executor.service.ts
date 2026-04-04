@@ -9,8 +9,8 @@ import { ScriptTimeoutException } from '../../../core/exceptions/custom-exceptio
 import { appendIsolatedExecutorRuntimeLog } from '../utils/executor-runtime-log';
 import {
   getEffectiveMemoryBytes,
-  getHandlerIsolationTuning,
-} from '../utils/handler-isolation-tuning.util';
+  getEngineTuning,
+} from '../utils/engine-tuning.util';
 import {
   WORKER_TUNE_INTERVAL_MS,
   WORKER_RSS_HIGH,
@@ -19,9 +19,11 @@ import {
   WORKER_CPU_LOW,
   WORKER_FLOOR,
   WORKER_HYSTERESIS_TICKS,
+  WORKER_DISPATCH_RSS_CEILING,
+  WORKER_TASKS_PER_WORKER_CAP,
 } from '../../../shared/utils/auto-scaling.constants';
 
-const WORKER_SCRIPT = path.join(__dirname, '../workers/handler.worker.js');
+const WORKER_SCRIPT = path.join(__dirname, '../workers/executor.worker.js');
 
 interface TaskReg {
   onResult: (msg: any) => void;
@@ -37,16 +39,25 @@ class WorkerPool {
   private readonly entries: PoolEntry[] = [];
   private readonly waiting: Array<(e: PoolEntry) => void> = [];
   private max: number;
-  private maxTasksPerWorker: number;
+  private readonly effectiveMemory: number;
+  private readonly rssCeiling: number;
+  private readonly tasksCap: number;
+  private cachedMemoryOk = true;
+  private lastMemoryCheckMs = 0;
+  private readonly memorySampleIntervalMs = 200;
 
   constructor(
     poolSize: number,
-    maxTasksPerWorker: number,
+    effectiveMemory: number,
+    rssCeiling: number,
+    tasksCap: number,
     private readonly scriptPath: string,
     private readonly onCrash?: () => void,
   ) {
     this.max = poolSize;
-    this.maxTasksPerWorker = maxTasksPerWorker;
+    this.effectiveMemory = effectiveMemory;
+    this.rssCeiling = rssCeiling;
+    this.tasksCap = tasksCap;
     for (let i = 0; i < poolSize; i++) this.spawnEntry();
   }
 
@@ -83,14 +94,30 @@ class WorkerPool {
     return entry;
   }
 
-  dispatch(): Promise<PoolEntry> {
+  private isMemoryAvailable(): boolean {
+    const now = Date.now();
+    if (now - this.lastMemoryCheckMs >= this.memorySampleIntervalMs) {
+      this.cachedMemoryOk = process.memoryUsage().rss / this.effectiveMemory < this.rssCeiling;
+      this.lastMemoryCheckMs = now;
+    }
+    return this.cachedMemoryOk;
+  }
+
+  private findLeastBusy(): PoolEntry | null {
     let best: PoolEntry | null = null;
     for (const e of this.entries) {
-      if (e.tasks.size < this.maxTasksPerWorker) {
+      if (e.tasks.size < this.tasksCap) {
         if (!best || e.tasks.size < best.tasks.size) best = e;
       }
     }
-    if (best) return Promise.resolve(best);
+    return best;
+  }
+
+  dispatch(): Promise<PoolEntry> {
+    const best = this.findLeastBusy();
+    if (best && (best.tasks.size === 0 || this.isMemoryAvailable())) {
+      return Promise.resolve(best);
+    }
     return new Promise((resolve) => this.waiting.push(resolve));
   }
 
@@ -100,8 +127,17 @@ class WorkerPool {
 
   unregisterTask(entry: PoolEntry, taskId: string): void {
     entry.tasks.delete(taskId);
-    if (this.waiting.length > 0 && entry.tasks.size < this.maxTasksPerWorker) {
-      this.waiting.shift()!(entry);
+    this.drainWaiting();
+  }
+
+  private drainWaiting(): void {
+    while (this.waiting.length > 0) {
+      const best = this.findLeastBusy();
+      if (best && (best.tasks.size === 0 || this.isMemoryAvailable())) {
+        this.waiting.shift()!(best);
+      } else {
+        break;
+      }
     }
   }
 
@@ -154,14 +190,16 @@ export function encodeMainThreadToIsolate(value: unknown): string {
 @Injectable()
 export class IsolatedExecutorService implements OnModuleDestroy {
   private readonly logger = new Logger(IsolatedExecutorService.name);
-  private readonly isolationTuning = getHandlerIsolationTuning();
+  private readonly effectiveMemory = getEffectiveMemoryBytes();
+  private readonly isolationTuning = getEngineTuning();
   private readonly pool = new WorkerPool(
     this.isolationTuning.maxConcurrentWorkers,
-    8,
+    this.effectiveMemory,
+    WORKER_DISPATCH_RSS_CEILING,
+    WORKER_TASKS_PER_WORKER_CAP,
     WORKER_SCRIPT,
     () => this.logger.warn('Worker crashed, replacement spawned'),
   );
-  private readonly effectiveMemory = getEffectiveMemoryBytes();
   private readonly ceiling = this.isolationTuning.maxConcurrentWorkers;
   private prevCpuUsage = process.cpuUsage();
   private prevCpuTime = process.hrtime.bigint();

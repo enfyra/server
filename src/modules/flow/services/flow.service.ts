@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { FlowJobData } from '../../../shared/types/flow.types';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
@@ -17,7 +17,7 @@ export class FlowService {
   constructor(
     @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION) private readonly flowQueue: Queue,
     private readonly flowCacheService: FlowCacheService,
-    private readonly handlerExecutor: HandlerExecutorService,
+    private readonly handlerExecutor: ExecutorEngineService,
     private readonly repoRegistryService: RepoRegistryService,
   ) {}
 

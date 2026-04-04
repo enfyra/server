@@ -5,13 +5,13 @@ import {
   isCustomException,
 } from '../../../core/exceptions/custom-exceptions';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RequestWithRouteData } from '../../../shared/types';
 @Injectable()
 export class DynamicService {
   private logger = new Logger(DynamicService.name);
   constructor(
-    private handlerExecutorService: HandlerExecutorService,
+    private handlerExecutorService: ExecutorEngineService,
     private loggingService: LoggingService,
   ) {}
   async runHandler(req: RequestWithRouteData) {

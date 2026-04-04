@@ -3,10 +3,10 @@ import { MetadataCacheService } from '../../infrastructure/cache/services/metada
 import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
 import { GraphqlService } from '../graphql/services/graphql.service';
 import { FlowService } from '../flow/services/flow.service';
-import { HandlerExecutorService } from '../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../infrastructure/cache/services/repo-registry.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
-import { transformCode } from '../../infrastructure/handler-executor/code-transformer';
+import { transformCode } from '../../infrastructure/executor-engine/code-transformer';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 import { TDynamicContext } from '../../shared/types';
 
@@ -18,7 +18,7 @@ export class AdminController {
     private readonly routeCacheService: RouteCacheService,
     private readonly graphqlService: GraphqlService,
     private readonly flowService: FlowService,
-    private readonly handlerExecutorService: HandlerExecutorService,
+    private readonly handlerExecutorService: ExecutorEngineService,
     private readonly repoRegistryService: RepoRegistryService,
   ) {}
   @Post('reload')
