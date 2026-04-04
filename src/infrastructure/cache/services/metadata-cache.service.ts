@@ -479,6 +479,14 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       try {
         await this.publishReloadSignal();
 
+        try {
+          this.websocketGateway.emitToNamespace(
+            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+            '$system:metadata:reload',
+            { status: 'pending' },
+          );
+        } catch {}
+
         const metadata = await this.loadMetadataFromDb();
 
         this.inMemoryCache = metadata;
@@ -488,8 +496,8 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         try {
           this.websocketGateway.emitToNamespace(
             ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-            '$system:metadata:reloaded',
-            { timestamp: Date.now() },
+            '$system:metadata:reload',
+            { status: 'done' },
           );
         } catch {}
       } catch (error) {
