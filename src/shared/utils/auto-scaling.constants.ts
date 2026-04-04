@@ -25,6 +25,5 @@ export const WORKER_RSS_HIGH = 0.85;
 export const WORKER_RSS_LOW = 0.70;
 export const WORKER_CPU_HIGH = 0.70;
 export const WORKER_CPU_LOW = 0.50;
-export const WORKER_FLOOR = 2;
+export const WORKER_FLOOR = 1;
 export const WORKER_HYSTERESIS_TICKS = 3;
-export const WORKER_QUEUE_REJECT_MULTIPLIER = 3;
