@@ -7,7 +7,7 @@ import v8 from 'v8';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_SCRIPT = path.join(
   __dirname,
-  '../src/infrastructure/handler-executor/workers/handler.worker.js',
+  '../src/infrastructure/executor-engine/workers/executor.worker.js',
 );
 
 function isolateMemoryLimitMbFromTotalBytes(totalBytes) {
@@ -215,7 +215,7 @@ async function main() {
   const gcAvailable = typeof global.gc === 'function';
   if (!gcAvailable) {
     console.error(
-      'Warning: global.gc unavailable; RSS between runs may be noisier. Prefer: yarn bench:handler-worker (sets --expose-gc).',
+      'Warning: global.gc unavailable; RSS between runs may be noisier. Prefer: yarn bench:executor (sets --expose-gc).',
     );
   }
 

@@ -48,7 +48,7 @@ export function getEffectiveCpuCount(): number {
   return hostCpus;
 }
 
-export function computeHandlerIsolationTuning(spec: {
+export function computeEngineTuning(spec: {
   logicalCpuCount: number;
   totalMemoryBytes: number;
 }): { maxConcurrentWorkers: number; isolateMemoryLimitMb: number } {
@@ -69,11 +69,11 @@ export function computeHandlerIsolationTuning(spec: {
   return { maxConcurrentWorkers, isolateMemoryLimitMb };
 }
 
-export function getHandlerIsolationTuning(): {
+export function getEngineTuning(): {
   maxConcurrentWorkers: number;
   isolateMemoryLimitMb: number;
 } {
-  return computeHandlerIsolationTuning({
+  return computeEngineTuning({
     logicalCpuCount: getEffectiveCpuCount(),
     totalMemoryBytes: getEffectiveMemoryBytes(),
   });

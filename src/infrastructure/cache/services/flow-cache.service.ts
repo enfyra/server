@@ -5,7 +5,7 @@ import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
-import { transformCode } from '../../handler-executor/code-transformer';
+import { transformCode } from '../../executor-engine/code-transformer';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
 import { FLOW_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 

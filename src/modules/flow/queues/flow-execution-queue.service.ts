@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Processor, OnWorkerEvent, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
@@ -22,7 +22,7 @@ export class FlowExecutionQueueService extends WorkerHost {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
 
   constructor(
-    private readonly handlerExecutor: HandlerExecutorService,
+    private readonly handlerExecutor: ExecutorEngineService,
     private readonly repoRegistryService: RepoRegistryService,
     private readonly flowCacheService: FlowCacheService,
     private readonly queryBuilder: QueryBuilderService,

@@ -20,7 +20,7 @@
     "migration:create": "npm run typeorm migration:create",
     "migration:run": "npm run typeorm migration:run",
     "migration:revert": "npm run typeorm migration:revert",
-    "bench:handler-worker": "NODE_OPTIONS=\"--no-node-snapshot --expose-gc\" node scripts/bench-handler-worker-memory.mjs",
+    "bench:executor": "NODE_OPTIONS=\"--no-node-snapshot --expose-gc\" node scripts/bench-handler-worker-memory.mjs",
     "postinstall": "node -e \"if (!require('fs').existsSync('./node_modules/sharp')) { require('child_process').execSync('yarn add sharp --ignore-engines', {stdio: 'inherit'}) }\""
   },
   "dependencies": {

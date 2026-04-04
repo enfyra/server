@@ -7,7 +7,7 @@ import { EventQueueService } from './queues/event-queue.service';
 import { WebsocketCacheService } from '../../infrastructure/cache/services/websocket-cache.service';
 import { QueryBuilderModule } from '../../infrastructure/query-builder/query-builder.module';
 import { CacheModule } from '../../infrastructure/cache/cache.module';
-import { HandlerExecutorModule } from '../../infrastructure/handler-executor/handler-executor.module';
+import { ExecutorEngineModule } from '../../infrastructure/executor-engine/executor-engine.module';
 import { WebsocketEmitService } from './services/websocket-emit.service';
 import { BuiltInSocketRegistry } from './services/built-in-socket.registry';
 import { SYSTEM_QUEUES } from '../../shared/utils/constant';
@@ -17,7 +17,7 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
   imports: [
     QueryBuilderModule,
     CacheModule,
-    HandlerExecutorModule,
+    ExecutorEngineModule,
     BullModule.registerQueue(
       {
         name: SYSTEM_QUEUES.WS_CONNECTION,

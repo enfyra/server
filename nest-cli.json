@@ -10,7 +10,7 @@
         "exclude": "**/node_modules/**"
       },
       {
-        "include": "infrastructure/handler-executor/workers/*.js",
+        "include": "infrastructure/executor-engine/workers/*.js",
         "outDir": "dist/src"
       },
       {

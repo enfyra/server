@@ -4,7 +4,7 @@ import { FlowService } from './services/flow.service';
 import { FlowSchedulerService } from './services/flow-scheduler.service';
 import { FlowExecutionQueueService } from './queues/flow-execution-queue.service';
 import { CacheModule } from '../../infrastructure/cache/cache.module';
-import { HandlerExecutorModule } from '../../infrastructure/handler-executor/handler-executor.module';
+import { ExecutorEngineModule } from '../../infrastructure/executor-engine/executor-engine.module';
 import { QueryBuilderModule } from '../../infrastructure/query-builder/query-builder.module';
 import { SYSTEM_QUEUES } from '../../shared/utils/constant';
 
@@ -13,7 +13,7 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
   imports: [
     QueryBuilderModule,
     CacheModule,
-    HandlerExecutorModule,
+    ExecutorEngineModule,
     BullModule.registerQueue({
       name: SYSTEM_QUEUES.FLOW_EXECUTION,
       defaultJobOptions: {

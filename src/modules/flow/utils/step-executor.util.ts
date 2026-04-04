@@ -1,8 +1,8 @@
 import * as dns from 'dns';
 import * as net from 'net';
 import { TDynamicContext } from '../../../shared/types';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
-import { transformCode } from '../../../infrastructure/handler-executor/code-transformer';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
+import { transformCode } from '../../../infrastructure/executor-engine/code-transformer';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;
 const MAX_HTTP_TIMEOUT = 60000;
@@ -87,7 +87,7 @@ export interface StepExecOptions {
   config: Record<string, any>;
   timeout: number;
   ctx: TDynamicContext;
-  handlerExecutor: HandlerExecutorService;
+  handlerExecutor: ExecutorEngineService;
   shouldTransformCode?: boolean;
 }
 

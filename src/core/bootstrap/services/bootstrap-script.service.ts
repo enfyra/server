@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { HandlerExecutorService } from '../../../infrastructure/handler-executor/services/handler-executor.service';
+import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { TDynamicContext } from '../../../shared/types';
@@ -12,7 +12,7 @@ import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   REDIS_TTL
 } from '../../../shared/utils/constant';
-import { transformCode } from '../../../infrastructure/handler-executor/code-transformer';
+import { transformCode } from '../../../infrastructure/executor-engine/code-transformer';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 
 @Injectable()
@@ -21,7 +21,7 @@ export class BootstrapScriptService {
 
   constructor(
     private queryBuilder: QueryBuilderService,
-    private handlerExecutorService: HandlerExecutorService,
+    private handlerExecutorService: ExecutorEngineService,
     private cacheService: CacheService,
     private repoRegistryService: RepoRegistryService,
     private instanceService: InstanceService,
