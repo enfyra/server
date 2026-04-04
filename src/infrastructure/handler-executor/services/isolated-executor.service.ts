@@ -8,7 +8,6 @@ import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException } from '../../../core/exceptions/custom-exceptions';
 import { appendIsolatedExecutorRuntimeLog } from '../utils/executor-runtime-log';
 import {
-  AsyncSemaphore,
   getEffectiveMemoryBytes,
   getHandlerIsolationTuning,
 } from '../utils/handler-isolation-tuning.util';
@@ -20,10 +19,115 @@ import {
   WORKER_CPU_LOW,
   WORKER_FLOOR,
   WORKER_HYSTERESIS_TICKS,
-  WORKER_QUEUE_REJECT_MULTIPLIER,
 } from '../../../shared/utils/auto-scaling.constants';
 
 const WORKER_SCRIPT = path.join(__dirname, '../workers/handler.worker.js');
+
+interface TaskReg {
+  onResult: (msg: any) => void;
+  onIoCall: (msg: any) => void;
+}
+
+interface PoolEntry {
+  worker: Worker;
+  tasks: Map<string, TaskReg>;
+}
+
+class WorkerPool {
+  private readonly entries: PoolEntry[] = [];
+  private readonly waiting: Array<(e: PoolEntry) => void> = [];
+  private max: number;
+  private maxTasksPerWorker: number;
+
+  constructor(
+    poolSize: number,
+    maxTasksPerWorker: number,
+    private readonly scriptPath: string,
+    private readonly onCrash?: () => void,
+  ) {
+    this.max = poolSize;
+    this.maxTasksPerWorker = maxTasksPerWorker;
+    for (let i = 0; i < poolSize; i++) this.spawnEntry();
+  }
+
+  private spawnEntry(): PoolEntry {
+    const worker = new Worker(this.scriptPath);
+    const entry: PoolEntry = { worker, tasks: new Map() };
+
+    worker.on('message', (msg: any) => {
+      const reg = entry.tasks.get(msg.id);
+      if (!reg) return;
+      if (msg.type === 'result') {
+        reg.onResult(msg);
+      } else {
+        reg.onIoCall(msg);
+      }
+    });
+
+    worker.on('exit', () => {
+      for (const [, reg] of entry.tasks) {
+        reg.onResult({
+          type: 'result',
+          success: false,
+          error: { message: 'Worker crashed' },
+        });
+      }
+      entry.tasks.clear();
+      const idx = this.entries.indexOf(entry);
+      if (idx !== -1) this.entries.splice(idx, 1);
+      if (this.onCrash) this.onCrash();
+      if (this.entries.length < this.max) this.spawnEntry();
+    });
+
+    this.entries.push(entry);
+    return entry;
+  }
+
+  dispatch(): Promise<PoolEntry> {
+    let best: PoolEntry | null = null;
+    for (const e of this.entries) {
+      if (e.tasks.size < this.maxTasksPerWorker) {
+        if (!best || e.tasks.size < best.tasks.size) best = e;
+      }
+    }
+    if (best) return Promise.resolve(best);
+    return new Promise((resolve) => this.waiting.push(resolve));
+  }
+
+  registerTask(entry: PoolEntry, taskId: string, reg: TaskReg): void {
+    entry.tasks.set(taskId, reg);
+  }
+
+  unregisterTask(entry: PoolEntry, taskId: string): void {
+    entry.tasks.delete(taskId);
+    if (this.waiting.length > 0 && entry.tasks.size < this.maxTasksPerWorker) {
+      this.waiting.shift()!(entry);
+    }
+  }
+
+  terminateEntry(entry: PoolEntry): void {
+    entry.worker.terminate();
+  }
+
+  resize(newMax: number): void {
+    this.max = Math.max(1, newMax);
+    while (this.entries.length < this.max) this.spawnEntry();
+  }
+
+  getMax(): number { return this.max; }
+  getWaitingCount(): number { return this.waiting.length; }
+  getTotalActiveTasks(): number {
+    let n = 0;
+    for (const e of this.entries) n += e.tasks.size;
+    return n;
+  }
+
+  destroyAll(): void {
+    for (const e of this.entries) e.worker.terminate();
+    this.entries.length = 0;
+    this.waiting.length = 0;
+  }
+}
 
 export interface CodeBlock {
   code: string;
@@ -51,13 +155,14 @@ export function encodeMainThreadToIsolate(value: unknown): string {
 export class IsolatedExecutorService implements OnModuleDestroy {
   private readonly logger = new Logger(IsolatedExecutorService.name);
   private readonly isolationTuning = getHandlerIsolationTuning();
-  private readonly workerSemaphore = new AsyncSemaphore(
+  private readonly pool = new WorkerPool(
     this.isolationTuning.maxConcurrentWorkers,
+    8,
+    WORKER_SCRIPT,
+    () => this.logger.warn('Worker crashed, replacement spawned'),
   );
   private readonly effectiveMemory = getEffectiveMemoryBytes();
   private readonly ceiling = this.isolationTuning.maxConcurrentWorkers;
-  private readonly queueRejectThreshold =
-    this.ceiling * WORKER_QUEUE_REJECT_MULTIPLIER;
   private prevCpuUsage = process.cpuUsage();
   private prevCpuTime = process.hrtime.bigint();
   private tuneTimer?: ReturnType<typeof setInterval>;
@@ -68,6 +173,9 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     private readonly packageCacheService: PackageCacheService,
     private readonly cdnLoader: PackageCdnLoaderService,
   ) {
+    this.logger.log(
+      `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate`,
+    );
     this.tuneTimer = setInterval(() => this.autoTune(), WORKER_TUNE_INTERVAL_MS);
   }
 
@@ -75,6 +183,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     if (this.tuneTimer) {
       clearInterval(this.tuneTimer);
     }
+    this.pool.destroyAll();
   }
 
   private autoTune(): void {
@@ -88,8 +197,8 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     this.prevCpuUsage = process.cpuUsage();
     this.prevCpuTime = now;
 
-    const current = this.workerSemaphore.getMax();
-    const queueDepth = this.workerSemaphore.getWaitingCount();
+    const current = this.pool.getMax();
+    const queueDepth = this.pool.getWaitingCount();
     const underPressure =
       rssRatio > WORKER_RSS_HIGH || cpuRatio > WORKER_CPU_HIGH;
     const resourcesOk = rssRatio < WORKER_RSS_LOW && cpuRatio < WORKER_CPU_LOW;
@@ -107,7 +216,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
       this.pressureTicks = 0;
       this.recoveryTicks++;
       if (this.recoveryTicks >= WORKER_HYSTERESIS_TICKS) {
-        next = Math.min(this.ceiling, current + (hasDemand ? 2 : 1));
+        next = Math.min(this.ceiling, current + 2);
       }
     } else {
       this.pressureTicks = 0;
@@ -115,11 +224,11 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     }
 
     if (next !== current) {
-      this.workerSemaphore.resize(next);
+      this.pool.resize(next);
       this.pressureTicks = 0;
       this.recoveryTicks = 0;
       this.logger.log(
-        `Worker limit adjusted: ${current} -> ${next} (rss=${Math.round(rssRatio * 100)}% cpu=${Math.round(cpuRatio * 100)}% queue=${queueDepth})`,
+        `Worker pool adjusted: ${current} -> ${next} (rss=${Math.round(rssRatio * 100)}% cpu=${Math.round(cpuRatio * 100)}% queue=${queueDepth})`,
       );
     }
   }
@@ -179,134 +288,110 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     timeoutMs: number,
   ): Promise<any> {
     return (async () => {
-      if (this.workerSemaphore.getWaitingCount() >= this.queueRejectThreshold) {
-        const err: any = new Error(
-          'Server overloaded: handler worker queue is full. Try again later.',
-        );
-        err.statusCode = 503;
-        throw err;
-      }
-      await this.workerSemaphore.acquire();
-      try {
-        return await this.runWorkerThread(messageType, payload, ctx, timeoutMs);
-      } finally {
-        this.workerSemaphore.release();
-      }
+      const entry = await this.pool.dispatch();
+      const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      return new Promise<any>((resolve, reject) => {
+        let settled = false;
+
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          this.pool.unregisterTask(entry, taskId);
+          appendIsolatedExecutorRuntimeLog({ event: 'task_timeout', id: taskId, timeoutMs });
+          this.pool.terminateEntry(entry);
+          const err: any = new Error(`Script execution timed out after ${timeoutMs}ms`);
+          err.code = 'ERR_SCRIPT_EXECUTION_TIMEOUT';
+          err.isTimeout = true;
+          reject(err);
+        }, timeoutMs + 5000);
+
+        this.pool.registerTask(entry, taskId, {
+          onResult: (msg) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            this.pool.unregisterTask(entry, taskId);
+
+            if (msg.success) {
+              appendIsolatedExecutorRuntimeLog({ event: 'task_done', id: taskId, ok: true });
+              const resolved: any = {
+                value: msg.value,
+                valueAbsent: msg.valueAbsent === true,
+                ctxChanges: msg.ctxChanges,
+              };
+              if (msg.shortCircuit) resolved.shortCircuit = true;
+              resolve(resolved);
+            } else {
+              appendIsolatedExecutorRuntimeLog({ event: 'task_done', id: taskId, ok: false, message: msg.error?.message });
+              const err: any = new Error(msg.error?.message || 'Handler execution failed');
+              err.statusCode = msg.error?.statusCode;
+              err.code = msg.error?.code;
+              if (msg.error?.stack) err.stack = msg.error.stack;
+              reject(err);
+            }
+          },
+          onIoCall: (msg) => {
+            if (msg.type === 'repoCall') {
+              this.handleIoCall(() => this.execRepoCall(msg, ctx), entry.worker, msg.callId);
+            } else if (msg.type === 'helpersCall') {
+              this.handleIoCall(() => this.execHelpersCall(msg, ctx), entry.worker, msg.callId);
+            } else if (msg.type === 'socketCall') {
+              this.handleSocketCall(msg, ctx);
+            } else if (msg.type === 'cacheCall') {
+              this.handleIoCall(() => this.execCacheCall(msg, ctx), entry.worker, msg.callId);
+            } else if (msg.type === 'dispatchCall') {
+              this.handleIoCall(() => this.execDispatchCall(msg, ctx), entry.worker, msg.callId);
+            }
+          },
+        });
+
+        entry.worker.postMessage({ type: messageType, id: taskId, ...payload });
+      });
     })();
   }
 
-  private runWorkerThread(
-    messageType: string,
-    payload: Record<string, any>,
-    ctx: any,
-    timeoutMs: number,
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const worker = new Worker(WORKER_SCRIPT);
-      const id = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      let settled = false;
-
-      const workerTimeoutMs = timeoutMs + 5000;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        appendIsolatedExecutorRuntimeLog({ event: 'task_timeout', id, timeoutMs });
-        worker.terminate();
-        const err: any = new Error(`Script execution timed out after ${timeoutMs}ms`);
-        err.code = 'ERR_SCRIPT_EXECUTION_TIMEOUT';
-        err.isTimeout = true;
-        reject(err);
-      }, workerTimeoutMs);
-
-      const cleanup = () => {
-        clearTimeout(timer);
-        worker.terminate();
-      };
-
-      worker.on('message', (msg) => {
-        if (msg.type === 'result') {
-          if (settled) return;
-          settled = true;
-          cleanup();
-
-          if (msg.success) {
-            appendIsolatedExecutorRuntimeLog({ event: 'task_done', id, ok: true });
-            const resolved: any = {
-              value: msg.value,
-              valueAbsent: msg.valueAbsent === true,
-              ctxChanges: msg.ctxChanges,
-            };
-            if (msg.shortCircuit) resolved.shortCircuit = true;
-            resolve(resolved);
-          } else {
-            appendIsolatedExecutorRuntimeLog({ event: 'task_done', id, ok: false, message: msg.error?.message });
-            const err: any = new Error(msg.error?.message || 'Handler execution failed');
-            err.statusCode = msg.error?.statusCode;
-            err.code = msg.error?.code;
-            if (msg.error?.stack) err.stack = msg.error.stack;
-            reject(err);
-          }
-        } else if (msg.type === 'repoCall') {
-          this.handleRepoCall(worker, msg, ctx);
-        } else if (msg.type === 'helpersCall') {
-          this.handleHelpersCall(worker, msg, ctx);
-        } else if (msg.type === 'socketCall') {
-          this.handleSocketCall(msg, ctx);
-        } else if (msg.type === 'cacheCall') {
-          this.handleCacheCall(worker, msg, ctx);
-        } else if (msg.type === 'dispatchCall') {
-          this.handleDispatchCall(worker, msg, ctx);
-        }
-      });
-
-      worker.on('error', (err) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(err);
-      });
-
-      worker.on('exit', (code) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(new Error(`Worker exited unexpectedly with code ${code}`));
-      });
-
-      worker.postMessage({ type: messageType, id, ...payload });
-    });
-  }
-
-  private async handleRepoCall(worker: Worker, msg: any, ctx: any) {
+  private async handleIoCall(
+    fn: () => Promise<unknown>,
+    worker: Worker,
+    callId: string,
+  ): Promise<void> {
     try {
-      const args = JSON.parse(msg.argsJson);
-      const repo = ctx?.$repos?.[msg.table];
-      if (!repo || typeof repo[msg.method] !== 'function') {
-        throw new Error(`Repo method not found: ${msg.table}.${msg.method}`);
-      }
-      const result = await repo[msg.method](...args);
-      worker.postMessage({ type: 'callResult', callId: msg.callId, result: encodeMainThreadToIsolate(result) });
+      const result = await fn();
+      worker.postMessage({
+        type: 'callResult',
+        callId,
+        result: encodeMainThreadToIsolate(result),
+      });
     } catch (error) {
-      worker.postMessage({ type: 'callError', callId: msg.callId, error: (error as Error).message });
+      worker.postMessage({
+        type: 'callError',
+        callId,
+        error: (error as Error).message,
+      });
     }
   }
 
-  private async handleHelpersCall(worker: Worker, msg: any, ctx: any) {
-    try {
-      const args = JSON.parse(msg.argsJson);
-      const parts = msg.name.split('.');
-      let fn: any = ctx?.$helpers;
-      for (const key of parts) {
-        fn = fn?.[key];
-      }
-      if (typeof fn !== 'function') {
-        throw new Error(`Helper not found: ${msg.name}`);
-      }
-      const result = await fn(...args);
-      worker.postMessage({ type: 'callResult', callId: msg.callId, result: encodeMainThreadToIsolate(result) });
-    } catch (error) {
-      worker.postMessage({ type: 'callError', callId: msg.callId, error: (error as Error).message });
+  private async execRepoCall(msg: any, ctx: any): Promise<unknown> {
+    const args = JSON.parse(msg.argsJson);
+    const repo = ctx?.$repos?.[msg.table];
+    if (!repo || typeof repo[msg.method] !== 'function') {
+      throw new Error(`Repo method not found: ${msg.table}.${msg.method}`);
     }
+    return repo[msg.method](...args);
+  }
+
+  private async execHelpersCall(msg: any, ctx: any): Promise<unknown> {
+    const args = JSON.parse(msg.argsJson);
+    const parts = msg.name.split('.');
+    let fn: any = ctx?.$helpers;
+    for (const key of parts) {
+      fn = fn?.[key];
+    }
+    if (typeof fn !== 'function') {
+      throw new Error(`Helper not found: ${msg.name}`);
+    }
+    return fn(...args);
   }
 
   private handleSocketCall(msg: any, ctx: any) {
@@ -317,30 +402,20 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     } catch {}
   }
 
-  private async handleCacheCall(worker: Worker, msg: any, ctx: any) {
-    try {
-      const args = JSON.parse(msg.argsJson);
-      const fn = ctx?.$cache?.[msg.method];
-      if (typeof fn !== 'function') throw new Error(`Cache method not found: ${msg.method}`);
-      const result = await fn(...args);
-      worker.postMessage({ type: 'callResult', callId: msg.callId, result: encodeMainThreadToIsolate(result) });
-    } catch (error) {
-      worker.postMessage({ type: 'callError', callId: msg.callId, error: (error as Error).message });
-    }
+  private async execCacheCall(msg: any, ctx: any): Promise<unknown> {
+    const args = JSON.parse(msg.argsJson);
+    const fn = ctx?.$cache?.[msg.method];
+    if (typeof fn !== 'function') throw new Error(`Cache method not found: ${msg.method}`);
+    return fn(...args);
   }
 
-  private async handleDispatchCall(worker: Worker, msg: any, ctx: any) {
-    try {
-      const args = JSON.parse(msg.argsJson);
-      const fn = ctx?.$dispatch?.[msg.method];
-      if (typeof fn !== 'function') {
-        throw new Error(`$dispatch.${msg.method} is not available`);
-      }
-      const result = await fn(...args);
-      worker.postMessage({ type: 'callResult', callId: msg.callId, result: encodeMainThreadToIsolate(result) });
-    } catch (error) {
-      worker.postMessage({ type: 'callError', callId: msg.callId, error: (error as Error).message });
+  private async execDispatchCall(msg: any, ctx: any): Promise<unknown> {
+    const args = JSON.parse(msg.argsJson);
+    const fn = ctx?.$dispatch?.[msg.method];
+    if (typeof fn !== 'function') {
+      throw new Error(`$dispatch.${msg.method} is not available`);
     }
+    return fn(...args);
   }
 
   async run(code: string, ctx: TDynamicContext, timeoutMs: number): Promise<any> {

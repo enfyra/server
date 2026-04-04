@@ -57,13 +57,14 @@ export function computeHandlerIsolationTuning(spec: {
 
   const isolateMemoryLimitMb = Math.min(
     128,
-    Math.max(32, Math.round(totalMb / 40)),
+    Math.max(16, Math.round(totalMb / 40)),
   );
 
-  const perWorkerMb = isolateMemoryLimitMb + 100;
-  const byMem = Math.max(2, Math.floor((totalMb * 0.2) / perWorkerMb));
-  const byCpu = Math.max(2, Math.min(cpus * 2, 64));
-  const maxConcurrentWorkers = Math.max(2, Math.min(byCpu, byMem, 96));
+  const workerOverheadMb = Math.min(100, Math.max(30, Math.round(totalMb / 50)));
+  const perWorkerMb = isolateMemoryLimitMb + workerOverheadMb;
+  const byMem = Math.max(1, Math.floor((totalMb * 0.2) / perWorkerMb));
+  const byCpu = Math.max(1, Math.min(cpus * 2, 64));
+  const maxConcurrentWorkers = Math.max(1, Math.min(byCpu, byMem, 96));
 
   return { maxConcurrentWorkers, isolateMemoryLimitMb };
 }
@@ -76,55 +77,4 @@ export function getHandlerIsolationTuning(): {
     logicalCpuCount: getEffectiveCpuCount(),
     totalMemoryBytes: getEffectiveMemoryBytes(),
   });
-}
-
-export class AsyncSemaphore {
-  private active = 0;
-  private readonly waiting: Array<() => void> = [];
-  private max: number;
-
-  constructor(max: number) {
-    if (max < 1) {
-      throw new Error('AsyncSemaphore max must be >= 1');
-    }
-    this.max = max;
-  }
-
-  acquire(): Promise<void> {
-    return new Promise((resolve) => {
-      const tryTake = () => {
-        if (this.active < this.max) {
-          this.active++;
-          resolve();
-        } else {
-          this.waiting.push(tryTake);
-        }
-      };
-      tryTake();
-    });
-  }
-
-  release(): void {
-    this.active--;
-    const next = this.waiting.shift();
-    if (next) {
-      next();
-    }
-  }
-
-  resize(newMax: number): void {
-    this.max = Math.max(1, newMax);
-    while (this.active < this.max && this.waiting.length > 0) {
-      const next = this.waiting.shift();
-      if (next) next();
-    }
-  }
-
-  getMax(): number {
-    return this.max;
-  }
-
-  getWaitingCount(): number {
-    return this.waiting.length;
-  }
 }
