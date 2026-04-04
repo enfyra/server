@@ -60,11 +60,7 @@ export function computeEngineTuning(spec: {
     Math.max(16, Math.round(totalMb / 40)),
   );
 
-  const workerOverheadMb = Math.min(100, Math.max(30, Math.round(totalMb / 50)));
-  const perWorkerMb = isolateMemoryLimitMb + workerOverheadMb;
-  const byMem = Math.max(1, Math.floor((totalMb * 0.2) / perWorkerMb));
-  const byCpu = Math.max(1, Math.min(cpus * 2, 64));
-  const maxConcurrentWorkers = Math.max(1, Math.min(byCpu, byMem, 96));
+  const maxConcurrentWorkers = Math.max(1, Math.min(cpus, 2));
 
   return { maxConcurrentWorkers, isolateMemoryLimitMb };
 }
