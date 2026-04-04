@@ -30,7 +30,6 @@ interface SocketData extends Socket {
 @Injectable()
 @WebSocketGateway({
   cors: { origin: '*' },
-  transports: ['websocket'],
 })
 export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
