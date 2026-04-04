@@ -24,21 +24,6 @@ DB_URI=mysql://root:1234@localhost:3306/enfyra
 
 # MongoDB URI (only if DB_TYPE=mongodb)
 # MONGO_URI=mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra?authSource=admin
-
-############################################
-# SQL Connection Pool - optional (tune per env)
-############################################
-# Total connection pool size (automatically distributed between master and replicas)
-DB_POOL_MIN_SIZE=2                   # Total minimum connections (distributed across all nodes)
-DB_POOL_MAX_SIZE=100                 # Total maximum connections (distributed across all nodes)
-
-# Pool distribution ratio (optional, default: 0.6 = 60% master, 40% replicas)
-# Example: DB_POOL_MAX_SIZE=100, DB_POOL_MASTER_RATIO=0.6, 1 master + 2 replicas
-#   → Master: 60 connections, Each replica: 20 connections
-# DB_POOL_MASTER_RATIO=0.6           # Master gets 60% of total pool, remaining 40% divided among replicas
-
-# Connection acquisition timeout (ms)
-DB_ACQUIRE_TIMEOUT=60000
 # PostgreSQL idle connection timeout (ms)
 DB_IDLE_TIMEOUT=30000
 

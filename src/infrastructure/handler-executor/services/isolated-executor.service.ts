@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
 import { TDynamicContext } from '../../../shared/types';
@@ -7,6 +7,21 @@ import { PackageCdnLoaderService } from '../../cache/services/package-cdn-loader
 import { ErrorHandler } from '../utils/error-handler';
 import { ScriptTimeoutException } from '../../../core/exceptions/custom-exceptions';
 import { appendIsolatedExecutorRuntimeLog } from '../utils/executor-runtime-log';
+import {
+  AsyncSemaphore,
+  getEffectiveMemoryBytes,
+  getHandlerIsolationTuning,
+} from '../utils/handler-isolation-tuning.util';
+import {
+  WORKER_TUNE_INTERVAL_MS,
+  WORKER_RSS_HIGH,
+  WORKER_RSS_LOW,
+  WORKER_CPU_HIGH,
+  WORKER_CPU_LOW,
+  WORKER_FLOOR,
+  WORKER_HYSTERESIS_TICKS,
+  WORKER_QUEUE_REJECT_MULTIPLIER,
+} from '../../../shared/utils/auto-scaling.constants';
 
 const WORKER_SCRIPT = path.join(__dirname, '../workers/handler.worker.js');
 
@@ -33,11 +48,81 @@ export function encodeMainThreadToIsolate(value: unknown): string {
 }
 
 @Injectable()
-export class IsolatedExecutorService {
+export class IsolatedExecutorService implements OnModuleDestroy {
+  private readonly logger = new Logger(IsolatedExecutorService.name);
+  private readonly isolationTuning = getHandlerIsolationTuning();
+  private readonly workerSemaphore = new AsyncSemaphore(
+    this.isolationTuning.maxConcurrentWorkers,
+  );
+  private readonly effectiveMemory = getEffectiveMemoryBytes();
+  private readonly ceiling = this.isolationTuning.maxConcurrentWorkers;
+  private readonly queueRejectThreshold =
+    this.ceiling * WORKER_QUEUE_REJECT_MULTIPLIER;
+  private prevCpuUsage = process.cpuUsage();
+  private prevCpuTime = process.hrtime.bigint();
+  private tuneTimer?: ReturnType<typeof setInterval>;
+  private pressureTicks = 0;
+  private recoveryTicks = 0;
+
   constructor(
     private readonly packageCacheService: PackageCacheService,
     private readonly cdnLoader: PackageCdnLoaderService,
-  ) {}
+  ) {
+    this.tuneTimer = setInterval(() => this.autoTune(), WORKER_TUNE_INTERVAL_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.tuneTimer) {
+      clearInterval(this.tuneTimer);
+    }
+  }
+
+  private autoTune(): void {
+    const rss = process.memoryUsage().rss;
+    const rssRatio = rss / this.effectiveMemory;
+
+    const now = process.hrtime.bigint();
+    const cpu = process.cpuUsage(this.prevCpuUsage);
+    const elapsedUs = Number(now - this.prevCpuTime) / 1000;
+    const cpuRatio = elapsedUs > 0 ? (cpu.user + cpu.system) / elapsedUs : 0;
+    this.prevCpuUsage = process.cpuUsage();
+    this.prevCpuTime = now;
+
+    const current = this.workerSemaphore.getMax();
+    const queueDepth = this.workerSemaphore.getWaitingCount();
+    const underPressure =
+      rssRatio > WORKER_RSS_HIGH || cpuRatio > WORKER_CPU_HIGH;
+    const resourcesOk = rssRatio < WORKER_RSS_LOW && cpuRatio < WORKER_CPU_LOW;
+    const hasDemand = queueDepth > 0;
+
+    let next = current;
+
+    if (underPressure) {
+      this.recoveryTicks = 0;
+      this.pressureTicks++;
+      if (this.pressureTicks >= WORKER_HYSTERESIS_TICKS) {
+        next = Math.max(WORKER_FLOOR, current - 1);
+      }
+    } else if (resourcesOk && hasDemand) {
+      this.pressureTicks = 0;
+      this.recoveryTicks++;
+      if (this.recoveryTicks >= WORKER_HYSTERESIS_TICKS) {
+        next = Math.min(this.ceiling, current + (hasDemand ? 2 : 1));
+      }
+    } else {
+      this.pressureTicks = 0;
+      this.recoveryTicks = 0;
+    }
+
+    if (next !== current) {
+      this.workerSemaphore.resize(next);
+      this.pressureTicks = 0;
+      this.recoveryTicks = 0;
+      this.logger.log(
+        `Worker limit adjusted: ${current} -> ${next} (rss=${Math.round(rssRatio * 100)}% cpu=${Math.round(cpuRatio * 100)}% queue=${queueDepth})`,
+      );
+    }
+  }
 
   private createSnapshot(ctx: TDynamicContext): Record<string, unknown> {
     const cloneJson = (v: unknown): unknown => {
@@ -88,6 +173,29 @@ export class IsolatedExecutorService {
   }
 
   private spawnAndExecute(
+    messageType: string,
+    payload: Record<string, any>,
+    ctx: any,
+    timeoutMs: number,
+  ): Promise<any> {
+    return (async () => {
+      if (this.workerSemaphore.getWaitingCount() >= this.queueRejectThreshold) {
+        const err: any = new Error(
+          'Server overloaded: handler worker queue is full. Try again later.',
+        );
+        err.statusCode = 503;
+        throw err;
+      }
+      await this.workerSemaphore.acquire();
+      try {
+        return await this.runWorkerThread(messageType, payload, ctx, timeoutMs);
+      } finally {
+        this.workerSemaphore.release();
+      }
+    })();
+  }
+
+  private runWorkerThread(
     messageType: string,
     payload: Record<string, any>,
     ctx: any,
@@ -250,7 +358,7 @@ export class IsolatedExecutorService {
         pkgSources,
         snapshot,
         timeoutMs: safeTimeoutMs,
-        memoryLimitMb: parseInt(process.env.HANDLER_MEMORY_LIMIT_MB || '128', 10),
+        memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
       }, ctx, safeTimeoutMs);
     } catch (error) {
       appendIsolatedExecutorRuntimeLog({ event: 'isolated_run_error', message: (error as Error)?.message, code: (error as any)?.code, isTimeout: !!(error as any)?.isTimeout });
@@ -280,7 +388,7 @@ export class IsolatedExecutorService {
         pkgSources,
         snapshot,
         timeoutMs: safeTimeoutMs,
-        memoryLimitMb: parseInt(process.env.HANDLER_MEMORY_LIMIT_MB || '128', 10),
+        memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
       }, ctx, safeTimeoutMs);
     } catch (error) {
       appendIsolatedExecutorRuntimeLog({ event: 'isolated_batch_error', message: (error as Error)?.message, code: (error as any)?.code, isTimeout: !!(error as any)?.isTimeout });

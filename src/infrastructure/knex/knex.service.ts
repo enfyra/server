@@ -11,6 +11,11 @@ import { FieldStripper } from './utils/field-stripper';
 import { RelationTransformer } from './utils/relation-transformer';
 import { parseDatabaseUri } from './utils/uri-parser';
 import { ReplicationManager } from './services/replication-manager.service';
+import {
+  SQL_ACQUIRE_TIMEOUT_MS,
+  SQL_BOOTSTRAP_POOL_MAX_TOTAL,
+  SQL_BOOTSTRAP_POOL_MIN,
+} from '../../shared/utils/auto-scaling.constants';
 
 import { getForeignKeyColumnName } from './utils/sql-schema-naming.util';
 
@@ -112,9 +117,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         };
       }
 
-      const poolMinSize = parseInt(this.configService.get<string>('DB_POOL_MIN_SIZE') || '2');
-      const poolMaxSize = parseInt(this.configService.get<string>('DB_POOL_MAX_SIZE') || '10');
-
       this.knexInstance = knex({
         client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
         connection: {
@@ -131,10 +133,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           },
         },
         pool: {
-          min: poolMinSize,
-          max: poolMaxSize,
+          min: SQL_BOOTSTRAP_POOL_MIN,
+          max: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
         },
-        acquireConnectionTimeout: parseInt(this.configService.get<string>('DB_ACQUIRE_TIMEOUT') || '10000'),
+        acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,
       });
     }
@@ -568,6 +570,42 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       await this.knexInstance.destroy();
       this.logger.log('Knex connection destroyed');
     }
+  }
+
+  coordinatesPoolViaReplication(): boolean {
+    return (
+      !!this.replicationManager &&
+      !!this.knexInstance &&
+      this.knexInstance === this.replicationManager.getMasterKnex()
+    );
+  }
+
+  applyCoordinatedPoolMax(poolMax: number): void {
+    if (!this.knexInstance || this.dbType === 'mongodb') {
+      return;
+    }
+    if (this.coordinatesPoolViaReplication()) {
+      this.logger.warn(
+        'applyCoordinatedPoolMax called but replication is active; use ReplicationManager.applyCoordinatedTotalPoolMax instead',
+      );
+      return;
+    }
+    const pool = this.knexInstance.client.pool;
+    const used = typeof pool?.numUsed === 'function' ? pool.numUsed() : '?';
+    const free = typeof pool?.numFree === 'function' ? pool.numFree() : '?';
+    const pending =
+      typeof pool?.numPendingAcquires === 'function'
+        ? pool.numPendingAcquires()
+        : '?';
+    this.logger.debug(
+      `Pool before resize: used=${used} free=${free} pending=${pending}`,
+    );
+    const p = pool as { min?: number; max: number };
+    const nextMax = Math.max(1, Math.trunc(poolMax));
+    const nextMin = Math.max(1, Math.min(2, nextMax));
+    p.min = nextMin;
+    p.max = nextMax;
+    this.logger.log(`SQL pool coordinated: max=${nextMax} min=${nextMin}`);
   }
 
   getKnex(): ExtendedKnex {
