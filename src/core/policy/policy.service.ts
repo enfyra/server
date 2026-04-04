@@ -231,12 +231,13 @@ export class PolicyService {
     const removedIndexes = Array.from(bIKeys).filter((k) => !aIKeys.has(k));
     const addedIndexes = Array.from(aIKeys).filter((k) => !bIKeys.has(k));
 
+    const stripKey = (cols: any[]) => cols.map(({ key, ...rest }) => rest);
     const canonicalPayload = {
       version: 1,
       operation: ctx.operation,
       tableName,
-      before: { name: safeStr(before?.name), columns: bCols, relations: bRels, uniques: bU, indexes: bI },
-      after: { name: safeStr(after?.name), columns: aCols, relations: aRels, uniques: aU, indexes: aI },
+      before: { name: safeStr(before?.name), columns: stripKey(bCols), relations: bRels, uniques: bU, indexes: bI },
+      after: { name: safeStr(after?.name), columns: stripKey(aCols), relations: aRels, uniques: aU, indexes: aI },
       removedColumns,
       removedRelations,
       addedColumns,
