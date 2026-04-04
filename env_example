@@ -24,9 +24,6 @@ DB_URI=mysql://root:1234@localhost:3306/enfyra
 
 # MongoDB URI (only if DB_TYPE=mongodb)
 # MONGO_URI=mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra?authSource=admin
-# PostgreSQL idle connection timeout (ms)
-DB_IDLE_TIMEOUT=30000
-
 ############################################
 # Redis Cache - required
 ############################################
