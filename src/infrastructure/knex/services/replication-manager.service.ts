@@ -2,6 +2,12 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { Knex, knex } from 'knex';
 import { parseDatabaseUri } from '../../knex/utils/uri-parser';
+import {
+  SQL_ACQUIRE_TIMEOUT_MS,
+  SQL_BOOTSTRAP_POOL_MAX_TOTAL,
+  SQL_BOOTSTRAP_POOL_MIN,
+} from '../../../shared/utils/auto-scaling.constants';
+import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
 export interface ReplicaNode {
   knex: Knex;
   uri: string;
@@ -26,17 +32,17 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     if (!DB_URI) {
       throw new Error('DB_URI is required');
     }
-    const totalPoolMinSize = parseInt(this.configService.get<string>('DB_POOL_MIN_SIZE') || '2');
-    const totalPoolMaxSize = parseInt(this.configService.get<string>('DB_POOL_MAX_SIZE') || '10');
     const replicaUris = this.configService.get<string>('DB_REPLICA_URIS');
     const replicaCount = replicaUris ? replicaUris.split(',').map(uri => uri.trim()).filter(Boolean).length : 0;
-    const totalNodes = 1 + replicaCount;
-    const masterRatio = parseFloat(this.configService.get<string>('DB_POOL_MASTER_RATIO') || '0.6');
-    const replicaRatio = (1 - masterRatio) / Math.max(replicaCount, 1);
-    const masterPoolMin = Math.max(1, Math.floor(totalPoolMinSize * masterRatio));
-    const masterPoolMax = Math.max(1, Math.floor(totalPoolMaxSize * masterRatio));
-    const replicaPoolMin = replicaCount > 0 ? Math.max(1, Math.floor(totalPoolMinSize * replicaRatio)) : totalPoolMinSize;
-    const replicaPoolMax = replicaCount > 0 ? Math.max(1, Math.floor(totalPoolMaxSize * replicaRatio)) : totalPoolMaxSize;
+    const split = splitSqlPoolAcrossReplication({
+      totalMax: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
+      totalMin: SQL_BOOTSTRAP_POOL_MIN,
+      replicaCount,
+    });
+    const masterPoolMin = split.masterMin;
+    const masterPoolMax = split.masterMax;
+    const replicaPoolMin = split.replicaMin;
+    const replicaPoolMax = split.replicaMax;
     const masterConfig = parseDatabaseUri(DB_URI);
     this.masterKnex = this.createKnexInstance(masterConfig, masterPoolMin, masterPoolMax);
     try {
@@ -91,10 +97,52 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
         min: poolMinSize,
         max: poolMaxSize,
       },
-      acquireConnectionTimeout: parseInt(this.configService.get<string>('DB_ACQUIRE_TIMEOUT') || '10000'),
+      acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
       debug: false,
     });
   }
+  applyCoordinatedTotalPoolMax(totalMax: number): void {
+    const replicaCount = this.replicaNodes.length;
+    const minTotal = replicaCount === 0 ? 1 : 1 + replicaCount;
+    const total = Math.max(minTotal, Math.max(1, Math.trunc(totalMax)));
+    const coordinatedMin = Math.min(2, total);
+    const split = splitSqlPoolAcrossReplication({
+      totalMax: total,
+      totalMin: coordinatedMin,
+      replicaCount,
+    });
+    if (replicaCount === 0) {
+      this.applyPoolLimits(this.masterKnex, split.masterMin, split.masterMax);
+      this.logger.log(`SQL pool coordinated (replication): totalMax=${total} masterOnly`);
+      return;
+    }
+    this.applyPoolLimits(this.masterKnex, split.masterMin, split.masterMax);
+    for (const node of this.replicaNodes) {
+      this.applyPoolLimits(node.knex, split.replicaMin, split.replicaMax);
+    }
+    this.logger.log(
+      `SQL pool coordinated (replication): totalMax=${total} master=${split.masterMax} replicaEach=${split.replicaMax}`,
+    );
+  }
+
+  private applyPoolLimits(instance: Knex, min: number, max: number): void {
+    const pool = instance.client.pool;
+    const used = typeof pool?.numUsed === 'function' ? pool.numUsed() : '?';
+    const free = typeof pool?.numFree === 'function' ? pool.numFree() : '?';
+    const pending =
+      typeof pool?.numPendingAcquires === 'function'
+        ? pool.numPendingAcquires()
+        : '?';
+    this.logger.debug(
+      `Pool before resize: used=${used} free=${free} pending=${pending}`,
+    );
+    const p = pool as { min: number; max: number };
+    const M = Math.max(1, max);
+    const m = Math.max(0, Math.min(min, M));
+    p.min = m;
+    p.max = M;
+  }
+
   getMasterKnex(): Knex {
     return this.masterKnex;
   }
