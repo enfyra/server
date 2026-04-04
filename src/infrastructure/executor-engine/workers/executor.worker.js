@@ -105,6 +105,29 @@ async function __call(type, dataJson) {
   return __parseMainThreadResult(r);
 }
 
+function __safeClone(v) {
+  if (v === undefined) return undefined;
+  try { return JSON.parse(JSON.stringify(v)); }
+  catch { return null; }
+}
+
+function __extractResult(result, isAbsent) {
+  const valueAbsent = isAbsent === true;
+  const out = {
+    valueAbsent,
+    ctxChanges: {
+      $body: __safeClone($ctx.$body),
+      $query: __safeClone($ctx.$query),
+      $params: __safeClone($ctx.$params),
+      $data: __safeClone($ctx.$data),
+      $share: __safeClone($ctx.$share),
+      $flow: __safeClone($ctx.$flow),
+    }
+  };
+  if (!valueAbsent) out.value = __safeClone(result);
+  return JSON.stringify(out);
+}
+
 $ctx.$repos = new Proxy({}, {
   get: (_, table) => new Proxy({}, {
     get: (_, method) => async (...args) =>
@@ -239,27 +262,7 @@ async function handleExecute(msg) {
 (async () => {
   "use strict";
   ${code}
-})().then((__result) => {
-  function safeClone(v) {
-    if (v === undefined) return undefined;
-    try { return JSON.parse(JSON.stringify(v)); }
-    catch { return null; }
-  }
-  const valueAbsent = __result === undefined;
-  const out = {
-    valueAbsent,
-    ctxChanges: {
-      $body: safeClone($ctx.$body),
-      $query: safeClone($ctx.$query),
-      $params: safeClone($ctx.$params),
-      $data: safeClone($ctx.$data),
-      $share: safeClone($ctx.$share),
-      $flow: safeClone($ctx.$flow),
-    }
-  };
-  if (!valueAbsent) out.value = safeClone(__result);
-  return JSON.stringify(out);
-});
+})().then((__result) => __extractResult(__result, __result === undefined));
 `;
 
     const script = await isolate.compileScript(wrappedCode, { filename: 'handler.js' });
@@ -344,32 +347,10 @@ async function handleExecuteBatch(msg) {
 }
 
 async function extractFinalResult(isolate, context, overrideValue) {
-  const hasOverride = overrideValue !== undefined;
-  const code = `
-(async () => {
-  function safeClone(v) {
-    if (v === undefined) return undefined;
-    try { return JSON.parse(JSON.stringify(v)); }
-    catch { return null; }
-  }
-  const result = ${hasOverride ? JSON.stringify(overrideValue) : '$ctx.$data'};
-  const valueAbsent = result === undefined;
-  const out = {
-    valueAbsent,
-    ctxChanges: {
-      $body: safeClone($ctx.$body),
-      $query: safeClone($ctx.$query),
-      $params: safeClone($ctx.$params),
-      $data: safeClone($ctx.$data),
-      $share: safeClone($ctx.$share),
-      $flow: safeClone($ctx.$flow),
-    }
-  };
-  if (!valueAbsent) out.value = safeClone(result);
-  return JSON.stringify(out);
-})();
-`;
-  const script = await isolate.compileScript(code, { filename: 'extract.js' });
-  const jsonStr = await script.run(context, { timeout: 5000, promise: true });
+  const callCode = overrideValue !== undefined
+    ? `__extractResult(${JSON.stringify(overrideValue)}, false)`
+    : '__extractResult($ctx.$data, $ctx.$data === undefined)';
+  const script = await isolate.compileScript(callCode, { filename: 'extract.js' });
+  const jsonStr = await script.run(context, { timeout: 5000 });
   return JSON.parse(jsonStr);
 }

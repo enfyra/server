@@ -206,6 +206,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   private tuneTimer?: ReturnType<typeof setInterval>;
   private pressureTicks = 0;
   private recoveryTicks = 0;
+  private taskCounter = 0;
 
   constructor(
     private readonly packageCacheService: PackageCacheService,
@@ -272,17 +273,6 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   }
 
   private createSnapshot(ctx: TDynamicContext): Record<string, unknown> {
-    const cloneJson = (v: unknown): unknown => {
-      if (v === undefined) return undefined;
-      try {
-        return JSON.parse(
-          JSON.stringify(v, (_k, val) => (typeof val === 'bigint' ? String(val) : val)),
-        );
-      } catch {
-        return {};
-      }
-    };
-
     const snapshot: Record<string, unknown> = {
       $body: ctx.$body,
       $query: ctx.$query,
@@ -295,7 +285,13 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     };
     const flow = (ctx as any).$flow;
     if (flow !== undefined && flow !== null) {
-      snapshot.$flow = cloneJson(flow);
+      try {
+        snapshot.$flow = JSON.parse(
+          JSON.stringify(flow, (_k, val) => (typeof val === 'bigint' ? String(val) : val)),
+        );
+      } catch {
+        snapshot.$flow = {};
+      }
     }
     return snapshot;
   }
@@ -327,7 +323,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<any> {
     return (async () => {
       const entry = await this.pool.dispatch();
-      const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = `t_${++this.taskCounter}`;
 
       return new Promise<any>((resolve, reject) => {
         let settled = false;

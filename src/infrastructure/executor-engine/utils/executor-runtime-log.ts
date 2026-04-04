@@ -14,8 +14,10 @@ function fileLogEnabled(): boolean {
   return process.env.JEST_WORKER_ID !== undefined;
 }
 
+const _enabled = fileLogEnabled();
+
 export function appendIsolatedExecutorRuntimeLog(record: Record<string, unknown>): void {
-  if (!fileLogEnabled()) return;
+  if (!_enabled) return;
   try {
     const dir = path.dirname(ISOLATED_EXECUTOR_RUNTIME_LOG_PATH);
     fs.mkdirSync(dir, { recursive: true });
