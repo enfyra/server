@@ -1,9 +1,77 @@
 import { randomUUID } from 'crypto';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
-import { join, resolve } from 'path';
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  rmSync,
+  readdirSync,
+} from 'fs';
+import { join, resolve, dirname } from 'path';
 import { BadRequestException } from '@nestjs/common';
 import { build } from 'vite';
 import vue from '@vitejs/plugin-vue';
+// @ts-ignore
+import { compile } from 'tailwindcss';
+
+function extractCandidates(source: string): string[] {
+  const candidates = new Set<string>();
+  const regex = /["'`]([^"'`]*)["'`]/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(source)) !== null) {
+    for (const token of match[1].split(/\s+/)) {
+      if (token && /^[a-zA-Z!@\-_]/.test(token) && token.length < 100) {
+        candidates.add(token);
+      }
+    }
+  }
+  return Array.from(candidates);
+}
+
+async function generateTailwindCss(
+  vueContent: string,
+  projectRoot: string,
+): Promise<string> {
+  const candidates = extractCandidates(vueContent);
+  if (candidates.length === 0) return '';
+
+  const twBase = dirname(require.resolve('tailwindcss/package.json'));
+
+  const themeConfigPath = resolve(projectRoot, '..', 'app', 'tailwind.theme.js');
+  const configDirective = existsSync(themeConfigPath)
+    ? `@config "${themeConfigPath}";\n`
+    : '';
+
+  const cssInput = [
+    configDirective,
+    '@import "tailwindcss/theme.css";',
+    '@import "tailwindcss/utilities.css";',
+    '@variant dark (&:where(.dark, .dark *));',
+  ].join('\n');
+
+  const loadStylesheet = async (id: string, base: string) => {
+    let resolved: string;
+    try {
+      resolved = require.resolve(id, { paths: [base] });
+    } catch {
+      resolved = resolve(base, id);
+    }
+    return { content: readFileSync(resolved, 'utf-8'), base: dirname(resolved) };
+  };
+
+  const loadModule = async (id: string, base: string) => {
+    const resolved = require.resolve(id, { paths: [base] });
+    const mod = await import(resolved);
+    return { module: mod.default || mod, base: dirname(resolved) };
+  };
+
+  const compiler = await compile(cssInput, { base: twBase, loadStylesheet, loadModule });
+  const generated = compiler.build(candidates);
+
+  return generated
+    .replace(/:root,?\s*:host\s*\{[^}]*\}/g, '')
+    .trim();
+}
 
 async function buildExtensionWithVite(
   vueContent: string,
@@ -113,7 +181,29 @@ export default ExtensionComponent
     });
 
     const compiledFile = join(tempDir, 'dist', 'extension.js');
-    const compiledCode = readFileSync(compiledFile, 'utf-8');
+    let compiledCode = readFileSync(compiledFile, 'utf-8');
+
+    const cssParts: string[] = [];
+
+    const distDir = join(tempDir, 'dist');
+    const cssFiles = readdirSync(distDir).filter((f) => f.endsWith('.css'));
+    for (const f of cssFiles) {
+      const content = readFileSync(join(distDir, f), 'utf-8').trim();
+      if (content) cssParts.push(content);
+    }
+
+    try {
+      const twCss = await generateTailwindCss(vueContent, projectRoot);
+      if (twCss) cssParts.push(twCss);
+    } catch {
+      // Tailwind CSS generation failed, continue without it
+    }
+
+    if (cssParts.length > 0) {
+      const allCss = cssParts.join('\n');
+      const cssInjection = `(function(){var id="ext-style-${extensionId}";var el=document.getElementById(id);if(el){el.textContent=${JSON.stringify(allCss)}}else{var s=document.createElement("style");s.id=id;s.textContent=${JSON.stringify(allCss)};document.head.appendChild(s)}})();\n`;
+      compiledCode = cssInjection + compiledCode;
+    }
 
     return compiledCode;
   } catch (error: any) {
