@@ -102,7 +102,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
     if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.METADATA)) {
-      this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       return new Promise<void>((resolve) => {
         this.reloadDebounceResolvers.push(resolve);
         if (this.reloadDebounceTimer) clearTimeout(this.reloadDebounceTimer);

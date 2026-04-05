@@ -39,7 +39,6 @@ export class BootstrapScriptService {
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
     if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.BOOTSTRAP)) {
-      this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reloadBootstrapScripts();
     }
   }

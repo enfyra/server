@@ -8,6 +8,7 @@ import {
   getJsonArrayAggFunc,
   getEmptyJsonArray,
 } from '../../../knex/utils/migration/sql-dialect';
+import { logToFile } from '../../../../shared/utils/winston-logger';
 
 export async function buildNestedSubquery(
   parentTable: string,
@@ -22,14 +23,14 @@ export async function buildNestedSubquery(
 ): Promise<string | null> {
   const relation = parentMeta.relations?.find(r => r.propertyName === relationName);
   if (!relation) {
-    console.warn(`[NESTED-SUBQUERY] Relation ${relationName} not found in ${parentTable}`);
+    logToFile('debug', `Relation ${relationName} not found in ${parentTable}`, 'NestedSubquery');
     return null;
   }
 
   const targetTableName = (relation as any).targetTableName || relation.targetTable;
   const targetMeta = await metadataGetter(targetTableName);
   if (!targetMeta) {
-    console.warn(`[NESTED-SUBQUERY] Target metadata not found for ${targetTableName}`);
+    logToFile('debug', `Target metadata not found for ${targetTableName}`, 'NestedSubquery');
     return null;
   }
 
@@ -142,7 +143,7 @@ export async function buildNestedSubquery(
         if (inverseRelation?.foreignKeyColumn) {
           fkColumn = inverseRelation.foreignKeyColumn;
       } else {
-        console.warn(`[NESTED-SUBQUERY] O2M relation ${relationName} missing both foreignKeyColumn and inversePropertyName in metadata`);
+        logToFile('debug', `O2M relation ${relationName} missing foreignKeyColumn and inversePropertyName`, 'NestedSubquery');
         return null;
         }
       }
@@ -157,7 +158,7 @@ export async function buildNestedSubquery(
   } else if (relation.type === 'many-to-many') {
     const junctionTable = relation.junctionTableName;
     if (!junctionTable) {
-      console.warn(`[NESTED-SUBQUERY] M2M relation ${relationName} missing junctionTableName`);
+      logToFile('debug', `M2M relation ${relationName} missing junctionTableName`, 'NestedSubquery');
       return null;
     }
 

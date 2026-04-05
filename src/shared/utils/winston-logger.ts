@@ -59,7 +59,7 @@ const consoleFormat = winston.format.combine(
 let crashTransport: DailyRotateFile | null = null;
 const getCrashTransport = (): DailyRotateFile => {
   if (!crashTransport) {
-    crashTransport = createRotateTransport('crash', undefined, '7d');
+    crashTransport = createRotateTransport('crash', undefined, '5');
   }
   return crashTransport;
 };
