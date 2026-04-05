@@ -20,7 +20,6 @@ import {
   WORKER_FLOOR,
   WORKER_HYSTERESIS_TICKS,
   WORKER_DISPATCH_RSS_CEILING,
-  WORKER_TASKS_PER_WORKER_CAP,
 } from '../../../shared/utils/auto-scaling.constants';
 
 const WORKER_SCRIPT = path.join(__dirname, '../workers/executor.worker.js');
@@ -196,7 +195,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     this.isolationTuning.maxConcurrentWorkers,
     this.effectiveMemory,
     WORKER_DISPATCH_RSS_CEILING,
-    WORKER_TASKS_PER_WORKER_CAP,
+    this.isolationTuning.tasksPerWorkerCap,
     WORKER_SCRIPT,
     () => this.logger.warn('Worker crashed, replacement spawned'),
   );
@@ -213,7 +212,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     private readonly cdnLoader: PackageCdnLoaderService,
   ) {
     this.logger.log(
-      `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate`,
+      `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate, ${this.isolationTuning.tasksPerWorkerCap} tasks/worker cap`,
     );
     this.tuneTimer = setInterval(() => this.autoTune(), WORKER_TUNE_INTERVAL_MS);
   }
