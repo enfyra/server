@@ -34,7 +34,6 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   async handleCacheInvalidation(payload: { tableName: string; action: string }) {
     if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      this.logger.log(`Cache invalidation event received for table: ${payload.tableName}`);
       await this.reload();
     }
   }

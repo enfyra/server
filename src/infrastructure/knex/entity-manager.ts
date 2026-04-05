@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { KnexService } from './knex.service';
 
@@ -7,13 +6,10 @@ export class KnexEntityManager {
     private knexOrTrx: Knex | Knex.Transaction,
     private hooks: any,
     private dbType: string,
-    private logger: Logger,
     private service: KnexService,
   ) {}
 
   async insert(tableName: string, data: any): Promise<any> {
-    this.logger.log(`[EntityManager.insert] Table: ${tableName}, Data keys: ${Object.keys(data).join(', ')}`);
-
     const originalKnex = this.service['knexInstance'];
     (this.service as any).knexInstance = this.knexOrTrx;
 
@@ -40,7 +36,6 @@ export class KnexEntityManager {
       }
 
       const recordId = insertedId || (Array.isArray(processedData) ? processedData[0]?.id : processedData?.id) || data.id;
-      this.logger.log(`   Inserted record ID: ${recordId}`);
 
       let hookResult = recordId;
       for (const hook of this.hooks.afterInsert) {

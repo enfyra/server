@@ -931,7 +931,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
       return targetTableDef.name;
     } catch (error) {
-      this.logger.error(`[getTargetTableNameFromRelation] Error getting target table for relation ${relationName} from ${parentTableName}:`, error);
+      this.logger.warn(`[getTargetTableNameFromRelation] Failed to resolve relation '${relationName}' from '${parentTableName}'`);
       return null;
     }
   }
@@ -942,7 +942,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       connection,
       this.hooks,
       this.dbType,
-      this.logger,
       this,
     );
 
@@ -955,7 +954,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       connection,
       this.hooks,
       this.dbType,
-      this.logger,
       this,
     );
 
