@@ -51,7 +51,11 @@ export function getEffectiveCpuCount(): number {
 export function computeEngineTuning(spec: {
   logicalCpuCount: number;
   totalMemoryBytes: number;
-}): { maxConcurrentWorkers: number; isolateMemoryLimitMb: number } {
+}): {
+  maxConcurrentWorkers: number;
+  isolateMemoryLimitMb: number;
+  tasksPerWorkerCap: number;
+} {
   const cpus = Math.max(1, Math.trunc(spec.logicalCpuCount) || 1);
   const totalMb = Math.max(1, spec.totalMemoryBytes / (1024 * 1024));
 
@@ -62,12 +66,21 @@ export function computeEngineTuning(spec: {
 
   const maxConcurrentWorkers = Math.max(1, Math.min(cpus, 2));
 
-  return { maxConcurrentWorkers, isolateMemoryLimitMb };
+  const tasksPerWorkerCap = Math.min(
+    256,
+    Math.max(
+      16,
+      Math.floor(totalMb / isolateMemoryLimitMb / maxConcurrentWorkers),
+    ),
+  );
+
+  return { maxConcurrentWorkers, isolateMemoryLimitMb, tasksPerWorkerCap };
 }
 
 export function getEngineTuning(): {
   maxConcurrentWorkers: number;
   isolateMemoryLimitMb: number;
+  tasksPerWorkerCap: number;
 } {
   return computeEngineTuning({
     logicalCpuCount: getEffectiveCpuCount(),

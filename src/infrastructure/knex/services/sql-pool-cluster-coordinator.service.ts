@@ -7,16 +7,16 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@liaoliaots/nestjs-redis';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Redis } from 'ioredis';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { KnexService } from '../knex.service';
 import { ReplicationManager } from './replication-manager.service';
 import { computeCoordinatedPoolMax } from '../utils/sql-pool-coordination.util';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import {
   SQL_COORD_HEARTBEAT_MS,
   SQL_COORD_STALE_MS,
-  SQL_COORD_FIRST_RECONCILE_BASE_MS,
-  SQL_COORD_FIRST_RECONCILE_JITTER_MS,
   SQL_COORD_RECONCILE_INTERVAL_MS,
   SQL_COORD_RESERVE_MIN,
   SQL_COORD_RESERVE_RATIO,
@@ -34,7 +34,6 @@ export class SqlPoolClusterCoordinatorService
   private readonly instanceId: string;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private reconcileTimer?: ReturnType<typeof setInterval>;
-  private firstReconcileTimer?: ReturnType<typeof setTimeout>;
   private lastAppliedTarget = -1;
 
   constructor(
@@ -42,6 +41,7 @@ export class SqlPoolClusterCoordinatorService
     private readonly configService: ConfigService,
     private readonly instanceService: InstanceService,
     private readonly knexService: KnexService,
+    private readonly eventEmitter: EventEmitter2,
     @Optional() private readonly replicationManager?: ReplicationManager,
   ) {
     const nodeName = this.configService.get<string>('NODE_NAME') || 'enfyra';
@@ -61,11 +61,10 @@ export class SqlPoolClusterCoordinatorService
     }
     void this.heartbeatOnce();
     this.heartbeatTimer = setInterval(() => void this.heartbeatOnce(), SQL_COORD_HEARTBEAT_MS);
-    const jitter = Math.floor(Math.random() * SQL_COORD_FIRST_RECONCILE_JITTER_MS);
-    this.firstReconcileTimer = setTimeout(() => {
+    this.eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
       void this.reconcilePool();
       this.reconcileTimer = setInterval(() => void this.reconcilePool(), SQL_COORD_RECONCILE_INTERVAL_MS);
-    }, SQL_COORD_FIRST_RECONCILE_BASE_MS + jitter);
+    });
   }
 
   onModuleDestroy(): void {
@@ -74,9 +73,6 @@ export class SqlPoolClusterCoordinatorService
     }
     if (this.reconcileTimer) {
       clearInterval(this.reconcileTimer);
-    }
-    if (this.firstReconcileTimer) {
-      clearTimeout(this.firstReconcileTimer);
     }
     if (this.redis) {
       void this.redis.zrem(this.zsetKey, this.instanceId).catch(() => {});
