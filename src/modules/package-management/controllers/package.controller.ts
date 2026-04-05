@@ -12,6 +12,7 @@ import {
   ValidationException,
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
+import { extractErrorMessage } from '../../../infrastructure/cache/services/package-cdn-loader.service';
 import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
 import { PackageCdnLoaderService } from '../../../infrastructure/cache/services/package-cdn-loader.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
@@ -116,7 +117,7 @@ export class PackageController {
 
     if (body.type === 'Server') {
       this.executeCdnLoad(savedPackageId, body.name, body.version || 'latest').catch((error) => {
-        this.logger.error(`CDN load failed for ${body.name}: ${error.message}`);
+        this.logger.error(`CDN load failed for ${body.name}: ${extractErrorMessage(error)}`);
       });
     } else {
       await this.updateStatus(savedPackageId, 'installed');
@@ -139,14 +140,15 @@ export class PackageController {
 
       this.emitEvent('installed', { id, name, version });
     } catch (error) {
-      this.logger.error(`CDN load failed for ${name}: ${error.message}`);
+      const errorDetail = extractErrorMessage(error);
+      this.logger.error(`CDN load failed for ${name}: ${errorDetail}`);
 
-      await this.updateStatus(id, 'failed', { lastError: error.message });
+      await this.updateStatus(id, 'failed', { lastError: errorDetail });
 
       this.emitEvent('failed', {
         id,
         name,
-        error: error.message,
+        error: errorDetail,
         operation: 'install',
       });
     }
@@ -198,7 +200,7 @@ export class PackageController {
     });
 
     this.executeCdnUpdate(id, packageRecord.name, body.version).catch((error) => {
-      this.logger.error(`CDN update failed for ${packageRecord.name}: ${error.message}`);
+      this.logger.error(`CDN update failed for ${packageRecord.name}: ${extractErrorMessage(error)}`);
     });
 
     return packageRepo.find({ where: { id: { _eq: id } } });
@@ -217,14 +219,15 @@ export class PackageController {
 
       this.emitEvent('installed', { id, name, version: newVersion });
     } catch (error) {
-      this.logger.error(`CDN update failed for ${name}: ${error.message}`);
+      const errorDetail = extractErrorMessage(error);
+      this.logger.error(`CDN update failed for ${name}: ${errorDetail}`);
 
-      await this.updateStatus(id, 'failed', { lastError: error.message });
+      await this.updateStatus(id, 'failed', { lastError: errorDetail });
 
       this.emitEvent('failed', {
         id,
         name,
-        error: error.message,
+        error: errorDetail,
         operation: 'update',
       });
     }

@@ -7,6 +7,16 @@ import { pathToFileURL } from 'url';
 const CDN_BASE = 'https://esm.sh';
 const CACHE_DIR = path.join(os.tmpdir(), 'enfyra-pkg-cache');
 
+export function extractErrorMessage(error: any): string {
+  const parts: string[] = [];
+  let current = error;
+  while (current) {
+    if (current.message) parts.push(current.message);
+    current = current.cause;
+  }
+  return parts.join(' → ') || 'Unknown error';
+}
+
 @Injectable()
 export class PackageCdnLoaderService {
   private readonly logger = new Logger(PackageCdnLoaderService.name);
@@ -54,7 +64,7 @@ export class PackageCdnLoaderService {
         await this.loadPackage(pkg.name, pkg.version);
         this.logger.log(`Preloaded: ${pkg.name}@${pkg.version}`);
       } catch (error) {
-        this.logger.error(`Failed to preload ${pkg.name}@${pkg.version}: ${error.message}`);
+        this.logger.error(`Failed to preload ${pkg.name}@${pkg.version}: ${extractErrorMessage(error)}`);
       }
     }
   }
@@ -76,7 +86,7 @@ export class PackageCdnLoaderService {
       try {
         await this.loadPackage(name, newVersion);
       } catch (error) {
-        this.logger.error(`Failed to reload ${name}@${newVersion}: ${error.message}`);
+        this.logger.error(`Failed to reload ${name}@${newVersion}: ${extractErrorMessage(error)}`);
       }
     }
   }
@@ -119,7 +129,13 @@ export class PackageCdnLoaderService {
 
     this.logger.log(`Fetching from CDN: ${spec}`);
 
-    const entryRes = await fetch(entryUrl);
+    let entryRes: Response;
+    try {
+      entryRes = await fetch(entryUrl);
+    } catch (error) {
+      throw new Error(`CDN fetch failed for ${spec}: ${extractErrorMessage(error)}`);
+    }
+
     if (!entryRes.ok) {
       throw new Error(`CDN fetch failed for ${spec}: ${entryRes.status} ${entryRes.statusText}`);
     }
@@ -129,9 +145,13 @@ export class PackageCdnLoaderService {
     if (code.length < 1024) {
       const bundlePath = code.match(/export\s+(?:\*|\{[^}]*\})\s+from\s*["'](\/[^"']+)["']/);
       if (bundlePath?.[1]) {
-        const bundleRes = await fetch(`${CDN_BASE}${bundlePath[1]}`);
-        if (bundleRes.ok) {
-          code = await bundleRes.text();
+        try {
+          const bundleRes = await fetch(`${CDN_BASE}${bundlePath[1]}`);
+          if (bundleRes.ok) {
+            code = await bundleRes.text();
+          }
+        } catch (error) {
+          this.logger.warn(`Bundle follow-up fetch failed for ${spec}: ${extractErrorMessage(error)}`);
         }
       }
     }
@@ -145,7 +165,7 @@ export class PackageCdnLoaderService {
       const mod = await (new Function('specifier', 'return import(specifier)'))(fileUrl);
       return mod.default !== undefined ? mod.default : mod;
     } catch (error) {
-      this.logger.error(`Failed to import ${name} from ${filePath}: ${error.message}`);
+      this.logger.error(`Failed to import ${name} from ${filePath}: ${extractErrorMessage(error)}`);
       throw error;
     }
   }
