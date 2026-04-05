@@ -3,7 +3,7 @@ import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { PackageCdnLoaderService } from './package-cdn-loader.service';
+import { PackageCdnLoaderService, extractErrorMessage } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE, PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
@@ -122,33 +122,48 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   private async preloadPackagesFromCdn(): Promise<void> {
     const packagesWithMeta = await this.loadPackagesForSync();
     const toPreload = packagesWithMeta.filter(
-      (pkg) => pkg.status === 'installed' && !this.cdnLoader.isLoaded(pkg.name),
+      (pkg) =>
+        !this.cdnLoader.isLoaded(pkg.name) &&
+        (pkg.status === 'installed' || pkg.status === 'failed'),
     );
 
     if (toPreload.length === 0) return;
 
-    this.logger.log(`Preloading ${toPreload.length} packages from CDN...`);
+    const retryCount = toPreload.filter((p) => p.status === 'failed').length;
+    this.logger.log(
+      `Preloading ${toPreload.length} packages from CDN${retryCount ? ` (${retryCount} retrying)` : ''}...`,
+    );
 
     this.emitEvent('installing', {
       packages: toPreload.map((p) => ({ id: p.id, name: p.name })),
     });
+
+    let loaded = 0;
+    let failed = 0;
 
     for (const pkg of toPreload) {
       try {
         await this.cdnLoader.loadPackage(pkg.name, pkg.version);
         await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
         this.emitEvent('installed', { id: pkg.id, name: pkg.name });
+        loaded++;
       } catch (error) {
-        this.logger.error(`CDN preload failed for ${pkg.name}: ${error.message}`);
-        await this.updatePackageStatus(pkg.id, 'failed', { lastError: error.message });
+        const errorDetail = extractErrorMessage(error);
+        this.logger.error(`CDN preload failed for ${pkg.name}: ${errorDetail}`);
+        await this.updatePackageStatus(pkg.id, 'failed', { lastError: errorDetail });
         this.emitEvent('failed', {
           id: pkg.id,
           name: pkg.name,
-          error: error.message,
+          error: errorDetail,
           operation: 'preload',
         });
+        failed++;
       }
     }
+
+    this.logger.log(
+      `CDN preload done: ${loaded} loaded${failed ? `, ${failed} failed` : ''}`,
+    );
   }
 
   private async loadPackagesForSync(): Promise<
