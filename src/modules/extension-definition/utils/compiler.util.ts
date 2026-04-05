@@ -68,9 +68,28 @@ async function generateTailwindCss(
   const compiler = await compile(cssInput, { base: twBase, loadStylesheet, loadModule });
   const generated = compiler.build(candidates);
 
-  return generated
-    .replace(/:root,?\s*:host\s*\{[^}]*\}/g, '')
-    .trim();
+  let css = generated;
+
+  // Strip :root/:host theme variables (already defined by app)
+  css = css.replace(/:root,?\s*:host\s*\{[^}]*\}/g, '');
+
+  // Strip @property declarations (already registered by app)
+  css = css.replace(/@property\s+--[\w-]+\s*\{[^}]*\}/g, '');
+
+  // Strip @layer properties fallback block (already in app, 3 levels of nesting)
+  css = css.replace(/@layer\s+properties\s*\{[\s\S]*?\}\s*\}\s*\}/g, '');
+
+  // Strip Tailwind banner comment
+  css = css.replace(/\/\*!.*?\*\//g, '');
+
+  // Strip bare @layer declarations (e.g. @layer properties;)
+  css = css.replace(/@layer\s+[\w-]+\s*;/g, '');
+
+  css = css.trim();
+  if (!css) return '';
+
+  // Wrap in @layer utilities to match app's cascade ordering
+  return `@layer utilities {\n${css}\n}`;
 }
 
 async function buildExtensionWithVite(
@@ -201,8 +220,8 @@ export default ExtensionComponent
 
     if (cssParts.length > 0) {
       const allCss = cssParts.join('\n');
-      const cssInjection = `(function(){var id="ext-style-${extensionId}";var el=document.getElementById(id);if(el){el.textContent=${JSON.stringify(allCss)}}else{var s=document.createElement("style");s.id=id;s.textContent=${JSON.stringify(allCss)};document.head.appendChild(s)}})();\n`;
-      compiledCode = cssInjection + compiledCode;
+      compiledCode += `\nif(typeof window!=="undefined"&&window["${extensionId}"]){window["${extensionId}"].__extensionCss=${JSON.stringify(allCss)};}`;
+
     }
 
     return compiledCode;
