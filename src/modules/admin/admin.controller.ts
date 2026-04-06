@@ -114,6 +114,7 @@ export class AdminController {
         emitToRoom: capture('emitToRoom'),
         emitToGateway: capture('emitToGateway'),
         broadcast: capture('broadcast'),
+        disconnect: capture('disconnect'),
       };
 
       const ctx: TDynamicContext = {
@@ -197,6 +198,7 @@ export class AdminController {
         emitToRoom: capture('emitToRoom'),
         emitToGateway: capture('emitToGateway'),
         broadcast: capture('broadcast'),
+        disconnect: capture('disconnect'),
       };
 
       const ctx: TDynamicContext = {

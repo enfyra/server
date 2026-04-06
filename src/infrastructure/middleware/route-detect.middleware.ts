@@ -48,7 +48,7 @@ export class RouteDetectMiddleware implements NestMiddleware {
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $helpers: {
           $jwt: (payload: any, exp: string) =>
-            this.jwtService.sign(payload, { expiresIn: exp }),
+            this.jwtService.sign(payload, { expiresIn: exp as import('ms').StringValue }),
           $bcrypt: {
             hash: async (plain: string) => await this.bcryptService.hash(plain),
             compare: async (p: string, h: string) =>

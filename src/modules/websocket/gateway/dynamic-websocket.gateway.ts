@@ -322,6 +322,11 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     if (socket) socket.leave(room);
   }
 
+  disconnectSocket(path: string, socketId: string) {
+    const socket = this.server.of(path).sockets.get(socketId);
+    if (socket) socket.disconnect(true);
+  }
+
   emitToUser(userId: number | string, event: string, data: any) {
     const room = `user_${userId}`;
     for (const path of this.registeredGateways) {

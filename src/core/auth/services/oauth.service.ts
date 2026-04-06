@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
-import * as ms from 'ms';
+import ms, { type StringValue } from 'ms';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
 
@@ -256,7 +256,7 @@ export class OAuthService {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB ? user._id : user.id;
 
-    const expiredAt = new Date(Date.now() + ms(this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') || '7d'));
+    const expiredAt = new Date(Date.now() + ms((this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') || '7d') as StringValue));
 
     const sessionData: any = isMongoDB
       ? {
@@ -289,12 +289,12 @@ export class OAuthService {
 
     const accessToken = this.jwtService.sign(
       { id: userId, loginProvider },
-      { expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') }
+      { expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as StringValue }
     );
 
     const refreshToken = this.jwtService.sign(
       { sessionId: sessionId?.toString() },
-      { expiresIn: this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') }
+      { expiresIn: this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') as StringValue }
     );
 
     const decoded: any = this.jwtService.decode(accessToken);

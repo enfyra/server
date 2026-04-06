@@ -117,6 +117,7 @@ export interface TDynamicContext {
     emitToRoom?: (room: string, event: string, data: any) => void;
     emitToGateway?: (path: string, event: string, data: any) => void;
     broadcast?: (event: string, data: any) => void;
+    disconnect?: () => void;
   };
   $flow?: Record<string, any>;
   $dispatch?: {

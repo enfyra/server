@@ -124,6 +124,9 @@ export class ConnectionQueueService extends WorkerHost {
       broadcast: (event: string, data: any) => {
         self.websocketGateway.emitToAll(event, data);
       },
+      disconnect: () => {
+        self.websocketGateway.disconnectSocket(gatewayPath, socketId);
+      },
     };
   }
 }
