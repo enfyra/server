@@ -110,16 +110,13 @@ export interface TDynamicContext {
   };
   $uploadedFile?: UploadedFileInfo;
   $socket?: {
-    emit?: (event: string, data: any) => void | Promise<void>;
-    join?: (room: string) => void | Promise<void>;
-    leave?: (room: string) => void | Promise<void>;
-    to?: (room: string) => any;
-    close?: () => void | Promise<void>;
-    rooms?: Set<string> | string[];
+    join?: (room: string) => void;
+    leave?: (room: string) => void;
+    reply?: (event: string, data: any) => void;
     emitToUser?: (userId: any, event: string, data: any) => void;
     emitToRoom?: (room: string, event: string, data: any) => void;
-    emitToNamespace?: (path: string, event: string, data: any) => void;
-    emitToAll?: (event: string, data: any) => void;
+    emitToGateway?: (path: string, event: string, data: any) => void;
+    broadcast?: (event: string, data: any) => void;
   };
   $flow?: Record<string, any>;
   $dispatch?: {

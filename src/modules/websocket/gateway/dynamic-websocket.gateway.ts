@@ -312,19 +312,40 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     await this.registerGateways();
     this.logger.log(`Gateways reloaded. Total registered: ${this.registeredGateways.size}`);
   }
+  joinRoom(path: string, socketId: string, room: string) {
+    const socket = this.server.of(path).sockets.get(socketId);
+    if (socket) socket.join(room);
+  }
+
+  leaveRoom(path: string, socketId: string, room: string) {
+    const socket = this.server.of(path).sockets.get(socketId);
+    if (socket) socket.leave(room);
+  }
+
   emitToUser(userId: number | string, event: string, data: any) {
-    this.server.to(`user_${userId}`).emit(event, data);
+    const room = `user_${userId}`;
+    for (const path of this.registeredGateways) {
+      this.server.of(path).to(room).emit(event, data);
+    }
   }
+
   emitToRoom(room: string, event: string, data: any) {
-    this.server.to(room).emit(event, data);
+    for (const path of this.registeredGateways) {
+      this.server.of(path).to(room).emit(event, data);
+    }
   }
+
   emitToNamespace(path: string, event: string, data: any) {
     this.server.of(path).emit(event, data);
   }
+
   emitToSocket(path: string, socketId: string, event: string, data: any) {
     this.server.of(path).to(socketId).emit(event, data);
   }
+
   emitToAll(event: string, data: any) {
-    this.server.emit(event, data);
+    for (const path of this.registeredGateways) {
+      this.server.of(path).emit(event, data);
+    }
   }
 }

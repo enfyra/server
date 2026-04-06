@@ -75,10 +75,10 @@ export class RouteDetectMiddleware implements NestMiddleware {
           emitToRoom: (room: string, event: string, data: any) => {
             this.websocketGateway.emitToRoom(room, event, data);
           },
-          emitToNamespace: (path: string, event: string, data: any) => {
+          emitToGateway: (path: string, event: string, data: any) => {
             this.websocketGateway.emitToNamespace(path, event, data);
           },
-          emitToAll: (event: string, data: any) => {
+          broadcast: (event: string, data: any) => {
             this.websocketGateway.emitToAll(event, data);
           },
         },

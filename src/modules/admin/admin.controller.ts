@@ -104,17 +104,16 @@ export class AdminController {
         return { success: false, error: { code: 'MISSING_SCRIPT', message: 'script is required' } };
       }
 
-      const emitted: Array<{ target: 'socket' | 'namespace' | 'room'; room?: string; event: string; data: any }> = [];
+      const emitted: Array<{ method: string; args: any[] }> = [];
+      const capture = (method: string) => (...args: any[]) => emitted.push({ method, args });
       const socketProxy = {
-        emit: (event: string, data: any) => emitted.push({ target: 'namespace', event, data }),
-        send: (event: string, data: any) => emitted.push({ target: 'socket', event, data }),
-        join: (room: string) => emitted.push({ target: 'room', room, event: 'join', data: null }),
-        leave: (room: string) => emitted.push({ target: 'room', room, event: 'leave', data: null }),
-        to: (room: string) => ({
-          emit: (event: string, data: any) => emitted.push({ target: 'room', room, event, data }),
-        }),
-        close: () => {},
-        rooms: new Set<string>(),
+        join: capture('join'),
+        leave: capture('leave'),
+        reply: capture('reply'),
+        emitToUser: capture('emitToUser'),
+        emitToRoom: capture('emitToRoom'),
+        emitToGateway: capture('emitToGateway'),
+        broadcast: capture('broadcast'),
       };
 
       const ctx: TDynamicContext = {
@@ -188,17 +187,16 @@ export class AdminController {
         return { success: false, error: { code: 'MISSING_SCRIPT', message: 'script is required' } };
       }
 
-      const emitted: Array<{ target: 'socket' | 'namespace' | 'room'; room?: string; event: string; data: any }> = [];
+      const emitted: Array<{ method: string; args: any[] }> = [];
+      const capture = (method: string) => (...args: any[]) => emitted.push({ method, args });
       const socketProxy = {
-        emit: (event: string, data: any) => emitted.push({ target: 'socket', event, data }),
-        send: (event: string, data: any) => emitted.push({ target: 'socket', event, data }),
-        join: (room: string) => emitted.push({ target: 'room', room, event: 'join', data: null }),
-        leave: (room: string) => emitted.push({ target: 'room', room, event: 'leave', data: null }),
-        to: (room: string) => ({
-          emit: (event: string, data: any) => emitted.push({ target: 'room', room, event, data }),
-        }),
-        close: () => {},
-        rooms: new Set<string>(),
+        join: capture('join'),
+        leave: capture('leave'),
+        reply: capture('reply'),
+        emitToUser: capture('emitToUser'),
+        emitToRoom: capture('emitToRoom'),
+        emitToGateway: capture('emitToGateway'),
+        broadcast: capture('broadcast'),
       };
 
       const ctx: TDynamicContext = {

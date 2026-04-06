@@ -840,9 +840,6 @@ export class SqlTableHandlerService {
         if (isPolicyDeny(decision)) {
           throw new ValidationException(decision.message, decision.details);
         }
-        const deletedRoutes = await trx('route_definition')
-          .where({ mainTableId: id })
-          .delete();
         const allRelations = await trx('relation_definition')
           .where({ sourceTableId: id })
           .orWhere({ targetTableId: id })
@@ -961,11 +958,7 @@ export class SqlTableHandlerService {
         } catch (error) {
         }
         await trx('relation_definition')
-          .where({ sourceTableId: id })
-          .orWhere({ targetTableId: id })
-          .delete();
-        await trx('column_definition')
-          .where({ tableId: id })
+          .where({ targetTableId: id })
           .delete();
         await trx('table_definition')
           .where({ id })
