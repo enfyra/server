@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { randomUUID } from 'crypto';
 import { ObjectId } from 'mongodb';
-import ms = require('ms');
+import ms, { type StringValue } from 'ms';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -27,7 +27,7 @@ export class AuthService {
     const expiryConfig = remember
       ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
       : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP');
-    const expiryMs = ms(expiryConfig as ms.StringValue);
+    const expiryMs = ms(expiryConfig as StringValue);
     return new Date(Date.now() + expiryMs);
   }
 
@@ -75,7 +75,7 @@ export class AuthService {
         loginProvider: null,
       },
       {
-        expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as ms.StringValue,
+        expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
     const refreshToken = this.jwtService.sign(
@@ -85,7 +85,7 @@ export class AuthService {
       {
         expiresIn: (body.remember
           ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
-          : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP')) as ms.StringValue,
+          : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP')) as StringValue,
       },
     );
     const decoded: any = this.jwtService.decode(accessToken);
@@ -164,7 +164,7 @@ export class AuthService {
         loginProvider,
       },
       {
-        expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as ms.StringValue,
+        expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
 
@@ -174,7 +174,7 @@ export class AuthService {
           {
             expiresIn: this.configService.get<string>(
               'REFRESH_TOKEN_REMEMBER_EXP',
-            ) as ms.StringValue,
+            ) as StringValue,
           },
         )
       : body.refreshToken;
