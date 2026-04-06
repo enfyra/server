@@ -102,21 +102,31 @@ export class ConnectionQueueService extends WorkerHost {
 
   private createSocketProxy(gatewayPath: string, socketId: string) {
     const self = this;
-    const emitToClient = (event: string, data: any) => {
-      self.websocketGateway.emitToSocket(gatewayPath, socketId, event, data);
-    };
     return {
-      emit: emitToClient,
-      send: emitToClient,
-      join: () => {},
-      leave: () => {},
-      to: (room: string) => ({
-        emit: (event: string, data: any) => {
-          self.websocketGateway.emitToRoom(room, event, data);
-        },
-      }),
-      close: () => {},
-      rooms: new Set<string>(),
+      join: (room: string) => {
+        self.websocketGateway.joinRoom(gatewayPath, socketId, room);
+      },
+      leave: (room: string) => {
+        self.websocketGateway.leaveRoom(gatewayPath, socketId, room);
+      },
+      reply: (event: string, data: any) => {
+        self.websocketGateway.emitToSocket(gatewayPath, socketId, event, data);
+      },
+      emitToUser: (userId: number | string, event: string, data: any) => {
+        self.websocketGateway.emitToUser(userId, event, data);
+      },
+      emitToRoom: (room: string, event: string, data: any) => {
+        self.websocketGateway.emitToRoom(room, event, data);
+      },
+      emitToGateway: (path: string, event: string, data: any) => {
+        self.websocketGateway.emitToNamespace(path, event, data);
+      },
+      broadcast: (event: string, data: any) => {
+        self.websocketGateway.emitToAll(event, data);
+      },
+      disconnect: () => {
+        self.websocketGateway.disconnectSocket(gatewayPath, socketId);
+      },
     };
   }
 }

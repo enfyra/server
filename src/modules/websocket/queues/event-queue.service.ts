@@ -84,7 +84,7 @@ export class EventQueueService extends WorkerHost {
 
     try {
       const result = await this.handlerExecutor.run(script, ctx, timeout);
-      socketProxy.send('ws:result', {
+      socketProxy.reply('ws:result', {
         requestId,
         eventName,
         success: true,
@@ -93,7 +93,7 @@ export class EventQueueService extends WorkerHost {
       });
       return { success: true, requestId, eventName };
     } catch (error: any) {
-      socketProxy.send('ws:error', {
+      socketProxy.reply('ws:error', {
         requestId,
         eventName,
         success: false,
@@ -124,21 +124,30 @@ export class EventQueueService extends WorkerHost {
   private createSocketProxy(gatewayPath: string, socketId: string) {
     const self = this;
     return {
-      emit: (event: string, data: any) => {
-        self.websocketGateway.emitToNamespace(gatewayPath, event, data);
+      join: (room: string) => {
+        self.websocketGateway.joinRoom(gatewayPath, socketId, room);
       },
-      send: (event: string, data: any) => {
+      leave: (room: string) => {
+        self.websocketGateway.leaveRoom(gatewayPath, socketId, room);
+      },
+      reply: (event: string, data: any) => {
         self.websocketGateway.emitToSocket(gatewayPath, socketId, event, data);
       },
-      join: () => {},
-      leave: () => {},
-      to: (room: string) => ({
-        emit: (event: string, data: any) => {
-          self.websocketGateway.emitToRoom(room, event, data);
-        },
-      }),
-      close: () => {},
-      rooms: new Set<string>(),
+      emitToUser: (userId: number | string, event: string, data: any) => {
+        self.websocketGateway.emitToUser(userId, event, data);
+      },
+      emitToRoom: (room: string, event: string, data: any) => {
+        self.websocketGateway.emitToRoom(room, event, data);
+      },
+      emitToGateway: (path: string, event: string, data: any) => {
+        self.websocketGateway.emitToNamespace(path, event, data);
+      },
+      broadcast: (event: string, data: any) => {
+        self.websocketGateway.emitToAll(event, data);
+      },
+      disconnect: () => {
+        self.websocketGateway.disconnectSocket(gatewayPath, socketId);
+      },
     };
   }
 }

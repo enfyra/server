@@ -23,7 +23,7 @@
             { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the column" }
         ],
         "relations": [
-            { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "isInverseEager": true, "description": "The table that this column belongs to" }
+            { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table that this column belongs to" }
         ]
     },
     "relation_definition": {
@@ -49,7 +49,7 @@
             { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation can be updated. When false, the foreign key column will be protected from updates." }
         ],
         "relations": [
-            { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "isInverseEager": true, "description": "The table where this relation is defined" },
+            { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table where this relation is defined" },
             { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": false, "description": "The table that this relation points to" }
         ]
     },
@@ -126,7 +126,7 @@
             { "name": "providerUserId", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique user ID from the OAuth provider" }
         ],
         "relations": [
-            { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "description": "The user account linked to this OAuth provider" }
+            { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "The user account linked to this OAuth provider" }
         ]
     },
     "setting_definition": {
@@ -161,7 +161,7 @@
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the route does" }
         ],
         "relations": [
-            { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "description": "Primary table that this route operates on" },
+            { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "onDelete": "CASCADE", "description": "Primary table that this route operates on" },
             { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP/GraphQL methods this route supports" },
             { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Pre-hooks that run before route execution" },
             { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Post-hooks that run after route execution" }
@@ -190,8 +190,8 @@
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what this permission allows" }
         ],
         "relations": [
-            { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "inversePropertyName": "routePermissions", "description": "Role that this permission applies to" },
-            { "propertyName": "route", "type": "many-to-one", "isSystem": true, "targetTable": "route_definition", "inversePropertyName": "routePermissions", "description": "Route that this permission controls access to" },
+            { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "inversePropertyName": "routePermissions", "onDelete": "CASCADE", "description": "Role that this permission applies to" },
+            { "propertyName": "route", "type": "many-to-one", "isSystem": true, "targetTable": "route_definition", "inversePropertyName": "routePermissions", "onDelete": "CASCADE", "description": "Route that this permission controls access to" },
             { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "user_definition", "inversePropertyName": "allowedRoutePermissions", "description": "Specific users who have this permission" }
         ]
     },
@@ -411,8 +411,8 @@
             { "name": "description", "type": "text", "isNullable": true, "description": "Description of what this permission allows" }
         ],
         "relations": [
-            { "propertyName": "file", "type": "many-to-one", "targetTable": "file_definition", "isNullable": true, "inversePropertyName": "permissions", "description": "File this permission applies to" },
-            { "propertyName": "role", "type": "many-to-one", "targetTable": "role_definition", "isNullable": true, "description": "Role that has this permission" },
+            { "propertyName": "file", "type": "many-to-one", "targetTable": "file_definition", "isNullable": true, "inversePropertyName": "permissions", "onDelete": "CASCADE", "description": "File this permission applies to" },
+            { "propertyName": "role", "type": "many-to-one", "targetTable": "role_definition", "isNullable": true, "onDelete": "CASCADE", "description": "Role that has this permission" },
             { "propertyName": "allowedUsers", "type": "many-to-many", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "Specific users who have this permission" }
         ]
     },
@@ -521,7 +521,7 @@
             { "name": "timeout", "type": "int", "isSystem": true, "isNullable": true, "description": "Timeout in milliseconds for event handler execution. If not set, uses default system timeout." }
         ],
         "relations": [
-            { "propertyName": "gateway", "type": "many-to-one", "targetTable": "websocket_definition", "isSystem": true, "inversePropertyName": "events", "isNullable": false, "description": "Gateway this event belongs to" }
+            { "propertyName": "gateway", "type": "many-to-one", "targetTable": "websocket_definition", "isSystem": true, "inversePropertyName": "events", "isNullable": false, "onDelete": "CASCADE", "description": "Gateway this event belongs to" }
         ]
     },
     "flow_definition": {
@@ -562,7 +562,7 @@
             { "name": "branch", "type": "enum", "options": ["true", "false"], "isNullable": true, "isSystem": true, "description": "Which branch of the parent condition (true or false)" }
         ],
         "relations": [
-            { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "inversePropertyName": "steps", "isNullable": false, "description": "Flow this step belongs to" },
+            { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "inversePropertyName": "steps", "isNullable": false, "onDelete": "CASCADE", "description": "Flow this step belongs to" },
             { "propertyName": "parent", "type": "many-to-one", "targetTable": "flow_step_definition", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "description": "Parent condition step (null = root level)" }
         ]
     },
@@ -583,7 +583,7 @@
             { "name": "duration", "type": "int", "isNullable": true, "isSystem": true, "description": "Execution duration in milliseconds" }
         ],
         "relations": [
-            { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "isNullable": false, "description": "Flow that was executed" },
+            { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "Flow that was executed" },
             { "propertyName": "triggeredBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who triggered the execution (null for cron/event triggers)" }
         ]
     }

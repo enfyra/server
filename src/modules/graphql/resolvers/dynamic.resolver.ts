@@ -49,7 +49,7 @@ export class DynamicResolver {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: {
         jwt: (payload: any, ext: string) =>
-          this.jwtService.sign(payload, { expiresIn: ext }),
+          this.jwtService.sign(payload, { expiresIn: ext as import('ms').StringValue }),
       },
       $args: {
         fields: fieldPicker.join(','),

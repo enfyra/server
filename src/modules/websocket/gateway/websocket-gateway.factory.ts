@@ -1,11 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { DynamicWebSocketGateway } from './dynamic-websocket.gateway';
 
 @Injectable()
 export class WebsocketGatewayFactory {
-  private readonly logger = new Logger(WebsocketGatewayFactory.name);
-
   constructor(
     private readonly dynamicGateway: DynamicWebSocketGateway,
   ) {}
@@ -18,11 +16,11 @@ export class WebsocketGatewayFactory {
     this.dynamicGateway.emitToRoom(room, event, data);
   }
 
-  async emitToNamespace(path: string, event: string, data: any): Promise<void> {
+  async emitToGateway(path: string, event: string, data: any): Promise<void> {
     this.dynamicGateway.emitToNamespace(path, event, data);
   }
 
-  async emitToAll(event: string, data: any): Promise<void> {
+  async broadcast(event: string, data: any): Promise<void> {
     this.dynamicGateway.emitToAll(event, data);
   }
 

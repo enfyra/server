@@ -1,46 +1,25 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 
 @Injectable()
 export class WebsocketEmitService {
-  private readonly logger = new Logger(WebsocketEmitService.name);
-  private currentGatewayPath: string;
-
   constructor(
     private readonly websocketGateway: DynamicWebSocketGateway,
   ) {}
 
-  setGatewayPath(path: string) {
-    this.currentGatewayPath = path;
+  emitToUser(userId: number | string, event: string, data: any) {
+    this.websocketGateway.emitToUser(userId, event, data);
   }
 
-  emit(event: string, data: any) {
-    if (this.currentGatewayPath) {
-      this.websocketGateway.emitToNamespace(this.currentGatewayPath, event, data);
-    }
+  emitToRoom(room: string, event: string, data: any) {
+    this.websocketGateway.emitToRoom(room, event, data);
   }
 
-  join(room: string) {
-    this.logger.debug(`Join room: ${room}`);
+  emitToGateway(path: string, event: string, data: any) {
+    this.websocketGateway.emitToNamespace(path, event, data);
   }
 
-  leave(room: string) {
-    this.logger.debug(`Leave room: ${room}`);
-  }
-
-  to(room: string) {
-    return {
-      emit: (event: string, data: any) => {
-        this.websocketGateway.emitToRoom(room, event, data);
-      },
-    };
-  }
-
-  close() {
-    this.logger.debug('Close socket');
-  }
-
-  get rooms() {
-    return new Set<string>();
+  broadcast(event: string, data: any) {
+    this.websocketGateway.emitToAll(event, data);
   }
 }
