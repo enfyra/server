@@ -595,20 +595,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  getPoolStats(): { used: number; free: number; pending: number; max: number; min: number } {
-    if (!this.knexInstance || this.dbType === 'mongodb') {
-      return { used: 0, free: 0, pending: 0, max: 0, min: 0 };
-    }
-    const pool = this.knexInstance.client.pool;
-    return {
-      used: typeof pool?.numUsed === 'function' ? pool.numUsed() : 0,
-      free: typeof pool?.numFree === 'function' ? pool.numFree() : 0,
-      pending: typeof pool?.numPendingAcquires === 'function' ? pool.numPendingAcquires() : 0,
-      max: (pool as any)?.max ?? 0,
-      min: (pool as any)?.min ?? 0,
-    };
-  }
-
   applyCoordinatedPoolMax(poolMax: number): void {
     if (!this.knexInstance || this.dbType === 'mongodb') {
       return;
