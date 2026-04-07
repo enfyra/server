@@ -489,7 +489,7 @@
         {
             "isEnabled": true,
             "isGlobal": true,
-            "code": "@DATA = { ...@DATA, message: 'Success'}",
+            "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
             "name": "Default response",
             "isSystem":false,
             "methods": ["GET", "POST", "PATCH", "DELETE"]
@@ -933,16 +933,6 @@
             "connectionHandlerTimeout": 5000
         }
     ],
-    "websocket_event_definition": [
-        {
-            "gateway": "/enfyra-admin",
-            "eventName": "ping",
-            "isEnabled": true,
-            "isSystem": true,
-            "description": "Health check ping",
-            "timeout": 5000,
-            "handlerScript": "return { pong: true, timestamp: new Date().toISOString(), userId: $ctx.$user?.id };"
-        }
-    ]
+    "websocket_event_definition": []
 }
 

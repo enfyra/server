@@ -301,7 +301,12 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     if (changes.$query !== undefined) ctx.$query = changes.$query;
     if (changes.$params !== undefined) ctx.$params = changes.$params;
     if (changes.$data !== undefined) ctx.$data = changes.$data;
+    if (changes.$error !== undefined) ctx.$error = changes.$error;
     if (changes.$share !== undefined) ctx.$share = changes.$share;
+    if (changes.$api !== undefined && ctx.$api) {
+      if (changes.$api.error) ctx.$api.error = changes.$api.error;
+      if (changes.$api.response) ctx.$api.response = changes.$api.response;
+    }
     if (
       changes.$flow !== undefined &&
       changes.$flow !== null &&
