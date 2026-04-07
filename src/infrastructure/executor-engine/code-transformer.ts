@@ -31,6 +31,8 @@ const MAPPINGS: Record<string, string> = {
   '@THROW500': "$ctx.$throw['500']",
   '@THROW503': "$ctx.$throw['503']",
   '@THROW': '$ctx.$throw',
+  '@ERROR': '$ctx.$error',
+  '@STATUS': '$ctx.$statusCode',
 };
 
 const CODE = 0;

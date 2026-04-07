@@ -122,6 +122,8 @@ function __extractResult(result, isAbsent) {
       $data: __safeClone($ctx.$data),
       $share: __safeClone($ctx.$share),
       $flow: __safeClone($ctx.$flow),
+      $error: __safeClone($ctx.$error),
+      $api: __safeClone($ctx.$api),
     }
   };
   if (!valueAbsent) out.value = __safeClone(result);
@@ -284,9 +286,22 @@ async function handleExecuteBatch(msg) {
   const totalTimeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
   const { isolate, context } = await createIsolateContext(id, pkgSources, snapshot, memoryLimitMb);
 
+  const preHooksAndHandler = [];
+  const postHooks = [];
+  for (const block of codeBlocks) {
+    const type = block.type || 'handler';
+    if (type === 'postHook') {
+      postHooks.push(block);
+    } else {
+      preHooksAndHandler.push(block);
+    }
+  }
+
   try {
-    for (let i = 0; i < codeBlocks.length; i++) {
-      const block = codeBlocks[i];
+    let caughtError = null;
+
+    for (let i = 0; i < preHooksAndHandler.length; i++) {
+      const block = preHooksAndHandler[i];
       const blockType = block.type || 'handler';
       const blockLabel = blockType === 'handler' ? 'handler' : `${blockType} #${i + 1}`;
 
@@ -300,7 +315,7 @@ async function handleExecuteBatch(msg) {
   if (__r !== undefined) return JSON.stringify({ __shortCircuit: true, value: __r });
   return JSON.stringify({ __shortCircuit: false });
 });`;
-      } else if (blockType === 'handler') {
+      } else {
         wrappedBlock = `
 (async () => {
   "use strict";
@@ -309,8 +324,68 @@ async function handleExecuteBatch(msg) {
   $ctx.$data = __r;
   return "__handler_done__";
 });`;
-      } else {
-        wrappedBlock = `
+      }
+
+      try {
+        const script = await isolate.compileScript(wrappedBlock, {
+          filename: `${blockLabel}.js`,
+        });
+        const rawResult = await script.run(context, { timeout: totalTimeoutMs, promise: true });
+
+        if (blockType === 'preHook' && typeof rawResult === 'string') {
+          const parsed = JSON.parse(rawResult);
+          if (parsed.__shortCircuit) {
+            const out = await extractFinalResult(isolate, context, parsed.value);
+            parentPort.postMessage({ type: 'result', id, success: true, ...out, shortCircuit: true });
+            return;
+          }
+        }
+      } catch (error) {
+        caughtError = error;
+        break;
+      }
+    }
+
+    if (!caughtError && postHooks.length > 0) {
+      const setStatusCode = `$ctx.$statusCode = 200; "__status_set__";`;
+      const statusScript = await isolate.compileScript(setStatusCode, { filename: 'set-status.js' });
+      await statusScript.run(context, { timeout: 5000 });
+    }
+
+    if (caughtError && postHooks.length > 0) {
+      const errorInfo = {
+        message: caughtError.message || 'Unknown error',
+        name: caughtError.constructor?.name || 'Error',
+        stack: caughtError.stack || '',
+        statusCode: caughtError.statusCode || caughtError.status || 500,
+        details: caughtError.details || {},
+        timestamp: new Date().toISOString(),
+      };
+
+      const populateErrorCode = `
+$ctx.$error = ${JSON.stringify(errorInfo)};
+$ctx.$data = null;
+$ctx.$statusCode = ${errorInfo.statusCode};
+if ($ctx.$api) {
+  $ctx.$api.error = ${JSON.stringify(errorInfo)};
+  $ctx.$api.response = {
+    statusCode: ${errorInfo.statusCode},
+    responseTime: $ctx.$api.request && $ctx.$api.request.timestamp
+      ? Date.now() - new Date($ctx.$api.request.timestamp).getTime()
+      : 0,
+    timestamp: ${JSON.stringify(errorInfo.timestamp)},
+  };
+}
+"__error_populated__";`;
+      const populateScript = await isolate.compileScript(populateErrorCode, { filename: 'populate-error.js' });
+      await populateScript.run(context, { timeout: 5000 });
+    }
+
+    for (let i = 0; i < postHooks.length; i++) {
+      const block = postHooks[i];
+      const blockLabel = `postHook #${i + 1}`;
+
+      const wrappedBlock = `
 (async () => {
   "use strict";
   ${block.code}
@@ -318,21 +393,20 @@ async function handleExecuteBatch(msg) {
   if (__r !== undefined) $ctx.$data = __r;
   return "__posthook_done__";
 });`;
-      }
 
-      const script = await isolate.compileScript(wrappedBlock, {
-        filename: `${blockLabel}.js`,
-      });
-      const rawResult = await script.run(context, { timeout: totalTimeoutMs, promise: true });
-
-      if (blockType === 'preHook' && typeof rawResult === 'string') {
-        const parsed = JSON.parse(rawResult);
-        if (parsed.__shortCircuit) {
-          const out = await extractFinalResult(isolate, context, parsed.value);
-          parentPort.postMessage({ type: 'result', id, success: true, ...out, shortCircuit: true });
-          return;
-        }
+      try {
+        const script = await isolate.compileScript(wrappedBlock, {
+          filename: `${blockLabel}.js`,
+        });
+        await script.run(context, { timeout: totalTimeoutMs, promise: true });
+      } catch (postHookError) {
+        // Individual postHook failure should not stop other postHooks
       }
+    }
+
+    if (caughtError) {
+      postError(id, caughtError);
+      return;
     }
 
     const out = await extractFinalResult(isolate, context);

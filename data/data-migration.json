@@ -11,7 +11,8 @@
     { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/cancel" } } },
     { "table": "menu_definition", "filter": { "path": { "_eq": "/ai" } } },
     { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/chat" } } },
-    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/config" } } }
+    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/config" } } },
+    { "table": "websocket_event_definition", "filter": { "eventName": { "_eq": "ping" } } }
   ],
   "menu_definition": [
     {
@@ -23,7 +24,7 @@
   "post_hook_definition": [
     {
       "_unique": { "name": { "_eq": "Default response" } },
-      "code": "@DATA = { ...@DATA, message: 'Success'}"
+      "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}"
     }
   ],
   "route_definition": [
