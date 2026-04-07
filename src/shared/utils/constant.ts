@@ -24,4 +24,7 @@ export const SYSTEM_QUEUES = {
 export const REDIS_TTL = {
   BOOTSTRAP_LOCK_TTL: 30000,
   RELOAD_LOCK_TTL: 30000,
+  PROVISION_LOCK_TTL: 120000,
 } as const;
+
+export const PROVISION_LOCK_KEY = 'sys:provision_init_lock';

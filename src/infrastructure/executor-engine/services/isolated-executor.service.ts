@@ -87,6 +87,7 @@ class WorkerPool {
       if (idx !== -1) this.entries.splice(idx, 1);
       if (this.onCrash) this.onCrash();
       if (this.entries.length < this.max) this.spawnEntry();
+      this.drainWaiting();
     });
 
     this.entries.push(entry);
@@ -302,6 +303,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     if (changes.$params !== undefined) ctx.$params = changes.$params;
     if (changes.$data !== undefined) ctx.$data = changes.$data;
     if (changes.$error !== undefined) ctx.$error = changes.$error;
+    if (changes.$statusCode !== undefined) ctx.$statusCode = changes.$statusCode;
     if (changes.$share !== undefined) ctx.$share = changes.$share;
     if (changes.$api !== undefined && ctx.$api) {
       if (changes.$api.error) ctx.$api.error = changes.$api.error;
@@ -366,6 +368,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
               err.statusCode = msg.error?.statusCode;
               err.code = msg.error?.code;
               if (msg.error?.stack) err.stack = msg.error.stack;
+              if (msg.ctxChanges) err.ctxChanges = msg.ctxChanges;
               reject(err);
             }
           },
@@ -396,17 +399,21 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<void> {
     try {
       const result = await fn();
-      worker.postMessage({
-        type: 'callResult',
-        callId,
-        result: encodeMainThreadToIsolate(result),
-      });
+      try {
+        worker.postMessage({
+          type: 'callResult',
+          callId,
+          result: encodeMainThreadToIsolate(result),
+        });
+      } catch {}
     } catch (error) {
-      worker.postMessage({
-        type: 'callError',
-        callId,
-        error: (error as Error).message,
-      });
+      try {
+        worker.postMessage({
+          type: 'callError',
+          callId,
+          error: (error as Error).message,
+        });
+      } catch {}
     }
   }
 
@@ -505,6 +512,9 @@ export class IsolatedExecutorService implements OnModuleDestroy {
       }, ctx, safeTimeoutMs);
     } catch (error) {
       appendIsolatedExecutorRuntimeLog({ event: 'isolated_batch_error', message: (error as Error)?.message, code: (error as any)?.code, isTimeout: !!(error as any)?.isTimeout });
+      if ((error as any).ctxChanges) {
+        this.mergeCtxChanges(ctx, (error as any).ctxChanges);
+      }
       if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, '(batch execution)');
       }

@@ -1,5 +1,7 @@
 import { Controller, Get, Param, Query, Res, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { OAuthService } from '../services/oauth.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
 
@@ -8,6 +10,7 @@ export class OAuthController {
   constructor(
     private readonly oauthService: OAuthService,
     private readonly oauthConfigCache: OAuthConfigCacheService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Get(':provider')
@@ -25,7 +28,11 @@ export class OAuthController {
       throw new BadRequestException('Redirect URL is required');
     }
 
-    const state = Buffer.from(JSON.stringify({ redirect: redirectUrl })).toString('base64url');
+    this.validateRedirectUrl(redirectUrl, provider);
+
+    const payload = JSON.stringify({ redirect: redirectUrl, ts: Date.now() });
+    const sig = this.signState(payload);
+    const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString('base64url');
     const authUrl = this.oauthService.getAuthorizationUrl(provider as any, state);
     return res.redirect(authUrl);
   }
@@ -47,11 +54,12 @@ export class OAuthController {
     const redirectUrl = this.parseRedirectFromState(state);
 
     if (!redirectUrl) {
-      throw new BadRequestException('Redirect URL is required');
+      throw new BadRequestException('Invalid or expired state parameter');
     }
 
     if (error) {
-      return res.redirect(`${redirectUrl}?error=${encodeURIComponent(errorDescription || error)}`);
+      const safeRedirect = this.getSafeRedirectUrl(redirectUrl, provider);
+      return res.redirect(`${safeRedirect}?error=${encodeURIComponent(errorDescription || error)}`);
     }
 
     if (!code) {
@@ -74,17 +82,58 @@ export class OAuthController {
 
       return res.redirect(callbackUrl.toString());
     } catch (err: any) {
-      return res.redirect(`${redirectUrl}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`);
+      const safeRedirect = this.getSafeRedirectUrl(redirectUrl, provider);
+      return res.redirect(`${safeRedirect}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`);
     }
+  }
+
+  private signState(payload: string): string {
+    const secret = this.configService.get<string>('SECRET_KEY') || '';
+    return createHmac('sha256', secret).update(payload).digest('hex');
   }
 
   private parseRedirectFromState(state?: string): string | null {
     if (!state) return null;
     try {
-      const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
-      return decoded.redirect || null;
+      const outer = JSON.parse(Buffer.from(state, 'base64url').toString());
+      if (!outer?.p || !outer?.s) return null;
+
+      const expectedSig = this.signState(outer.p);
+      const actualSig = outer.s;
+      if (expectedSig.length !== actualSig.length) return null;
+      const equal = timingSafeEqual(Buffer.from(expectedSig), Buffer.from(actualSig));
+      if (!equal) return null;
+
+      const parsed = JSON.parse(outer.p);
+      const age = Date.now() - (parsed.ts || 0);
+      if (age > 600000) return null;
+
+      return parsed.redirect || null;
     } catch {
       return null;
     }
+  }
+
+  private validateRedirectUrl(url: string, provider: string): void {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new BadRequestException('Invalid redirect URL protocol');
+      }
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      throw new BadRequestException('Invalid redirect URL');
+    }
+  }
+
+  private getSafeRedirectUrl(url: string, provider: string): string {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return url;
+      }
+    } catch {}
+    const config = this.oauthConfigCache.getDirectConfigByProvider(provider as any);
+    return config?.appCallbackUrl || '/';
   }
 }

@@ -47,6 +47,8 @@ export function transformCode(code: string): string {
   let result = '';
   let pos = 0;
   let state = CODE;
+  let templateExprDepth = 0;
+  let braceDepth = 0;
 
   while (pos < len) {
     const char = code[pos];
@@ -98,6 +100,21 @@ export function transformCode(code: string): string {
           } else {
             result += '$ctx.$pkgs.' + identifier.substring(1);
           }
+        } else if (char === '{') {
+          if (templateExprDepth > 0) braceDepth++;
+          result += char;
+          pos++;
+        } else if (char === '}' && templateExprDepth > 0) {
+          if (braceDepth > 0) {
+            braceDepth--;
+            result += char;
+            pos++;
+          } else {
+            templateExprDepth--;
+            result += char;
+            pos++;
+            state = TEMPLATE;
+          }
         } else {
           result += char;
           pos++;
@@ -147,6 +164,11 @@ export function transformCode(code: string): string {
         } else if (char === '`') {
           state = CODE;
           pos++;
+        } else if (char === '$' && pos + 1 < len && code[pos + 1] === '{') {
+          result += '{';
+          pos += 2;
+          templateExprDepth++;
+          state = CODE;
         } else {
           pos++;
         }

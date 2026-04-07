@@ -26,6 +26,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
   private dbType: string;
   private readonly knexContext = new AsyncLocalStorage<Knex | Knex.Transaction>();
+  private readonly cascadeContext = new AsyncLocalStorage<Map<string, any>>();
 
   private cascadeHandler: CascadeHandler;
   private fieldStripper: FieldStripper;
@@ -168,8 +169,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   private registerDefaultHooks() {
-    const cascadeContextMap = new Map<string, any>();
-
     this.addHook('beforeInsert', async (tableName, data) => {
       const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
       if (!tableMetadata) return data;
@@ -210,7 +209,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      cascadeContextMap.set(tableName, {
+      this.getActiveCascadeMap().set(tableName, {
         relationData: originalRelationData
       });
 
@@ -241,7 +240,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
 
-      const now = this.knexInstance.raw('CURRENT_TIMESTAMP');
+      const now = this.getActiveKnex().raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
         return data.map(record => {
           const { createdAt, updatedAt, created_at, updated_at, CreatedAt, UpdatedAt, ...cleanRecord } = record;
@@ -253,7 +252,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.addHook('afterInsert', async (tableName, result) => {
-      await this.handleCascadeRelations(tableName, result, cascadeContextMap);
+      await this.handleCascadeRelations(tableName, result);
       return result;
     });
 
@@ -272,7 +271,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      cascadeContextMap.set(tableName, { relationData: originalRelationData, recordId });
+      this.getActiveCascadeMap().set(tableName, { relationData: originalRelationData, recordId });
 
       await this.syncManyToManyRelations(tableName, data);
       return this.transformRelationsToFK(tableName, data);
@@ -308,7 +307,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         if (!hasUnique) continue;
 
         // Clear the FK from any existing record that holds it
-        const result = await this.knexInstance(tableName)
+        await this.getActiveKnex()(tableName)
           .where(fkColumn, data[fkColumn])
           .whereNot('id', data.id)
           .update({ [fkColumn]: null });
@@ -350,17 +349,18 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
-      return { ...data, updatedAt: this.knexInstance.raw('CURRENT_TIMESTAMP') };
+      return { ...data, updatedAt: this.getActiveKnex().raw('CURRENT_TIMESTAMP') };
     });
 
     this.addHook('afterUpdate', async (tableName: string, result: any) => {
-      const context = cascadeContextMap.get(tableName);
+      const cascadeMap = this.getActiveCascadeMap();
+      const context = cascadeMap.get(tableName);
       if (!context) {
         return result;
       }
 
       const { recordId } = context;
-      await this.handleCascadeRelations(tableName, recordId, cascadeContextMap);
+      await this.handleCascadeRelations(tableName, recordId);
       return result;
     });
 
@@ -433,9 +433,18 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async handleCascadeRelations(tableName: string, recordId: any, cascadeContextMap: Map<string, any>): Promise<void> {
-    const connection = this.knexContext.getStore() || this.knexInstance;
-    return this.cascadeHandler.handleCascadeRelations(tableName, recordId, cascadeContextMap, connection);
+  private getActiveKnex(): Knex | Knex.Transaction {
+    return this.knexContext.getStore() || this.knexInstance;
+  }
+
+  private getActiveCascadeMap(): Map<string, any> {
+    return this.cascadeContext.getStore() || new Map();
+  }
+
+  private async handleCascadeRelations(tableName: string, recordId: any): Promise<void> {
+    const connection = this.getActiveKnex();
+    const cascadeMap = this.getActiveCascadeMap();
+    return this.cascadeHandler.handleCascadeRelations(tableName, recordId, cascadeMap, connection);
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
@@ -517,16 +526,22 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
     qb.insert = async function(data: any, ...rest: any[]) {
       const masterQb = getMasterQueryBuilder();
-      const processedData = await self.runHooks('beforeInsert', tableName, data);
-      const result = await originalInsert.call(masterQb, processedData, ...rest);
-      return self.runHooks('afterInsert', tableName, result);
+      const cascadeMap = self.cascadeContext.getStore() || new Map<string, any>();
+      return self.cascadeContext.run(cascadeMap, async () => {
+        const processedData = await self.runHooks('beforeInsert', tableName, data);
+        const result = await originalInsert.call(masterQb, processedData, ...rest);
+        return self.runHooks('afterInsert', tableName, result);
+      });
     };
 
     qb.update = async function(data: any, ...rest: any[]) {
       const masterQb = getMasterQueryBuilder();
-      const processedData = await self.runHooks('beforeUpdate', tableName, data);
-      const result = await originalUpdate.call(masterQb, processedData, ...rest);
-      return self.runHooks('afterUpdate', tableName, result);
+      const cascadeMap = self.cascadeContext.getStore() || new Map<string, any>();
+      return self.cascadeContext.run(cascadeMap, async () => {
+        const processedData = await self.runHooks('beforeUpdate', tableName, data);
+        const result = await originalUpdate.call(masterQb, processedData, ...rest);
+        return self.runHooks('afterUpdate', tableName, result);
+      });
     };
 
     qb.delete = qb.del = async function(...args: any[]) {
@@ -793,34 +808,45 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
+  private columnTypesLoading = new Map<string, Promise<void>>();
+
   private async loadColumnTypesForTable(tableName: string): Promise<void> {
     if (this.columnTypesMap.has(tableName)) {
       return;
     }
 
-    try {
-      const tableDef = await this.knexInstance('table_definition')
-        .where('name', tableName)
-        .first();
+    const existing = this.columnTypesLoading.get(tableName);
+    if (existing) return existing;
 
-      if (!tableDef) {
-        return;
+    const promise = (async () => {
+      try {
+        const tableDef = await this.knexInstance('table_definition')
+          .where('name', tableName)
+          .first();
+
+        if (!tableDef) {
+          return;
+        }
+
+        const columns = await this.knexInstance('column_definition')
+          .where('tableId', tableDef.id)
+          .select('name', 'type');
+
+        const columnTypes = new Map<string, string>();
+        for (const col of columns) {
+          columnTypes.set(col.name, col.type);
+        }
+
+        this.columnTypesMap.set(tableName, columnTypes);
+      } catch (error) {
+        this.logger.error(`[loadColumnTypesForTable] Error loading columnTypes for ${tableName}:`, error);
+      } finally {
+        this.columnTypesLoading.delete(tableName);
       }
+    })();
 
-      const tableIdColumn = this.dbType === 'postgres' ? 'tableId' : 'tableId';
-      const columns = await this.knexInstance('column_definition')
-        .where(tableIdColumn, tableDef.id)
-        .select('name', 'type');
-
-      const columnTypes = new Map<string, string>();
-      for (const col of columns) {
-        columnTypes.set(col.name, col.type);
-      }
-
-      this.columnTypesMap.set(tableName, columnTypes);
-    } catch (error) {
-      this.logger.error(`[loadColumnTypesForTable] Error loading columnTypes for ${tableName}:`, error);
-    }
+    this.columnTypesLoading.set(tableName, promise);
+    return promise;
   }
 
   private async parseRecord(record: any, columnTypes: Map<string, string>, tableName?: string): Promise<any> {
@@ -938,26 +964,30 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
   async insertWithCascade(tableName: string, data: any, trx?: Knex | Knex.Transaction): Promise<any> {
     const connection = trx || this.knexContext.getStore() || this.knexInstance;
+    const cascadeMap = this.cascadeContext.getStore() || new Map<string, any>();
     const manager = new KnexEntityManager(
       connection,
       this.hooks,
       this.dbType,
-      this,
     );
 
-    return await this.knexContext.run(connection, async () => manager.insert(tableName, data));
+    return await this.knexContext.run(connection, () =>
+      this.cascadeContext.run(cascadeMap, () => manager.insert(tableName, data)),
+    );
   }
 
   async updateWithCascade(tableName: string, recordId: any, data: any, trx?: Knex | Knex.Transaction): Promise<void> {
     const connection = trx || this.knexContext.getStore() || this.knexInstance;
+    const cascadeMap = this.cascadeContext.getStore() || new Map<string, any>();
     const manager = new KnexEntityManager(
       connection,
       this.hooks,
       this.dbType,
-      this,
     );
 
-    return await this.knexContext.run(connection, async () => manager.update(tableName, recordId, data));
+    return await this.knexContext.run(connection, () =>
+      this.cascadeContext.run(cascadeMap, () => manager.update(tableName, recordId, data)),
+    );
   }
 
 }

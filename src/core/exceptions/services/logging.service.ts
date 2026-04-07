@@ -1,4 +1,5 @@
 import { Injectable, LoggerService } from '@nestjs/common';
+import { AsyncLocalStorage } from 'async_hooks';
 import { winstonLogger } from '../../../shared/utils/winston-logger';
 
 export interface LogContext {
@@ -21,25 +22,38 @@ export interface LogLevel {
 
 @Injectable()
 export class LoggingService implements LoggerService {
-  private correlationId: string | null = null;
-  private context: LogContext = {};
+  private readonly als = new AsyncLocalStorage<{ correlationId: string | null; context: LogContext }>();
 
   setCorrelationId(correlationId: string): void {
-    this.correlationId = correlationId;
-    this.context.correlationId = correlationId;
+    const store = this.als.getStore();
+    if (store) {
+      store.correlationId = correlationId;
+      store.context.correlationId = correlationId;
+    }
   }
 
   setContext(context: Partial<LogContext>): void {
-    this.context = { ...this.context, ...context };
+    const store = this.als.getStore();
+    if (store) {
+      store.context = { ...store.context, ...context };
+    }
   }
 
   clearContext(): void {
-    this.correlationId = null;
-    this.context = {};
+    const store = this.als.getStore();
+    if (store) {
+      store.correlationId = null;
+      store.context = {};
+    }
+  }
+
+  run<T>(fn: () => T): T {
+    return this.als.run({ correlationId: null, context: {} }, fn);
   }
 
   private createLogMeta(data?: any): any {
-    const meta: any = { ...this.context };
+    const store = this.als.getStore();
+    const meta: any = { ...(store?.context || {}) };
 
     if (data) {
       meta.data = data;

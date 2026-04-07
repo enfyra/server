@@ -215,39 +215,43 @@ export class OAuthService {
     });
 
     if (!user) {
-      const userData: any = isMongoDB
-        ? {
-            email: userInfo.email,
-            password: null,
-            isRootAdmin: false,
-            isSystem: false,
-          }
-        : {
-            id: randomUUID(),
-            email: userInfo.email,
-            password: null,
-            isRootAdmin: false,
-            isSystem: false,
-          };
+      try {
+        const userData: any = isMongoDB
+          ? {
+              email: userInfo.email,
+              password: null,
+              isRootAdmin: false,
+              isSystem: false,
+            }
+          : {
+              id: randomUUID(),
+              email: userInfo.email,
+              password: null,
+              isRootAdmin: false,
+              isSystem: false,
+            };
 
-      user = await this.queryBuilder.insertAndGet('user_definition', userData);
-      this.logger.log(`Created new user via ${provider} OAuth: ${userInfo.email}`);
+        user = await this.queryBuilder.insertAndGet('user_definition', userData);
+        this.logger.log(`Created new user via ${provider} OAuth: ${userInfo.email}`);
+      } catch {
+        user = await this.queryBuilder.findOneWhere('user_definition', {
+          email: userInfo.email,
+        });
+        if (!user) throw new BadRequestException('Failed to create user account');
+      }
     }
 
+    const userId = isMongoDB ? user._id : user.id;
     const accountData: any = isMongoDB
-      ? {
-          provider,
-          providerUserId: userInfo.id,
-          user: isMongoDB ? user._id : user.id,
-        }
-      : {
-          provider,
-          providerUserId: userInfo.id,
-          userId: isMongoDB ? user._id?.toString() : user.id,
-        };
+      ? { provider, providerUserId: userInfo.id, user: userId }
+      : { provider, providerUserId: userInfo.id, userId };
 
-    await this.queryBuilder.insertAndGet('oauth_account_definition', accountData);
-    this.logger.log(`Linked ${provider} account to user: ${userInfo.email}`);
+    try {
+      await this.queryBuilder.insertAndGet('oauth_account_definition', accountData);
+      this.logger.log(`Linked ${provider} account to user: ${userInfo.email}`);
+    } catch {
+      this.logger.warn(`OAuth account already linked for ${provider}:${userInfo.id}`);
+    }
 
     return user;
   }

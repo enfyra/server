@@ -60,9 +60,9 @@ export class RequestLoggingInterceptor implements NestInterceptor {
   }
 
   private getCorrelationId(req: Request): string {
-    const providedCorrelationId = req.headers['x-correlation-id'] as string;
-    if (providedCorrelationId) {
-      return providedCorrelationId;
+    const provided = req.headers['x-correlation-id'] as string;
+    if (provided && provided.length <= 128) {
+      return provided.replace(/[^\w\-.:]/g, '');
     }
 
     return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

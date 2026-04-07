@@ -72,8 +72,6 @@ export abstract class BaseCacheService<T> {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        await this.publishReloadSignal();
-
         await this.beforeLoad();
 
         const rawData = await this.loadFromDb();
@@ -87,6 +85,8 @@ export abstract class BaseCacheService<T> {
         this.emitLoadedEvent();
 
         this.logger.log(`Loaded ${this.getLogCount()} from database`);
+
+        await this.publishReloadSignal();
       } catch (error) {
         this.logger.error('Failed to reload cache:', error);
         throw error;

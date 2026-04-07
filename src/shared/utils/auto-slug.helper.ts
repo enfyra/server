@@ -22,16 +22,17 @@ export function autoSlug(
   if (lowercase) {
     slug = slug.toLowerCase();
   }
+  const escapedSep = separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   slug = slug
     .replace(/[^a-zA-Z0-9\s-]/g, '')
     .replace(/\s+/g, separator)
-    .replace(new RegExp(`${separator}+`, 'g'), separator);
+    .replace(new RegExp(`${escapedSep}+`, 'g'), separator);
   if (trim) {
-    slug = slug.replace(new RegExp(`^${separator}+|${separator}+$`, 'g'), '');
+    slug = slug.replace(new RegExp(`^${escapedSep}+|${escapedSep}+$`, 'g'), '');
   }
   if (maxLength && slug.length > maxLength) {
     slug = slug.substring(0, maxLength);
-    slug = slug.replace(new RegExp(`${separator}+$`, 'g'), '');
+    slug = slug.replace(new RegExp(`${escapedSep}+$`, 'g'), '');
   }
   return slug;
 }

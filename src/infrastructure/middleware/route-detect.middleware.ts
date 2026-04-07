@@ -219,19 +219,13 @@ export class RouteDetectMiddleware implements NestMiddleware {
   }
 
   private detectClientIP(req: any): string {
-    const forwardedFor = req.headers['x-forwarded-for'];
-    const realIP = req.headers['x-real-ip'];
     const cfConnectingIP = req.headers['cf-connecting-ip'];
     const remoteAddress = req.connection?.remoteAddress || req.socket?.remoteAddress;
     const reqIP = req.ip;
     let clientIP: string;
 
-    if (forwardedFor) {
-      clientIP = forwardedFor.split(',')[0].trim();
-    } else if (realIP) {
-      clientIP = realIP;
-    } else if (cfConnectingIP) {
-      clientIP = cfConnectingIP;
+    if (cfConnectingIP) {
+      clientIP = Array.isArray(cfConnectingIP) ? cfConnectingIP[0] : cfConnectingIP;
     } else if (reqIP && reqIP !== '::1' && reqIP !== '127.0.0.1') {
       clientIP = reqIP;
     } else if (remoteAddress && remoteAddress !== '::1' && remoteAddress !== '127.0.0.1') {

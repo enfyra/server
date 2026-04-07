@@ -211,8 +211,8 @@ export class MetadataMigrationService {
           });
           this.logger.log(`  Modified column metadata: ${oldName} → ${mod.to.name}`);
         }
-      } catch {
-        // Silently skip on error
+      } catch (err) {
+        this.logger.warn(`  Failed to modify column metadata: ${(err as Error).message}`);
       }
     }
   }
@@ -246,8 +246,8 @@ export class MetadataMigrationService {
           this.logger.log(`  Removed column metadata: ${colName}`);
         }
         // Silently skip if column not found in metadata
-      } catch {
-        // Silently skip on error
+      } catch (err) {
+        this.logger.warn(`  Failed to remove column ${colName}: ${(err as Error).message}`);
       }
     }
   }
@@ -320,8 +320,8 @@ export class MetadataMigrationService {
           });
           this.logger.log(`  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`);
         }
-      } catch {
-        // Silently skip on error
+      } catch (err) {
+        this.logger.warn(`  Failed to modify relation metadata: ${(err as Error).message}`);
       }
     }
   }
@@ -355,8 +355,8 @@ export class MetadataMigrationService {
           });
           this.logger.log(`  Removed relation metadata: ${relName}`);
         }
-      } catch {
-        // Silently skip on error
+      } catch (err) {
+        this.logger.warn(`  Failed to remove relation ${relName}: ${(err as Error).message}`);
       }
     }
   }

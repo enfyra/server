@@ -98,7 +98,7 @@ export class FlowExecutionQueueService extends WorkerHost {
         limit: 1,
         meta: 'total_count',
       });
-      const total = countResult.meta?.total_count || 0;
+      const total = countResult.meta?.total_count ?? countResult.meta?.totalCount ?? 0;
       if (total <= maxExecutions) return;
 
       const deleteCount = Math.min(total - maxExecutions, 200);

@@ -35,8 +35,9 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
         if (res.headersSent) {
           return undefined;
         }
-        return req.routeData.context.$share.$logs.length
-          ? { ...data, logs: req.routeData.context.$share.$logs }
+        const logs = req.routeData?.context?.$share?.$logs;
+        return logs?.length
+          ? { ...data, logs }
           : data;
       }),
       catchError(async (error) => {

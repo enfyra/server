@@ -76,7 +76,9 @@ export class SqlQueryExecutor {
             else if (op === '_between') operator = '_between';
             else if (op === '_is_null') operator = '_is_null';
             else if (op === '_is_not_null') operator = '_is_not_null';
-            else operator = op.replace('_', ' ');
+            else if (op === '_like') operator = 'like';
+            else if (op === '_ilike') operator = 'ilike';
+            else continue;
 
             queryOptions.where.push({ field, operator, value: val } as WhereCondition);
           }
@@ -219,11 +221,18 @@ export class SqlQueryExecutor {
             }
           }
         } else if (queryOptions.where && queryOptions.where.length > 0) {
+          const SAFE_CTE_OPERATORS = new Set(['=', '!=', '<>', '>', '>=', '<', '<=', 'in', 'not in', 'like', 'ilike', 'is', 'is not']);
           const whereParts: string[] = [];
           for (const condition of queryOptions.where) {
-            const field = condition.field.includes('.') 
-              ? condition.field 
-              : `${quoteIdentifier(queryOptions.table, this.dbType)}.${quoteIdentifier(condition.field, this.dbType)}`;
+            const normalizedOp = String(condition.operator).toLowerCase().trim();
+            if (!SAFE_CTE_OPERATORS.has(normalizedOp)) continue;
+            let field: string;
+            if (condition.field.includes('.')) {
+              const parts = condition.field.split('.');
+              field = parts.map(p => quoteIdentifier(p, this.dbType)).join('.');
+            } else {
+              field = `${quoteIdentifier(queryOptions.table, this.dbType)}.${quoteIdentifier(condition.field, this.dbType)}`;
+            }
             let value: string;
             if (typeof condition.value === 'string') {
               value = `'${condition.value.replace(/'/g, "''")}'`;
@@ -231,10 +240,12 @@ export class SqlQueryExecutor {
               value = 'NULL';
             } else if (typeof condition.value === 'boolean') {
               value = condition.value ? 'true' : 'false';
-            } else {
+            } else if (typeof condition.value === 'number' && Number.isFinite(condition.value)) {
               value = String(condition.value);
+            } else {
+              continue;
             }
-            whereParts.push(`${field} ${condition.operator} ${value}`);
+            whereParts.push(`${field} ${normalizedOp} ${value}`);
           }
           if (whereParts.length > 0) {
             whereClauseForCTE = `WHERE ${whereParts.join(' AND ')}`;

@@ -53,12 +53,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async loadFromDb(): Promise<any> {
-    if (this.allMethods.length === 0) {
-      const methodsResult = await this.queryBuilder.select({
-        tableName: 'method_definition',
-      });
-      this.allMethods = methodsResult.data.map((m: any) => m.method);
-    }
+    const methodsResult = await this.queryBuilder.select({
+      tableName: 'method_definition',
+    });
+    this.allMethods = methodsResult.data.map((m: any) => m.method);
 
     const result = await this.queryBuilder.select({
       tableName: 'route_definition',
