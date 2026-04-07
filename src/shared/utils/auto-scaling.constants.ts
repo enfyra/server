@@ -16,6 +16,19 @@ export const SQL_COORD_RECONCILE_INTERVAL_MS = 90_000;
 export const SQL_COORD_RESERVE_MIN = 10;
 export const SQL_COORD_RESERVE_RATIO = 0.05;
 
+// Layer 1 — Redis Pool Hint (instant cold start)
+export const SQL_COORD_HINT_TTL_S = 300;
+
+// Layer 2 — Real connection awareness (safety buffer for external consumers)
+export const SQL_COORD_SAFETY_BUFFER_RATIO = 0.10;
+export const SQL_COORD_SAFETY_BUFFER_MIN = 5;
+
+// Layer 3 — Reactive backpressure
+export const SQL_COORD_PRESSURE_CHECK_MS = 5_000;
+export const SQL_COORD_PRESSURE_PENDING_THRESHOLD = 1;
+export const SQL_COORD_PRESSURE_TICKS_THRESHOLD = 3;
+export const SQL_COORD_PRESSURE_COOLDOWN_MS = 30_000;
+
 // ─── Handler Worker Feedback Loop ────────────────────────────────
 
 export const WORKER_TUNE_INTERVAL_MS = 30_000;

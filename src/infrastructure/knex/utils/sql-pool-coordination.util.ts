@@ -1,14 +1,31 @@
-import { SQL_MASTER_RATIO } from '../../../shared/utils/auto-scaling.constants';
+import {
+  SQL_MASTER_RATIO,
+  SQL_COORD_SAFETY_BUFFER_RATIO,
+  SQL_COORD_SAFETY_BUFFER_MIN,
+} from '../../../shared/utils/auto-scaling.constants';
 
 export function computeCoordinatedPoolMax(params: {
   serverMaxConnections: number;
   activeInstanceCount: number;
   reserveConnections: number;
+  externalConnectionsUsed?: number;
+  ownConnectionsUsed?: number;
 }): number {
   const n = Math.max(1, Math.trunc(params.activeInstanceCount) || 1);
   const serverMax = Math.max(1, Math.trunc(params.serverMaxConnections) || 1);
   const reserve = Math.max(0, Math.trunc(params.reserveConnections) || 0);
-  const budget = Math.max(8, serverMax - reserve);
+
+  const externalUsed = Math.max(0, Math.trunc(params.externalConnectionsUsed ?? 0));
+  const ownUsed = Math.max(0, Math.trunc(params.ownConnectionsUsed ?? 0));
+  const othersUsed = Math.max(0, externalUsed - ownUsed);
+
+  const safetyBuffer = Math.max(
+    SQL_COORD_SAFETY_BUFFER_MIN,
+    Math.floor(serverMax * SQL_COORD_SAFETY_BUFFER_RATIO),
+  );
+
+  const effectiveReserve = Math.max(reserve, othersUsed + safetyBuffer);
+  const budget = Math.max(2, serverMax - effectiveReserve);
   return Math.max(2, Math.floor(budget / n));
 }
 
