@@ -104,9 +104,8 @@ export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> 
     return `${this.cache.length} websocket gateways`;
   }
 
-  protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Cache synced: ${payload.gateways?.length || 0} gateways`);
-  }
+  protected logSyncSuccess(_payload: any): void {}
+
 
   protected emitLoadedEvent(): void {
     this.eventEmitter.emit(CACHE_EVENTS.WEBSOCKET_LOADED);

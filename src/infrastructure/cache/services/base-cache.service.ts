@@ -56,7 +56,6 @@ export abstract class BaseCacheService<T> {
       }
 
       if (payload.type === 'RELOAD_SIGNAL') {
-        this.logger.log(`Received reload signal from instance ${payload.instanceId.slice(0, 8)}..., reloading from DB`);
         await this.reload();
       }
     } catch (error) {
@@ -83,8 +82,6 @@ export abstract class BaseCacheService<T> {
         this.cacheLoaded = true;
 
         this.emitLoadedEvent();
-
-        this.logger.log(`Loaded ${this.getLogCount()} from database`);
 
         await this.publishReloadSignal();
       } catch (error) {
@@ -154,7 +151,6 @@ export abstract class BaseCacheService<T> {
   }
 
   protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Cache synced: ${this.getLogCount()}`);
   }
 
   isLoaded(): boolean {

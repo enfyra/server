@@ -93,9 +93,8 @@ export class OAuthConfigCacheService extends BaseCacheService<Map<string, OAuthC
     return `${this.cache.size} OAuth configs`;
   }
 
-  protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Cache synced: ${payload.configs?.length || 0} configs`);
-  }
+  protected logSyncSuccess(_payload: any): void {}
+
 
   async getConfigByProvider(provider: string): Promise<OAuthConfig | null> {
     await this.ensureLoaded();

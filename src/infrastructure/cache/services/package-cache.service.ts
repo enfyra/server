@@ -78,9 +78,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     return `${this.cache.length} packages`;
   }
 
-  protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Package cache synced: ${payload.packages?.length || 0} packages`);
-  }
+  protected logSyncSuccess(_payload: any): void {}
+
 
   protected async afterTransform(): Promise<void> {
     this.preloadPackagesFromCdn().catch((error) => {

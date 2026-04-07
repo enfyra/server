@@ -126,9 +126,8 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
     return `${this.cache.size} storage configs`;
   }
 
-  protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Cache synced: ${payload.configs?.length || 0} configs`);
-  }
+  protected logSyncSuccess(_payload: any): void {}
+
 
   async getStorageConfigById(id: number | string | null | undefined): Promise<any | null> {
     await this.ensureLoaded();
