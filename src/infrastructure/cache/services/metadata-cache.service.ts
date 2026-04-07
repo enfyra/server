@@ -71,7 +71,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
 
           if (payload.type === 'RELOAD_SIGNAL') {
-            this.logger.log(`Received reload signal from instance ${payload.instanceId.slice(0, 8)}..., reloading from DB`);
             this.forceReloadFromDb();
           }
         } catch (error) {
@@ -90,7 +89,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     try {
       const metadata = await this.loadMetadataFromDb();
       this.inMemoryCache = metadata;
-      this.logger.log('Metadata reloaded from DB (forced)');
     } catch (error) {
       this.logger.error('Failed to force reload metadata:', error);
     }
@@ -509,7 +507,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         this.inMemoryCache = metadata;
 
-        this.logger.log('Metadata reloaded from database');
 
         try {
           this.websocketGateway.emitToNamespace(

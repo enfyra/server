@@ -207,9 +207,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     return this.cache.routes.length;
   }
 
-  protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Cache synced: ${payload.routes?.length || 0} routes, ${payload.methods?.length || 0} methods`);
-  }
+  protected logSyncSuccess(_payload: any): void {}
+
 
   private buildRouteEngine(routes: any[]): void {
     this.routeEngine = new EnfyraRouteEngine(false);

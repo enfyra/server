@@ -121,9 +121,8 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     return this.cache.length;
   }
 
-  protected logSyncSuccess(payload: any): void {
-    this.logger.log(`Cache synced: ${payload.flows?.length || 0} flows`);
-  }
+  protected logSyncSuccess(_payload: any): void {}
+
 
   async getFlows(): Promise<FlowDefinition[]> {
     await this.ensureLoaded();
