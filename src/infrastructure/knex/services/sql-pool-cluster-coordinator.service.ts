@@ -8,10 +8,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { KnexService } from '../knex.service';
 import { ReplicationManager } from './replication-manager.service';
+import { parseDatabaseUri } from '../utils/uri-parser';
 import { computeCoordinatedPoolMax } from '../utils/sql-pool-coordination.util';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import {
@@ -21,8 +23,6 @@ import {
   SQL_COORD_RESERVE_MIN,
   SQL_COORD_RESERVE_RATIO,
 } from '../../../shared/utils/auto-scaling.constants';
-
-const ZSET_KEY_SUFFIX = 'coord:sql:pool:instances';
 
 @Injectable()
 export class SqlPoolClusterCoordinatorService
@@ -44,9 +44,24 @@ export class SqlPoolClusterCoordinatorService
     private readonly eventEmitter: EventEmitter2,
     @Optional() private readonly replicationManager?: ReplicationManager,
   ) {
-    const nodeName = this.configService.get<string>('NODE_NAME') || 'enfyra';
-    this.zsetKey = `${nodeName}:${ZSET_KEY_SUFFIX}`;
+    this.zsetKey = `enfyra:coord:sql:pool:${this.resolveDbServerHash()}:instances`;
     this.instanceId = this.instanceService.getInstanceId();
+  }
+
+  private resolveDbServerHash(): string {
+    const dbUri = this.configService.get<string>('DB_URI');
+    let host: string;
+    let port: number;
+    if (dbUri) {
+      const parsed = parseDatabaseUri(dbUri);
+      host = parsed.host;
+      port = parsed.port;
+    } else {
+      const dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
+      host = this.configService.get<string>('DB_HOST') || 'localhost';
+      port = this.configService.get<number>('DB_PORT') || (dbType === 'postgres' ? 5432 : 3306);
+    }
+    return createHash('sha256').update(`${host}:${port}`).digest('hex').slice(0, 12);
   }
 
   onApplicationBootstrap(): void {
