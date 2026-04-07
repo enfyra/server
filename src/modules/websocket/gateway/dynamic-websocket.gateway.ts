@@ -17,9 +17,8 @@ import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
-import { RedisPubSubService } from '../../../infrastructure/cache/services/redis-pubsub.service';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
-import { WEBSOCKET_CACHE_SYNC_EVENT_KEY, SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 interface SocketData extends Socket {
   data: {
     user?: { id: number | string };
@@ -44,7 +43,6 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
     @InjectQueue(SYSTEM_QUEUES.WS_EVENT)
     private readonly eventQueue: Queue,
     private readonly websocketCache: WebsocketCacheService,
-    private readonly redisPubSubService: RedisPubSubService,
     private readonly builtInRegistry: BuiltInSocketRegistry,
   ) {
     this.jwtService = new JwtService({
@@ -79,47 +77,11 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
   afterInit(server: Server) {
     this.setupRedisAdapter(server);
     this.logger.log('WebSocket Gateway initialized');
-    this.subscribeToCacheSync();
   }
   @OnEvent(CACHE_EVENTS.WEBSOCKET_LOADED)
   async onWebsocketCacheLoaded() {
     await this.registerGateways();
   }
-  private subscribeToCacheSync() {
-    this.redisPubSubService.subscribeWithHandler(
-      WEBSOCKET_CACHE_SYNC_EVENT_KEY,
-      async (channel: string, message: string) => {
-        const isWebsocketChannel = channel === WEBSOCKET_CACHE_SYNC_EVENT_KEY || channel.startsWith(WEBSOCKET_CACHE_SYNC_EVENT_KEY + ':');
-        if (isWebsocketChannel) {
-          try {
-            const payload = JSON.parse(message);
-            const gateways: any[] = payload.gateways || [];
-            const newPaths = new Set(gateways.map((g: any) => g.path));
-            const oldPaths = new Set(this.registeredGateways);
-            this.updateGatewayConfigs(gateways);
-            for (const path of oldPaths) {
-              if (!newPaths.has(path)) {
-                const namespace = this.server.of(path);
-                namespace.disconnectSockets();
-                namespace.removeAllListeners();
-                this.registeredGateways.delete(path);
-                this.gatewayConfigsByPath.delete(path);
-              }
-            }
-            for (const gateway of gateways) {
-              if (!this.registeredGateways.has(gateway.path)) {
-                this.setupNamespace(gateway.path);
-                this.registeredGateways.add(gateway.path);
-              }
-            }
-          } catch (error) {
-            this.logger.error('Failed to process websocket cache sync:', error);
-          }
-        }
-      }
-    );
-  }
-
   private updateGatewayConfigs(gateways: any[]) {
     this.gatewayConfigsByPath.clear();
     for (const g of gateways) {
@@ -129,6 +91,15 @@ export class DynamicWebSocketGateway implements OnGatewayInit, OnGatewayConnecti
   async registerGateways() {
     try {
       const gateways = await this.websocketCache.getGateways();
+      const newPaths = new Set(gateways.map((g: any) => g.path));
+      for (const path of this.registeredGateways) {
+        if (!newPaths.has(path)) {
+          const namespace = this.server.of(path);
+          namespace.disconnectSockets();
+          namespace.removeAllListeners();
+          this.registeredGateways.delete(path);
+        }
+      }
       this.updateGatewayConfigs(gateways);
       for (const gateway of gateways) {
         if (this.registeredGateways.has(gateway.path)) {
