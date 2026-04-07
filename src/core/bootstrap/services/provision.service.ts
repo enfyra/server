@@ -128,6 +128,16 @@ export class ProvisionService implements OnModuleInit {
         await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
       }
     } else {
+      if (this.metadataMigrationService.hasMigrations()) {
+        this.logger.log('Running metadata migrations...');
+        await this.metadataMigrationService.runMigrations();
+      }
+
+      if (this.dataMigrationService.hasMigrations()) {
+        this.logger.log('Running data migrations...');
+        await this.dataMigrationService.runMigrations();
+      }
+
       this.logger.log(`System ready in ${Date.now() - start}ms`);
     }
   }
