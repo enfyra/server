@@ -142,14 +142,18 @@ export class AuthService {
       throw new BadRequestException('Session not found!');
     }
 
+    if (session.expiredAt && new Date(session.expiredAt).getTime() < Date.now()) {
+      throw new BadRequestException('Session has expired!');
+    }
+
     const userId = this.queryBuilder.isMongoDb()
       ? (session.user?._id || session.user)
       : session.userId;
 
     const remember = session.remember || false;
     const newExpiredAt = this.calculateExpiredAt(remember);
-    const sessionId = this.queryBuilder.isMongoDb() 
-      ? (session._id || session._id?.toString())
+    const sessionId = this.queryBuilder.isMongoDb()
+      ? (session._id?.toString() || session._id)
       : session.id;
 
     await this.queryBuilder.updateById('session_definition', sessionId, {
@@ -168,16 +172,15 @@ export class AuthService {
       },
     );
 
-    const refreshToken = remember
-      ? this.jwtService.sign(
-          { sessionId: sessionId },
-          {
-            expiresIn: this.configService.get<string>(
-              'REFRESH_TOKEN_REMEMBER_EXP',
-            ) as StringValue,
-          },
-        )
-      : body.refreshToken;
+    const refreshTokenExp = remember
+      ? 'REFRESH_TOKEN_REMEMBER_EXP'
+      : 'REFRESH_TOKEN_NO_REMEMBER_EXP';
+    const refreshToken = this.jwtService.sign(
+      { sessionId: sessionId },
+      {
+        expiresIn: this.configService.get<string>(refreshTokenExp) as StringValue,
+      },
+    );
 
      
     const accessTokenDecoded = await this.jwtService.decode(accessToken);

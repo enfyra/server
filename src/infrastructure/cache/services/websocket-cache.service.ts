@@ -123,7 +123,12 @@ export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> 
   }
 
   async getEventsByGatewayId(gatewayId: number | string): Promise<WebSocketEvent[]> {
-    const gateway = await this.getGatewayByPath(gatewayId as string);
+    const gateways = await this.getGateways();
+    const gateway = gateways.find(g =>
+      g.path === String(gatewayId) ||
+      String(g.id) === String(gatewayId) ||
+      String((g as any)._id) === String(gatewayId),
+    );
     if (!gateway) return [];
     return gateway.events || [];
   }

@@ -182,12 +182,14 @@ export class DataMigrationService {
     if (tableName === 'route_definition') {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
         if (field === 'publishedMethods' || field === 'availableMethods') {
+          const isMongoDB = this.queryBuilder.isMongoDb();
+          const idField = isMongoDB ? '_id' : 'id';
           const result = await this.queryBuilder.select({
             tableName: 'method_definition',
             filter: { method: { _in: methodNames as string[] } },
-            fields: ['id'],
+            fields: [idField],
           });
-          const methodIds = result.data.map((m: any) => m.id);
+          const methodIds = result.data.map((m: any) => m._id || m.id).filter(Boolean);
           if (methodIds.length > 0) {
             await this.queryBuilder.updateById('route_definition', recordId, {
               [field]: methodIds,

@@ -178,8 +178,8 @@ export class MongoQueryExecutor {
     }
 
     if (hasRelationFilters && (metaParts.includes('filterCount') || metaParts.includes('*'))) {
-      queryOptions.mongoCountOnly = true;
-      const countResults = await this.selectLegacy(queryOptions);
+      const countOpts = { ...queryOptions, mongoCountOnly: true };
+      const countResults = await this.selectLegacy(countOpts);
       filterCount = countResults.length > 0 ? countResults[0].count : 0;
     }
 

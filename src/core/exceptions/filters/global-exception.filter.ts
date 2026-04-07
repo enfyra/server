@@ -160,11 +160,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
   }
   private isGraphQLContext(host: ArgumentsHost): boolean {
-    const context = host.getType();
     const request = host.switchToHttp().getRequest();
-    return (
-      request?.body?.query !== undefined || request?.url?.includes('/graphql')
-    );
+    return request?.url?.includes('/graphql') === true;
   }
   private handleGraphQLError(
     exception: unknown,
@@ -172,6 +169,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     correlationId: string,
   ): void {
     this.logger.error('GraphQL Error', { exception, correlationId });
+    const response = host.switchToHttp().getResponse();
+    const { statusCode, errorCode, message, details } = this.getErrorDetails(exception);
+    if (response && typeof response.status === 'function') {
+      response.status(statusCode).json({
+        errors: [{ message, extensions: { code: errorCode, correlationId, details } }],
+      });
+    }
   }
   private generateCorrelationId(): string {
     return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

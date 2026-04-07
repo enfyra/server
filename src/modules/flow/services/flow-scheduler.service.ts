@@ -27,7 +27,9 @@ export class FlowSchedulerService {
       for (const schedulerId of this.registeredSchedulers) {
         try {
           await this.flowQueue.removeJobScheduler(schedulerId);
-        } catch {}
+        } catch (err) {
+          this.logger.warn(`Failed to remove scheduler ${schedulerId}: ${(err as Error).message}`);
+        }
       }
       this.registeredSchedulers.clear();
 

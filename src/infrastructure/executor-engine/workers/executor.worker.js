@@ -124,6 +124,7 @@ function __extractResult(result, isAbsent) {
       $flow: __safeClone($ctx.$flow),
       $error: __safeClone($ctx.$error),
       $api: __safeClone($ctx.$api),
+      $statusCode: $ctx.$statusCode,
     }
   };
   if (!valueAbsent) out.value = __safeClone(result);
@@ -405,7 +406,35 @@ if ($ctx.$api) {
     }
 
     if (caughtError) {
-      postError(id, caughtError);
+      let ctxChanges;
+      try {
+        const extractCode = `JSON.stringify({
+          $body: __safeClone($ctx.$body),
+          $query: __safeClone($ctx.$query),
+          $params: __safeClone($ctx.$params),
+          $data: __safeClone($ctx.$data),
+          $share: __safeClone($ctx.$share),
+          $flow: __safeClone($ctx.$flow),
+          $error: __safeClone($ctx.$error),
+          $api: __safeClone($ctx.$api),
+          $statusCode: $ctx.$statusCode,
+        })`;
+        const extractScript = await isolate.compileScript(extractCode, { filename: 'extract-error-ctx.js' });
+        const json = await extractScript.run(context, { timeout: 5000 });
+        ctxChanges = JSON.parse(json);
+      } catch {}
+      parentPort.postMessage({
+        type: 'result',
+        id,
+        success: false,
+        error: {
+          message: caughtError.message,
+          statusCode: caughtError.statusCode || null,
+          stack: caughtError.stack,
+          code: caughtError.code,
+        },
+        ctxChanges,
+      });
       return;
     }
 

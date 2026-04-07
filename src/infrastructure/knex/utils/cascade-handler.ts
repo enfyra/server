@@ -193,8 +193,8 @@ export class CascadeHandler {
           .where(foreignKeyColumn, recordId)
           .select('id');
 
-        const existingIds = existingItems.map((item: any) => item.id);
-        const incomingIds = relValue.filter((item: any) => item?.id).map((item: any) => item.id);
+        const existingIds = existingItems.map((item: any) => String(item.id));
+        const incomingIds = relValue.filter((item: any) => item?.id).map((item: any) => String(item.id));
 
         const idsToRemove = existingIds.filter(id => !incomingIds.includes(id));
 
@@ -418,8 +418,14 @@ export class CascadeHandler {
     }
 
     if (newId == null) {
-      const fallback = await knex(targetTableName).orderBy('id', 'desc').first('id');
-      newId = fallback?.id;
+      try {
+        const rawResult = await knex.raw('SELECT LAST_INSERT_ID() as lastId');
+        const row = rawResult?.[0]?.[0] || rawResult?.rows?.[0];
+        if (row?.lastId) newId = row.lastId;
+      } catch {
+        const fallback = await knex(targetTableName).orderBy('id', 'desc').first('id');
+        newId = fallback?.id;
+      }
     }
 
     return newId ?? null;

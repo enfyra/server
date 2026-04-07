@@ -76,14 +76,25 @@ async function bootstrap() {
   ];
 
   const received = new Set<string>();
-  const systemReadyPromise = new Promise<void>((resolve) => {
+  const systemReadyPromise = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      const missing = BOOT_EVENTS.filter(e => !received.has(e));
+      logger.warn(`Boot timeout after 60s. Missing events: ${missing.join(', ')}`);
+      resolve();
+    }, 60000);
+
+    const check = () => {
+      if (received.size === BOOT_EVENTS.length) {
+        clearTimeout(timeout);
+        eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
+        resolve();
+      }
+    };
+
     for (const event of BOOT_EVENTS) {
       eventEmitter.on(event, () => {
         received.add(event);
-        if (received.size === BOOT_EVENTS.length) {
-          eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
-          resolve();
-        }
+        check();
       });
     }
   });

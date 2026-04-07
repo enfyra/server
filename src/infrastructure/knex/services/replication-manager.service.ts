@@ -149,6 +149,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
   getReplicaKnex(): Knex {
     const readFromMaster = this.configService.get<string>('DB_READ_FROM_MASTER') === 'true';
     const healthyReplicas = this.replicaNodes.filter(node => node.isHealthy);
+    if (healthyReplicas.length === 0) {
+      return this.masterKnex;
+    }
     if (readFromMaster) {
       const totalNodes = 1 + healthyReplicas.length;
       const currentIndex = this.currentReplicaIndex % totalNodes;
@@ -157,12 +160,12 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
         return this.masterKnex;
       }
       const replicaIndex = currentIndex - 1;
+      if (replicaIndex >= healthyReplicas.length) {
+        return this.masterKnex;
+      }
       const selectedNode = healthyReplicas[replicaIndex];
       selectedNode.connectionCount++;
       return selectedNode.knex;
-    }
-    if (healthyReplicas.length === 0) {
-      return this.masterKnex;
     }
     const selectedNode = healthyReplicas[this.currentReplicaIndex % healthyReplicas.length];
     this.currentReplicaIndex = (this.currentReplicaIndex + 1) % healthyReplicas.length;

@@ -234,15 +234,6 @@
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
-            "path": "/assets/:id",
-            "isEnabled": true,
-            "isSystem": true,
-            "icon": "lucide:image",
-            "description": "Get file assets by ID",
-            "publishedMethods": ["GET"],
-            "availableMethods": ["GET"]
-        },
-        {
             "path": "/file_permission_definition",
             "mainTable": "file_permission_definition",
             "isEnabled": true,

@@ -60,9 +60,13 @@ import { FlowModule } from './modules/flow/flow.module';
     CommonModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get('SECRET_KEY'),
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const secret = configService.get<string>('SECRET_KEY');
+        if (!secret) {
+          throw new Error('SECRET_KEY environment variable is required but not set.');
+        }
+        return { secret };
+      },
       inject: [ConfigService],
     }),
     RedisModule.forRootAsync({
@@ -86,16 +90,21 @@ import { FlowModule } from './modules/flow/flow.module';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get('REDIS_HOST') || 'localhost',
-          port: configService.get<number>('REDIS_PORT') || 6379,
-          db: configService.get<number>('REDIS_DB') || 0,
-          password: configService.get('REDIS_PASSWORD'),
-          url: configService.get('REDIS_URI'),
-        },
-        prefix: configService.get('NODE_NAME') || 'bull',
-      }),
+      useFactory: (configService: ConfigService) => {
+        const redisUri = configService.get<string>('REDIS_URI');
+        const connection = redisUri
+          ? { url: redisUri }
+          : {
+              host: configService.get('REDIS_HOST') || 'localhost',
+              port: configService.get<number>('REDIS_PORT') || 6379,
+              db: configService.get<number>('REDIS_DB') || 0,
+              password: configService.get('REDIS_PASSWORD'),
+            };
+        return {
+          connection,
+          prefix: configService.get('NODE_NAME') || 'bull',
+        };
+      },
     }),
     CacheModule,
     QueryEngineModule,

@@ -108,7 +108,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         this.reloadDebounceTimer = setTimeout(async () => {
           this.reloadDebounceTimer = null;
           const resolvers = this.reloadDebounceResolvers.splice(0);
-          await this.reload();
+          try {
+            await this.reload();
+          } catch {}
           resolvers.forEach((r) => r());
         }, 50);
       });
@@ -469,10 +471,20 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     return await this.loadAndCacheMetadata();
   }
 
+  private initialLoadPromise: Promise<EnfyraMetadata> | null = null;
+
   private async loadAndCacheMetadata(): Promise<EnfyraMetadata> {
-    const metadata = await this.loadMetadataFromDb();
-    this.inMemoryCache = metadata;
-    return metadata;
+    if (this.initialLoadPromise) return this.initialLoadPromise;
+    this.initialLoadPromise = (async () => {
+      try {
+        const metadata = await this.loadMetadataFromDb();
+        this.inMemoryCache = metadata;
+        return metadata;
+      } finally {
+        this.initialLoadPromise = null;
+      }
+    })();
+    return this.initialLoadPromise;
   }
 
   async reload(): Promise<void> {

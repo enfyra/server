@@ -29,8 +29,7 @@ export class FileUploadMiddleware implements NestMiddleware {
     }
     this.upload.single('file')(req, res, (error: any) => {
       if (error) {
-        console.warn('File upload middleware error:', error.message);
-        return next();
+        return next(error);
       }
       if (req.file && req.file.originalname) {
         try {

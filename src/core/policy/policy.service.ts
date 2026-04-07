@@ -45,15 +45,20 @@ export class PolicyService {
       };
     }
 
+    const userId = String(ctx.user._id || ctx.user.id);
+    const userRoleId = ctx.user.role ? String(ctx.user.role._id || ctx.user.role.id) : null;
+
     const canPass = ctx.routeData.routePermissions.find((permission: any) => {
       const hasMethodAccess = permission.methods.some(
         (item: any) => item.method === ctx.method,
       );
       if (!hasMethodAccess) return false;
-      if (permission?.allowedUsers?.some((user: any) => user?.id === ctx.user.id)) {
+      if (permission?.allowedUsers?.some((user: any) => String(user?._id || user?.id) === userId)) {
         return true;
       }
-      return permission?.role?.id === ctx.user.role.id;
+      if (!userRoleId) return false;
+      const permRoleId = String(permission?.role?._id || permission?.role?.id);
+      return permRoleId === userRoleId;
     });
 
     if (canPass) return { allow: true };

@@ -33,15 +33,21 @@ export class PackageCdnLoaderService {
   }
 
   isLoaded(name: string): boolean {
-    return this.moduleCache.has(name);
+    for (const key of this.moduleCache.keys()) {
+      if (key === name || key.startsWith(`${name}@`)) return true;
+    }
+    return false;
   }
 
   getModule(name: string): any | undefined {
-    return this.moduleCache.get(name);
+    for (const [key, mod] of this.moduleCache) {
+      if (key === name || key.startsWith(`${name}@`)) return mod;
+    }
+    return undefined;
   }
 
   async loadPackage(name: string, version: string): Promise<any> {
-    const cacheKey = name;
+    const cacheKey = `${name}@${version}`;
 
     if (this.moduleCache.has(cacheKey)) {
       return this.moduleCache.get(cacheKey);
@@ -70,7 +76,11 @@ export class PackageCdnLoaderService {
   }
 
   async invalidatePackage(name: string, newVersion?: string): Promise<void> {
-    this.moduleCache.delete(name);
+    for (const key of this.moduleCache.keys()) {
+      if (key === name || key.startsWith(`${name}@`)) {
+        this.moduleCache.delete(key);
+      }
+    }
 
     const prefix = `${name.replace(/[^a-zA-Z0-9]/g, '_')}@`;
     try {

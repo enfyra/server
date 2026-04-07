@@ -33,7 +33,11 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
     let totalDeleted = 0;
     let hasMore = true;
 
-    while (hasMore) {
+    const MAX_ITERATIONS = 100;
+    let iterations = 0;
+
+    while (hasMore && iterations < MAX_ITERATIONS) {
+      iterations++;
       const result = await this.queryBuilder.select({
         tableName: 'session_definition',
         filter: { expiredAt: { _lt: now } },
@@ -44,15 +48,18 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
       const expired = result?.data || [];
       if (expired.length === 0) break;
 
+      let batchDeleted = 0;
       for (const session of expired) {
         try {
           await this.queryBuilder.deleteById('session_definition', session[idField]);
           totalDeleted++;
+          batchDeleted++;
         } catch (err) {
           this.logger.warn(`Failed to delete session ${session[idField]}: ${err.message}`);
         }
       }
 
+      if (batchDeleted === 0) break;
       if (expired.length < BATCH_SIZE) hasMore = false;
     }
 

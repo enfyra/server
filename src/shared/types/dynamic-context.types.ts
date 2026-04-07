@@ -32,6 +32,7 @@ export interface TDynamicContext {
   $data?: any;
   $throw?: any;
   $error?: any;
+  $statusCode?: number;
   $logs?: (...args: any[]) => void;
   $helpers?: {
     $jwt?: (payload: any, exp: string) => string;

@@ -55,10 +55,16 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
   subscribeWithHandler(
     channel: string,
-    handler: (channel: string, message: string) => void
+    handler: (channel: string, message: string) => void,
+    retryCount = 0,
   ): boolean {
     if (!this.sub) {
-      setTimeout(() => this.subscribeWithHandler(channel, handler), 100);
+      if (retryCount >= 50) {
+        console.warn(`[RedisPubSubService] Gave up subscribing to ${channel} after ${retryCount} retries (Redis not available)`);
+        return false;
+      }
+      const delay = Math.min(100 * Math.pow(2, Math.min(retryCount, 10)), 30000);
+      setTimeout(() => this.subscribeWithHandler(channel, handler, retryCount + 1), delay);
       return false;
     }
     const decoratedChannel = this.decorateChannel(channel);

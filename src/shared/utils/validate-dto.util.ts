@@ -9,9 +9,12 @@ export async function validateDto<T extends object>(
   const instance = plainToInstance(dtoClass, obj);
   const errors = await validate(instance);
   if (errors.length > 0) {
-    const constraints = errors
-      .flatMap((e) => Object.values(e.constraints || {}))
-      .join('; ');
+    const extractMessages = (errs: typeof errors): string[] =>
+      errs.flatMap((e) => [
+        ...Object.values(e.constraints || {}),
+        ...extractMessages(e.children || []),
+      ]);
+    const constraints = extractMessages(errors).join('; ');
     throw new BadRequestException('Validation failed: ' + constraints);
   }
   return instance;
