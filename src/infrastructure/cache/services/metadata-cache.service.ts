@@ -8,7 +8,6 @@ import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames }
 import { METADATA_CACHE_SYNC_EVENT_KEY, ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
-import { ObjectId } from 'mongodb';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -118,8 +117,37 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
     const isMongoDB = this.queryBuilder.isMongoDb();
 
-    const tablesResult = await this.queryBuilder.select({ tableName: 'table_definition' });
+    const [tablesResult, allColumnsResult, allRelationsResult] = await Promise.all([
+      this.queryBuilder.select({ tableName: 'table_definition' }),
+      this.queryBuilder.select({ tableName: 'column_definition' }),
+      this.queryBuilder.select({ tableName: 'relation_definition' }),
+    ]);
     const tables = tablesResult.data;
+
+    let allSchemas: Map<string, any> | null = null;
+    if (!isMongoDB) {
+      allSchemas = await this.databaseSchemaService.getAllTableSchemas();
+    }
+
+    const columnsByTable = new Map<string | number, any[]>();
+    for (const col of allColumnsResult.data) {
+      const key = isMongoDB ? String(col.table) : col.tableId;
+      if (!columnsByTable.has(key)) columnsByTable.set(key, []);
+      columnsByTable.get(key)!.push(col);
+    }
+
+    const relationsBySource = new Map<string | number, any[]>();
+    for (const rel of allRelationsResult.data) {
+      const key = isMongoDB ? String(rel.sourceTable) : rel.sourceTableId;
+      if (!relationsBySource.has(key)) relationsBySource.set(key, []);
+      relationsBySource.get(key)!.push(rel);
+    }
+
+    const tableIdToName = new Map<string | number, string>();
+    for (const t of tables) {
+      const id = isMongoDB ? String(t._id) : t.id;
+      tableIdToName.set(id, t.name);
+    }
 
     const tablesList: any[] = [];
     const tablesMap = new Map<string, any>();
@@ -128,7 +156,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
       try {
         let actualSchema = null;
         if (!isMongoDB) {
-          actualSchema = await this.databaseSchemaService.getActualTableSchema(table.name);
+          actualSchema = allSchemas!.get(table.name);
           if (!actualSchema) {
             this.logger.warn(`Table ${table.name} not found in database, skipping...`);
             continue;
@@ -139,51 +167,32 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         let indexes = [];
         if (table.uniques) {
           if (typeof table.uniques === 'string') {
-            try {
-              uniques = JSON.parse(table.uniques);
-            } catch (e) {
-              this.logger.warn(`Failed to parse uniques for table ${table.name}`);
-            }
+            try { uniques = JSON.parse(table.uniques); } catch (e) { this.logger.warn(`Failed to parse uniques for table ${table.name}`); }
           } else if (Array.isArray(table.uniques)) {
             uniques = table.uniques;
           }
         }
         if (table.indexes) {
           if (typeof table.indexes === 'string') {
-            try {
-              indexes = JSON.parse(table.indexes);
-            } catch (e) {
-              this.logger.warn(`Failed to parse indexes for table ${table.name}`);
-            }
+            try { indexes = JSON.parse(table.indexes); } catch (e) { this.logger.warn(`Failed to parse indexes for table ${table.name}`); }
           } else if (Array.isArray(table.indexes)) {
             indexes = table.indexes;
           }
         }
 
-        const tableIdField = isMongoDB ? 'table' : 'tableId';
-        const tableIdValue = isMongoDB
-          ? (typeof table._id === 'string' ? new ObjectId(table._id) : table._id)
-          : table.id;
+        const tableIdValue = isMongoDB ? String(table._id) : table.id;
 
-        const columnsResult = await this.queryBuilder.select({
-          tableName: 'column_definition',
-          filter: { [tableIdField]: { _eq: tableIdValue } }
-        });
-        const explicitColumns = columnsResult.data;
+        const explicitColumns = columnsByTable.get(tableIdValue) || [];
 
         const parsedExplicitColumns = explicitColumns.map((col: any) => {
           const column = { ...col };
 
           if (col.options && typeof col.options === 'string') {
-            try {
-              column.options = JSON.parse(col.options);
-            } catch (e) {}
+            try { column.options = JSON.parse(col.options); } catch (e) {}
           }
 
           if (col.defaultValue && typeof col.defaultValue === 'string') {
-            try {
-              column.defaultValue = JSON.parse(col.defaultValue);
-            } catch (e) {}
+            try { column.defaultValue = JSON.parse(col.defaultValue); } catch (e) {}
           }
 
           const booleanFields = ['isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isHidden'];
@@ -196,13 +205,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           return column;
         });
 
-        const sourceTableIdField = isMongoDB ? 'sourceTable' : 'sourceTableId';
-
-        const relationsResult = await this.queryBuilder.select({
-          tableName: 'relation_definition',
-          filter: { [sourceTableIdField]: { _eq: tableIdValue } }
-        });
-        const relationsData = relationsResult.data;
+        const relationsData = relationsBySource.get(tableIdValue) || [];
 
         const relations: any[] = [];
         for (const rel of relationsData) {
@@ -213,21 +216,13 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             }
           }
 
-          const targetTableIdField = isMongoDB ? '_id' : 'id';
-          const targetTableIdValue = isMongoDB
-            ? (typeof rel.targetTable === 'string' ? new ObjectId(rel.targetTable) : rel.targetTable)
-            : rel.targetTableId;
-
-          const targetTableResult = await this.queryBuilder.select({
-            tableName: 'table_definition',
-            filter: { [targetTableIdField]: { _eq: targetTableIdValue } }
-          });
-          const targetTable = targetTableResult.data;
+          const targetTableIdValue = isMongoDB ? String(rel.targetTable) : rel.targetTableId;
+          const targetTableName = tableIdToName.get(targetTableIdValue);
 
           const relationMetadata: any = {
             ...rel,
             sourceTableName: table.name,
-            targetTableName: targetTable[0]?.name || rel.targetTableName,
+            targetTableName: targetTableName || rel.targetTableName,
           };
 
           if (rel.type === 'one-to-many') {
