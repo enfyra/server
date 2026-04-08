@@ -33,7 +33,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.reload();
+    await this.reload(false);
     this.eventEmitter?.emit(CACHE_EVENTS.PACKAGE_LOADED);
   }
 
@@ -62,24 +62,9 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     return packages;
   }
 
-  protected handleSyncData(data: string[]): void {
-    this.cache = data;
-  }
-
-  protected deserializeSyncData(payload: any): any {
-    return payload.packages;
-  }
-
-  protected serializeForPublish(packages: string[]): Record<string, any> {
-    return { packages };
-  }
-
   protected getLogCount(): string {
     return `${this.cache.length} packages`;
   }
-
-  protected logSyncSuccess(_payload: any): void {}
-
 
   protected async afterTransform(): Promise<void> {
     this.preloadPackagesFromCdn().catch((error) => {

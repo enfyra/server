@@ -51,7 +51,7 @@ export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> 
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.reload();
+    await this.reload(false);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -88,24 +88,9 @@ export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> 
     return gateways;
   }
 
-  protected handleSyncData(data: WebSocketGateway[]): void {
-    this.cache = data;
-  }
-
-  protected deserializeSyncData(payload: any): any {
-    return payload.gateways;
-  }
-
-  protected serializeForPublish(gateways: WebSocketGateway[]): Record<string, any> {
-    return { gateways };
-  }
-
   protected getLogCount(): string {
     return `${this.cache.length} websocket gateways`;
   }
-
-  protected logSyncSuccess(_payload: any): void {}
-
 
   protected emitLoadedEvent(): void {
     this.eventEmitter.emit(CACHE_EVENTS.WEBSOCKET_LOADED);

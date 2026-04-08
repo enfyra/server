@@ -38,7 +38,7 @@ export class OAuthConfigCacheService extends BaseCacheService<Map<string, OAuthC
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.reload();
+    await this.reload(false);
     this.eventEmitter?.emit(CACHE_EVENTS.OAUTH_CONFIG_LOADED);
   }
 
@@ -77,24 +77,9 @@ export class OAuthConfigCacheService extends BaseCacheService<Map<string, OAuthC
     return map;
   }
 
-  protected handleSyncData(data: Array<[string, OAuthConfig]>): void {
-    this.cache = new Map(data);
-  }
-
-  protected deserializeSyncData(payload: any): any {
-    return payload.configs;
-  }
-
-  protected serializeForPublish(cache: Map<string, OAuthConfig>): Record<string, any> {
-    return { configs: Array.from(cache.entries()) };
-  }
-
   protected getLogCount(): string {
     return `${this.cache.size} OAuth configs`;
   }
-
-  protected logSyncSuccess(_payload: any): void {}
-
 
   async getConfigByProvider(provider: string): Promise<OAuthConfig | null> {
     await this.ensureLoaded();

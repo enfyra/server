@@ -7,7 +7,7 @@ import { MetadataCacheService } from '../../../infrastructure/cache/services/met
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import { generateGraphQLTypeDefsFromTables } from '../utils/generate-type-defs';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 const COLOR = '\x1b[95m'; // Bright Magenta
 const RESET = '\x1b[0m';
@@ -24,13 +24,6 @@ export class GraphqlService {
     private dynamicResolver: DynamicResolver,
     private eventEmitter: EventEmitter2,
   ) {}
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.GRAPHQL)) {
-      await this.reloadSchema();
-    }
-  }
 
   @OnEvent(CACHE_EVENTS.ROUTE_LOADED)
   async reloadSchema(): Promise<void> {

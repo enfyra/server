@@ -27,7 +27,7 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.reload();
+    await this.reload(false);
     this.eventEmitter?.emit(CACHE_EVENTS.STORAGE_LOADED);
   }
 
@@ -83,51 +83,9 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
     return configsMap;
   }
 
-  protected handleSyncData(data: Array<[string | number, any]>): void {
-    this.cache = new Map();
-    const isMongoDb = this.queryBuilder.isMongoDb();
-
-    for (const [id, config] of data) {
-      if (!id || id === null || id === undefined) {
-        continue;
-      }
-
-      let normalizedId: string | number = id;
-
-      if (isMongoDb) {
-        if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
-          normalizedId = (id as any).toString();
-        } else {
-          normalizedId = String(id);
-        }
-      }
-
-      this.cache.set(normalizedId, config);
-
-      if (!isMongoDb) {
-        if (typeof normalizedId === 'number') {
-          this.cache.set(String(normalizedId), config);
-        } else if (typeof normalizedId === 'string' && !isNaN(Number(normalizedId))) {
-          this.cache.set(Number(normalizedId), config);
-        }
-      }
-    }
-  }
-
-  protected deserializeSyncData(payload: any): any {
-    return payload.configs;
-  }
-
-  protected serializeForPublish(cache: Map<string | number, any>): Record<string, any> {
-    return { configs: Array.from(cache.entries()) };
-  }
-
   protected getLogCount(): string {
     return `${this.cache.size} storage configs`;
   }
-
-  protected logSyncSuccess(_payload: any): void {}
-
 
   async getStorageConfigById(id: number | string | null | undefined): Promise<any | null> {
     await this.ensureLoaded();

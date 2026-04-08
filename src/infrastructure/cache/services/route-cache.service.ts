@@ -42,7 +42,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
     await this.metadataCacheService.getMetadata();
-    await this.reload();
+    await this.reload(false);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -175,26 +175,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.buildRouteEngine(data.routes);
   }
 
-  protected handleSyncData(data: RouteData): void {
-    this.cache = data;
-    this.allMethods = data.methods || [];
-    this.buildRouteEngine(data.routes);
-  }
-
-  protected deserializeSyncData(payload: any): any {
-    return {
-      routes: payload.routes,
-      methods: payload.methods || [],
-    };
-  }
-
-  protected serializeForPublish(data: RouteData): Record<string, any> {
-    return {
-      routes: data.routes,
-      methods: data.methods,
-    };
-  }
-
   protected emitLoadedEvent(): void {
     this.eventEmitter?.emit(CACHE_EVENTS.ROUTE_LOADED);
   }
@@ -206,9 +186,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   protected getCount(): number {
     return this.cache.routes.length;
   }
-
-  protected logSyncSuccess(_payload: any): void {}
-
 
   private buildRouteEngine(routes: any[]): void {
     this.routeEngine = new EnfyraRouteEngine(false);

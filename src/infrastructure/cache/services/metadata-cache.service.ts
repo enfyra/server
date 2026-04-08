@@ -493,8 +493,6 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        await this.publishReloadSignal();
-
         try {
           this.websocketGateway.emitToNamespace(
             ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
@@ -507,6 +505,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         this.inMemoryCache = metadata;
 
+        await this.publishReloadSignal();
 
         try {
           this.websocketGateway.emitToNamespace(

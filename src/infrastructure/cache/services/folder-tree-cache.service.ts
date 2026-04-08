@@ -43,7 +43,7 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.reload();
+    await this.reload(false);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -112,24 +112,6 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     };
 
     return sortNodes(roots);
-  }
-
-  protected handleSyncData(data: FolderTreeCache): void {
-    this.cache = data;
-  }
-
-  protected deserializeSyncData(payload: any): FolderTreeCache {
-    return {
-      folders: new Map(payload.folders),
-      tree: payload.tree,
-    };
-  }
-
-  protected serializeForPublish(data: FolderTreeCache): Record<string, any> {
-    return {
-      folders: Array.from(data.folders.entries()),
-      tree: data.tree,
-    };
   }
 
   protected getLogCount(): string {
