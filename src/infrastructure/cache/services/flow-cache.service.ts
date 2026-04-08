@@ -32,7 +32,7 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
-    await this.reload();
+    await this.reload(false);
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
@@ -97,18 +97,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
 
   protected async afterTransform(): Promise<void> {}
 
-  protected handleSyncData(data: any): void {
-    this.cache = data;
-  }
-
-  protected deserializeSyncData(payload: any): any {
-    return payload;
-  }
-
-  protected serializeForPublish(data: FlowDefinition[]): Record<string, any> {
-    return { flows: data };
-  }
-
   protected emitLoadedEvent(): void {
     this.eventEmitter?.emit(CACHE_EVENTS.FLOW_LOADED);
   }
@@ -120,9 +108,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   protected getCount(): number {
     return this.cache.length;
   }
-
-  protected logSyncSuccess(_payload: any): void {}
-
 
   async getFlows(): Promise<FlowDefinition[]> {
     await this.ensureLoaded();

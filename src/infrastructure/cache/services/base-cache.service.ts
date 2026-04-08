@@ -55,15 +55,14 @@ export abstract class BaseCacheService<T> {
         return;
       }
 
-      if (payload.type === 'RELOAD_SIGNAL') {
-        await this.reload();
-      }
+      this.logger.debug(`Sync signal received from ${payload.instanceId.slice(0, 8)}`);
+      await this.reload(false);
     } catch (error) {
       this.logger.error('Failed to parse cache sync message:', error);
     }
   }
 
-  async reload(): Promise<void> {
+  async reload(publish = true): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       return this.loadingPromise;
     }
@@ -71,6 +70,7 @@ export abstract class BaseCacheService<T> {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
+        const start = Date.now();
         await this.beforeLoad();
 
         const rawData = await this.loadFromDb();
@@ -81,9 +81,14 @@ export abstract class BaseCacheService<T> {
 
         this.cacheLoaded = true;
 
+        const elapsed = Date.now() - start;
+        this.logger.log(`Loaded ${this.getLogCount()} in ${elapsed}ms${publish ? '' : ' (sync)'}`);
+
         this.emitLoadedEvent();
 
-        await this.publishReloadSignal();
+        if (publish) {
+          await this.publishReloadSignal();
+        }
       } catch (error) {
         this.logger.error('Failed to reload cache:', error);
         throw error;
@@ -116,19 +121,9 @@ export abstract class BaseCacheService<T> {
 
   protected abstract transformData(rawData: any): T;
 
-  protected abstract handleSyncData(data: any): void;
-
   protected async beforeLoad(): Promise<void> {}
 
   protected async afterTransform(data: T): Promise<void> {}
-
-  protected deserializeSyncData(payload: any): any {
-    return payload.data ?? payload;
-  }
-
-  protected serializeForPublish(data: T): Record<string, any> {
-    return { data };
-  }
 
   protected emitLoadedEvent(): void {
     if (this.eventEmitter) {
@@ -148,9 +143,6 @@ export abstract class BaseCacheService<T> {
       return this.cache.length;
     }
     return 1;
-  }
-
-  protected logSyncSuccess(payload: any): void {
   }
 
   isLoaded(): boolean {
