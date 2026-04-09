@@ -20,7 +20,12 @@ export async function buildNestedSubquery(
   nestingLevel: number = 0,
   parentAliasOverride?: string,
   junctionAlias?: string,
+  maxDepth?: number,
 ): Promise<string | null> {
+  if (maxDepth !== undefined && nestingLevel >= maxDepth) {
+    return null;
+  }
+
   const relation = parentMeta.relations?.find(
     (r) => r.propertyName === relationName,
   );
@@ -126,6 +131,7 @@ export async function buildNestedSubquery(
       nestingLevel + 1,
       currentAlias,
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel + 1}`,
+      maxDepth,
     );
 
     if (nestedSubquery) {
@@ -242,6 +248,7 @@ export async function buildOwnerCTEStrategy(
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   limitedCTEName: string,
   parentIdColumn: string = 'id',
+  maxDepth?: number,
 ): Promise<string | null> {
   const relation = parentMeta.relations?.find(
     (r) => r.propertyName === relationName,
@@ -328,6 +335,7 @@ export async function buildOwnerCTEStrategy(
       1,
       'r',
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
+      maxDepth,
     );
 
     if (nestedSubquery) {
@@ -379,6 +387,7 @@ export async function buildCTEStrategy(
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   limitedCTEName: string,
   parentIdColumn: string = 'id',
+  maxDepth?: number,
 ): Promise<string | null> {
   const relation = parentMeta.relations?.find(
     (r) => r.propertyName === relationName,
@@ -463,6 +472,7 @@ export async function buildCTEStrategy(
       1,
       'r',
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
+      maxDepth,
     );
 
     if (nestedSubquery) {

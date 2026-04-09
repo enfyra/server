@@ -8,6 +8,7 @@ export const CACHE_EVENTS = {
   PACKAGE_LOADED: 'cache:package:loaded',
   FLOW_LOADED: 'cache:flow:loaded',
   GUARD_LOADED: 'cache:guard:loaded',
+  SETTING_LOADED: 'cache:setting:loaded',
   GRAPHQL_LOADED: 'cache:graphql:loaded',
   SYSTEM_READY: 'system:ready',
 } as const;
@@ -24,6 +25,7 @@ export const CACHE_IDENTIFIERS = {
   FOLDER_TREE: 'folder-tree',
   FLOW: 'flow',
   GUARD: 'guard',
+  SETTING: 'setting',
 } as const;
 
 type CacheIdentifier =
@@ -63,6 +65,7 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   flow_step_definition: [CACHE_IDENTIFIERS.FLOW],
   guard_definition: [CACHE_IDENTIFIERS.GUARD],
   guard_rule_definition: [CACHE_IDENTIFIERS.GUARD],
+  setting_definition: [CACHE_IDENTIFIERS.SETTING],
 };
 
 export function shouldReloadCache(

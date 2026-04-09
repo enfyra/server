@@ -28,6 +28,7 @@ export class SqlQueryExecutor {
     private readonly knex: Knex,
     private readonly dbType: 'postgres' | 'mysql' | 'sqlite',
     private readonly knexService?: KnexService,
+    private readonly maxQueryDepth?: number,
   ) {}
 
   async execute(options: {
@@ -1044,6 +1045,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         whereClause,
         offset,
         limitedCteSortJoin,
+        this.maxQueryDepth,
       );
       return { select: expanded.select, cteClauses: expanded.cteClauses };
     } catch (error) {

@@ -17,6 +17,8 @@ export const OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY =
 export const FLOW_CACHE_SYNC_EVENT_KEY = 'enfyra:flow-cache-sync';
 export const FOLDER_TREE_CACHE_SYNC_EVENT_KEY = 'enfyra:folder-tree-cache-sync';
 export const GUARD_CACHE_SYNC_EVENT_KEY = 'enfyra:guard-cache-sync';
+export const SETTING_CACHE_SYNC_EVENT_KEY = 'enfyra:setting-cache-sync';
+export const DEFAULT_MAX_QUERY_DEPTH = 7;
 
 export const SYSTEM_QUEUES = {
   SESSION_CLEANUP: 'sys_session-cleanup',

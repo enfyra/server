@@ -53,6 +53,7 @@ export async function expandFieldsToJoinsAndSelect(
   whereClause?: string,
   offset?: number,
   limitedCteSortJoin?: LimitedCteSortJoin,
+  maxDepth?: number,
 ): Promise<FieldExpansionResult> {
   const select: string[] = [];
 
@@ -256,6 +257,8 @@ export async function expandFieldsToJoinsAndSelect(
         dbType,
         metadataGetter as any,
         limitedCTEName,
+        undefined,
+        maxDepth,
       );
 
       if (cteClause) {
@@ -276,6 +279,9 @@ export async function expandFieldsToJoinsAndSelect(
           dbType,
           metadataGetter as any,
           0,
+          undefined,
+          undefined,
+          maxDepth,
         );
 
         if (subquery) {
@@ -297,6 +303,8 @@ export async function expandFieldsToJoinsAndSelect(
         dbType,
         metadataGetter as any,
         limitedCTEName,
+        undefined,
+        maxDepth,
       );
 
       if (cteClause) {
@@ -319,6 +327,9 @@ export async function expandFieldsToJoinsAndSelect(
           dbType,
           metadataGetter as any,
           0,
+          undefined,
+          undefined,
+          maxDepth,
         );
 
         if (subquery) {
@@ -335,6 +346,10 @@ export async function expandFieldsToJoinsAndSelect(
         nestedFields,
         dbType,
         metadataGetter as any,
+        0,
+        undefined,
+        undefined,
+        maxDepth,
       );
 
       if (subquery) {

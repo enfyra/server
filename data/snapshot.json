@@ -141,7 +141,8 @@
             { "name": "projectName", "type": "varchar", "isSystem": true, "description": "Name of the project/application" },
             { "name": "projectDescription", "type": "text", "isSystem": true, "description": "Description of the project/application" },
             { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" },
-            { "name": "corsAllowedOrigins", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Allowed CORS origins (array of domain URLs)" }
+            { "name": "corsAllowedOrigins", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Allowed CORS origins (array of domain URLs)" },
+            { "name": "maxQueryDepth", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 7, "description": "Maximum nesting depth for REST deep-fetch and GraphQL queries (default: 7)" }
         ],
         "relations": []
     },

@@ -14,6 +14,7 @@ import { FlowCacheService } from './services/flow-cache.service';
 import { PackageCdnLoaderService } from './services/package-cdn-loader.service';
 import { GuardCacheService } from './services/guard-cache.service';
 import { GuardEvaluatorService } from './services/guard-evaluator.service';
+import { SettingCacheService } from './services/setting-cache.service';
 
 @Global()
 @Module({
@@ -32,6 +33,7 @@ import { GuardEvaluatorService } from './services/guard-evaluator.service';
     PackageCdnLoaderService,
     GuardCacheService,
     GuardEvaluatorService,
+    SettingCacheService,
     RepoRegistryService,
   ],
   exports: [
@@ -49,6 +51,7 @@ import { GuardEvaluatorService } from './services/guard-evaluator.service';
     PackageCdnLoaderService,
     GuardCacheService,
     GuardEvaluatorService,
+    SettingCacheService,
     RepoRegistryService,
   ],
 })

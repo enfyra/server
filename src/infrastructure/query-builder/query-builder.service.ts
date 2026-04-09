@@ -207,6 +207,7 @@ export class QueryBuilderService {
     debugMode?: boolean;
     debugLog?: any[];
     pipeline?: any[];
+    maxQueryDepth?: number;
   }): Promise<any> {
     const metadata = this.metadataCache.getDirectMetadata();
 
@@ -237,6 +238,7 @@ export class QueryBuilderService {
       this.knexService.getKnex(),
       this.dbType as 'postgres' | 'mysql' | 'sqlite',
       this.knexService,
+      options.maxQueryDepth,
     );
     return executor.execute({ ...options, metadata, plan });
   }

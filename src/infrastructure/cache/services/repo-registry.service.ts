@@ -7,6 +7,7 @@ import { TableHandlerService } from '../../../modules/table-management/services/
 import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
 import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
+import { SettingCacheService } from './setting-cache.service';
 import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
@@ -23,6 +24,7 @@ export class RepoRegistryService {
     private readonly tableHandlerService: TableHandlerService,
     private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
+    private readonly settingCacheService: SettingCacheService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -91,6 +93,7 @@ export class RepoRegistryService {
         metadataCacheService: self.metadataCacheService,
         policyService: self.policyService,
         tableValidationService: self.tableValidationService,
+        settingCacheService: self.settingCacheService,
         eventEmitter: self.eventEmitter,
       });
 

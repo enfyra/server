@@ -8,6 +8,7 @@ import { isPolicyDeny } from '../../../core/policy/policy.types';
 import { TableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 export class DynamicRepository {
@@ -19,6 +20,7 @@ export class DynamicRepository {
   private policyService: PolicyService;
   private tableValidationService: TableValidationService;
   private metadataCacheService: MetadataCacheService;
+  private settingCacheService: SettingCacheService;
   private eventEmitter: EventEmitter2;
   private tableMetadata: any;
 
@@ -31,6 +33,7 @@ export class DynamicRepository {
     policyService,
     tableValidationService,
     metadataCacheService,
+    settingCacheService,
     eventEmitter,
   }: {
     context: TDynamicContext;
@@ -41,6 +44,7 @@ export class DynamicRepository {
     policyService: PolicyService;
     tableValidationService: TableValidationService;
     metadataCacheService: MetadataCacheService;
+    settingCacheService: SettingCacheService;
     eventEmitter: EventEmitter2;
   }) {
     this.context = context;
@@ -51,6 +55,7 @@ export class DynamicRepository {
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
     this.metadataCacheService = metadataCacheService;
+    this.settingCacheService = settingCacheService;
     this.eventEmitter = eventEmitter;
   }
 
@@ -100,6 +105,7 @@ export class DynamicRepository {
       aggregate: this.context.$query?.aggregate || {},
       deep: this.context.$query?.deep || {},
       debugMode: debugMode,
+      maxQueryDepth: this.settingCacheService.getMaxQueryDepth(),
     } as any);
   }
 
