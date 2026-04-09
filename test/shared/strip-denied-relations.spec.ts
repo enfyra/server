@@ -302,6 +302,51 @@ describe('stripDeniedFields — wildcard resolution', () => {
   });
 });
 
+function makeConditionalRelAllowPolicy(tableName: string, relName: string) {
+  return {
+    unconditionalAllowedColumns: new Set<string>(),
+    unconditionalAllowedRelations: new Set<string>(),
+    unconditionalDeniedColumns: new Set<string>(),
+    unconditionalDeniedRelations: new Set<string>(),
+    rules: [
+      {
+        id: 1,
+        isEnabled: true,
+        action: 'read' as const,
+        effect: 'allow' as const,
+        tableName,
+        roleId: null,
+        allowedUserIds: [],
+        columnName: null,
+        relationPropertyName: relName,
+        condition: { owner: { _eq: '@USER.id' } },
+      },
+    ],
+  };
+}
+
+const TABLE_META_UNPUBLISHED_REL: Record<string, any> = {
+  ...TABLE_META,
+  main_table: {
+    ...TABLE_META.main_table,
+    relations: [
+      ...TABLE_META.main_table.relations,
+      { propertyName: 'secretRel', targetTable: 'company_table', isPublished: false },
+    ],
+  },
+};
+
+const TABLE_META_NESTED_CONDITIONAL: Record<string, any> = {
+  ...TABLE_META,
+  user_table: {
+    ...TABLE_META.user_table,
+    columns: [
+      ...TABLE_META.user_table.columns,
+      { name: 'salary', isPublished: false },
+    ],
+  },
+};
+
 describe('stripDeniedFields — conditional rules safety', () => {
   it('does NOT strip isPublished:false column when conditional allow rule exists', async () => {
     const repo = makeRepo({
@@ -309,12 +354,89 @@ describe('stripDeniedFields — conditional rules safety', () => {
     });
     const result = await strip(repo, 'main_table', ['id', 'name', 'secret'], undefined);
     expect(result.fields).toEqual(['id', 'name', 'secret']);
+    expect(result.needsPostSql).toBe(true);
   });
 
   it('strips isPublished:false column when no conditional rules exist', async () => {
     const repo = makeRepo();
     const result = await strip(repo, 'main_table', ['id', 'name', 'secret'], undefined);
     expect(result.fields).toEqual(['id', 'name']);
+    expect(result.needsPostSql).toBe(false);
+  });
+
+  it('does NOT strip isPublished:false relation when conditional allow rule exists', async () => {
+    const repo = makeRepo({
+      tableMetaMap: TABLE_META_UNPUBLISHED_REL,
+      policiesMap: { 'main_table:read': [makeConditionalRelAllowPolicy('main_table', 'secretRel')] },
+    });
+    const result = await strip(repo, 'main_table', ['id', 'secretRel'], { secretRel: {} });
+    expect(String(result.fields)).toContain('secretRel');
+    expect(result.deep).toHaveProperty('secretRel');
+    expect(result.needsPostSql).toBe(true);
+  });
+
+  it('strips isPublished:false relation when no conditional rules exist', async () => {
+    const repo = makeRepo({ tableMetaMap: TABLE_META_UNPUBLISHED_REL });
+    const result = await strip(repo, 'main_table', ['id', 'secretRel'], { secretRel: {} });
+    expect(String(result.fields)).not.toContain('secretRel');
+    expect(result.deep).not.toHaveProperty('secretRel');
+    expect(result.needsPostSql).toBe(false);
+  });
+
+  it('needsPostSql bubbles up from nested deep', async () => {
+    const repo = makeRepo({
+      tableMetaMap: TABLE_META_NESTED_CONDITIONAL,
+      policiesMap: { 'user_table:read': [makeConditionalAllowPolicy('user_table', 'salary')] },
+    });
+    const deep = { author: { fields: ['id', 'salary'], deep: {} } };
+    const result = await strip(repo, 'main_table', ['id', 'author'], deep);
+    expect(result.needsPostSql).toBe(true);
+  });
+
+  it('needsPostSql is false when nested deep has no conditional rules', async () => {
+    const repo = makeRepo();
+    const deep = { author: { fields: ['id', 'email'], deep: {} } };
+    const result = await strip(repo, 'main_table', ['id', 'author'], deep);
+    expect(result.needsPostSql).toBe(false);
+  });
+});
+
+describe('hasConditionalRulesForField — direct', () => {
+  it('returns true when conditional rule matches field', async () => {
+    const repo = makeRepo({
+      policiesMap: { 'main_table:read': [makeConditionalAllowPolicy('main_table', 'secret')] },
+    });
+    const result = await (repo as any).hasConditionalRulesForField('main_table', 'read', 'column', 'secret');
+    expect(result).toBe(true);
+  });
+
+  it('returns false when no conditional rules for field', async () => {
+    const repo = makeRepo({
+      policiesMap: { 'main_table:read': [makeColDenyPolicy('main_table', 'name')] },
+    });
+    const result = await (repo as any).hasConditionalRulesForField('main_table', 'read', 'column', 'name');
+    expect(result).toBe(false);
+  });
+
+  it('returns false when no policies at all', async () => {
+    const repo = makeRepo();
+    const result = await (repo as any).hasConditionalRulesForField('main_table', 'read', 'column', 'name');
+    expect(result).toBe(false);
+  });
+
+  it('returns true for conditional relation rule', async () => {
+    const repo = makeRepo({
+      policiesMap: { 'main_table:read': [makeConditionalRelAllowPolicy('main_table', 'author')] },
+    });
+    const result = await (repo as any).hasConditionalRulesForField('main_table', 'read', 'relation', 'author');
+    expect(result).toBe(true);
+  });
+
+  it('returns false for fieldPermissionCacheService not set', async () => {
+    const repo = makeRepo();
+    repo.fieldPermissionCacheService = undefined;
+    const result = await (repo as any).hasConditionalRulesForField('main_table', 'read', 'column', 'secret');
+    expect(result).toBe(false);
   });
 });
 
@@ -384,20 +506,36 @@ describe('DynamicRepository.find — stripDeniedFields integration', () => {
     expect(fields).not.toContain('secret');
   });
 
-  it('sanitizeFieldPermissionsResult still runs as safety net', async () => {
+  it('post-SQL runs only when conditional rules exist', async () => {
     const repo = makeFullRepo({
-      queryEngineResult: { data: [{ id: 1 }], count: 1 },
+      policiesMap: { 'main_table:read': [makeConditionalAllowPolicy('main_table', 'secret')] },
+      queryEngineResult: { data: [{ id: 1, secret: 'x' }], count: 1 },
     });
-    repo.context.$query.fields = ['id'];
-    const sanitizeSpy = jest
-      .spyOn(
-        require('../../src/shared/utils/sanitize-field-permissions.util'),
-        'sanitizeFieldPermissionsResult',
-      )
-      .mockResolvedValue([{ id: 1 }]);
-    const result = await repo.find({});
+    repo.context.$query.fields = ['id', 'secret'];
+    repo.metadataCacheService.getDirectMetadata = jest.fn().mockReturnValue({
+      tables: new Map(Object.entries(TABLE_META)),
+      tablesList: Object.values(TABLE_META),
+    });
+    const sanitizeSpy = jest.spyOn(
+      require('../../src/shared/utils/sanitize-field-permissions.util'),
+      'sanitizeFieldPermissionsResult',
+    ).mockResolvedValue([{ id: 1 }]);
+    await repo.find({});
     expect(sanitizeSpy).toHaveBeenCalled();
-    expect(result.data).toEqual([{ id: 1 }]);
+    sanitizeSpy.mockRestore();
+  });
+
+  it('post-SQL skipped when no conditional rules (all resolved pre-SQL)', async () => {
+    const repo = makeFullRepo({
+      queryEngineResult: { data: [{ id: 1, name: 'test' }], count: 1 },
+    });
+    repo.context.$query.fields = ['id', 'name'];
+    const sanitizeSpy = jest.spyOn(
+      require('../../src/shared/utils/sanitize-field-permissions.util'),
+      'sanitizeFieldPermissionsResult',
+    );
+    await repo.find({});
+    expect(sanitizeSpy).not.toHaveBeenCalled();
     sanitizeSpy.mockRestore();
   });
 });
