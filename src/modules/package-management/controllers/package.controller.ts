@@ -70,9 +70,7 @@ export class PackageController {
     }
 
     if (!body.type) {
-      throw new ValidationException(
-        'Package type is required (App or Server)',
-      );
+      throw new ValidationException('Package type is required (App or Server)');
     }
 
     const packageRepo =
@@ -116,8 +114,14 @@ export class PackageController {
     });
 
     if (body.type === 'Server') {
-      this.executeCdnLoad(savedPackageId, body.name, body.version || 'latest').catch((error) => {
-        this.logger.error(`CDN load failed for ${body.name}: ${extractErrorMessage(error)}`);
+      this.executeCdnLoad(
+        savedPackageId,
+        body.name,
+        body.version || 'latest',
+      ).catch((error) => {
+        this.logger.error(
+          `CDN load failed for ${body.name}: ${extractErrorMessage(error)}`,
+        );
       });
     } else {
       await this.updateStatus(savedPackageId, 'installed');
@@ -131,7 +135,11 @@ export class PackageController {
     return packageRepo.find({ where: { id: { _eq: savedPackageId } } });
   }
 
-  private async executeCdnLoad(id: string | number, name: string, version: string) {
+  private async executeCdnLoad(
+    id: string | number,
+    name: string,
+    version: string,
+  ) {
     try {
       await this.cdnLoader.loadPackage(name, version);
 
@@ -199,9 +207,13 @@ export class PackageController {
       to: body.version,
     });
 
-    this.executeCdnUpdate(id, packageRecord.name, body.version).catch((error) => {
-      this.logger.error(`CDN update failed for ${packageRecord.name}: ${extractErrorMessage(error)}`);
-    });
+    this.executeCdnUpdate(id, packageRecord.name, body.version).catch(
+      (error) => {
+        this.logger.error(
+          `CDN update failed for ${packageRecord.name}: ${extractErrorMessage(error)}`,
+        );
+      },
+    );
 
     return packageRepo.find({ where: { id: { _eq: id } } });
   }

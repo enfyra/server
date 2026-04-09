@@ -1,5 +1,4 @@
 import * as sharp from 'sharp';
-import * as path from 'path';
 export class ImageProcessorHelper {
   static createProcessor(
     input: Buffer | string,
@@ -38,7 +37,9 @@ export class ImageProcessorHelper {
     gravity?: string,
   ): sharp.Sharp {
     if (!width && !height) return processor;
-    const fitMap: { [key: string]: 'cover' | 'contain' | 'fill' | 'inside' | 'outside' } = {
+    const fitMap: {
+      [key: string]: 'cover' | 'contain' | 'fill' | 'inside' | 'outside';
+    } = {
       cover: 'cover',
       contain: 'contain',
       fill: 'fill',
@@ -89,8 +90,7 @@ export class ImageProcessorHelper {
         }),
       png: () =>
         processor.png({ quality, compressionLevel: 6, progressive: false }),
-      webp: () =>
-        processor.webp({ quality, effort: 1 }),
+      webp: () => processor.webp({ quality, effort: 1 }),
       avif: () => {
         if (quality === undefined) {
           return processor.avif({ effort: 1 });
@@ -183,7 +183,10 @@ export class ImageProcessorHelper {
   ): { valid: boolean; error?: string } {
     if (rotate !== undefined && (rotate < -360 || rotate > 360))
       return { valid: false, error: 'Rotate -360 to 360' };
-    if (flip && !['horizontal', 'vertical', 'h', 'v'].includes(flip.toLowerCase()))
+    if (
+      flip &&
+      !['horizontal', 'vertical', 'h', 'v'].includes(flip.toLowerCase())
+    )
       return { valid: false, error: 'Flip: horizontal, vertical, h, v' };
     if (blur !== undefined && (blur < 0 || blur > 100))
       return { valid: false, error: 'Blur 0-100' };
@@ -198,15 +201,32 @@ export class ImageProcessorHelper {
     return { valid: true };
   }
   static validateFit(fit?: string): { valid: boolean; error?: string } {
-    if (fit && !['cover', 'contain', 'fill', 'inside', 'outside'].includes(fit.toLowerCase()))
-      return { valid: false, error: 'Fit: cover, contain, fill, inside, outside' };
+    if (
+      fit &&
+      !['cover', 'contain', 'fill', 'inside', 'outside'].includes(
+        fit.toLowerCase(),
+      )
+    )
+      return {
+        valid: false,
+        error: 'Fit: cover, contain, fill, inside, outside',
+      };
     return { valid: true };
   }
   static validateGravity(gravity?: string): { valid: boolean; error?: string } {
     const validGravities = [
-      'center', 'north', 'south', 'east', 'west',
-      'northeast', 'northwest', 'southeast', 'southwest',
-      'face', 'faces', 'auto',
+      'center',
+      'north',
+      'south',
+      'east',
+      'west',
+      'northeast',
+      'northwest',
+      'southeast',
+      'southwest',
+      'face',
+      'faces',
+      'auto',
     ];
     if (gravity && !validGravities.includes(gravity.toLowerCase()))
       return { valid: false, error: `Gravity: ${validGravities.join(', ')}` };

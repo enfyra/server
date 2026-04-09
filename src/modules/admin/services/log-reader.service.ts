@@ -1,4 +1,9 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
@@ -52,7 +57,10 @@ export class LogReaderService {
     const resolvedPath = path.resolve(this.logDir, filename);
 
     // Check that the resolved path is within the log directory
-    if (!resolvedPath.startsWith(this.logDir + path.sep) && resolvedPath !== this.logDir) {
+    if (
+      !resolvedPath.startsWith(this.logDir + path.sep) &&
+      resolvedPath !== this.logDir
+    ) {
       this.logger.warn(`Path traversal attempt blocked: ${filename}`);
       throw new BadRequestException('Invalid file path');
     }
@@ -97,7 +105,13 @@ export class LogReaderService {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  private matchesFilter(line: string, filter?: string, level?: string, id?: string, correlationId?: string): boolean {
+  private matchesFilter(
+    line: string,
+    filter?: string,
+    level?: string,
+    id?: string,
+    correlationId?: string,
+  ): boolean {
     if (!filter && !level && !id && !correlationId) return true;
 
     let parsed: any;
@@ -108,9 +122,15 @@ export class LogReaderService {
     }
 
     if (id && parsed.id !== id) return false;
-    if (correlationId && parsed.correlationId !== correlationId && parsed.context?.correlationId !== correlationId) return false;
+    if (
+      correlationId &&
+      parsed.correlationId !== correlationId &&
+      parsed.context?.correlationId !== correlationId
+    )
+      return false;
     if (level && parsed.level !== level) return false;
-    if (filter && !line.toLowerCase().includes(filter.toLowerCase())) return false;
+    if (filter && !line.toLowerCase().includes(filter.toLowerCase()))
+      return false;
 
     return true;
   }
@@ -125,7 +145,11 @@ export class LogReaderService {
 
     for (const file of files) {
       // Skip hidden files, non-log files, compressed files, and PM2 logs
-      if (file.startsWith('.') || !file.endsWith('.log') || file.startsWith('pm2-')) {
+      if (
+        file.startsWith('.') ||
+        !file.endsWith('.log') ||
+        file.startsWith('pm2-')
+      ) {
         continue;
       }
 
@@ -144,7 +168,9 @@ export class LogReaderService {
       }
     }
 
-    return logFiles.sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime());
+    return logFiles.sort(
+      (a, b) => b.lastModified.getTime() - a.lastModified.getTime(),
+    );
   }
 
   async getLogContent(
@@ -174,7 +200,7 @@ export class LogReaderService {
 
     // Use streaming to read file efficiently
     const matchingLines: string[] = [];
-    const fetchCount = (page * pageSize) + 1; // Fetch one extra to determine hasMore
+    const fetchCount = page * pageSize + 1; // Fetch one extra to determine hasMore
 
     await new Promise<void>((resolve, reject) => {
       const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
@@ -204,9 +230,14 @@ export class LogReaderService {
 
     const startIndex = (page - 1) * pageSize;
     const hasMore = matchingLines.length > page * pageSize;
-    const paginatedLines = matchingLines.slice(startIndex, startIndex + pageSize);
+    const paginatedLines = matchingLines.slice(
+      startIndex,
+      startIndex + pageSize,
+    );
 
-    const lines = raw ? undefined : paginatedLines.map(line => this.parseLogLine(line)).filter(Boolean);
+    const lines = raw
+      ? undefined
+      : paginatedLines.map((line) => this.parseLogLine(line)).filter(Boolean);
 
     return {
       file: filename,
@@ -234,7 +265,7 @@ export class LogReaderService {
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
 
     const sortedByDate = [...files].sort(
-      (a, b) => a.lastModified.getTime() - b.lastModified.getTime()
+      (a, b) => a.lastModified.getTime() - b.lastModified.getTime(),
     );
 
     return {
@@ -246,7 +277,11 @@ export class LogReaderService {
     };
   }
 
-  tailLog(filename: string, lines: number = 50, raw: boolean = false): { lines: (ParsedLogEntry | string)[] } {
+  tailLog(
+    filename: string,
+    lines: number = 50,
+    raw: boolean = false,
+  ): { lines: (ParsedLogEntry | string)[] } {
     const filePath = this.validateFilePath(filename);
 
     if (!fs.existsSync(filePath)) {
@@ -254,13 +289,15 @@ export class LogReaderService {
     }
 
     const content = fs.readFileSync(filePath, 'utf-8');
-    const allLines = content.split('\n').filter(line => line.trim());
+    const allLines = content.split('\n').filter((line) => line.trim());
     const lastLines = allLines.slice(-lines).reverse();
 
     if (raw) {
       return { lines: lastLines };
     }
 
-    return { lines: lastLines.map(line => this.parseLogLine(line)).filter(Boolean) };
+    return {
+      lines: lastLines.map((line) => this.parseLogLine(line)).filter(Boolean),
+    };
   }
 }

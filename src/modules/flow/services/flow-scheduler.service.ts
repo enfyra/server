@@ -13,7 +13,8 @@ export class FlowSchedulerService {
   private registeredSchedulers = new Set<string>();
 
   constructor(
-    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION) private readonly flowQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
+    private readonly flowQueue: Queue,
     private readonly flowCacheService: FlowCacheService,
   ) {}
 
@@ -28,24 +29,31 @@ export class FlowSchedulerService {
         try {
           await this.flowQueue.removeJobScheduler(schedulerId);
         } catch (err) {
-          this.logger.warn(`Failed to remove scheduler ${schedulerId}: ${(err as Error).message}`);
+          this.logger.warn(
+            `Failed to remove scheduler ${schedulerId}: ${(err as Error).message}`,
+          );
         }
       }
       this.registeredSchedulers.clear();
 
-      const scheduleFlows = await this.flowCacheService.getFlowsByTriggerType('schedule');
+      const scheduleFlows =
+        await this.flowCacheService.getFlowsByTriggerType('schedule');
       let registered = 0;
 
       for (const flow of scheduleFlows) {
         const cron = flow.triggerConfig?.cron;
         if (!cron) {
-          this.logger.warn(`Flow "${flow.name}" has schedule trigger but no cron expression`);
+          this.logger.warn(
+            `Flow "${flow.name}" has schedule trigger but no cron expression`,
+          );
           continue;
         }
         try {
           parseExpression(cron);
         } catch {
-          this.logger.warn(`Flow "${flow.name}" has invalid cron expression: ${cron}`);
+          this.logger.warn(
+            `Flow "${flow.name}" has invalid cron expression: ${cron}`,
+          );
           continue;
         }
 

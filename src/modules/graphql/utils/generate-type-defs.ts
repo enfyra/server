@@ -20,6 +20,10 @@ function mapColumnTypeToGraphQL(type: string): string {
   };
   return map[type] || 'String';
 }
+function isValidGqlIdentifier(name: unknown): name is string {
+  return typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+}
+
 export function generateGraphQLTypeDefsFromTables(
   tables: any[],
   queryableTableNames?: Set<string>,
@@ -27,38 +31,38 @@ export function generateGraphQLTypeDefsFromTables(
   const allowQuery = queryableTableNames
     ? (name: string) => queryableTableNames.has(name)
     : () => true;
+  const isQueryable = queryableTableNames
+    ? (name: string) => queryableTableNames.has(name)
+    : () => true;
+
   let typeDefs = '';
   let queryDefs = '';
   let mutationDefs = '';
   let inputDefs = '';
   let resultDefs = '';
   const processedTypes = new Set<string>();
+  const referencedStubTypes = new Set<string>();
+
+  const tableMap = new Map<string, any>();
   for (const table of tables) {
-    if (!table?.name) {
-      continue;
-    }
+    if (table?.name) tableMap.set(table.name, table);
+  }
+
+  for (const table of tables) {
+    if (!table?.name) continue;
     const typeName = table.name;
-    if (processedTypes.has(typeName)) {
-      continue;
-    }
+    if (processedTypes.has(typeName)) continue;
+    if (!isQueryable(typeName)) continue;
     processedTypes.add(typeName);
-    if (!table.columns || table.columns.length === 0) {
-      continue;
-    }
+    if (!table.columns || table.columns.length === 0) continue;
+
     const validFields: string[] = [];
     for (const column of table.columns) {
       const fieldName = column?.name;
       const columnType = column?.type;
-      if (
-        !fieldName ||
-        typeof fieldName !== 'string' ||
-        !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)
-      ) {
-        continue;
-      }
-      if (!columnType || typeof columnType !== 'string') {
-        continue;
-      }
+      if (!isValidGqlIdentifier(fieldName)) continue;
+      if (!columnType || typeof columnType !== 'string') continue;
+      if (column.isHidden === true) continue;
       const gqlType = mapColumnTypeToGraphQL(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =
@@ -69,22 +73,21 @@ export function generateGraphQLTypeDefsFromTables(
     }
     if (table.relations && Array.isArray(table.relations)) {
       for (const rel of table.relations) {
-        if (!rel?.propertyName || !rel?.targetTableName) {
-          continue;
-        }
+        if (!rel?.propertyName || !rel?.targetTableName) continue;
         const relName = rel.propertyName;
         const targetType = rel.targetTableName;
         if (
           !targetType ||
           typeof targetType !== 'string' ||
           targetType.trim() === ''
-        ) {
+        )
           continue;
+        if (targetType === typeName) continue;
+        if (!isQueryable(targetType) && !processedTypes.has(targetType)) {
+          referencedStubTypes.add(targetType);
         }
-        if (targetType === typeName) {
-          continue;
-        }
-        const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
+        const isArray =
+          rel.type === 'one-to-many' || rel.type === 'many-to-many';
         if (isArray) {
           validFields.push(`  ${relName}: [${targetType}!]!`);
         } else {
@@ -92,29 +95,31 @@ export function generateGraphQLTypeDefsFromTables(
         }
       }
     }
-    if (validFields.length === 0) {
-      continue;
-    }
+    if (validFields.length === 0) continue;
+
     typeDefs += `\ntype ${typeName} {\n`;
     typeDefs += validFields.join('\n') + '\n';
     typeDefs += `}\n`;
     const inputFields: string[] = [];
     const updateInputFields: string[] = ['  id: ID!'];
     for (const column of table.columns || []) {
-      if (column.isPrimary || column.name === 'createdAt' || column.name === 'updatedAt') {
+      if (
+        column.isPrimary ||
+        column.name === 'createdAt' ||
+        column.name === 'updatedAt'
+      )
         continue;
-      }
       const fieldName = column?.name;
       const columnType = column?.type;
-      if (!fieldName || typeof fieldName !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName)) {
-        continue;
-      }
-      if (!columnType || typeof columnType !== 'string') {
-        continue;
-      }
+      if (!isValidGqlIdentifier(fieldName)) continue;
+      if (!columnType || typeof columnType !== 'string') continue;
+      if (column.isHidden === true) continue;
       const gqlType = mapColumnTypeToGraphQL(columnType);
       const isRequired = !column.isNullable ? '!' : '';
-      const finalType = column.isPrimary && gqlType === 'ID' ? 'ID!' : `${gqlType}${isRequired}`;
+      const finalType =
+        column.isPrimary && gqlType === 'ID'
+          ? 'ID!'
+          : `${gqlType}${isRequired}`;
       inputFields.push(`  ${fieldName}: ${finalType}`);
       const updateType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
       updateInputFields.push(`  ${fieldName}: ${updateType}`);
@@ -143,6 +148,13 @@ type ${typeName}Result {
       mutationDefs += `  delete_${table.name}(id: ID!): String!\n`;
     }
   }
+
+  let stubDefs = '';
+  for (const stubName of referencedStubTypes) {
+    if (processedTypes.has(stubName)) continue;
+    stubDefs += `\ntype ${stubName} {\n  id: ID\n}\n`;
+  }
+
   const metaResultDef = `
 type MetaResult {
   totalCount: Int
@@ -153,6 +165,7 @@ type MetaResult {
   const fullTypeDefs = `
 scalar JSON
 ${typeDefs}
+${stubDefs}
 ${resultDefs}
 ${inputDefs}
 ${metaResultDef}

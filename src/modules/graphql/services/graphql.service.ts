@@ -2,6 +2,7 @@ import { printSchema } from 'graphql';
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { createYoga } from 'graphql-yoga';
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
@@ -23,6 +24,7 @@ export class GraphqlService {
     private routeCacheService: RouteCacheService,
     private dynamicResolver: DynamicResolver,
     private eventEmitter: EventEmitter2,
+    private configService: ConfigService,
   ) {}
 
   @OnEvent(CACHE_EVENTS.ROUTE_LOADED)
@@ -32,7 +34,9 @@ export class GraphqlService {
 
       const metadata = await this.metadataCache.getMetadata();
       if (!metadata || metadata.tables.size === 0) {
-        this.logger.warn('Metadata not available, skipping GraphQL schema generation');
+        this.logger.warn(
+          'Metadata not available, skipping GraphQL schema generation',
+        );
         return;
       }
 
@@ -40,7 +44,9 @@ export class GraphqlService {
       const tablesWithGql = new Set<string>();
       for (const route of routes) {
         const methods = route.availableMethods || [];
-        const methodNames = methods.map((m: any) => m?.method ?? m).filter(Boolean);
+        const methodNames = methods
+          .map((m: any) => m?.method ?? m)
+          .filter(Boolean);
         const hasQuery = methodNames.includes('GQL_QUERY');
         const hasMutation = methodNames.includes('GQL_MUTATION');
         if (hasQuery && hasMutation && route.mainTable?.name) {
@@ -49,34 +55,58 @@ export class GraphqlService {
       }
 
       const allTables = Array.from(metadata.tables.values());
-      const typeDefs = generateGraphQLTypeDefsFromTables(allTables, tablesWithGql);
+      const gqlTables = allTables.filter((t) => tablesWithGql.has(t.name));
+      const typeDefs = generateGraphQLTypeDefsFromTables(
+        gqlTables,
+        tablesWithGql,
+      );
 
       const resolvers = {
-        Query: new Proxy({}, {
-          get: (_target, propName: string) => {
-            return async (parent, args, ctx, info) => {
-              return await this.dynamicResolver.dynamicResolver(propName, args, ctx, info);
-            };
+        Query: new Proxy(
+          {},
+          {
+            get: (_target, propName: string) => {
+              return async (parent, args, ctx, info) => {
+                return await this.dynamicResolver.dynamicResolver(
+                  propName,
+                  args,
+                  ctx,
+                  info,
+                );
+              };
+            },
           },
-        }),
-        Mutation: new Proxy({}, {
-          get: (_target, propName: string) => {
-            return async (parent, args, ctx, info) => {
-              return await this.dynamicResolver.dynamicMutationResolver(propName, args, ctx, info);
-            };
+        ),
+        Mutation: new Proxy(
+          {},
+          {
+            get: (_target, propName: string) => {
+              return async (parent, args, ctx, info) => {
+                return await this.dynamicResolver.dynamicMutationResolver(
+                  propName,
+                  args,
+                  ctx,
+                  info,
+                );
+              };
+            },
           },
-        }),
+        ),
       };
 
       this.schema = makeExecutableSchema({ typeDefs, resolvers });
 
+      const isProduction = this.configService.get('NODE_ENV') === 'production';
+
       this.yogaApp = createYoga({
         schema: this.schema,
         graphqlEndpoint: '/graphql',
-        graphiql: true,
+        graphiql: !isProduction,
       });
 
-      this.logger.log(`Generated schema with ${tablesWithGql.size} types in ${Date.now() - start}ms`);
+      this.logger.log(
+        `Generated schema with ${tablesWithGql.size} types in ${Date.now() - start}ms`,
+      );
       this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
     } catch (error) {
       this.logger.error('Failed to reload GraphQL schema:', error.message);

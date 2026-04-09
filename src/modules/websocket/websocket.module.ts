@@ -4,7 +4,6 @@ import { WebsocketGatewayFactory } from './gateway/websocket-gateway.factory';
 import { DynamicWebSocketGateway } from './gateway/dynamic-websocket.gateway';
 import { ConnectionQueueService } from './queues/connection-queue.service';
 import { EventQueueService } from './queues/event-queue.service';
-import { WebsocketCacheService } from '../../infrastructure/cache/services/websocket-cache.service';
 import { QueryBuilderModule } from '../../infrastructure/query-builder/query-builder.module';
 import { CacheModule } from '../../infrastructure/cache/cache.module';
 import { ExecutorEngineModule } from '../../infrastructure/executor-engine/executor-engine.module';

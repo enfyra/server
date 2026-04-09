@@ -17,8 +17,7 @@ import { QueryPlanner } from './planner/query-planner';
 let ObjectId: any;
 try {
   ObjectId = require('mongodb').ObjectId;
-} catch (err) {
-}
+} catch (err) {}
 
 @Injectable()
 export class QueryBuilderService {
@@ -26,14 +25,34 @@ export class QueryBuilderService {
   private debugLog: any[] = [];
 
   constructor(
-    @Optional() @Inject(forwardRef(() => KnexService))
+    @Optional()
+    @Inject(forwardRef(() => KnexService))
     private readonly knexService: KnexService,
-    @Optional() @Inject(forwardRef(() => MongoService))
+    @Optional()
+    @Inject(forwardRef(() => MongoService))
     private readonly mongoService: MongoService,
-    @Optional() @Inject(forwardRef(() => MetadataCacheService))
+    @Optional()
+    @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCache: MetadataCacheService,
   ) {
-    this.dbType = (process.env.DB_TYPE as DatabaseType);
+    this.dbType = process.env.DB_TYPE as DatabaseType;
+  }
+
+  async runWithPolicy<T>(
+    policyCheck: (
+      tableName: string,
+      operation: 'create' | 'update' | 'delete',
+      data: any,
+    ) => Promise<void>,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (this.knexService) {
+      return this.knexService.runWithPolicy(policyCheck, callback);
+    }
+    if (this.mongoService) {
+      return this.mongoService.runWithPolicy(policyCheck, callback);
+    }
+    return callback();
   }
 
   getDbType(): DatabaseType {
@@ -55,7 +74,9 @@ export class QueryBuilderService {
   private buildMongoFilter(where: WhereCondition[]): any {
     const filter: any = {};
     for (const condition of where) {
-      let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
+      let fieldName = condition.field.includes('.')
+        ? condition.field.split('.').pop()
+        : condition.field;
       if (fieldName === 'id') fieldName = '_id';
 
       let value = condition.value;
@@ -64,14 +85,30 @@ export class QueryBuilderService {
       }
 
       switch (condition.operator) {
-        case '=': filter[fieldName] = value; break;
-        case '!=': filter[fieldName] = { $ne: value }; break;
-        case '>': filter[fieldName] = { $gt: value }; break;
-        case '<': filter[fieldName] = { $lt: value }; break;
-        case '>=': filter[fieldName] = { $gte: value }; break;
-        case '<=': filter[fieldName] = { $lte: value }; break;
-        case 'in': filter[fieldName] = { $in: value }; break;
-        case 'not in': filter[fieldName] = { $nin: value }; break;
+        case '=':
+          filter[fieldName] = value;
+          break;
+        case '!=':
+          filter[fieldName] = { $ne: value };
+          break;
+        case '>':
+          filter[fieldName] = { $gt: value };
+          break;
+        case '<':
+          filter[fieldName] = { $lt: value };
+          break;
+        case '>=':
+          filter[fieldName] = { $gte: value };
+          break;
+        case '<=':
+          filter[fieldName] = { $lte: value };
+          break;
+        case 'in':
+          filter[fieldName] = { $in: value };
+          break;
+        case 'not in':
+          filter[fieldName] = { $nin: value };
+          break;
       }
     }
     return filter;
@@ -123,10 +160,13 @@ export class QueryBuilderService {
       const collection = this.mongoService.collection(options.table);
       if (Array.isArray(options.data)) {
         const processedData = await Promise.all(
-          options.data.map(record => this.mongoService.processNestedRelations(options.table, record))
+          options.data.map((record) =>
+            this.mongoService.processNestedRelations(options.table, record),
+          ),
         );
-        
-        const dataWithTimestamps = this.mongoService.applyTimestamps(processedData);
+
+        const dataWithTimestamps =
+          this.mongoService.applyTimestamps(processedData);
         const result = await collection.insertMany(dataWithTimestamps as any[]);
         return Object.values(result.insertedIds).map((id, idx) => ({
           id: id.toString(),
@@ -136,16 +176,22 @@ export class QueryBuilderService {
         return this.mongoService.insertOne(options.table, options.data);
       }
     }
-    
+
     if (Array.isArray(options.data)) {
       const results = [];
       for (const record of options.data) {
-        const result = await this.knexService.insertWithCascade(options.table, record);
+        const result = await this.knexService.insertWithCascade(
+          options.table,
+          record,
+        );
         results.push(result);
       }
       return results;
     } else {
-      return await this.knexService.insertWithCascade(options.table, options.data);
+      return await this.knexService.insertWithCascade(
+        options.table,
+        options.data,
+      );
     }
   }
 
@@ -179,7 +225,12 @@ export class QueryBuilderService {
 
     if (this.dbType === 'mongodb') {
       const executor = new MongoQueryExecutor(this.mongoService);
-      return executor.execute({ ...options, metadata, dbType: this.dbType, plan });
+      return executor.execute({
+        ...options,
+        metadata,
+        dbType: this.dbType,
+        plan,
+      });
     }
 
     const executor = new SqlQueryExecutor(
@@ -190,12 +241,20 @@ export class QueryBuilderService {
     return executor.execute({ ...options, metadata, plan });
   }
 
-
   async update(options: UpdateOptions): Promise<any> {
     if (this.dbType === 'mongodb') {
-      const dataWithRelations = await this.mongoService.processNestedRelations(options.table, options.data);
-      const dataWithoutHiddenNulls = await this.mongoService.stripHiddenNullFields(options.table, dataWithRelations);
-      const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(dataWithoutHiddenNulls);
+      const dataWithRelations = await this.mongoService.processNestedRelations(
+        options.table,
+        options.data,
+      );
+      const dataWithoutHiddenNulls =
+        await this.mongoService.stripHiddenNullFields(
+          options.table,
+          dataWithRelations,
+        );
+      const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(
+        dataWithoutHiddenNulls,
+      );
 
       const filter = this.buildMongoFilter(options.where);
 
@@ -204,20 +263,24 @@ export class QueryBuilderService {
       const results = await collection.find(filter).toArray();
       return results;
     }
-    
+
     const knex = this.knexService.getKnex();
     let query: any = knex(options.table);
-    
+
     if (options.where.length > 0) {
       query = this.applyWhereToKnex(query, options.where);
     }
-    
+
     const recordsToUpdate = await query;
-    
+
     for (const record of recordsToUpdate) {
-      await this.knexService.updateWithCascade(options.table, record.id, options.data);
+      await this.knexService.updateWithCascade(
+        options.table,
+        record.id,
+        options.data,
+      );
     }
-    
+
     if (options.returning) {
       const returnQuery = knex(options.table);
       if (options.where.length > 0) {
@@ -225,7 +288,7 @@ export class QueryBuilderService {
       }
       return await returnQuery.select(options.returning);
     }
-    
+
     return { affected: recordsToUpdate.length };
   }
 
@@ -237,14 +300,14 @@ export class QueryBuilderService {
       const result = await collection.deleteMany(filter);
       return result.deletedCount;
     }
-    
+
     const knex = this.knexService.getKnex();
     let query: any = knex(options.table);
-    
+
     if (options.where.length > 0) {
       query = this.applyWhereToKnex(query, options.where);
     }
-    
+
     return await query.delete();
   }
 
@@ -253,14 +316,14 @@ export class QueryBuilderService {
       const filter = options.where ? this.buildMongoFilter(options.where) : {};
       return this.mongoService.count(options.table, filter);
     }
-    
+
     const knex = this.knexService.getKnex();
     let query: any = knex(options.table);
-    
+
     if (options.where && options.where.length > 0) {
       query = this.applyWhereToKnex(query, options.where);
     }
-    
+
     const result = await query.count('* as count').first();
     return Number(result?.count || 0);
   }
@@ -280,7 +343,7 @@ export class QueryBuilderService {
         await session.endSession();
       }
     }
-    
+
     return this.knexService.transaction(callback);
   }
 
@@ -289,7 +352,7 @@ export class QueryBuilderService {
       const mongoId = this.safeObjectId(id);
       return this.mongoService.findOne(table, { _id: mongoId });
     }
-    
+
     const knex = this.knexService.getKnex();
     return await knex(table).where('id', id).first();
   }
@@ -297,7 +360,7 @@ export class QueryBuilderService {
   async findOneWhere(table: string, where: Record<string, any>): Promise<any> {
     if (this.dbType === 'mongodb') {
       const normalizedWhere: any = {};
-      
+
       for (const [key, value] of Object.entries(where)) {
         if (key === 'id' || key === '_id') {
           normalizedWhere._id = this.safeObjectId(value);
@@ -305,10 +368,10 @@ export class QueryBuilderService {
           normalizedWhere[key] = value;
         }
       }
-      
+
       return this.mongoService.findOne(table, normalizedWhere);
     }
-    
+
     const knex = this.knexService.getKnex();
     return await knex(table).where(where).first();
   }
@@ -316,7 +379,7 @@ export class QueryBuilderService {
   async findWhere(table: string, where: Record<string, any>): Promise<any[]> {
     if (this.dbType === 'mongodb') {
       const normalizedWhere: any = {};
-      
+
       for (const [key, value] of Object.entries(where)) {
         if (key === 'id' || key === '_id') {
           normalizedWhere._id = this.safeObjectId(value);
@@ -324,12 +387,12 @@ export class QueryBuilderService {
           normalizedWhere[key] = value;
         }
       }
-      
+
       const collection = this.mongoService.collection(table);
       const results = await collection.find(normalizedWhere).toArray();
       return results;
     }
-    
+
     const knex = this.knexService.getKnex();
     return await knex(table).where(where);
   }
@@ -351,7 +414,7 @@ export class QueryBuilderService {
     if (this.dbType === 'mongodb') {
       return this.mongoService.updateOne(table, id, data);
     }
-    
+
     await this.knexService.updateWithCascade(table, id, data);
     const knex = this.knexService.getKnex();
     return await knex(table).where('id', id).first();
@@ -362,7 +425,7 @@ export class QueryBuilderService {
       const deleted = await this.mongoService.deleteOne(table, id);
       return deleted ? 1 : 0;
     }
-    
+
     const knex = this.knexService.getKnex();
     return knex(table).where('id', id).delete();
   }
@@ -374,11 +437,13 @@ export class QueryBuilderService {
         if (query.toLowerCase().includes('select 1')) {
           return db.command({ ping: 1 });
         }
-        throw new Error('String queries not supported for MongoDB. Use db.command() object instead.');
+        throw new Error(
+          'String queries not supported for MongoDB. Use db.command() object instead.',
+        );
       }
       return db.command(query);
     }
-    
+
     const knex = this.knexService.getKnex();
     return knex.raw(query, bindings);
   }
@@ -392,14 +457,18 @@ export class QueryBuilderService {
 
   getKnex(): any {
     if (this.dbType === 'mongodb') {
-      throw new Error('getKnex() is not available for MongoDB. Use getConnection() or unified methods.');
+      throw new Error(
+        'getKnex() is not available for MongoDB. Use getConnection() or unified methods.',
+      );
     }
     return this.knexService.getKnex();
   }
 
   getMongoDb(): any {
     if (this.dbType !== 'mongodb') {
-      throw new Error('getMongoDb() is not available for SQL. Use getConnection() or unified methods.');
+      throw new Error(
+        'getMongoDb() is not available for SQL. Use getConnection() or unified methods.',
+      );
     }
     return this.mongoService.getDb();
   }
@@ -416,5 +485,3 @@ export class QueryBuilderService {
     return ['mysql', 'postgres'].includes(this.dbType);
   }
 }
-
-

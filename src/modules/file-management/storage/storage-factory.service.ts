@@ -33,4 +33,3 @@ export class StorageFactoryService {
     return this.getStorageService(config.type);
   }
 }
-

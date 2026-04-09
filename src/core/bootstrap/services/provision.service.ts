@@ -83,7 +83,9 @@ export class ProvisionService implements OnModuleInit {
         });
         const recheckSetting = recheckResult.data[0] || null;
         if (recheckSetting?.isInit) {
-          this.logger.log(`Already initialized, ready in ${Date.now() - start}ms`);
+          this.logger.log(
+            `Already initialized, ready in ${Date.now() - start}ms`,
+          );
           return;
         }
 
@@ -92,14 +94,18 @@ export class ProvisionService implements OnModuleInit {
         await this.metadataProvisionService.createInitMetadata();
 
         if (this.metadataMigrationService.hasMigrations()) {
-          this.logger.log('Running metadata migrations from snapshot-migration.json...');
+          this.logger.log(
+            'Running metadata migrations from snapshot-migration.json...',
+          );
           await this.metadataMigrationService.runMigrations();
         }
 
         await this.dataProvisionService.insertAllDefaultRecords();
 
         if (this.dataMigrationService.hasMigrations()) {
-          this.logger.log('Running data migrations from data-migration.json...');
+          this.logger.log(
+            'Running data migrations from data-migration.json...',
+          );
           await this.dataMigrationService.runMigrations();
         }
 
@@ -112,7 +118,9 @@ export class ProvisionService implements OnModuleInit {
 
         if (!newSetting) {
           this.logger.error('Setting record not found after initialization');
-          throw new Error('Setting record not found. DataProvisionService may have failed.');
+          throw new Error(
+            'Setting record not found. DataProvisionService may have failed.',
+          );
         }
 
         const settingId = newSetting._id || newSetting.id;
@@ -132,7 +140,10 @@ export class ProvisionService implements OnModuleInit {
     }
   }
 
-  private async waitForInitComplete(sortField: string, maxWaitMs = 120000): Promise<void> {
+  private async waitForInitComplete(
+    sortField: string,
+    maxWaitMs = 120000,
+  ): Promise<void> {
     const interval = 2000;
     const maxAttempts = Math.ceil(maxWaitMs / interval);
     for (let i = 0; i < maxAttempts; i++) {
@@ -146,6 +157,8 @@ export class ProvisionService implements OnModuleInit {
         if (result.data[0]?.isInit) return;
       } catch {}
     }
-    this.logger.warn('Timed out waiting for init by another instance, proceeding...');
+    this.logger.warn(
+      'Timed out waiting for init by another instance, proceeding...',
+    );
   }
 }

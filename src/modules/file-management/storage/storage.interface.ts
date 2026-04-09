@@ -3,7 +3,11 @@ import { Readable } from 'stream';
 export interface StorageConfig {
   id?: number | string;
   name: string;
-  type: 'Local Storage' | 'Amazon S3' | 'Google Cloud Storage' | 'Cloudflare R2';
+  type:
+    | 'Local Storage'
+    | 'Amazon S3'
+    | 'Google Cloud Storage'
+    | 'Cloudflare R2';
   bucket?: string;
   region?: string;
   accessKeyId?: string;
@@ -60,4 +64,3 @@ export interface IStorageService {
    */
   exists(location: string, config: StorageConfig): Promise<boolean>;
 }
-

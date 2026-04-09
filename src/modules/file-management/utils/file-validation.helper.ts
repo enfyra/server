@@ -51,14 +51,13 @@ export class FileValidationHelper {
 
     const hasAccess = (file.permissions || []).some(
       (p: any) =>
-        p.isEnabled !== false &&
-        (Array.isArray(p.allowedUsers)
-          ? p.allowedUsers.some((u: any) => (u?.id || u) === user?.id)
-          : p.allowedUsers?.id === user?.id) ||
+        (p.isEnabled !== false &&
+          (Array.isArray(p.allowedUsers)
+            ? p.allowedUsers.some((u: any) => (u?.id || u) === user?.id)
+            : p.allowedUsers?.id === user?.id)) ||
         (p.role && user.role?.id === p.role.id),
     );
 
     if (!hasAccess) throw new AuthorizationException('Access denied');
   }
 }
-

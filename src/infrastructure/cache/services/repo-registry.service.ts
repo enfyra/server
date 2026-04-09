@@ -61,11 +61,16 @@ export class RepoRegistryService {
     return this.aliasToName.get(nameOrAlias) ?? null;
   }
 
-  createReposProxy(context: TDynamicContext, mainTableName?: string): Record<string, any> {
+  createReposProxy(
+    context: TDynamicContext,
+    mainTableName?: string,
+  ): Record<string, any> {
     const repoCache = new Map<string, DynamicRepository>();
     const self = this;
 
-    const getOrCreateRepo = (tableName: string): DynamicRepository | undefined => {
+    const getOrCreateRepo = (
+      tableName: string,
+    ): DynamicRepository | undefined => {
       if (repoCache.has(tableName)) return repoCache.get(tableName);
 
       const resolvedName = self.resolveTableName(tableName);

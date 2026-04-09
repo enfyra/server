@@ -1,4 +1,11 @@
-import { BadRequestException, Body, Controller, Patch, Post, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { DynamicService } from '../dynamic-api/services/dynamic.service';
 import { processExtensionDefinition } from './utils/processor.util';

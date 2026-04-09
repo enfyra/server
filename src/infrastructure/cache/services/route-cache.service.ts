@@ -7,7 +7,11 @@ import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { ROUTE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
 import { transformCode } from '../../executor-engine/code-transformer';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 import { MetadataCacheService } from './metadata-cache.service';
 
 const ROUTE_CONFIG: CacheConfig = {
@@ -46,7 +50,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       await this.reload();
     }
@@ -98,10 +105,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const result = await this.queryBuilder.select({
       tableName,
       filter: {
-        _and: [
-          { isEnabled: { _eq: true } },
-          { isGlobal: { _eq: true } },
-        ],
+        _and: [{ isEnabled: { _eq: true } }, { isGlobal: { _eq: true } }],
       },
       fields: ['*', 'methods.method'],
       sort: ['priority'],
@@ -115,16 +119,25 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     });
   }
 
-  private mergeHooks(route: any, globalPreHooks: any[], globalPostHooks: any[], isMongoDB: boolean): void {
+  private mergeHooks(
+    route: any,
+    globalPreHooks: any[],
+    globalPostHooks: any[],
+    isMongoDB: boolean,
+  ): void {
     const enabledRoutePreHooks = Array.isArray(route.preHooks)
-      ? route.preHooks.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
+      ? route.preHooks.filter(
+          (h: any) => h?.isEnabled === true && h?.isGlobal === false,
+        )
       : [];
 
     const allPreHooks = [...globalPreHooks, ...enabledRoutePreHooks];
     route.preHooks = this.uniqueHooks(allPreHooks, isMongoDB);
 
     const enabledRoutePostHooks = Array.isArray(route.postHooks)
-      ? route.postHooks.filter((h: any) => h?.isEnabled === true && h?.isGlobal === false)
+      ? route.postHooks.filter(
+          (h: any) => h?.isEnabled === true && h?.isGlobal === false,
+        )
       : [];
 
     const allPostHooks = [...globalPostHooks, ...enabledRoutePostHooks];
@@ -132,12 +145,14 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private uniqueHooks(hooks: any[], isMongoDB: boolean): any[] {
-    return hooks.filter((hook, index, self) =>
-      index === self.findIndex((h) => {
-        const hId = isMongoDB ? h?._id?.toString() : h?.id;
-        const hookId = isMongoDB ? hook?._id?.toString() : hook?.id;
-        return hId === hookId;
-      })
+    return hooks.filter(
+      (hook, index, self) =>
+        index ===
+        self.findIndex((h) => {
+          const hId = isMongoDB ? h?._id?.toString() : h?.id;
+          const hookId = isMongoDB ? hook?._id?.toString() : hook?.id;
+          return hId === hookId;
+        }),
     );
   }
 
@@ -167,7 +182,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
   }
 
-  protected transformData(data: { routes: any[]; methods: string[] }): RouteData {
+  protected transformData(data: {
+    routes: any[];
+    methods: string[];
+  }): RouteData {
     return data;
   }
 

@@ -12,7 +12,15 @@ export function generateDefaultValue(column: {
   defaultValue?: any;
   options?: any;
 }): any {
-  const { name, type, isNullable, isPrimary, isGenerated, defaultValue, options } = column;
+  const {
+    name,
+    type,
+    isNullable,
+    isPrimary,
+    isGenerated,
+    defaultValue,
+    options,
+  } = column;
 
   // Skip primary key columns (auto-generated)
   if (isPrimary && isGenerated) {
@@ -20,7 +28,12 @@ export function generateDefaultValue(column: {
   }
 
   // Skip id, createdAt, updatedAt (system columns)
-  if (name === 'id' || name === '_id' || name === 'createdAt' || name === 'updatedAt') {
+  if (
+    name === 'id' ||
+    name === '_id' ||
+    name === 'createdAt' ||
+    name === 'updatedAt'
+  ) {
     return undefined;
   }
 
@@ -55,7 +68,11 @@ export function generateDefaultValue(column: {
 
     case 'enum':
       // Try to get first option from options
-      if (options?.values && Array.isArray(options.values) && options.values.length > 0) {
+      if (
+        options?.values &&
+        Array.isArray(options.values) &&
+        options.values.length > 0
+      ) {
         return options.values[0];
       }
       return null;

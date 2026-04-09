@@ -9,7 +9,6 @@ import {
 import { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
 import {
-  CustomException,
   isCustomException,
   getErrorCode,
   ScriptExecutionException,
@@ -136,12 +135,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     statusCode: number,
   ): void {
     // Skip logging for script execution errors - already logged by handler executor
-    if (exception instanceof ScriptExecutionException || exception instanceof ScriptTimeoutException) {
+    if (
+      exception instanceof ScriptExecutionException ||
+      exception instanceof ScriptTimeoutException
+    ) {
       return;
     }
 
-    const errorMessage = exception instanceof Error ? exception.message : String(exception);
-    const errorName = exception instanceof Error ? exception.name : 'UnknownError';
+    const errorMessage =
+      exception instanceof Error ? exception.message : String(exception);
+    const errorName =
+      exception instanceof Error ? exception.name : 'UnknownError';
     const logData = {
       correlationId,
       method: request.method,
@@ -152,11 +156,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       stack: exception instanceof Error ? exception.stack : undefined,
     };
     if (statusCode >= 500) {
-      this.logger.error({ message: `[${statusCode}] ${errorMessage}`, ...logData });
+      this.logger.error({
+        message: `[${statusCode}] ${errorMessage}`,
+        ...logData,
+      });
     } else if (statusCode >= 400) {
-      this.logger.warn({ message: `[${statusCode}] ${errorMessage}`, ...logData });
+      this.logger.warn({
+        message: `[${statusCode}] ${errorMessage}`,
+        ...logData,
+      });
     } else {
-      this.logger.log({ message: `[${statusCode}] ${errorMessage}`, ...logData });
+      this.logger.log({
+        message: `[${statusCode}] ${errorMessage}`,
+        ...logData,
+      });
     }
   }
   private isGraphQLContext(host: ArgumentsHost): boolean {
@@ -170,10 +183,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   ): void {
     this.logger.error('GraphQL Error', { exception, correlationId });
     const response = host.switchToHttp().getResponse();
-    const { statusCode, errorCode, message, details } = this.getErrorDetails(exception);
+    const { statusCode, errorCode, message, details } =
+      this.getErrorDetails(exception);
     if (response && typeof response.status === 'function') {
       response.status(statusCode).json({
-        errors: [{ message, extensions: { code: errorCode, correlationId, details } }],
+        errors: [
+          { message, extensions: { code: errorCode, correlationId, details } },
+        ],
       });
     }
   }

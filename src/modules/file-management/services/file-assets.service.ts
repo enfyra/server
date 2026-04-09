@@ -4,7 +4,6 @@ import { FileManagementService } from './file-management.service';
 import { Response } from 'express';
 import { RequestWithRouteData } from '../../../shared/types';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { ImageProcessorHelper } from '../utils/image-processor.helper';
 import { StreamHelper } from '../utils/stream.helper';
 import { FileValidationHelper } from '../utils/file-validation.helper';
@@ -44,7 +43,7 @@ export class FileAssetsService {
         tableName: 'file_permission_definition',
         filter: {
           fileId: { _eq: fileId },
-          isEnabled: { _eq: true }
+          isEnabled: { _eq: true },
         },
         deep: {
           allowedUsers: { fields: ['id', 'email'] },
@@ -55,7 +54,9 @@ export class FileAssetsService {
 
       for (const perm of permissions) {
         if (perm.roleId && !perm.role) {
-          perm.role = await this.queryBuilder.findOneWhere('role_definition', { id: perm.roleId });
+          perm.role = await this.queryBuilder.findOneWhere('role_definition', {
+            id: perm.roleId,
+          });
         }
       }
 
@@ -64,14 +65,29 @@ export class FileAssetsService {
 
     await FileValidationHelper.checkFilePermissions(file, req);
 
-    const { location, storageConfig, filename, mimetype, type: fileType } = file as any;
+    const {
+      location,
+      storageConfig,
+      filename,
+      mimetype,
+      type: fileType,
+    } = file as any;
     const storageType = storageConfig?.type || 'Local Storage';
     const storageConfigId = storageConfig?._id || storageConfig?.id || null;
 
-    this.logger.debug(`File asset request - storageType: ${storageType}, storageConfigId: ${storageConfigId}, hasStorageConfig: ${!!storageConfig}`);
+    this.logger.debug(
+      `File asset request - storageType: ${storageType}, storageConfigId: ${storageConfigId}, hasStorageConfig: ${!!storageConfig}`,
+    );
 
-    if (storageType === 'Google Cloud Storage' || storageType === 'Cloudflare R2' || storageType === 'Amazon S3') {
-      if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
+    if (
+      storageType === 'Google Cloud Storage' ||
+      storageType === 'Cloudflare R2' ||
+      storageType === 'Amazon S3'
+    ) {
+      if (
+        FileValidationHelper.isImageFile(mimetype, fileType) &&
+        FileValidationHelper.hasImageQueryParams(req)
+      ) {
         return void (await this.processImageWithQuery(
           location,
           req,
@@ -82,20 +98,32 @@ export class FileAssetsService {
       }
 
       const query = req.routeData?.context?.$query || req.query;
-      const shouldDownload = query.download === 'true' || query.download === true;
+      const shouldDownload =
+        query.download === 'true' || query.download === true;
       const stream = await this.fileManagementService.getStreamFromStorage(
         location,
         storageConfigId,
       );
-      return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype, shouldDownload));
+      return void (await this.streamHelper.streamCloudFile(
+        stream,
+        res,
+        filename,
+        mimetype,
+        shouldDownload,
+      ));
     }
 
     if (storageType === 'Local Storage') {
-      if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
+      if (
+        FileValidationHelper.isImageFile(mimetype, fileType) &&
+        FileValidationHelper.hasImageQueryParams(req)
+      ) {
         const basePath = path.join(process.cwd(), 'public');
-        const relativePath = location.startsWith('/') ? location.slice(1) : location;
+        const relativePath = location.startsWith('/')
+          ? location.slice(1)
+          : location;
         const filePath = path.join(basePath, relativePath);
-        
+
         return void (await this.processImageWithQuery(
           filePath,
           req,
@@ -104,12 +132,16 @@ export class FileAssetsService {
           storageConfigId,
         ));
       }
-      
-      const storageService = this.storageFactory.getStorageService('Local Storage');
+
+      const storageService =
+        this.storageFactory.getStorageService('Local Storage');
       let storageConfig;
-      
+
       if (storageConfigId) {
-        storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
+        storageConfig =
+          await this.fileManagementService.getStorageConfigById(
+            storageConfigId,
+          );
       } else {
         storageConfig = {
           type: 'Local Storage',
@@ -117,11 +149,18 @@ export class FileAssetsService {
           isEnabled: true,
         };
       }
-      
+
       const query = req.routeData?.context?.$query || req.query;
-      const shouldDownload = query.download === 'true' || query.download === true;
+      const shouldDownload =
+        query.download === 'true' || query.download === true;
       const stream = await storageService.getStream(location, storageConfig);
-      return void (await this.streamHelper.streamCloudFile(stream, res, filename, mimetype, shouldDownload));
+      return void (await this.streamHelper.streamCloudFile(
+        stream,
+        res,
+        filename,
+        mimetype,
+        shouldDownload,
+      ));
     }
     const filePath = this.fileManagementService.getFilePath(
       path.basename(location),
@@ -132,7 +171,10 @@ export class FileAssetsService {
       throw new NotFoundException('Physical file not found');
     }
 
-    if (FileValidationHelper.isImageFile(mimetype, fileType) && FileValidationHelper.hasImageQueryParams(req)) {
+    if (
+      FileValidationHelper.isImageFile(mimetype, fileType) &&
+      FileValidationHelper.hasImageQueryParams(req)
+    ) {
       return void (await this.processImageWithQuery(
         filePath,
         req,
@@ -143,7 +185,13 @@ export class FileAssetsService {
 
     const query = req.routeData?.context?.$query || req.query;
     const shouldDownload = query.download === 'true' || query.download === true;
-    await this.streamHelper.streamRegularFile(filePath, res, filename, mimetype, shouldDownload);
+    await this.streamHelper.streamRegularFile(
+      filePath,
+      res,
+      filename,
+      mimetype,
+      shouldDownload,
+    );
   }
 
   private async processImageWithQuery(
@@ -165,21 +213,22 @@ export class FileAssetsService {
       const quality = query.quality
         ? parseInt(query.quality as string, 10)
         : undefined;
-      
-      this.logger.debug(`Image processing params: format=${format}, quality=${quality}, width=${width}, height=${height}`);
+
+      this.logger.debug(
+        `Image processing params: format=${format}, quality=${quality}, width=${width}, height=${height}`,
+      );
       const cache = query.cache
         ? parseInt(query.cache as string, 10)
         : undefined;
-      const shouldDownload = query.download === 'true' || query.download === true;
+      const shouldDownload =
+        query.download === 'true' || query.download === true;
       const fit = query.fit as string;
       const gravity = query.gravity as string;
       const rotate = query.rotate
         ? parseInt(query.rotate as string, 10)
         : undefined;
       const flip = query.flip as string;
-      const blur = query.blur
-        ? parseFloat(query.blur as string)
-        : undefined;
+      const blur = query.blur ? parseFloat(query.blur as string) : undefined;
       const sharpen = query.sharpen
         ? parseFloat(query.sharpen as string)
         : undefined;
@@ -194,7 +243,11 @@ export class FileAssetsService {
         : undefined;
       const grayscale = query.grayscale === 'true' || query.grayscale === true;
 
-      const validation = ImageProcessorHelper.validateImageParams(width, height, quality);
+      const validation = ImageProcessorHelper.validateImageParams(
+        width,
+        height,
+        quality,
+      );
       if (!validation.valid) {
         return void res.status(400).json({ error: validation.error });
       }
@@ -224,14 +277,19 @@ export class FileAssetsService {
 
       let shouldStream = false;
       if (storageConfigId) {
-        const config = await this.fileManagementService.getStorageConfigById(
-          storageConfigId,
-        );
-        shouldStream = config.type === 'Google Cloud Storage' || config.type === 'Cloudflare R2' || config.type === 'Amazon S3';
+        const config =
+          await this.fileManagementService.getStorageConfigById(
+            storageConfigId,
+          );
+        shouldStream =
+          config.type === 'Google Cloud Storage' ||
+          config.type === 'Cloudflare R2' ||
+          config.type === 'Amazon S3';
       }
 
       if (shouldStream) {
-        const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+        const finalFormat =
+          format || ImageFormatHelper.getOriginalFormat(filePath);
         const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
         return void (await this.streamImageFromGCS(
           filePath,
@@ -263,9 +321,27 @@ export class FileAssetsService {
 
       let imageProcessor = ImageProcessorHelper.createStreamProcessor();
 
-      imageProcessor = ImageProcessorHelper.applyResize(imageProcessor, width, height, fit, gravity);
-      imageProcessor = ImageProcessorHelper.applyTransformations(imageProcessor, rotate, flip, blur, sharpen);
-      imageProcessor = ImageProcessorHelper.applyEffects(imageProcessor, brightness, contrast, saturation, grayscale);
+      imageProcessor = ImageProcessorHelper.applyResize(
+        imageProcessor,
+        width,
+        height,
+        fit,
+        gravity,
+      );
+      imageProcessor = ImageProcessorHelper.applyTransformations(
+        imageProcessor,
+        rotate,
+        flip,
+        blur,
+        sharpen,
+      );
+      imageProcessor = ImageProcessorHelper.applyEffects(
+        imageProcessor,
+        brightness,
+        contrast,
+        saturation,
+        grayscale,
+      );
 
       if (format) {
         const formatValidation = ImageProcessorHelper.validateFormat(format);
@@ -304,20 +380,22 @@ export class FileAssetsService {
         }
       }
 
-      const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+      const finalFormat =
+        format || ImageFormatHelper.getOriginalFormat(filePath);
       const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
 
       res.setHeader('Content-Type', finalMimeType);
-      res.setHeader('Content-Disposition', shouldDownload 
-        ? `attachment; filename="${filename}"` 
-        : `inline; filename="${filename}"`);
+      res.setHeader(
+        'Content-Disposition',
+        shouldDownload
+          ? `attachment; filename="${filename}"`
+          : `inline; filename="${filename}"`,
+      );
 
       if (cache && cache > 0)
         res.setHeader('Cache-Control', `public, max-age=${cache}`);
-      else if (format)
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-      else
-        res.setHeader('Cache-Control', 'public, max-age=31536000');
+      else if (format) res.setHeader('Cache-Control', 'public, max-age=86400');
+      else res.setHeader('Cache-Control', 'public, max-age=31536000');
 
       const sharpStream = fileStream.pipe(imageProcessor);
 
@@ -336,9 +414,15 @@ export class FileAssetsService {
       );
     } catch (error) {
       this.logger.error('Image processing error:', error);
-      this.logger.error('Error stack:', error instanceof Error ? error.stack : String(error));
+      this.logger.error(
+        'Error stack:',
+        error instanceof Error ? error.stack : String(error),
+      );
       if (!res.headersSent)
-        res.status(500).json({ error: 'Image processing failed', details: error instanceof Error ? error.message : String(error) });
+        res.status(500).json({
+          error: 'Image processing failed',
+          details: error instanceof Error ? error.message : String(error),
+        });
     }
   }
 
@@ -374,9 +458,27 @@ export class FileAssetsService {
 
       let imageProcessor = ImageProcessorHelper.createStreamProcessor();
 
-      imageProcessor = ImageProcessorHelper.applyResize(imageProcessor, width, height, fit, gravity);
-      imageProcessor = ImageProcessorHelper.applyTransformations(imageProcessor, rotate, flip, blur, sharpen);
-      imageProcessor = ImageProcessorHelper.applyEffects(imageProcessor, brightness, contrast, saturation, grayscale);
+      imageProcessor = ImageProcessorHelper.applyResize(
+        imageProcessor,
+        width,
+        height,
+        fit,
+        gravity,
+      );
+      imageProcessor = ImageProcessorHelper.applyTransformations(
+        imageProcessor,
+        rotate,
+        flip,
+        blur,
+        sharpen,
+      );
+      imageProcessor = ImageProcessorHelper.applyEffects(
+        imageProcessor,
+        brightness,
+        contrast,
+        saturation,
+        grayscale,
+      );
 
       if (format) {
         const formatValidation = ImageProcessorHelper.validateFormat(format);
@@ -415,20 +517,22 @@ export class FileAssetsService {
         }
       }
 
-      const finalFormat = format || ImageFormatHelper.getOriginalFormat(filePath);
+      const finalFormat =
+        format || ImageFormatHelper.getOriginalFormat(filePath);
       const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
-      
+
       res.setHeader('Content-Type', finalMimeType);
-      res.setHeader('Content-Disposition', shouldDownload 
-        ? `attachment; filename="${filename}"` 
-        : `inline; filename="${filename}"`);
+      res.setHeader(
+        'Content-Disposition',
+        shouldDownload
+          ? `attachment; filename="${filename}"`
+          : `inline; filename="${filename}"`,
+      );
 
       if (cache && cache > 0)
         res.setHeader('Cache-Control', `public, max-age=${cache}`);
-      else if (format)
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-      else
-        res.setHeader('Cache-Control', 'public, max-age=31536000');
+      else if (format) res.setHeader('Cache-Control', 'public, max-age=86400');
+      else res.setHeader('Cache-Control', 'public, max-age=31536000');
 
       const sharpStream = gcsStream.pipe(imageProcessor);
 
@@ -438,7 +542,7 @@ export class FileAssetsService {
           res.status(500).json({ error: 'Image processing failed' });
       });
 
-        this.streamHelper.setupImageStream(sharpStream, res, false);
+      this.streamHelper.setupImageStream(sharpStream, res, false);
 
       this.streamHelper.handleStreamError(
         gcsStream,

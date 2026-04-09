@@ -13,8 +13,14 @@ export async function dropForeignKeyIfExists(
   dbType: 'mysql' | 'postgres' | 'sqlite',
 ): Promise<void> {
   try {
-    logger.log(`Querying FK constraints for table: ${tableName}, column: ${columnName}`);
-    const { query, bindings } = getForeignKeyConstraintsQuery(tableName, columnName, dbType);
+    logger.log(
+      `Querying FK constraints for table: ${tableName}, column: ${columnName}`,
+    );
+    const { query, bindings } = getForeignKeyConstraintsQuery(
+      tableName,
+      columnName,
+      dbType,
+    );
     const fkConstraints = await knex.raw(query, bindings);
     let constraintName: string | null = null;
     if (dbType === 'mysql') {
@@ -33,14 +39,20 @@ export async function dropForeignKeyIfExists(
     }
     if (constraintName) {
       logger.log(`Found FK constraint: ${constraintName}`);
-      const dropSQL = generateDropForeignKeySQL(tableName, constraintName, dbType);
+      const dropSQL = generateDropForeignKeySQL(
+        tableName,
+        constraintName,
+        dbType,
+      );
       await knex.raw(dropSQL);
       logger.log(`Successfully dropped FK constraint: ${constraintName}`);
     } else {
       logger.log(`No FK constraint found for column ${columnName}`);
     }
   } catch (error) {
-    logger.log(`Error checking/dropping FK constraint for ${columnName}: ${error.message}`);
+    logger.log(
+      `Error checking/dropping FK constraint for ${columnName}: ${error.message}`,
+    );
   }
 }
 export async function dropAllForeignKeysReferencingTable(
@@ -48,8 +60,13 @@ export async function dropAllForeignKeysReferencingTable(
   targetTableName: string,
   dbType: 'mysql' | 'postgres' | 'sqlite',
 ): Promise<void> {
-  logger.log(`Checking for FK constraints referencing table: ${targetTableName}`);
-  const { query, bindings } = getAllForeignKeyConstraintsReferencingTableQuery(targetTableName, dbType);
+  logger.log(
+    `Checking for FK constraints referencing table: ${targetTableName}`,
+  );
+  const { query, bindings } = getAllForeignKeyConstraintsReferencingTableQuery(
+    targetTableName,
+    dbType,
+  );
   const fkConstraints = await knex.raw(query, bindings);
   let constraints: any[] = [];
   if (dbType === 'mysql') {
@@ -61,13 +78,22 @@ export async function dropAllForeignKeysReferencingTable(
     return;
   }
   if (constraints.length > 0) {
-    logger.log(`Found ${constraints.length} FK constraint(s) referencing ${targetTableName}`);
+    logger.log(
+      `Found ${constraints.length} FK constraint(s) referencing ${targetTableName}`,
+    );
     for (const fk of constraints) {
       const tableName = dbType === 'mysql' ? fk.TABLE_NAME : fk.table_name;
-      const constraintName = dbType === 'mysql' ? fk.CONSTRAINT_NAME : fk.constraint_name;
+      const constraintName =
+        dbType === 'mysql' ? fk.CONSTRAINT_NAME : fk.constraint_name;
       const columnName = dbType === 'mysql' ? fk.COLUMN_NAME : fk.column_name;
-      logger.log(`   Dropping FK: ${constraintName} from ${tableName}.${columnName}`);
-      const dropSQL = generateDropForeignKeySQL(tableName, constraintName, dbType);
+      logger.log(
+        `   Dropping FK: ${constraintName} from ${tableName}.${columnName}`,
+      );
+      const dropSQL = generateDropForeignKeySQL(
+        tableName,
+        constraintName,
+        dbType,
+      );
       await knex.raw(dropSQL);
       logger.log(`  Dropped FK constraint: ${constraintName}`);
     }

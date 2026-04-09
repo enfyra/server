@@ -4,9 +4,15 @@ import {
   WhereCondition,
 } from '../../../shared/types/query-builder.types';
 import { hasLogicalOperators } from '../utils/shared/logical-operators.util';
-import { whereToMongoFilter, convertLogicalFilterToMongo } from '../utils/mongo/filter-builder';
+import {
+  whereToMongoFilter,
+  convertLogicalFilterToMongo,
+} from '../utils/mongo/filter-builder';
 import { expandFieldsMongo } from '../utils/mongo/expand-fields';
-import { buildNestedLookupPipeline, addProjectionStage } from '../utils/mongo/pipeline-builder';
+import {
+  buildNestedLookupPipeline,
+  addProjectionStage,
+} from '../utils/mongo/pipeline-builder';
 import { applyMixedFilters } from '../utils/mongo/relation-filter';
 import { QueryPlan } from '../planner/query-plan.types';
 
@@ -54,7 +60,7 @@ export class MongoQueryExecutor {
       if (Array.isArray(options.fields)) {
         queryOptions.fields = options.fields;
       } else if (typeof options.fields === 'string') {
-        queryOptions.fields = options.fields.split(',').map(f => f.trim());
+        queryOptions.fields = options.fields.split(',').map((f) => f.trim());
       }
     }
 
@@ -67,7 +73,11 @@ export class MongoQueryExecutor {
         for (const [field, value] of Object.entries(options.filter)) {
           if (typeof value === 'object' && value !== null) {
             const firstKey = Object.keys(value)[0];
-            const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+            const isOperator =
+              firstKey?.startsWith('_') ||
+              ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(
+                firstKey,
+              );
 
             if (!isOperator) {
               continue;
@@ -91,22 +101,35 @@ export class MongoQueryExecutor {
               else if (op === '_is_not_null') operator = '_is_not_null';
               else operator = op.replace('_', ' ');
 
-              queryOptions.where.push({ field, operator, value: val } as WhereCondition);
+              queryOptions.where.push({
+                field,
+                operator,
+                value: val,
+              } as WhereCondition);
             }
           } else {
-            queryOptions.where.push({ field, operator: '=', value } as WhereCondition);
+            queryOptions.where.push({
+              field,
+              operator: '=',
+              value,
+            } as WhereCondition);
           }
         }
       } else {
-        queryOptions.mongoLogicalFilter = convertLogicalFilterToMongo(this.metadata, options.filter, options.tableName, this.dbType);
+        queryOptions.mongoLogicalFilter = convertLogicalFilterToMongo(
+          this.metadata,
+          options.filter,
+          options.tableName,
+          this.dbType,
+        );
       }
     }
 
     if (options.sort) {
       const sortArray = Array.isArray(options.sort)
         ? options.sort
-        : options.sort.split(',').map(s => s.trim());
-      queryOptions.sort = sortArray.map(s => {
+        : options.sort.split(',').map((s) => s.trim());
+      queryOptions.sort = sortArray.map((s) => {
         const trimmed = s.trim();
         if (trimmed.startsWith('-')) {
           return { field: trimmed.substring(1), direction: 'desc' as const };
@@ -118,17 +141,29 @@ export class MongoQueryExecutor {
     }
 
     if (options.page && options.limit) {
-      const page = typeof options.page === 'string' ? parseInt(options.page, 10) : options.page;
-      const limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
+      const page =
+        typeof options.page === 'string'
+          ? parseInt(options.page, 10)
+          : options.page;
+      const limit =
+        typeof options.limit === 'string'
+          ? parseInt(options.limit, 10)
+          : options.limit;
       queryOptions.offset = (page - 1) * limit;
       queryOptions.limit = limit;
     } else if (options.limit) {
-      queryOptions.limit = typeof options.limit === 'string' ? parseInt(options.limit, 10) : options.limit;
+      queryOptions.limit =
+        typeof options.limit === 'string'
+          ? parseInt(options.limit, 10)
+          : options.limit;
     }
 
     const metaParts = Array.isArray(options.meta)
       ? options.meta
-      : (options.meta || '').split(',').map((x) => x.trim()).filter(Boolean);
+      : (options.meta || '')
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean);
 
     let totalCount = 0;
     let filterCount = 0;
@@ -138,12 +173,17 @@ export class MongoQueryExecutor {
       totalCount = await collection.countDocuments({});
     }
 
-    const hasRelationFilters = queryOptions.mongoRawFilter &&
-      Object.keys(queryOptions.mongoRawFilter).some(key => {
+    const hasRelationFilters =
+      queryOptions.mongoRawFilter &&
+      Object.keys(queryOptions.mongoRawFilter).some((key) => {
         const value = queryOptions.mongoRawFilter[key];
         if (typeof value === 'object' && value !== null) {
           const firstKey = Object.keys(value)[0];
-          const isOperator = firstKey?.startsWith('_') || ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(firstKey);
+          const isOperator =
+            firstKey?.startsWith('_') ||
+            ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(
+              firstKey,
+            );
           return !isOperator; // Has relation filter
         }
         return false;
@@ -155,7 +195,12 @@ export class MongoQueryExecutor {
         let filter = {};
 
         if (queryOptions.where && queryOptions.where.length > 0) {
-          filter = whereToMongoFilter(this.metadata, queryOptions.where, options.tableName, this.dbType);
+          filter = whereToMongoFilter(
+            this.metadata,
+            queryOptions.where,
+            options.tableName,
+            this.dbType,
+          );
         }
 
         filterCount = await collection.countDocuments(filter);
@@ -177,7 +222,10 @@ export class MongoQueryExecutor {
       return { pipeline: builtPipeline, explain };
     }
 
-    if (hasRelationFilters && (metaParts.includes('filterCount') || metaParts.includes('*'))) {
+    if (
+      hasRelationFilters &&
+      (metaParts.includes('filterCount') || metaParts.includes('*'))
+    ) {
       const countOpts = { ...queryOptions, mongoCountOnly: true };
       const countResults = await this.selectLegacy(countOpts);
       filterCount = countResults.length > 0 ? countResults[0].count : 0;
@@ -185,7 +233,7 @@ export class MongoQueryExecutor {
 
     return {
       data: results,
-      ...((metaParts.length > 0) && {
+      ...(metaParts.length > 0 && {
         meta: {
           ...(metaParts.includes('totalCount') || metaParts.includes('*')
             ? { totalCount }
@@ -200,12 +248,16 @@ export class MongoQueryExecutor {
 
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
     if (options.fields && options.fields.length > 0) {
-      const expanded = await expandFieldsMongo(this.metadata, options.table, options.fields);
+      const expanded = await expandFieldsMongo(
+        this.metadata,
+        options.table,
+        options.fields,
+      );
       options.mongoFieldsExpanded = expanded; // Store for MongoDB usage
     }
 
     if (options.where) {
-      options.where = options.where.map(condition => {
+      options.where = options.where.map((condition) => {
         if (!condition.field.includes('.')) {
           return {
             ...condition,
@@ -215,7 +267,6 @@ export class MongoQueryExecutor {
         return condition;
       });
     }
-
 
     const collection = this.db.collection(options.table);
 
@@ -234,34 +285,58 @@ export class MongoQueryExecutor {
     return this.executeAggregationPipeline(collection, options);
   }
 
-  private async executeAggregationPipeline(collection: Collection, options: QueryOptions): Promise<any[]> {
+  private async executeAggregationPipeline(
+    collection: Collection,
+    options: QueryOptions,
+  ): Promise<any[]> {
     const pipeline: any[] = [];
 
-    const hasRelationFilters = options.mongoRawFilter && this.metadata &&
-      Object.keys(options.mongoRawFilter).some(key => {
+    const hasRelationFilters =
+      options.mongoRawFilter &&
+      this.metadata &&
+      Object.keys(options.mongoRawFilter).some((key) => {
         const tableMeta = this.metadata.tables?.get(options.table);
         if (!tableMeta) return false;
-        const relation = tableMeta.relations?.find((r: any) => r.propertyName === key);
+        const relation = tableMeta.relations?.find(
+          (r: any) => r.propertyName === key,
+        );
         return !!relation; // Is a relation field
       });
 
     if (options.mongoRawFilter && this.metadata) {
       const tableMeta = this.metadata.tables?.get(options.table);
       if (tableMeta) {
-        await applyMixedFilters(this.metadata, pipeline, options.mongoRawFilter, options.table, tableMeta, this.dbType);
+        await applyMixedFilters(
+          this.metadata,
+          pipeline,
+          options.mongoRawFilter,
+          options.table,
+          tableMeta,
+          this.dbType,
+        );
       }
     } else if (options.where) {
-      const filter = whereToMongoFilter(this.metadata, options.where, options.table, this.dbType);
+      const filter = whereToMongoFilter(
+        this.metadata,
+        options.where,
+        options.table,
+        this.dbType,
+      );
       pipeline.push({ $match: filter });
     } else if (options.mongoLogicalFilter) {
       pipeline.push({ $match: options.mongoLogicalFilter });
     }
 
-    const hasSortOnRelation = options.sort?.some(s => {
-      if (!s.field.includes('.')) return false;
-      const relName = s.field.split('.')[0];
-      return options.mongoFieldsExpanded?.relations?.some(r => r.propertyName === relName) ?? false;
-    }) ?? false;
+    const hasSortOnRelation =
+      options.sort?.some((s) => {
+        if (!s.field.includes('.')) return false;
+        const relName = s.field.split('.')[0];
+        return (
+          options.mongoFieldsExpanded?.relations?.some(
+            (r) => r.propertyName === relName,
+          ) ?? false
+        );
+      }) ?? false;
 
     const sortAfterJoins = hasRelationFilters || hasSortOnRelation;
 
@@ -276,7 +351,11 @@ export class MongoQueryExecutor {
         if (options.offset) {
           pipeline.push({ $skip: options.offset });
         }
-        if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
+        if (
+          options.limit !== undefined &&
+          options.limit !== null &&
+          options.limit > 0
+        ) {
           pipeline.push({ $limit: options.limit });
         }
       }
@@ -317,14 +396,19 @@ export class MongoQueryExecutor {
         if (options.offset) {
           pipeline.push({ $skip: options.offset });
         }
-        if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
+        if (
+          options.limit !== undefined &&
+          options.limit !== null &&
+          options.limit > 0
+        ) {
           pipeline.push({ $limit: options.limit });
         }
       }
     }
 
     for (const rel of relations) {
-      const needsNestedPipeline = rel.nestedFields && rel.nestedFields.length > 0;
+      const needsNestedPipeline =
+        rel.nestedFields && rel.nestedFields.length > 0;
       const relationFilter = options.mongoRawFilter?.[rel.propertyName];
 
       if (needsNestedPipeline) {
@@ -332,7 +416,7 @@ export class MongoQueryExecutor {
           this.metadata,
           rel.targetTable,
           rel.nestedFields,
-          relationFilter
+          relationFilter,
         );
 
         if (rel.type === 'one' && nestedPipeline.length > 0) {
@@ -345,15 +429,15 @@ export class MongoQueryExecutor {
             localField: rel.localField,
             foreignField: rel.foreignField,
             as: rel.propertyName,
-            pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined
-          }
+            pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
+          },
         });
       } else if (relationFilter) {
         const nestedPipeline = await buildNestedLookupPipeline(
           this.metadata,
           rel.targetTable,
           ['_id'],
-          relationFilter
+          relationFilter,
         );
 
         if (rel.type === 'one' && nestedPipeline.length > 0) {
@@ -366,8 +450,8 @@ export class MongoQueryExecutor {
             localField: rel.localField,
             foreignField: rel.foreignField,
             as: rel.propertyName,
-            pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined
-          }
+            pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
+          },
         });
       } else {
         pipeline.push({
@@ -375,8 +459,8 @@ export class MongoQueryExecutor {
             from: rel.targetTable,
             localField: rel.localField,
             foreignField: rel.foreignField,
-            as: rel.propertyName
-          }
+            as: rel.propertyName,
+          },
         });
       }
 
@@ -384,17 +468,18 @@ export class MongoQueryExecutor {
         pipeline.push({
           $unwind: {
             path: `$${rel.propertyName}`,
-            preserveNullAndEmptyArrays: true
-          }
+            preserveNullAndEmptyArrays: true,
+          },
         });
 
         if (relationFilter) {
-          const hasIsNullFilter = this.checkIfFilterContainsIsNull(relationFilter);
+          const hasIsNullFilter =
+            this.checkIfFilterContainsIsNull(relationFilter);
           if (!hasIsNullFilter) {
             pipeline.push({
               $match: {
-                [rel.propertyName]: { $ne: null }
-              }
+                [rel.propertyName]: { $ne: null },
+              },
             });
           }
         }
@@ -410,13 +495,23 @@ export class MongoQueryExecutor {
         if (options.offset) {
           pipeline.push({ $skip: options.offset });
         }
-        if (options.limit !== undefined && options.limit !== null && options.limit > 0) {
+        if (
+          options.limit !== undefined &&
+          options.limit !== null &&
+          options.limit > 0
+        ) {
           pipeline.push({ $limit: options.limit });
         }
       }
     }
 
-    await addProjectionStage(this.metadata, pipeline, options.table, scalarFields, relations);
+    await addProjectionStage(
+      this.metadata,
+      pipeline,
+      options.table,
+      scalarFields,
+      relations,
+    );
 
     if (options.mongoCountOnly) {
       pipeline.push({ $count: 'count' });
@@ -440,7 +535,9 @@ export class MongoQueryExecutor {
     return this.normalizeMongoResults(results);
   }
 
-  private buildMongoSortSpec(sort: Array<{ field: string; direction: 'asc' | 'desc' }>): Record<string, 1 | -1> {
+  private buildMongoSortSpec(
+    sort: Array<{ field: string; direction: 'asc' | 'desc' }>,
+  ): Record<string, 1 | -1> {
     const spec: Record<string, 1 | -1> = {};
     for (const sortOpt of sort) {
       let mongoField = sortOpt.field;
@@ -462,15 +559,19 @@ export class MongoQueryExecutor {
     }
 
     if (Array.isArray(filter)) {
-      return filter.some(item => this.checkIfFilterContainsIsNull(item));
+      return filter.some((item) => this.checkIfFilterContainsIsNull(item));
     }
 
     if ('_or' in filter && Array.isArray(filter._or)) {
-      return filter._or.some((condition: any) => this.checkIfFilterContainsIsNull(condition));
+      return filter._or.some((condition: any) =>
+        this.checkIfFilterContainsIsNull(condition),
+      );
     }
 
     if ('_and' in filter && Array.isArray(filter._and)) {
-      return filter._and.some((condition: any) => this.checkIfFilterContainsIsNull(condition));
+      return filter._and.some((condition: any) =>
+        this.checkIfFilterContainsIsNull(condition),
+      );
     }
 
     if ('_not' in filter) {
@@ -486,7 +587,10 @@ export class MongoQueryExecutor {
       }
 
       if (typeof value === 'object') {
-        if ('_is_null' in value && (value._is_null === true || value._is_null === 'true')) {
+        if (
+          '_is_null' in value &&
+          (value._is_null === true || value._is_null === 'true')
+        ) {
           return true;
         }
         if ('_eq' in value && value._eq === null) {
@@ -505,7 +609,7 @@ export class MongoQueryExecutor {
   }
 
   private normalizeMongoResults(results: any[]): any[] {
-    return results.map(result => this.normalizeMongoObject(result));
+    return results.map((result) => this.normalizeMongoObject(result));
   }
 
   private normalizeMongoObject(obj: any): any {
@@ -522,19 +626,23 @@ export class MongoQueryExecutor {
     }
 
     if (Array.isArray(obj)) {
-      return obj.map(item => this.normalizeMongoObject(item));
+      return obj.map((item) => this.normalizeMongoObject(item));
     }
 
-    if ('buffer' in obj && obj.buffer && typeof obj.buffer === 'object' && Object.keys(obj.buffer).length === 12) {
+    if (
+      'buffer' in obj &&
+      obj.buffer &&
+      typeof obj.buffer === 'object' &&
+      Object.keys(obj.buffer).length === 12
+    ) {
       try {
         const bufferObj = obj.buffer as Record<string, number>;
         const bufferArray = Object.keys(bufferObj)
           .sort((a, b) => parseInt(a) - parseInt(b))
-          .map(key => bufferObj[key]);
+          .map((key) => bufferObj[key]);
         const objectId = new ObjectId(Buffer.from(bufferArray));
         return objectId.toString();
-      } catch {
-      }
+      } catch {}
     }
 
     const normalized: any = {};
@@ -543,13 +651,22 @@ export class MongoQueryExecutor {
         normalized[key] = value.toString();
       } else if (value instanceof Date) {
         normalized[key] = value.toISOString();
-      } else if (value && typeof value === 'object' && !(value instanceof Buffer)) {
-        if ('buffer' in value && value.buffer && typeof value.buffer === 'object' && Object.keys(value.buffer).length === 12) {
+      } else if (
+        value &&
+        typeof value === 'object' &&
+        !(value instanceof Buffer)
+      ) {
+        if (
+          'buffer' in value &&
+          value.buffer &&
+          typeof value.buffer === 'object' &&
+          Object.keys(value.buffer).length === 12
+        ) {
           try {
             const bufferObj = value.buffer as Record<string, number>;
             const bufferArray = Object.keys(bufferObj)
               .sort((a, b) => parseInt(a) - parseInt(b))
-              .map(key => bufferObj[key]);
+              .map((key) => bufferObj[key]);
             const objectId = new ObjectId(Buffer.from(bufferArray));
             normalized[key] = objectId.toString();
           } catch {
@@ -565,5 +682,4 @@ export class MongoQueryExecutor {
 
     return normalized;
   }
-
 }

@@ -15,32 +15,46 @@ async function getPrimaryKeyTypeForTable(
 ): Promise<'uuid' | 'int'> {
   try {
     if (metadataCacheService) {
-      const targetMetadata = await metadataCacheService.lookupTableByName(tableName);
+      const targetMetadata =
+        await metadataCacheService.lookupTableByName(tableName);
       if (targetMetadata) {
         const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
         if (pkColumn) {
           const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
+          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
+            ? 'uuid'
+            : 'int';
         }
       }
     }
-    
+
     const pkInfo = await knex('column_definition')
-      .join('table_definition', 'column_definition.table', '=', 'table_definition.id')
+      .join(
+        'table_definition',
+        'column_definition.table',
+        '=',
+        'table_definition.id',
+      )
       .where('table_definition.name', tableName)
       .where('column_definition.isPrimary', true)
       .select('column_definition.type')
       .first();
-    
+
     if (pkInfo) {
       const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid') ? 'uuid' : 'int';
+      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
+        ? 'uuid'
+        : 'int';
     }
-    
-    logger.warn(`Could not find primary key for table ${tableName}, defaulting to int`);
+
+    logger.warn(
+      `Could not find primary key for table ${tableName}, defaulting to int`,
+    );
     return 'int';
   } catch (error) {
-    logger.warn(`Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`);
+    logger.warn(
+      `Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`,
+    );
     return 'int';
   }
 }
@@ -54,19 +68,19 @@ async function validateFkColumnNotConflict(
   tableName: string,
   knex?: Knex,
 ): Promise<void> {
-  const deletedColNames = new Set(pendingDeleteColumns.map(c => c.name));
+  const deletedColNames = new Set(pendingDeleteColumns.map((c) => c.name));
   const existingColNames = existingColumns
-    .filter(c => !deletedColNames.has(c.name))
-    .map(c => c.name);
-  const pendingColNames = pendingCreateColumns.map(c => c.name);
+    .filter((c) => !deletedColNames.has(c.name))
+    .map((c) => c.name);
+  const pendingColNames = pendingCreateColumns.map((c) => c.name);
 
   const allColNames = new Set([...existingColNames, ...pendingColNames]);
 
   if (allColNames.has(fkColumnName)) {
     throw new Error(
       `Cannot create FK column '${fkColumnName}' (${context}): ` +
-      `A column with this name already exists or will be created. ` +
-      `Please rename the relation property to avoid column name conflict.`
+        `A column with this name already exists or will be created. ` +
+        `Please rename the relation property to avoid column name conflict.`,
     );
   }
 
@@ -76,37 +90,45 @@ async function validateFkColumnNotConflict(
       let columnExists = false;
 
       if (dbType === 'postgres') {
-        const result = await knex.raw(`
+        const result = await knex.raw(
+          `
           SELECT column_name
           FROM information_schema.columns
           WHERE table_schema = 'public'
             AND table_name = ?
             AND column_name = ?
-        `, [tableName, fkColumnName]);
+        `,
+          [tableName, fkColumnName],
+        );
         columnExists = result.rows && result.rows.length > 0;
       } else if (dbType === 'mysql') {
-        const result = await knex.raw(`
+        const result = await knex.raw(
+          `
           SELECT COLUMN_NAME
           FROM INFORMATION_SCHEMA.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME = ?
             AND COLUMN_NAME = ?
-        `, [tableName, fkColumnName]);
+        `,
+          [tableName, fkColumnName],
+        );
         columnExists = result[0] && result[0].length > 0;
       }
 
       if (columnExists) {
         throw new Error(
           `Cannot create FK column '${fkColumnName}' (${context}): ` +
-          `A column with this name already exists in physical database. ` +
-          `Please rename the relation property to avoid column name conflict.`
+            `A column with this name already exists in physical database. ` +
+            `Please rename the relation property to avoid column name conflict.`,
         );
       }
     } catch (error: any) {
       if (error.message.includes('Cannot create FK column')) {
         throw error;
       }
-      logger.warn(`Failed to check physical DB for column ${fkColumnName} in ${tableName}: ${error.message}`);
+      logger.warn(
+        `Failed to check physical DB for column ${fkColumnName} in ${tableName}: ${error.message}`,
+      );
     }
   }
 }
@@ -121,10 +143,11 @@ export async function analyzeRelationChanges(
   newColumns: any[],
   metadataCacheService?: any,
 ): Promise<void> {
-
   const targetTableIds = [...oldRelations, ...newRelations]
-    .map(rel => typeof rel.targetTable === 'object' ? rel.targetTable.id : null)
-    .filter(id => id != null);
+    .map((rel) =>
+      typeof rel.targetTable === 'object' ? rel.targetTable.id : null,
+    )
+    .filter((id) => id != null);
 
   const targetTablesMap = new Map<number, string>();
   if (targetTableIds.length > 0) {
@@ -137,41 +160,68 @@ export async function analyzeRelationChanges(
     }
   }
 
-  oldRelations = oldRelations.map(rel => {
-    const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : null;
+  oldRelations = oldRelations.map((rel) => {
+    const targetTableId =
+      typeof rel.targetTable === 'object' ? rel.targetTable.id : null;
     return {
       ...rel,
       sourceTableName: rel.sourceTableName || tableName,
-      targetTableName: rel.targetTableName || (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable)
+      targetTableName:
+        rel.targetTableName ||
+        (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable),
     };
   });
 
-  newRelations = newRelations.map(rel => {
-    const targetTableId = typeof rel.targetTable === 'object' ? rel.targetTable.id : null;
+  newRelations = newRelations.map((rel) => {
+    const targetTableId =
+      typeof rel.targetTable === 'object' ? rel.targetTable.id : null;
     return {
       ...rel,
       sourceTableName: rel.sourceTableName || tableName,
-      targetTableName: rel.targetTableName || (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable)
+      targetTableName:
+        rel.targetTableName ||
+        (targetTableId ? targetTablesMap.get(targetTableId) : rel.targetTable),
     };
   });
 
-  const oldRelMap = new Map(oldRelations.map(r => [r.id, r]));
-  const newRelMap = new Map(newRelations.map(r => [r.id, r]));
-
+  const oldRelMap = new Map(oldRelations.map((r) => [r.id, r]));
+  const newRelMap = new Map(newRelations.map((r) => [r.id, r]));
 
   const deletedRelIds = oldRelations
-    .filter(r => !newRelMap.has(r.id))
-    .map(r => r.id);
+    .filter((r) => !newRelMap.has(r.id))
+    .map((r) => r.id);
 
   const createdRelIds = newRelations
-    .filter(r => r.id !== undefined && r.id !== null && !oldRelMap.has(r.id))
-    .map(r => r.id)
+    .filter((r) => r.id !== undefined && r.id !== null && !oldRelMap.has(r.id))
+    .map((r) => r.id)
     .filter((id, index, self) => self.indexOf(id) === index);
 
-
-  await handleDeletedRelations(knex, oldRelations, deletedRelIds, diff, tableName);
-  await handleCreatedRelations(knex, newRelations, createdRelIds, diff, tableName, newColumns, metadataCacheService);
-  await handleUpdatedRelations(knex, oldRelMap, newRelMap, diff, tableName, oldColumns, newColumns, metadataCacheService);
+  await handleDeletedRelations(
+    knex,
+    oldRelations,
+    deletedRelIds,
+    diff,
+    tableName,
+  );
+  await handleCreatedRelations(
+    knex,
+    newRelations,
+    createdRelIds,
+    diff,
+    tableName,
+    newColumns,
+    metadataCacheService,
+  );
+  await handleUpdatedRelations(
+    knex,
+    oldRelMap,
+    newRelMap,
+    diff,
+    tableName,
+    oldColumns,
+    newColumns,
+    metadataCacheService,
+  );
 }
 
 async function handleDeletedRelations(
@@ -182,11 +232,12 @@ async function handleDeletedRelations(
   tableName: string,
 ): Promise<void> {
   for (const relId of deletedRelIds) {
-    const rel = oldRelations.find(r => r.id === relId);
+    const rel = oldRelations.find((r) => r.id === relId);
     if (!rel) continue;
 
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-      const fkColumn = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+      const fkColumn =
+        rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
       diff.columns.delete.push({
         name: fkColumn,
         isForeignKey: true,
@@ -218,7 +269,7 @@ async function handleCreatedRelations(
   metadataCacheService?: any,
 ): Promise<void> {
   for (const relId of createdRelIds) {
-    const rel = newRelations.find(r => r.id === relId);
+    const rel = newRelations.find((r) => r.id === relId);
     if (!rel) continue;
 
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
@@ -234,7 +285,11 @@ async function handleCreatedRelations(
         knex,
       );
 
-      const targetPkType = await getPrimaryKeyTypeForTable(knex, rel.targetTableName, metadataCacheService);
+      const targetPkType = await getPrimaryKeyTypeForTable(
+        knex,
+        rel.targetTableName,
+        metadataCacheService,
+      );
 
       diff.columns.create.push({
         name: fkColumn,
@@ -249,12 +304,18 @@ async function handleCreatedRelations(
     } else if (rel.type === 'one-to-many') {
       const targetTableName = rel.targetTableName;
       if (!rel.inversePropertyName) {
-        logger.warn(`  O2M relation '${rel.propertyName}' missing inversePropertyName, cannot determine FK column name`);
+        logger.warn(
+          `  O2M relation '${rel.propertyName}' missing inversePropertyName, cannot determine FK column name`,
+        );
         continue;
       }
       const fkColumn = getForeignKeyColumnName(rel.inversePropertyName);
 
-      const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+      const sourcePkType = await getPrimaryKeyTypeForTable(
+        knex,
+        tableName,
+        metadataCacheService,
+      );
 
       if (!diff.crossTableOperations) {
         diff.crossTableOperations = [];
@@ -288,9 +349,16 @@ async function handleCreatedRelations(
         },
       });
     } else if (rel.type === 'many-to-many') {
-      const junctionTableName = getJunctionTableName(tableName, rel.propertyName, rel.targetTableName);
-      const { sourceColumn, targetColumn } = getJunctionColumnNames(tableName, rel.propertyName, rel.targetTableName);
-
+      const junctionTableName = getJunctionTableName(
+        tableName,
+        rel.propertyName,
+        rel.targetTableName,
+      );
+      const { sourceColumn, targetColumn } = getJunctionColumnNames(
+        tableName,
+        rel.propertyName,
+        rel.targetTableName,
+      );
 
       if (!diff.junctionTables) {
         diff.junctionTables = { create: [], drop: [], update: [] };
@@ -323,28 +391,55 @@ async function handleUpdatedRelations(
 
     const changes: string[] = [];
     const propertyNameChanged = oldRel.propertyName !== newRel.propertyName;
-    const inversePropertyNameChanged = oldRel.inversePropertyName !== newRel.inversePropertyName;
+    const inversePropertyNameChanged =
+      oldRel.inversePropertyName !== newRel.inversePropertyName;
     const typeChanged = oldRel.type !== newRel.type;
-    const targetTableChanged = oldRel.targetTableName !== newRel.targetTableName;
+    const targetTableChanged =
+      oldRel.targetTableName !== newRel.targetTableName;
     const isNullableChanged = oldRel.isNullable !== newRel.isNullable;
     const onDeleteChanged = oldRel.onDelete !== newRel.onDelete;
 
-    if (propertyNameChanged) changes.push(`propertyName: ${oldRel.propertyName} → ${newRel.propertyName}`);
+    if (propertyNameChanged)
+      changes.push(
+        `propertyName: ${oldRel.propertyName} → ${newRel.propertyName}`,
+      );
     if (typeChanged) changes.push(`type: ${oldRel.type} → ${newRel.type}`);
-    if (targetTableChanged) changes.push(`target: ${oldRel.targetTableName} → ${newRel.targetTableName}`);
-    if (inversePropertyNameChanged) changes.push(`inversePropertyName: ${oldRel.inversePropertyName} → ${newRel.inversePropertyName}`);
-    if (isNullableChanged) changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
-    if (onDeleteChanged) changes.push(`onDelete: ${oldRel.onDelete} → ${newRel.onDelete}`);
+    if (targetTableChanged)
+      changes.push(
+        `target: ${oldRel.targetTableName} → ${newRel.targetTableName}`,
+      );
+    if (inversePropertyNameChanged)
+      changes.push(
+        `inversePropertyName: ${oldRel.inversePropertyName} → ${newRel.inversePropertyName}`,
+      );
+    if (isNullableChanged)
+      changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
+    if (onDeleteChanged)
+      changes.push(`onDelete: ${oldRel.onDelete} → ${newRel.onDelete}`);
 
     if (changes.length > 0) {
-
       if (typeChanged) {
-        await handleRelationTypeChange(knex, oldRel, newRel, diff, tableName, newColumns, metadataCacheService);
-      }
-      else if (propertyNameChanged || inversePropertyNameChanged) {
-        await handleRelationPropertyNameChange(knex, oldRel, newRel, diff, tableName, propertyNameChanged, inversePropertyNameChanged, metadataCacheService);
-      }
-      else if (onDeleteChanged) {
+        await handleRelationTypeChange(
+          knex,
+          oldRel,
+          newRel,
+          diff,
+          tableName,
+          newColumns,
+          metadataCacheService,
+        );
+      } else if (propertyNameChanged || inversePropertyNameChanged) {
+        await handleRelationPropertyNameChange(
+          knex,
+          oldRel,
+          newRel,
+          diff,
+          tableName,
+          propertyNameChanged,
+          inversePropertyNameChanged,
+          metadataCacheService,
+        );
+      } else if (onDeleteChanged) {
         await handleOnDeleteChange(knex, oldRel, newRel, diff, tableName);
       }
     }
@@ -361,20 +456,26 @@ async function handleRelationPropertyNameChange(
   inversePropertyNameChanged: boolean,
   metadataCacheService?: any,
 ): Promise<void> {
-
   const relationType = oldRel.type;
 
-  if ((relationType === 'many-to-one' || relationType === 'one-to-one') && propertyNameChanged) {
-    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+  if (
+    (relationType === 'many-to-one' || relationType === 'one-to-one') &&
+    propertyNameChanged
+  ) {
+    const oldFkColumn =
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
     const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
-
 
     if (oldFkColumn !== newFkColumn) {
       if (!diff.columns.rename) {
         diff.columns.rename = [];
       }
 
-      const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
+      const targetPkType = await getPrimaryKeyTypeForTable(
+        knex,
+        newRel.targetTableName,
+        metadataCacheService,
+      );
 
       diff.columns.rename.push({
         oldName: oldFkColumn,
@@ -387,24 +488,29 @@ async function handleRelationPropertyNameChange(
         },
       });
     }
-  }
-
-  else if (relationType === 'one-to-many' && inversePropertyNameChanged) {
+  } else if (relationType === 'one-to-many' && inversePropertyNameChanged) {
     if (!oldRel.inversePropertyName || !newRel.inversePropertyName) {
-      logger.warn(`  O2M relation missing inversePropertyName, cannot rename FK column`);
+      logger.warn(
+        `  O2M relation missing inversePropertyName, cannot rename FK column`,
+      );
       return;
     }
 
-    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.inversePropertyName);
+    const oldFkColumn =
+      oldRel.foreignKeyColumn ||
+      getForeignKeyColumnName(oldRel.inversePropertyName);
     const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
-
 
     if (oldFkColumn !== newFkColumn) {
       if (!diff.crossTableOperations) {
         diff.crossTableOperations = [];
       }
 
-      const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+      const sourcePkType = await getPrimaryKeyTypeForTable(
+        knex,
+        tableName,
+        metadataCacheService,
+      );
 
       diff.crossTableOperations.push({
         operation: 'renameColumn',
@@ -418,15 +524,18 @@ async function handleRelationPropertyNameChange(
         },
       });
     }
-  }
-
-  else if (relationType === 'one-to-many' && propertyNameChanged && !inversePropertyNameChanged) {
-  }
-
-  else if (relationType === 'many-to-many' && propertyNameChanged) {
+  } else if (
+    relationType === 'one-to-many' &&
+    propertyNameChanged &&
+    !inversePropertyNameChanged
+  ) {
+  } else if (relationType === 'many-to-many' && propertyNameChanged) {
     const oldJunctionTableName = oldRel.junctionTableName;
-    const newJunctionTableName = getJunctionTableName(tableName, newRel.propertyName, newRel.targetTableName);
-
+    const newJunctionTableName = getJunctionTableName(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
 
     if (oldJunctionTableName !== newJunctionTableName) {
       if (!diff.junctionTables) {
@@ -438,10 +547,10 @@ async function handleRelationPropertyNameChange(
         newTableName: newJunctionTableName,
       });
     }
-  }
-
-  else {
-    logger.warn(`  Unhandled property name change scenario for ${relationType}`);
+  } else {
+    logger.warn(
+      `  Unhandled property name change scenario for ${relationType}`,
+    );
   }
 }
 
@@ -454,7 +563,6 @@ async function handleRelationTypeChange(
   newColumns: any[],
   metadataCacheService?: any,
 ): Promise<void> {
-
   if (!diff.crossTableOperations) {
     diff.crossTableOperations = [];
   }
@@ -465,16 +573,27 @@ async function handleRelationTypeChange(
   const oldType = oldRel.type;
   const newType = newRel.type;
 
-  if ((oldType === 'many-to-one' || oldType === 'one-to-one') && newType === 'many-to-many') {
-
-    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+  if (
+    (oldType === 'many-to-one' || oldType === 'one-to-one') &&
+    newType === 'many-to-many'
+  ) {
+    const oldFkColumn =
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
     diff.columns.delete.push({
       name: oldFkColumn,
       isForeignKey: true,
     });
 
-    const junctionTableName = getJunctionTableName(tableName, newRel.propertyName, newRel.targetTableName);
-    const { sourceColumn, targetColumn } = getJunctionColumnNames(tableName, newRel.propertyName, newRel.targetTableName);
+    const junctionTableName = getJunctionTableName(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
+    const { sourceColumn, targetColumn } = getJunctionColumnNames(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
     diff.junctionTables.create.push({
       tableName: junctionTableName,
       sourceTable: tableName,
@@ -482,10 +601,10 @@ async function handleRelationTypeChange(
       sourceColumn: sourceColumn,
       targetColumn: targetColumn,
     });
-  }
-
-  else if (oldType === 'many-to-many' && (newType === 'many-to-one' || newType === 'one-to-one')) {
-
+  } else if (
+    oldType === 'many-to-many' &&
+    (newType === 'many-to-one' || newType === 'one-to-one')
+  ) {
     const oldJunctionTableName = oldRel.junctionTableName;
     diff.junctionTables.drop.push({
       tableName: oldJunctionTableName,
@@ -504,7 +623,11 @@ async function handleRelationTypeChange(
       knex,
     );
 
-    const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
+    const targetPkType = await getPrimaryKeyTypeForTable(
+      knex,
+      newRel.targetTableName,
+      metadataCacheService,
+    );
 
     diff.columns.create.push({
       name: newFkColumn,
@@ -515,14 +638,15 @@ async function handleRelationTypeChange(
       foreignKeyColumn: 'id',
       isUnique: newType === 'one-to-one',
     });
-  }
-
-  else if (oldType === 'one-to-many' && newType === 'many-to-many') {
-
+  } else if (oldType === 'one-to-many' && newType === 'many-to-many') {
     if (!oldRel.inversePropertyName) {
-      throw new Error(`O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`);
+      throw new Error(
+        `O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`,
+      );
     }
-    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.inversePropertyName);
+    const oldFkColumn =
+      oldRel.foreignKeyColumn ||
+      getForeignKeyColumnName(oldRel.inversePropertyName);
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -530,8 +654,16 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    const junctionTableName = getJunctionTableName(tableName, newRel.propertyName, newRel.targetTableName);
-    const { sourceColumn, targetColumn } = getJunctionColumnNames(tableName, newRel.propertyName, newRel.targetTableName);
+    const junctionTableName = getJunctionTableName(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
+    const { sourceColumn, targetColumn } = getJunctionColumnNames(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
     diff.junctionTables.create.push({
       tableName: junctionTableName,
       sourceTable: tableName,
@@ -539,10 +671,7 @@ async function handleRelationTypeChange(
       sourceColumn: sourceColumn,
       targetColumn: targetColumn,
     });
-  }
-
-  else if (oldType === 'many-to-many' && newType === 'one-to-many') {
-
+  } else if (oldType === 'many-to-many' && newType === 'one-to-many') {
     const oldJunctionTableName = oldRel.junctionTableName;
     diff.junctionTables.drop.push({
       tableName: oldJunctionTableName,
@@ -550,11 +679,17 @@ async function handleRelationTypeChange(
     });
 
     if (!newRel.inversePropertyName) {
-      throw new Error(`O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`);
+      throw new Error(
+        `O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`,
+      );
     }
     const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
-    
-    const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+
+    const sourcePkType = await getPrimaryKeyTypeForTable(
+      knex,
+      tableName,
+      metadataCacheService,
+    );
 
     diff.crossTableOperations.push({
       operation: 'createColumn',
@@ -568,22 +703,29 @@ async function handleRelationTypeChange(
         foreignKeyColumn: 'id',
       },
     });
-  }
-
-  else if ((oldType === 'many-to-one' || oldType === 'one-to-one') && newType === 'one-to-many') {
-
-    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+  } else if (
+    (oldType === 'many-to-one' || oldType === 'one-to-one') &&
+    newType === 'one-to-many'
+  ) {
+    const oldFkColumn =
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
     diff.columns.delete.push({
       name: oldFkColumn,
       isForeignKey: true,
     });
 
     if (!newRel.inversePropertyName) {
-      throw new Error(`O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`);
+      throw new Error(
+        `O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`,
+      );
     }
     const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
-    
-    const sourcePkType = await getPrimaryKeyTypeForTable(knex, tableName, metadataCacheService);
+
+    const sourcePkType = await getPrimaryKeyTypeForTable(
+      knex,
+      tableName,
+      metadataCacheService,
+    );
 
     diff.crossTableOperations.push({
       operation: 'createColumn',
@@ -597,14 +739,18 @@ async function handleRelationTypeChange(
         foreignKeyColumn: 'id',
       },
     });
-  }
-
-  else if (oldType === 'one-to-many' && (newType === 'many-to-one' || newType === 'one-to-one')) {
-
+  } else if (
+    oldType === 'one-to-many' &&
+    (newType === 'many-to-one' || newType === 'one-to-one')
+  ) {
     if (!oldRel.inversePropertyName) {
-      throw new Error(`O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`);
+      throw new Error(
+        `O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`,
+      );
     }
-    const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.inversePropertyName);
+    const oldFkColumn =
+      oldRel.foreignKeyColumn ||
+      getForeignKeyColumnName(oldRel.inversePropertyName);
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -624,7 +770,11 @@ async function handleRelationTypeChange(
       knex,
     );
 
-    const targetPkType = await getPrimaryKeyTypeForTable(knex, newRel.targetTableName, metadataCacheService);
+    const targetPkType = await getPrimaryKeyTypeForTable(
+      knex,
+      newRel.targetTableName,
+      metadataCacheService,
+    );
 
     diff.columns.create.push({
       name: newFkColumn,
@@ -635,20 +785,19 @@ async function handleRelationTypeChange(
       foreignKeyColumn: 'id',
       isUnique: newType === 'one-to-one',
     });
-  }
-
-  else if ((oldType === 'many-to-one' && newType === 'one-to-one') || (oldType === 'one-to-one' && newType === 'many-to-one')) {
-
-    const fkColumn = newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
+  } else if (
+    (oldType === 'many-to-one' && newType === 'one-to-one') ||
+    (oldType === 'one-to-one' && newType === 'many-to-one')
+  ) {
+    const fkColumn =
+      newRel.foreignKeyColumn || getForeignKeyColumnName(newRel.propertyName);
 
     if (oldType === 'many-to-one' && newType === 'one-to-one') {
       diff.constraints.uniques.create.push([fkColumn]);
     } else {
       diff.constraints.uniques.delete.push([fkColumn]);
     }
-  }
-
-  else {
+  } else {
     logger.warn(`  Unhandled relation type change: ${oldType} → ${newType}`);
   }
 }
@@ -660,7 +809,6 @@ async function handleOnDeleteChange(
   diff: any,
   tableName: string,
 ): Promise<void> {
-
   const relationType = newRel.type;
 
   if (relationType === 'many-to-one' || relationType === 'one-to-one') {
@@ -679,7 +827,9 @@ async function handleOnDeleteChange(
     });
   } else if (relationType === 'one-to-many') {
     if (!newRel.inversePropertyName) {
-      logger.warn(`  O2M relation '${newRel.propertyName}' missing inversePropertyName, cannot update FK constraint`);
+      logger.warn(
+        `  O2M relation '${newRel.propertyName}' missing inversePropertyName, cannot update FK constraint`,
+      );
       return;
     }
 

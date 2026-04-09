@@ -1,7 +1,17 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
-import { IStorageService, StorageConfig, UploadResult } from './storage.interface';
+import {
+  IStorageService,
+  StorageConfig,
+  UploadResult,
+} from './storage.interface';
 
 @Injectable()
 export class S3StorageService implements IStorageService {
@@ -9,7 +19,9 @@ export class S3StorageService implements IStorageService {
 
   private getS3Client(config: StorageConfig): S3Client {
     if (!config.accessKeyId || !config.secretAccessKey) {
-      throw new BadRequestException('S3 requires accessKeyId and secretAccessKey');
+      throw new BadRequestException(
+        'S3 requires accessKeyId and secretAccessKey',
+      );
     }
 
     if (!config.bucket) {
@@ -70,7 +82,6 @@ export class S3StorageService implements IStorageService {
       });
 
       await s3Client.send(command);
-
     } catch (error: any) {
       const cloudError = error.message || error.name || 'Unknown error';
       const errorMessage = `Failed to delete from S3: ${cloudError}`;
@@ -95,7 +106,6 @@ export class S3StorageService implements IStorageService {
       }
 
       const stream = response.Body as Readable;
-
 
       return stream;
     } catch (error: any) {
@@ -129,7 +139,6 @@ export class S3StorageService implements IStorageService {
       }
 
       const buffer = Buffer.concat(chunks);
-
 
       return buffer;
     } catch (error: any) {
@@ -168,7 +177,10 @@ export class S3StorageService implements IStorageService {
       await s3Client.send(command);
       return true;
     } catch (error: any) {
-      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+      if (
+        error.name === 'NotFound' ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
         return false;
       }
       this.logger.warn(`Error checking file existence in S3: ${error.message}`);
@@ -176,4 +188,3 @@ export class S3StorageService implements IStorageService {
     }
   }
 }
-

@@ -13,7 +13,8 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    @InjectQueue(SYSTEM_QUEUES.SESSION_CLEANUP) private readonly cleanupQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.SESSION_CLEANUP)
+    private readonly cleanupQueue: Queue,
   ) {
     super();
   }
@@ -51,11 +52,16 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
       let batchDeleted = 0;
       for (const session of expired) {
         try {
-          await this.queryBuilder.deleteById('session_definition', session[idField]);
+          await this.queryBuilder.deleteById(
+            'session_definition',
+            session[idField],
+          );
           totalDeleted++;
           batchDeleted++;
         } catch (err) {
-          this.logger.warn(`Failed to delete session ${session[idField]}: ${err.message}`);
+          this.logger.warn(
+            `Failed to delete session ${session[idField]}: ${err.message}`,
+          );
         }
       }
 
@@ -63,7 +69,9 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
       if (expired.length < BATCH_SIZE) hasMore = false;
     }
 
-    this.logger.log(`Cleaned up ${totalDeleted} expired sessions in ${Date.now() - startTime}ms`);
+    this.logger.log(
+      `Cleaned up ${totalDeleted} expired sessions in ${Date.now() - startTime}ms`,
+    );
     return { deleted: totalDeleted };
   }
 }

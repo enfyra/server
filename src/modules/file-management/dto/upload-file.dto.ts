@@ -1,4 +1,15 @@
-import { IsOptional, IsString, IsBoolean, IsNumber, IsEnum, ValidateIf, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface, Validate } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsBoolean,
+  IsNumber,
+  IsEnum,
+  ValidateIf,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  Validate,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 
 @ValidatorConstraint({ name: 'isNumberOrString', async: false })
@@ -65,12 +76,16 @@ export class UpdateFileDto {
 
   @IsOptional()
   @IsNumber()
-  @Transform(({ value }) => value !== undefined && value !== null ? Number(value) : value)
+  @Transform(({ value }) =>
+    value !== undefined && value !== null ? Number(value) : value,
+  )
   size?: number;
 
   @IsOptional()
   @IsNumber()
-  @Transform(({ value }) => value !== undefined && value !== null ? Number(value) : value)
+  @Transform(({ value }) =>
+    value !== undefined && value !== null ? Number(value) : value,
+  )
   filesize?: number;
 
   @IsOptional()

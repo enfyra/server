@@ -22,7 +22,10 @@ export interface LogLevel {
 
 @Injectable()
 export class LoggingService implements LoggerService {
-  private readonly als = new AsyncLocalStorage<{ correlationId: string | null; context: LogContext }>();
+  private readonly als = new AsyncLocalStorage<{
+    correlationId: string | null;
+    context: LogContext;
+  }>();
 
   setCorrelationId(correlationId: string): void {
     const store = this.als.getStore();

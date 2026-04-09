@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { TDynamicContext } from '../../../shared/types';
-import { IsolatedExecutorService, CodeBlock } from './isolated-executor.service';
+import {
+  IsolatedExecutorService,
+  CodeBlock,
+} from './isolated-executor.service';
 
 export type { CodeBlock } from './isolated-executor.service';
 
@@ -19,7 +22,10 @@ export class ExecutorEngineService {
     req.routeData.__codeBlocks.push(block);
   }
 
-  async runBatch(req: any, timeoutMs?: number): Promise<{ value: any; shortCircuit: boolean }> {
+  async runBatch(
+    req: any,
+    timeoutMs?: number,
+  ): Promise<{ value: any; shortCircuit: boolean }> {
     const blocks: CodeBlock[] = req.routeData.__codeBlocks || [];
     if (blocks.length === 0) {
       return { value: undefined, shortCircuit: false };

@@ -50,7 +50,9 @@ export class RateLimitService {
   ) {
     this.redis = this.redisService.getOrNil();
     if (!this.redis) {
-      this.logger.warn('Redis connection not available - RateLimitService will not work');
+      this.logger.warn(
+        'Redis connection not available - RateLimitService will not work',
+      );
     }
     this.nodeName = this.configService.get<string>('NODE_NAME') || null;
   }
@@ -63,7 +65,10 @@ export class RateLimitService {
     return `${prefix}:${key}`;
   }
 
-  async check(key: string, options: RateLimitOptions): Promise<RateLimitResult> {
+  async check(
+    key: string,
+    options: RateLimitOptions,
+  ): Promise<RateLimitResult> {
     if (!this.redis) {
       this.logger.warn('Redis not available, allowing request');
       return {
@@ -89,7 +94,12 @@ export class RateLimitService {
         now,
       );
 
-      const [allowed, remaining, resetAt, retryAfter] = result as [number, number, number, number];
+      const [allowed, remaining, resetAt, retryAfter] = result as [
+        number,
+        number,
+        number,
+        number,
+      ];
 
       return {
         allowed: allowed === 1,
@@ -118,7 +128,10 @@ export class RateLimitService {
     await this.redis.del(decoratedKey);
   }
 
-  async status(key: string, options: RateLimitOptions): Promise<RateLimitResult> {
+  async status(
+    key: string,
+    options: RateLimitOptions,
+  ): Promise<RateLimitResult> {
     if (!this.redis) {
       return {
         allowed: true,
@@ -134,7 +147,11 @@ export class RateLimitService {
     const now = Date.now();
 
     try {
-      await this.redis.zremrangebyscore(decoratedKey, 0, now - options.perSeconds * 1000);
+      await this.redis.zremrangebyscore(
+        decoratedKey,
+        0,
+        now - options.perSeconds * 1000,
+      );
       const current = await this.redis.zcard(decoratedKey);
       const remaining = Math.max(0, options.maxRequests - current);
       const ttl = await this.redis.pttl(decoratedKey);

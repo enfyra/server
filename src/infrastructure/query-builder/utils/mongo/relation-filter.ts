@@ -1,14 +1,17 @@
 import { WhereCondition } from '../../../../shared/types/query-builder.types';
 import { hasLogicalOperators } from '../shared/logical-operators.util';
 import { separateFilters } from '../shared/filter-separator.util';
-import { whereToMongoFilter, convertLogicalFilterToMongo } from './filter-builder';
+import {
+  whereToMongoFilter,
+  convertLogicalFilterToMongo,
+} from './filter-builder';
 
 export async function buildRelationLookupPipeline(
   metadata: any,
   targetTable: string,
   filter: any,
   targetMeta: any,
-  dbType?: string
+  dbType?: string,
 ): Promise<any[]> {
   const subPipeline: any[] = [];
 
@@ -38,22 +41,47 @@ export async function buildRelationLookupPipeline(
             else if (op === '_is_not_null') operator = '_is_not_null';
             else operator = op.replace('_', ' ');
 
-            whereConditions.push({ field, operator, value: val } as WhereCondition);
+            whereConditions.push({
+              field,
+              operator,
+              value: val,
+            } as WhereCondition);
           }
         } else {
-          whereConditions.push({ field, operator: '=', value } as WhereCondition);
+          whereConditions.push({
+            field,
+            operator: '=',
+            value,
+          } as WhereCondition);
         }
       }
-      const matchFilter = whereToMongoFilter(metadata, whereConditions, targetTable, dbType);
+      const matchFilter = whereToMongoFilter(
+        metadata,
+        whereConditions,
+        targetTable,
+        dbType,
+      );
       subPipeline.push({ $match: matchFilter });
     } else {
-      const logicalFilter = convertLogicalFilterToMongo(metadata, fieldFilters, targetTable, dbType);
+      const logicalFilter = convertLogicalFilterToMongo(
+        metadata,
+        fieldFilters,
+        targetTable,
+        dbType,
+      );
       subPipeline.push({ $match: logicalFilter });
     }
   }
 
   if (relationFilters && Object.keys(relationFilters).length > 0) {
-    await applyRelationFilters(metadata, subPipeline, relationFilters, targetTable, false, dbType);
+    await applyRelationFilters(
+      metadata,
+      subPipeline,
+      relationFilters,
+      targetTable,
+      false,
+      dbType,
+    );
   }
 
   return subPipeline;
@@ -65,7 +93,7 @@ export async function applyRelationFilters(
   relationFilters: any,
   tableName: string,
   invert: boolean = false,
-  dbType?: string
+  dbType?: string,
 ): Promise<void> {
   if (!metadata) {
     return;
@@ -76,8 +104,12 @@ export async function applyRelationFilters(
     return;
   }
 
-  for (const [relationName, relationFilter] of Object.entries(relationFilters)) {
-    const relation = tableMeta.relations.find((r: any) => r.propertyName === relationName);
+  for (const [relationName, relationFilter] of Object.entries(
+    relationFilters,
+  )) {
+    const relation = tableMeta.relations.find(
+      (r: any) => r.propertyName === relationName,
+    );
     if (!relation) {
       continue;
     }
@@ -95,7 +127,7 @@ export async function applyRelationFilters(
       targetTable,
       relationFilter,
       targetMeta,
-      dbType
+      dbType,
     );
 
     let localField: string;
@@ -111,7 +143,10 @@ export async function applyRelationFilters(
       continue;
     }
 
-    if ((relation.type === 'many-to-one' || relation.type === 'one-to-one') && lookupPipeline.length > 0) {
+    if (
+      (relation.type === 'many-to-one' || relation.type === 'one-to-one') &&
+      lookupPipeline.length > 0
+    ) {
       lookupPipeline.push({ $limit: 1 });
     }
 
@@ -121,28 +156,34 @@ export async function applyRelationFilters(
         localField,
         foreignField,
         as: lookupFieldName,
-        pipeline: lookupPipeline
-      }
+        pipeline: lookupPipeline,
+      },
     });
 
     pipeline.push({
       $match: {
         $expr: invert
           ? { $eq: [{ $size: `$${lookupFieldName}` }, 0] }
-          : { $gt: [{ $size: `$${lookupFieldName}` }, 0] }
-      }
+          : { $gt: [{ $size: `$${lookupFieldName}` }, 0] },
+      },
     });
 
     pipeline.push({
       $project: {
-        [lookupFieldName]: 0
-      }
+        [lookupFieldName]: 0,
+      },
     });
   }
 }
 
-function isM2oFkNullOnlyFilter(tableMeta: any, relName: string, relFilter: any): boolean {
-  const relation = tableMeta.relations?.find((r: any) => r.propertyName === relName);
+function isM2oFkNullOnlyFilter(
+  tableMeta: any,
+  relName: string,
+  relFilter: any,
+): boolean {
+  const relation = tableMeta.relations?.find(
+    (r: any) => r.propertyName === relName,
+  );
   if (
     !relation ||
     (relation.type !== 'many-to-one' && relation.type !== 'one-to-one') ||
@@ -162,9 +203,14 @@ function isM2oFkNullOnlyFilter(tableMeta: any, relName: string, relFilter: any):
     !Array.isArray(relFilter.id)
   ) {
     const ik = Object.keys(relFilter.id);
-    return ik.length > 0 && ik.every(k => k === '_is_null' || k === '_is_not_null');
+    return (
+      ik.length > 0 && ik.every((k) => k === '_is_null' || k === '_is_not_null')
+    );
   }
-  return keys.length > 0 && keys.every(k => k === '_is_null' || k === '_is_not_null');
+  return (
+    keys.length > 0 &&
+    keys.every((k) => k === '_is_null' || k === '_is_not_null')
+  );
 }
 
 export async function applyMixedFilters(
@@ -173,7 +219,7 @@ export async function applyMixedFilters(
   filter: any,
   tableName: string,
   tableMeta: any,
-  dbType?: string
+  dbType?: string,
 ): Promise<void> {
   if (filter._and && Array.isArray(filter._and)) {
     const fieldConditions: any[] = [];
@@ -186,7 +232,9 @@ export async function applyMixedFilters(
         fieldConditions.push(separated.fieldFilters);
       }
 
-      for (const [relName, relFilter] of Object.entries(separated.relationFilters)) {
+      for (const [relName, relFilter] of Object.entries(
+        separated.relationFilters,
+      )) {
         if (!allRelationFilters[relName]) {
           allRelationFilters[relName] = [];
         }
@@ -195,15 +243,22 @@ export async function applyMixedFilters(
     }
 
     if (fieldConditions.length > 0) {
-      const mongoFieldConditions = fieldConditions.map(fc =>
-        convertLogicalFilterToMongo(metadata, fc, tableName, dbType)
+      const mongoFieldConditions = fieldConditions.map((fc) =>
+        convertLogicalFilterToMongo(metadata, fc, tableName, dbType),
       );
       pipeline.push({ $match: { $and: mongoFieldConditions } });
     }
 
     for (const [relName, relFilters] of Object.entries(allRelationFilters)) {
       for (const relFilter of relFilters as any[]) {
-        await applyRelationFilters(metadata, pipeline, { [relName]: relFilter }, tableName, false, dbType);
+        await applyRelationFilters(
+          metadata,
+          pipeline,
+          { [relName]: relFilter },
+          tableName,
+          false,
+          dbType,
+        );
       }
     }
     return;
@@ -221,7 +276,9 @@ export async function applyMixedFilters(
       }
 
       if (Object.keys(separated.relationFilters).length > 0) {
-        for (const [relName, relFilter] of Object.entries(separated.relationFilters)) {
+        for (const [relName, relFilter] of Object.entries(
+          separated.relationFilters,
+        )) {
           if (isM2oFkNullOnlyFilter(tableMeta, relName, relFilter)) {
             continue;
           }
@@ -235,7 +292,9 @@ export async function applyMixedFilters(
     if (hasRelations) {
       const lookupFields: string[] = [];
       for (const relCondition of relationConditions) {
-        const relation = tableMeta.relations.find((r: any) => r.propertyName === relCondition.relationName);
+        const relation = tableMeta.relations.find(
+          (r: any) => r.propertyName === relCondition.relationName,
+        );
         if (!relation) continue;
 
         const targetTable = relation.targetTableName || relation.targetTable;
@@ -250,14 +309,15 @@ export async function applyMixedFilters(
           targetTable,
           relCondition.filter,
           targetMeta,
-          dbType
+          dbType,
         );
 
         let localField: string;
         let foreignField: string;
 
         if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
-          localField = relation.foreignKeyColumn || `${relCondition.relationName}Id`;
+          localField =
+            relation.foreignKeyColumn || `${relCondition.relationName}Id`;
           foreignField = '_id';
         } else if (relation.type === 'one-to-many') {
           localField = '_id';
@@ -266,7 +326,10 @@ export async function applyMixedFilters(
           continue;
         }
 
-        if ((relation.type === 'many-to-one' || relation.type === 'one-to-one') && lookupPipeline.length > 0) {
+        if (
+          (relation.type === 'many-to-one' || relation.type === 'one-to-one') &&
+          lookupPipeline.length > 0
+        ) {
           lookupPipeline.push({ $limit: 1 });
         }
 
@@ -276,22 +339,24 @@ export async function applyMixedFilters(
             localField,
             foreignField,
             as: lookupFieldName,
-            pipeline: lookupPipeline
-          }
+            pipeline: lookupPipeline,
+          },
         });
       }
 
       const orConditions: any[] = [];
 
       for (const fc of fieldConditions) {
-        orConditions.push(convertLogicalFilterToMongo(metadata, fc, tableName, dbType));
+        orConditions.push(
+          convertLogicalFilterToMongo(metadata, fc, tableName, dbType),
+        );
       }
 
       for (const lookupField of lookupFields) {
         orConditions.push({
           $expr: {
-            $gt: [{ $size: `$${lookupField}` }, 0]
-          }
+            $gt: [{ $size: `$${lookupField}` }, 0],
+          },
         });
       }
 
@@ -301,9 +366,13 @@ export async function applyMixedFilters(
         if (
           Object.keys(separated.fieldFilters).length === 0 &&
           relEntries.length > 0 &&
-          relEntries.every(([relName, relFilter]) => isM2oFkNullOnlyFilter(tableMeta, relName, relFilter))
+          relEntries.every(([relName, relFilter]) =>
+            isM2oFkNullOnlyFilter(tableMeta, relName, relFilter),
+          )
         ) {
-          orConditions.push(convertLogicalFilterToMongo(metadata, condition, tableName, dbType));
+          orConditions.push(
+            convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+          );
         }
       }
 
@@ -320,7 +389,7 @@ export async function applyMixedFilters(
       }
     } else {
       const mongoFieldConditions = filter._or.map((condition: any) =>
-        convertLogicalFilterToMongo(metadata, condition, tableName, dbType)
+        convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
       );
       pipeline.push({ $match: { $or: mongoFieldConditions } });
     }
@@ -331,12 +400,23 @@ export async function applyMixedFilters(
     const separated = separateFilters(filter._not, tableMeta);
 
     if (Object.keys(separated.fieldFilters).length > 0) {
-      const mongoFilter = convertLogicalFilterToMongo(metadata, separated.fieldFilters, tableName, dbType);
+      const mongoFilter = convertLogicalFilterToMongo(
+        metadata,
+        separated.fieldFilters,
+        tableName,
+        dbType,
+      );
       pipeline.push({ $match: { $nor: [mongoFilter] } });
     }
 
     if (Object.keys(separated.relationFilters).length > 0) {
-      await applyRelationFilters(metadata, pipeline, separated.relationFilters, tableName, true);
+      await applyRelationFilters(
+        metadata,
+        pipeline,
+        separated.relationFilters,
+        tableName,
+        true,
+      );
     }
     return;
   }
@@ -367,21 +447,46 @@ export async function applyMixedFilters(
             else if (op === '_is_not_null') operator = '_is_not_null';
             else operator = op.replace('_', ' ');
 
-            whereConditions.push({ field, operator, value: val } as WhereCondition);
+            whereConditions.push({
+              field,
+              operator,
+              value: val,
+            } as WhereCondition);
           }
         } else {
-          whereConditions.push({ field, operator: '=', value } as WhereCondition);
+          whereConditions.push({
+            field,
+            operator: '=',
+            value,
+          } as WhereCondition);
         }
       }
-      const matchFilter = whereToMongoFilter(metadata, whereConditions, tableName, dbType);
+      const matchFilter = whereToMongoFilter(
+        metadata,
+        whereConditions,
+        tableName,
+        dbType,
+      );
       pipeline.push({ $match: matchFilter });
     } else {
-      const logicalFilter = convertLogicalFilterToMongo(metadata, fieldFilters, tableName, dbType);
+      const logicalFilter = convertLogicalFilterToMongo(
+        metadata,
+        fieldFilters,
+        tableName,
+        dbType,
+      );
       pipeline.push({ $match: logicalFilter });
     }
   }
 
   if (relationFilters && Object.keys(relationFilters).length > 0) {
-    await applyRelationFilters(metadata, pipeline, relationFilters, tableName, false, dbType);
+    await applyRelationFilters(
+      metadata,
+      pipeline,
+      relationFilters,
+      tableName,
+      false,
+      dbType,
+    );
   }
 }

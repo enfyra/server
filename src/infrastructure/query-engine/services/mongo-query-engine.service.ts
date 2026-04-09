@@ -1,12 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 
-
 @Injectable()
 export class MongoQueryEngine {
-  constructor(
-    private queryBuilder: QueryBuilderService,
-  ) {}
+  constructor(private queryBuilder: QueryBuilderService) {}
 
   async find(options: {
     tableName: string;

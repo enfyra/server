@@ -6,7 +6,7 @@ export function hasLogicalOperators(filter: any): boolean {
   }
 
   if (Array.isArray(filter)) {
-    return filter.some(item => hasLogicalOperators(item));
+    return filter.some((item) => hasLogicalOperators(item));
   }
 
   for (const key of Object.keys(filter)) {

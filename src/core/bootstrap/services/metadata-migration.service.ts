@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { SchemaMigrationDef, TableMigrationDef, ColumnModifyDef, RelationModifyDef } from '../../../shared/types/schema-migration.types';
+import {
+  SchemaMigrationDef,
+  TableMigrationDef,
+  ColumnModifyDef,
+  RelationModifyDef,
+} from '../../../shared/types/schema-migration.types';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,13 +24,20 @@ export class MetadataMigrationService {
       if (fs.existsSync(filePath)) {
         const content = fs.readFileSync(filePath, 'utf8');
         const parsed = JSON.parse(content);
-        if (parsed && (parsed.tables?.length > 0 || parsed.tablesToDrop?.length > 0)) {
+        if (
+          parsed &&
+          (parsed.tables?.length > 0 || parsed.tablesToDrop?.length > 0)
+        ) {
           this.migrations = parsed;
-          this.logger.log(`Loaded snapshot-migration.json with ${parsed.tables?.length || 0} table migration(s)`);
+          this.logger.log(
+            `Loaded snapshot-migration.json with ${parsed.tables?.length || 0} table migration(s)`,
+          );
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to load snapshot-migration.json: ${error.message}`);
+      this.logger.warn(
+        `Failed to load snapshot-migration.json: ${error.message}`,
+      );
       this.migrations = null;
     }
   }
@@ -33,8 +45,8 @@ export class MetadataMigrationService {
   hasMigrations(): boolean {
     if (!this.migrations) return false;
     return (
-      (this.migrations.tables?.length > 0) ||
-      (this.migrations.tablesToDrop?.length > 0)
+      this.migrations.tables?.length > 0 ||
+      this.migrations.tablesToDrop?.length > 0
     );
   }
 
@@ -44,7 +56,9 @@ export class MetadataMigrationService {
       return;
     }
 
-    this.logger.log('Running metadata migrations from snapshot-migration.json...');
+    this.logger.log(
+      'Running metadata migrations from snapshot-migration.json...',
+    );
 
     const isMongoDB = this.queryBuilder.isMongoDb();
 
@@ -61,7 +75,10 @@ export class MetadataMigrationService {
     this.logger.log('Metadata migrations completed');
   }
 
-  private async dropTableMetadata(tableNames: string[], isMongoDB: boolean): Promise<void> {
+  private async dropTableMetadata(
+    tableNames: string[],
+    isMongoDB: boolean,
+  ): Promise<void> {
     this.logger.log(`Dropping metadata for ${tableNames.length} table(s)...`);
 
     for (const tableName of tableNames) {
@@ -101,12 +118,17 @@ export class MetadataMigrationService {
           this.logger.log(`  Dropped metadata for table: ${tableName}`);
         }
       } catch (error) {
-        this.logger.error(`  Failed to drop metadata for ${tableName}: ${error.message}`);
+        this.logger.error(
+          `  Failed to drop metadata for ${tableName}: ${error.message}`,
+        );
       }
     }
   }
 
-  private async migrateTableMetadata(migration: TableMigrationDef, isMongoDB: boolean): Promise<void> {
+  private async migrateTableMetadata(
+    migration: TableMigrationDef,
+    isMongoDB: boolean,
+  ): Promise<void> {
     const tableName = migration._unique.name._eq;
     this.logger.log(`Migrating metadata for table: ${tableName}`);
 
@@ -128,22 +150,40 @@ export class MetadataMigrationService {
 
     // Handle column modifications
     if (migration.columnsToModify?.length > 0) {
-      await this.modifyColumnMetadata(tableId, tableIdField, migration.columnsToModify, isMongoDB);
+      await this.modifyColumnMetadata(
+        tableId,
+        tableIdField,
+        migration.columnsToModify,
+        isMongoDB,
+      );
     }
 
     // Handle column removals
     if (migration.columnsToRemove?.length > 0) {
-      await this.removeColumnMetadata(tableId, tableIdField, migration.columnsToRemove, isMongoDB);
+      await this.removeColumnMetadata(
+        tableId,
+        tableIdField,
+        migration.columnsToRemove,
+        isMongoDB,
+      );
     }
 
     // Handle relation modifications
     if (migration.relationsToModify?.length > 0) {
-      await this.modifyRelationMetadata(tableId, isMongoDB, migration.relationsToModify);
+      await this.modifyRelationMetadata(
+        tableId,
+        isMongoDB,
+        migration.relationsToModify,
+      );
     }
 
     // Handle relation removals
     if (migration.relationsToRemove?.length > 0) {
-      await this.removeRelationMetadata(tableId, isMongoDB, migration.relationsToRemove);
+      await this.removeRelationMetadata(
+        tableId,
+        isMongoDB,
+        migration.relationsToRemove,
+      );
     }
   }
 
@@ -151,14 +191,17 @@ export class MetadataMigrationService {
     tableId: any,
     tableIdField: string,
     modifications: ColumnModifyDef[],
-    isMongoDB: boolean
+    isMongoDB: boolean,
   ): Promise<void> {
     for (const mod of modifications) {
       // Skip if no actual changes detected (name is same and no property changes)
-      const hasChanges = mod.to.name !== mod.from.name ||
-        (mod.to.isNullable !== undefined && mod.to.isNullable !== mod.from.isNullable) ||
-        (mod.to.isUpdatable !== undefined && mod.to.isUpdatable !== mod.from.isUpdatable) ||
-        (mod.to.description !== undefined);
+      const hasChanges =
+        mod.to.name !== mod.from.name ||
+        (mod.to.isNullable !== undefined &&
+          mod.to.isNullable !== mod.from.isNullable) ||
+        (mod.to.isUpdatable !== undefined &&
+          mod.to.isUpdatable !== mod.from.isUpdatable) ||
+        mod.to.description !== undefined;
 
       if (!hasChanges) {
         continue;
@@ -193,10 +236,16 @@ export class MetadataMigrationService {
         if (mod.to.name !== mod.from.name) {
           updateData.name = mod.to.name;
         }
-        if (mod.to.isNullable !== undefined && mod.to.isNullable !== mod.from.isNullable) {
+        if (
+          mod.to.isNullable !== undefined &&
+          mod.to.isNullable !== mod.from.isNullable
+        ) {
           updateData.isNullable = mod.to.isNullable;
         }
-        if (mod.to.isUpdatable !== undefined && mod.to.isUpdatable !== mod.from.isUpdatable) {
+        if (
+          mod.to.isUpdatable !== undefined &&
+          mod.to.isUpdatable !== mod.from.isUpdatable
+        ) {
           updateData.isUpdatable = mod.to.isUpdatable;
         }
         if (mod.to.description !== undefined) {
@@ -209,10 +258,14 @@ export class MetadataMigrationService {
             where: [{ field: idField, operator: '=', value: columnId }],
             data: updateData,
           });
-          this.logger.log(`  Modified column metadata: ${oldName} → ${mod.to.name}`);
+          this.logger.log(
+            `  Modified column metadata: ${oldName} → ${mod.to.name}`,
+          );
         }
       } catch (err) {
-        this.logger.warn(`  Failed to modify column metadata: ${(err as Error).message}`);
+        this.logger.warn(
+          `  Failed to modify column metadata: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -221,7 +274,7 @@ export class MetadataMigrationService {
     tableId: any,
     tableIdField: string,
     columns: string[],
-    isMongoDB: boolean
+    isMongoDB: boolean,
   ): Promise<void> {
     for (const colName of columns) {
       try {
@@ -247,7 +300,9 @@ export class MetadataMigrationService {
         }
         // Silently skip if column not found in metadata
       } catch (err) {
-        this.logger.warn(`  Failed to remove column ${colName}: ${(err as Error).message}`);
+        this.logger.warn(
+          `  Failed to remove column ${colName}: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -255,16 +310,20 @@ export class MetadataMigrationService {
   private async modifyRelationMetadata(
     tableId: any,
     isMongoDB: boolean,
-    modifications: RelationModifyDef[]
+    modifications: RelationModifyDef[],
   ): Promise<void> {
     const sourceTableField = isMongoDB ? 'sourceTable' : 'sourceTableId';
 
     for (const mod of modifications) {
-      const hasChanges = mod.to.propertyName !== mod.from.propertyName ||
-        (mod.to.inversePropertyName !== undefined && mod.to.inversePropertyName !== mod.from.inversePropertyName) ||
-        (mod.to.isNullable !== undefined && mod.to.isNullable !== mod.from.isNullable) ||
-        (mod.to.isUpdatable !== undefined && mod.to.isUpdatable !== mod.from.isUpdatable) ||
-        (mod.to.onDelete !== undefined);
+      const hasChanges =
+        mod.to.propertyName !== mod.from.propertyName ||
+        (mod.to.inversePropertyName !== undefined &&
+          mod.to.inversePropertyName !== mod.from.inversePropertyName) ||
+        (mod.to.isNullable !== undefined &&
+          mod.to.isNullable !== mod.from.isNullable) ||
+        (mod.to.isUpdatable !== undefined &&
+          mod.to.isUpdatable !== mod.from.isUpdatable) ||
+        mod.to.onDelete !== undefined;
 
       if (!hasChanges) {
         continue;
@@ -299,13 +358,22 @@ export class MetadataMigrationService {
         if (mod.to.propertyName !== mod.from.propertyName) {
           updateData.propertyName = mod.to.propertyName;
         }
-        if (mod.to.inversePropertyName !== undefined && mod.to.inversePropertyName !== mod.from.inversePropertyName) {
+        if (
+          mod.to.inversePropertyName !== undefined &&
+          mod.to.inversePropertyName !== mod.from.inversePropertyName
+        ) {
           updateData.inversePropertyName = mod.to.inversePropertyName;
         }
-        if (mod.to.isNullable !== undefined && mod.to.isNullable !== mod.from.isNullable) {
+        if (
+          mod.to.isNullable !== undefined &&
+          mod.to.isNullable !== mod.from.isNullable
+        ) {
           updateData.isNullable = mod.to.isNullable;
         }
-        if (mod.to.isUpdatable !== undefined && mod.to.isUpdatable !== mod.from.isUpdatable) {
+        if (
+          mod.to.isUpdatable !== undefined &&
+          mod.to.isUpdatable !== mod.from.isUpdatable
+        ) {
           updateData.isUpdatable = mod.to.isUpdatable;
         }
         if (mod.to.onDelete !== undefined) {
@@ -318,10 +386,14 @@ export class MetadataMigrationService {
             where: [{ field: idField, operator: '=', value: relationId }],
             data: updateData,
           });
-          this.logger.log(`  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`);
+          this.logger.log(
+            `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
+          );
         }
       } catch (err) {
-        this.logger.warn(`  Failed to modify relation metadata: ${(err as Error).message}`);
+        this.logger.warn(
+          `  Failed to modify relation metadata: ${(err as Error).message}`,
+        );
       }
     }
   }
@@ -329,7 +401,7 @@ export class MetadataMigrationService {
   private async removeRelationMetadata(
     tableId: any,
     isMongoDB: boolean,
-    relations: string[]
+    relations: string[],
   ): Promise<void> {
     const sourceTableField = isMongoDB ? 'sourceTable' : 'sourceTableId';
 
@@ -356,7 +428,9 @@ export class MetadataMigrationService {
           this.logger.log(`  Removed relation metadata: ${relName}`);
         }
       } catch (err) {
-        this.logger.warn(`  Failed to remove relation ${relName}: ${(err as Error).message}`);
+        this.logger.warn(
+          `  Failed to remove relation ${relName}: ${(err as Error).message}`,
+        );
       }
     }
   }

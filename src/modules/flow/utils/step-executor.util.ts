@@ -17,12 +17,15 @@ const BLOCKED_HOSTNAMES = new Set([
   '::1',
 ]);
 
-function clampTimeout(value: unknown, defaultMs: number, maxMs: number): number {
+function clampTimeout(
+  value: unknown,
+  defaultMs: number,
+  maxMs: number,
+): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return defaultMs;
   return Math.min(n, maxMs);
 }
-
 
 function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
@@ -53,7 +56,9 @@ async function validateHttpUrl(rawUrl: string): Promise<URL> {
     throw new Error('Invalid URL provided for HTTP step');
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`URL protocol must be http or https, got: ${parsed.protocol}`);
+    throw new Error(
+      `URL protocol must be http or https, got: ${parsed.protocol}`,
+    );
   }
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
   if (BLOCKED_HOSTNAMES.has(hostname.toLowerCase())) {
@@ -69,11 +74,17 @@ async function validateHttpUrl(rawUrl: string): Promise<URL> {
     return parsed;
   }
   try {
-    const addresses = await dns.promises.resolve4(hostname).catch(() => [] as string[]);
-    const addresses6 = await dns.promises.resolve6(hostname).catch(() => [] as string[]);
+    const addresses = await dns.promises
+      .resolve4(hostname)
+      .catch(() => [] as string[]);
+    const addresses6 = await dns.promises
+      .resolve6(hostname)
+      .catch(() => [] as string[]);
     for (const addr of [...addresses, ...addresses6]) {
       if (isPrivateIp(addr)) {
-        throw new Error('HTTP requests to hosts resolving to private IPs are not allowed');
+        throw new Error(
+          'HTTP requests to hosts resolving to private IPs are not allowed',
+        );
       }
     }
   } catch (err) {
@@ -92,21 +103,27 @@ export interface StepExecOptions {
 }
 
 export async function executeStepCore(opts: StepExecOptions): Promise<any> {
-  const { type, config, timeout, ctx, handlerExecutor, shouldTransformCode } = opts;
+  const { type, config, timeout, ctx, handlerExecutor, shouldTransformCode } =
+    opts;
 
   switch (type) {
     case 'script': {
-      const code = shouldTransformCode ? transformCode(config.code || '') : (config.code || '');
+      const code = shouldTransformCode
+        ? transformCode(config.code || '')
+        : config.code || '';
       return handlerExecutor.run(code, ctx, timeout);
     }
 
     case 'condition': {
-      const code = shouldTransformCode ? transformCode(config.code || 'return false;') : (config.code || 'return false;');
+      const code = shouldTransformCode
+        ? transformCode(config.code || 'return false;')
+        : config.code || 'return false;';
       return handlerExecutor.run(code, ctx, timeout);
     }
 
     case 'query':
-      if (!config.table) throw new Error('Step config missing required field: table');
+      if (!config.table)
+        throw new Error('Step config missing required field: table');
       return ctx.$repos[config.table].find({
         filter: config.filter,
         fields: config.fields,
@@ -115,28 +132,43 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
       });
 
     case 'create':
-      if (!config.table) throw new Error('Step config missing required field: table');
+      if (!config.table)
+        throw new Error('Step config missing required field: table');
       return ctx.$repos[config.table].create({ data: config.data });
 
     case 'update':
-      if (!config.table) throw new Error('Step config missing required field: table');
-      return ctx.$repos[config.table].update({ id: config.id, data: config.data });
+      if (!config.table)
+        throw new Error('Step config missing required field: table');
+      return ctx.$repos[config.table].update({
+        id: config.id,
+        data: config.data,
+      });
 
     case 'delete':
-      if (!config.table) throw new Error('Step config missing required field: table');
+      if (!config.table)
+        throw new Error('Step config missing required field: table');
       return ctx.$repos[config.table].delete({ id: config.id });
 
     case 'http': {
-      if (!config.url) throw new Error('Step config missing required field: url');
+      if (!config.url)
+        throw new Error('Step config missing required field: url');
       const safeUrl = await validateHttpUrl(config.url);
-      const httpTimeoutMs = clampTimeout(config.timeout || timeout, DEFAULT_HTTP_TIMEOUT, MAX_HTTP_TIMEOUT);
+      const httpTimeoutMs = clampTimeout(
+        config.timeout || timeout,
+        DEFAULT_HTTP_TIMEOUT,
+        MAX_HTTP_TIMEOUT,
+      );
       const controller = new AbortController();
       const httpTimer = setTimeout(() => controller.abort(), httpTimeoutMs);
       try {
         const method = config.method || 'GET';
-        const hasBody = !['GET', 'DELETE'].includes(method) && config.body !== undefined;
+        const hasBody =
+          !['GET', 'DELETE'].includes(method) && config.body !== undefined;
         const headers = { ...(config.headers || {}) };
-        if (hasBody && !Object.keys(headers).some(k => k.toLowerCase() === 'content-type')) {
+        if (
+          hasBody &&
+          !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
+        ) {
           headers['Content-Type'] = 'application/json';
         }
         const response = await fetch(safeUrl.href, {
@@ -146,10 +178,13 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
           signal: controller.signal,
         });
         const contentType = response.headers.get('content-type') || '';
-        const data = contentType.includes('json') ? await response.json() : await response.text();
+        const data = contentType.includes('json')
+          ? await response.json()
+          : await response.text();
         return { status: response.status, data };
       } catch (err) {
-        if (err.name === 'AbortError') throw new Error(`HTTP request timed out after ${httpTimeoutMs}ms`);
+        if (err.name === 'AbortError')
+          throw new Error(`HTTP request timed out after ${httpTimeoutMs}ms`);
         throw err;
       } finally {
         clearTimeout(httpTimer);
@@ -158,8 +193,11 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
 
     case 'sleep': {
       const rawMs = Number(config.ms);
-      const sleepMs = (Number.isFinite(rawMs) && rawMs > 0) ? Math.min(rawMs, 60000) : 1000;
-      await new Promise<void>((resolve) => { setTimeout(resolve, sleepMs); });
+      const sleepMs =
+        Number.isFinite(rawMs) && rawMs > 0 ? Math.min(rawMs, 60000) : 1000;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, sleepMs);
+      });
       return { slept: sleepMs };
     }
 

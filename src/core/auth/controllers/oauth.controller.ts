@@ -1,4 +1,11 @@
-import { Controller, Get, Param, Query, Res, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Res,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -17,7 +24,7 @@ export class OAuthController {
   async oauthLogin(
     @Param('provider') provider: string,
     @Query('redirect') redirectUrl: string,
-    @Res() res: Response
+    @Res() res: Response,
   ) {
     const validProviders = ['google', 'facebook', 'github'];
     if (!validProviders.includes(provider)) {
@@ -32,8 +39,13 @@ export class OAuthController {
 
     const payload = JSON.stringify({ redirect: redirectUrl, ts: Date.now() });
     const sig = this.signState(payload);
-    const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString('base64url');
-    const authUrl = this.oauthService.getAuthorizationUrl(provider as any, state);
+    const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString(
+      'base64url',
+    );
+    const authUrl = this.oauthService.getAuthorizationUrl(
+      provider as any,
+      state,
+    );
     return res.redirect(authUrl);
   }
 
@@ -44,11 +56,15 @@ export class OAuthController {
     @Query('state') state: string,
     @Query('error') error: string,
     @Query('error_description') errorDescription: string,
-    @Res() res: Response
+    @Res() res: Response,
   ) {
-    const config = this.oauthConfigCache.getDirectConfigByProvider(provider as any);
+    const config = this.oauthConfigCache.getDirectConfigByProvider(
+      provider as any,
+    );
     if (!config) {
-      throw new BadRequestException(`OAuth provider '${provider}' is not configured`);
+      throw new BadRequestException(
+        `OAuth provider '${provider}' is not configured`,
+      );
     }
 
     const redirectUrl = this.parseRedirectFromState(state);
@@ -59,7 +75,9 @@ export class OAuthController {
 
     if (error) {
       const safeRedirect = this.getSafeRedirectUrl(redirectUrl, provider);
-      return res.redirect(`${safeRedirect}?error=${encodeURIComponent(errorDescription || error)}`);
+      return res.redirect(
+        `${safeRedirect}?error=${encodeURIComponent(errorDescription || error)}`,
+      );
     }
 
     if (!code) {
@@ -67,7 +85,10 @@ export class OAuthController {
     }
 
     try {
-      const tokens = await this.oauthService.handleCallback(provider as any, code);
+      const tokens = await this.oauthService.handleCallback(
+        provider as any,
+        code,
+      );
 
       if (!config.appCallbackUrl) {
         throw new BadRequestException('App callback URL is not configured');
@@ -83,7 +104,9 @@ export class OAuthController {
       return res.redirect(callbackUrl.toString());
     } catch (err: any) {
       const safeRedirect = this.getSafeRedirectUrl(redirectUrl, provider);
-      return res.redirect(`${safeRedirect}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`);
+      return res.redirect(
+        `${safeRedirect}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`,
+      );
     }
   }
 
@@ -101,7 +124,10 @@ export class OAuthController {
       const expectedSig = this.signState(outer.p);
       const actualSig = outer.s;
       if (expectedSig.length !== actualSig.length) return null;
-      const equal = timingSafeEqual(Buffer.from(expectedSig), Buffer.from(actualSig));
+      const equal = timingSafeEqual(
+        Buffer.from(expectedSig),
+        Buffer.from(actualSig),
+      );
       if (!equal) return null;
 
       const parsed = JSON.parse(outer.p);
@@ -133,7 +159,9 @@ export class OAuthController {
         return url;
       }
     } catch {}
-    const config = this.oauthConfigCache.getDirectConfigByProvider(provider as any);
+    const config = this.oauthConfigCache.getDirectConfigByProvider(
+      provider as any,
+    );
     return config?.appCallbackUrl || '/';
   }
 }

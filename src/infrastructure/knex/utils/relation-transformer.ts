@@ -9,15 +9,22 @@ export class RelationTransformer {
   async transformRelationsToFK(tableName: string, data: any): Promise<any> {
     if (!tableName) return data;
     const metadata = await this.metadataCacheService.getMetadata();
-    const tableMeta = metadata.tables?.get?.(tableName) ||
-                      metadata.tablesList?.find((t: any) => t.name === tableName);
+    const tableMeta =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMeta || !tableMeta.relations) {
       return data;
     }
     const transformed = { ...data };
     const manyToManyRelations: Array<{ relationName: string; ids: any[] }> = [];
-    const oneToManyRelations: Array<{ relationName: string; items: any[] }> = [];
-    const oneToOneRelations: Array<{ relationName: string; item: any; foreignKeyColumn: string; targetTable: string }> = [];
+    const oneToManyRelations: Array<{ relationName: string; items: any[] }> =
+      [];
+    const oneToOneRelations: Array<{
+      relationName: string;
+      item: any;
+      foreignKeyColumn: string;
+      targetTable: string;
+    }> = [];
     for (const relation of tableMeta.relations) {
       const relName = relation.propertyName;
       if (!(relName in transformed)) {
@@ -26,15 +33,24 @@ export class RelationTransformer {
       const relValue = transformed[relName];
       switch (relation.type) {
         case 'many-to-one': {
-          const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relName);
+          const fkColumn =
+            relation.foreignKeyColumn || getForeignKeyColumnName(relName);
           if (relValue === null) {
             transformed[fkColumn] = null;
-          } else if (typeof relValue === 'object' && relValue.id !== undefined) {
+          } else if (
+            typeof relValue === 'object' &&
+            relValue.id !== undefined
+          ) {
             transformed[fkColumn] = relValue.id;
-          } else if (typeof relValue === 'number' || typeof relValue === 'string') {
+          } else if (
+            typeof relValue === 'number' ||
+            typeof relValue === 'string'
+          ) {
             transformed[fkColumn] = relValue;
           } else {
-            this.logger.warn(`[RelationTransformer] Unexpected relation value format for ${relName}: ${typeof relValue}, value: ${JSON.stringify(relValue)}`);
+            this.logger.warn(
+              `[RelationTransformer] Unexpected relation value format for ${relName}: ${typeof relValue}, value: ${JSON.stringify(relValue)}`,
+            );
           }
           delete transformed[relName];
           break;
@@ -45,16 +61,22 @@ export class RelationTransformer {
             delete transformed[relName];
             break;
           }
-          const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relName);
+          const fkColumn =
+            relation.foreignKeyColumn || getForeignKeyColumnName(relName);
           if (relValue === null) {
             transformed[fkColumn] = null;
           } else if (typeof relValue === 'object') {
             if (relValue.id !== undefined) {
               transformed[fkColumn] = relValue.id;
             } else {
-              const targetTable = relation.targetTableName || relation.targetTable;
+              const targetTable =
+                relation.targetTableName || relation.targetTable;
               if (targetTable) {
-                const cleanedItem = await this.cleanNestedRelations(relValue, targetTable, metadata);
+                const cleanedItem = await this.cleanNestedRelations(
+                  relValue,
+                  targetTable,
+                  metadata,
+                );
                 oneToOneRelations.push({
                   relationName: relName,
                   item: cleanedItem,
@@ -63,7 +85,10 @@ export class RelationTransformer {
                 });
               }
             }
-          } else if (typeof relValue === 'number' || typeof relValue === 'string') {
+          } else if (
+            typeof relValue === 'number' ||
+            typeof relValue === 'string'
+          ) {
             transformed[fkColumn] = relValue;
           }
           delete transformed[relName];
@@ -72,8 +97,10 @@ export class RelationTransformer {
         case 'many-to-many': {
           if (Array.isArray(relValue)) {
             const ids = relValue
-              .map(item => (typeof item === 'object' && 'id' in item ? item.id : item))
-              .filter(id => id != null);
+              .map((item) =>
+                typeof item === 'object' && 'id' in item ? item.id : item,
+              )
+              .filter((id) => id != null);
             if (ids.length > 0) {
               manyToManyRelations.push({
                 relationName: relName,
@@ -86,17 +113,22 @@ export class RelationTransformer {
         }
         case 'one-to-many': {
           if (Array.isArray(relValue)) {
-            const targetTable = relation.targetTableName || relation.targetTable;
+            const targetTable =
+              relation.targetTableName || relation.targetTable;
             if (targetTable) {
               const cleanedItems = await Promise.all(
-                relValue.map(async item => this.cleanNestedRelations(item, targetTable, metadata))
+                relValue.map(async (item) =>
+                  this.cleanNestedRelations(item, targetTable, metadata),
+                ),
               );
               oneToManyRelations.push({
                 relationName: relName,
                 items: cleanedItems,
               });
             } else {
-              this.logger.warn(`O2M relation '${relName}' missing targetTableName, skipping cleaning`);
+              this.logger.warn(
+                `O2M relation '${relName}' missing targetTableName, skipping cleaning`,
+              );
             }
           }
           delete transformed[relName];
@@ -115,18 +147,31 @@ export class RelationTransformer {
     }
     return transformed;
   }
-  async cleanNestedRelations(obj: any, tableName: string, metadata: any, depth: number = 0): Promise<any> {
+  async cleanNestedRelations(
+    obj: any,
+    tableName: string,
+    metadata: any,
+    depth: number = 0,
+  ): Promise<any> {
     if (depth > 10) {
-      this.logger.warn(`Max recursion depth (10) reached for table ${tableName}`);
+      this.logger.warn(
+        `Max recursion depth (10) reached for table ${tableName}`,
+      );
       return obj;
     }
     if (typeof obj !== 'object' || obj === null) {
       return obj;
     }
     if (Array.isArray(obj)) {
-      return Promise.all(obj.map(item => this.cleanNestedRelations(item, tableName, metadata, depth + 1)));
+      return Promise.all(
+        obj.map((item) =>
+          this.cleanNestedRelations(item, tableName, metadata, depth + 1),
+        ),
+      );
     }
-    const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
+    const tableMetadata =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMetadata?.relations) {
       return obj;
     }
@@ -140,7 +185,12 @@ export class RelationTransformer {
       switch (relation.type) {
         case 'many-to-one':
         case 'one-to-one': {
-          if (relationValue && typeof relationValue === 'object' && 'id' in relationValue && relation.foreignKeyColumn) {
+          if (
+            relationValue &&
+            typeof relationValue === 'object' &&
+            'id' in relationValue &&
+            relation.foreignKeyColumn
+          ) {
             cleanObj[relation.foreignKeyColumn] = relationValue.id;
           } else if (relationValue === null && relation.foreignKeyColumn) {
             cleanObj[relation.foreignKeyColumn] = null;

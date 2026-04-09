@@ -9,9 +9,7 @@ import { Observable } from 'rxjs';
 import { ExecutorEngineService } from '../../infrastructure/executor-engine/services/executor-engine.service';
 @Injectable()
 export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
-  constructor(
-    private handlerExecutorService: ExecutorEngineService,
-  ) {}
+  constructor(private handlerExecutorService: ExecutorEngineService) {}
   async intercept(
     context: ExecutionContext,
     next: CallHandler<T>,
@@ -36,9 +34,7 @@ export class DynamicInterceptor<T> implements NestInterceptor<T, any> {
           return undefined;
         }
         const logs = req.routeData?.context?.$share?.$logs;
-        return logs?.length
-          ? { ...data, logs }
-          : data;
+        return logs?.length ? { ...data, logs } : data;
       }),
       catchError(async (error) => {
         if (req.routeData?.context.$share?.$logs?.length) {

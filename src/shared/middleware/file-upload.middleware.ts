@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NestMiddleware,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Response, NextFunction } from 'express';
 import * as multer from 'multer';
 import { RequestWithRouteData } from '../types';
@@ -67,7 +63,10 @@ export class FileUploadMiddleware implements NestMiddleware {
         }
         if (processedBody.role) {
           if (typeof processedBody.role === 'string') {
-            if (processedBody.role.startsWith('{') || processedBody.role.startsWith('[')) {
+            if (
+              processedBody.role.startsWith('{') ||
+              processedBody.role.startsWith('[')
+            ) {
               try {
                 processedBody.role = JSON.parse(processedBody.role);
               } catch (e) {

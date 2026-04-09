@@ -23,6 +23,11 @@ import { StorageFactoryService } from './storage/storage-factory.service';
     StorageFactoryService,
     UploadFileHelper,
   ],
-  exports: [FileManagementService, FileAssetsService, StorageFactoryService, UploadFileHelper],
+  exports: [
+    FileManagementService,
+    FileAssetsService,
+    StorageFactoryService,
+    UploadFileHelper,
+  ],
 })
 export class FileManagementModule {}

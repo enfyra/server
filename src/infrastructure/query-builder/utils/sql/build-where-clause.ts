@@ -1,8 +1,5 @@
 import { Knex } from 'knex';
-import { hasLogicalOperators } from '../shared/logical-operators.util';
 import { TableMetadata } from '../../../knex/types/knex-types';
-
-const LOGICAL_OPERATORS = ['_and', '_or', '_not'];
 
 const FIELD_OPERATORS = [
   '_eq',
@@ -36,30 +33,41 @@ function convertOperator(op: string): string {
   return operatorMap[op] || op;
 }
 
-function isUUIDType(field: string, tablePrefix: string | undefined, metadata?: TableMetadata): boolean {
+function isUUIDType(
+  field: string,
+  tablePrefix: string | undefined,
+  metadata?: TableMetadata,
+): boolean {
   if (!metadata) return false;
   let fieldName = field;
   if (field.includes('.')) {
     const parts = field.split('.');
     fieldName = parts[parts.length - 1];
   }
-  const column = metadata.columns.find(c => c.name === fieldName);
+  const column = metadata.columns.find((c) => c.name === fieldName);
   if (!column) return false;
   const type = column.type?.toLowerCase() || '';
   return type === 'uuid' || type === 'uuidv4' || type.includes('uuid');
 }
 
-function castValueForPostgres(field: string, value: any, tablePrefix: string | undefined, dbType: string | undefined, metadata?: TableMetadata): any {
+function castValueForPostgres(
+  field: string,
+  value: any,
+  tablePrefix: string | undefined,
+  dbType: string | undefined,
+  metadata?: TableMetadata,
+): any {
   if (dbType !== 'postgres') return value;
   if (typeof value !== 'string') return value;
-  
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidPattern.test(value)) return value;
-  
+
   if (isUUIDType(field, tablePrefix, metadata)) {
     return value;
   }
-  
+
   return value;
 }
 
@@ -72,12 +80,17 @@ function applyFieldCondition(
   dbType?: string,
   metadata?: TableMetadata,
 ): void {
-  const fullField = tablePrefix && !field.includes('.')
-    ? `${tablePrefix}.${field}`
-    : field;
+  const fullField =
+    tablePrefix && !field.includes('.') ? `${tablePrefix}.${field}` : field;
 
   const isUUID = isUUIDType(field, tablePrefix, metadata);
-  const castedValue = castValueForPostgres(field, value, tablePrefix, dbType, metadata);
+  const castedValue = castValueForPostgres(
+    field,
+    value,
+    tablePrefix,
+    dbType,
+    metadata,
+  );
 
   switch (operator) {
     case '_eq':
@@ -125,45 +138,54 @@ function applyFieldCondition(
     case '_in':
       let inValues = value;
       if (!Array.isArray(inValues)) {
-        inValues = typeof inValues === 'string' && inValues.includes(',')
-          ? inValues.split(',').map(v => v.trim())
-          : [inValues];
+        inValues =
+          typeof inValues === 'string' && inValues.includes(',')
+            ? inValues.split(',').map((v) => v.trim())
+            : [inValues];
       }
-      if (isUUID && dbType === 'postgres' && inValues.every((v: any) => typeof v === 'string')) {
+      if (
+        isUUID &&
+        dbType === 'postgres' &&
+        inValues.every((v: any) => typeof v === 'string')
+      ) {
         query.whereRaw(`${fullField} = ANY(?::uuid[])`, [inValues]);
       } else {
-      query.whereIn(fullField, inValues);
+        query.whereIn(fullField, inValues);
       }
       break;
     case '_not_in':
     case '_nin':
       let notInValues = value;
       if (!Array.isArray(notInValues)) {
-        notInValues = typeof notInValues === 'string' && notInValues.includes(',')
-          ? notInValues.split(',').map(v => v.trim())
-          : [notInValues];
+        notInValues =
+          typeof notInValues === 'string' && notInValues.includes(',')
+            ? notInValues.split(',').map((v) => v.trim())
+            : [notInValues];
       }
-      if (isUUID && dbType === 'postgres' && notInValues.every((v: any) => typeof v === 'string')) {
+      if (
+        isUUID &&
+        dbType === 'postgres' &&
+        notInValues.every((v: any) => typeof v === 'string')
+      ) {
         query.whereRaw(`${fullField} != ALL(?::uuid[])`, [notInValues]);
       } else {
-      query.whereNotIn(fullField, notInValues);
+        query.whereNotIn(fullField, notInValues);
       }
       break;
     case '_contains':
       if (dbType === 'postgres') {
         query.whereRaw(
           `lower(unaccent(${fullField})) ILIKE '%' || lower(unaccent(?)) || '%'`,
-          [value]
+          [value],
         );
       } else if (dbType === 'sqlite') {
-        query.whereRaw(
-          `lower(${fullField}) LIKE '%' || lower(?) || '%'`,
-          [value]
-        );
+        query.whereRaw(`lower(${fullField}) LIKE '%' || lower(?) || '%'`, [
+          value,
+        ]);
       } else {
         query.whereRaw(
           `lower(unaccent(${fullField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent(?)) COLLATE utf8mb4_general_ci, '%')`,
-          [value]
+          [value],
         );
       }
       break;
@@ -171,17 +193,14 @@ function applyFieldCondition(
       if (dbType === 'postgres') {
         query.whereRaw(
           `lower(unaccent(${fullField})) ILIKE lower(unaccent(?)) || '%'`,
-          [value]
+          [value],
         );
       } else if (dbType === 'sqlite') {
-        query.whereRaw(
-          `lower(${fullField}) LIKE lower(?) || '%'`,
-          [value]
-        );
+        query.whereRaw(`lower(${fullField}) LIKE lower(?) || '%'`, [value]);
       } else {
         query.whereRaw(
           `lower(unaccent(${fullField})) COLLATE utf8mb4_general_ci LIKE CONCAT(lower(unaccent(?)) COLLATE utf8mb4_general_ci, '%')`,
-          [value]
+          [value],
         );
       }
       break;
@@ -189,17 +208,14 @@ function applyFieldCondition(
       if (dbType === 'postgres') {
         query.whereRaw(
           `lower(unaccent(${fullField})) ILIKE '%' || lower(unaccent(?))`,
-          [value]
+          [value],
         );
       } else if (dbType === 'sqlite') {
-        query.whereRaw(
-          `lower(${fullField}) LIKE '%' || lower(?)`,
-          [value]
-        );
+        query.whereRaw(`lower(${fullField}) LIKE '%' || lower(?)`, [value]);
       } else {
         query.whereRaw(
           `lower(unaccent(${fullField})) COLLATE utf8mb4_general_ci LIKE CONCAT('%', lower(unaccent(?)) COLLATE utf8mb4_general_ci)`,
-          [value]
+          [value],
         );
       }
       break;
@@ -242,11 +258,11 @@ function processFilter(
   if (Array.isArray(filter)) {
     for (const item of filter) {
       if (logicalOperator === 'and') {
-        query.where(function() {
+        query.where(function () {
           processFilter(this, item, tablePrefix, 'and', dbType, metadata);
         });
       } else {
-        query.orWhere(function() {
+        query.orWhere(function () {
           processFilter(this, item, tablePrefix, 'and', dbType, metadata);
         });
       }
@@ -257,10 +273,17 @@ function processFilter(
   for (const [key, value] of Object.entries(filter)) {
     if (key === '_and') {
       if (Array.isArray(value)) {
-        query.where(function() {
+        query.where(function () {
           for (const condition of value) {
-            this.where(function() {
-              processFilter(this, condition, tablePrefix, 'and', dbType, metadata);
+            this.where(function () {
+              processFilter(
+                this,
+                condition,
+                tablePrefix,
+                'and',
+                dbType,
+                metadata,
+              );
             });
           }
         });
@@ -270,10 +293,17 @@ function processFilter(
 
     if (key === '_or') {
       if (Array.isArray(value)) {
-        query.where(function() {
+        query.where(function () {
           for (const condition of value) {
-            this.orWhere(function() {
-              processFilter(this, condition, tablePrefix, 'and', dbType, metadata);
+            this.orWhere(function () {
+              processFilter(
+                this,
+                condition,
+                tablePrefix,
+                'and',
+                dbType,
+                metadata,
+              );
             });
           }
         });
@@ -282,37 +312,55 @@ function processFilter(
     }
 
     if (key === '_not') {
-      query.whereNot(function() {
+      query.whereNot(function () {
         processFilter(this, value, tablePrefix, 'and', dbType, metadata);
       });
       continue;
     }
 
     if (typeof value === 'object' && value !== null) {
-      const hasFieldOperator = Object.keys(value).some(k => FIELD_OPERATORS.includes(k));
+      const hasFieldOperator = Object.keys(value).some((k) =>
+        FIELD_OPERATORS.includes(k),
+      );
 
       if (hasFieldOperator) {
         for (const [operator, operatorValue] of Object.entries(value)) {
           if (FIELD_OPERATORS.includes(operator)) {
             if (logicalOperator === 'and') {
-              query.where(function() {
-          applyFieldCondition(this, key, operator, operatorValue, tablePrefix, dbType, metadata);
+              query.where(function () {
+                applyFieldCondition(
+                  this,
+                  key,
+                  operator,
+                  operatorValue,
+                  tablePrefix,
+                  dbType,
+                  metadata,
+                );
               });
             } else {
-              query.orWhere(function() {
-          applyFieldCondition(this, key, operator, operatorValue, tablePrefix, dbType, metadata);
+              query.orWhere(function () {
+                applyFieldCondition(
+                  this,
+                  key,
+                  operator,
+                  operatorValue,
+                  tablePrefix,
+                  dbType,
+                  metadata,
+                );
               });
             }
           }
         }
       } else {
-        const fullField = tablePrefix && !key.includes('.')
-          ? `${tablePrefix}.${key}`
-          : key;
+        const fullField =
+          tablePrefix && !key.includes('.') ? `${tablePrefix}.${key}` : key;
 
         const isUUID = isUUIDType(key, tablePrefix, metadata);
         if (isUUID && dbType === 'postgres' && typeof value === 'string') {
-          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const uuidPattern =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
           if (uuidPattern.test(value)) {
             if (logicalOperator === 'and') {
               query.whereRaw(`${fullField} = ?::uuid`, [value]);
@@ -320,10 +368,10 @@ function processFilter(
               query.orWhereRaw(`${fullField} = ?::uuid`, [value]);
             }
           } else {
-        if (logicalOperator === 'and') {
-          query.where(fullField, '=', value);
-        } else {
-          query.orWhere(fullField, '=', value);
+            if (logicalOperator === 'and') {
+              query.where(fullField, '=', value);
+            } else {
+              query.orWhere(fullField, '=', value);
             }
           }
         } else {
@@ -335,13 +383,13 @@ function processFilter(
         }
       }
     } else {
-      const fullField = tablePrefix && !key.includes('.')
-        ? `${tablePrefix}.${key}`
-        : key;
+      const fullField =
+        tablePrefix && !key.includes('.') ? `${tablePrefix}.${key}` : key;
 
       const isUUID = isUUIDType(key, tablePrefix, metadata);
       if (isUUID && dbType === 'postgres' && typeof value === 'string') {
-        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const uuidPattern =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (uuidPattern.test(value)) {
           if (logicalOperator === 'and') {
             query.whereRaw(`${fullField} = ?::uuid`, [value]);
@@ -349,10 +397,10 @@ function processFilter(
             query.orWhereRaw(`${fullField} = ?::uuid`, [value]);
           }
         } else {
-      if (logicalOperator === 'and') {
-        query.where(fullField, '=', value);
-      } else {
-        query.orWhere(fullField, '=', value);
+          if (logicalOperator === 'and') {
+            query.where(fullField, '=', value);
+          } else {
+            query.orWhere(fullField, '=', value);
           }
         }
       } else {

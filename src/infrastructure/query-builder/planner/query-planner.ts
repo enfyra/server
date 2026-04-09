@@ -22,7 +22,17 @@ export interface PlannerInput {
 
 export class QueryPlanner {
   plan(input: PlannerInput): QueryPlan {
-    const { tableName, fields, filter, sort, page, limit, meta, metadata, dbType } = input;
+    const {
+      tableName,
+      fields,
+      filter,
+      sort,
+      page,
+      limit,
+      meta,
+      metadata,
+      dbType,
+    } = input;
 
     const tableMeta = metadata?.tables?.get(tableName);
     const registry = new JoinRegistry();
@@ -33,16 +43,32 @@ export class QueryPlanner {
       for (const field of rawFields) {
         if (field === '*') continue;
         const topRelName = field.split('.')[0];
-        const isRelation = tableMeta.relations?.some((r: any) => r.propertyName === topRelName);
+        const isRelation = tableMeta.relations?.some(
+          (r: any) => r.propertyName === topRelName,
+        );
         if (isRelation) {
-          registry.registerWithParent(tableName, topRelName, metadata, 'left', null, 'data');
+          registry.registerWithParent(
+            tableName,
+            topRelName,
+            metadata,
+            'left',
+            null,
+            'data',
+          );
         }
       }
     }
 
     let hasRelationFilters = false;
     if (filter && tableMeta) {
-      hasRelationFilters = this.registerFilterJoins(filter, tableName, tableMeta, metadata, registry, null);
+      hasRelationFilters = this.registerFilterJoins(
+        filter,
+        tableName,
+        tableMeta,
+        metadata,
+        registry,
+        null,
+      );
     }
 
     const rawSort = this.parseSort(sort);
@@ -57,11 +83,24 @@ export class QueryPlanner {
 
       if (path.includes('.') && tableMeta) {
         const relName = path.split('.')[0];
-        const rel = tableMeta.relations?.find((r: any) => r.propertyName === relName);
+        const rel = tableMeta.relations?.find(
+          (r: any) => r.propertyName === relName,
+        );
         if (rel) {
-          const sortResult = this.registerSortJoinChain(path, tableName, metadata, registry, null);
+          const sortResult = this.registerSortJoinChain(
+            path,
+            tableName,
+            metadata,
+            registry,
+            null,
+          );
           if (sortResult) {
-            sortItems.push({ joinId: sortResult.lastJoinId, field: sortResult.field, direction, fullPath: path });
+            sortItems.push({
+              joinId: sortResult.lastJoinId,
+              field: sortResult.field,
+              direction,
+              fullPath: path,
+            });
             hasRelationSort = true;
             if (!limitedCteSortJoin) {
               limitedCteSortJoin = registry.get(sortResult.lastJoinId) ?? null;
@@ -75,39 +114,56 @@ export class QueryPlanner {
     }
 
     if (sortItems.length === 0) {
-      sortItems.push({ joinId: null, field: 'id', direction: 'asc', fullPath: 'id' });
+      sortItems.push({
+        joinId: null,
+        field: 'id',
+        direction: 'asc',
+        fullPath: 'id',
+      });
     }
 
     const parsedLimit = this.parseLimit(limit);
     const parsedPage = this.parsePage(page);
-    const offset = parsedPage !== undefined && parsedLimit !== undefined
-      ? (parsedPage - 1) * parsedLimit
-      : undefined;
+    const offset =
+      parsedPage !== undefined && parsedLimit !== undefined
+        ? (parsedPage - 1) * parsedLimit
+        : undefined;
 
     const metaParts = this.parseMeta(meta);
-    const needsTotalCount = metaParts.includes('totalCount') || metaParts.includes('*');
-    const needsFilterCount = metaParts.includes('filterCount') || metaParts.includes('*');
+    const needsTotalCount =
+      metaParts.includes('totalCount') || metaParts.includes('*');
+    const needsFilterCount =
+      metaParts.includes('filterCount') || metaParts.includes('*');
 
     const paginationPlacement: PaginationPlacement =
-      (hasRelationFilters || hasRelationSort) ? 'after-joins' : 'before-joins';
+      hasRelationFilters || hasRelationSort ? 'after-joins' : 'before-joins';
 
     const joins = registry.getAll();
     const hasJoins = joins.length > 0;
 
-    const dataJoins = joins.filter(j => j.purposes.includes('data'));
-    const hasOnlyManyToOneDataJoins = dataJoins.length > 0 && dataJoins.every(
-      j => j.relationType === 'many-to-one' || j.relationType === 'one-to-one',
+    const dataJoins = joins.filter((j) => j.purposes.includes('data'));
+    const hasOnlyManyToOneDataJoins =
+      dataJoins.length > 0 &&
+      dataJoins.every(
+        (j) =>
+          j.relationType === 'many-to-one' || j.relationType === 'one-to-one',
+      );
+
+    const limitedCteFilterJoins = joins.filter(
+      (j) => j.purposes.includes('filter') && !j.purposes.includes('data'),
     );
 
-    const limitedCteFilterJoins = joins.filter(j => j.purposes.includes('filter') && !j.purposes.includes('data'));
-
-    const canUseCTE = (dbType === 'postgres' || dbType === 'mysql')
-      && (hasJoins || hasRelationSort)
-      && parsedLimit !== undefined;
+    const canUseCTE =
+      (dbType === 'postgres' || dbType === 'mysql') &&
+      (hasJoins || hasRelationSort) &&
+      parsedLimit !== undefined;
 
     let sqlStrategy: SqlStrategy;
     if (canUseCTE) {
-      sqlStrategy = hasOnlyManyToOneDataJoins && !hasRelationSort ? 'cte-flat' : 'cte-aggregate';
+      sqlStrategy =
+        hasOnlyManyToOneDataJoins && !hasRelationSort
+          ? 'cte-flat'
+          : 'cte-aggregate';
     } else if (hasJoins) {
       sqlStrategy = 'subquery';
     } else {
@@ -137,14 +193,18 @@ export class QueryPlanner {
 
   private parseFields(fields?: string | string[]): string[] | undefined {
     if (!fields) return undefined;
-    if (Array.isArray(fields)) return fields.map(f => f.trim()).filter(Boolean);
-    return fields.split(',').map(f => f.trim()).filter(Boolean);
+    if (Array.isArray(fields))
+      return fields.map((f) => f.trim()).filter(Boolean);
+    return fields
+      .split(',')
+      .map((f) => f.trim())
+      .filter(Boolean);
   }
 
   private parseSort(sort?: string | string[]): string[] {
     if (!sort) return [];
     const arr = Array.isArray(sort) ? sort : sort.split(',');
-    return arr.map(s => s.trim()).filter(Boolean);
+    return arr.map((s) => s.trim()).filter(Boolean);
   }
 
   private parseLimit(limit?: number | string): number | undefined {
@@ -163,7 +223,10 @@ export class QueryPlanner {
   private parseMeta(meta?: string | string[]): string[] {
     if (!meta) return [];
     if (Array.isArray(meta)) return meta;
-    return meta.split(',').map(s => s.trim()).filter(Boolean);
+    return meta
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   private registerSortJoinChain(
@@ -182,11 +245,20 @@ export class QueryPlanner {
     const currentMeta = metadata?.tables?.get(currentTable);
     if (!currentMeta) return null;
 
-    const rel = currentMeta.relations?.find((r: any) => r.propertyName === relName);
+    const rel = currentMeta.relations?.find(
+      (r: any) => r.propertyName === relName,
+    );
     if (!rel) return null;
     if (rel.type !== 'many-to-one' && rel.type !== 'one-to-one') return null;
 
-    const joinId = registry.registerWithParent(currentTable, relName, metadata, 'left', parentJoinId, 'sort');
+    const joinId = registry.registerWithParent(
+      currentTable,
+      relName,
+      metadata,
+      'left',
+      parentJoinId,
+      'sort',
+    );
     if (!joinId) return null;
 
     if (!remaining.includes('.')) {
@@ -194,7 +266,13 @@ export class QueryPlanner {
     }
 
     const targetTable = rel.targetTableName || rel.targetTable;
-    return this.registerSortJoinChain(remaining, targetTable, metadata, registry, joinId);
+    return this.registerSortJoinChain(
+      remaining,
+      targetTable,
+      metadata,
+      registry,
+      joinId,
+    );
   }
 
   private registerFilterJoins(
@@ -209,14 +287,23 @@ export class QueryPlanner {
 
     let hasRelation = false;
     const relationNames = new Set<string>(
-      (tableMeta?.relations || []).map((r: any) => r.propertyName)
+      (tableMeta?.relations || []).map((r: any) => r.propertyName),
     );
 
     for (const [key, value] of Object.entries(filter)) {
       if (key === '_and' || key === '_or') {
         if (Array.isArray(value)) {
           for (const item of value) {
-            if (this.registerFilterJoins(item, tableName, tableMeta, metadata, registry, parentJoinId)) {
+            if (
+              this.registerFilterJoins(
+                item,
+                tableName,
+                tableMeta,
+                metadata,
+                registry,
+                parentJoinId,
+              )
+            ) {
               hasRelation = true;
             }
           }
@@ -225,29 +312,72 @@ export class QueryPlanner {
       }
 
       if (key === '_not') {
-        if (this.registerFilterJoins(value, tableName, tableMeta, metadata, registry, parentJoinId)) {
+        if (
+          this.registerFilterJoins(
+            value,
+            tableName,
+            tableMeta,
+            metadata,
+            registry,
+            parentJoinId,
+          )
+        ) {
           hasRelation = true;
         }
         continue;
       }
 
-      if (relationNames.has(key) && typeof value === 'object' && value !== null) {
+      if (
+        relationNames.has(key) &&
+        typeof value === 'object' &&
+        value !== null
+      ) {
         const keys = Object.keys(value);
-        const hasOperator = keys.some(k => k.startsWith('_'));
+        const hasOperator = keys.some((k) => k.startsWith('_'));
 
-        if (hasOperator && keys.length === 1 && ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in', '_nin'].includes(keys[0])) {
+        if (
+          hasOperator &&
+          keys.length === 1 &&
+          [
+            '_is_null',
+            '_is_not_null',
+            '_eq',
+            '_neq',
+            '_in',
+            '_not_in',
+            '_nin',
+          ].includes(keys[0])
+        ) {
           hasRelation = true;
           continue;
         }
 
         if (!hasOperator) {
-          const rel = tableMeta.relations?.find((r: any) => r.propertyName === key);
+          const rel = tableMeta.relations?.find(
+            (r: any) => r.propertyName === key,
+          );
           if (rel) {
-            const joinId = registry.registerWithParent(tableName, key, metadata, 'left', parentJoinId, 'filter');
+            const joinId = registry.registerWithParent(
+              tableName,
+              key,
+              metadata,
+              'left',
+              parentJoinId,
+              'filter',
+            );
             hasRelation = true;
-            const targetMeta = metadata?.tables?.get(rel.targetTableName || rel.targetTable);
+            const targetMeta = metadata?.tables?.get(
+              rel.targetTableName || rel.targetTable,
+            );
             if (targetMeta && joinId) {
-              this.registerFilterJoins(value, rel.targetTableName || rel.targetTable, targetMeta, metadata, registry, joinId);
+              this.registerFilterJoins(
+                value,
+                rel.targetTableName || rel.targetTable,
+                targetMeta,
+                metadata,
+                registry,
+                joinId,
+              );
             }
           }
         } else {

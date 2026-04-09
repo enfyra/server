@@ -1,4 +1,3 @@
-
 enum NodeType {
   STATIC = 'static',
   PARAM = 'param',
@@ -41,7 +40,9 @@ export class EnfyraRouteEngine {
     const segments = this.splitPath(normalizedPath);
 
     if (this.debug) {
-      console.log(`[EnfyraRouteEngine] INSERT ${method} ${path} -> normalized: ${normalizedPath} -> segments: [${segments.join(', ')}]`);
+      console.log(
+        `[EnfyraRouteEngine] INSERT ${method} ${path} -> normalized: ${normalizedPath} -> segments: [${segments.join(', ')}]`,
+      );
     }
 
     if (!this.roots.has(method)) {
@@ -60,6 +61,9 @@ export class EnfyraRouteEngine {
           node.wildcardChild = this.createNode(NodeType.WILDCARD, segment);
         }
         node = node.wildcardChild;
+        if (isLast) {
+          node.handler = route;
+        }
         break;
       } else if (segment.startsWith(':')) {
         const paramName = segment.slice(1);
@@ -94,7 +98,9 @@ export class EnfyraRouteEngine {
     const params: Record<string, string> = {};
 
     if (this.debug) {
-      console.log(`[EnfyraRouteEngine] FIND ${method} ${path} -> normalized: ${normalizedPath} -> segments: [${segments.join(', ')}]`);
+      console.log(
+        `[EnfyraRouteEngine] FIND ${method} ${path} -> normalized: ${normalizedPath} -> segments: [${segments.join(', ')}]`,
+      );
     }
 
     const result = this.search(root, segments, 0, params);
@@ -106,7 +112,10 @@ export class EnfyraRouteEngine {
     }
 
     if (this.debug) {
-      console.log(`[EnfyraRouteEngine] FIND ${method} ${path} -> MATCHED`, params);
+      console.log(
+        `[EnfyraRouteEngine] FIND ${method} ${path} -> MATCHED`,
+        params,
+      );
     }
 
     return {
@@ -134,7 +143,11 @@ export class EnfyraRouteEngine {
     }
 
     if (node.paramChild) {
-      params[node.paramChild.paramName!] = decodeURIComponent(segment);
+      try {
+        params[node.paramChild.paramName!] = decodeURIComponent(segment);
+      } catch {
+        params[node.paramChild.paramName!] = segment;
+      }
       const result = this.search(node.paramChild, segments, index + 1, params);
       if (result) return result;
       delete params[node.paramChild.paramName!];
@@ -155,7 +168,11 @@ export class EnfyraRouteEngine {
     };
   }
 
-  private createNode(type: NodeType, path: string, paramName?: string): RouteNode {
+  private createNode(
+    type: NodeType,
+    path: string,
+    paramName?: string,
+  ): RouteNode {
     return {
       type,
       path,
@@ -178,6 +195,6 @@ export class EnfyraRouteEngine {
 
   private splitPath(path: string): string[] {
     if (path === '/') return [];
-    return path.split('/').filter(segment => segment.length > 0);
+    return path.split('/').filter((segment) => segment.length > 0);
   }
 }

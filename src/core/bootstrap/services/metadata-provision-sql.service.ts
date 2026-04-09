@@ -2,7 +2,10 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
-import { getJunctionTableName, getForeignKeyColumnName } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+import {
+  getJunctionTableName,
+  getForeignKeyColumnName,
+} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
 
 @Injectable()
@@ -61,15 +64,19 @@ export class MetadataProvisionSqlService {
           }
         } else {
           const { columns, relations, ...rest } = def;
-          const insertedId = await this.insertAndGetId(trx, 'table_definition', {
-            name: rest.name,
-            isSystem: rest.isSystem || false,
-            isSingleRecord: rest.isSingleRecord || false,
-            alias: rest.alias,
-            description: rest.description,
-            uniques: JSON.stringify(rest.uniques || []),
-            indexes: JSON.stringify(rest.indexes || []),
-          });
+          const insertedId = await this.insertAndGetId(
+            trx,
+            'table_definition',
+            {
+              name: rest.name,
+              isSystem: rest.isSystem || false,
+              isSingleRecord: rest.isSingleRecord || false,
+              alias: rest.alias,
+              description: rest.description,
+              uniques: JSON.stringify(rest.uniques || []),
+              indexes: JSON.stringify(rest.indexes || []),
+            },
+          );
           tableNameToId[name] = insertedId;
           this.logger.log(`Created table metadata: ${name}`);
         }
@@ -105,7 +112,10 @@ export class MetadataProvisionSqlService {
             });
             this.logger.log(`Added column ${snapshotCol.name} for ${name}`);
           } else {
-            const hasChanges = this.detectColumnChanges(snapshotCol, existingCol);
+            const hasChanges = this.detectColumnChanges(
+              snapshotCol,
+              existingCol,
+            );
             if (hasChanges) {
               await trx('column_definition')
                 .where('id', existingCol.id)
@@ -114,7 +124,9 @@ export class MetadataProvisionSqlService {
                   isNullable: snapshotCol.isNullable ?? true,
                   isPrimary: snapshotCol.isPrimary || false,
                   isGenerated: snapshotCol.isGenerated || false,
-                  defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
+                  defaultValue: JSON.stringify(
+                    snapshotCol.defaultValue ?? null,
+                  ),
                   options: JSON.stringify(snapshotCol.options || null),
                   isUpdatable: snapshotCol.isUpdatable ?? true,
                   isHidden: snapshotCol.isHidden || false,
@@ -162,10 +174,17 @@ export class MetadataProvisionSqlService {
               isUpdatable: rel.isUpdatable,
             };
             if (inverseType === 'many-to-many') {
-              const junctionTableName = getJunctionTableName(name, rel.propertyName, rel.targetTable);
+              const junctionTableName = getJunctionTableName(
+                name,
+                rel.propertyName,
+                rel.targetTable,
+              );
               inverseRelation.junctionTableName = junctionTableName;
-              inverseRelation.junctionSourceColumn = getForeignKeyColumnName(rel.targetTable);
-              inverseRelation.junctionTargetColumn = getForeignKeyColumnName(name);
+              inverseRelation.junctionSourceColumn = getForeignKeyColumnName(
+                rel.targetTable,
+              );
+              inverseRelation.junctionTargetColumn =
+                getForeignKeyColumnName(name);
             }
             allRelationsToProcess.push({
               tableName: rel.targetTable,
@@ -177,7 +196,12 @@ export class MetadataProvisionSqlService {
         }
       }
       const relationRenameMap = loadRelationRenameMap();
-      for (const { tableName, tableId, relation: rel, isInverse } of allRelationsToProcess) {
+      for (const {
+        tableName,
+        tableId,
+        relation: rel,
+        isInverse,
+      } of allRelationsToProcess) {
         const targetId = tableNameToId[rel.targetTable];
         if (!targetId) continue;
         let existingRel = await trx('relation_definition')
@@ -185,45 +209,61 @@ export class MetadataProvisionSqlService {
           .where('propertyName', rel.propertyName)
           .first();
         if (!existingRel && relationRenameMap[tableName]?.[rel.propertyName]) {
-          const oldPropertyName = relationRenameMap[tableName][rel.propertyName];
+          const oldPropertyName =
+            relationRenameMap[tableName][rel.propertyName];
           existingRel = await trx('relation_definition')
             .where('sourceTableId', tableId)
             .where('propertyName', oldPropertyName)
             .first();
           if (existingRel) {
-            this.logger.log(`Relation rename: ${tableName}.${oldPropertyName} → ${rel.propertyName}, will update`);
+            this.logger.log(
+              `Relation rename: ${tableName}.${oldPropertyName} → ${rel.propertyName}, will update`,
+            );
           }
         }
         if (existingRel) {
           const needsUpdate =
             rel.propertyName !== existingRel.propertyName ||
-            (rel.isNullable !== undefined && rel.isNullable !== existingRel.isNullable) ||
-            (rel.inversePropertyName !== existingRel.inversePropertyName) ||
+            (rel.isNullable !== undefined &&
+              rel.isNullable !== existingRel.isNullable) ||
+            rel.inversePropertyName !== existingRel.inversePropertyName ||
             (rel.type !== undefined && rel.type !== existingRel.type) ||
-            (targetId !== undefined && targetId !== existingRel.targetTableId) ||
-            (rel.isUpdatable !== undefined && rel.isUpdatable !== existingRel.isUpdatable);
+            (targetId !== undefined &&
+              targetId !== existingRel.targetTableId) ||
+            (rel.isUpdatable !== undefined &&
+              rel.isUpdatable !== existingRel.isUpdatable);
           if (needsUpdate) {
             const updateData: any = {};
             updateData.propertyName = rel.propertyName;
-            if (rel.isNullable !== undefined) updateData.isNullable = rel.isNullable;
+            if (rel.isNullable !== undefined)
+              updateData.isNullable = rel.isNullable;
             updateData.inversePropertyName = rel.inversePropertyName || null;
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
-            if (rel.isUpdatable !== undefined) updateData.isUpdatable = rel.isUpdatable;
+            if (rel.isUpdatable !== undefined)
+              updateData.isUpdatable = rel.isUpdatable;
             if (rel.type !== undefined) updateData.type = rel.type;
             if (targetId !== undefined) updateData.targetTableId = targetId;
             if (rel.type === 'many-to-many') {
-              const junctionTableName = rel.junctionTableName ||
-                getJunctionTableName(tableName, rel.propertyName, rel.targetTable);
+              const junctionTableName =
+                rel.junctionTableName ||
+                getJunctionTableName(
+                  tableName,
+                  rel.propertyName,
+                  rel.targetTable,
+                );
               updateData.junctionTableName = junctionTableName;
-              updateData.junctionSourceColumn = rel.junctionSourceColumn ||
-                getForeignKeyColumnName(tableName);
-              updateData.junctionTargetColumn = rel.junctionTargetColumn ||
+              updateData.junctionSourceColumn =
+                rel.junctionSourceColumn || getForeignKeyColumnName(tableName);
+              updateData.junctionTargetColumn =
+                rel.junctionTargetColumn ||
                 getForeignKeyColumnName(rel.targetTable);
             }
             await trx('relation_definition')
               .where('id', existingRel.id)
               .update(updateData);
-            this.logger.log(`Updated relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`);
+            this.logger.log(
+              `Updated relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`,
+            );
           }
         } else {
           const insertData: any = {
@@ -238,16 +278,24 @@ export class MetadataProvisionSqlService {
             targetTableId: targetId,
           };
           if (rel.type === 'many-to-many') {
-            const junctionTableName = rel.junctionTableName ||
-              getJunctionTableName(tableName, rel.propertyName, rel.targetTable);
+            const junctionTableName =
+              rel.junctionTableName ||
+              getJunctionTableName(
+                tableName,
+                rel.propertyName,
+                rel.targetTable,
+              );
             insertData.junctionTableName = junctionTableName;
-            insertData.junctionSourceColumn = rel.junctionSourceColumn ||
-              getForeignKeyColumnName(tableName);
-            insertData.junctionTargetColumn = rel.junctionTargetColumn ||
+            insertData.junctionSourceColumn =
+              rel.junctionSourceColumn || getForeignKeyColumnName(tableName);
+            insertData.junctionTargetColumn =
+              rel.junctionTargetColumn ||
               getForeignKeyColumnName(rel.targetTable);
           }
           await trx('relation_definition').insert(insertData);
-          this.logger.log(`Added relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`);
+          this.logger.log(
+            `Added relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`,
+          );
         }
       }
       this.logger.log('SQL metadata sync completed');
@@ -262,29 +310,43 @@ export class MetadataProvisionSqlService {
       const def = defRaw as any;
       const tableExists = await qb.schema.hasTable(def.name);
       if (!tableExists) {
-        this.logger.log(`Physical table ${def.name} does not exist, skipping schema sync`);
+        this.logger.log(
+          `Physical table ${def.name} does not exist, skipping schema sync`,
+        );
         continue;
       }
-      const tableRecord = await qb('table_definition').where('name', def.name).first();
+      const tableRecord = await qb('table_definition')
+        .where('name', def.name)
+        .first();
       if (!tableRecord) continue;
-      const columns = await qb('column_definition').where('tableId', tableRecord.id).select('*');
+      const columns = await qb('column_definition')
+        .where('tableId', tableRecord.id)
+        .select('*');
       for (const col of columns) {
         try {
           const columnInfo = await qb(def.name).columnInfo();
           const physicalCol = columnInfo[col.name];
           if (!physicalCol) {
-            this.logger.log(`Column ${col.name} not found in ${def.name}, skipping`);
+            this.logger.log(
+              `Column ${col.name} not found in ${def.name}, skipping`,
+            );
             continue;
           }
           if (col.type === 'enum' && col.options) {
-            const options = typeof col.options === 'string' ? JSON.parse(col.options) : col.options;
+            const options =
+              typeof col.options === 'string'
+                ? JSON.parse(col.options)
+                : col.options;
             if (Array.isArray(options) && options.length > 0) {
-              const enumValues = options.map(v => `'${v}'`).join(', ');
+              const enumValues = options.map((v) => `'${v}'`).join(', ');
               let alterSQL: string;
               if (this.dbType === 'mysql') {
                 const nullable = col.isNullable ? 'NULL' : 'NOT NULL';
                 let defaultClause = '';
-                if (col.defaultValue !== undefined && col.defaultValue !== null) {
+                if (
+                  col.defaultValue !== undefined &&
+                  col.defaultValue !== null
+                ) {
                   if (col.type === 'boolean') {
                     let defVal: any = col.defaultValue;
                     if (typeof defVal === 'number') defVal = defVal === 1;
@@ -304,13 +366,19 @@ export class MetadataProvisionSqlService {
               } else {
                 continue;
               }
-              this.logger.log(`Running ALTER TABLE for ${def.name}.${col.name}: ${alterSQL}`);
+              this.logger.log(
+                `Running ALTER TABLE for ${def.name}.${col.name}: ${alterSQL}`,
+              );
               await qb.raw(alterSQL);
-              this.logger.log(`✅ Updated ${def.name}.${col.name} to enum with values: ${enumValues}`);
+              this.logger.log(
+                `✅ Updated ${def.name}.${col.name} to enum with values: ${enumValues}`,
+              );
             }
           }
         } catch (error) {
-          this.logger.warn(`Failed to ALTER column ${col.name} in ${def.name}: ${error.message}`);
+          this.logger.warn(
+            `Failed to ALTER column ${col.name} in ${def.name}: ${error.message}`,
+          );
         }
       }
     }
@@ -334,8 +402,10 @@ export class MetadataProvisionSqlService {
       snapshotTable.isSystem !== existingTable.isSystem ||
       snapshotTable.alias !== existingTable.alias ||
       snapshotTable.description !== existingTable.description ||
-      JSON.stringify(snapshotTable.uniques) !== JSON.stringify(parseJson(existingTable.uniques)) ||
-      JSON.stringify(snapshotTable.indexes) !== JSON.stringify(parseJson(existingTable.indexes));
+      JSON.stringify(snapshotTable.uniques) !==
+        JSON.stringify(parseJson(existingTable.uniques)) ||
+      JSON.stringify(snapshotTable.indexes) !==
+        JSON.stringify(parseJson(existingTable.indexes));
     return hasChanges;
   }
   private detectColumnChanges(snapshotCol: any, existingCol: any): boolean {
@@ -354,8 +424,10 @@ export class MetadataProvisionSqlService {
       snapshotCol.isNullable !== existingCol.isNullable ||
       snapshotCol.isPrimary !== existingCol.isPrimary ||
       snapshotCol.isGenerated !== existingCol.isGenerated ||
-      JSON.stringify(snapshotCol.defaultValue) !== JSON.stringify(parseJson(existingCol.defaultValue)) ||
-      JSON.stringify(snapshotCol.options) !== JSON.stringify(parseJson(existingCol.options)) ||
+      JSON.stringify(snapshotCol.defaultValue) !==
+        JSON.stringify(parseJson(existingCol.defaultValue)) ||
+      JSON.stringify(snapshotCol.options) !==
+        JSON.stringify(parseJson(existingCol.options)) ||
       snapshotCol.isUpdatable !== existingCol.isUpdatable;
     return hasChanges;
   }

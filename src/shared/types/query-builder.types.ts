@@ -1,6 +1,23 @@
 export type DatabaseType = 'mysql' | 'postgres' | 'mongodb' | 'sqlite';
 
-export type WhereOperator = '=' | '!=' | '>' | '<' | '>=' | '<=' | 'like' | 'in' | 'not in' | 'is null' | 'is not null' | '_contains' | '_starts_with' | '_ends_with' | '_between' | '_is_null' | '_is_not_null';
+export type WhereOperator =
+  | '='
+  | '!='
+  | '>'
+  | '<'
+  | '>='
+  | '<='
+  | 'like'
+  | 'in'
+  | 'not in'
+  | 'is null'
+  | 'is not null'
+  | '_contains'
+  | '_starts_with'
+  | '_ends_with'
+  | '_between'
+  | '_is_null'
+  | '_is_not_null';
 
 export interface WhereCondition {
   field: string;
@@ -23,7 +40,8 @@ export interface QueryOptions {
   offset?: number;
   groupBy?: string[];
   pipeline?: any[]; // MongoDB aggregation pipeline
-  mongoFieldsExpanded?: { // MongoDB expanded fields from expandFieldsMongo()
+  mongoFieldsExpanded?: {
+    // MongoDB expanded fields from expandFieldsMongo()
     scalarFields: string[];
     relations: Array<{
       propertyName: string;
@@ -61,4 +79,3 @@ export interface CountOptions {
   table: string;
   where?: WhereCondition[];
 }
-

@@ -10,10 +10,14 @@ import { InstanceService } from '../../../shared/services/instance.service';
 import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
-  REDIS_TTL
+  REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { transformCode } from '../../../infrastructure/executor-engine/code-transformer';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 
 @Injectable()
 export class BootstrapScriptService {
@@ -33,11 +37,16 @@ export class BootstrapScriptService {
     const start = Date.now();
     await this.waitForTableExists();
     const scriptCount = await this.executeBootstrapScripts();
-    this.logger.log(`Completed in ${Date.now() - start}ms (${scriptCount} scripts)`);
+    this.logger.log(
+      `Completed in ${Date.now() - start}ms (${scriptCount} scripts)`,
+    );
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.BOOTSTRAP)) {
       await this.reloadBootstrapScripts();
     }
@@ -54,12 +63,16 @@ export class BootstrapScriptService {
 
   private async withBootstrapLock<R>(
     operation: () => Promise<R>,
-    context: 'startup' | 'reload'
+    context: 'startup' | 'reload',
   ): Promise<R | void> {
     const lockKey = BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY;
     const lockValue = this.instanceService.getInstanceId();
     const lockTimeout = REDIS_TTL.BOOTSTRAP_LOCK_TTL;
-    const lockAcquired = await this.cacheService.acquire(lockKey, lockValue, lockTimeout);
+    const lockAcquired = await this.cacheService.acquire(
+      lockKey,
+      lockValue,
+      lockTimeout,
+    );
     if (!lockAcquired) {
       this.logger.log(`Skipped - another instance is executing`);
       return;
@@ -74,23 +87,32 @@ export class BootstrapScriptService {
     }
   }
 
-  private async waitForTableExists(maxRetries = 10, delayMs = 500): Promise<void> {
+  private async waitForTableExists(
+    maxRetries = 10,
+    delayMs = 500,
+  ): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         if (this.queryBuilder.isMongoDb()) {
           const db = this.queryBuilder.getMongoDb();
-          const collections = await db.listCollections({ name: 'bootstrap_script_definition' }).toArray();
+          const collections = await db
+            .listCollections({ name: 'bootstrap_script_definition' })
+            .toArray();
           if (collections.length > 0) return;
         } else {
           const knex = this.queryBuilder.getKnex();
-          const exists = await knex.schema.hasTable('bootstrap_script_definition');
+          const exists = await knex.schema.hasTable(
+            'bootstrap_script_definition',
+          );
           if (exists) return;
         }
       } catch (error) {
         if (attempt === maxRetries) {
-          throw new Error(`bootstrap_script_definition not found after ${maxRetries} attempts`);
+          throw new Error(
+            `bootstrap_script_definition not found after ${maxRetries} attempts`,
+          );
         }
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
   }

@@ -24,47 +24,77 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
-    const menuItems = records.filter(r => r.type === 'Menu');
+    const dropdownMenus = records.filter((r) => r.type === 'Dropdown Menu');
+    const menuItems = records.filter((r) => r.type === 'Menu');
 
     // Phase 1: Process Dropdown Menus in order (no parent first, then with parent)
-    const dropdownsWithoutParent = dropdownMenus.filter(r => !r.parent);
-    const dropdownsWithParent = dropdownMenus.filter(r => r.parent);
+    const dropdownsWithoutParent = dropdownMenus.filter((r) => !r.parent);
+    const dropdownsWithParent = dropdownMenus.filter((r) => r.parent);
 
-    const transformedDropdownsWithoutParent = await this.transformRecords(dropdownsWithoutParent, { ...context, knex });
+    const transformedDropdownsWithoutParent = await this.transformRecords(
+      dropdownsWithoutParent,
+      { ...context, knex },
+    );
     for (const record of transformedDropdownsWithoutParent) {
       try {
-        const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
+        const result = await this.processSqlRecordOnlyCreate(
+          record,
+          knex,
+          tableName,
+          context,
+        );
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
 
-    const transformedDropdownsWithParent = await this.transformRecords(dropdownsWithParent, { ...context, knex });
+    const transformedDropdownsWithParent = await this.transformRecords(
+      dropdownsWithParent,
+      { ...context, knex },
+    );
     for (const record of transformedDropdownsWithParent) {
       try {
-        const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
+        const result = await this.processSqlRecordOnlyCreate(
+          record,
+          knex,
+          tableName,
+          context,
+        );
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
 
     // Phase 2: Transform and insert Menu items (now parent Dropdown Menus exist in DB)
-    const transformedMenuItems = await this.transformRecords(menuItems, { ...context, knex });
+    const transformedMenuItems = await this.transformRecords(menuItems, {
+      ...context,
+      knex,
+    });
     for (const record of transformedMenuItems) {
       try {
-        const result = await this.processSqlRecordOnlyCreate(record, knex, tableName, context);
+        const result = await this.processSqlRecordOnlyCreate(
+          record,
+          knex,
+          tableName,
+          context,
+        );
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
 
@@ -78,7 +108,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     context?: any,
   ): Promise<{ created: boolean; skipped: boolean }> {
     const uniqueWhere = this.getUniqueIdentifier(record);
-    const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
+    const whereConditions = Array.isArray(uniqueWhere)
+      ? uniqueWhere
+      : [uniqueWhere];
 
     let existingRecord = null;
     for (const whereCondition of whereConditions) {
@@ -94,9 +126,15 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
 
     if (existingRecord) {
       // Skip existing record - do NOT update to preserve user modifications
-      this.logger.log(`   Skipped (existing): ${this.getRecordIdentifier(record)}`);
+      this.logger.log(
+        `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
+      );
       if (this.afterUpsert) {
-        await this.afterUpsert({ ...record, id: existingRecord.id }, false, context);
+        await this.afterUpsert(
+          { ...record, id: existingRecord.id },
+          false,
+          context,
+        );
       }
       return { created: false, skipped: true };
     }
@@ -137,47 +175,77 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     let totalCreated = 0;
     let totalSkipped = 0;
 
-    const dropdownMenus = records.filter(r => r.type === 'Dropdown Menu');
-    const menuItems = records.filter(r => r.type === 'Menu');
+    const dropdownMenus = records.filter((r) => r.type === 'Dropdown Menu');
+    const menuItems = records.filter((r) => r.type === 'Menu');
 
     // Phase 1: Process Dropdown Menus in order (no parent first, then with parent)
-    const dropdownsWithoutParent = dropdownMenus.filter(r => !r.parent);
-    const dropdownsWithParent = dropdownMenus.filter(r => r.parent);
+    const dropdownsWithoutParent = dropdownMenus.filter((r) => !r.parent);
+    const dropdownsWithParent = dropdownMenus.filter((r) => r.parent);
 
-    const transformedDropdownsWithoutParent = await this.transformRecords(dropdownsWithoutParent, context);
+    const transformedDropdownsWithoutParent = await this.transformRecords(
+      dropdownsWithoutParent,
+      context,
+    );
     for (const record of transformedDropdownsWithoutParent) {
       try {
-        const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
+        const result = await this.processMongoRecordOnlyCreate(
+          record,
+          db,
+          collectionName,
+          context,
+        );
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
 
-    const transformedDropdownsWithParent = await this.transformRecords(dropdownsWithParent, context);
+    const transformedDropdownsWithParent = await this.transformRecords(
+      dropdownsWithParent,
+      context,
+    );
     for (const record of transformedDropdownsWithParent) {
       try {
-        const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
+        const result = await this.processMongoRecordOnlyCreate(
+          record,
+          db,
+          collectionName,
+          context,
+        );
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
 
     // Phase 2: Transform and insert Menu items (now parent Dropdown Menus exist in DB)
-    const transformedMenuItems = await this.transformRecords(menuItems, context);
+    const transformedMenuItems = await this.transformRecords(
+      menuItems,
+      context,
+    );
     for (const record of transformedMenuItems) {
       try {
-        const result = await this.processMongoRecordOnlyCreate(record, db, collectionName, context);
+        const result = await this.processMongoRecordOnlyCreate(
+          record,
+          db,
+          collectionName,
+          context,
+        );
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
 
@@ -191,7 +259,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     context?: any,
   ): Promise<{ created: boolean; skipped: boolean }> {
     const uniqueWhere = this.getUniqueIdentifier(record);
-    const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
+    const whereConditions = Array.isArray(uniqueWhere)
+      ? uniqueWhere
+      : [uniqueWhere];
 
     let existingRecord = null;
     for (const whereCondition of whereConditions) {
@@ -201,15 +271,23 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
           delete cleanedCondition[key];
         }
       }
-      existingRecord = await db.collection(collectionName).findOne(cleanedCondition);
+      existingRecord = await db
+        .collection(collectionName)
+        .findOne(cleanedCondition);
       if (existingRecord) break;
     }
 
     if (existingRecord) {
       // Skip existing record - do NOT update to preserve user modifications
-      this.logger.log(`   Skipped (existing): ${this.getRecordIdentifier(record)}`);
+      this.logger.log(
+        `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
+      );
       if (this.afterUpsert) {
-        await this.afterUpsert({ ...record, _id: existingRecord._id }, false, context);
+        await this.afterUpsert(
+          { ...record, _id: existingRecord._id },
+          false,
+          context,
+        );
       }
       return { created: false, skipped: true };
     }
@@ -219,7 +297,11 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     const result = await db.collection(collectionName).insertOne(cleanedRecord);
     this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
     if (this.afterUpsert) {
-      await this.afterUpsert({ ...record, _id: result.insertedId }, true, context);
+      await this.afterUpsert(
+        { ...record, _id: result.insertedId },
+        true,
+        context,
+      );
     }
     return { created: true, skipped: false };
   }
@@ -227,7 +309,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
     const knex = context?.knex;
     if (!isMongoDB && !knex) {
-      this.logger.warn('Knex not provided in context for SQL, returning records as-is');
+      this.logger.warn(
+        'Knex not provided in context for SQL, returning records as-is',
+      );
       return records;
     }
     const transformedRecords = [];
@@ -248,17 +332,25 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
         if (isMongoDB) {
-          const parent = await this.queryBuilder.findOneWhere('menu_definition', {
-            type: 'Dropdown Menu',
-            label: parentLabel,
-          });
+          const parent = await this.queryBuilder.findOneWhere(
+            'menu_definition',
+            {
+              type: 'Dropdown Menu',
+              label: parentLabel,
+            },
+          );
           if (parent) {
-            this.logger.debug(`Found parent: ${parentLabel} with id ${parent._id}`);
-            transformed.parent = typeof parent._id === 'string'
-              ? new ObjectId(parent._id)
-              : parent._id;
+            this.logger.debug(
+              `Found parent: ${parentLabel} with id ${parent._id}`,
+            );
+            transformed.parent =
+              typeof parent._id === 'string'
+                ? new ObjectId(parent._id)
+                : parent._id;
           } else {
-            this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
+            this.logger.warn(
+              `Parent not found: ${parentLabel} for ${transformed.label}`,
+            );
             transformed.parent = null;
           }
         } else {
@@ -266,11 +358,15 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
             .where({ type: 'Dropdown Menu', label: parentLabel })
             .first();
           if (parent) {
-            this.logger.debug(`Found parent: ${parentLabel} with id ${parent.id}`);
+            this.logger.debug(
+              `Found parent: ${parentLabel} with id ${parent.id}`,
+            );
             transformed.parentId = parent.id;
             delete transformed.parent;
           } else {
-            this.logger.warn(`Parent not found: ${parentLabel} for ${transformed.label}`);
+            this.logger.warn(
+              `Parent not found: ${parentLabel} for ${transformed.label}`,
+            );
             delete transformed.parent;
           }
         }
@@ -286,23 +382,52 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
     conditions.push({ type: record.type, label: record.label });
     if (record.parent) {
-      conditions.push({ type: record.type, label: record.label, parent: record.parent });
+      conditions.push({
+        type: record.type,
+        label: record.label,
+        parent: record.parent,
+      });
     }
     return conditions;
   }
   protected getCompareFields(): string[] {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
     const parentField = isMongoDB ? 'parent' : 'parentId';
-    return ['type', 'label', 'icon', 'path', 'isEnabled', 'description', 'order', 'permission', parentField];
+    return [
+      'type',
+      'label',
+      'icon',
+      'path',
+      'isEnabled',
+      'description',
+      'order',
+      'permission',
+      parentField,
+    ];
   }
   protected hasValueChanged(newValue: any, existingValue: any): boolean {
-    if (typeof newValue === 'object' && newValue?.id && typeof existingValue === 'object' && existingValue?.id) {
+    if (
+      typeof newValue === 'object' &&
+      newValue?.id &&
+      typeof existingValue === 'object' &&
+      existingValue?.id
+    ) {
       return newValue.id !== existingValue.id;
     }
-    if ((newValue === null || newValue === undefined) && (existingValue && typeof existingValue === 'object' && existingValue.id)) {
+    if (
+      (newValue === null || newValue === undefined) &&
+      existingValue &&
+      typeof existingValue === 'object' &&
+      existingValue.id
+    ) {
       return true;
     }
-    if ((existingValue === null || existingValue === undefined) && (newValue && typeof newValue === 'object' && newValue.id)) {
+    if (
+      (existingValue === null || existingValue === undefined) &&
+      newValue &&
+      typeof newValue === 'object' &&
+      newValue.id
+    ) {
       return true;
     }
     return super.hasValueChanged(newValue, existingValue);

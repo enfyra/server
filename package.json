@@ -1,6 +1,6 @@
 {
   "name": "enfyra-server",
-  "version": "1.7.5",
+  "version": "1.7.6",
   "description": "Dynamic backend platform that auto-generates REST and GraphQL APIs from database schemas",
   "author": "dothinh115 <dothinh115@gmail.com>",
   "private": false,
@@ -21,6 +21,14 @@
     "migration:run": "npm run typeorm migration:run",
     "migration:revert": "npm run typeorm migration:revert",
     "bench:executor": "NODE_OPTIONS=\"--no-node-snapshot --expose-gc\" node scripts/bench-handler-worker-memory.mjs",
+    "test": "node scripts/test-prompt.js",
+    "test:all": "NODE_OPTIONS=\"--no-node-snapshot${NODE_OPTIONS:+ $NODE_OPTIONS}\" jest --runInBand",
+    "test:e2e:cache-load": "node test/cache-load.e2e.js",
+    "test:e2e:metadata-reload": "node test/metadata-reload.e2e.js",
+    "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
+    "test:e2e:query-builder": "node test/query-builder.e2e.js",
+    "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
+    "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder",
     "postinstall": "node -e \"if (!require('fs').existsSync('./node_modules/sharp')) { require('child_process').execSync('yarn add sharp --ignore-engines', {stdio: 'inherit'}) }\""
   },
   "dependencies": {
@@ -93,6 +101,7 @@
     "eslint-plugin-prettier": "^5.5.5",
     "jest": "^30.3.0",
     "prettier": "^3.8.1",
+    "prompts": "^2.4.2",
     "socket.io-client": "^4.8.3",
     "source-map-support": "^0.5.21",
     "supertest": "^7.2.2",

@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
-import { IStorageService, StorageConfig, UploadResult } from './storage.interface';
+import {
+  IStorageService,
+  StorageConfig,
+  UploadResult,
+} from './storage.interface';
 @Injectable()
 export class LocalStorageService implements IStorageService {
   private readonly logger = new Logger(LocalStorageService.name);
@@ -31,14 +35,18 @@ export class LocalStorageService implements IStorageService {
     };
   }
   async delete(location: string, config: StorageConfig): Promise<void> {
-    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
     const absolutePath = path.join(this.basePath, relativePath);
     if (await this.exists(location, config)) {
       await fs.promises.unlink(absolutePath);
     }
   }
   async getStream(location: string, config: StorageConfig): Promise<Readable> {
-    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
     const absolutePath = path.join(this.basePath, relativePath);
     if (!(await this.exists(location, config))) {
       throw new Error(`File not found in local storage: ${location}`);
@@ -47,12 +55,13 @@ export class LocalStorageService implements IStorageService {
     try {
       const stats = await fs.promises.stat(absolutePath);
       (stream as any).contentLength = stats.size;
-    } catch (error) {
-    }
+    } catch (error) {}
     return stream;
   }
   async getBuffer(location: string, config: StorageConfig): Promise<Buffer> {
-    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
     const absolutePath = path.join(this.basePath, relativePath);
     if (!(await this.exists(location, config))) {
       throw new Error(`File not found in local storage: ${location}`);
@@ -66,13 +75,17 @@ export class LocalStorageService implements IStorageService {
     mimetype: string,
     config: StorageConfig,
   ): Promise<void> {
-    const relativePath = location.startsWith('/') ? location.slice(1) : location;
+    const relativePath = location.startsWith('/')
+      ? location.slice(1)
+      : location;
     const absolutePath = path.join(this.basePath, relativePath);
     await fs.promises.writeFile(absolutePath, buffer);
   }
   async exists(location: string, config: StorageConfig): Promise<boolean> {
     try {
-      const relativePath = location.startsWith('/') ? location.slice(1) : location;
+      const relativePath = location.startsWith('/')
+        ? location.slice(1)
+        : location;
       const absolutePath = path.join(this.basePath, relativePath);
       await fs.promises.access(absolutePath);
       return true;

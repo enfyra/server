@@ -6,8 +6,13 @@ import {
   MetadataCache,
   JunctionTableInfo,
 } from '../types/knex-types';
-import { getJunctionTableName, getForeignKeyColumnName } from './sql-schema-naming.util';
-export async function loadAllTableMetadata(knex: Knex): Promise<Map<string, TableMetadata>> {
+import {
+  getJunctionTableName,
+  getForeignKeyColumnName,
+} from './sql-schema-naming.util';
+export async function loadAllTableMetadata(
+  knex: Knex,
+): Promise<Map<string, TableMetadata>> {
   const tables = await knex('table_definition').select('*');
   const metadataMap = new Map<string, TableMetadata>();
   for (const table of tables) {
@@ -38,8 +43,16 @@ export async function loadTableMetadata(
       'sourceTable.name as sourceTableName',
       'targetTable.name as targetTableName',
     )
-    .leftJoin('table_definition as sourceTable', 'r.sourceTableId', 'sourceTable.id')
-    .leftJoin('table_definition as targetTable', 'r.targetTableId', 'targetTable.id')
+    .leftJoin(
+      'table_definition as sourceTable',
+      'r.sourceTableId',
+      'sourceTable.id',
+    )
+    .leftJoin(
+      'table_definition as targetTable',
+      'r.targetTableId',
+      'targetTable.id',
+    )
     .where('r.sourceTableId', tableDef.id);
   const columnMetadata: ColumnMetadata[] = columns.map((col) => ({
     id: col.id,
@@ -82,17 +95,23 @@ export async function loadTableMetadata(
     relations: relationMetadata,
   };
 }
-export function getPrimaryKeyColumn(metadata: TableMetadata): ColumnMetadata | null {
+export function getPrimaryKeyColumn(
+  metadata: TableMetadata,
+): ColumnMetadata | null {
   return metadata.columns.find((col) => col.isPrimary) || null;
 }
-export function getPrimaryKeyType(metadata: TableMetadata): 'uuid' | 'integer' | 'bigint' {
+export function getPrimaryKeyType(
+  metadata: TableMetadata,
+): 'uuid' | 'integer' | 'bigint' {
   const pkColumn = getPrimaryKeyColumn(metadata);
   if (!pkColumn) return 'integer';
   if (pkColumn.type === 'uuid') return 'uuid';
   if (pkColumn.type === 'bigint') return 'bigint';
   return 'integer';
 }
-export function getManyToManyRelations(metadata: TableMetadata): RelationMetadata[] {
+export function getManyToManyRelations(
+  metadata: TableMetadata,
+): RelationMetadata[] {
   return metadata.relations.filter((rel) => rel.type === 'many-to-many');
 }
 export function getJunctionTableInfo(
@@ -125,12 +144,20 @@ export function findRelation(
   metadata: TableMetadata,
   propertyName: string,
 ): RelationMetadata | null {
-  return metadata.relations.find((rel) => rel.propertyName === propertyName) || null;
+  return (
+    metadata.relations.find((rel) => rel.propertyName === propertyName) || null
+  );
 }
-export function findColumn(metadata: TableMetadata, columnName: string): ColumnMetadata | null {
+export function findColumn(
+  metadata: TableMetadata,
+  columnName: string,
+): ColumnMetadata | null {
   return metadata.columns.find((col) => col.name === columnName) || null;
 }
-export function isRelation(metadata: TableMetadata, fieldName: string): boolean {
+export function isRelation(
+  metadata: TableMetadata,
+  fieldName: string,
+): boolean {
   return metadata.relations.some((rel) => rel.propertyName === fieldName);
 }
 export function getForeignKeyColumn(relation: RelationMetadata): string | null {

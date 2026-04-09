@@ -45,7 +45,10 @@ export class RequestLoggingInterceptor implements NestInterceptor {
               responseTime,
               (request as any).user?.id,
               {
-                query: Object.keys(request.query).length > 0 ? request.query : undefined,
+                query:
+                  Object.keys(request.query).length > 0
+                    ? request.query
+                    : undefined,
               },
             );
           }

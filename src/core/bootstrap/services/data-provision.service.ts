@@ -5,7 +5,10 @@ import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { BaseTableProcessor, UpsertResult } from '../processors/base-table-processor';
+import {
+  BaseTableProcessor,
+  UpsertResult,
+} from '../processors/base-table-processor';
 import { UserDefinitionProcessor } from '../processors/user-definition.processor';
 import { MenuDefinitionProcessor } from '../processors/menu-definition.processor';
 import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
@@ -26,10 +29,7 @@ import { FlowExecutionDefinitionProcessor } from '../processors/flow-execution-d
 import { GenericTableProcessor } from '../processors/generic-table.processor';
 
 const initJson = JSON.parse(
-  fs.readFileSync(
-    path.join(process.cwd(), 'data/default-data.json'),
-    'utf8',
-  ),
+  fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
 );
 
 @Injectable()
@@ -75,17 +75,35 @@ export class DataProvisionService {
     this.processors.set('setting_definition', this.settingProcessor);
     this.processors.set('extension_definition', this.extensionProcessor);
     this.processors.set('folder_definition', this.folderProcessor);
-    this.processors.set('bootstrap_script_definition', this.bootstrapScriptProcessor);
-    this.processors.set('route_permission_definition', this.routePermissionProcessor);
-    this.processors.set('websocket_definition', this.websocketDefinitionProcessor);
-    this.processors.set('websocket_event_definition', this.websocketEventDefinitionProcessor);
+    this.processors.set(
+      'bootstrap_script_definition',
+      this.bootstrapScriptProcessor,
+    );
+    this.processors.set(
+      'route_permission_definition',
+      this.routePermissionProcessor,
+    );
+    this.processors.set(
+      'websocket_definition',
+      this.websocketDefinitionProcessor,
+    );
+    this.processors.set(
+      'websocket_event_definition',
+      this.websocketEventDefinitionProcessor,
+    );
     this.processors.set('flow_definition', this.flowDefinitionProcessor);
-    this.processors.set('flow_step_definition', this.flowStepDefinitionProcessor);
-    this.processors.set('flow_execution_definition', this.flowExecutionDefinitionProcessor);
+    this.processors.set(
+      'flow_step_definition',
+      this.flowStepDefinitionProcessor,
+    );
+    this.processors.set(
+      'flow_execution_definition',
+      this.flowExecutionDefinitionProcessor,
+    );
 
     const allTables = Object.keys(initJson);
     const registeredTables = Array.from(this.processors.keys());
-    
+
     for (const tableName of allTables) {
       if (!registeredTables.includes(tableName)) {
         this.processors.set(tableName, new GenericTableProcessor(tableName));
@@ -107,12 +125,21 @@ export class DataProvisionService {
     const userProcessor = this.processors.get('user_definition');
     if (userProcessor) {
       try {
-        this.logger.log(`Processing 'user_definition' (ensure rootAdmin from env)...`);
-        const result = await userProcessor.processSql([], qb, 'user_definition', {});
+        this.logger.log(
+          `Processing 'user_definition' (ensure rootAdmin from env)...`,
+        );
+        const result = await userProcessor.processSql(
+          [],
+          qb,
+          'user_definition',
+          {},
+        );
         totalCreated += result.created;
         totalSkipped += result.skipped;
       } catch (error) {
-        this.logger.error(`Error processing 'user_definition': ${error.message}`);
+        this.logger.error(
+          `Error processing 'user_definition': ${error.message}`,
+        );
       }
     }
 
@@ -123,7 +150,10 @@ export class DataProvisionService {
         continue;
       }
 
-      if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
+      if (
+        !rawRecords ||
+        (Array.isArray(rawRecords) && rawRecords.length === 0)
+      ) {
         this.logger.debug(`Table '${tableName}' has no data, skipping.`);
         continue;
       }
@@ -136,13 +166,18 @@ export class DataProvisionService {
         const dbType = this.queryBuilder.getDatabaseType();
         const context = { knex: qb, tableName, dbType };
 
-        const result = await processor.processSql(records, qb, tableName, context);
+        const result = await processor.processSql(
+          records,
+          qb,
+          tableName,
+          context,
+        );
 
         totalCreated += result.created;
         totalSkipped += result.skipped;
 
         this.logger.log(
-          `'${tableName}': ${result.created} created, ${result.skipped} skipped`
+          `'${tableName}': ${result.created} created, ${result.skipped} skipped`,
         );
       } catch (error) {
         this.logger.error(`Error processing '${tableName}': ${error.message}`);
@@ -151,7 +186,7 @@ export class DataProvisionService {
     }
 
     this.logger.log(
-      `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`
+      `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
     );
   }
 
@@ -165,17 +200,29 @@ export class DataProvisionService {
     const userProcessor = this.processors.get('user_definition');
     if (userProcessor) {
       try {
-        this.logger.log(`Processing 'user_definition' (ensure rootAdmin from env)...`);
-        const result = await userProcessor.processMongo([], db, 'user_definition', {});
+        this.logger.log(
+          `Processing 'user_definition' (ensure rootAdmin from env)...`,
+        );
+        const result = await userProcessor.processMongo(
+          [],
+          db,
+          'user_definition',
+          {},
+        );
         totalCreated += result.created;
         totalSkipped += result.skipped;
       } catch (error) {
-        this.logger.error(`Error processing 'user_definition': ${error.message}`);
+        this.logger.error(
+          `Error processing 'user_definition': ${error.message}`,
+        );
       }
     }
 
     for (const [collectionName, rawRecords] of Object.entries(initJson)) {
-      if (!rawRecords || (Array.isArray(rawRecords) && rawRecords.length === 0)) {
+      if (
+        !rawRecords ||
+        (Array.isArray(rawRecords) && rawRecords.length === 0)
+      ) {
         continue;
       }
 
@@ -184,24 +231,37 @@ export class DataProvisionService {
       try {
         const processor = this.processors.get(collectionName);
         if (!processor) {
-          this.logger.warn(`No processor found for '${collectionName}', skipping.`);
+          this.logger.warn(
+            `No processor found for '${collectionName}', skipping.`,
+          );
           continue;
         }
 
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
 
-        const result = await processor.processMongo(records, db, collectionName, { db });
+        const result = await processor.processMongo(
+          records,
+          db,
+          collectionName,
+          { db },
+        );
 
         totalCreated += result.created;
         totalSkipped += result.skipped;
 
-        this.logger.log(`'${collectionName}': ${result.created} created, ${result.skipped} skipped`);
+        this.logger.log(
+          `'${collectionName}': ${result.created} created, ${result.skipped} skipped`,
+        );
       } catch (error) {
-        this.logger.error(`Error processing '${collectionName}': ${error.message}`);
+        this.logger.error(
+          `Error processing '${collectionName}': ${error.message}`,
+        );
       }
     }
 
-    this.logger.log(`MongoDB default data completed! Total: ${totalCreated} created, ${totalSkipped} skipped`);
+    this.logger.log(
+      `MongoDB default data completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
+    );
   }
 
   async insertTableRecords(tableName: string): Promise<UpsertResult> {

@@ -5,8 +5,15 @@ import { MongoSchemaMigrationLockService } from './services/mongo-schema-migrati
 
 @Global()
 @Module({
-  providers: [MongoService, MongoSchemaMigrationService, MongoSchemaMigrationLockService],
-  exports: [MongoService, MongoSchemaMigrationService, MongoSchemaMigrationLockService],
+  providers: [
+    MongoService,
+    MongoSchemaMigrationService,
+    MongoSchemaMigrationLockService,
+  ],
+  exports: [
+    MongoService,
+    MongoSchemaMigrationService,
+    MongoSchemaMigrationLockService,
+  ],
 })
 export class MongoModule {}
-

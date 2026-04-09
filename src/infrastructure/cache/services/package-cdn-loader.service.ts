@@ -64,13 +64,17 @@ export class PackageCdnLoaderService {
     return mod;
   }
 
-  async preloadPackages(packages: Array<{ name: string; version: string }>): Promise<void> {
+  async preloadPackages(
+    packages: Array<{ name: string; version: string }>,
+  ): Promise<void> {
     for (const pkg of packages) {
       try {
         await this.loadPackage(pkg.name, pkg.version);
         this.logger.log(`Preloaded: ${pkg.name}@${pkg.version}`);
       } catch (error) {
-        this.logger.error(`Failed to preload ${pkg.name}@${pkg.version}: ${extractErrorMessage(error)}`);
+        this.logger.error(
+          `Failed to preload ${pkg.name}@${pkg.version}: ${extractErrorMessage(error)}`,
+        );
       }
     }
   }
@@ -96,21 +100,34 @@ export class PackageCdnLoaderService {
       try {
         await this.loadPackage(name, newVersion);
       } catch (error) {
-        this.logger.error(`Failed to reload ${name}@${newVersion}: ${extractErrorMessage(error)}`);
+        this.logger.error(
+          `Failed to reload ${name}@${newVersion}: ${extractErrorMessage(error)}`,
+        );
       }
     }
   }
 
-  getPackageSources(names: string[]): Array<{ name: string; safeName: string; sourceCode: string }> {
-    const results: Array<{ name: string; safeName: string; sourceCode: string }> = [];
+  getPackageSources(
+    names: string[],
+  ): Array<{ name: string; safeName: string; sourceCode: string }> {
+    const results: Array<{
+      name: string;
+      safeName: string;
+      sourceCode: string;
+    }> = [];
     for (const name of names) {
       const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
       const prefix = `${safeName}@`;
       try {
         const files = fs.readdirSync(CACHE_DIR);
-        const match = files.find((f) => f.startsWith(prefix) && f.endsWith('.mjs'));
+        const match = files.find(
+          (f) => f.startsWith(prefix) && f.endsWith('.mjs'),
+        );
         if (match) {
-          const sourceCode = fs.readFileSync(path.join(CACHE_DIR, match), 'utf-8');
+          const sourceCode = fs.readFileSync(
+            path.join(CACHE_DIR, match),
+            'utf-8',
+          );
           results.push({ name, safeName, sourceCode });
         }
       } catch {}
@@ -133,7 +150,11 @@ export class PackageCdnLoaderService {
     return path.join(CACHE_DIR, `${safeName}@${version}.mjs`);
   }
 
-  private async fetchAndWriteBundle(name: string, version: string, filePath: string): Promise<void> {
+  private async fetchAndWriteBundle(
+    name: string,
+    version: string,
+    filePath: string,
+  ): Promise<void> {
     const spec = `${name}@${version}`;
     const entryUrl = `${CDN_BASE}/${spec}?bundle&target=node`;
 
@@ -143,17 +164,23 @@ export class PackageCdnLoaderService {
     try {
       entryRes = await fetch(entryUrl);
     } catch (error) {
-      throw new Error(`CDN fetch failed for ${spec}: ${extractErrorMessage(error)}`);
+      throw new Error(
+        `CDN fetch failed for ${spec}: ${extractErrorMessage(error)}`,
+      );
     }
 
     if (!entryRes.ok) {
-      throw new Error(`CDN fetch failed for ${spec}: ${entryRes.status} ${entryRes.statusText}`);
+      throw new Error(
+        `CDN fetch failed for ${spec}: ${entryRes.status} ${entryRes.statusText}`,
+      );
     }
 
     let code = await entryRes.text();
 
     if (code.length < 1024) {
-      const bundlePath = code.match(/export\s+(?:\*|\{[^}]*\})\s+from\s*["'](\/[^"']+)["']/);
+      const bundlePath = code.match(
+        /export\s+(?:\*|\{[^}]*\})\s+from\s*["'](\/[^"']+)["']/,
+      );
       if (bundlePath?.[1]) {
         try {
           const bundleRes = await fetch(`${CDN_BASE}${bundlePath[1]}`);
@@ -161,7 +188,9 @@ export class PackageCdnLoaderService {
             code = await bundleRes.text();
           }
         } catch (error) {
-          this.logger.warn(`Bundle follow-up fetch failed for ${spec}: ${extractErrorMessage(error)}`);
+          this.logger.warn(
+            `Bundle follow-up fetch failed for ${spec}: ${extractErrorMessage(error)}`,
+          );
         }
       }
     }
@@ -172,10 +201,14 @@ export class PackageCdnLoaderService {
   private async importFromFile(filePath: string, name: string): Promise<any> {
     try {
       const fileUrl = pathToFileURL(filePath).href;
-      const mod = await (new Function('specifier', 'return import(specifier)'))(fileUrl);
+      const mod = await new Function('specifier', 'return import(specifier)')(
+        fileUrl,
+      );
       return mod.default !== undefined ? mod.default : mod;
     } catch (error) {
-      this.logger.error(`Failed to import ${name} from ${filePath}: ${extractErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to import ${name} from ${filePath}: ${extractErrorMessage(error)}`,
+      );
       throw error;
     }
   }

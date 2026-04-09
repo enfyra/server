@@ -16,11 +16,16 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
       records.map(async (record) => {
         const transformedRecord = { ...record };
 
-        if (transformedRecord.description === undefined) transformedRecord.description = null;
-        if (transformedRecord.isSystem === undefined) transformedRecord.isSystem = false;
-        if (transformedRecord.isEnabled === undefined) transformedRecord.isEnabled = true;
-        if (transformedRecord.handlerScript === undefined) transformedRecord.handlerScript = null;
-        if (transformedRecord.timeout === undefined) transformedRecord.timeout = 5000;
+        if (transformedRecord.description === undefined)
+          transformedRecord.description = null;
+        if (transformedRecord.isSystem === undefined)
+          transformedRecord.isSystem = false;
+        if (transformedRecord.isEnabled === undefined)
+          transformedRecord.isEnabled = true;
+        if (transformedRecord.handlerScript === undefined)
+          transformedRecord.handlerScript = null;
+        if (transformedRecord.timeout === undefined)
+          transformedRecord.timeout = 5000;
 
         if (isMongoDB) {
           const now = new Date();
@@ -30,9 +35,12 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
 
         if (record.gateway) {
           if (isMongoDB) {
-            const gateway = await this.queryBuilder.findOneWhere('websocket_definition', {
-              path: record.gateway,
-            });
+            const gateway = await this.queryBuilder.findOneWhere(
+              'websocket_definition',
+              {
+                path: record.gateway,
+              },
+            );
 
             if (!gateway) {
               this.logger.warn(
@@ -40,14 +48,18 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
               );
               return null;
             }
-            transformedRecord.gatewayId = typeof gateway._id === 'string'
-              ? new ObjectId(gateway._id)
-              : gateway._id;
+            transformedRecord.gatewayId =
+              typeof gateway._id === 'string'
+                ? new ObjectId(gateway._id)
+                : gateway._id;
             delete transformedRecord.gateway;
           } else {
-            const gateway = await this.queryBuilder.findOneWhere('websocket_definition', {
-              path: record.gateway,
-            });
+            const gateway = await this.queryBuilder.findOneWhere(
+              'websocket_definition',
+              {
+                path: record.gateway,
+              },
+            );
 
             if (!gateway) {
               this.logger.warn(
@@ -73,7 +85,14 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['eventName', 'isEnabled', 'isSystem', 'description', 'handlerScript', 'timeout'];
+    return [
+      'eventName',
+      'isEnabled',
+      'isSystem',
+      'description',
+      'handlerScript',
+      'timeout',
+    ];
   }
 
   protected getRecordIdentifier(record: any): string {

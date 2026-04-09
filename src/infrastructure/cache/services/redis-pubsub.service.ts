@@ -6,13 +6,14 @@ import Redis from 'ioredis';
 export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   public pub: Redis;
   public sub: Redis;
-  private subscribedChannels = new Map<string, Array<(channel: string, message: string) => void>>();
+  private subscribedChannels = new Map<
+    string,
+    Array<(channel: string, message: string) => void>
+  >();
   private nodeName: string | null = null;
   private redisUri: string;
 
-  constructor(
-    private configService: ConfigService,
-  ) {
+  constructor(private configService: ConfigService) {
     this.redisUri = this.configService.get<string>('REDIS_URI');
   }
 
@@ -33,10 +34,19 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       await Promise.all([
         this.pub.ping(),
         new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('Redis sub timeout')), 5000);
-          this.sub.once('ready', () => { clearTimeout(timeout); resolve(); });
-          this.sub.once('error', (err) => { clearTimeout(timeout); reject(err); });
-        })
+          const timeout = setTimeout(
+            () => reject(new Error('Redis sub timeout')),
+            5000,
+          );
+          this.sub.once('ready', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+          this.sub.once('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+          });
+        }),
       ]);
 
       this.sub.on('message', (channel: string, message: string) => {
@@ -60,11 +70,19 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
   ): boolean {
     if (!this.sub) {
       if (retryCount >= 50) {
-        console.warn(`[RedisPubSubService] Gave up subscribing to ${channel} after ${retryCount} retries (Redis not available)`);
+        console.warn(
+          `[RedisPubSubService] Gave up subscribing to ${channel} after ${retryCount} retries (Redis not available)`,
+        );
         return false;
       }
-      const delay = Math.min(100 * Math.pow(2, Math.min(retryCount, 10)), 30000);
-      setTimeout(() => this.subscribeWithHandler(channel, handler, retryCount + 1), delay);
+      const delay = Math.min(
+        100 * Math.pow(2, Math.min(retryCount, 10)),
+        30000,
+      );
+      setTimeout(
+        () => this.subscribeWithHandler(channel, handler, retryCount + 1),
+        delay,
+      );
       return false;
     }
     const decoratedChannel = this.decorateChannel(channel);
@@ -76,9 +94,14 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
 
     this.subscribedChannels.set(decoratedChannel, [handler]);
 
-    this.sub.subscribe(decoratedChannel).then(() => undefined)
+    this.sub
+      .subscribe(decoratedChannel)
+      .then(() => undefined)
       .catch((err) => {
-        console.error(`[RedisPubSub] Subscribe error for ${decoratedChannel}:`, err.message);
+        console.error(
+          `[RedisPubSub] Subscribe error for ${decoratedChannel}:`,
+          err.message,
+        );
       });
 
     return true;

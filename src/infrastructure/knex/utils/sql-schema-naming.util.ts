@@ -10,7 +10,11 @@ export function getShortPkName(junctionTableName: string): string {
   const hash = getShortHash(junctionTableName);
   return `j_${hash}_pk`;
 }
-export function getShortFkConstraintName(junctionTableName: string, columnName: string, direction: 'src' | 'tgt'): string {
+export function getShortFkConstraintName(
+  junctionTableName: string,
+  columnName: string,
+  direction: 'src' | 'tgt',
+): string {
   const fullName = `${junctionTableName}_${columnName}_foreign`;
   if (fullName.length <= PG_IDENTIFIER_LIMIT) {
     return fullName;

@@ -10,7 +10,8 @@ export class CommonService {
   mapToGraphQLType = CommonHelper.mapToGraphQLType;
   inverseRelationType = CommonHelper.inverseRelationType;
   assertNoSystemFlagDeep = CommonHelper.assertNoSystemFlagDeep;
-  assertNoSystemFlagDeepRecursive = CommonHelper.assertNoSystemFlagDeepRecursive;
+  assertNoSystemFlagDeepRecursive =
+    CommonHelper.assertNoSystemFlagDeepRecursive;
   parseRouteParams = CommonHelper.parseRouteParams;
   normalizeRoutePath = CommonHelper.normalizeRoutePath;
   validateIdentifier = CommonHelper.validateIdentifier;

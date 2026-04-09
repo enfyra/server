@@ -17,11 +17,11 @@ export class TableHandlerService {
 
   private getHandler() {
     const dbType = process.env.DB_TYPE || 'mysql';
-    
+
     if (dbType === 'mongodb') {
       return this.mongoTableHandler;
     }
-    
+
     return this.sqlTableHandler;
   }
 
@@ -29,7 +29,11 @@ export class TableHandlerService {
     return this.getHandler().createTable(body, context);
   }
 
-  async updateTable(id: string | number, body: CreateTableDto, context?: TDynamicContext) {
+  async updateTable(
+    id: string | number,
+    body: CreateTableDto,
+    context?: TDynamicContext,
+  ) {
     return this.getHandler().updateTable(id, body, context);
   }
 
@@ -37,4 +41,3 @@ export class TableHandlerService {
     return this.getHandler().delete(id, context);
   }
 }
-

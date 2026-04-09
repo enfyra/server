@@ -32,6 +32,14 @@ export class ExtensionDefinitionProcessor extends BaseTableProcessor {
     return identifiers.length > 0 ? identifiers : [{ id: record.id }];
   }
   protected getCompareFields(): string[] {
-    return ['name', 'type', 'version', 'isEnabled', 'description', 'code', 'compiledCode'];
+    return [
+      'name',
+      'type',
+      'version',
+      'isEnabled',
+      'description',
+      'code',
+      'compiledCode',
+    ];
   }
 }

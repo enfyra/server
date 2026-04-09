@@ -17,10 +17,14 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
-        if (transformedRecord.description === undefined) transformedRecord.description = null;
-        if (transformedRecord.icon === undefined) transformedRecord.icon = 'lucide:route';
-        if (transformedRecord.isSystem === undefined) transformedRecord.isSystem = false;
-        if (transformedRecord.isEnabled === undefined) transformedRecord.isEnabled = false;
+        if (transformedRecord.description === undefined)
+          transformedRecord.description = null;
+        if (transformedRecord.icon === undefined)
+          transformedRecord.icon = 'lucide:route';
+        if (transformedRecord.isSystem === undefined)
+          transformedRecord.isSystem = false;
+        if (transformedRecord.isEnabled === undefined)
+          transformedRecord.isEnabled = false;
         if (isMongoDB) {
           const now = new Date();
           if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
@@ -28,22 +32,29 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
         if (record.mainTable) {
           if (isMongoDB) {
-            const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
-              name: record.mainTable,
-            });
+            const mainTable = await this.queryBuilder.findOneWhere(
+              'table_definition',
+              {
+                name: record.mainTable,
+              },
+            );
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
               );
               return null;
             }
-            transformedRecord.mainTable = typeof mainTable._id === 'string'
-              ? new ObjectId(mainTable._id)
-              : mainTable._id;
+            transformedRecord.mainTable =
+              typeof mainTable._id === 'string'
+                ? new ObjectId(mainTable._id)
+                : mainTable._id;
           } else {
-            const mainTable = await this.queryBuilder.findOneWhere('table_definition', {
-              name: record.mainTable,
-            });
+            const mainTable = await this.queryBuilder.findOneWhere(
+              'table_definition',
+              {
+                name: record.mainTable,
+              },
+            );
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
@@ -73,7 +84,9 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           }
         }
         if (isMongoDB && record.path === '/route_definition') {
-          this.logger.log(`📋 Sample route document to insert: ${JSON.stringify(transformedRecord, null, 2)}`);
+          this.logger.log(
+            `📋 Sample route document to insert: ${JSON.stringify(transformedRecord, null, 2)}`,
+          );
         }
         return transformedRecord;
       }),
@@ -82,7 +95,11 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
   }
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    if (!isMongoDB && record._publishedMethods && Array.isArray(record._publishedMethods)) {
+    if (
+      !isMongoDB &&
+      record._publishedMethods &&
+      Array.isArray(record._publishedMethods)
+    ) {
       const methodNames = record._publishedMethods;
       const result = await this.queryBuilder.select({
         tableName: 'method_definition',
@@ -93,14 +110,18 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methodIds = methods.map((m: any) => m.id);
       if (methodIds.length > 0) {
         await this.queryBuilder.updateById('route_definition', record.id, {
-          publishedMethods: methodIds
+          publishedMethods: methodIds,
         });
         this.logger.log(
           `   🔗 Linked ${methodIds.length} published methods to route ${record.path}`,
         );
       }
     }
-    if (!isMongoDB && record._availableMethods && Array.isArray(record._availableMethods)) {
+    if (
+      !isMongoDB &&
+      record._availableMethods &&
+      Array.isArray(record._availableMethods)
+    ) {
       const methodNames = record._availableMethods;
       const result = await this.queryBuilder.select({
         tableName: 'method_definition',
@@ -111,7 +132,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methodIds = methods.map((m: any) => m.id);
       if (methodIds.length > 0) {
         await this.queryBuilder.updateById('route_definition', record.id, {
-          availableMethods: methodIds
+          availableMethods: methodIds,
         });
         this.logger.log(
           `   🔗 Linked ${methodIds.length} available methods to route ${record.path}`,
@@ -121,12 +142,18 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     await this.ensureDefaultCrudHandlers(record, isMongoDB);
   }
 
-  private async ensureDefaultCrudHandlers(record: any, isMongoDB: boolean): Promise<void> {
+  private async ensureDefaultCrudHandlers(
+    record: any,
+    isMongoDB: boolean,
+  ): Promise<void> {
     const path = record.path;
     const mainTableFk = isMongoDB ? record.mainTable : record.mainTableId;
     if (!mainTableFk) return;
 
-    const tableRow = await this.queryBuilder.findById('table_definition', mainTableFk);
+    const tableRow = await this.queryBuilder.findById(
+      'table_definition',
+      mainTableFk,
+    );
     const tableName = tableRow?.name;
     if (!tableName || !isCanonicalTableRoutePath(path, tableName)) return;
 
@@ -141,12 +168,17 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const logic = DEFAULT_REST_HANDLER_LOGIC[methodName];
       if (!logic) continue;
 
-      const methodRow = await this.queryBuilder.findOneWhere('method_definition', {
-        method: methodName,
-      });
+      const methodRow = await this.queryBuilder.findOneWhere(
+        'method_definition',
+        {
+          method: methodName,
+        },
+      );
       if (!methodRow) continue;
 
-      const methodKeyId = isMongoDB ? methodRow._id ?? methodRow.id : methodRow.id;
+      const methodKeyId = isMongoDB
+        ? (methodRow._id ?? methodRow.id)
+        : methodRow.id;
 
       const existing = isMongoDB
         ? await this.queryBuilder.findOneWhere('route_handler_definition', {
@@ -164,7 +196,10 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         ? { route: routeId, method: methodKeyId, logic, timeout: 30000 }
         : { routeId, methodId: methodKeyId, logic, timeout: 30000 };
 
-      await this.queryBuilder.insert({ table: 'route_handler_definition', data });
+      await this.queryBuilder.insert({
+        table: 'route_handler_definition',
+        data,
+      });
       this.logger.log(`   Default ${methodName} handler → ${path}`);
     }
   }
@@ -172,7 +207,16 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     return { path: record.path };
   }
   protected getCompareFields(): string[] {
-    return ['path', 'isEnabled', 'icon', 'description', 'isSystem', 'mainTable', 'publishedMethods', 'availableMethods'];
+    return [
+      'path',
+      'isEnabled',
+      'icon',
+      'description',
+      'isSystem',
+      'mainTable',
+      'publishedMethods',
+      'availableMethods',
+    ];
   }
   protected getRecordIdentifier(record: any): string {
     return `[Route] ${record.path}`;

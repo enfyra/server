@@ -53,4 +53,3 @@ export interface KnexTableSchema {
   definition: TableDef;
   junctionTables: JunctionTableDef[];
 }
-

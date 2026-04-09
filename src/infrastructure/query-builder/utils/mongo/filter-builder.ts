@@ -4,7 +4,11 @@ import { convertValueByType } from './type-converter';
 
 const MONGO_FOLD_PENDING = '__mongoFoldTextTriples';
 
-type FoldTriple = { ref: string; needle: string; mode: 'contains' | 'starts' | 'ends' };
+type FoldTriple = {
+  ref: string;
+  needle: string;
+  mode: 'contains' | 'starts' | 'ends';
+};
 
 function mongoFieldRefForFoldExpr(fieldName: string): string {
   return fieldName === '_id' ? '$_id' : `$${fieldName}`;
@@ -17,7 +21,8 @@ function appendFoldTextSearchExpr(
   mode: 'contains' | 'starts' | 'ends',
 ): void {
   const ref = mongoFieldRefForFoldExpr(fieldName);
-  const list = (container[MONGO_FOLD_PENDING] as FoldTriple[] | undefined) ?? [];
+  const list =
+    (container[MONGO_FOLD_PENDING] as FoldTriple[] | undefined) ?? [];
   list.push({ ref, needle, mode });
   container[MONGO_FOLD_PENDING] = list;
 }
@@ -56,20 +61,27 @@ export function whereToMongoFilter(
   metadata: any,
   conditions: WhereCondition[],
   tableName?: string,
-  dbType?: string
+  dbType?: string,
 ): any {
   const filter: any = {};
   const isMongo = dbType === 'mongodb' || !dbType;
 
   for (const condition of conditions) {
-    let fieldName = condition.field.includes('.') ? condition.field.split('.').pop() : condition.field;
+    let fieldName = condition.field.includes('.')
+      ? condition.field.split('.').pop()
+      : condition.field;
     const tableNameForConversion = tableName || condition.field.split('.')[0];
 
     if (isMongo && fieldName === 'id') {
       fieldName = '_id';
     }
 
-    let value = convertValueByType(metadata, tableNameForConversion, fieldName, condition.value);
+    const value = convertValueByType(
+      metadata,
+      tableNameForConversion,
+      fieldName,
+      condition.value,
+    );
 
     switch (condition.operator) {
       case '=':
@@ -91,26 +103,35 @@ export function whereToMongoFilter(
         filter[fieldName] = { $lte: value };
         break;
       case 'like':
-        filter[fieldName] = { $regex: value.replace(/%/g, '.*'), $options: 'i' };
+        filter[fieldName] = {
+          $regex: value.replace(/%/g, '.*'),
+          $options: 'i',
+        };
         break;
       case 'in':
         let inValues = condition.value;
         if (!Array.isArray(inValues)) {
-          inValues = typeof inValues === 'string' && inValues.includes(',')
-            ? inValues.split(',').map(v => v.trim())
-            : [inValues];
+          inValues =
+            typeof inValues === 'string' && inValues.includes(',')
+              ? inValues.split(',').map((v) => v.trim())
+              : [inValues];
         }
-        const convertedInValues = inValues.map(v => convertValueByType(metadata, tableNameForConversion, fieldName, v));
+        const convertedInValues = inValues.map((v) =>
+          convertValueByType(metadata, tableNameForConversion, fieldName, v),
+        );
         filter[fieldName] = { $in: convertedInValues };
         break;
       case 'not in':
         let notInValues = condition.value;
         if (!Array.isArray(notInValues)) {
-          notInValues = typeof notInValues === 'string' && notInValues.includes(',')
-            ? notInValues.split(',').map(v => v.trim())
-            : [notInValues];
+          notInValues =
+            typeof notInValues === 'string' && notInValues.includes(',')
+              ? notInValues.split(',').map((v) => v.trim())
+              : [notInValues];
         }
-        const convertedNotInValues = notInValues.map(v => convertValueByType(metadata, tableNameForConversion, fieldName, v));
+        const convertedNotInValues = notInValues.map((v) =>
+          convertValueByType(metadata, tableNameForConversion, fieldName, v),
+        );
         filter[fieldName] = { $nin: convertedNotInValues };
         break;
       case 'is null':
@@ -131,11 +152,21 @@ export function whereToMongoFilter(
       case '_between':
         let betweenValues = condition.value;
         if (typeof betweenValues === 'string') {
-          betweenValues = betweenValues.split(',').map(v => v.trim());
+          betweenValues = betweenValues.split(',').map((v) => v.trim());
         }
         if (Array.isArray(betweenValues) && betweenValues.length === 2) {
-          const val0 = convertValueByType(metadata, tableNameForConversion, fieldName, betweenValues[0]);
-          const val1 = convertValueByType(metadata, tableNameForConversion, fieldName, betweenValues[1]);
+          const val0 = convertValueByType(
+            metadata,
+            tableNameForConversion,
+            fieldName,
+            betweenValues[0],
+          );
+          const val1 = convertValueByType(
+            metadata,
+            tableNameForConversion,
+            fieldName,
+            betweenValues[1],
+          );
           filter[fieldName] = { $gte: val0, $lte: val1 };
         }
         break;
@@ -158,7 +189,7 @@ export function convertLogicalFilterToMongo(
   metadata: any,
   filter: any,
   tableName?: string,
-  dbType?: string
+  dbType?: string,
 ): any {
   if (!filter || typeof filter !== 'object') {
     return {};
@@ -171,7 +202,9 @@ export function convertLogicalFilterToMongo(
       ? filter._and
       : Object.values(filter._and);
     return {
-      $and: conditions.map((condition: any) => convertLogicalFilterToMongo(metadata, condition, tableName, dbType))
+      $and: conditions.map((condition: any) =>
+        convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+      ),
     };
   }
 
@@ -180,13 +213,17 @@ export function convertLogicalFilterToMongo(
       ? filter._or
       : Object.values(filter._or);
     return {
-      $or: conditions.map((condition: any) => convertLogicalFilterToMongo(metadata, condition, tableName, dbType))
+      $or: conditions.map((condition: any) =>
+        convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+      ),
     };
   }
 
   if (filter._not) {
     return {
-      $nor: [convertLogicalFilterToMongo(metadata, filter._not, tableName, dbType)]
+      $nor: [
+        convertLogicalFilterToMongo(metadata, filter._not, tableName, dbType),
+      ],
     };
   }
 
@@ -212,7 +249,9 @@ export function convertLogicalFilterToMongo(
       continue;
     }
 
-    const rel = tableMeta?.relations?.find((r: any) => r.propertyName === field);
+    const rel = tableMeta?.relations?.find(
+      (r: any) => r.propertyName === field,
+    );
     if (
       rel &&
       rel.foreignKeyColumn &&
@@ -221,12 +260,20 @@ export function convertLogicalFilterToMongo(
       !Array.isArray(value)
     ) {
       const keys = Object.keys(value);
-      const hasNestedField = keys.some(k => !k.startsWith('_'));
-      const onlyScalarOps = keys.length > 0 && keys.every(k => relationIdOps.has(k));
+      const hasNestedField = keys.some((k) => !k.startsWith('_'));
+      const onlyScalarOps =
+        keys.length > 0 && keys.every((k) => relationIdOps.has(k));
       if (!hasNestedField && onlyScalarOps) {
         const fkCol = rel.foreignKeyColumn;
         for (const [op, val] of Object.entries(value)) {
-          applyOperatorToMatch(metadata, mongoFilter, tableName || '', fkCol, op, val);
+          applyOperatorToMatch(
+            metadata,
+            mongoFilter,
+            tableName || '',
+            fkCol,
+            op,
+            val,
+          );
         }
         continue;
       }
@@ -243,7 +290,14 @@ export function convertLogicalFilterToMongo(
 
       if (isOperator) {
         for (const [op, val] of Object.entries(value)) {
-          applyOperatorToMatch(metadata, mongoFilter, tableName || '', fieldName, op, val);
+          applyOperatorToMatch(
+            metadata,
+            mongoFilter,
+            tableName || '',
+            fieldName,
+            op,
+            val,
+          );
         }
       } else {
         mongoFilter[fieldName] = value;
@@ -257,7 +311,11 @@ export function convertLogicalFilterToMongo(
   return mongoFilter;
 }
 
-function isNullableColumn(metadata: any, tableName: string, field: string): boolean {
+function isNullableColumn(
+  metadata: any,
+  tableName: string,
+  field: string,
+): boolean {
   const tableMeta = metadata?.tables?.get?.(tableName);
   const col = tableMeta?.columns?.find((c: any) => c.name === field);
   if (!col) {
@@ -272,7 +330,7 @@ export function applyOperatorToMatch(
   tableName: string,
   field: string,
   op: string,
-  val: any
+  val: any,
 ): void {
   switch (op) {
     case '_contains':
@@ -285,7 +343,12 @@ export function applyOperatorToMatch(
       appendFoldTextSearchExpr(matchCondition, field, String(val), 'ends');
       break;
     case '_eq':
-      matchCondition[field] = convertValueByType(metadata, tableName, field, val);
+      matchCondition[field] = convertValueByType(
+        metadata,
+        tableName,
+        field,
+        val,
+      );
       break;
     case '_neq': {
       const v = convertValueByType(metadata, tableName, field, val);
@@ -303,11 +366,14 @@ export function applyOperatorToMatch(
     case '_in': {
       let inValues = val;
       if (!Array.isArray(inValues)) {
-        inValues = typeof inValues === 'string' && inValues.includes(',')
-          ? inValues.split(',').map(v => v.trim())
-          : [inValues];
+        inValues =
+          typeof inValues === 'string' && inValues.includes(',')
+            ? inValues.split(',').map((v) => v.trim())
+            : [inValues];
       }
-      const convertedInValues = inValues.map(v => convertValueByType(metadata, tableName, field, v));
+      const convertedInValues = inValues.map((v) =>
+        convertValueByType(metadata, tableName, field, v),
+      );
       matchCondition[field] = { $in: convertedInValues };
       break;
     }
@@ -320,7 +386,7 @@ export function applyOperatorToMatch(
             ? notInValuesNin.split(',').map((v: string) => v.trim())
             : [notInValuesNin];
       }
-      const convertedNotInVals = notInValuesNin.map(v =>
+      const convertedNotInVals = notInValuesNin.map((v) =>
         convertValueByType(metadata, tableName, field, v),
       );
       if (isNullableColumn(metadata, tableName, field)) {
@@ -334,16 +400,24 @@ export function applyOperatorToMatch(
       }
       break;
     case '_gt':
-      matchCondition[field] = { $gt: convertValueByType(metadata, tableName, field, val) };
+      matchCondition[field] = {
+        $gt: convertValueByType(metadata, tableName, field, val),
+      };
       break;
     case '_gte':
-      matchCondition[field] = { $gte: convertValueByType(metadata, tableName, field, val) };
+      matchCondition[field] = {
+        $gte: convertValueByType(metadata, tableName, field, val),
+      };
       break;
     case '_lt':
-      matchCondition[field] = { $lt: convertValueByType(metadata, tableName, field, val) };
+      matchCondition[field] = {
+        $lt: convertValueByType(metadata, tableName, field, val),
+      };
       break;
     case '_lte':
-      matchCondition[field] = { $lte: convertValueByType(metadata, tableName, field, val) };
+      matchCondition[field] = {
+        $lte: convertValueByType(metadata, tableName, field, val),
+      };
       break;
     case '_is_null':
       const isNullMatch = val === true || val === 'true';
@@ -356,11 +430,21 @@ export function applyOperatorToMatch(
     case '_between':
       let betweenVals = val;
       if (typeof betweenVals === 'string') {
-        betweenVals = betweenVals.split(',').map(v => v.trim());
+        betweenVals = betweenVals.split(',').map((v) => v.trim());
       }
       if (Array.isArray(betweenVals) && betweenVals.length === 2) {
-        const val0 = convertValueByType(metadata, tableName, field, betweenVals[0]);
-        const val1 = convertValueByType(metadata, tableName, field, betweenVals[1]);
+        const val0 = convertValueByType(
+          metadata,
+          tableName,
+          field,
+          betweenVals[0],
+        );
+        const val1 = convertValueByType(
+          metadata,
+          tableName,
+          field,
+          betweenVals[1],
+        );
         matchCondition[field] = { $gte: val0, $lte: val1 };
       }
       break;

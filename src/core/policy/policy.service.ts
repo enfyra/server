@@ -15,8 +15,7 @@ export class PolicyService {
   constructor(
     private readonly commonService: CommonService,
     private readonly metadataCache: MetadataCacheService,
-  ) {
-  }
+  ) {}
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
     const isPublished = ctx.routeData?.publishedMethods?.some(
@@ -46,14 +45,20 @@ export class PolicyService {
     }
 
     const userId = String(ctx.user._id || ctx.user.id);
-    const userRoleId = ctx.user.role ? String(ctx.user.role._id || ctx.user.role.id) : null;
+    const userRoleId = ctx.user.role
+      ? String(ctx.user.role._id || ctx.user.role.id)
+      : null;
 
     const canPass = ctx.routeData.routePermissions.find((permission: any) => {
       const hasMethodAccess = permission.methods.some(
         (item: any) => item.method === ctx.method,
       );
       if (!hasMethodAccess) return false;
-      if (permission?.allowedUsers?.some((user: any) => String(user?._id || user?.id) === userId)) {
+      if (
+        permission?.allowedUsers?.some(
+          (user: any) => String(user?._id || user?.id) === userId,
+        )
+      ) {
         return true;
       }
       if (!userRoleId) return false;
@@ -71,7 +76,9 @@ export class PolicyService {
     };
   }
 
-  async checkMutationSafety(ctx: TPolicyMutationContext): Promise<TPolicyDecision> {
+  async checkMutationSafety(
+    ctx: TPolicyMutationContext,
+  ): Promise<TPolicyDecision> {
     try {
       await this.assertSystemSafe(ctx);
       return { allow: true };
@@ -85,7 +92,9 @@ export class PolicyService {
     }
   }
 
-  async checkSchemaMigration(ctx: TPolicySchemaMigrationContext): Promise<TPolicyDecision> {
+  async checkSchemaMigration(
+    ctx: TPolicySchemaMigrationContext,
+  ): Promise<TPolicyDecision> {
     const tableName = (ctx.tableName || '').trim();
 
     const getClientHash = (): string => {
@@ -99,18 +108,27 @@ export class PolicyService {
     };
 
     if (ctx.operation === 'create') {
-      return { allow: true, details: { schemaChanged: true, isDestructive: false } };
+      return {
+        allow: true,
+        details: { schemaChanged: true, isDestructive: false },
+      };
     }
 
     if (ctx.operation === 'delete') {
-      return { allow: true, details: { schemaChanged: true, isDestructive: true } };
+      return {
+        allow: true,
+        details: { schemaChanged: true, isDestructive: true },
+      };
     }
 
     const before = ctx.beforeMetadata;
     const after = ctx.afterMetadata;
 
     if (!before || !after) {
-      return { allow: true, details: { schemaChanged: true, reason: 'missing_before_after' } };
+      return {
+        allow: true,
+        details: { schemaChanged: true, reason: 'missing_before_after' },
+      };
     }
 
     const safeStr = (v: any) => (v == null ? '' : String(v));
@@ -127,7 +145,9 @@ export class PolicyService {
           isGenerated: !!c?.isGenerated,
           defaultValue: c?.defaultValue ?? null,
         }))
-        .sort((a: any, b: any) => `${a.key}|${a.name}`.localeCompare(`${b.key}|${b.name}`));
+        .sort((a: any, b: any) =>
+          `${a.key}|${a.name}`.localeCompare(`${b.key}|${b.name}`),
+        );
     };
 
     const normalizeRelations = (m: any) => {
@@ -136,7 +156,9 @@ export class PolicyService {
         .map((r: any) => ({
           propertyName: safeStr(r?.propertyName),
           type: safeStr(r?.type),
-          targetTableName: safeStr(r?.targetTableName ?? r?.targetTable?.name ?? r?.targetTable),
+          targetTableName: safeStr(
+            r?.targetTableName ?? r?.targetTable?.name ?? r?.targetTable,
+          ),
           inversePropertyName: safeStr(r?.inversePropertyName),
           foreignKeyColumn: safeStr(r?.foreignKeyColumn),
           junctionTableName: safeStr(r?.junctionTableName),
@@ -152,21 +174,43 @@ export class PolicyService {
     const normalizeUniques = (m: any) => {
       const u = m?.uniques;
       if (u == null) return null;
-      const parsed = typeof u === 'string' ? (() => { try { return JSON.parse(u); } catch { return u; } })() : u;
+      const parsed =
+        typeof u === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(u);
+              } catch {
+                return u;
+              }
+            })()
+          : u;
       if (!Array.isArray(parsed)) return parsed;
       return parsed
         .map((x: any) => x)
-        .sort((a: any, b: any) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        .sort((a: any, b: any) =>
+          JSON.stringify(a).localeCompare(JSON.stringify(b)),
+        );
     };
 
     const normalizeIndexes = (m: any) => {
       const i = m?.indexes;
       if (i == null) return null;
-      const parsed = typeof i === 'string' ? (() => { try { return JSON.parse(i); } catch { return i; } })() : i;
+      const parsed =
+        typeof i === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(i);
+              } catch {
+                return i;
+              }
+            })()
+          : i;
       if (!Array.isArray(parsed)) return parsed;
       return parsed
         .map((x: any) => x)
-        .sort((a: any, b: any) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        .sort((a: any, b: any) =>
+          JSON.stringify(a).localeCompare(JSON.stringify(b)),
+        );
     };
 
     const bCols = normalizeColumns(before);
@@ -186,7 +230,10 @@ export class PolicyService {
       !isEqual(bI, aI);
 
     if (!schemaChanged) {
-      return { allow: true, details: { schemaChanged: false, isDestructive: false } };
+      return {
+        allow: true,
+        details: { schemaChanged: false, isDestructive: false },
+      };
     }
 
     const removedColumns = bCols
@@ -217,13 +264,17 @@ export class PolicyService {
       .map((c: any) => c.name)
       .filter(Boolean);
 
-    const relKey = (r: any) => `${r.propertyName}|${r.type}|${r.targetTableName}|${r.inversePropertyName}|${r.foreignKeyColumn}|${r.junctionTableName}`;
+    const relKey = (r: any) =>
+      `${r.propertyName}|${r.type}|${r.targetTableName}|${r.inversePropertyName}|${r.foreignKeyColumn}|${r.junctionTableName}`;
     const bRelKeys = new Set(bRels.map(relKey));
     const aRelKeys = new Set(aRels.map(relKey));
-    const removedRelations = Array.from(bRelKeys).filter((k) => !aRelKeys.has(k));
+    const removedRelations = Array.from(bRelKeys).filter(
+      (k) => !aRelKeys.has(k),
+    );
     const addedRelations = Array.from(aRelKeys).filter((k) => !bRelKeys.has(k));
 
-    const isDestructive = removedColumns.length > 0 || removedRelations.length > 0;
+    const isDestructive =
+      removedColumns.length > 0 || removedRelations.length > 0;
 
     const itemKey = (x: any) => JSON.stringify(x);
     const bUKeys = new Set(Array.isArray(bU) ? bU.map(itemKey) : []);
@@ -241,8 +292,20 @@ export class PolicyService {
       version: 1,
       operation: ctx.operation,
       tableName,
-      before: { name: safeStr(before?.name), columns: stripKey(bCols), relations: bRels, uniques: bU, indexes: bI },
-      after: { name: safeStr(after?.name), columns: stripKey(aCols), relations: aRels, uniques: aU, indexes: aI },
+      before: {
+        name: safeStr(before?.name),
+        columns: stripKey(bCols),
+        relations: bRels,
+        uniques: bU,
+        indexes: bI,
+      },
+      after: {
+        name: safeStr(after?.name),
+        columns: stripKey(aCols),
+        relations: aRels,
+        uniques: aU,
+        indexes: aI,
+      },
       removedColumns,
       removedRelations,
       addedColumns,
@@ -298,12 +361,16 @@ export class PolicyService {
     };
   }
 
-  private async getAllRelationFieldsWithInverse(tableName: string): Promise<string[]> {
+  private async getAllRelationFieldsWithInverse(
+    tableName: string,
+  ): Promise<string[]> {
     try {
       const metadata = await this.metadataCache.getMetadata();
       const tableMeta = metadata.tables.get(tableName);
       if (!tableMeta) return [];
-      const relations = (tableMeta.relations || []).map((r: any) => r.propertyName);
+      const relations = (tableMeta.relations || []).map(
+        (r: any) => r.propertyName,
+      );
       const inverseRelations: string[] = [];
       for (const [, otherMeta] of metadata.tables) {
         for (const r of otherMeta.relations || []) {
@@ -314,7 +381,11 @@ export class PolicyService {
       }
       const baseRelations = [...new Set([...relations, ...inverseRelations])];
       if (tableName === 'table_definition') {
-        baseRelations.push('columns.table', 'relations.sourceTable', 'relations.targetTable');
+        baseRelations.push(
+          'columns.table',
+          'relations.sourceTable',
+          'relations.targetTable',
+        );
       }
       return baseRelations;
     } catch {
@@ -333,7 +404,11 @@ export class PolicyService {
     return result;
   }
 
-  private getChangedFields(data: any, existing: any, relationFields: string[]): string[] {
+  private getChangedFields(
+    data: any,
+    existing: any,
+    relationFields: string[],
+  ): string[] {
     const d = this.stripRelations(data, relationFields);
     const e = this.stripRelations(existing, relationFields);
     if (!d || typeof d !== 'object') return [];
@@ -365,7 +440,8 @@ export class PolicyService {
     existing: any,
     newData: any,
   ) {
-    const relationFields = await this.getAllRelationFieldsWithInverse(tableName);
+    const relationFields =
+      await this.getAllRelationFieldsWithInverse(tableName);
     if (relationFields.length === 0) return;
     for (const field of relationFields) {
       const oldItems = existing[field];
@@ -375,16 +451,22 @@ export class PolicyService {
       const oldSystemIds = oldItems
         .filter((i: any) => i?.isSystem)
         .map((i) => getItemId(i));
-      const newIds = newItems.filter((i: any) => getItemId(i)).map((i) => getItemId(i));
+      const newIds = newItems
+        .filter((i: any) => getItemId(i))
+        .map((i) => getItemId(i));
       const newCreated = newItems.filter((i: any) => !getItemId(i));
       for (const id of oldSystemIds) {
         if (!newIds.includes(id)) {
-          throw new Error(`Cannot delete system record (id=${id}) in relation '${field}'`);
+          throw new Error(
+            `Cannot delete system record (id=${id}) in relation '${field}'`,
+          );
         }
       }
       for (const item of newCreated) {
         if (item?.isSystem) {
-          throw new Error(`Cannot create new system record in relation '${field}'`);
+          throw new Error(
+            `Cannot create new system record in relation '${field}'`,
+          );
         }
       }
     }
@@ -438,8 +520,13 @@ export class PolicyService {
       fullExisting = await this.enrichTableDefinitionData(existing);
     }
 
-    const relationFields = await this.getAllRelationFieldsWithInverse(tableName);
-    const changedFields = this.getChangedFields(data, fullExisting, relationFields);
+    const relationFields =
+      await this.getAllRelationFieldsWithInverse(tableName);
+    const changedFields = this.getChangedFields(
+      data,
+      fullExisting,
+      relationFields,
+    );
 
     if (operation === 'create') {
       const jsonFields = await this.getJsonFields(tableName);
@@ -452,7 +539,11 @@ export class PolicyService {
     }
 
     if (operation === 'update' && fullExisting?.isSystem) {
-      await this.assertRelationSystemRecordsNotRemoved(tableName, fullExisting, data);
+      await this.assertRelationSystemRecordsNotRemoved(
+        tableName,
+        fullExisting,
+        data,
+      );
     }
 
     if (tableName === 'route_definition' && fullExisting?.isSystem) {
@@ -470,15 +561,24 @@ export class PolicyService {
       }
       if ('handlers' in data) {
         const getItemId = (item: any) => item?._id || item?.id;
-        const oldIds = (fullExisting.handlers || []).map((h: any) => getItemId(h)).sort();
-        const newIds = (data.handlers || []).map((h: any) => getItemId(h)).sort();
+        const oldIds = (fullExisting.handlers || [])
+          .map((h: any) => getItemId(h))
+          .sort();
+        const newIds = (data.handlers || [])
+          .map((h: any) => getItemId(h))
+          .sort();
         const isSame =
-          oldIds.length === newIds.length && oldIds.every((id, i) => id === newIds[i]);
-        if (!isSame) throw new Error('Cannot add or modify system route handlers');
+          oldIds.length === newIds.length &&
+          oldIds.every((id, i) => id === newIds[i]);
+        if (!isSame)
+          throw new Error('Cannot add or modify system route handlers');
       }
     }
 
-    if (tableName === 'pre_hook_definition' || tableName === 'post_hook_definition') {
+    if (
+      tableName === 'pre_hook_definition' ||
+      tableName === 'post_hook_definition'
+    ) {
       if (operation === 'create' && data?.isSystem) {
         throw new Error('Cannot create system hook');
       }
@@ -496,29 +596,41 @@ export class PolicyService {
         if (dataRouteId && existingRouteId && dataRouteId !== existingRouteId) {
           throw new Error(`Cannot change 'route' of system hook`);
         }
-        const oldIds = (fullExisting.methods || []).map((m: any) => getItemId(m)).sort();
-        const newIds = (data.methods || []).map((m: any) => getItemId(m)).sort();
-        if (!isEqual(oldIds, newIds)) throw new Error(`Cannot change 'methods' of system hook`);
+        const oldIds = (fullExisting.methods || [])
+          .map((m: any) => getItemId(m))
+          .sort();
+        const newIds = (data.methods || [])
+          .map((m: any) => getItemId(m))
+          .sort();
+        if (!isEqual(oldIds, newIds))
+          throw new Error(`Cannot change 'methods' of system hook`);
       }
     }
 
     if (tableName === 'user_definition') {
       const isRoot = fullExisting?.isRootAdmin;
-      if (operation === 'delete' && isRoot) throw new Error('Cannot delete Root Admin user');
+      if (operation === 'delete' && isRoot)
+        throw new Error('Cannot delete Root Admin user');
       if (operation === 'update') {
-        if ('isRootAdmin' in data && data.isRootAdmin !== fullExisting?.isRootAdmin) {
+        if (
+          'isRootAdmin' in data &&
+          data.isRootAdmin !== fullExisting?.isRootAdmin
+        ) {
           throw new Error('Cannot modify isRootAdmin');
         }
         const getItemId = (item: any) => item?._id || item?.id;
         const isSelf = getItemId(currentUser) === getItemId(fullExisting);
-        if (isRoot && !isSelf) throw new Error('Only Root Admin can modify themselves');
+        if (isRoot && !isSelf)
+          throw new Error('Only Root Admin can modify themselves');
       }
     }
 
     if (tableName === 'table_definition') {
       const isSystem = fullExisting?.isSystem;
-      if (operation === 'create' && data?.isSystem) throw new Error('Cannot create new system table!');
-      if (operation === 'delete' && isSystem) throw new Error('Cannot delete system table!');
+      if (operation === 'create' && data?.isSystem)
+        throw new Error('Cannot create new system table!');
+      if (operation === 'delete' && isSystem)
+        throw new Error('Cannot delete system table!');
       if (operation === 'update' && isSystem) {
         const allowed = this.getAllowedFields(['description']);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
@@ -533,21 +645,29 @@ export class PolicyService {
         const oldRels = fullExisting.relations || [];
         const newRels = data?.relations || [];
         const removedCols = oldCols.filter(
-          (col: any) => !newCols.some((c: any) => getItemId(c) === getItemId(col)),
+          (col: any) =>
+            !newCols.some((c: any) => getItemId(c) === getItemId(col)),
         );
         for (const col of removedCols) {
-          if (col.isSystem) throw new Error(`Cannot delete system column: '${col.name}'`);
+          if (col.isSystem)
+            throw new Error(`Cannot delete system column: '${col.name}'`);
         }
 
         const removedRels = oldRels.filter(
-          (rel: any) => !newRels.some((r: any) => getItemId(r) === getItemId(rel)),
+          (rel: any) =>
+            !newRels.some((r: any) => getItemId(r) === getItemId(rel)),
         );
         for (const rel of removedRels) {
-          if (rel.isSystem) throw new Error(`Cannot delete system relation: '${rel.propertyName}'`);
+          if (rel.isSystem)
+            throw new Error(
+              `Cannot delete system relation: '${rel.propertyName}'`,
+            );
         }
 
         for (const oldCol of oldCols.filter((c: any) => c.isSystem)) {
-          const updated = newCols.find((c: any) => getItemId(c) === getItemId(oldCol));
+          const updated = newCols.find(
+            (c: any) => getItemId(c) === getItemId(oldCol),
+          );
           if (!updated || typeof updated !== 'object') continue;
           const changedFieldsForCol = Object.keys(updated).filter((key) => {
             if (key === 'table') {
@@ -559,7 +679,9 @@ export class PolicyService {
             return !isEqual(updated[key], oldCol[key]);
           });
           const allowedCol = this.getAllowedFields(['description']);
-          const disallowedChanges = changedFieldsForCol.filter((k) => !allowedCol.includes(k));
+          const disallowedChanges = changedFieldsForCol.filter(
+            (k) => !allowedCol.includes(k),
+          );
           if (disallowedChanges.length > 0) {
             throw new Error(
               `Cannot modify system column '${oldCol.name}' (only allowed: ${allowedCol.join(', ')}): ${disallowedChanges.join(', ')}`,
@@ -568,7 +690,9 @@ export class PolicyService {
         }
 
         for (const oldRel of oldRels.filter((r: any) => r.isSystem)) {
-          const updated = newRels.find((r: any) => getItemId(r) === getItemId(oldRel));
+          const updated = newRels.find(
+            (r: any) => getItemId(r) === getItemId(oldRel),
+          );
           if (!updated || typeof updated !== 'object') continue;
           const changedFieldsForRel = Object.keys(updated).filter((key) => {
             if (key === 'sourceTable' || key === 'targetTable') {
@@ -585,7 +709,9 @@ export class PolicyService {
             return !isEqual(updated[key], oldRel[key]);
           });
           const allowedRel = this.getAllowedFields(['description']);
-          const disallowedChanges = changedFieldsForRel.filter((k) => !allowedRel.includes(k));
+          const disallowedChanges = changedFieldsForRel.filter(
+            (k) => !allowedRel.includes(k),
+          );
           if (disallowedChanges.length > 0) {
             throw new Error(
               `Cannot modify system relation '${oldRel.propertyName}' (only allowed: ${allowedRel.join(', ')}): ${disallowedChanges.join(', ')}`,
@@ -614,7 +740,9 @@ export class PolicyService {
         throw new Error('Cannot change path of system WebSocket gateway');
       }
       if ('requireAuth' in data) {
-        throw new Error('Cannot change requireAuth of system WebSocket gateway');
+        throw new Error(
+          'Cannot change requireAuth of system WebSocket gateway',
+        );
       }
     }
 
@@ -689,10 +817,16 @@ export class PolicyService {
         if ('type' in data && data.type !== fullExisting.type) {
           throw new Error('Cannot change extension type');
         }
-        if ('frontendCode' in data && data.frontendCode !== fullExisting.frontendCode) {
+        if (
+          'frontendCode' in data &&
+          data.frontendCode !== fullExisting.frontendCode
+        ) {
           throw new Error('Cannot change system extension frontend code');
         }
-        if ('backendCode' in data && data.backendCode !== fullExisting.backendCode) {
+        if (
+          'backendCode' in data &&
+          data.backendCode !== fullExisting.backendCode
+        ) {
           throw new Error('Cannot change system extension backend code');
         }
       }

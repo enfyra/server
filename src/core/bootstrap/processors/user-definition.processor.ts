@@ -21,7 +21,8 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           ...record,
           _plainPassword: record.password,
         };
-        if (transformed.isRootAdmin === undefined) transformed.isRootAdmin = false;
+        if (transformed.isRootAdmin === undefined)
+          transformed.isRootAdmin = false;
         if (transformed.isSystem === undefined) transformed.isSystem = false;
         if (isMongoDB) {
           const now = new Date();
@@ -34,13 +35,16 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
             name: roleName,
           });
           if (!role) {
-            this.logger.warn(`Role '${roleName}' not found for user ${record.email}, setting to null`);
+            this.logger.warn(
+              `Role '${roleName}' not found for user ${record.email}, setting to null`,
+            );
             transformed.role = null;
           } else {
             if (isMongoDB) {
-              transformed.role = typeof role._id === 'string'
-                ? new ObjectId(role._id)
-                : role._id;
+              transformed.role =
+                typeof role._id === 'string'
+                  ? new ObjectId(role._id)
+                  : role._id;
             } else {
               transformed.roleId = role.id;
               delete transformed.role;
@@ -52,7 +56,12 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     );
     return transformedRecords;
   }
-  async processSql(records: any[], knex: Knex, tableName: string, context?: any): Promise<UpsertResult> {
+  async processSql(
+    records: any[],
+    knex: Knex,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
     const { randomUUID } = await import('crypto');
     let createdCount = 0;
     let skippedCount = 0;
@@ -62,19 +71,28 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
         .where('isRootAdmin', true)
         .first();
     } catch (error) {
-      this.logger.log(`   Table ${tableName} not ready yet, will create rootAdmin`);
+      this.logger.log(
+        `   Table ${tableName} not ready yet, will create rootAdmin`,
+      );
     }
     if (existingRootAdmin) {
-      this.logger.log(`   RootAdmin already exists: ${existingRootAdmin.email}`);
+      this.logger.log(
+        `   RootAdmin already exists: ${existingRootAdmin.email}`,
+      );
       return { created: 0, skipped: 0 };
     }
     const adminUser = await this.getAdminUserFromEnv();
     if (!adminUser) {
-      this.logger.warn(`   No ADMIN_EMAIL/ADMIN_PASSWORD in .env, skipping rootAdmin creation`);
+      this.logger.warn(
+        `   No ADMIN_EMAIL/ADMIN_PASSWORD in .env, skipping rootAdmin creation`,
+      );
       return { created: 0, skipped: 0 };
     }
     const filteredRecords = [adminUser];
-    const transformedRecords = await this.transformRecords(filteredRecords, context);
+    const transformedRecords = await this.transformRecords(
+      filteredRecords,
+      context,
+    );
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
@@ -85,13 +103,19 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
         } else {
           const cleanedRecord = this.cleanRecordForKnex(record);
           cleanedRecord.id = cleanedRecord.id || randomUUID();
-          cleanedRecord.password = await this.bcryptService.hash(record._plainPassword);
+          cleanedRecord.password = await this.bcryptService.hash(
+            record._plainPassword,
+          );
           delete cleanedRecord._plainPassword;
           await knex(tableName).insert(cleanedRecord);
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
-            await this.afterUpsert({ ...record, id: cleanedRecord.id }, true, context);
+            await this.afterUpsert(
+              { ...record, id: cleanedRecord.id },
+              true,
+              context,
+            );
           }
         }
       } catch (error) {
@@ -100,41 +124,64 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     }
     return { created: createdCount, skipped: skippedCount };
   }
-  async processMongo(records: any[], db: Db, collectionName: string, context?: any): Promise<UpsertResult> {
+  async processMongo(
+    records: any[],
+    db: Db,
+    collectionName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
     let createdCount = 0;
     let skippedCount = 0;
-    const existingRootAdmin = await db.collection(collectionName)
+    const existingRootAdmin = await db
+      .collection(collectionName)
       .findOne({ isRootAdmin: true });
     if (existingRootAdmin) {
-      this.logger.log(`   RootAdmin already exists: ${existingRootAdmin.email}`);
+      this.logger.log(
+        `   RootAdmin already exists: ${existingRootAdmin.email}`,
+      );
       return { created: 0, skipped: 0 };
     }
     const adminUser = await this.getAdminUserFromEnv();
     if (!adminUser) {
-      this.logger.warn(`   No ADMIN_EMAIL/ADMIN_PASSWORD in .env, skipping rootAdmin creation`);
+      this.logger.warn(
+        `   No ADMIN_EMAIL/ADMIN_PASSWORD in .env, skipping rootAdmin creation`,
+      );
       return { created: 0, skipped: 0 };
     }
     const filteredRecords = [adminUser];
-    const transformedRecords = await this.transformRecords(filteredRecords, context);
+    const transformedRecords = await this.transformRecords(
+      filteredRecords,
+      context,
+    );
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
-        const existingRecord = await db.collection(collectionName).findOne(uniqueWhere);
+        const existingRecord = await db
+          .collection(collectionName)
+          .findOne(uniqueWhere);
         if (existingRecord) {
           skippedCount++;
           this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
         } else {
           const cleanedRecord = this.cleanRecordForMongo(record);
           if (record._plainPassword) {
-            cleanedRecord.password = await this.bcryptService.hash(record._plainPassword);
+            cleanedRecord.password = await this.bcryptService.hash(
+              record._plainPassword,
+            );
             delete cleanedRecord._plainPassword;
           }
           cleanedRecord.role = cleanedRecord.role || null;
-          const result = await db.collection(collectionName).insertOne(cleanedRecord);
+          const result = await db
+            .collection(collectionName)
+            .insertOne(cleanedRecord);
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
-            await this.afterUpsert({ ...record, _id: result.insertedId }, true, context);
+            await this.afterUpsert(
+              { ...record, _id: result.insertedId },
+              true,
+              context,
+            );
           }
         }
       } catch (error) {

@@ -97,7 +97,8 @@ class WorkerPool {
   private isMemoryAvailable(): boolean {
     const now = Date.now();
     if (now - this.lastMemoryCheckMs >= this.memorySampleIntervalMs) {
-      this.cachedMemoryOk = process.memoryUsage().rss / this.effectiveMemory < this.rssCeiling;
+      this.cachedMemoryOk =
+        process.memoryUsage().rss / this.effectiveMemory < this.rssCeiling;
       this.lastMemoryCheckMs = now;
     }
     return this.cachedMemoryOk;
@@ -150,8 +151,12 @@ class WorkerPool {
     while (this.entries.length < this.max) this.spawnEntry();
   }
 
-  getMax(): number { return this.max; }
-  getWaitingCount(): number { return this.waiting.length; }
+  getMax(): number {
+    return this.max;
+  }
+  getWaitingCount(): number {
+    return this.waiting.length;
+  }
   getTotalActiveTasks(): number {
     let n = 0;
     for (const e of this.entries) n += e.tasks.size;
@@ -175,14 +180,16 @@ export function encodeMainThreadToIsolate(value: unknown): string {
     return JSON.stringify({ __e: 'u' });
   }
   try {
-    return JSON.stringify(
-      { __e: 'v', d: value },
-      (_k, v) => (typeof v === 'bigint' ? v.toString() : v),
+    return JSON.stringify({ __e: 'v', d: value }, (_k, v) =>
+      typeof v === 'bigint' ? v.toString() : v,
     );
   } catch {
     return JSON.stringify({
       __e: 'v',
-      d: { __serializationError: true, message: 'Result is not JSON-serializable' },
+      d: {
+        __serializationError: true,
+        message: 'Result is not JSON-serializable',
+      },
     });
   }
 }
@@ -215,7 +222,10 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     this.logger.log(
       `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate, ${this.isolationTuning.tasksPerWorkerCap} tasks/worker cap`,
     );
-    this.tuneTimer = setInterval(() => this.autoTune(), WORKER_TUNE_INTERVAL_MS);
+    this.tuneTimer = setInterval(
+      () => this.autoTune(),
+      WORKER_TUNE_INTERVAL_MS,
+    );
   }
 
   onModuleDestroy(): void {
@@ -287,7 +297,9 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     if (flow !== undefined && flow !== null) {
       try {
         snapshot.$flow = JSON.parse(
-          JSON.stringify(flow, (_k, val) => (typeof val === 'bigint' ? String(val) : val)),
+          JSON.stringify(flow, (_k, val) =>
+            typeof val === 'bigint' ? String(val) : val,
+          ),
         );
       } catch {
         snapshot.$flow = {};
@@ -296,14 +308,18 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     return snapshot;
   }
 
-  private mergeCtxChanges(ctx: TDynamicContext, changes: Record<string, any>): void {
+  private mergeCtxChanges(
+    ctx: TDynamicContext,
+    changes: Record<string, any>,
+  ): void {
     if (!changes) return;
     if (changes.$body !== undefined) ctx.$body = changes.$body;
     if (changes.$query !== undefined) ctx.$query = changes.$query;
     if (changes.$params !== undefined) ctx.$params = changes.$params;
     if (changes.$data !== undefined) ctx.$data = changes.$data;
     if (changes.$error !== undefined) ctx.$error = changes.$error;
-    if (changes.$statusCode !== undefined) ctx.$statusCode = changes.$statusCode;
+    if (changes.$statusCode !== undefined)
+      ctx.$statusCode = changes.$statusCode;
     if (changes.$share !== undefined) ctx.$share = changes.$share;
     if (changes.$api !== undefined && ctx.$api) {
       if (changes.$api.error) ctx.$api.error = changes.$api.error;
@@ -338,9 +354,15 @@ export class IsolatedExecutorService implements OnModuleDestroy {
           if (settled) return;
           settled = true;
           this.pool.unregisterTask(entry, taskId);
-          appendIsolatedExecutorRuntimeLog({ event: 'task_timeout', id: taskId, timeoutMs });
+          appendIsolatedExecutorRuntimeLog({
+            event: 'task_timeout',
+            id: taskId,
+            timeoutMs,
+          });
           this.pool.terminateEntry(entry);
-          const err: any = new Error(`Script execution timed out after ${timeoutMs}ms`);
+          const err: any = new Error(
+            `Script execution timed out after ${timeoutMs}ms`,
+          );
           err.code = 'ERR_SCRIPT_EXECUTION_TIMEOUT';
           err.isTimeout = true;
           reject(err);
@@ -354,7 +376,11 @@ export class IsolatedExecutorService implements OnModuleDestroy {
             this.pool.unregisterTask(entry, taskId);
 
             if (msg.success) {
-              appendIsolatedExecutorRuntimeLog({ event: 'task_done', id: taskId, ok: true });
+              appendIsolatedExecutorRuntimeLog({
+                event: 'task_done',
+                id: taskId,
+                ok: true,
+              });
               const resolved: any = {
                 value: msg.value,
                 valueAbsent: msg.valueAbsent === true,
@@ -363,10 +389,18 @@ export class IsolatedExecutorService implements OnModuleDestroy {
               if (msg.shortCircuit) resolved.shortCircuit = true;
               resolve(resolved);
             } else {
-              appendIsolatedExecutorRuntimeLog({ event: 'task_done', id: taskId, ok: false, message: msg.error?.message });
-              const err: any = new Error(msg.error?.message || 'Handler execution failed');
+              appendIsolatedExecutorRuntimeLog({
+                event: 'task_done',
+                id: taskId,
+                ok: false,
+                message: msg.error?.message,
+              });
+              const err: any = new Error(
+                msg.error?.message || 'Handler execution failed',
+              );
               err.statusCode = msg.error?.statusCode;
               err.code = msg.error?.code;
+              err.details = msg.error?.details;
               if (msg.error?.stack) err.stack = msg.error.stack;
               if (msg.ctxChanges) err.ctxChanges = msg.ctxChanges;
               reject(err);
@@ -374,15 +408,31 @@ export class IsolatedExecutorService implements OnModuleDestroy {
           },
           onIoCall: (msg) => {
             if (msg.type === 'repoCall') {
-              this.handleIoCall(() => this.execRepoCall(msg, ctx), entry.worker, msg.callId);
+              this.handleIoCall(
+                () => this.execRepoCall(msg, ctx),
+                entry.worker,
+                msg.callId,
+              );
             } else if (msg.type === 'helpersCall') {
-              this.handleIoCall(() => this.execHelpersCall(msg, ctx), entry.worker, msg.callId);
+              this.handleIoCall(
+                () => this.execHelpersCall(msg, ctx),
+                entry.worker,
+                msg.callId,
+              );
             } else if (msg.type === 'socketCall') {
               this.handleSocketCall(msg, ctx);
             } else if (msg.type === 'cacheCall') {
-              this.handleIoCall(() => this.execCacheCall(msg, ctx), entry.worker, msg.callId);
+              this.handleIoCall(
+                () => this.execCacheCall(msg, ctx),
+                entry.worker,
+                msg.callId,
+              );
             } else if (msg.type === 'dispatchCall') {
-              this.handleIoCall(() => this.execDispatchCall(msg, ctx), entry.worker, msg.callId);
+              this.handleIoCall(
+                () => this.execDispatchCall(msg, ctx),
+                entry.worker,
+                msg.callId,
+              );
             }
           },
         });
@@ -450,7 +500,8 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   private async execCacheCall(msg: any, ctx: any): Promise<unknown> {
     const args = JSON.parse(msg.argsJson);
     const fn = ctx?.$cache?.[msg.method];
-    if (typeof fn !== 'function') throw new Error(`Cache method not found: ${msg.method}`);
+    if (typeof fn !== 'function')
+      throw new Error(`Cache method not found: ${msg.method}`);
     return fn(...args);
   }
 
@@ -463,29 +514,53 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     return fn(...args);
   }
 
-  async run(code: string, ctx: TDynamicContext, timeoutMs: number): Promise<any> {
+  async run(
+    code: string,
+    ctx: TDynamicContext,
+    timeoutMs: number,
+  ): Promise<any> {
     const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 30000));
     const packages = await this.packageCacheService.getPackages();
     const pkgSources = this.cdnLoader.getPackageSources(packages);
     const snapshot = this.createSnapshot(ctx);
 
-    appendIsolatedExecutorRuntimeLog({ event: 'isolated_run_start', timeoutMs: safeTimeoutMs, codeLen: code?.length ?? 0 });
+    appendIsolatedExecutorRuntimeLog({
+      event: 'isolated_run_start',
+      timeoutMs: safeTimeoutMs,
+      codeLen: code?.length ?? 0,
+    });
 
     let result: any;
     try {
-      result = await this.spawnAndExecute('execute', {
-        code,
-        pkgSources,
-        snapshot,
-        timeoutMs: safeTimeoutMs,
-        memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
-      }, ctx, safeTimeoutMs);
+      result = await this.spawnAndExecute(
+        'execute',
+        {
+          code,
+          pkgSources,
+          snapshot,
+          timeoutMs: safeTimeoutMs,
+          memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
+        },
+        ctx,
+        safeTimeoutMs,
+      );
     } catch (error) {
-      appendIsolatedExecutorRuntimeLog({ event: 'isolated_run_error', message: (error as Error)?.message, code: (error as any)?.code, isTimeout: !!(error as any)?.isTimeout });
+      appendIsolatedExecutorRuntimeLog({
+        event: 'isolated_run_error',
+        message: (error as Error)?.message,
+        code: (error as any)?.code,
+        isTimeout: !!(error as any)?.isTimeout,
+      });
       if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, code);
       }
-      throw ErrorHandler.createException(undefined, error.statusCode || error.status, error.message || 'Unknown error', code, {});
+      throw ErrorHandler.createException(
+        undefined,
+        error.statusCode || error.status,
+        error.message || 'Unknown error',
+        code,
+        error.details || {},
+      );
     }
 
     this.mergeCtxChanges(ctx, result.ctxChanges || {});
@@ -493,32 +568,56 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     return result.valueAbsent ? undefined : result.value;
   }
 
-  async runBatch(codeBlocks: CodeBlock[], ctx: TDynamicContext, timeoutMs: number): Promise<any> {
+  async runBatch(
+    codeBlocks: CodeBlock[],
+    ctx: TDynamicContext,
+    timeoutMs: number,
+  ): Promise<any> {
     const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 30000));
     const packages = await this.packageCacheService.getPackages();
     const pkgSources = this.cdnLoader.getPackageSources(packages);
     const snapshot = this.createSnapshot(ctx);
 
-    appendIsolatedExecutorRuntimeLog({ event: 'isolated_batch_start', timeoutMs: safeTimeoutMs, blocks: codeBlocks.length });
+    appendIsolatedExecutorRuntimeLog({
+      event: 'isolated_batch_start',
+      timeoutMs: safeTimeoutMs,
+      blocks: codeBlocks.length,
+    });
 
     let result: any;
     try {
-      result = await this.spawnAndExecute('executeBatch', {
-        codeBlocks,
-        pkgSources,
-        snapshot,
-        timeoutMs: safeTimeoutMs,
-        memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
-      }, ctx, safeTimeoutMs);
+      result = await this.spawnAndExecute(
+        'executeBatch',
+        {
+          codeBlocks,
+          pkgSources,
+          snapshot,
+          timeoutMs: safeTimeoutMs,
+          memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
+        },
+        ctx,
+        safeTimeoutMs,
+      );
     } catch (error) {
-      appendIsolatedExecutorRuntimeLog({ event: 'isolated_batch_error', message: (error as Error)?.message, code: (error as any)?.code, isTimeout: !!(error as any)?.isTimeout });
+      appendIsolatedExecutorRuntimeLog({
+        event: 'isolated_batch_error',
+        message: (error as Error)?.message,
+        code: (error as any)?.code,
+        isTimeout: !!(error as any)?.isTimeout,
+      });
       if ((error as any).ctxChanges) {
         this.mergeCtxChanges(ctx, (error as any).ctxChanges);
       }
       if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, '(batch execution)');
       }
-      throw ErrorHandler.createException(undefined, error.statusCode || error.status, error.message || 'Unknown error', '(batch execution)', {});
+      throw ErrorHandler.createException(
+        undefined,
+        error.statusCode || error.status,
+        error.message || 'Unknown error',
+        '(batch execution)',
+        error.details || {},
+      );
     }
 
     this.mergeCtxChanges(ctx, result.ctxChanges || {});

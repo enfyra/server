@@ -26,6 +26,10 @@ import { CurrentUserModule } from './modules/me/current-user.module';
 import { TableManagementModule } from './modules/table-management/table-management.module';
 import { CommonModule } from './shared/common/common.module';
 import { NotFoundDetectGuard } from './shared/guards/not-found-detect.guard';
+import {
+  PreAuthMetadataGuard,
+  PostAuthMetadataGuard,
+} from './shared/guards/metadata-guard.guard';
 import { DynamicInterceptor } from './shared/interceptors/dynamic.interceptor';
 import { HideFieldInterceptor } from './shared/interceptors/hidden-field.interceptor';
 import { FileUploadMiddleware } from './shared/middleware/file-upload.middleware';
@@ -63,7 +67,9 @@ import { FlowModule } from './modules/flow/flow.module';
       useFactory: async (configService: ConfigService) => {
         const secret = configService.get<string>('SECRET_KEY');
         if (!secret) {
-          throw new Error('SECRET_KEY environment variable is required but not set.');
+          throw new Error(
+            'SECRET_KEY environment variable is required but not set.',
+          );
         }
         return { secret };
       },
@@ -126,8 +132,10 @@ import { FlowModule } from './modules/flow/flow.module';
     SqlFunctionService,
     DatabaseSchemaService,
     { provide: APP_GUARD, useClass: NotFoundDetectGuard },
+    { provide: APP_GUARD, useClass: PreAuthMetadataGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RoleGuard },
+    { provide: APP_GUARD, useClass: PostAuthMetadataGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: DynamicInterceptor },
     { provide: APP_INTERCEPTOR, useClass: HideFieldInterceptor },

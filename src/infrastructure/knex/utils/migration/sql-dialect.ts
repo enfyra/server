@@ -1,6 +1,9 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
 
-export function quoteIdentifier(identifier: string, dbType: DatabaseType | string): string {
+export function quoteIdentifier(
+  identifier: string,
+  dbType: DatabaseType | string,
+): string {
   switch (dbType) {
     case 'mysql':
       return `\`${identifier}\``;
@@ -17,19 +20,30 @@ export function quoteIdentifier(identifier: string, dbType: DatabaseType | strin
 }
 
 export function getJsonObjectFunc(dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg' ? 'json_build_object' : 'JSON_OBJECT';
+  return dbType === 'postgres' || dbType === 'pg'
+    ? 'json_build_object'
+    : 'JSON_OBJECT';
 }
 
 export function getJsonArrayAggFunc(dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg' ? 'COALESCE(json_agg' : 'ifnull(JSON_ARRAYAGG';
+  return dbType === 'postgres' || dbType === 'pg'
+    ? 'COALESCE(json_agg'
+    : 'ifnull(JSON_ARRAYAGG';
 }
 
 export function getEmptyJsonArray(dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg' ? "'[]'::json" : 'JSON_ARRAY()';
+  return dbType === 'postgres' || dbType === 'pg'
+    ? "'[]'::json"
+    : 'JSON_ARRAY()';
 }
 
-export function castToText(columnRef: string, dbType: DatabaseType | string): string {
-  return dbType === 'postgres' || dbType === 'pg' ? `${columnRef}::text` : columnRef;
+export function castToText(
+  columnRef: string,
+  dbType: DatabaseType | string,
+): string {
+  return dbType === 'postgres' || dbType === 'pg'
+    ? `${columnRef}::text`
+    : columnRef;
 }
 
 export function generateRenameTableSQL(
@@ -87,39 +101,43 @@ export function generateModifyColumnSQL(
       return `ALTER TABLE ${table} MODIFY COLUMN ${column} ${columnDef}`;
     case 'postgres': {
       const statements: string[] = [];
-      
+
       let typeOnly = columnDef;
       let hasNotNull = false;
       let hasDefault = false;
       let defaultValue = '';
       let checkConstraint: string | null = null;
-      
+
       if (/\s+NOT\s+NULL/i.test(typeOnly)) {
         hasNotNull = true;
         typeOnly = typeOnly.replace(/\s+NOT\s+NULL/i, '').trim();
       }
-      
+
       const defaultMatch = typeOnly.match(/\s+DEFAULT\s+(.+)$/i);
       if (defaultMatch) {
         hasDefault = true;
         defaultValue = defaultMatch[1].trim();
         typeOnly = typeOnly.replace(/\s+DEFAULT\s+.+$/i, '').trim();
       }
-      
+
       const checkMatch = typeOnly.match(/\s+CHECK\s+(.+)$/i);
       if (checkMatch) {
         checkConstraint = checkMatch[1].trim();
         typeOnly = typeOnly.replace(/\s+CHECK\s+.+$/i, '').trim();
       }
-      
+
       typeOnly = typeOnly.trim();
 
-      const oldIsEnum = oldColumn && (oldColumn.type === 'enum' || oldColumn.type === 'array-select');
+      const oldIsEnum =
+        oldColumn &&
+        (oldColumn.type === 'enum' || oldColumn.type === 'array-select');
       const newIsEnum = checkConstraint !== null;
 
       if (oldIsEnum) {
         const constraintName = `chk_${tableName}_${columnName}`;
-        statements.push(`ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraintName}`);
+        statements.push(
+          `ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraintName}`,
+        );
       }
 
       let alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly}`;
@@ -147,8 +165,7 @@ export function generateModifyColumnSQL(
           newType === 'double precision' ||
           newType === 'float';
 
-        const isNewDate =
-          newType === 'date';
+        const isNewDate = newType === 'date';
 
         const isNewTimestamp =
           newType === 'timestamp' ||
@@ -156,9 +173,7 @@ export function generateModifyColumnSQL(
           newType === 'timestamp with time zone' ||
           newType === 'timestamptz';
 
-        const isNewBoolean =
-          newType === 'boolean' ||
-          newType === 'bool';
+        const isNewBoolean = newType === 'boolean' || newType === 'bool';
 
         if (isOldString && isNewInteger) {
           alterTypeSql = `ALTER TABLE ${table} ALTER COLUMN ${column} TYPE ${typeOnly} USING ${column}::INTEGER`;
@@ -174,46 +189,65 @@ export function generateModifyColumnSQL(
       }
 
       statements.push(alterTypeSql);
-      
+
       if (oldColumn) {
         const oldIsNullable = oldColumn.isNullable !== false;
         const newIsNullable = !hasNotNull;
-        
+
         if (oldIsNullable !== newIsNullable) {
           if (hasNotNull) {
-            statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`);
+            statements.push(
+              `ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`,
+            );
           } else {
-            statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} DROP NOT NULL`);
+            statements.push(
+              `ALTER TABLE ${table} ALTER COLUMN ${column} DROP NOT NULL`,
+            );
           }
         }
-        
+
         if (hasDefault) {
           const oldDefault = oldColumn.defaultValue;
           const newDefault = defaultValue;
           if (JSON.stringify(oldDefault) !== newDefault.replace(/^'|'$/g, '')) {
-            statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`);
+            statements.push(
+              `ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`,
+            );
           }
-        } else if (oldColumn.defaultValue !== null && oldColumn.defaultValue !== undefined) {
-          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT`);
+        } else if (
+          oldColumn.defaultValue !== null &&
+          oldColumn.defaultValue !== undefined
+        ) {
+          statements.push(
+            `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT`,
+          );
         }
       } else {
         if (hasNotNull) {
-          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`);
+          statements.push(
+            `ALTER TABLE ${table} ALTER COLUMN ${column} SET NOT NULL`,
+          );
         }
         if (hasDefault) {
-          statements.push(`ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`);
+          statements.push(
+            `ALTER TABLE ${table} ALTER COLUMN ${column} SET DEFAULT ${defaultValue}`,
+          );
         }
       }
 
       if (checkConstraint) {
         const constraintName = `chk_${tableName}_${columnName}`;
-        statements.push(`ALTER TABLE ${table} ADD CONSTRAINT ${constraintName} CHECK (${checkConstraint})`);
+        statements.push(
+          `ALTER TABLE ${table} ADD CONSTRAINT ${constraintName} CHECK (${checkConstraint})`,
+        );
       }
-      
+
       return statements;
     }
     case 'sqlite':
-      throw new Error('SQLite does not support ALTER COLUMN. Use table recreation instead.');
+      throw new Error(
+        'SQLite does not support ALTER COLUMN. Use table recreation instead.',
+      );
     default:
       return `ALTER TABLE ${table} MODIFY COLUMN ${column} ${columnDef}`;
   }
@@ -265,7 +299,7 @@ export function generateAddIndexSQL(
 ): string {
   const table = quoteIdentifier(tableName, dbType);
   const index = quoteIdentifier(indexName, dbType);
-  const cols = columns.map(c => quoteIdentifier(c, dbType)).join(', ');
+  const cols = columns.map((c) => quoteIdentifier(c, dbType)).join(', ');
 
   switch (dbType) {
     case 'mysql':
@@ -370,7 +404,9 @@ export function getAllForeignKeyConstraintsReferencingTableQuery(
         bindings: [tableName],
       };
     case 'sqlite':
-      throw new Error('SQLite does not support querying all foreign keys referencing a table');
+      throw new Error(
+        'SQLite does not support querying all foreign keys referencing a table',
+      );
     default:
       return {
         query: `
@@ -409,4 +445,3 @@ export function generateDropColumnSQL(
       return `ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`;
   }
 }
-

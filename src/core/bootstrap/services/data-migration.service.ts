@@ -28,7 +28,9 @@ export class DataMigrationService {
         const parsed = JSON.parse(content);
         if (parsed && Object.keys(parsed).length > 0) {
           this.initOld = parsed;
-          this.logger.log(`Loaded data-migration.json with ${Object.keys(parsed).length} table(s) to migrate`);
+          this.logger.log(
+            `Loaded data-migration.json with ${Object.keys(parsed).length} table(s) to migrate`,
+          );
         }
       }
     } catch (error) {
@@ -39,8 +41,14 @@ export class DataMigrationService {
 
   hasMigrations(): boolean {
     if (!this.initOld) return false;
-    const dataKeys = Object.keys(this.initOld).filter(k => !k.startsWith('_'));
-    return dataKeys.length > 0 || (this.initOld._deletedTables && this.initOld._deletedTables.length > 0) || (this.initOld._deletedRecords && this.initOld._deletedRecords.length > 0);
+    const dataKeys = Object.keys(this.initOld).filter(
+      (k) => !k.startsWith('_'),
+    );
+    return (
+      dataKeys.length > 0 ||
+      (this.initOld._deletedTables && this.initOld._deletedTables.length > 0) ||
+      (this.initOld._deletedRecords && this.initOld._deletedRecords.length > 0)
+    );
   }
 
   async runMigrations(): Promise<void> {
@@ -51,11 +59,17 @@ export class DataMigrationService {
 
     this.logger.log('Running data migrations from data-migration.json...');
 
-    if (this.initOld!._deletedTables && this.initOld!._deletedTables.length > 0) {
+    if (
+      this.initOld!._deletedTables &&
+      this.initOld!._deletedTables.length > 0
+    ) {
       await this.deleteTableData(this.initOld!._deletedTables);
     }
 
-    if (this.initOld!._deletedRecords && this.initOld!._deletedRecords.length > 0) {
+    if (
+      this.initOld!._deletedRecords &&
+      this.initOld!._deletedRecords.length > 0
+    ) {
       await this.deleteRecords(this.initOld!._deletedRecords);
     }
 
@@ -66,7 +80,9 @@ export class DataMigrationService {
       totalMigrated += count;
     }
 
-    this.logger.log(`Data migrations completed: ${totalMigrated} record(s) migrated`);
+    this.logger.log(
+      `Data migrations completed: ${totalMigrated} record(s) migrated`,
+    );
   }
 
   private async deleteTableData(tableNames: string[]): Promise<void> {
@@ -79,12 +95,16 @@ export class DataMigrationService {
         });
         this.logger.log(`Deleted all data from ${tableName}`);
       } catch (error) {
-        this.logger.warn(`Failed to delete data from ${tableName}: ${error.message}`);
+        this.logger.warn(
+          `Failed to delete data from ${tableName}: ${error.message}`,
+        );
       }
     }
   }
 
-  private async deleteRecords(records: { table: string; filter: Record<string, any> }[]): Promise<void> {
+  private async deleteRecords(
+    records: { table: string; filter: Record<string, any> }[],
+  ): Promise<void> {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
 
@@ -106,12 +126,17 @@ export class DataMigrationService {
           this.logger.log(`Deleted ${count} record(s) from ${table}`);
         }
       } catch (error) {
-        this.logger.warn(`Failed to delete records from ${table}: ${error.message}`);
+        this.logger.warn(
+          `Failed to delete records from ${table}: ${error.message}`,
+        );
       }
     }
   }
 
-  private async migrateTable(tableName: string, records: any | any[]): Promise<number> {
+  private async migrateTable(
+    tableName: string,
+    records: any | any[],
+  ): Promise<number> {
     const recordsArray = Array.isArray(records) ? records : [records];
     let migratedCount = 0;
     const isMongoDB = this.queryBuilder.isMongoDb();
@@ -121,7 +146,9 @@ export class DataMigrationService {
       try {
         const uniqueFilter = this.getUniqueFilter(tableName, oldRecord);
         if (!uniqueFilter) {
-          this.logger.debug(`Skipping ${tableName}: no unique identifier for record`);
+          this.logger.debug(
+            `Skipping ${tableName}: no unique identifier for record`,
+          );
           continue;
         }
 
@@ -133,12 +160,17 @@ export class DataMigrationService {
         });
 
         if (!existing.data || existing.data.length === 0) {
-          this.logger.debug(`Record not found in ${tableName}, skipping migration`);
+          this.logger.debug(
+            `Record not found in ${tableName}, skipping migration`,
+          );
           continue;
         }
 
         const existingId = existing.data[0][idField];
-        const { newRecord, relationUpdates } = this.transformRecord(tableName, oldRecord);
+        const { newRecord, relationUpdates } = this.transformRecord(
+          tableName,
+          oldRecord,
+        );
 
         await this.queryBuilder.update({
           table: tableName,
@@ -153,7 +185,9 @@ export class DataMigrationService {
         migratedCount++;
         this.logger.debug(`Migrated record in ${tableName}`);
       } catch (error) {
-        this.logger.warn(`Failed to migrate record in ${tableName}: ${error.message}`);
+        this.logger.warn(
+          `Failed to migrate record in ${tableName}: ${error.message}`,
+        );
       }
     }
 
@@ -164,7 +198,10 @@ export class DataMigrationService {
     return migratedCount;
   }
 
-  private transformRecord(_tableName: string, oldRecord: any): { newRecord: any; relationUpdates: any } {
+  private transformRecord(
+    _tableName: string,
+    oldRecord: any,
+  ): { newRecord: any; relationUpdates: any } {
     const { _unique, ...data } = oldRecord;
     const relationUpdates: any = {};
 
@@ -178,7 +215,11 @@ export class DataMigrationService {
     return { newRecord: data, relationUpdates };
   }
 
-  private async updateRelations(tableName: string, recordId: any, relationUpdates: any): Promise<void> {
+  private async updateRelations(
+    tableName: string,
+    recordId: any,
+    relationUpdates: any,
+  ): Promise<void> {
     if (tableName === 'route_definition') {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
         if (field === 'publishedMethods' || field === 'availableMethods') {
@@ -189,7 +230,9 @@ export class DataMigrationService {
             filter: { method: { _in: methodNames as string[] } },
             fields: [idField],
           });
-          const methodIds = result.data.map((m: any) => m._id || m.id).filter(Boolean);
+          const methodIds = result.data
+            .map((m: any) => m._id || m.id)
+            .filter(Boolean);
           if (methodIds.length > 0) {
             await this.queryBuilder.updateById('route_definition', recordId, {
               [field]: methodIds,
@@ -216,7 +259,12 @@ export class DataMigrationService {
       return { method: { _eq: record.method } };
     }
     if (record.label && record.type) {
-      return { _and: [{ label: { _eq: record.label } }, { type: { _eq: record.type } }] };
+      return {
+        _and: [
+          { label: { _eq: record.label } },
+          { type: { _eq: record.type } },
+        ],
+      };
     }
     if (record.key) {
       return { key: { _eq: record.key } };

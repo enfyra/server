@@ -21,7 +21,9 @@ export class KnexEntityManager {
         await this.knexOrTrx(tableName).insert(processedData);
         insertedId = null;
       } else {
-        const result = await this.knexOrTrx(tableName).insert(processedData).returning('id');
+        const result = await this.knexOrTrx(tableName)
+          .insert(processedData)
+          .returning('id');
         insertedId = result[0]?.id || result[0];
       }
     } else {
@@ -29,7 +31,12 @@ export class KnexEntityManager {
       insertedId = Array.isArray(result) ? result[0] : result;
     }
 
-    const recordId = insertedId || (Array.isArray(processedData) ? processedData[0]?.id : processedData?.id) || data.id;
+    const recordId =
+      insertedId ||
+      (Array.isArray(processedData)
+        ? processedData[0]?.id
+        : processedData?.id) ||
+      data.id;
 
     let hookResult = recordId;
     for (const hook of this.hooks.afterInsert) {
@@ -48,7 +55,9 @@ export class KnexEntityManager {
     }
 
     if (Object.keys(processedData).length > 0) {
-      await this.knexOrTrx(tableName).where('id', recordId).update(processedData);
+      await this.knexOrTrx(tableName)
+        .where('id', recordId)
+        .update(processedData);
     }
 
     for (const hook of this.hooks.afterUpdate) {

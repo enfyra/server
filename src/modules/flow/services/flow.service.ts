@@ -15,16 +15,22 @@ export class FlowService {
   private readonly logger = new Logger(FlowService.name);
 
   constructor(
-    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION) private readonly flowQueue: Queue,
+    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
+    private readonly flowQueue: Queue,
     private readonly flowCacheService: FlowCacheService,
     private readonly handlerExecutor: ExecutorEngineService,
     private readonly repoRegistryService: RepoRegistryService,
   ) {}
 
-  async trigger(flowIdOrName: string | number, payload?: any, triggeredBy?: any): Promise<{ jobId: string; flowId: number | string }> {
-    const flow = typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
-      ? await this.flowCacheService.getFlowById(flowIdOrName)
-      : await this.flowCacheService.getFlowByName(String(flowIdOrName));
+  async trigger(
+    flowIdOrName: string | number,
+    payload?: any,
+    triggeredBy?: any,
+  ): Promise<{ jobId: string; flowId: number | string }> {
+    const flow =
+      typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
+        ? await this.flowCacheService.getFlowById(flowIdOrName)
+        : await this.flowCacheService.getFlowByName(String(flowIdOrName));
 
     if (!flow) {
       throw new Error(`Flow "${flowIdOrName}" not found`);
@@ -51,7 +57,15 @@ export class FlowService {
     return { jobId: job.id, flowId: flow.id };
   }
 
-  async testStep(step: { type: string; config: any; timeout?: number }, mockFlow?: any): Promise<{ success: boolean; result?: any; error?: string; duration: number }> {
+  async testStep(
+    step: { type: string; config: any; timeout?: number },
+    mockFlow?: any,
+  ): Promise<{
+    success: boolean;
+    result?: any;
+    error?: string;
+    duration: number;
+  }> {
     const startTime = Date.now();
     const logs: any[] = [];
 
@@ -78,29 +92,55 @@ export class FlowService {
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
     (ctx as any).$dispatch = {
-      trigger: async (flowIdOrName: string | number, triggerPayload?: any) =>
-        ({ triggered: true, flowIdOrName, payload: triggerPayload, note: 'test mode' }),
+      trigger: async (flowIdOrName: string | number, triggerPayload?: any) => ({
+        triggered: true,
+        flowIdOrName,
+        payload: triggerPayload,
+        note: 'test mode',
+      }),
     };
 
     const MAX_TEST_TIMEOUT = 5000;
     const config = step.config || {};
     const rawTimeout = Number(step.timeout);
-    const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.min(rawTimeout, MAX_TEST_TIMEOUT) : MAX_TEST_TIMEOUT;
+    const timeout =
+      Number.isFinite(rawTimeout) && rawTimeout > 0
+        ? Math.min(rawTimeout, MAX_TEST_TIMEOUT)
+        : MAX_TEST_TIMEOUT;
 
     try {
       let result: any;
 
       if (step.type === 'trigger_flow') {
-        result = { triggered: true, flowId: config.flowId, flowName: config.flowName, note: 'test mode - not actually triggered' };
+        result = {
+          triggered: true,
+          flowId: config.flowId,
+          flowName: config.flowName,
+          note: 'test mode - not actually triggered',
+        };
       } else if (step.type === 'sleep') {
-        result = { slept: config.ms || 1000, note: 'test mode - not actually sleeping' };
+        result = {
+          slept: config.ms || 1000,
+          note: 'test mode - not actually sleeping',
+        };
       } else {
-        result = await executeStepCore({ type: step.type, config, timeout, ctx, handlerExecutor: this.handlerExecutor, shouldTransformCode: true });
+        result = await executeStepCore({
+          type: step.type,
+          config,
+          timeout,
+          ctx,
+          handlerExecutor: this.handlerExecutor,
+          shouldTransformCode: true,
+        });
       }
 
       return { success: true, result, duration: Date.now() - startTime };
     } catch (error) {
-      return { success: false, error: error.message, duration: Date.now() - startTime };
+      return {
+        success: false,
+        error: error.message,
+        duration: Date.now() - startTime,
+      };
     }
   }
 }

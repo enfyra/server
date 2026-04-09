@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { Processor, OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
@@ -34,9 +34,12 @@ export class ConnectionQueueService extends WorkerHost {
   }
 
   async process(job: Job<ConnectionJobData>): Promise<any> {
-    const { socketId, userId, clientInfo, gatewayPath, script, timeout } = job.data;
+    const { socketId, userId, clientInfo, gatewayPath, script, timeout } =
+      job.data;
 
-    this.logger.debug(`Processing connection script for socket ${socketId} on ${gatewayPath}`);
+    this.logger.debug(
+      `Processing connection script for socket ${socketId} on ${gatewayPath}`,
+    );
 
     const socketProxy = this.createSocketProxy(gatewayPath, socketId);
 
@@ -77,7 +80,11 @@ export class ConnectionQueueService extends WorkerHost {
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     ctx.$dispatch = {
       trigger: (flowIdOrName: string | number, payload?: any) =>
-        this.flowService.trigger(flowIdOrName, payload, userId ? { id: userId } : null),
+        this.flowService.trigger(
+          flowIdOrName,
+          payload,
+          userId ? { id: userId } : null,
+        ),
     };
 
     const result = await this.handlerExecutor.run(script, ctx, timeout);

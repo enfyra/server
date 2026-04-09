@@ -21,11 +21,19 @@ function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
     } else if (relationNames.has(key)) {
       if (typeof value === 'object' && value !== null) {
         const keys = Object.keys(value);
-        const hasOperator = keys.some(k => k.startsWith('_'));
+        const hasOperator = keys.some((k) => k.startsWith('_'));
         if (!hasOperator) {
           return true;
         }
-        const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in', '_nin'];
+        const idOperators = [
+          '_is_null',
+          '_is_not_null',
+          '_eq',
+          '_neq',
+          '_in',
+          '_not_in',
+          '_nin',
+        ];
         if (keys.length === 1 && idOperators.includes(keys[0])) {
           return true;
         }
@@ -47,7 +55,7 @@ export function separateFilters(
   const fieldFilters: any = {};
   const relationFilters: any = {};
 
-  const relationNames = new Set(metadata.relations.map(r => r.propertyName));
+  const relationNames = new Set(metadata.relations.map((r) => r.propertyName));
 
   for (const [key, value] of Object.entries(filter)) {
     if (key === '_and' || key === '_or' || key === '_not') {
@@ -58,15 +66,23 @@ export function separateFilters(
     if (relationNames.has(key)) {
       if (typeof value === 'object' && value !== null) {
         const keys = Object.keys(value);
-        const hasOperator = keys.some(k => k.startsWith('_'));
+        const hasOperator = keys.some((k) => k.startsWith('_'));
         if (hasOperator) {
-          const idOperators = ['_is_null', '_is_not_null', '_eq', '_neq', '_in', '_not_in', '_nin'];
+          const idOperators = [
+            '_is_null',
+            '_is_not_null',
+            '_eq',
+            '_neq',
+            '_in',
+            '_not_in',
+            '_nin',
+          ];
           if (keys.length === 1 && idOperators.includes(keys[0])) {
             relationFilters[key] = {
-              id: value
+              id: value,
             };
           } else {
-          fieldFilters[key] = value;
+            fieldFilters[key] = value;
           }
         } else {
           relationFilters[key] = value;

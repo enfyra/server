@@ -1,8 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import {
-  FileUploadDto,
-  ProcessedFileInfo,
-} from '../../../shared/types';
+import { FileUploadDto, ProcessedFileInfo } from '../../../shared/types';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,29 +27,35 @@ export class FileManagementService {
     if (!id || id === null || id === undefined) {
       return null;
     }
-    
+
     if (typeof id === 'string' && id.trim() === '') {
       return null;
     }
-    
+
     const idField = this.getIdField();
-    
+
     let normalizedId: string | number = id;
     if (this.queryBuilder.isMongoDb()) {
-      if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
+      if (
+        typeof id === 'object' &&
+        id !== null &&
+        typeof (id as any).toString === 'function'
+      ) {
         normalizedId = (id as any).toString();
       } else {
         normalizedId = String(id);
       }
-      
-      if (!normalizedId || (typeof normalizedId === 'string' && normalizedId.trim() === '')) {
+
+      if (
+        !normalizedId ||
+        (typeof normalizedId === 'string' && normalizedId.trim() === '')
+      ) {
         return null;
       }
     }
-    
+
     return { [idField]: normalizedId };
   }
-
 
   private generateUniqueFilename(originalFilename: string): string {
     const ext = path.extname(originalFilename);
@@ -100,35 +103,48 @@ export class FileManagementService {
 
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
-      
+
       const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
       const storageConfigIdValue = storageConfig?.[idField];
-      
+
       if (!storageConfig || !storageConfigIdValue) {
         throw new BadRequestException('Storage config not found or invalid');
       }
 
-      const storageService = this.storageFactory.getStorageServiceByConfig(storageConfig);
+      const storageService =
+        this.storageFactory.getStorageServiceByConfig(storageConfig);
 
       let normalizedStorageConfigId: string | number = storageConfigIdValue;
       if (this.queryBuilder.isMongoDb() && normalizedStorageConfigId) {
-        if (typeof normalizedStorageConfigId === 'object' && normalizedStorageConfigId !== null && typeof (normalizedStorageConfigId as any).toString === 'function') {
-          normalizedStorageConfigId = (normalizedStorageConfigId as any).toString();
+        if (
+          typeof normalizedStorageConfigId === 'object' &&
+          normalizedStorageConfigId !== null &&
+          typeof (normalizedStorageConfigId as any).toString === 'function'
+        ) {
+          normalizedStorageConfigId = (
+            normalizedStorageConfigId as any
+          ).toString();
         } else {
           normalizedStorageConfigId = String(normalizedStorageConfigId);
         }
       }
 
-      if (!normalizedStorageConfigId || (typeof normalizedStorageConfigId === 'string' && normalizedStorageConfigId.trim() === '')) {
-        throw new BadRequestException('Invalid storage config ID after normalization');
+      if (
+        !normalizedStorageConfigId ||
+        (typeof normalizedStorageConfigId === 'string' &&
+          normalizedStorageConfigId.trim() === '')
+      ) {
+        throw new BadRequestException(
+          'Invalid storage config ID after normalization',
+        );
       }
 
       const uploadResult = await storageService.upload(
-            fileData.buffer,
-            relativePath,
-            fileData.mimetype,
-            storageConfig,
-          );
+        fileData.buffer,
+        relativePath,
+        fileData.mimetype,
+        storageConfig,
+      );
 
       const processedInfo: ProcessedFileInfo = {
         filename: fileData.filename,
@@ -172,7 +188,9 @@ export class FileManagementService {
     let folderData = null;
     if (options.folder) {
       folderData =
-        typeof options.folder === 'object' ? options.folder : { id: options.folder };
+        typeof options.folder === 'object'
+          ? options.folder
+          : { id: options.folder };
     }
 
     let storageConfigId: number | string | null = null;
@@ -246,8 +264,9 @@ export class FileManagementService {
   ): Promise<void> {
     try {
       const config = await this.getStorageConfig(storageConfigId);
-      const storageService = this.storageFactory.getStorageServiceByConfig(config);
-      
+      const storageService =
+        this.storageFactory.getStorageServiceByConfig(config);
+
       await storageService.delete(location, config);
     } catch (error: any) {
       this.logger.error(`Failed to delete physical file: ${location}`, error);
@@ -263,8 +282,9 @@ export class FileManagementService {
   ): Promise<void> {
     try {
       const config = await this.getStorageConfig(storageConfigId);
-      const storageService = this.storageFactory.getStorageServiceByConfig(config);
-      
+      const storageService =
+        this.storageFactory.getStorageServiceByConfig(config);
+
       await storageService.delete(location, config);
     } catch (error: any) {
       this.logger.error(`Failed to rollback file creation:`, error);
@@ -360,7 +380,8 @@ export class FileManagementService {
   }
 
   async getStorageConfigById(storageConfigId: number | string): Promise<any> {
-    const config = await this.storageConfigCache.getStorageConfigById(storageConfigId);
+    const config =
+      await this.storageConfigCache.getStorageConfigById(storageConfigId);
 
     if (!config) {
       throw new BadRequestException(
@@ -371,13 +392,16 @@ export class FileManagementService {
     return config;
   }
 
-  private async getStorageConfig(storageConfigId?: number | string): Promise<any> {
+  private async getStorageConfig(
+    storageConfigId?: number | string,
+  ): Promise<any> {
     let config;
 
     if (storageConfigId) {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
-      config = await this.storageConfigCache.getStorageConfigByType('Local Storage');
+      config =
+        await this.storageConfigCache.getStorageConfigByType('Local Storage');
 
       if (!config) {
         throw new BadRequestException('No local storage configured');
@@ -391,8 +415,9 @@ export class FileManagementService {
     location: string,
     storageConfigId?: number | string,
   ): Promise<Readable> {
-      const config = await this.getStorageConfig(storageConfigId);
-    const storageService = this.storageFactory.getStorageServiceByConfig(config);
+    const config = await this.getStorageConfig(storageConfigId);
+    const storageService =
+      this.storageFactory.getStorageServiceByConfig(config);
     return storageService.getStream(location, config);
   }
 
@@ -400,8 +425,9 @@ export class FileManagementService {
     location: string,
     storageConfigId?: number | string,
   ): Promise<Buffer> {
-      const config = await this.getStorageConfig(storageConfigId);
-    const storageService = this.storageFactory.getStorageServiceByConfig(config);
+    const config = await this.getStorageConfig(storageConfigId);
+    const storageService =
+      this.storageFactory.getStorageServiceByConfig(config);
     return storageService.getBuffer(location, config);
   }
 
@@ -411,8 +437,9 @@ export class FileManagementService {
     mimetype: string,
     storageConfigId?: number | string,
   ): Promise<void> {
-      const config = await this.getStorageConfig(storageConfigId);
-    const storageService = this.storageFactory.getStorageServiceByConfig(config);
+    const config = await this.getStorageConfig(storageConfigId);
+    const storageService =
+      this.storageFactory.getStorageServiceByConfig(config);
     await storageService.replaceFile(location, buffer, mimetype, config);
   }
 }

@@ -23,13 +23,7 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
       },
     }),
   ],
-  providers: [
-    FlowService,
-    FlowSchedulerService,
-    FlowExecutionQueueService,
-  ],
-  exports: [
-    FlowService,
-  ],
+  providers: [FlowService, FlowSchedulerService, FlowExecutionQueueService],
+  exports: [FlowService],
 })
 export class FlowModule {}

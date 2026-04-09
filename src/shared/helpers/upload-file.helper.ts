@@ -11,7 +11,7 @@ export class UploadFileHelper {
     if (!fileRepo) {
       throw new Error(
         `File repository not found in context. ` +
-        `Ensure table "file_definition" exists in metadata.`
+          `Ensure table "file_definition" exists in metadata.`,
       );
     }
     return fileRepo;
@@ -25,16 +25,20 @@ export class UploadFileHelper {
         return Buffer.from(buffer.data);
       } else {
         const keys = Object.keys(buffer);
-        const numericKeys = keys.filter(k => /^\d+$/.test(k));
+        const numericKeys = keys.filter((k) => /^\d+$/.test(k));
         if (numericKeys.length > 0) {
-          const sortedKeys = numericKeys.map(k => parseInt(k, 10)).sort((a, b) => a - b);
+          const sortedKeys = numericKeys
+            .map((k) => parseInt(k, 10))
+            .sort((a, b) => a - b);
           const arr = new Array(sortedKeys.length);
           for (let i = 0; i < sortedKeys.length; i++) {
             arr[i] = buffer[sortedKeys[i].toString()];
           }
           return Buffer.from(arr);
         } else {
-          throw new Error('Invalid buffer format: buffer object has no numeric keys');
+          throw new Error(
+            'Invalid buffer format: buffer object has no numeric keys',
+          );
         }
       }
     }
@@ -43,7 +47,7 @@ export class UploadFileHelper {
 
   private handleError(error: any, operation: string): never {
     let errorMessage = `Unknown error in $${operation}`;
-    
+
     if (error?.response?.message) {
       errorMessage = error.response.message;
     } else if (error?.message) {
@@ -51,7 +55,7 @@ export class UploadFileHelper {
     } else if (error?.toString && error.toString() !== '[object Object]') {
       errorMessage = error.toString();
     }
-    
+
     const uploadError = new Error(errorMessage);
     if (error?.stack) uploadError.stack = error.stack;
     if (error?.response) {
@@ -105,23 +109,33 @@ export class UploadFileHelper {
 
         if (options.buffer) {
           const buffer = this.normalizeBuffer(options.buffer);
-          const filename = options.originalname || options.filename || currentFile.filename;
+          const filename =
+            options.originalname || options.filename || currentFile.filename;
           const mimetype = options.mimetype || currentFile.mimetype;
           const size = options.size || buffer.length;
 
           let storageConfigId = currentFile.storageConfig?.id || null;
           if (options.storageConfig) {
-            storageConfigId = typeof options.storageConfig === 'object'
-              ? options.storageConfig.id
-              : options.storageConfig;
+            storageConfigId =
+              typeof options.storageConfig === 'object'
+                ? options.storageConfig.id
+                : options.storageConfig;
           }
 
           let storageConfig = null;
           if (storageConfigId) {
-            storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
+            storageConfig =
+              await this.fileManagementService.getStorageConfigById(
+                storageConfigId,
+              );
           }
 
-          if (storageConfig && (storageConfig.type === 'Google Cloud Storage' || storageConfig.type === 'Cloudflare R2' || storageConfig.type === 'Amazon S3')) {
+          if (
+            storageConfig &&
+            (storageConfig.type === 'Google Cloud Storage' ||
+              storageConfig.type === 'Cloudflare R2' ||
+              storageConfig.type === 'Amazon S3')
+          ) {
             await this.fileManagementService.replaceFileOnStorage(
               currentFile.location,
               buffer,
@@ -133,8 +147,12 @@ export class UploadFileHelper {
               filename: filename,
               mimetype: mimetype,
               filesize: size,
-              storageConfig: this.fileManagementService.createIdReference(storageConfigId),
-              description: options.description !== undefined ? options.description : currentFile.description,
+              storageConfig:
+                this.fileManagementService.createIdReference(storageConfigId),
+              description:
+                options.description !== undefined
+                  ? options.description
+                  : currentFile.description,
               folder: currentFile.folder,
               uploadedBy: currentFile.uploadedBy,
               status: currentFile.status,
@@ -143,20 +161,26 @@ export class UploadFileHelper {
             return await fileRepo.update({ id: fileId, data: updateData });
           }
 
-          const processedFile = await this.fileManagementService.processFileUpload(
-            {
-              filename: filename,
-              mimetype: mimetype,
-              buffer: buffer,
-              size: size,
-              folder: currentFile.folder,
-              title: options.title || filename,
-              description: options.description !== undefined ? options.description : currentFile.description,
-            },
-            storageConfigId,
-          );
+          const processedFile =
+            await this.fileManagementService.processFileUpload(
+              {
+                filename: filename,
+                mimetype: mimetype,
+                buffer: buffer,
+                size: size,
+                folder: currentFile.folder,
+                title: options.title || filename,
+                description:
+                  options.description !== undefined
+                    ? options.description
+                    : currentFile.description,
+              },
+              storageConfigId,
+            );
 
-          const backupPath = await this.fileManagementService.backupFile(currentFile.location);
+          const backupPath = await this.fileManagementService.backupFile(
+            currentFile.location,
+          );
 
           try {
             await this.fileManagementService.replacePhysicalFile(
@@ -175,11 +199,16 @@ export class UploadFileHelper {
               uploadedBy: currentFile.uploadedBy,
               status: currentFile.status,
               storageConfig: processedFile.storage_config_id
-                ? this.fileManagementService.createIdReference(processedFile.storage_config_id)
+                ? this.fileManagementService.createIdReference(
+                    processedFile.storage_config_id,
+                  )
                 : null,
             };
 
-            const result = await fileRepo.update({ id: fileId, data: updateData });
+            const result = await fileRepo.update({
+              id: fileId,
+              data: updateData,
+            });
 
             await this.fileManagementService.rollbackFileCreation(
               processedFile.location,
@@ -199,14 +228,21 @@ export class UploadFileHelper {
 
         const updateData: any = {};
         if (options.folder !== undefined) {
-          updateData.folder = typeof options.folder === 'object' ? options.folder : { id: options.folder };
+          updateData.folder =
+            typeof options.folder === 'object'
+              ? options.folder
+              : { id: options.folder };
         }
         if (options.title !== undefined) updateData.title = options.title;
-        if (options.description !== undefined) updateData.description = options.description;
+        if (options.description !== undefined)
+          updateData.description = options.description;
         if (options.storageConfig !== undefined) {
-          updateData.storageConfig = typeof options.storageConfig === 'object'
-            ? options.storageConfig
-            : this.fileManagementService.createIdReference(options.storageConfig);
+          updateData.storageConfig =
+            typeof options.storageConfig === 'object'
+              ? options.storageConfig
+              : this.fileManagementService.createIdReference(
+                  options.storageConfig,
+                );
         }
 
         if (Object.keys(updateData).length === 0) {
@@ -245,6 +281,4 @@ export class UploadFileHelper {
       }
     };
   }
-
 }
-

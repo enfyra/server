@@ -5,7 +5,11 @@ import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 
 const STORAGE_CONFIG: CacheConfig = {
   syncEventKey: STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
@@ -15,7 +19,9 @@ const STORAGE_CONFIG: CacheConfig = {
 };
 
 @Injectable()
-export class StorageConfigCacheService extends BaseCacheService<Map<string | number, any>> {
+export class StorageConfigCacheService extends BaseCacheService<
+  Map<string | number, any>
+> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
     redisPubSubService: RedisPubSubService,
@@ -32,7 +38,10 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       await this.reload();
     }
@@ -62,7 +71,11 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
       }
 
       if (isMongoDb) {
-        if (typeof id === 'object' && id !== null && typeof id.toString === 'function') {
+        if (
+          typeof id === 'object' &&
+          id !== null &&
+          typeof id.toString === 'function'
+        ) {
           id = id.toString();
         } else {
           id = String(id);
@@ -87,7 +100,9 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
     return `${this.cache.size} storage configs`;
   }
 
-  async getStorageConfigById(id: number | string | null | undefined): Promise<any | null> {
+  async getStorageConfigById(
+    id: number | string | null | undefined,
+  ): Promise<any | null> {
     await this.ensureLoaded();
 
     if (!id || id === null || id === undefined) {
@@ -98,7 +113,11 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
     const isMongoDb = this.queryBuilder.isMongoDb();
 
     if (isMongoDb) {
-      if (typeof id === 'object' && id !== null && typeof (id as any).toString === 'function') {
+      if (
+        typeof id === 'object' &&
+        id !== null &&
+        typeof (id as any).toString === 'function'
+      ) {
         normalizedId = (id as any).toString();
       } else {
         normalizedId = String(id);
@@ -111,7 +130,10 @@ export class StorageConfigCacheService extends BaseCacheService<Map<string | num
     }
 
     if (!isMongoDb) {
-      const numId = typeof normalizedId === 'string' ? parseInt(normalizedId, 10) : normalizedId;
+      const numId =
+        typeof normalizedId === 'string'
+          ? parseInt(normalizedId, 10)
+          : normalizedId;
       if (!isNaN(numId as number)) {
         config = this.cache.get(numId);
         if (config) {

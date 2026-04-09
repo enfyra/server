@@ -106,17 +106,23 @@ export class MongoSchemaMigrationLockService {
     );
   }
 
-  private async getCollection(): Promise<Collection<SchemaMigrationLockDocument>> {
+  private async getCollection(): Promise<
+    Collection<SchemaMigrationLockDocument>
+  > {
     const db = this.mongoService.getDb();
     return await this.ensureCollection(db);
   }
 
-  private async ensureCollection(db: Db): Promise<Collection<SchemaMigrationLockDocument>> {
+  private async ensureCollection(
+    db: Db,
+  ): Promise<Collection<SchemaMigrationLockDocument>> {
     if (this.collectionReady) {
       return db.collection<SchemaMigrationLockDocument>(this.collectionName);
     }
 
-    const collections = await db.listCollections({ name: this.collectionName }).toArray();
+    const collections = await db
+      .listCollections({ name: this.collectionName })
+      .toArray();
     if (collections.length === 0) {
       await db.createCollection(this.collectionName);
     }
@@ -125,19 +131,27 @@ export class MongoSchemaMigrationLockService {
     return db.collection<SchemaMigrationLockDocument>(this.collectionName);
   }
 
-  private async buildLockedError(collection: Collection<SchemaMigrationLockDocument>): Promise<DatabaseException> {
+  private async buildLockedError(
+    collection: Collection<SchemaMigrationLockDocument>,
+  ): Promise<DatabaseException> {
     const doc = await collection.findOne({ _id: this.documentId });
-    return new DatabaseException('Schema is being updated, please try again later.', {
-      reason: 'schema_locked',
-      lockedBy: doc?.lockedBy || null,
-      lockedAt: doc?.lockedAt || null,
-      lockedContext: doc?.lockedContext || null,
-    });
+    return new DatabaseException(
+      'Schema is being updated, please try again later.',
+      {
+        reason: 'schema_locked',
+        lockedBy: doc?.lockedBy || null,
+        lockedAt: doc?.lockedAt || null,
+        lockedContext: doc?.lockedContext || null,
+      },
+    );
   }
 
   private buildInstanceId(): string {
-    const parts = [process.env.INSTANCE_ID, process.env.HOSTNAME, String(process.pid)];
+    const parts = [
+      process.env.INSTANCE_ID,
+      process.env.HOSTNAME,
+      String(process.pid),
+    ];
     return parts.filter(Boolean).join(':') || 'unknown-instance';
   }
 }
-

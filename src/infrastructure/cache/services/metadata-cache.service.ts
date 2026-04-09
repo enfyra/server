@@ -1,12 +1,30 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleInit,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
-import { getJunctionTableName, getForeignKeyColumnName, getJunctionColumnNames } from '../../knex/utils/sql-schema-naming.util';
-import { METADATA_CACHE_SYNC_EVENT_KEY, ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  getJunctionTableName,
+  getForeignKeyColumnName,
+  getJunctionColumnNames,
+} from '../../knex/utils/sql-schema-naming.util';
+import {
+  METADATA_CACHE_SYNC_EVENT_KEY,
+  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+} from '../../../shared/utils/constant';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const COLOR = '\x1b[36m';
@@ -20,12 +38,15 @@ export interface EnfyraMetadata {
 }
 
 @Injectable()
-export class MetadataCacheService implements OnApplicationBootstrap, OnModuleInit {
+export class MetadataCacheService
+  implements OnApplicationBootstrap, OnModuleInit
+{
   private readonly logger = new Logger(`${COLOR}MetadataCache${RESET}`);
   private inMemoryCache: EnfyraMetadata | null = null;
   private isLoading: boolean = false;
   private loadingPromise: Promise<void> | null = null;
-  private messageHandler: ((channel: string, message: string) => void) | null = null;
+  private messageHandler: ((channel: string, message: string) => void) | null =
+    null;
 
   constructor(
     @Inject(forwardRef(() => QueryBuilderService))
@@ -39,14 +60,15 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
   async onModuleInit() {
     this.subscribe();
-
   }
 
   async onApplicationBootstrap() {
     try {
       const start = Date.now();
       await this.reload();
-      this.logger.log(`Loaded ${this.inMemoryCache?.tablesList?.length || 0} table definitions in ${Date.now() - start}ms`);
+      this.logger.log(
+        `Loaded ${this.inMemoryCache?.tablesList?.length || 0} table definitions in ${Date.now() - start}ms`,
+      );
       this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
     } catch (error) {
       this.logger.error('MetadataCacheService initialization failed:', error);
@@ -60,7 +82,12 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     }
 
     this.messageHandler = async (channel: string, message: string) => {
-      if (this.redisPubSubService.isChannelForBase(channel, METADATA_CACHE_SYNC_EVENT_KEY)) {
+      if (
+        this.redisPubSubService.isChannelForBase(
+          channel,
+          METADATA_CACHE_SYNC_EVENT_KEY,
+        )
+      ) {
         try {
           const payload = JSON.parse(message);
           const myInstanceId = this.instanceService.getInstanceId();
@@ -73,14 +100,17 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             this.forceReloadFromDb();
           }
         } catch (error) {
-          this.logger.error('Failed to parse metadata cache sync message:', error);
+          this.logger.error(
+            'Failed to parse metadata cache sync message:',
+            error,
+          );
         }
       }
     };
 
     this.redisPubSubService.subscribeWithHandler(
       METADATA_CACHE_SYNC_EVENT_KEY,
-      this.messageHandler
+      this.messageHandler,
     );
   }
 
@@ -97,7 +127,10 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   private reloadDebounceResolvers: Array<() => void> = [];
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.METADATA)) {
       return new Promise<void>((resolve) => {
         this.reloadDebounceResolvers.push(resolve);
@@ -117,11 +150,12 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
     const isMongoDB = this.queryBuilder.isMongoDb();
 
-    const [tablesResult, allColumnsResult, allRelationsResult] = await Promise.all([
-      this.queryBuilder.select({ tableName: 'table_definition' }),
-      this.queryBuilder.select({ tableName: 'column_definition' }),
-      this.queryBuilder.select({ tableName: 'relation_definition' }),
-    ]);
+    const [tablesResult, allColumnsResult, allRelationsResult] =
+      await Promise.all([
+        this.queryBuilder.select({ tableName: 'table_definition' }),
+        this.queryBuilder.select({ tableName: 'column_definition' }),
+        this.queryBuilder.select({ tableName: 'relation_definition' }),
+      ]);
     const tables = tablesResult.data;
 
     let allSchemas: Map<string, any> | null = null;
@@ -158,7 +192,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         if (!isMongoDB) {
           actualSchema = allSchemas!.get(table.name);
           if (!actualSchema) {
-            this.logger.warn(`Table ${table.name} not found in database, skipping...`);
+            this.logger.warn(
+              `Table ${table.name} not found in database, skipping...`,
+            );
             continue;
           }
         }
@@ -167,14 +203,26 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         let indexes = [];
         if (table.uniques) {
           if (typeof table.uniques === 'string') {
-            try { uniques = JSON.parse(table.uniques); } catch (e) { this.logger.warn(`Failed to parse uniques for table ${table.name}`); }
+            try {
+              uniques = JSON.parse(table.uniques);
+            } catch (e) {
+              this.logger.warn(
+                `Failed to parse uniques for table ${table.name}`,
+              );
+            }
           } else if (Array.isArray(table.uniques)) {
             uniques = table.uniques;
           }
         }
         if (table.indexes) {
           if (typeof table.indexes === 'string') {
-            try { indexes = JSON.parse(table.indexes); } catch (e) { this.logger.warn(`Failed to parse indexes for table ${table.name}`); }
+            try {
+              indexes = JSON.parse(table.indexes);
+            } catch (e) {
+              this.logger.warn(
+                `Failed to parse indexes for table ${table.name}`,
+              );
+            }
           } else if (Array.isArray(table.indexes)) {
             indexes = table.indexes;
           }
@@ -188,14 +236,25 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           const column = { ...col };
 
           if (col.options && typeof col.options === 'string') {
-            try { column.options = JSON.parse(col.options); } catch (e) {}
+            try {
+              column.options = JSON.parse(col.options);
+            } catch (e) {}
           }
 
           if (col.defaultValue && typeof col.defaultValue === 'string') {
-            try { column.defaultValue = JSON.parse(col.defaultValue); } catch (e) {}
+            try {
+              column.defaultValue = JSON.parse(col.defaultValue);
+            } catch (e) {}
           }
 
-          const booleanFields = ['isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isHidden'];
+          const booleanFields = [
+            'isPrimary',
+            'isGenerated',
+            'isNullable',
+            'isSystem',
+            'isUpdatable',
+            'isHidden',
+          ];
           for (const field of booleanFields) {
             if (column[field] !== undefined && column[field] !== null) {
               column[field] = column[field] === 1 || column[field] === true;
@@ -216,7 +275,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             }
           }
 
-          const targetTableIdValue = isMongoDB ? String(rel.targetTable) : rel.targetTableId;
+          const targetTableIdValue = isMongoDB
+            ? String(rel.targetTable)
+            : rel.targetTableId;
           const targetTableName = tableIdToName.get(targetTableIdValue);
 
           const relationMetadata: any = {
@@ -233,8 +294,12 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             if (rel.mappedBy) {
               relationMetadata.isInverse = true;
             } else {
-              const fkColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
-              const hasFkColumn = actualSchema?.columns?.some((col: any) => col.name === fkColumn);
+              const fkColumn = isMongoDB
+                ? rel.propertyName
+                : getForeignKeyColumnName(rel.propertyName);
+              const hasFkColumn = actualSchema?.columns?.some(
+                (col: any) => col.name === fkColumn,
+              );
               relationMetadata.isInverse = !hasFkColumn;
             }
           } else {
@@ -261,8 +326,12 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
           if (rel.type === 'one-to-many') {
             if (!rel.inversePropertyName) {
-              this.logger.error(`O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`);
-              throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`);
+              this.logger.error(
+                `O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`,
+              );
+              throw new Error(
+                `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`,
+              );
             }
 
             relationMetadata.foreignKeyColumn = isMongoDB
@@ -271,10 +340,22 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           }
 
           if (rel.type === 'many-to-many') {
-            relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
-            relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
-            relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
+            relationMetadata.junctionTableName =
+              rel.junctionTableName ||
+              getJunctionTableName(
+                table.name,
+                rel.propertyName,
+                relationMetadata.targetTableName,
+              );
+            const { sourceColumn, targetColumn } = getJunctionColumnNames(
+              table.name,
+              rel.propertyName,
+              relationMetadata.targetTableName,
+            );
+            relationMetadata.junctionSourceColumn =
+              rel.junctionSourceColumn || sourceColumn;
+            relationMetadata.junctionTargetColumn =
+              rel.junctionTargetColumn || targetColumn;
           }
 
           relations.push(relationMetadata);
@@ -286,21 +367,27 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
           for (const rel of relations) {
             if (['many-to-one', 'one-to-one'].includes(rel.type)) {
               const fkColumn = rel.foreignKeyColumn;
-              const existsInExplicit = parsedExplicitColumns.some(col => col.name === fkColumn);
+              const existsInExplicit = parsedExplicitColumns.some(
+                (col) => col.name === fkColumn,
+              );
 
               if (!existsInExplicit) {
-                const actualFkColumn = actualSchema.columns.find(col => col.name === fkColumn);
+                const actualFkColumn = actualSchema.columns.find(
+                  (col) => col.name === fkColumn,
+                );
                 if (actualFkColumn) {
                   combinedColumns.push({
                     ...actualFkColumn,
                     isForeignKey: true,
                     relationPropertyName: rel.propertyName,
                     isUpdatable: rel.isUpdatable !== false,
-                    description: `FK column for ${rel.propertyName} relation`
+                    description: `FK column for ${rel.propertyName} relation`,
                   });
                 }
               } else {
-                const explicitFkColumn = combinedColumns.find(col => col.name === fkColumn);
+                const explicitFkColumn = combinedColumns.find(
+                  (col) => col.name === fkColumn,
+                );
                 if (explicitFkColumn && rel.isUpdatable === false) {
                   explicitFkColumn.isUpdatable = false;
                 }
@@ -308,27 +395,35 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
             }
           }
 
-          const hasCreatedAt = combinedColumns.some(col => col.name === 'createdAt');
-          const hasUpdatedAt = combinedColumns.some(col => col.name === 'updatedAt');
+          const hasCreatedAt = combinedColumns.some(
+            (col) => col.name === 'createdAt',
+          );
+          const hasUpdatedAt = combinedColumns.some(
+            (col) => col.name === 'updatedAt',
+          );
 
           if (!hasCreatedAt) {
-            const actualCreatedAt = actualSchema.columns.find(col => col.name === 'createdAt');
+            const actualCreatedAt = actualSchema.columns.find(
+              (col) => col.name === 'createdAt',
+            );
             if (actualCreatedAt) {
               combinedColumns.push({
                 ...actualCreatedAt,
                 isSystem: true,
-                isUpdatable: false
+                isUpdatable: false,
               });
             }
           }
 
           if (!hasUpdatedAt) {
-            const actualUpdatedAt = actualSchema.columns.find(col => col.name === 'updatedAt');
+            const actualUpdatedAt = actualSchema.columns.find(
+              (col) => col.name === 'updatedAt',
+            );
             if (actualUpdatedAt) {
               combinedColumns.push({
                 ...actualUpdatedAt,
                 isSystem: true,
-                isUpdatable: false
+                isUpdatable: false,
               });
             }
           }
@@ -356,9 +451,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         tablesList.push(metadata);
         tablesMap.set(table.name, metadata);
-
       } catch (error) {
-        this.logger.error(`Failed to load metadata for table ${table.name}:`, error.message);
+        this.logger.error(
+          `Failed to load metadata for table ${table.name}:`,
+          error.message,
+        );
       }
     }
 
@@ -374,14 +471,18 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
     return result;
   }
 
-  private generateInverseRelations(tablesList: any[], tablesMap: Map<string, any>): void {
+  private generateInverseRelations(
+    tablesList: any[],
+    tablesMap: Map<string, any>,
+  ): void {
     for (const table of tablesList) {
       for (const relation of table.relations || []) {
         if (!relation.inversePropertyName) {
           continue;
         }
 
-        const targetTableName = relation.targetTableName || relation.targetTable;
+        const targetTableName =
+          relation.targetTableName || relation.targetTable;
         const targetTable = tablesMap.get(targetTableName);
 
         if (!targetTable) {
@@ -389,7 +490,7 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
         }
 
         const inverseExists = targetTable.relations?.some(
-          (r: any) => r.propertyName === relation.inversePropertyName
+          (r: any) => r.propertyName === relation.inversePropertyName,
         );
 
         if (inverseExists) {
@@ -423,9 +524,11 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
         if (inverseType === 'many-to-one') {
           const isMongoDB = this.queryBuilder.isMongoDb();
-          inverseRelation.foreignKeyColumn = relation.foreignKeyColumn || (isMongoDB
-            ? relation.inversePropertyName
-            : getForeignKeyColumnName(relation.inversePropertyName));
+          inverseRelation.foreignKeyColumn =
+            relation.foreignKeyColumn ||
+            (isMongoDB
+              ? relation.inversePropertyName
+              : getForeignKeyColumnName(relation.inversePropertyName));
         }
 
         if (inverseType === 'one-to-many') {
@@ -554,7 +657,9 @@ export class MetadataCacheService implements OnApplicationBootstrap, OnModuleIni
 
   async lookupTableById(tableId: number | string): Promise<any | null> {
     const metadata = await this.getMetadata();
-    const table = metadata.tablesList.find(t => t.id === tableId || t.id === Number(tableId));
+    const table = metadata.tablesList.find(
+      (t) => t.id === tableId || t.id === Number(tableId),
+    );
     return table || null;
   }
 

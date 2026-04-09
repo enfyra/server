@@ -7,7 +7,17 @@ export class ParseQueryMiddleware implements NestMiddleware {
     const parsedQuery: any = {};
     for (const key in query) {
       const value = query[key];
-      if (typeof value === 'string' && ['filter', 'aggregate', 'deep', '_filter', '_aggregate', '_deep'].includes(key)) {
+      if (
+        typeof value === 'string' &&
+        [
+          'filter',
+          'aggregate',
+          'deep',
+          '_filter',
+          '_aggregate',
+          '_deep',
+        ].includes(key)
+      ) {
         try {
           parsedQuery[key] = JSON.parse(value);
         } catch {

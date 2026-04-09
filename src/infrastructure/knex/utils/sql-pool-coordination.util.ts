@@ -24,7 +24,10 @@ export function splitSqlPoolAcrossReplication(params: {
   replicaMax: number;
 } {
   const totalMax = Math.max(1, Math.trunc(params.totalMax));
-  const totalMin = Math.max(1, Math.min(Math.trunc(params.totalMin) || 1, totalMax));
+  const totalMin = Math.max(
+    1,
+    Math.min(Math.trunc(params.totalMin) || 1, totalMax),
+  );
   const replicaCount = Math.max(0, Math.trunc(params.replicaCount));
   const mr = params.masterRatio ?? SQL_MASTER_RATIO;
 
@@ -38,7 +41,10 @@ export function splitSqlPoolAcrossReplication(params: {
   }
 
   let masterMax = Math.max(1, Math.floor(totalMax * mr));
-  let replicaMax = Math.max(1, Math.floor((totalMax * (1 - mr)) / replicaCount));
+  let replicaMax = Math.max(
+    1,
+    Math.floor((totalMax * (1 - mr)) / replicaCount),
+  );
   let sum = masterMax + replicaMax * replicaCount;
   while (sum > totalMax) {
     if (replicaMax > 1) {
@@ -56,10 +62,16 @@ export function splitSqlPoolAcrossReplication(params: {
   }
   masterMax = Math.min(masterMax, totalMax - replicaMax * replicaCount);
 
-  const masterMin = Math.max(1, Math.min(Math.max(1, Math.floor(totalMin * mr)), masterMax));
+  const masterMin = Math.max(
+    1,
+    Math.min(Math.max(1, Math.floor(totalMin * mr)), masterMax),
+  );
   const replicaMin = Math.max(
     1,
-    Math.min(Math.max(1, Math.floor((totalMin * (1 - mr)) / replicaCount)), replicaMax),
+    Math.min(
+      Math.max(1, Math.floor((totalMin * (1 - mr)) / replicaCount)),
+      replicaMax,
+    ),
   );
 
   return { masterMin, masterMax, replicaMin, replicaMax };
