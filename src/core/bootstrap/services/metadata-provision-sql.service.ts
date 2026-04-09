@@ -7,6 +7,14 @@ import {
   getForeignKeyColumnName,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
+import {
+  applySqlSchemaMigrations,
+  hasSchemaMigrations,
+  loadSchemaMigration,
+} from '../../../../scripts/utils/schema-migration';
+import { parseSnapshotToSchema } from '../../../../scripts/utils/sql/schema-parser';
+import { syncTable } from '../../../../scripts/utils/sql/migrations';
+import { syncJunctionTables } from '../../../../scripts/utils/sql/junction-tables';
 
 @Injectable()
 export class MetadataProvisionSqlService {
@@ -103,7 +111,7 @@ export class MetadataProvisionSqlService {
               isNullable: snapshotCol.isNullable ?? true,
               isSystem: snapshotCol.isSystem || false,
               isUpdatable: snapshotCol.isUpdatable ?? true,
-              isHidden: snapshotCol.isHidden || false,
+              isPublished: snapshotCol.isPublished ?? true,
               defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
               options: JSON.stringify(snapshotCol.options || null),
               description: snapshotCol.description,
@@ -129,7 +137,7 @@ export class MetadataProvisionSqlService {
                   ),
                   options: JSON.stringify(snapshotCol.options || null),
                   isUpdatable: snapshotCol.isUpdatable ?? true,
-                  isHidden: snapshotCol.isHidden || false,
+                  isPublished: snapshotCol.isPublished ?? true,
                 });
               this.logger.log(`Updated column ${snapshotCol.name} for ${name}`);
             }
@@ -306,82 +314,19 @@ export class MetadataProvisionSqlService {
   }
   private async syncPhysicalSchemaFromMetadata(snapshot: any): Promise<void> {
     const qb = this.queryBuilder.getConnection();
-    for (const [tableName, defRaw] of Object.entries(snapshot)) {
-      const def = defRaw as any;
-      const tableExists = await qb.schema.hasTable(def.name);
-      if (!tableExists) {
-        this.logger.log(
-          `Physical table ${def.name} does not exist, skipping schema sync`,
-        );
-        continue;
-      }
-      const tableRecord = await qb('table_definition')
-        .where('name', def.name)
-        .first();
-      if (!tableRecord) continue;
-      const columns = await qb('column_definition')
-        .where('tableId', tableRecord.id)
-        .select('*');
-      for (const col of columns) {
-        try {
-          const columnInfo = await qb(def.name).columnInfo();
-          const physicalCol = columnInfo[col.name];
-          if (!physicalCol) {
-            this.logger.log(
-              `Column ${col.name} not found in ${def.name}, skipping`,
-            );
-            continue;
-          }
-          if (col.type === 'enum' && col.options) {
-            const options =
-              typeof col.options === 'string'
-                ? JSON.parse(col.options)
-                : col.options;
-            if (Array.isArray(options) && options.length > 0) {
-              const enumValues = options.map((v) => `'${v}'`).join(', ');
-              let alterSQL: string;
-              if (this.dbType === 'mysql') {
-                const nullable = col.isNullable ? 'NULL' : 'NOT NULL';
-                let defaultClause = '';
-                if (
-                  col.defaultValue !== undefined &&
-                  col.defaultValue !== null
-                ) {
-                  if (col.type === 'boolean') {
-                    let defVal: any = col.defaultValue;
-                    if (typeof defVal === 'number') defVal = defVal === 1;
-                    else if (typeof defVal === 'string') {
-                      const t = defVal.trim().toLowerCase();
-                      if (t === '1' || t === 'true') defVal = true;
-                      else if (t === '0' || t === 'false') defVal = false;
-                    }
-                    defaultClause = ` DEFAULT ${defVal ? 1 : 0}`;
-                  } else {
-                    defaultClause = ` DEFAULT '${col.defaultValue}'`;
-                  }
-                }
-                alterSQL = `ALTER TABLE \`${def.name}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable}${defaultClause}`;
-              } else if (this.dbType === 'postgres') {
-                alterSQL = `ALTER TABLE "${def.name}" ALTER COLUMN "${col.name}" TYPE VARCHAR(255)`;
-              } else {
-                continue;
-              }
-              this.logger.log(
-                `Running ALTER TABLE for ${def.name}.${col.name}: ${alterSQL}`,
-              );
-              await qb.raw(alterSQL);
-              this.logger.log(
-                `✅ Updated ${def.name}.${col.name} to enum with values: ${enumValues}`,
-              );
-            }
-          }
-        } catch (error) {
-          this.logger.warn(
-            `Failed to ALTER column ${col.name} in ${def.name}: ${error.message}`,
-          );
-        }
+    const schemaMigration = loadSchemaMigration();
+    if (hasSchemaMigrations(schemaMigration)) {
+      await applySqlSchemaMigrations(qb, schemaMigration as any);
+    }
+
+    const schemas = parseSnapshotToSchema(snapshot);
+    for (const schema of schemas) {
+      const exists = await qb.schema.hasTable(schema.tableName);
+      if (exists) {
+        await syncTable(qb, schema, schemas);
       }
     }
+    await syncJunctionTables(qb, schemas);
   }
   private detectTableChanges(snapshotTable: any, existingTable: any): boolean {
     const parseJson = (val: any) => {
@@ -428,7 +373,8 @@ export class MetadataProvisionSqlService {
         JSON.stringify(parseJson(existingCol.defaultValue)) ||
       JSON.stringify(snapshotCol.options) !==
         JSON.stringify(parseJson(existingCol.options)) ||
-      snapshotCol.isUpdatable !== existingCol.isUpdatable;
+      snapshotCol.isUpdatable !== existingCol.isUpdatable ||
+      (snapshotCol.isPublished ?? true) !== (existingCol.isPublished ?? true);
     return hasChanges;
   }
 }

@@ -9,7 +9,7 @@ export interface ColumnMetadata {
   defaultValue?: any;
   options?: any[] | any;
   isUpdatable: boolean;
-  isHidden?: boolean;
+  isPublished?: boolean;
   description?: string;
   placeholder?: string;
   tableId: number;
@@ -26,6 +26,7 @@ export interface RelationMetadata {
   inversePropertyName?: string;
   isNullable: boolean;
   isSystem: boolean;
+  isPublished?: boolean;
   description?: string;
 
   foreignKeyColumn?: string;

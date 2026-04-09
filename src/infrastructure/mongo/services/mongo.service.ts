@@ -561,26 +561,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return processed;
   }
 
-  async stripHiddenNullFields(collectionName: string, data: any): Promise<any> {
-    const tableMetadata =
-      await this.metadataCache.getTableMetadata(collectionName);
-    if (!tableMetadata || !tableMetadata.columns) return data;
-
-    const filteredData = { ...data };
-
-    for (const column of tableMetadata.columns) {
-      if (
-        column.isHidden === true &&
-        column.name in filteredData &&
-        filteredData[column.name] === null
-      ) {
-        delete filteredData[column.name];
-      }
-    }
-
-    return filteredData;
-  }
-
   async stripNonUpdatableFields(
     collectionName: string,
     data: any,
@@ -623,13 +603,9 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       collectionName,
       dataWithRelations,
     );
-    const dataWithoutHiddenNulls = await this.stripHiddenNullFields(
-      collectionName,
-      dataWithoutInverse,
-    );
     const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(
       collectionName,
-      dataWithoutHiddenNulls,
+      dataWithoutInverse,
     );
     const dataWithTimestamp = this.applyUpdateTimestamp(
       dataWithoutNonUpdatable,

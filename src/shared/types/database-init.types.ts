@@ -13,7 +13,6 @@ export interface ColumnDef {
   options?: any[] | any; // For enum type
   isUpdatable?: boolean;
   isUnique?: boolean;
-  isHidden?: boolean;
   description?: string;
   placeholder?: string;
 }

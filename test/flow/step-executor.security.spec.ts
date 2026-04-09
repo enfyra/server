@@ -75,15 +75,18 @@ afterAll(() => {
 
 describe('validateHttpUrl - SSRF prevention', () => {
   describe('blocked hostnames', () => {
-    it.each([
-      'http://localhost/secret',
-      'http://127.0.0.1/secret',
-      'http://0.0.0.0/secret',
-      'http://[::1]/secret',
-    ])('should block %s', async (url) => {
-      await expect(
-        executeStepCore(makeOpts({ config: { url } })),
-      ).rejects.toThrow();
+    it('should block common localhost hostnames', async () => {
+      const urls = [
+        'http://localhost/secret',
+        'http://127.0.0.1/secret',
+        'http://0.0.0.0/secret',
+        'http://[::1]/secret',
+      ];
+      for (const url of urls) {
+        await expect(
+          executeStepCore(makeOpts({ config: { url } })),
+        ).rejects.toThrow();
+      }
     });
 
     it('should block localhost with uppercase', async () => {
@@ -104,18 +107,21 @@ describe('validateHttpUrl - SSRF prevention', () => {
   });
 
   describe('protocol enforcement', () => {
-    it.each([
-      ['ftp://example.com/file', 'ftp'],
-      ['file:///etc/passwd', 'file'],
-      ['gopher://evil.com', 'gopher'],
-      ['dict://evil.com', 'dict'],
-      ['ldap://evil.com', 'ldap'],
-      ['ssh://evil.com', 'ssh'],
-      ['telnet://evil.com', 'telnet'],
-    ])('should block %s protocol', async (url, _proto) => {
-      await expect(
-        executeStepCore(makeOpts({ config: { url } })),
-      ).rejects.toThrow(/protocol must be http or https/i);
+    it('should block non-http(s) protocols', async () => {
+      const urls = [
+        'ftp://example.com/file',
+        'file:///etc/passwd',
+        'gopher://evil.com',
+        'dict://evil.com',
+        'ldap://evil.com',
+        'ssh://evil.com',
+        'telnet://evil.com',
+      ];
+      for (const url of urls) {
+        await expect(
+          executeStepCore(makeOpts({ config: { url } })),
+        ).rejects.toThrow(/protocol must be http or https/i);
+      }
     });
 
     it('should block javascript: protocol', async () => {
@@ -152,20 +158,23 @@ describe('validateHttpUrl - SSRF prevention', () => {
   });
 
   describe('private IP blocking - IPv4', () => {
-    it.each([
-      ['http://10.0.0.1/admin', '10.0.0.1'],
-      ['http://10.255.255.255/admin', '10.255.255.255'],
-      ['http://172.16.0.1/admin', '172.16.0.1'],
-      ['http://172.31.255.255/admin', '172.31.255.255'],
-      ['http://192.168.0.1/admin', '192.168.0.1'],
-      ['http://192.168.255.255/admin', '192.168.255.255'],
-      ['http://169.254.169.254/latest/meta-data/', '169.254.169.254'],
-      ['http://127.0.0.2/admin', '127.0.0.2'],
-      ['http://127.255.255.255/admin', '127.255.255.255'],
-    ])('should block direct IP %s', async (url, _ip) => {
-      await expect(
-        executeStepCore(makeOpts({ config: { url } })),
-      ).rejects.toThrow(/not allowed/);
+    it('should block direct private IPv4 URLs', async () => {
+      const urls = [
+        'http://10.0.0.1/admin',
+        'http://10.255.255.255/admin',
+        'http://172.16.0.1/admin',
+        'http://172.31.255.255/admin',
+        'http://192.168.0.1/admin',
+        'http://192.168.255.255/admin',
+        'http://169.254.169.254/latest/meta-data/',
+        'http://127.0.0.2/admin',
+        'http://127.255.255.255/admin',
+      ];
+      for (const url of urls) {
+        await expect(
+          executeStepCore(makeOpts({ config: { url } })),
+        ).rejects.toThrow(/not allowed/);
+      }
     });
 
     it('should block 0.x.x.x range', async () => {

@@ -625,6 +625,55 @@ export class PolicyService {
       }
     }
 
+    if (tableName === 'field_permission_definition') {
+      if (operation === 'create' || operation === 'update') {
+        const hasColumn = data?.column != null;
+        const hasRelation = data?.relation != null;
+        if ((hasColumn && hasRelation) || (!hasColumn && !hasRelation)) {
+          throw new Error(
+            'field_permission_definition requires exactly one of: column or relation',
+          );
+        }
+
+        const hasRoleInData = data && 'role' in data ? data.role != null : undefined;
+        const hasUsersInData =
+          data && 'allowedUsers' in data
+            ? Array.isArray(data.allowedUsers) && data.allowedUsers.length > 0
+            : undefined;
+
+        if (operation === 'create') {
+          const hasRole = data?.role != null;
+          const hasUsers =
+            Array.isArray(data?.allowedUsers) && data.allowedUsers.length > 0;
+          if (!hasRole && !hasUsers) {
+            throw new Error(
+              'field_permission_definition requires scope: role or allowedUsers',
+            );
+          }
+        }
+
+        if (operation === 'update') {
+          if (hasRoleInData !== undefined || hasUsersInData !== undefined) {
+            const getItemId = (item: any) => item?._id || item?.id;
+            const existingHasRole =
+              fullExisting?.role != null && getItemId(fullExisting.role) != null;
+            const existingHasUsers =
+              Array.isArray(fullExisting?.allowedUsers) &&
+              fullExisting.allowedUsers.length > 0;
+
+            const hasRoleFinal = hasRoleInData ?? existingHasRole;
+            const hasUsersFinal = hasUsersInData ?? existingHasUsers;
+
+            if (!hasRoleFinal && !hasUsersFinal) {
+              throw new Error(
+                'field_permission_definition requires scope: role or allowedUsers',
+              );
+            }
+          }
+        }
+      }
+    }
+
     if (tableName === 'table_definition') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'create' && data?.isSystem)

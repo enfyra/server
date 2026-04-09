@@ -43,6 +43,13 @@ export class CascadeHandler {
         data: any,
       ) => Promise<void>;
     } | null,
+    private getFieldPermissionContext?: () => {
+      check: (
+        tableName: string,
+        action: 'create' | 'update',
+        data: any,
+      ) => Promise<void>;
+    } | null,
   ) {}
 
   private async checkPolicy(
@@ -53,6 +60,17 @@ export class CascadeHandler {
     const ctx = this.getPolicyContext?.();
     if (ctx) {
       await ctx.check(tableName, operation, data);
+    }
+  }
+
+  private async checkFieldPermission(
+    tableName: string,
+    action: 'create' | 'update',
+    data: any,
+  ): Promise<void> {
+    const ctx = this.getFieldPermissionContext?.();
+    if (ctx) {
+      await ctx.check(tableName, action, data);
     }
   }
 
@@ -458,6 +476,7 @@ export class CascadeHandler {
     if (!targetTableName || !data) return null;
 
     await this.checkPolicy(targetTableName, 'create', data);
+    await this.checkFieldPermission(targetTableName, 'create', data);
 
     let newRecord = { ...data };
     delete newRecord.id;

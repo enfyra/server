@@ -44,6 +44,13 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       data: any,
     ) => Promise<void>;
   }>();
+  private readonly fieldPermissionContext = new AsyncLocalStorage<{
+    check: (
+      tableName: string,
+      action: 'create' | 'update',
+      data: any,
+    ) => Promise<void>;
+  }>();
 
   private cascadeHandler: CascadeHandler;
   private fieldStripper: FieldStripper;
@@ -177,6 +184,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       (tableName, recordId, data, trx) =>
         this.updateWithCascade(tableName, recordId, data, trx),
       () => this.policyContext.getStore() || null,
+      () => this.fieldPermissionContext.getStore() || null,
     );
     this.fieldStripper = new FieldStripper(this.metadataCacheService);
     this.relationTransformer = new RelationTransformer(
@@ -426,7 +434,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
       for (const column of tableMetadata.columns) {
         if (
-          column.isHidden === true &&
+          column.isPublished === false &&
           column.name in filteredData &&
           filteredData[column.name] === null
         ) {
@@ -1201,6 +1209,17 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     callback: () => Promise<T>,
   ): Promise<T> {
     return this.policyContext.run({ check: policyCheck }, callback);
+  }
+
+  async runWithFieldPermissionCheck<T>(
+    checker: (
+      tableName: string,
+      action: 'create' | 'update',
+      data: any,
+    ) => Promise<void>,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    return this.fieldPermissionContext.run({ check: checker }, callback);
   }
 
   async insertWithCascade(

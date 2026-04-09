@@ -8,9 +8,7 @@ import { RouteCacheService } from '../../../infrastructure/cache/services/route-
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { GuardCacheService } from '../../../infrastructure/cache/services/guard-cache.service';
 import { GuardEvaluatorService } from '../../../infrastructure/cache/services/guard-evaluator.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { sanitizeHiddenFieldsDeep } from '../../../shared/utils/sanitize-hidden-fields.util';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 
 @Injectable()
@@ -23,7 +21,6 @@ export class DynamicResolver {
     private repoRegistryService: RepoRegistryService,
     private guardCacheService: GuardCacheService,
     private guardEvaluatorService: GuardEvaluatorService,
-    private metadataCacheService: MetadataCacheService,
   ) {}
 
   async dynamicResolver(
@@ -97,7 +94,7 @@ export class DynamicResolver {
         handlerCtx,
         30000,
       );
-      return this.sanitizeResult(result);
+      return this.sanitizeResult(result, mainTable?.name);
     } catch (error) {
       throwGqlError('SCRIPT_ERROR', error.message);
     }
@@ -154,9 +151,9 @@ export class DynamicResolver {
         30000,
       );
       if (result && result.data && Array.isArray(result.data)) {
-        return this.sanitizeResult(result.data[0]);
+        return this.sanitizeResult(result.data[0], tableName);
       }
-      return this.sanitizeResult(result);
+      return this.sanitizeResult(result, tableName);
     } catch (error) {
       throwGqlError('MUTATION_ERROR', error.message);
     }
@@ -297,9 +294,7 @@ export class DynamicResolver {
     return resolveClientIpFromRequest({ headers, ip: undefined });
   }
 
-  private sanitizeResult(result: any): any {
-    const metadata = this.metadataCacheService.getDirectMetadata();
-    if (!metadata) return result;
-    return sanitizeHiddenFieldsDeep(result, metadata);
+  private sanitizeResult(result: any, _tableName?: string): any {
+    return result;
   }
 }

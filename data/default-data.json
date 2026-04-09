@@ -42,7 +42,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:git-branch",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -51,7 +50,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:table",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
@@ -68,7 +66,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:settings",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
@@ -130,7 +127,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "publishedMethods": ["GET", "PATCH"],
             "availableMethods": ["GET", "PATCH"]
         },
         {
@@ -139,7 +135,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -183,12 +178,19 @@
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
+            "path": "/field_permission_definition",
+            "mainTable": "field_permission_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:shield",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
             "path": "/menu_definition",
             "mainTable": "menu_definition",
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:menu",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -197,7 +199,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:puzzle",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -205,7 +206,6 @@
             "mainTable": "extension_definition",
             "isEnabled": true,
             "isSystem": true,
-            "publishedMethods": ["POST"],
             "availableMethods": ["POST"]
         },
         {
@@ -222,7 +222,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:folder-tree",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -247,7 +246,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:download",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -304,7 +302,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:hard-drive",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -369,7 +366,6 @@
             "isSystem": true,
             "icon": "lucide:database",
             "description": "Get all table metadata from cache",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -378,7 +374,6 @@
             "isSystem": true,
             "icon": "lucide:table",
             "description": "Get single table metadata from cache",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -387,7 +382,6 @@
             "isSystem": true,
             "icon": "lucide:file-code",
             "description": "GraphQL schema SDL (full definition for debugging)",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -652,6 +646,29 @@
                             { "route": "/route_definition", "actions": ["create"] },
                             { "route": "/route_definition", "actions": ["update"] },
                             { "route": "/route_definition", "actions": ["delete"] }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
+            "label": "Field Permissions",
+            "icon": "lucide:grid-3x3",
+            "path": "/settings/field-permissions",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Field permission matrix (published baseline + overrides)",
+            "order": 5,
+            "parent": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/field_permission_definition", "actions": ["read"] },
+                    {
+                        "or": [
+                            { "route": "/field_permission_definition", "actions": ["create"] },
+                            { "route": "/field_permission_definition", "actions": ["update"] },
+                            { "route": "/field_permission_definition", "actions": ["delete"] }
                         ]
                     }
                 ]

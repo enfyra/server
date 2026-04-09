@@ -55,6 +55,20 @@ export class QueryBuilderService {
     return callback();
   }
 
+  async runWithFieldPermissionCheck<T>(
+    checker: (
+      tableName: string,
+      action: 'create' | 'update',
+      data: any,
+    ) => Promise<void>,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (this.knexService) {
+      return this.knexService.runWithFieldPermissionCheck(checker, callback);
+    }
+    return callback();
+  }
+
   getDbType(): DatabaseType {
     return this.dbType;
   }
@@ -249,13 +263,8 @@ export class QueryBuilderService {
         options.table,
         options.data,
       );
-      const dataWithoutHiddenNulls =
-        await this.mongoService.stripHiddenNullFields(
-          options.table,
-          dataWithRelations,
-        );
       const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(
-        dataWithoutHiddenNulls,
+        dataWithRelations,
       );
 
       const filter = this.buildMongoFilter(options.where);

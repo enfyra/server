@@ -48,7 +48,7 @@ class ColumnDefinitionProcessor extends BaseTableProcessor {
       'isNullable',
       'isSystem',
       'isUpdatable',
-      'isHidden',
+      'isPublished',
       'defaultValue',
       'options',
       'description',

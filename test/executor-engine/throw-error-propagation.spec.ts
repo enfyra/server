@@ -170,9 +170,8 @@ describe('$throw error propagation across isolated-vm boundary', () => {
   describe('statusCode preservation', () => {
     const STATUS_CODES = [400, 401, 403, 404, 409, 422, 429, 500, 503];
 
-    it.each(STATUS_CODES)(
-      '$throw["%i"] propagates statusCode=%i in batch mode',
-      async (code) => {
+    it('$throw propagates statusCode in batch mode (matrix)', async () => {
+      for (const code of STATUS_CODES) {
         try {
           await batch([
             {
@@ -186,12 +185,11 @@ describe('$throw error propagation across isolated-vm boundary', () => {
           expect(err.statusCode).toBe(code);
           expect(err.message).toBe(`test error ${code}`);
         }
-      },
-    );
+      }
+    });
 
-    it.each(STATUS_CODES)(
-      '$throw["%i"] propagates statusCode=%i in single mode',
-      async (code) => {
+    it('$throw propagates statusCode in single mode (matrix)', async () => {
+      for (const code of STATUS_CODES) {
         try {
           await single(`$ctx.$throw["${code}"]("single error ${code}");`);
           fail('should have thrown');
@@ -199,8 +197,8 @@ describe('$throw error propagation across isolated-vm boundary', () => {
           expect(err.statusCode).toBe(code);
           expect(err.message).toBe(`single error ${code}`);
         }
-      },
-    );
+      }
+    });
   });
 
   describe('default messages when no message provided', () => {

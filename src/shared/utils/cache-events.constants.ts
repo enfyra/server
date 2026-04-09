@@ -26,6 +26,7 @@ export const CACHE_IDENTIFIERS = {
   FLOW: 'flow',
   GUARD: 'guard',
   SETTING: 'setting',
+  FIELD_PERMISSION: 'field-permission',
 } as const;
 
 type CacheIdentifier =
@@ -53,6 +54,8 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   route_permission_definition: ROUTE_GROUP,
   role_definition: ROUTE_GROUP,
   method_definition: ROUTE_GROUP,
+
+  field_permission_definition: [CACHE_IDENTIFIERS.FIELD_PERMISSION],
 
   storage_config_definition: [CACHE_IDENTIFIERS.STORAGE],
   oauth_config_definition: [CACHE_IDENTIFIERS.OAUTH_CONFIG],

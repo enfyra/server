@@ -30,7 +30,7 @@ interface FieldExpansionResult {
 
 interface TableMetadata {
   name: string;
-  columns: Array<{ name: string; type: string; isHidden?: boolean }>;
+  columns: Array<{ name: string; type: string }>;
   relations: Array<{
     propertyName: string;
     type: 'many-to-one' | 'one-to-many' | 'one-to-one' | 'many-to-many';
@@ -100,11 +100,7 @@ export async function expandFieldsToJoinsAndSelect(
       const addedColumnNames = new Set<string>();
       for (const col of baseMeta.columns) {
         if (fkColumnsToOmit.has(col.name)) continue;
-        if (col.isHidden === true) {
-          select.push(`(NULL) as ${quoteIdentifier(col.name, dbType)}`);
-        } else {
-          select.push(`${tableName}.${col.name}`);
-        }
+        select.push(`${tableName}.${col.name}`);
         addedColumnNames.add(col.name);
       }
 
@@ -127,11 +123,7 @@ export async function expandFieldsToJoinsAndSelect(
 
     const matchingColumn = baseMeta.columns?.find((c) => c.name === field);
     if (matchingColumn) {
-      if (matchingColumn.isHidden === true) {
-        select.push(`(NULL) as ${quoteIdentifier(field, dbType)}`);
-      } else {
-        select.push(`${tableName}.${field}`);
-      }
+      select.push(`${tableName}.${field}`);
       continue;
     }
 

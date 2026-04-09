@@ -40,12 +40,12 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
     });
   });
 
-  describe('hidden column exclusion', () => {
-    it('excludes hidden columns from output type', () => {
+  describe('unpublished column exclusion', () => {
+    it('excludes unpublished columns from output type', () => {
       const columns = [
         makeColumn('id', 'uuid', { isPrimary: true }),
         makeColumn('email'),
-        makeColumn('password', 'varchar', { isHidden: true }),
+        makeColumn('password', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('user_definition', columns)],
@@ -55,11 +55,11 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       expect(schema).not.toContain('password');
     });
 
-    it('excludes hidden columns from input types', () => {
+    it('excludes unpublished columns from input types', () => {
       const columns = [
         makeColumn('id', 'uuid', { isPrimary: true }),
         makeColumn('email'),
-        makeColumn('passwordHash', 'varchar', { isHidden: true }),
+        makeColumn('passwordHash', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('user_definition', columns)],
@@ -69,11 +69,11 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       expect(schema).not.toContain('passwordHash');
     });
 
-    it('excludes hidden columns from update input types', () => {
+    it('excludes unpublished columns from update input types', () => {
       const columns = [
         makeColumn('id', 'uuid', { isPrimary: true }),
         makeColumn('name'),
-        makeColumn('secret', 'varchar', { isHidden: true }),
+        makeColumn('secret', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('user_definition', columns)],
@@ -83,12 +83,12 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       expect(schema).not.toContain('secret');
     });
 
-    it('keeps non-hidden columns intact', () => {
+    it('keeps published columns intact', () => {
       const columns = [
         makeColumn('id', 'uuid', { isPrimary: true }),
         makeColumn('username'),
         makeColumn('bio'),
-        makeColumn('token', 'varchar', { isHidden: true }),
+        makeColumn('token', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('user_definition', columns)],
@@ -99,16 +99,34 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
       expect(schema).not.toContain('token');
     });
 
-    it('does not emit a type when all non-primary columns are hidden', () => {
+    it('does not emit a type when all non-primary columns are unpublished', () => {
       const columns = [
         makeColumn('id', 'uuid', { isPrimary: true }),
-        makeColumn('secret', 'varchar', { isHidden: true }),
+        makeColumn('secret', 'varchar', { isPublished: false }),
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('internal_table', columns)],
         new Set(['internal_table']),
       );
       expect(schema).not.toContain('internal_table(');
+    });
+  });
+
+  describe('unpublished relation exclusion', () => {
+    it('excludes unpublished relations from output type', () => {
+      const columns = [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('title')];
+      const relations = [
+        { propertyName: 'author', targetTableName: 'user_definition', type: 'many-to-one', isPublished: false },
+      ];
+      const schema = generateGraphQLTypeDefsFromTables(
+        [
+          makeTable('post', columns, relations),
+          makeTable('user_definition', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('email')]),
+        ],
+        new Set(['post', 'user_definition']),
+      );
+      expect(schema).toContain('type post');
+      expect(schema).not.toContain('author: user_definition');
     });
   });
 

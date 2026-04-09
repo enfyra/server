@@ -93,14 +93,13 @@ function registerSqlSuite(
       }
     }, 120000);
 
-    test.each(filters.map((f, i) => [i, f] as const))(
-      `${dbLabel} oracle[%i]`,
-      async (_i, filter) => {
-        const executor = new SqlQueryExecutor(ctx!.knex, dbLabel);
+    test(`${dbLabel} oracle (batch)`, async () => {
+      const executor = new SqlQueryExecutor(ctx!.knex, dbLabel);
+      for (const filter of filters) {
         const got = await sqlRowIds(executor, metadata, filter);
         expect(got).toEqual(oracleExtensionRowIds(filter));
-      },
-    );
+      }
+    }, 120000);
   });
 }
 
@@ -127,13 +126,12 @@ function registerMongoSuite(
       }
     }, 120000);
 
-    test.each(filters.map((f, i) => [i, f] as const))(
-      `mongodb oracle[%i]`,
-      async (_i, filter) => {
+    test(`mongodb oracle (batch)`, async () => {
+      for (const filter of filters) {
         const got = await mongoRowIds(executor, metadata, filter);
         expect(got).toEqual(oracleExtensionRowIds(filter));
-      },
-    );
+      }
+    }, 120000);
   });
 }
 

@@ -4,7 +4,7 @@ import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { SETTING_CACHE_SYNC_EVENT_KEY, DEFAULT_MAX_QUERY_DEPTH } from '../../../shared/utils/constant';
+import { SETTING_CACHE_SYNC_EVENT_KEY, DEFAULT_MAX_QUERY_DEPTH, DEFAULT_MAX_UPLOAD_FILE_SIZE_MB, DEFAULT_MAX_REQUEST_BODY_SIZE_MB } from '../../../shared/utils/constant';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -20,6 +20,8 @@ const SETTING_CACHE_CONFIG: CacheConfig = {
 
 interface SettingData {
   maxQueryDepth: number;
+  maxUploadFileSize: number;
+  maxRequestBodySize: number;
   [key: string]: any;
 }
 
@@ -68,10 +70,18 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
     const maxQueryDepth = typeof raw?.maxQueryDepth === 'number' && raw.maxQueryDepth > 0
       ? raw.maxQueryDepth
       : DEFAULT_MAX_QUERY_DEPTH;
+    const maxUploadFileSize = typeof raw?.maxUploadFileSize === 'number' && raw.maxUploadFileSize > 0
+      ? raw.maxUploadFileSize
+      : DEFAULT_MAX_UPLOAD_FILE_SIZE_MB;
+    const maxRequestBodySize = typeof raw?.maxRequestBodySize === 'number' && raw.maxRequestBodySize > 0
+      ? raw.maxRequestBodySize
+      : DEFAULT_MAX_REQUEST_BODY_SIZE_MB;
 
     return {
       ...raw,
       maxQueryDepth,
+      maxUploadFileSize,
+      maxRequestBodySize,
     };
   }
 
@@ -81,6 +91,14 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
 
   getMaxQueryDepth(): number {
     return this.cache?.maxQueryDepth ?? DEFAULT_MAX_QUERY_DEPTH;
+  }
+
+  getMaxUploadFileSizeBytes(): number {
+    return (this.cache?.maxUploadFileSize ?? DEFAULT_MAX_UPLOAD_FILE_SIZE_MB) * 1024 * 1024;
+  }
+
+  getMaxRequestBodySizeBytes(): number {
+    return (this.cache?.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE_MB) * 1024 * 1024;
   }
 
   getSetting<T = any>(key: string): T | undefined {

@@ -183,7 +183,7 @@ export class KnexHookRegistry {
       const filteredData = { ...data };
       for (const column of tableMetadata.columns) {
         if (
-          column.isHidden === true &&
+          column.isPublished === false &&
           column.name in filteredData &&
           filteredData[column.name] === null
         ) {

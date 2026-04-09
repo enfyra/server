@@ -104,9 +104,8 @@ describe('separateFilters (field vs relation, logical nesting)', () => {
     }
   }
 
-  test.each(shorthandCases)(
-    'relation shorthand $rel with $op → relationFilters.$rel.id',
-    ({ rel, op, val }) => {
+  test('relation shorthand rel with op → relationFilters.rel.id', () => {
+    for (const { rel, op, val } of shorthandCases) {
       const filter = { [rel]: { [op]: val } };
       const { fieldFilters, relationFilters, hasRelations } = separateFilters(
         filter,
@@ -115,8 +114,8 @@ describe('separateFilters (field vs relation, logical nesting)', () => {
       expect(hasRelations).toBe(true);
       expect(relationFilters[rel]).toEqual({ id: { [op]: val } });
       expect(Object.keys(fieldFilters).length).toBe(0);
-    },
-  );
+    }
+  });
 
   test('nested object on relation (non-shorthand) → relationFilters.menu', () => {
     const filter = { menu: { label: { _eq: 'x' } } } as any;
@@ -168,12 +167,11 @@ describe('separateFilters (field vs relation, logical nesting)', () => {
     },
   ];
 
-  test.each(logicalDepthCases)(
-    'hasLogicalOperators ($name)',
-    ({ filter, expectHasLogical }) => {
+  test('hasLogicalOperators cases', () => {
+    for (const { filter, expectHasLogical } of logicalDepthCases) {
       expect(hasLogicalOperators(filter)).toBe(expectHasLogical);
-    },
-  );
+    }
+  });
 
   const cartesianAndOr: any[] = [];
   for (let a = 0; a < 3; a++) {
@@ -184,13 +182,12 @@ describe('separateFilters (field vs relation, logical nesting)', () => {
     }
   }
 
-  test.each(cartesianAndOr.map((f, i) => [i, f] as const))(
-    'separateFilters preserves _and[%i] atomic clauses',
-    (_i, filter) => {
+  test('separateFilters preserves _and atomic clauses (cartesian)', () => {
+    for (const filter of cartesianAndOr) {
       const { fieldFilters } = separateFilters(filter, extensionMeta as any);
       expect(fieldFilters._and).toHaveLength(2);
-    },
-  );
+    }
+  });
 
   test('_and member with menu + title splits relation vs fields', () => {
     const cond = { menu: { _eq: 88 }, title: { _like: '%a%' } } as any;
@@ -361,17 +358,15 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
     }
   }
 
-  test.each(tripleAnd.map((f, i) => [i, f] as const))(
-    'complex _and[%i] compiles without throw',
-    async (_i, filter) => {
+  test('complex _and compiles without throw', async () => {
+    for (const filter of tripleAnd) {
       const sql = await debugSql(filter);
       expect(sql).toContain('select');
-    },
-  );
+    }
+  });
 
-  test.each([1, 2, 3, 4, 5, 6])(
-    'execute filterCount meta id gt %i',
-    async (minId) => {
+  test('execute filterCount meta id gt values', async () => {
+    for (const minId of [1, 2, 3, 4, 5, 6]) {
       const r = await executor.execute({
         tableName: 'extension',
         filter: { id: { _gt: minId } },
@@ -382,8 +377,8 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
       });
       expect(r.data.length).toBeGreaterThanOrEqual(0);
       expect(r.meta?.filterCount).toBeDefined();
-    },
-  );
+    }
+  });
 
   test('null FK row: menu _is_null', async () => {
     const r = await executor.execute({
@@ -409,9 +404,8 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
     }
   }
 
-  test.each(boundedIds.map((x, i) => [i, x] as const))(
-    'bounded filter[%i] returns rows',
-    async (_i, { filter }) => {
+  test('bounded filters return rows', async () => {
+    for (const { filter } of boundedIds) {
       const r = await executor.execute({
         tableName: 'extension',
         filter,
@@ -420,8 +414,8 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
         metadata: meta,
       });
       expect(Array.isArray(r.data)).toBe(true);
-    },
-  );
+    }
+  });
 
   test('baseline: empty filter → all ids', async () => {
     expect(await rowIds({})).toEqual([1, 2, 3, 4, 5, 6]);
@@ -446,48 +440,44 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
     }
   }
 
-  test.each(idOrGrid)('or id %s vs %s', async (a, b, expected) => {
-    expect(
-      await rowIds({ _or: [{ id: { _eq: a } }, { id: { _eq: b } }] }),
-    ).toEqual(expected);
+  test('or id grid', async () => {
+    for (const [a, b, expected] of idOrGrid) {
+      expect(
+        await rowIds({ _or: [{ id: { _eq: a } }, { id: { _eq: b } }] }),
+      ).toEqual(expected);
+    }
   });
 
-  test.each([
-    [[88], [1, 2, 6]],
-    [[99], [3]],
-    [[100], [5]],
-    [
-      [88, 99],
-      [1, 2, 3, 6],
-    ],
-    [
-      [88, 100],
-      [1, 2, 5, 6],
-    ],
-    [
-      [99, 100],
-      [3, 5],
-    ],
-    [
-      [88, 99, 100],
-      [1, 2, 3, 5, 6],
-    ],
-  ] as const)('menu in %s', async (mids, exp) => {
-    expect(await rowIds({ menu: { _in: mids as number[] } })).toEqual(
-      exp as number[],
-    );
+  test('menu in values', async () => {
+    const cases = [
+      [[88], [1, 2, 6]],
+      [[99], [3]],
+      [[100], [5]],
+      [[88, 99], [1, 2, 3, 6]],
+      [[88, 100], [1, 2, 5, 6]],
+      [[99, 100], [3, 5]],
+      [[88, 99, 100], [1, 2, 3, 5, 6]],
+    ] as const;
+    for (const [mids, exp] of cases) {
+      expect(await rowIds({ menu: { _in: mids as number[] } })).toEqual(
+        exp as number[],
+      );
+    }
   });
 
   test('menu._not_in [88]: SQL excludes NULL FK (not IN semantics)', async () => {
     expect(await rowIds({ menu: { _not_in: [88] } })).toEqual([3, 5]);
   });
 
-  test.each([
-    [1, [1, 3]],
-    [2, [2, 6]],
-    [3, [5]],
-  ] as const)('owner._eq %i', async (oid, exp) => {
-    expect(await rowIds({ owner: { _eq: oid } })).toEqual(exp);
+  test('owner._eq values', async () => {
+    const cases = [
+      [1, [1, 3]],
+      [2, [2, 6]],
+      [3, [5]],
+    ] as const;
+    for (const [oid, exp] of cases) {
+      expect(await rowIds({ owner: { _eq: oid } })).toEqual(exp);
+    }
   });
 
   test('owner._in [1,3]', async () => {
@@ -655,8 +645,10 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
     }
   }
 
-  test.each(demorganGrid)('$name', async ({ filter, exp }) => {
-    expect(await rowIds(filter)).toEqual(exp);
+  test('deMorgan grid', async () => {
+    for (const { filter, exp } of demorganGrid) {
+      expect(await rowIds(filter)).toEqual(exp);
+    }
   });
 
   test('_not + _or with single inner _and (field ∧ relation): NOT ((id=1 ∧ menu=88) ∨ ∅)', async () => {
@@ -771,14 +763,13 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
     });
   }
 
-  test.each(compileStorm.map((f, i) => [i, f] as const))(
-    'compile storm[%i] debugMode returns sql',
-    async (_i, filter) => {
+  test('compile storm debugMode returns sql', async () => {
+    for (const filter of compileStorm) {
       const sql = await debugSql(filter);
       expect(sql).toContain('select');
       expect(sql.length).toBeGreaterThan(15);
-    },
-  );
+    }
+  });
 
   const gridTriple: any[] = [];
   for (const mid of [88, 99, 100, null]) {
@@ -800,23 +791,19 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
     }
   }
 
-  test.each(gridTriple.map((f, i) => [i, f] as const))(
-    'relation×prio grid[%i] executes',
-    async (_i, filter) => {
+  test('relation×prio grid executes', async () => {
+    for (const filter of gridTriple) {
       const idsFound = await rowIds(filter);
       expect(idsFound.every((id) => id >= 1 && id <= 6)).toBe(true);
-    },
-  );
+    }
+  });
 
   const oracleBulk = buildOracleStressFilters();
-  test.each(oracleBulk.map((f, i) => [i, f] as const))(
-    'oracle stress[%i] matches SqlQueryExecutor',
-    async (_i, filter) => {
-      expect(await rowIds(filter)).toEqual(
-        oracleExtensionRowIds(filter, 'ascii'),
-      );
-    },
-  );
+  test('oracle stress matches SqlQueryExecutor', async () => {
+    for (const filter of oracleBulk) {
+      expect(await rowIds(filter)).toEqual(oracleExtensionRowIds(filter, 'ascii'));
+    }
+  });
 });
 
 describe('separateFilters bulk generated (stress)', () => {
@@ -867,13 +854,12 @@ describe('separateFilters bulk generated (stress)', () => {
     });
   }
 
-  test.each(bulk.map((x) => [x.id, x.filter] as const))(
-    'bulk separateFilters[%i] reports hasRelations when relation present',
-    (_i, filter) => {
-      const { hasRelations } = separateFilters(filter, m as any);
+  test('bulk separateFilters reports hasRelations when relation present', () => {
+    for (const x of bulk) {
+      const { hasRelations } = separateFilters(x.filter, m as any);
       expect(hasRelations).toBe(true);
-    },
-  );
+    }
+  });
 });
 
 describe('separateFilters many-to-one vs one-to-one naming', () => {

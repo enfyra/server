@@ -1022,7 +1022,6 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
           columns: (tableMeta.columns || []).map((col: any) => ({
             name: col.name,
             type: col.type,
-            isHidden: col.isHidden,
           })),
           relations: tableMeta.relations || [],
         };

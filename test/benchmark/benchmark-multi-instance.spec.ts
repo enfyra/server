@@ -2,6 +2,7 @@ import { fork } from 'child_process';
 import * as path from 'path';
 
 const CHILD_SCRIPT = path.join(__dirname, '../helpers/benchmark-child.js');
+const RUN_BENCH = process.env.RUN_BENCHMARK_TESTS === '1';
 
 interface ChildResult {
   totalOps: number;
@@ -73,7 +74,15 @@ function diff(label: string, single: any, multi: any) {
   );
 }
 
-describe('Multi-instance with simulated DB I/O', () => {
+describe(
+  RUN_BENCH
+    ? 'Multi-instance with simulated DB I/O'
+    : 'Multi-instance with simulated DB I/O (skipped)',
+  () => {
+    if (!RUN_BENCH) {
+      it('skipped (set RUN_BENCHMARK_TESTS=1)', () => undefined);
+      return;
+    }
   jest.setTimeout(180000);
   const D = 5000;
   const C = 20; // total concurrent per test

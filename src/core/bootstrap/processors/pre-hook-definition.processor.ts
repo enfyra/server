@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
+import { getJunctionColumnNames } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 @Injectable()
 export class PreHookDefinitionProcessor extends BaseTableProcessor {
   constructor(private readonly queryBuilder: QueryBuilderService) {
@@ -120,15 +121,20 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
       const methodIds = methods.map((m: any) => m.id);
       if (methodIds.length > 0) {
         const junctionTable = 'pre_hook_definition_methods_method_definition';
+        const { sourceColumn, targetColumn } = getJunctionColumnNames(
+          'pre_hook_definition',
+          'methods',
+          'method_definition',
+        );
         await this.queryBuilder.delete({
           table: junctionTable,
           where: [
-            { field: 'preHookDefinitionId', operator: '=', value: record.id },
+            { field: sourceColumn, operator: '=', value: record.id },
           ],
         });
         const junctionData = methodIds.map((methodId) => ({
-          methodDefinitionId: methodId,
-          preHookDefinitionId: record.id,
+          [targetColumn]: methodId,
+          [sourceColumn]: record.id,
         }));
         await this.queryBuilder.insert({
           table: junctionTable,
