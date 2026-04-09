@@ -227,16 +227,18 @@ export class DynamicRepository {
     tableName: string,
     fields: string | string[] | undefined,
     deep: Record<string, any> | undefined,
-  ): Promise<{ fields: string | string[] | undefined; deep: Record<string, any> | undefined }> {
+  ): Promise<{ fields: string | string[] | undefined; deep: Record<string, any> | undefined; needsPostSql: boolean }> {
     if (!this.enforceFieldPermission || !this.fieldPermissionCacheService) {
-      return { fields, deep };
+      return { fields, deep, needsPostSql: false };
     }
     if (this.context?.$user?.isRootAdmin) {
-      return { fields, deep };
+      return { fields, deep, needsPostSql: false };
     }
 
     const meta = await this.metadataCacheService.lookupTableByName(tableName);
-    if (!meta) return { fields, deep };
+    if (!meta) return { fields, deep, needsPostSql: false };
+
+    let hasConditionalPending = false;
 
     const columnSet = new Set<string>(
       (meta.columns || []).map((c: any) => c.name as string),
@@ -297,6 +299,7 @@ export class DynamicRepository {
         } else {
           const hasConditional = await this.hasConditionalRulesForField(tableName, 'read', 'column', colName);
           if (!hasConditional) deniedColumns.add(colName);
+          else hasConditionalPending = true;
         }
       }
     }
@@ -323,6 +326,7 @@ export class DynamicRepository {
         } else {
           const hasConditional = await this.hasConditionalRulesForField(tableName, 'read', 'relation', relName);
           if (!hasConditional) deniedRelations.add(relName);
+          else hasConditionalPending = true;
         }
       }
     }
@@ -352,21 +356,23 @@ export class DynamicRepository {
         const relMeta = (meta.relations || []).find(
           (r: any) => r.propertyName === relName,
         );
-        if (!relMeta?.targetTable) continue;
-        const { fields: nf, deep: nd } = await this.stripDeniedFields(
-          relMeta.targetTable,
+        const targetTable = relMeta?.targetTable || relMeta?.targetTableName;
+        if (!targetTable) continue;
+        const nested = await this.stripDeniedFields(
+          targetTable,
           relEntry.fields,
           relEntry.deep,
         );
+        if (nested.needsPostSql) hasConditionalPending = true;
         cleanDeep[relName] = {
           ...relEntry,
-          ...(nf !== relEntry.fields ? { fields: nf } : {}),
-          ...(nd !== relEntry.deep ? { deep: nd } : {}),
+          ...(nested.fields !== relEntry.fields ? { fields: nested.fields } : {}),
+          ...(nested.deep !== relEntry.deep ? { deep: nested.deep } : {}),
         };
       }
     }
 
-    return { fields: cleanFields, deep: cleanDeep };
+    return { fields: cleanFields, deep: cleanDeep, needsPostSql: hasConditionalPending };
   }
 
   async find(
@@ -384,7 +390,7 @@ export class DynamicRepository {
 
     const rawFields = opt?.fields || this.context.$query?.fields;
     const rawDeep: Record<string, any> = this.context.$query?.deep || {};
-    const { fields: cleanFields, deep: cleanDeep } = await this.stripDeniedFields(
+    const { fields: cleanFields, deep: cleanDeep, needsPostSql } = await this.stripDeniedFields(
       this.tableName,
       rawFields,
       rawDeep,
@@ -410,10 +416,7 @@ export class DynamicRepository {
       maxQueryDepth: this.settingCacheService.getMaxQueryDepth(),
     } as any);
 
-    if (!this.enforceFieldPermission || !this.fieldPermissionCacheService) {
-      return result;
-    }
-    if (this.context?.$user?.isRootAdmin) {
+    if (!needsPostSql) {
       return result;
     }
 
