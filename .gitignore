@@ -66,6 +66,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /public
 
 CLAUDE.md
-.cursor/
 .mcp.json
-test

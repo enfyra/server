@@ -35,10 +35,25 @@ class ColumnDefinitionProcessor extends BaseTableProcessor {
     }));
   }
   getUniqueIdentifier(record: any): object {
-    return { [this.tableFieldName]: record[this.tableFieldName], name: record.name };
+    return {
+      [this.tableFieldName]: record[this.tableFieldName],
+      name: record.name,
+    };
   }
   protected getCompareFields(): string[] {
-    return ['type', 'isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isHidden', 'defaultValue', 'options', 'description', 'placeholder'];
+    return [
+      'type',
+      'isPrimary',
+      'isGenerated',
+      'isNullable',
+      'isSystem',
+      'isUpdatable',
+      'isHidden',
+      'defaultValue',
+      'options',
+      'description',
+      'placeholder',
+    ];
   }
 }
 class RelationDefinitionProcessor extends BaseTableProcessor {
@@ -56,18 +71,25 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
     }));
   }
   getUniqueIdentifier(record: any): object {
-    return { [this.sourceTableFieldName]: record[this.sourceTableFieldName], propertyName: record.propertyName };
+    return {
+      [this.sourceTableFieldName]: record[this.sourceTableFieldName],
+      propertyName: record.propertyName,
+    };
   }
   protected getCompareFields(): string[] {
-    return ['type', 'inversePropertyName', 'isNullable', 'isSystem', 'description'];
+    return [
+      'type',
+      'inversePropertyName',
+      'isNullable',
+      'isSystem',
+      'description',
+    ];
   }
 }
 @Injectable()
 export class MetadataProvisionMongoService {
   private readonly logger = new Logger(MetadataProvisionMongoService.name);
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-  ) {}
+  constructor(private readonly queryBuilder: QueryBuilderService) {}
   private buildRecordFromColumns(data: any, columns: any[]): any {
     const record: any = {};
     for (const col of columns) {
@@ -100,17 +122,29 @@ export class MetadataProvisionMongoService {
     const db = this.queryBuilder.getMongoDb();
     const tableNameToId: Record<string, ObjectId> = {};
     const columnDef = snapshot['column_definition'];
-    const tableRelation = columnDef?.relations?.find((r: any) => r.targetTable === 'table_definition');
+    const tableRelation = columnDef?.relations?.find(
+      (r: any) => r.targetTable === 'table_definition',
+    );
     const tableFieldName = tableRelation?.propertyName || 'table';
     const relationDef = snapshot['relation_definition'];
-    const sourceTableRelation = relationDef?.relations?.find((r: any) => r.propertyName === 'sourceTable');
-    const sourceTableFieldName = sourceTableRelation?.propertyName || 'sourceTable';
-    const targetTableRelation = relationDef?.relations?.find((r: any) => r.propertyName === 'targetTable');
-    const targetTableFieldName = targetTableRelation?.propertyName || 'targetTable';
-    this.logger.log(`Field names: table=${tableFieldName}, sourceTable=${sourceTableFieldName}, targetTable=${targetTableFieldName}`);
+    const sourceTableRelation = relationDef?.relations?.find(
+      (r: any) => r.propertyName === 'sourceTable',
+    );
+    const sourceTableFieldName =
+      sourceTableRelation?.propertyName || 'sourceTable';
+    const targetTableRelation = relationDef?.relations?.find(
+      (r: any) => r.propertyName === 'targetTable',
+    );
+    const targetTableFieldName =
+      targetTableRelation?.propertyName || 'targetTable';
+    this.logger.log(
+      `Field names: table=${tableFieldName}, sourceTable=${sourceTableFieldName}, targetTable=${targetTableFieldName}`,
+    );
     const tableProcessor = new TableDefinitionProcessor();
     const columnProcessor = new ColumnDefinitionProcessor(tableFieldName);
-    const relationProcessor = new RelationDefinitionProcessor(sourceTableFieldName);
+    const relationProcessor = new RelationDefinitionProcessor(
+      sourceTableFieldName,
+    );
     this.logger.log('Step 1: Upserting tables...');
     const tableDef = snapshot['table_definition'];
     if (!tableDef || !tableDef.columns) {
@@ -123,11 +157,19 @@ export class MetadataProvisionMongoService {
       record.isSingleRecord = tableData.isSingleRecord || false;
       return record;
     });
-    const tableResult = await tableProcessor.processMongo(tableRecords, db, 'table_definition');
-    this.logger.log(`Tables: ${tableResult.created} created, ${tableResult.skipped} skipped`);
+    const tableResult = await tableProcessor.processMongo(
+      tableRecords,
+      db,
+      'table_definition',
+    );
+    this.logger.log(
+      `Tables: ${tableResult.created} created, ${tableResult.skipped} skipped`,
+    );
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
-      const table = await db.collection('table_definition').findOne({ name: def.name });
+      const table = await db
+        .collection('table_definition')
+        .findOne({ name: def.name });
       if (table) {
         tableNameToId[tableName] = table._id;
       }
@@ -144,13 +186,21 @@ export class MetadataProvisionMongoService {
         const record = this.buildRecordFromColumns(col, columnDef.columns);
         record[tableFieldName] = tableId;
         if (tableName === 'table_definition' && col.name === 'name') {
-          this.logger.log(`Sample column record: ${JSON.stringify(record, null, 2)}`);
+          this.logger.log(
+            `Sample column record: ${JSON.stringify(record, null, 2)}`,
+          );
         }
         return record;
       });
       if (columnRecords.length > 0) {
-        const columnResult = await columnProcessor.processMongo(columnRecords, db, 'column_definition');
-        this.logger.log(`${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`);
+        const columnResult = await columnProcessor.processMongo(
+          columnRecords,
+          db,
+          'column_definition',
+        );
+        this.logger.log(
+          `${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`,
+        );
       }
     }
     this.logger.log('Step 3: Upserting relations...');
@@ -168,28 +218,42 @@ export class MetadataProvisionMongoService {
         if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
         const targetTableId = tableNameToId[rel.targetTable];
         if (!targetTableId) continue;
-        const directRelationRecord = this.buildRecordFromColumns(rel, relationDef.columns);
+        const directRelationRecord = this.buildRecordFromColumns(
+          rel,
+          relationDef.columns,
+        );
         directRelationRecord[sourceTableFieldName] = tableId;
         directRelationRecord[targetTableFieldName] = targetTableId;
-        const oldPropertyName = relationRenameMap[tableName]?.[rel.propertyName];
+        const oldPropertyName =
+          relationRenameMap[tableName]?.[rel.propertyName];
         if (oldPropertyName) {
           const existing = await relationColl.findOne({
             [sourceTableFieldName]: tableId,
             propertyName: oldPropertyName,
           });
           if (existing) {
-            const updatePayload: any = { propertyName: rel.propertyName, type: rel.type };
-            if (rel.inversePropertyName !== undefined) updatePayload.inversePropertyName = rel.inversePropertyName;
-            if (rel.isNullable !== undefined) updatePayload.isNullable = rel.isNullable;
-            if (rel.isSystem !== undefined) updatePayload.isSystem = rel.isSystem;
-            if (rel.isUpdatable !== undefined) updatePayload.isUpdatable = rel.isUpdatable;
-            if (rel.description !== undefined) updatePayload.description = rel.description;
+            const updatePayload: any = {
+              propertyName: rel.propertyName,
+              type: rel.type,
+            };
+            if (rel.inversePropertyName !== undefined)
+              updatePayload.inversePropertyName = rel.inversePropertyName;
+            if (rel.isNullable !== undefined)
+              updatePayload.isNullable = rel.isNullable;
+            if (rel.isSystem !== undefined)
+              updatePayload.isSystem = rel.isSystem;
+            if (rel.isUpdatable !== undefined)
+              updatePayload.isUpdatable = rel.isUpdatable;
+            if (rel.description !== undefined)
+              updatePayload.description = rel.description;
             updatePayload.updatedAt = new Date();
             await relationColl.updateOne(
               { _id: existing._id },
               { $set: updatePayload },
             );
-            this.logger.log(`Relation rename (Mongo): ${tableName}.${oldPropertyName} → ${rel.propertyName}`);
+            this.logger.log(
+              `Relation rename (Mongo): ${tableName}.${oldPropertyName} → ${rel.propertyName}`,
+            );
             if (rel.inversePropertyName) {
               const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
               processedInverseRelations.add(inverseKey);
@@ -197,7 +261,11 @@ export class MetadataProvisionMongoService {
             continue;
           }
         }
-        const directResult = await relationProcessor.processMongo([directRelationRecord], db, 'relation_definition');
+        const directResult = await relationProcessor.processMongo(
+          [directRelationRecord],
+          db,
+          'relation_definition',
+        );
         if (rel.inversePropertyName) {
           const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
           if (!processedInverseRelations.has(inverseKey)) {
@@ -216,10 +284,17 @@ export class MetadataProvisionMongoService {
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable !== false,
             };
-            const inverseRelationRecord = this.buildRecordFromColumns(inverseData, relationDef.columns);
+            const inverseRelationRecord = this.buildRecordFromColumns(
+              inverseData,
+              relationDef.columns,
+            );
             inverseRelationRecord[sourceTableFieldName] = targetTableId;
             inverseRelationRecord[targetTableFieldName] = tableId;
-            const inverseResult = await relationProcessor.processMongo([inverseRelationRecord], db, 'relation_definition');
+            const inverseResult = await relationProcessor.processMongo(
+              [inverseRelationRecord],
+              db,
+              'relation_definition',
+            );
           }
         }
       }

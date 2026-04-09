@@ -1,5 +1,3 @@
-
-
 export interface ColumnMetadata {
   id: number;
   name: string;
@@ -17,7 +15,6 @@ export interface ColumnMetadata {
   tableId: number;
 }
 
-
 export interface RelationMetadata {
   id: number;
   propertyName: string;
@@ -30,14 +27,13 @@ export interface RelationMetadata {
   isNullable: boolean;
   isSystem: boolean;
   description?: string;
-  
+
   foreignKeyColumn?: string;
-  
+
   junctionTableName?: string;
   junctionSourceColumn?: string;
   junctionTargetColumn?: string;
 }
-
 
 export interface TableMetadata {
   id: number;
@@ -50,7 +46,6 @@ export interface TableMetadata {
   columns: ColumnMetadata[];
   relations: RelationMetadata[];
 }
-
 
 export interface QueryFilter {
   [key: string]: any;
@@ -81,7 +76,6 @@ export interface QueryResult<T = any> {
   };
 }
 
-
 export interface JoinInfo {
   tableName: string;
   alias: string;
@@ -98,7 +92,6 @@ export interface SelectField {
   asName?: string;
 }
 
-
 export interface FilterPart {
   operator: 'AND' | 'OR';
   sql: string;
@@ -110,20 +103,17 @@ export interface ParsedFilter {
   joins: JoinInfo[];
 }
 
-
 export interface CascadeConfig {
   cascadeInsert: boolean;
   cascadeUpdate: boolean;
   cascadeDelete: boolean;
 }
 
-
 export interface MetadataCache {
   tables: Map<string, TableMetadata>;
   lastUpdated: number;
   ttl: number;
 }
-
 
 export type PrimaryKeyType = 'uuid' | 'integer' | 'bigint';
 
@@ -143,4 +133,3 @@ export interface JunctionTableInfo {
   targetColumn: string;
   sourcePropertyName: string;
 }
-

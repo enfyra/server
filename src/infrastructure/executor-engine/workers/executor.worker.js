@@ -166,12 +166,13 @@ $ctx.$dispatch = new Proxy({}, {
     __call('dispatchCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
 });
 
+const __throwDefaults = { 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Validation failed', 429: 'Too many requests', 500: 'Internal server error', 503: 'Service unavailable' };
 $ctx.$throw = new Proxy({}, {
   get: (_, status) => (message, details) => {
-    const err = new Error(message);
-    err.statusCode = parseInt(String(status));
-    err.details = details;
-    throw err;
+    const code = parseInt(String(status));
+    const msg = (message !== undefined && message !== null && message !== '') ? String(message) : (__throwDefaults[code] || 'Error');
+    const payload = JSON.stringify({ __userThrow: true, statusCode: code, message: msg, details: details || null });
+    throw new Error(payload);
   }
 });
 
@@ -241,14 +242,60 @@ async function createIsolateContext(id, pkgSources, snapshot, memoryLimitMb) {
   return { isolate, context };
 }
 
+function extractThrowInfo(error) {
+  try {
+    const parsed = JSON.parse(error.message);
+    if (parsed && parsed.__userThrow) return parsed;
+  } catch {}
+  return null;
+}
+
+const WRAPPER_LINE_OFFSET = 3;
+const SKIP_FILENAMES = ['setup.js', 'extract.js', 'extract-error-ctx.js', 'set-status.js', 'populate-error.js'];
+
+function parseUserCodeLocation(stack) {
+  if (!stack) return null;
+  const lines = stack.split('\n');
+  for (const line of lines) {
+    const m = line.match(/at\s+(.+\.js):(\d+):(\d+)/);
+    if (!m) continue;
+    const filename = m[1].trim();
+    if (SKIP_FILENAMES.includes(filename)) continue;
+    const rawLine = parseInt(m[2]);
+    const userLine = rawLine - WRAPPER_LINE_OFFSET;
+    if (userLine <= 0) continue;
+    return { line: userLine, column: parseInt(m[3]), phase: filename.replace('.js', '') };
+  }
+  return null;
+}
+
+function buildErrorPayload(error) {
+  const throwInfo = extractThrowInfo(error);
+  if (throwInfo) {
+    return {
+      message: throwInfo.message,
+      statusCode: throwInfo.statusCode,
+      details: throwInfo.details,
+    };
+  }
+  const loc = parseUserCodeLocation(error.stack);
+  const baseMsg = error.message || 'Unknown error';
+  const message = loc ? `${baseMsg} (${loc.phase}, line ${loc.line})` : baseMsg;
+  return {
+    message,
+    statusCode: error.statusCode || null,
+    details: loc || undefined,
+  };
+}
+
 function postError(id, error) {
+  const payload = buildErrorPayload(error);
   parentPort.postMessage({
     type: 'result',
     id,
     success: false,
     error: {
-      message: error.message,
-      statusCode: error.statusCode || null,
+      ...payload,
       stack: error.stack,
       code: error.code,
     },
@@ -354,12 +401,13 @@ async function handleExecuteBatch(msg) {
     }
 
     if (caughtError && postHooks.length > 0) {
+      const errPayload = buildErrorPayload(caughtError);
       const errorInfo = {
-        message: caughtError.message || 'Unknown error',
+        message: errPayload.message || 'Unknown error',
         name: caughtError.constructor?.name || 'Error',
         stack: caughtError.stack || '',
-        statusCode: caughtError.statusCode || caughtError.status || 500,
-        details: caughtError.details || {},
+        statusCode: errPayload.statusCode || 500,
+        details: errPayload.details || {},
         timestamp: new Date().toISOString(),
       };
 
@@ -406,6 +454,7 @@ if ($ctx.$api) {
     }
 
     if (caughtError) {
+      const errPayloadFinal = buildErrorPayload(caughtError);
       let ctxChanges;
       try {
         const extractCode = `JSON.stringify({
@@ -428,10 +477,11 @@ if ($ctx.$api) {
         id,
         success: false,
         error: {
-          message: caughtError.message,
-          statusCode: caughtError.statusCode || null,
+          message: errPayloadFinal.message,
+          statusCode: errPayloadFinal.statusCode,
           stack: caughtError.stack,
           code: caughtError.code,
+          details: errPayloadFinal.details,
         },
         ctxChanges,
       });

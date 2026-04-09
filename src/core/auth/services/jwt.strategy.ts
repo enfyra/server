@@ -22,14 +22,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const { id, loginProvider } = payload;
     const isMongoDB = this.queryBuilder.isMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
-    const idValue = isMongoDB ? (typeof id === 'string' ? new ObjectId(id) : id) : id;
-    const user = await this.queryBuilder.findOneWhere('user_definition', { [idField]: idValue });
+    const idValue = isMongoDB
+      ? typeof id === 'string'
+        ? new ObjectId(id)
+        : id
+      : id;
+    const user = await this.queryBuilder.findOneWhere('user_definition', {
+      [idField]: idValue,
+    });
     if (!user) return null;
 
     const roleField = isMongoDB ? 'role' : 'roleId';
     const roleId = user[roleField];
     if (roleId) {
-      user.role = await this.queryBuilder.findOneWhere('role_definition', { [idField]: roleId });
+      user.role = await this.queryBuilder.findOneWhere('role_definition', {
+        [idField]: roleId,
+      });
     }
 
     Object.assign(user, {

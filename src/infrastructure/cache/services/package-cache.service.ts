@@ -3,10 +3,20 @@ import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
-import { PackageCdnLoaderService, extractErrorMessage } from './package-cdn-loader.service';
+import {
+  PackageCdnLoaderService,
+  extractErrorMessage,
+} from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE, PACKAGE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+  PACKAGE_CACHE_SYNC_EVENT_KEY,
+} from '../../../shared/utils/constant';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const PACKAGE_CONFIG: CacheConfig = {
@@ -38,7 +48,10 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       await this.reload();
     }
@@ -127,13 +140,17 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     for (const pkg of toPreload) {
       try {
         await this.cdnLoader.loadPackage(pkg.name, pkg.version);
-        await this.updatePackageStatus(pkg.id, 'installed', { lastError: null });
+        await this.updatePackageStatus(pkg.id, 'installed', {
+          lastError: null,
+        });
         this.emitEvent('installed', { id: pkg.id, name: pkg.name });
         loaded++;
       } catch (error) {
         const errorDetail = extractErrorMessage(error);
         this.logger.error(`CDN preload failed for ${pkg.name}: ${errorDetail}`);
-        await this.updatePackageStatus(pkg.id, 'failed', { lastError: errorDetail });
+        await this.updatePackageStatus(pkg.id, 'failed', {
+          lastError: errorDetail,
+        });
         this.emitEvent('failed', {
           id: pkg.id,
           name: pkg.name,
@@ -150,7 +167,12 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   private async loadPackagesForSync(): Promise<
-    Array<{ id: string | number; name: string; version: string; status: string }>
+    Array<{
+      id: string | number;
+      name: string;
+      version: string;
+      status: string;
+    }>
   > {
     const result = await this.queryBuilder.select({
       tableName: 'package_definition',

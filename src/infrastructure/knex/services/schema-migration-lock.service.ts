@@ -32,7 +32,10 @@ export class SchemaMigrationLockService {
     const lockedBy = this.buildInstanceId();
 
     if (dbType === 'postgres') {
-      const result = await knex.raw('SELECT pg_try_advisory_lock(?) AS locked', [this.lockId]);
+      const result = await knex.raw(
+        'SELECT pg_try_advisory_lock(?) AS locked',
+        [this.lockId],
+      );
       const locked = result?.rows?.[0]?.locked;
       if (!locked) {
         throw await this.buildLockedError(knex);
@@ -42,12 +45,15 @@ export class SchemaMigrationLockService {
     }
 
     if (dbType === 'mysql') {
-      const result = await knex.raw('SELECT GET_LOCK(?, 0) AS locked', [this.lockName]);
+      const result = await knex.raw('SELECT GET_LOCK(?, 0) AS locked', [
+        this.lockName,
+      ]);
       const rawLocked =
         result?.[0]?.[0]?.locked ??
         result?.[0]?.[0]?.LOCKED ??
         Object.values(result?.[0]?.[0] || {})[0];
-      const lockedValue = typeof rawLocked === 'number' ? rawLocked : Number(rawLocked);
+      const lockedValue =
+        typeof rawLocked === 'number' ? rawLocked : Number(rawLocked);
       if (lockedValue !== 1) {
         throw await this.buildLockedError(knex);
       }
@@ -68,7 +74,9 @@ export class SchemaMigrationLockService {
       try {
         await knex.raw('SELECT pg_advisory_unlock(?)', [this.lockId]);
       } catch (error) {
-        this.logger.error(`pg_advisory_unlock failed: ${(error as Error).message}`);
+        this.logger.error(
+          `pg_advisory_unlock failed: ${(error as Error).message}`,
+        );
       }
     } else if (handle.dbType === 'mysql') {
       try {
@@ -106,16 +114,14 @@ export class SchemaMigrationLockService {
         lockedContext: context,
         lockToken: token,
       };
-      
+
       if (dbType === 'postgres') {
         updateData.lockedAt = new Date().toISOString();
       } else {
         updateData.lockedAt = trx.raw('NOW()');
       }
-      
-      await trx(this.tableName)
-        .where({ id: 1 })
-        .update(updateData);
+
+      await trx(this.tableName).where({ id: 1 }).update(updateData);
       return { token, dbType };
     });
 
@@ -179,16 +185,14 @@ export class SchemaMigrationLockService {
       lockedContext: context,
       lockToken: token,
     };
-    
+
     if (dbType === 'postgres') {
       updateData.lockedAt = new Date().toISOString();
     } else {
       updateData.lockedAt = knex.raw('NOW()');
     }
-    
-    await knex(this.tableName)
-      .where({ id: 1 })
-      .update(updateData);
+
+    await knex(this.tableName).where({ id: 1 }).update(updateData);
   }
 
   private async clearLockRow(knex: KnexLike, token: string): Promise<void> {
@@ -220,12 +224,15 @@ export class SchemaMigrationLockService {
 
   private async buildLockedError(knex: KnexLike): Promise<DatabaseException> {
     const info = await this.readLockInfo(knex);
-    return new DatabaseException('Schema is being updated, please try again later.', {
-      reason: 'schema_locked',
-      lockedBy: info?.lockedBy || null,
-      lockedAt: info?.lockedAt || null,
-      lockedContext: info?.lockedContext || null,
-    });
+    return new DatabaseException(
+      'Schema is being updated, please try again later.',
+      {
+        reason: 'schema_locked',
+        lockedBy: info?.lockedBy || null,
+        lockedAt: info?.lockedAt || null,
+        lockedContext: info?.lockedContext || null,
+      },
+    );
   }
 
   private async readLockInfo(knex: KnexLike): Promise<any> {
@@ -234,8 +241,11 @@ export class SchemaMigrationLockService {
   }
 
   private buildInstanceId(): string {
-    const parts = [process.env.INSTANCE_ID, process.env.HOSTNAME, String(process.pid)];
+    const parts = [
+      process.env.INSTANCE_ID,
+      process.env.HOSTNAME,
+      String(process.pid),
+    ];
     return parts.filter(Boolean).join(':') || 'unknown-instance';
   }
 }
-

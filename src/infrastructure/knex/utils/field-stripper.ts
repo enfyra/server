@@ -1,15 +1,14 @@
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 export class FieldStripper {
-  constructor(
-    private metadataCacheService: MetadataCacheService,
-  ) {}
+  constructor(private metadataCacheService: MetadataCacheService) {}
   async stripUnknownColumns(tableName: string, data: any): Promise<any> {
     if (!tableName) {
       return data;
     }
     const metadata = await this.metadataCacheService.getMetadata();
-    const tableMeta = metadata.tables?.get?.(tableName) ||
-                      metadata.tablesList?.find((t: any) => t.name === tableName);
+    const tableMeta =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMeta || !tableMeta.columns) {
       return data;
     }
@@ -37,8 +36,9 @@ export class FieldStripper {
       return data;
     }
     const metadata = await this.metadataCacheService.getMetadata();
-    const tableMeta = metadata.tables?.get?.(tableName) ||
-                      metadata.tablesList?.find((t: any) => t.name === tableName);
+    const tableMeta =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
     if (!tableMeta || !tableMeta.columns) {
       return data;
     }

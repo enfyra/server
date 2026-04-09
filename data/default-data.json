@@ -43,7 +43,7 @@
             "isSystem":true,
             "icon": "lucide:git-branch",
             "publishedMethods": ["GET"],
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/table_definition",
@@ -148,7 +148,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/pre_hook_definition",
@@ -156,7 +156,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/post_hook_definition",
@@ -164,7 +164,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/route_handler_definition",
@@ -172,7 +172,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/route_permission_definition",
@@ -180,7 +180,7 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/menu_definition",
@@ -189,7 +189,7 @@
             "isSystem": true,
             "icon": "lucide:menu",
             "publishedMethods": ["GET"],
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/extension_definition",
@@ -198,7 +198,7 @@
             "isSystem": true,
             "icon": "lucide:puzzle",
             "publishedMethods": ["GET"],
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/extension_definition/preview",
@@ -239,7 +239,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:file",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/assets/:id",
@@ -296,7 +296,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:play",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/storage_config_definition",
@@ -305,7 +305,7 @@
             "isSystem": true,
             "icon": "lucide:hard-drive",
             "publishedMethods": ["GET"],
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/admin/reload",
@@ -396,7 +396,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:radio-tower",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/websocket_event_definition",
@@ -404,7 +404,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:zap",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/oauth_config_definition",
@@ -412,7 +412,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/oauth_account_definition",
@@ -420,7 +420,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:link",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/flow_definition",
@@ -428,7 +428,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:workflow",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/flow_step_definition",
@@ -436,7 +436,7 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:git-branch",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
             "path": "/flow_execution_definition",
@@ -444,7 +444,31 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:play-circle",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
+            "path": "/guard_definition",
+            "mainTable": "guard_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:shield",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
+            "path": "/guard_rule_definition",
+            "mainTable": "guard_rule_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:shield-check",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
+            "path": "/admin/reload/guards",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:shield",
+            "description": "Reload guards cache",
+            "availableMethods": ["POST"]
         }
     ],
     "pre_hook_definition": [
@@ -635,13 +659,36 @@
         },
         {
             "type": "Menu",
+            "label": "Guards",
+            "icon": "lucide:shield",
+            "path": "/settings/guards",
+            "isEnabled": true,
+            "isSystem": true,
+            "description": "Guard management (rate limiting, IP filtering)",
+            "order": 5,
+            "parent": "Settings",
+            "permission": {
+                "and": [
+                    { "route": "/guard_definition", "actions": ["read"] },
+                    {
+                        "or": [
+                            { "route": "/guard_definition", "actions": ["create"] },
+                            { "route": "/guard_definition", "actions": ["update"] },
+                            { "route": "/guard_definition", "actions": ["delete"] }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Menu",
             "label": "API Tester",
             "icon": "lucide:flask-conical",
             "path": "/settings/api-tester",
             "isEnabled": true,
             "isSystem": true,
             "description": "Test API endpoints",
-            "order": 5,
+            "order": 6,
             "parent": "Settings"
         },
         {

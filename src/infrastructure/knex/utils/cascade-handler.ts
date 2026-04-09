@@ -17,11 +17,44 @@ export class CascadeHandler {
     private knexInstance: Knex,
     private metadataCacheService: MetadataCacheService,
     private logger: Logger,
-    private stripUnknownColumns?: (tableName: string, data: any) => Promise<any>,
-    private stripNonUpdatableFields?: (tableName: string, data: any) => Promise<any>,
-    private insertWithCascade?: (tableName: string, data: any, trx?: Knex | Knex.Transaction) => Promise<any>,
-    private updateWithCascade?: (tableName: string, recordId: any, data: any, trx?: Knex | Knex.Transaction) => Promise<void>,
+    private stripUnknownColumns?: (
+      tableName: string,
+      data: any,
+    ) => Promise<any>,
+    private stripNonUpdatableFields?: (
+      tableName: string,
+      data: any,
+    ) => Promise<any>,
+    private insertWithCascade?: (
+      tableName: string,
+      data: any,
+      trx?: Knex | Knex.Transaction,
+    ) => Promise<any>,
+    private updateWithCascade?: (
+      tableName: string,
+      recordId: any,
+      data: any,
+      trx?: Knex | Knex.Transaction,
+    ) => Promise<void>,
+    private getPolicyContext?: () => {
+      check: (
+        tableName: string,
+        operation: 'create' | 'update' | 'delete',
+        data: any,
+      ) => Promise<void>;
+    } | null,
   ) {}
+
+  private async checkPolicy(
+    tableName: string,
+    operation: 'create' | 'update' | 'delete',
+    data: any,
+  ): Promise<void> {
+    const ctx = this.getPolicyContext?.();
+    if (ctx) {
+      await ctx.check(tableName, operation, data);
+    }
+  }
 
   async handleCascadeRelations(
     tableName: string,
@@ -38,7 +71,9 @@ export class CascadeHandler {
     const originalRelationData = contextData.relationData || contextData;
 
     const metadata = await this.metadataCacheService.getMetadata();
-    const tableMetadata = metadata.tables?.get?.(tableName) || metadata.tablesList?.find((t: any) => t.name === tableName);
+    const tableMetadata =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
 
     if (!tableMetadata?.relations) {
       cascadeContextMap.delete(tableName);
@@ -64,11 +99,15 @@ export class CascadeHandler {
       const relValue = originalRelationData[relName];
 
       if (relation.type === 'many-to-one') {
-        const foreignKeyColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relName);
+        const foreignKeyColumn =
+          relation.foreignKeyColumn || getForeignKeyColumnName(relName);
         let targetTableName = relation.targetTableName || relation.targetTable;
 
         if (!targetTableName) {
-          targetTableName = await this.resolveTargetTableName(relName, tableName);
+          targetTableName = await this.resolveTargetTableName(
+            relName,
+            tableName,
+          );
         }
 
         if (!foreignKeyColumn) {
@@ -105,7 +144,11 @@ export class CascadeHandler {
             continue;
           }
 
-          const newId = await this.insertRecordAndGetId(targetTableName, valueObject, knex);
+          const newId = await this.insertRecordAndGetId(
+            targetTableName,
+            valueObject,
+            knex,
+          );
           if (newId == null) {
             this.logger.warn(`Failed to capture new ${relName} id`);
             continue;
@@ -135,7 +178,10 @@ export class CascadeHandler {
         const targetColumn = relation.junctionTargetColumn;
         let targetTableName = relation.targetTableName || relation.targetTable;
         if (!targetTableName) {
-          targetTableName = await this.resolveTargetTableName(relName, tableName);
+          targetTableName = await this.resolveTargetTableName(
+            relName,
+            tableName,
+          );
         }
 
         if (!junctionTable || !sourceColumn || !targetColumn) {
@@ -155,11 +201,17 @@ export class CascadeHandler {
             if ('id' in item && item.id != null) {
               ids.push(item.id);
             } else {
-              const newId = await this.insertRecordAndGetId(targetTableName, item, knex);
+              const newId = await this.insertRecordAndGetId(
+                targetTableName,
+                item,
+                knex,
+              );
               if (newId != null) {
                 ids.push(newId);
               } else {
-                this.logger.warn(`Failed to create related record for ${relName}`);
+                this.logger.warn(
+                  `Failed to create related record for ${relName}`,
+                );
               }
             }
           } else {
@@ -167,21 +219,19 @@ export class CascadeHandler {
           }
         }
 
-        await knex(junctionTable)
-          .where(sourceColumn, recordId)
-          .delete();
+        await knex(junctionTable).where(sourceColumn, recordId).delete();
 
         if (ids.length > 0) {
-          const junctionRecords = ids.map(targetId => ({
+          const junctionRecords = ids.map((targetId) => ({
             [sourceColumn]: recordId,
             [targetColumn]: targetId,
           }));
 
           await knex(junctionTable).insert(junctionRecords);
         }
-
       } else if (relation.type === 'one-to-many') {
-        const targetTableName = relation.targetTableName || relation.targetTable;
+        const targetTableName =
+          relation.targetTableName || relation.targetTable;
         const foreignKeyColumn = relation.foreignKeyColumn;
 
         if (!targetTableName || !foreignKeyColumn) {
@@ -194,9 +244,13 @@ export class CascadeHandler {
           .select('id');
 
         const existingIds = existingItems.map((item: any) => String(item.id));
-        const incomingIds = relValue.filter((item: any) => item?.id).map((item: any) => String(item.id));
+        const incomingIds = relValue
+          .filter((item: any) => item?.id)
+          .map((item: any) => String(item.id));
 
-        const idsToRemove = existingIds.filter(id => !incomingIds.includes(id));
+        const idsToRemove = existingIds.filter(
+          (id) => !incomingIds.includes(id),
+        );
 
         if (idsToRemove.length > 0) {
           await knex(targetTableName)
@@ -218,9 +272,9 @@ export class CascadeHandler {
             await this.insertRecordAndGetId(targetTableName, newItem, knex);
           }
         }
-
       } else if (relation.type === 'one-to-one') {
-        const targetTableName = relation.targetTableName || relation.targetTable;
+        const targetTableName =
+          relation.targetTableName || relation.targetTable;
         const foreignKeyColumn = relation.foreignKeyColumn;
         const isInverse = relation.isInverse;
 
@@ -229,7 +283,9 @@ export class CascadeHandler {
           continue;
         }
 
-        const items = (Array.isArray(relValue) ? relValue : [relValue]).filter((item: any) => item != null);
+        const items = (Array.isArray(relValue) ? relValue : [relValue]).filter(
+          (item: any) => item != null,
+        );
 
         if (isInverse) {
           if (items.length === 0) {
@@ -242,18 +298,25 @@ export class CascadeHandler {
           const linkedOwnerIds: any[] = [];
 
           for (const rawItem of items) {
-            const item = typeof rawItem === 'object' ? rawItem : { id: rawItem };
+            const item =
+              typeof rawItem === 'object' ? rawItem : { id: rawItem };
             if (!item || typeof item !== 'object') {
               continue;
             }
 
             let ownerId = item.id ?? null;
             if (ownerId == null) {
-              ownerId = await this.insertRecordAndGetId(targetTableName, item, knex);
+              ownerId = await this.insertRecordAndGetId(
+                targetTableName,
+                item,
+                knex,
+              );
             }
 
             if (ownerId == null) {
-              this.logger.warn(`Unable to resolve owner id for inverse O2O ${relName}`);
+              this.logger.warn(
+                `Unable to resolve owner id for inverse O2O ${relName}`,
+              );
               continue;
             }
 
@@ -284,10 +347,16 @@ export class CascadeHandler {
               .where('id', recordId)
               .update({ [foreignKeyColumn]: item.id });
           } else {
-            const newRelatedId = await this.insertRecordAndGetId(targetTableName, item, knex);
+            const newRelatedId = await this.insertRecordAndGetId(
+              targetTableName,
+              item,
+              knex,
+            );
 
             if (newRelatedId == null) {
-              this.logger.warn(`Failed to create related entity for ${relName}`);
+              this.logger.warn(
+                `Failed to create related entity for ${relName}`,
+              );
               continue;
             }
 
@@ -312,8 +381,9 @@ export class CascadeHandler {
     }
 
     const metadata = await this.metadataCacheService.getMetadata();
-    const tableMeta = metadata.tables?.get?.(tableName) ||
-                      metadata.tablesList?.find((t: any) => t.name === tableName);
+    const tableMeta =
+      metadata.tables?.get?.(tableName) ||
+      metadata.tablesList?.find((t: any) => t.name === tableName);
 
     if (!tableMeta || !tableMeta.relations) return;
 
@@ -327,16 +397,23 @@ export class CascadeHandler {
     }
   }
 
-  private async resolveTargetTableName(relationName: string, parentTableName: string): Promise<string | null> {
+  private async resolveTargetTableName(
+    relationName: string,
+    parentTableName: string,
+  ): Promise<string | null> {
     try {
       const metadata = await this.metadataCacheService.getMetadata();
       const tableMeta =
         metadata.tables?.get?.(parentTableName) ||
         metadata.tablesList?.find((t: any) => t.name === parentTableName);
 
-        const relationMeta = Array.isArray(tableMeta?.relations)
-          ? tableMeta?.relations?.find((rel: any) => rel.propertyName === relationName)
-          : Object.values(tableMeta?.relations || {}).find((rel: any) => rel.propertyName === relationName);
+      const relationMeta = Array.isArray(tableMeta?.relations)
+        ? tableMeta?.relations?.find(
+            (rel: any) => rel.propertyName === relationName,
+          )
+        : Object.values(tableMeta?.relations || {}).find(
+            (rel: any) => rel.propertyName === relationName,
+          );
 
       if (relationMeta?.targetTableName || relationMeta?.targetTable) {
         return relationMeta.targetTableName || relationMeta.targetTable;
@@ -380,11 +457,17 @@ export class CascadeHandler {
   ): Promise<any> {
     if (!targetTableName || !data) return null;
 
+    await this.checkPolicy(targetTableName, 'create', data);
+
     let newRecord = { ...data };
     delete newRecord.id;
 
     if (this.insertWithCascade) {
-      const result = await this.insertWithCascade(targetTableName, newRecord, knexOrTrx);
+      const result = await this.insertWithCascade(
+        targetTableName,
+        newRecord,
+        knexOrTrx,
+      );
       if (result && result.id) {
         return result.id;
       }
@@ -404,10 +487,14 @@ export class CascadeHandler {
     const clientName = (knex?.client as any)?.config?.client || '';
 
     if (clientName.includes('pg')) {
-      const result = await knex(targetTableName).insert(newRecord).returning('id');
+      const result = await knex(targetTableName)
+        .insert(newRecord)
+        .returning('id');
       const inserted = Array.isArray(result) ? result[0] : result;
       if (inserted == null) return null;
-      return typeof inserted === 'object' ? inserted.id ?? Object.values(inserted)[0] : inserted;
+      return typeof inserted === 'object'
+        ? (inserted.id ?? Object.values(inserted)[0])
+        : inserted;
     }
 
     const result = await knex(targetTableName).insert(newRecord);
@@ -423,7 +510,9 @@ export class CascadeHandler {
         const row = rawResult?.[0]?.[0] || rawResult?.rows?.[0];
         if (row?.lastId) newId = row.lastId;
       } catch {
-        const fallback = await knex(targetTableName).orderBy('id', 'desc').first('id');
+        const fallback = await knex(targetTableName)
+          .orderBy('id', 'desc')
+          .first('id');
         newId = fallback?.id;
       }
     }
@@ -444,7 +533,10 @@ export class CascadeHandler {
     }
 
     if (this.stripNonUpdatableFields) {
-      updateData = await this.stripNonUpdatableFields(targetTableName, updateData);
+      updateData = await this.stripNonUpdatableFields(
+        targetTableName,
+        updateData,
+      );
     }
 
     return updateData;

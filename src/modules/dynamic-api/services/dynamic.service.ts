@@ -55,7 +55,10 @@ export class DynamicService {
       let value: any;
       let shortCircuit = false;
       try {
-        const result = await this.handlerExecutorService.runBatch(req, timeoutMs);
+        const result = await this.handlerExecutorService.runBatch(
+          req,
+          timeoutMs,
+        );
         value = result.value;
         shortCircuit = result.shortCircuit;
       } finally {
@@ -65,11 +68,13 @@ export class DynamicService {
       if (shortCircuit) {
         const httpRes = req.routeData.res;
         if (httpRes && !httpRes.headersSent) {
-          httpRes.status(200).json(
-            req.routeData.context.$share.$logs.length
-              ? { result: value, logs: req.routeData.context.$share.$logs }
-              : value,
-          );
+          httpRes
+            .status(200)
+            .json(
+              req.routeData.context.$share.$logs.length
+                ? { result: value, logs: req.routeData.context.$share.$logs }
+                : value,
+            );
         }
         return undefined;
       }

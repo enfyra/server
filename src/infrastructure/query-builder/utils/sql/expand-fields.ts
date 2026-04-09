@@ -1,8 +1,15 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
-import { buildNestedSubquery, buildCTEStrategy, buildOwnerCTEStrategy } from './nested-subquery-builder';
-import { quoteIdentifier, getEmptyJsonArray } from '../../../knex/utils/migration/sql-dialect';
+import {
+  buildNestedSubquery,
+  buildCTEStrategy,
+  buildOwnerCTEStrategy,
+} from './nested-subquery-builder';
+import {
+  quoteIdentifier,
+  getEmptyJsonArray,
+} from '../../../knex/utils/migration/sql-dialect';
 
 export interface LimitedCteSortJoinStep {
   targetTable: string;
@@ -23,7 +30,7 @@ interface FieldExpansionResult {
 
 interface TableMetadata {
   name: string;
-  columns: Array<{ name: string; type: string }>;
+  columns: Array<{ name: string; type: string; isHidden?: boolean }>;
   relations: Array<{
     propertyName: string;
     type: 'many-to-one' | 'one-to-many' | 'one-to-one' | 'many-to-many';
@@ -46,6 +53,7 @@ export async function expandFieldsToJoinsAndSelect(
   whereClause?: string,
   offset?: number,
   limitedCteSortJoin?: LimitedCteSortJoin,
+  maxDepth?: number,
 ): Promise<FieldExpansionResult> {
   const select: string[] = [];
 
@@ -79,20 +87,32 @@ export async function expandFieldsToJoinsAndSelect(
     if (field === '*') {
       const fkColumnsToOmit = new Set<string>();
       for (const rel of baseMeta.relations || []) {
-        if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
-          const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.targetTableName);
+        if (
+          rel.type === 'many-to-one' ||
+          (rel.type === 'one-to-one' && !(rel as any).isInverse)
+        ) {
+          const fkCol =
+            rel.foreignKeyColumn ||
+            getForeignKeyColumnName(rel.targetTableName);
           if (fkCol) fkColumnsToOmit.add(fkCol);
         }
       }
       const addedColumnNames = new Set<string>();
       for (const col of baseMeta.columns) {
         if (fkColumnsToOmit.has(col.name)) continue;
-        select.push(`${tableName}.${col.name}`);
+        if (col.isHidden === true) {
+          select.push(`(NULL) as ${quoteIdentifier(col.name, dbType)}`);
+        } else {
+          select.push(`${tableName}.${col.name}`);
+        }
         addedColumnNames.add(col.name);
       }
 
       for (const rel of baseMeta.relations || []) {
-        if (!fieldsByRelation.has(rel.propertyName) && !addedColumnNames.has(rel.propertyName)) {
+        if (
+          !fieldsByRelation.has(rel.propertyName) &&
+          !addedColumnNames.has(rel.propertyName)
+        ) {
           fieldsByRelation.set(rel.propertyName, ['id']);
         }
       }
@@ -105,13 +125,19 @@ export async function expandFieldsToJoinsAndSelect(
       continue;
     }
 
-    const matchingColumn = baseMeta.columns?.find(c => c.name === field);
+    const matchingColumn = baseMeta.columns?.find((c) => c.name === field);
     if (matchingColumn) {
-      select.push(`${tableName}.${field}`);
+      if (matchingColumn.isHidden === true) {
+        select.push(`(NULL) as ${quoteIdentifier(field, dbType)}`);
+      } else {
+        select.push(`${tableName}.${field}`);
+      }
       continue;
     }
 
-    const matchingRelation = baseMeta.relations?.find(r => r.propertyName === field);
+    const matchingRelation = baseMeta.relations?.find(
+      (r) => r.propertyName === field,
+    );
     if (matchingRelation) {
       if (!fieldsByRelation.has(field)) {
         fieldsByRelation.set(field, ['id']);
@@ -133,7 +159,7 @@ export async function expandFieldsToJoinsAndSelect(
     const wherePart = whereClause ? ` ${whereClause}` : '';
     let orderByInCTE = orderByClause || '';
     if (orderByInCTE) {
-      const parts = orderByInCTE.split(' ').map(part => {
+      const parts = orderByInCTE.split(' ').map((part) => {
         if (['ORDER', 'BY', 'ASC', 'DESC'].includes(part.toUpperCase())) {
           return part;
         }
@@ -144,8 +170,14 @@ export async function expandFieldsToJoinsAndSelect(
       });
       orderByInCTE = parts.join(' ');
     }
-    const limitSQL = limit !== undefined && limit !== null && limit > 0 ? `LIMIT ${limit}` : '';
-    const offsetSQL = offset !== undefined && offset !== null && offset > 0 ? `OFFSET ${offset}` : '';
+    const limitSQL =
+      limit !== undefined && limit !== null && limit > 0
+        ? `LIMIT ${limit}`
+        : '';
+    const offsetSQL =
+      offset !== undefined && offset !== null && offset > 0
+        ? `OFFSET ${offset}`
+        : '';
     const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const pkColumn = baseMeta ? getPrimaryKeyColumn(baseMeta as any) : null;
     const pkName = pkColumn?.name || 'id';
@@ -165,7 +197,10 @@ export async function expandFieldsToJoinsAndSelect(
         sortJoinFragment += ` LEFT JOIN ${qTarget} ${stepAlias} ON ${stepAlias}.${qPk} = ${lastRef}.${qFk}`;
         lastRef = stepAlias;
       }
-      const finalAlias = limitedCteSortJoin.steps.length === 1 ? 's_sort' : `s_sort_${limitedCteSortJoin.steps.length - 1}`;
+      const finalAlias =
+        limitedCteSortJoin.steps.length === 1
+          ? 's_sort'
+          : `s_sort_${limitedCteSortJoin.steps.length - 1}`;
       const qSortField = quoteIdentifier(limitedCteSortJoin.sortField, dbType);
       const sortOrderBy = `ORDER BY ${finalAlias}.${qSortField} ${limitedCteSortJoin.direction.toUpperCase()}`;
       if (orderByInCTE) {
@@ -175,7 +210,9 @@ export async function expandFieldsToJoinsAndSelect(
       }
     }
 
-    const selectPk = sortJoinFragment ? `${quotedTable}.${quotedPkCol}` : quotedPkCol;
+    const selectPk = sortJoinFragment
+      ? `${quotedTable}.${quotedPkCol}`
+      : quotedPkCol;
     cteClauses.push(`${quotedLimitedCTE} AS (
       SELECT ${selectPk} FROM ${quotedTable}${sortJoinFragment}${wherePart}${effectiveOrderBy ? ' ' + effectiveOrderBy : ''}${limitSQL ? ' ' + limitSQL : ''}${offsetSQL ? ' ' + offsetSQL : ''}
     )`);
@@ -184,17 +221,26 @@ export async function expandFieldsToJoinsAndSelect(
   for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
     if (relationName === '') continue;
 
-    const relation = baseMeta.relations?.find(r => r.propertyName === relationName);
+    const relation = baseMeta.relations?.find(
+      (r) => r.propertyName === relationName,
+    );
     if (!relation) {
       continue;
     }
 
-    const isIdOnly = nestedFields.length === 1 && (nestedFields[0] === 'id' || nestedFields[0] === '_id');
-    const isOwnerRelation = relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse);
+    const isIdOnly =
+      nestedFields.length === 1 &&
+      (nestedFields[0] === 'id' || nestedFields[0] === '_id');
+    const isOwnerRelation =
+      relation.type === 'many-to-one' ||
+      (relation.type === 'one-to-one' && !(relation as any).isInverse);
 
     if (isIdOnly && isOwnerRelation) {
-      const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.targetTableName);
-      const jsonObjectFunc = dbType === 'postgres' ? 'jsonb_build_object' : 'JSON_OBJECT';
+      const fkColumn =
+        relation.foreignKeyColumn ||
+        getForeignKeyColumnName(relation.targetTableName);
+      const jsonObjectFunc =
+        dbType === 'postgres' ? 'jsonb_build_object' : 'JSON_OBJECT';
       const quotedTable = quoteIdentifier(tableName, dbType);
       const quotedFkCol = quoteIdentifier(fkColumn, dbType);
       const quotedRelation = quoteIdentifier(relationName, dbType);
@@ -211,6 +257,8 @@ export async function expandFieldsToJoinsAndSelect(
         dbType,
         metadataGetter as any,
         limitedCTEName,
+        undefined,
+        maxDepth,
       );
 
       if (cteClause) {
@@ -219,7 +267,9 @@ export async function expandFieldsToJoinsAndSelect(
         const quotedCTEName = quoteIdentifier(cteName, dbType);
         const quotedRelation = quoteIdentifier(relationName, dbType);
         const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
-        select.push(`${quotedCTEName}.${quotedRelationInCTE} as ${quotedRelation}`);
+        select.push(
+          `${quotedCTEName}.${quotedRelationInCTE} as ${quotedRelation}`,
+        );
       } else {
         const subquery = await buildNestedSubquery(
           tableName,
@@ -228,13 +278,23 @@ export async function expandFieldsToJoinsAndSelect(
           nestedFields,
           dbType,
           metadataGetter as any,
+          0,
+          undefined,
+          undefined,
+          maxDepth,
         );
 
         if (subquery) {
-          select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
+          select.push(
+            `${subquery} as ${quoteIdentifier(relationName, dbType)}`,
+          );
         }
       }
-    } else if (useCTE && limitedCTEName && (relation.type === 'one-to-many' || relation.type === 'many-to-many')) {
+    } else if (
+      useCTE &&
+      limitedCTEName &&
+      (relation.type === 'one-to-many' || relation.type === 'many-to-many')
+    ) {
       const cteClause = await buildCTEStrategy(
         tableName,
         baseMeta as any,
@@ -243,6 +303,8 @@ export async function expandFieldsToJoinsAndSelect(
         dbType,
         metadataGetter as any,
         limitedCTEName,
+        undefined,
+        maxDepth,
       );
 
       if (cteClause) {
@@ -250,9 +312,12 @@ export async function expandFieldsToJoinsAndSelect(
         const cteName = `${relationName}_agg`;
         const quotedCTEName = quoteIdentifier(cteName, dbType);
         const quotedRelation = quoteIdentifier(relationName, dbType);
-        const emptyArray = dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
+        const emptyArray =
+          dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
         const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
-        select.push(`COALESCE(${quotedCTEName}.${quotedRelationInCTE}, ${emptyArray}) as ${quotedRelation}`);
+        select.push(
+          `COALESCE(${quotedCTEName}.${quotedRelationInCTE}, ${emptyArray}) as ${quotedRelation}`,
+        );
       } else {
         const subquery = await buildNestedSubquery(
           tableName,
@@ -261,10 +326,16 @@ export async function expandFieldsToJoinsAndSelect(
           nestedFields,
           dbType,
           metadataGetter as any,
+          0,
+          undefined,
+          undefined,
+          maxDepth,
         );
 
         if (subquery) {
-          select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
+          select.push(
+            `${subquery} as ${quoteIdentifier(relationName, dbType)}`,
+          );
         }
       }
     } else {
@@ -275,6 +346,10 @@ export async function expandFieldsToJoinsAndSelect(
         nestedFields,
         dbType,
         metadataGetter as any,
+        0,
+        undefined,
+        undefined,
+        maxDepth,
       );
 
       if (subquery) {

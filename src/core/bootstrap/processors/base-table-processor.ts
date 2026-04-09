@@ -36,7 +36,9 @@ export abstract class BaseTableProcessor {
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
-        const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
+        const whereConditions = Array.isArray(uniqueWhere)
+          ? uniqueWhere
+          : [uniqueWhere];
         let existingRecord = null;
         for (const whereCondition of whereConditions) {
           const cleanedCondition = { ...whereCondition };
@@ -45,13 +47,20 @@ export abstract class BaseTableProcessor {
               delete cleanedCondition[key];
             }
           }
-          existingRecord = await knex(tableName).where(cleanedCondition).first();
+          existingRecord = await knex(tableName)
+            .where(cleanedCondition)
+            .first();
           if (existingRecord) break;
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
-            await this.updateRecordKnex(existingRecord.id, record, knex, tableName);
+            await this.updateRecordKnex(
+              existingRecord.id,
+              record,
+              knex,
+              tableName,
+            );
             skippedCount++;
             this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
@@ -59,12 +68,18 @@ export abstract class BaseTableProcessor {
             this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
           }
           if (this.afterUpsert) {
-            await this.afterUpsert({ ...record, id: existingRecord.id }, false, context);
+            await this.afterUpsert(
+              { ...record, id: existingRecord.id },
+              false,
+              context,
+            );
           }
         } else {
           const cleanedRecord = this.cleanRecordForKnex(record);
           const dbType = context?.dbType;
-          this.logger.debug(`dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`);
+          this.logger.debug(
+            `dbType: ${dbType}, cleanedRecord keys: ${Object.keys(cleanedRecord).join(', ')}`,
+          );
           let insertedId: any;
           if (dbType === 'postgres') {
             this.logger.debug('Using PostgreSQL query builder');
@@ -80,13 +95,19 @@ export abstract class BaseTableProcessor {
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
-            await this.afterUpsert({ ...record, id: insertedId }, true, context);
+            await this.afterUpsert(
+              { ...record, id: insertedId },
+              true,
+              context,
+            );
           }
         }
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
         this.logger.error(`   Stack: ${error.stack}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
     return { created: createdCount, skipped: skippedCount };
@@ -113,8 +134,7 @@ export abstract class BaseTableProcessor {
       if (typeof existingValue === 'string') {
         try {
           parsedExisting = JSON.parse(existingValue);
-        } catch (e) {
-        }
+        } catch (e) {}
       }
       if (typeof parsedExisting === 'object') {
         return JSON.stringify(newValue) !== JSON.stringify(parsedExisting);
@@ -132,7 +152,11 @@ export abstract class BaseTableProcessor {
       if (Array.isArray(value)) {
         continue;
       }
-      if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        !(value instanceof Date)
+      ) {
         cleaned[key] = JSON.stringify(value);
       } else {
         cleaned[key] = value;
@@ -166,7 +190,9 @@ export abstract class BaseTableProcessor {
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
-        const whereConditions = Array.isArray(uniqueWhere) ? uniqueWhere : [uniqueWhere];
+        const whereConditions = Array.isArray(uniqueWhere)
+          ? uniqueWhere
+          : [uniqueWhere];
         let existingRecord = null;
         for (const whereCondition of whereConditions) {
           const cleanedCondition = { ...whereCondition };
@@ -175,13 +201,20 @@ export abstract class BaseTableProcessor {
               delete cleanedCondition[key];
             }
           }
-          existingRecord = await db.collection(collectionName).findOne(cleanedCondition);
+          existingRecord = await db
+            .collection(collectionName)
+            .findOne(cleanedCondition);
           if (existingRecord) break;
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
-            await this.updateRecordMongo(existingRecord._id, record, db, collectionName);
+            await this.updateRecordMongo(
+              existingRecord._id,
+              record,
+              db,
+              collectionName,
+            );
             skippedCount++;
             this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
@@ -189,22 +222,34 @@ export abstract class BaseTableProcessor {
             this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
           }
           if (this.afterUpsert) {
-            await this.afterUpsert({ ...record, _id: existingRecord._id }, false, context);
+            await this.afterUpsert(
+              { ...record, _id: existingRecord._id },
+              false,
+              context,
+            );
           }
         } else {
           const cleanedRecord = this.cleanRecordForMongo(record);
-          const result = await db.collection(collectionName).insertOne(cleanedRecord);
+          const result = await db
+            .collection(collectionName)
+            .insertOne(cleanedRecord);
           const insertedId = result.insertedId;
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
-            await this.afterUpsert({ ...record, _id: insertedId }, true, context);
+            await this.afterUpsert(
+              { ...record, _id: insertedId },
+              true,
+              context,
+            );
           }
         }
       } catch (error) {
         this.logger.error(`Error: ${error.message}`);
         this.logger.error(`   Stack: ${error.stack}`);
-        this.logger.error(`   Record: ${JSON.stringify(record).substring(0, 200)}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
       }
     }
     return { created: createdCount, skipped: skippedCount };
@@ -228,10 +273,9 @@ export abstract class BaseTableProcessor {
   ): Promise<void> {
     const cleanedRecord = this.cleanRecordForMongo(record);
     if (Object.keys(cleanedRecord).length > 0) {
-      await db.collection(collectionName).updateOne(
-        { _id: existingId },
-        { $set: cleanedRecord }
-      );
+      await db
+        .collection(collectionName)
+        .updateOne({ _id: existingId }, { $set: cleanedRecord });
     }
   }
 }

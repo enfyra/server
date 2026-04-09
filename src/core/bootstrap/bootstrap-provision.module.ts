@@ -55,6 +55,13 @@ import { FlowExecutionDefinitionProcessor } from './processors/flow-execution-de
     FlowExecutionDefinitionProcessor,
     BootstrapScriptService,
   ],
-  exports: [ProvisionService, MetadataProvisionService, DataProvisionService, BootstrapScriptService, DataMigrationService, MetadataMigrationService],
+  exports: [
+    ProvisionService,
+    MetadataProvisionService,
+    DataProvisionService,
+    BootstrapScriptService,
+    DataMigrationService,
+    MetadataMigrationService,
+  ],
 })
 export class BootstrapProvisionModule {}

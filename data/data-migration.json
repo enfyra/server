@@ -68,6 +68,82 @@
     {
       "_unique": { "path": { "_eq": "/admin/test/run" } },
       "isEnabled": true
+    },
+    {
+      "_unique": { "path": { "_eq": "/route_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/method_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/pre_hook_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/post_hook_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/route_handler_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/route_permission_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/menu_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/extension_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/bootstrap_script_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/storage_config_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/oauth_config_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/oauth_account_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/websocket_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/websocket_event_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/flow_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/flow_step_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/flow_execution_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/file_permission_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+    },
+    {
+      "_unique": { "path": { "_eq": "/guard_rule_definition" } },
+      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
     }
   ]
 }

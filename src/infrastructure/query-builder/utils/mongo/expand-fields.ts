@@ -1,7 +1,7 @@
 export async function expandFieldsMongo(
   metadata: any,
   tableName: string,
-  fields: string[]
+  fields: string[],
 ): Promise<{
   scalarFields: string[];
   relations: Array<{
@@ -40,7 +40,9 @@ export async function expandFieldsMongo(
       }
       fieldsByRelation.get(relationName)!.push(remainingPath);
     } else {
-      const isRelation = baseMeta.relations?.some(r => r.propertyName === field);
+      const isRelation = baseMeta.relations?.some(
+        (r) => r.propertyName === field,
+      );
 
       if (isRelation) {
         if (!fieldsByRelation.has(field)) {
@@ -77,7 +79,7 @@ export async function expandFieldsMongo(
         }
       }
     } else {
-      const fieldExists = baseMeta.columns?.some(c => c.name === field);
+      const fieldExists = baseMeta.columns?.some((c) => c.name === field);
       if (fieldExists && !scalarFields.includes(field)) {
         scalarFields.push(field);
       }
@@ -87,7 +89,9 @@ export async function expandFieldsMongo(
   for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
     if (relationName === '') continue;
 
-    const rel = baseMeta.relations?.find(r => r.propertyName === relationName);
+    const rel = baseMeta.relations?.find(
+      (r) => r.propertyName === relationName,
+    );
     if (!rel) {
       continue;
     }
@@ -100,13 +104,11 @@ export async function expandFieldsMongo(
       localField = rel.propertyName;
       foreignField = '_id';
       isInverse = false;
-    }
-    else if (rel.type === 'one-to-many') {
+    } else if (rel.type === 'one-to-many') {
       localField = '_id';
       foreignField = rel.inversePropertyName || rel.propertyName;
       isInverse = true;
-    }
-    else if (rel.type === 'many-to-many') {
+    } else if (rel.type === 'many-to-many') {
       if (rel.mappedBy) {
         localField = '_id';
         foreignField = rel.mappedBy;
@@ -127,7 +129,7 @@ export async function expandFieldsMongo(
       foreignField,
       type: isToMany ? 'many' : 'one',
       isInverse,
-      nestedFields: nestedFields
+      nestedFields: nestedFields,
     });
   }
 

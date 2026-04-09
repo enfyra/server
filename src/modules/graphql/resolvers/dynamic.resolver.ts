@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import { JwtService } from '@nestjs/jwt';
@@ -9,7 +6,13 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
+import { GuardCacheService } from '../../../infrastructure/cache/services/guard-cache.service';
+import { GuardEvaluatorService } from '../../../infrastructure/cache/services/guard-evaluator.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
+import { sanitizeHiddenFieldsDeep } from '../../../shared/utils/sanitize-hidden-fields.util';
+import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
+
 @Injectable()
 export class DynamicResolver {
   constructor(
@@ -18,7 +21,11 @@ export class DynamicResolver {
     private handlerExecutorService: ExecutorEngineService,
     private routeCacheService: RouteCacheService,
     private repoRegistryService: RepoRegistryService,
+    private guardCacheService: GuardCacheService,
+    private guardEvaluatorService: GuardEvaluatorService,
+    private metadataCacheService: MetadataCacheService,
   ) {}
+
   async dynamicResolver(
     tableName: string,
     args: {
@@ -34,8 +41,8 @@ export class DynamicResolver {
   ) {
     const { mainTable, user } = await this.middleware(
       tableName,
+      'GQL_QUERY',
       context,
-      info,
     );
     const selections = info.fieldNodes?.[0]?.selectionSet?.selections || [];
     const fullFieldPicker = convertFieldNodesToFieldPicker(selections);
@@ -49,7 +56,9 @@ export class DynamicResolver {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: {
         jwt: (payload: any, ext: string) =>
-          this.jwtService.sign(payload, { expiresIn: ext as import('ms').StringValue }),
+          this.jwtService.sign(payload, {
+            expiresIn: ext as import('ms').StringValue,
+          }),
       },
       $args: {
         fields: fieldPicker.join(','),
@@ -77,7 +86,10 @@ export class DynamicResolver {
       $logs: () => {},
       $share: {},
     };
-    handlerCtx.$repos = this.repoRegistryService.createReposProxy(handlerCtx, mainTable?.name);
+    handlerCtx.$repos = this.repoRegistryService.createReposProxy(
+      handlerCtx,
+      mainTable?.name,
+    );
     try {
       const defaultHandler = `return await $ctx.$repos.main.find();`;
       const result = await this.handlerExecutorService.run(
@@ -85,16 +97,17 @@ export class DynamicResolver {
         handlerCtx,
         30000,
       );
-      return result;
+      return this.sanitizeResult(result);
     } catch (error) {
       throwGqlError('SCRIPT_ERROR', error.message);
     }
   }
+
   async dynamicMutationResolver(
     mutationName: string,
     args: any,
     context: any,
-    info: any,
+    _info: any,
   ) {
     try {
       const match = mutationName.match(/^(create|update|delete)_(.+)$/);
@@ -103,8 +116,11 @@ export class DynamicResolver {
       }
       const operation = match[1];
       const tableName = match[2];
-      const { matchedRoute: currentRoute, user } = await this.middleware(tableName, context, info);
-      await this.canPassMutation(currentRoute, context.req?.headers?.authorization);
+      const { user } = await this.middleware(
+        tableName,
+        'GQL_MUTATION',
+        context,
+      );
       const handlerCtx: any = {
         $user: user ?? null,
         $repos: {},
@@ -114,7 +130,10 @@ export class DynamicResolver {
         $logs: () => {},
         $share: {},
       };
-      handlerCtx.$repos = this.repoRegistryService.createReposProxy(handlerCtx, tableName);
+      handlerCtx.$repos = this.repoRegistryService.createReposProxy(
+        handlerCtx,
+        tableName,
+      );
       let defaultHandler: string;
       switch (operation) {
         case 'create':
@@ -135,40 +154,59 @@ export class DynamicResolver {
         30000,
       );
       if (result && result.data && Array.isArray(result.data)) {
-        return result.data[0];
+        return this.sanitizeResult(result.data[0]);
       }
-      return result;
+      return this.sanitizeResult(result);
     } catch (error) {
       throwGqlError('MUTATION_ERROR', error.message);
     }
   }
-  private async middleware(mainTableName: string, context: any, info: any) {
+
+  private async middleware(
+    mainTableName: string,
+    method: string,
+    context: any,
+  ) {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
     }
     const routeEngine = this.routeCacheService.getRouteEngine();
-    const operation = info.operation.operation;
-    const method = operation === 'query' ? 'GQL_QUERY' : 'GQL_MUTATION';
     const matchResult = routeEngine.find(method, `/${mainTableName}`);
     if (!matchResult) {
       throwGqlError('404', 'Route not found');
     }
     const currentRoute = matchResult.route;
+
+    const routePath = currentRoute.path || mainTableName;
+    const clientIp = this.resolveClientIp(context);
+
+    await this.runGuards('pre_auth', routePath, method, clientIp, null);
+
     const accessToken =
       context.request?.headers?.get('authorization')?.split('Bearer ')[1] || '';
-    const user = await this.canPass(currentRoute, accessToken);
+    const user = await this.checkAccess(currentRoute, method, accessToken);
+
+    const userId =
+      user && !user.isAnonymous ? user._id || user.id || null : null;
+    await this.runGuards('post_auth', routePath, method, clientIp, userId);
+
     return {
       matchedRoute: currentRoute,
       user,
       mainTable: currentRoute.mainTable,
     };
   }
-  private async canPass(currentRoute: any, accessToken: string) {
+
+  private async checkAccess(
+    currentRoute: any,
+    method: string,
+    accessToken: string,
+  ) {
     if (!currentRoute?.isEnabled) {
       throwGqlError('404', 'NotFound');
     }
-    const isPublished = currentRoute.publishedMethods.some(
-      (item: any) => item.method === 'GQL_QUERY',
+    const isPublished = currentRoute.publishedMethods?.some(
+      (item: any) => (item?.method ?? item) === method,
     );
     if (isPublished) {
       return { isAnonymous: true };
@@ -179,58 +217,89 @@ export class DynamicResolver {
     } catch {
       throwGqlError('401', 'Unauthorized');
     }
-    const user = await this.queryBuilder.findOneWhere('user_definition', { id: decoded.id });
+    const user = await this.queryBuilder.findOneWhere('user_definition', {
+      id: decoded.id,
+    });
     if (!user) {
       throwGqlError('401', 'Invalid user');
     }
     if (user.roleId) {
-      user.role = await this.queryBuilder.findOneWhere('role_definition', { id: user.roleId });
+      user.role = await this.queryBuilder.findOneWhere('role_definition', {
+        id: user.roleId,
+      });
     }
-    const canPass =
-      user.isRootAdmin ||
-      currentRoute.routePermissions?.some(
-        (permission: any) =>
-          permission.role?.id === user.role?.id &&
-          permission.methods?.includes('GQL_QUERY'),
+
+    if (user.isRootAdmin) return user;
+
+    const userId = String(user._id || user.id);
+    const userRoleId = user.role ? String(user.role._id || user.role.id) : null;
+
+    const canPass = currentRoute.routePermissions?.find((permission: any) => {
+      const hasMethodAccess = permission.methods?.some(
+        (m: any) => (m?.method ?? m) === method,
       );
+      if (!hasMethodAccess) return false;
+      if (
+        permission?.allowedUsers?.some(
+          (u: any) => String(u?._id || u?.id) === userId,
+        )
+      ) {
+        return true;
+      }
+      if (!userRoleId) return false;
+      const permRoleId = String(permission?.role?._id || permission?.role?.id);
+      return permRoleId === userRoleId;
+    });
+
     if (!canPass) {
       throwGqlError('403', 'Not allowed');
     }
     return user;
   }
-  private async canPassMutation(currentRoute: any, accessToken: string) {
-    if (!currentRoute?.isEnabled) {
-      throwGqlError('404', 'NotFound');
-    }
-    const isPublished = currentRoute.publishedMethods.some(
-      (item: any) => item.method === 'GQL_MUTATION',
+
+  private async runGuards(
+    position: 'pre_auth' | 'post_auth',
+    routePath: string,
+    method: string,
+    clientIp: string,
+    userId: string | null,
+  ) {
+    await this.guardCacheService.ensureGuardsLoaded();
+    const guards = this.guardCacheService.getGuardsForRoute(
+      position,
+      routePath,
+      method,
     );
-    if (isPublished) {
-      return { isAnonymous: true };
+    if (guards.length === 0) return;
+
+    for (const guard of guards) {
+      const reject = await this.guardEvaluatorService.evaluateGuard(guard, {
+        clientIp,
+        routePath,
+        userId,
+      });
+      if (reject) {
+        throwGqlError(String(reject.statusCode), reject.message);
+      }
     }
-    let decoded;
-    try {
-      decoded = this.jwtService.verify(accessToken);
-    } catch {
-      throwGqlError('401', 'Unauthorized');
+  }
+
+  private resolveClientIp(context: any): string {
+    const headers: Record<string, unknown> = {};
+    if (context.request?.headers) {
+      const reqHeaders = context.request.headers;
+      if (typeof reqHeaders.forEach === 'function') {
+        reqHeaders.forEach((value: string, key: string) => {
+          headers[key.toLowerCase()] = value;
+        });
+      }
     }
-    const user = await this.queryBuilder.findOneWhere('user_definition', { id: decoded.id });
-    if (!user) {
-      throwGqlError('401', 'Invalid user');
-    }
-    if (user.roleId) {
-      user.role = await this.queryBuilder.findOneWhere('role_definition', { id: user.roleId });
-    }
-    const canPass =
-      user.isRootAdmin ||
-      currentRoute.routePermissions?.some(
-        (permission: any) =>
-          permission.role?.id === user.role?.id &&
-          permission.methods?.includes('GQL_MUTATION'),
-      );
-    if (!canPass) {
-      throwGqlError('403', 'Not allowed');
-    }
-    return user;
+    return resolveClientIpFromRequest({ headers, ip: undefined });
+  }
+
+  private sanitizeResult(result: any): any {
+    const metadata = this.metadataCacheService.getDirectMetadata();
+    if (!metadata) return result;
+    return sanitizeHiddenFieldsDeep(result, metadata);
   }
 }

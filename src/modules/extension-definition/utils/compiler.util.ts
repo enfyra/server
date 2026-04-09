@@ -37,7 +37,12 @@ async function generateTailwindCss(
 
   const twBase = dirname(require.resolve('tailwindcss/package.json'));
 
-  const themeConfigPath = resolve(projectRoot, '..', 'app', 'tailwind.theme.js');
+  const themeConfigPath = resolve(
+    projectRoot,
+    '..',
+    'app',
+    'tailwind.theme.js',
+  );
   const configDirective = existsSync(themeConfigPath)
     ? `@config "${themeConfigPath}";\n`
     : '';
@@ -56,7 +61,10 @@ async function generateTailwindCss(
     } catch {
       resolved = resolve(base, id);
     }
-    return { content: readFileSync(resolved, 'utf-8'), base: dirname(resolved) };
+    return {
+      content: readFileSync(resolved, 'utf-8'),
+      base: dirname(resolved),
+    };
   };
 
   const loadModule = async (id: string, base: string) => {
@@ -65,7 +73,11 @@ async function generateTailwindCss(
     return { module: mod.default || mod, base: dirname(resolved) };
   };
 
-  const compiler = await compile(cssInput, { base: twBase, loadStylesheet, loadModule });
+  const compiler = await compile(cssInput, {
+    base: twBase,
+    loadStylesheet,
+    loadModule,
+  });
   const generated = compiler.build(candidates);
 
   let css = generated;
@@ -219,7 +231,6 @@ export default ExtensionComponent
     if (cssParts.length > 0) {
       const allCss = cssParts.join('\n');
       compiledCode += `\nif(typeof window!=="undefined"&&window["${extensionId}"]){window["${extensionId}"].__extensionCss=${JSON.stringify(allCss)};}`;
-
     }
 
     return compiledCode;

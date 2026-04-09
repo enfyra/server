@@ -19,11 +19,15 @@ export type TPolicyPreview = {
 
 export type TPolicyDecision = TPolicyAllow | TPolicyDeny | TPolicyPreview;
 
-export function isPolicyDeny(decision: TPolicyDecision): decision is TPolicyDeny {
+export function isPolicyDeny(
+  decision: TPolicyDecision,
+): decision is TPolicyDeny {
   return decision.allow === false && !('preview' in decision);
 }
 
-export function isPolicyPreview(decision: TPolicyDecision): decision is TPolicyPreview {
+export function isPolicyPreview(
+  decision: TPolicyDecision,
+): decision is TPolicyPreview {
   return decision.allow === false && (decision as any).preview === true;
 }
 

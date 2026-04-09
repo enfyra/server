@@ -5,6 +5,7 @@ import { GraphqlService } from '../graphql/services/graphql.service';
 import { FlowService } from '../flow/services/flow.service';
 import { ExecutorEngineService } from '../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../infrastructure/cache/services/repo-registry.service';
+import { GuardCacheService } from '../../infrastructure/cache/services/guard-cache.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { transformCode } from '../../infrastructure/executor-engine/code-transformer';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
@@ -20,6 +21,7 @@ export class AdminController {
     private readonly flowService: FlowService,
     private readonly handlerExecutorService: ExecutorEngineService,
     private readonly repoRegistryService: RepoRegistryService,
+    private readonly guardCacheService: GuardCacheService,
   ) {}
   @Post('reload')
   async reloadAll() {
@@ -27,14 +29,17 @@ export class AdminController {
     try {
       await this.metadataCacheService.reload();
       await this.routeCacheService.reload();
+      await this.guardCacheService.reload();
       await this.graphqlService.reloadSchema();
       const duration = Date.now() - startTime;
-      this.logger.log(`Admin reload: metadata, routes, graphql OK (${duration}ms)`);
+      this.logger.log(
+        `Admin reload: metadata, routes, guards, graphql OK (${duration}ms)`,
+      );
       return {
         success: true,
         message: 'All caches and schemas reloaded successfully',
         duration: `${duration}ms`,
-        reloaded: ['metadata', 'routes', 'graphql']
+        reloaded: ['metadata', 'routes', 'guards', 'graphql'],
       };
     } catch (error) {
       this.logger.error('Error during reload:', error);
@@ -51,6 +56,11 @@ export class AdminController {
     await this.routeCacheService.reload();
     return { success: true, message: 'Routes cache reloaded' };
   }
+  @Post('reload/guards')
+  async reloadGuards() {
+    await this.guardCacheService.reload();
+    return { success: true, message: 'Guards cache reloaded' };
+  }
   @Post('reload/graphql')
   async reloadGraphQL() {
     await this.graphqlService.reloadSchema();
@@ -63,7 +73,11 @@ export class AdminController {
 
   @Post('flow/trigger/:id')
   async triggerFlow(@Param('id') flowId: string, @Body() body?: any) {
-    const result = await this.flowService.trigger(flowId, body?.payload || {}, body?.user || null);
+    const result = await this.flowService.trigger(
+      flowId,
+      body?.payload || {},
+      body?.user || null,
+    );
     return {
       success: true,
       message: `Flow triggered`,
@@ -90,7 +104,9 @@ export class AdminController {
 
     if (kind === 'websocket_event') {
       const script = String(body?.script || '').trim();
-      const gatewayPath = String(body?.gatewayPath || body?.path || '/__ws_test__').trim();
+      const gatewayPath = String(
+        body?.gatewayPath || body?.path || '/__ws_test__',
+      ).trim();
       const eventName = String(body?.eventName || '').trim();
       const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
       const payload = body?.payload ?? body?.body ?? {};
@@ -98,14 +114,26 @@ export class AdminController {
       const headers = body?.headers ?? {};
 
       if (!eventName) {
-        return { success: false, error: { code: 'MISSING_EVENT_NAME', message: 'eventName is required' } };
+        return {
+          success: false,
+          error: {
+            code: 'MISSING_EVENT_NAME',
+            message: 'eventName is required',
+          },
+        };
       }
       if (!script) {
-        return { success: false, error: { code: 'MISSING_SCRIPT', message: 'script is required' } };
+        return {
+          success: false,
+          error: { code: 'MISSING_SCRIPT', message: 'script is required' },
+        };
       }
 
       const emitted: Array<{ method: string; args: any[] }> = [];
-      const capture = (method: string) => (...args: any[]) => emitted.push({ method, args });
+      const capture =
+        (method: string) =>
+        (...args: any[]) =>
+          emitted.push({ method, args });
       const socketProxy = {
         join: capture('join'),
         leave: capture('leave'),
@@ -155,7 +183,11 @@ export class AdminController {
 
       try {
         const transformed = transformCode(script);
-        const result = await this.handlerExecutorService.run(transformed, ctx, timeoutMs);
+        const result = await this.handlerExecutorService.run(
+          transformed,
+          ctx,
+          timeoutMs,
+        );
         return {
           success: true,
           result,
@@ -178,18 +210,26 @@ export class AdminController {
 
     if (kind === 'websocket_connection') {
       const script = String(body?.script || '').trim();
-      const gatewayPath = String(body?.gatewayPath || body?.path || '/__ws_test__').trim();
+      const gatewayPath = String(
+        body?.gatewayPath || body?.path || '/__ws_test__',
+      ).trim();
       const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
       const payload = body?.payload ?? body?.body ?? {};
       const user = body?.user ?? null;
       const headers = body?.headers ?? {};
 
       if (!script) {
-        return { success: false, error: { code: 'MISSING_SCRIPT', message: 'script is required' } };
+        return {
+          success: false,
+          error: { code: 'MISSING_SCRIPT', message: 'script is required' },
+        };
       }
 
       const emitted: Array<{ method: string; args: any[] }> = [];
-      const capture = (method: string) => (...args: any[]) => emitted.push({ method, args });
+      const capture =
+        (method: string) =>
+        (...args: any[]) =>
+          emitted.push({ method, args });
       const socketProxy = {
         join: capture('join'),
         leave: capture('leave'),
@@ -239,7 +279,11 @@ export class AdminController {
 
       try {
         const transformed = transformCode(script);
-        const result = await this.handlerExecutorService.run(transformed, ctx, timeoutMs);
+        const result = await this.handlerExecutorService.run(
+          transformed,
+          ctx,
+          timeoutMs,
+        );
         return {
           success: true,
           result,
@@ -260,6 +304,9 @@ export class AdminController {
       }
     }
 
-    return { success: false, error: { code: 'INVALID_TEST_KIND', message: 'Invalid test kind' } };
+    return {
+      success: false,
+      error: { code: 'INVALID_TEST_KIND', message: 'Invalid test kind' },
+    };
   }
 }

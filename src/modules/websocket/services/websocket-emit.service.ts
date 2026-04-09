@@ -3,9 +3,7 @@ import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 
 @Injectable()
 export class WebsocketEmitService {
-  constructor(
-    private readonly websocketGateway: DynamicWebSocketGateway,
-  ) {}
+  constructor(private readonly websocketGateway: DynamicWebSocketGateway) {}
 
   emitToUser(userId: number | string, event: string, data: any) {
     this.websocketGateway.emitToUser(userId, event, data);

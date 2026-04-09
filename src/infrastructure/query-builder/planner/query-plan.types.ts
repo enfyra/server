@@ -1,5 +1,9 @@
 export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mongodb';
-export type RelationType = 'many-to-one' | 'one-to-many' | 'one-to-one' | 'many-to-many';
+export type RelationType =
+  | 'many-to-one'
+  | 'one-to-many'
+  | 'one-to-one'
+  | 'many-to-many';
 export type SqlStrategy = 'simple' | 'subquery' | 'cte-flat' | 'cte-aggregate';
 export type PaginationPlacement = 'before-joins' | 'after-joins';
 export type JoinType = 'left' | 'inner';

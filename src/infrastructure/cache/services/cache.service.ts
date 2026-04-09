@@ -58,7 +58,12 @@ export class CacheService {
       end`;
     const serializedValue = this.serialize(value);
     try {
-      const deleted = await this.redis.eval(lua, 1, decoratedKey, serializedValue);
+      const deleted = await this.redis.eval(
+        lua,
+        1,
+        decoratedKey,
+        serializedValue,
+      );
       return deleted === 1;
     } catch (error) {
       return false;

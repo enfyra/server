@@ -15,12 +15,18 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
       records.map(async (record) => {
         const transformedRecord = { ...record };
 
-        if (transformedRecord.description === undefined) transformedRecord.description = null;
-        if (transformedRecord.isSystem === undefined) transformedRecord.isSystem = false;
-        if (transformedRecord.isEnabled === undefined) transformedRecord.isEnabled = true;
-        if (transformedRecord.requireAuth === undefined) transformedRecord.requireAuth = true;
-        if (transformedRecord.connectionHandlerScript === undefined) transformedRecord.connectionHandlerScript = null;
-        if (transformedRecord.connectionHandlerTimeout === undefined) transformedRecord.connectionHandlerTimeout = 5000;
+        if (transformedRecord.description === undefined)
+          transformedRecord.description = null;
+        if (transformedRecord.isSystem === undefined)
+          transformedRecord.isSystem = false;
+        if (transformedRecord.isEnabled === undefined)
+          transformedRecord.isEnabled = true;
+        if (transformedRecord.requireAuth === undefined)
+          transformedRecord.requireAuth = true;
+        if (transformedRecord.connectionHandlerScript === undefined)
+          transformedRecord.connectionHandlerScript = null;
+        if (transformedRecord.connectionHandlerTimeout === undefined)
+          transformedRecord.connectionHandlerTimeout = 5000;
 
         if (isMongoDB) {
           const now = new Date();
@@ -40,7 +46,15 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['path', 'isEnabled', 'isSystem', 'description', 'requireAuth', 'connectionHandlerScript', 'connectionHandlerTimeout'];
+    return [
+      'path',
+      'isEnabled',
+      'isSystem',
+      'description',
+      'requireAuth',
+      'connectionHandlerScript',
+      'connectionHandlerTimeout',
+    ];
   }
 
   protected getRecordIdentifier(record: any): string {

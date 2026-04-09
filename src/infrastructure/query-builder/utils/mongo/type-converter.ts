@@ -1,6 +1,11 @@
 import { ObjectId } from 'mongodb';
 
-export function convertValueByType(metadata: any, tableName: string, field: string, value: any): any {
+export function convertValueByType(
+  metadata: any,
+  tableName: string,
+  field: string,
+  value: any,
+): any {
   if (field === '_id' && typeof value === 'string') {
     try {
       return new ObjectId(value);
@@ -11,7 +16,11 @@ export function convertValueByType(metadata: any, tableName: string, field: stri
 
   const tableMeta = metadata?.tables?.get(tableName);
   if (!tableMeta) {
-    if ((field === '_id' || field === 'id' || field.endsWith('Id')) && typeof value === 'string' && value.length === 24) {
+    if (
+      (field === '_id' || field === 'id' || field.endsWith('Id')) &&
+      typeof value === 'string' &&
+      value.length === 24
+    ) {
       try {
         return new ObjectId(value);
       } catch (err) {
@@ -22,7 +31,11 @@ export function convertValueByType(metadata: any, tableName: string, field: stri
   }
 
   if (!tableMeta.columns) {
-    if ((field === '_id' || field === 'id' || field.endsWith('Id')) && typeof value === 'string' && value.length === 24) {
+    if (
+      (field === '_id' || field === 'id' || field.endsWith('Id')) &&
+      typeof value === 'string' &&
+      value.length === 24
+    ) {
       try {
         return new ObjectId(value);
       } catch (err) {
@@ -32,9 +45,12 @@ export function convertValueByType(metadata: any, tableName: string, field: stri
     return value;
   }
 
-  const column = tableMeta.columns.find(col => col.name === field);
+  const column = tableMeta.columns.find((col) => col.name === field);
   if (!column) {
-    const relation = tableMeta.relations?.find((rel: any) => rel.propertyName === field || rel.foreignKeyColumn === field);
+    const relation = tableMeta.relations?.find(
+      (rel: any) =>
+        rel.propertyName === field || rel.foreignKeyColumn === field,
+    );
     if (relation && typeof value === 'string' && value.length === 24) {
       try {
         return new ObjectId(value);
@@ -42,7 +58,11 @@ export function convertValueByType(metadata: any, tableName: string, field: stri
         return value;
       }
     }
-    if ((field === '_id' || field === 'id' || field.endsWith('Id')) && typeof value === 'string' && value.length === 24) {
+    if (
+      (field === '_id' || field === 'id' || field.endsWith('Id')) &&
+      typeof value === 'string' &&
+      value.length === 24
+    ) {
       try {
         return new ObjectId(value);
       } catch (err) {

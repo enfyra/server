@@ -20,9 +20,9 @@ export const SQL_COORD_RESERVE_RATIO = 0.05;
 
 export const WORKER_TUNE_INTERVAL_MS = 30_000;
 export const WORKER_RSS_HIGH = 0.85;
-export const WORKER_RSS_LOW = 0.70;
-export const WORKER_CPU_HIGH = 0.70;
-export const WORKER_CPU_LOW = 0.50;
+export const WORKER_RSS_LOW = 0.7;
+export const WORKER_CPU_HIGH = 0.7;
+export const WORKER_CPU_LOW = 0.5;
 export const WORKER_FLOOR = 1;
 export const WORKER_HYSTERESIS_TICKS = 3;
-export const WORKER_DISPATCH_RSS_CEILING = 0.90;
+export const WORKER_DISPATCH_RSS_CEILING = 0.9;

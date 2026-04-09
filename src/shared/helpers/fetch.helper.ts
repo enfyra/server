@@ -22,7 +22,11 @@ function isPrivateIp(ip: string): boolean {
   const v = isIP(ip);
   if (v === 4) {
     const parts = ip.split('.').map((x) => Number(x));
-    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+    if (
+      parts.length !== 4 ||
+      parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)
+    )
+      return true;
     const [a, b] = parts;
     if (a === 10) return true;
     if (a === 127) return true;
@@ -64,7 +68,8 @@ async function assertNetworkAllowed(url: URL, allowPrivateIp?: boolean) {
   if (!hostname) throw new Error('Invalid URL hostname');
 
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
-    if (!allowPrivateIp) throw new Error('Private/localhost targets are not allowed');
+    if (!allowPrivateIp)
+      throw new Error('Private/localhost targets are not allowed');
     return;
   }
 
@@ -122,7 +127,11 @@ export function createFetchHelper(defaults?: {
     let body: any = options?.body;
     const headers: Record<string, string> = { ...(options?.headers || {}) };
     if (body !== undefined && body !== null) {
-      if (typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+      if (
+        typeof body === 'string' ||
+        body instanceof ArrayBuffer ||
+        ArrayBuffer.isView(body)
+      ) {
       } else {
         headers['content-type'] = headers['content-type'] || 'application/json';
         body = JSON.stringify(body);
@@ -173,12 +182,16 @@ export function createFetchHelper(defaults?: {
       }
       totalBytes += ab.byteLength;
       if (totalBytes > maxTotalBytes) {
-        throw new Error(`Fetch total bytes limit exceeded (${maxTotalBytes} bytes)`);
+        throw new Error(
+          `Fetch total bytes limit exceeded (${maxTotalBytes} bytes)`,
+        );
       }
 
       if (!res.ok) {
         const text = new TextDecoder().decode(new Uint8Array(ab));
-        throw new Error(`Fetch failed with ${res.status}: ${text.substring(0, 500)}`);
+        throw new Error(
+          `Fetch failed with ${res.status}: ${text.substring(0, 500)}`,
+        );
       }
 
       if (responseType === 'arrayBuffer') return ab;
@@ -190,4 +203,3 @@ export function createFetchHelper(defaults?: {
     }
   };
 }
-

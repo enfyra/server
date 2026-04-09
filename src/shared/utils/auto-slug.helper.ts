@@ -5,7 +5,7 @@ export function autoSlug(
     lowercase?: boolean;
     trim?: boolean;
     maxLength?: number;
-  } = {}
+  } = {},
 ): string {
   const {
     separator = '-',
@@ -38,7 +38,7 @@ export function autoSlug(
 }
 export function generateUniqueSlug(
   input: string,
-  existingSlugs: string[] = []
+  existingSlugs: string[] = [],
 ): string {
   const baseSlug = autoSlug(input);
   if (!existingSlugs.includes(baseSlug)) {

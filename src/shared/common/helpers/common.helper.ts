@@ -76,9 +76,7 @@ export function assertNoSystemFlagDeep(arr: any[], path = 'root') {
     const item = arr[i];
     const currentPath = `${path}[${i}]`;
     if (!item?.id && item?.isSystem === true) {
-      throw new Error(
-        `Cannot create new ${currentPath} with isSystem = true`,
-      );
+      throw new Error(`Cannot create new ${currentPath} with isSystem = true`);
     }
     assertNoSystemFlagDeepRecursive(item, currentPath);
   }
@@ -127,7 +125,7 @@ export function validateIdentifier(identifier: string): boolean {
     /alter\s+table/i,
     /;\s*$/i,
     /--\s*$/i,
-    /\/\*.*\*\//
+    /\/\*.*\*\//,
   ];
   for (const pattern of dangerousPatterns) {
     if (pattern.test(identifier)) return false;

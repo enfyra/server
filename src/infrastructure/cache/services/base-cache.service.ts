@@ -4,7 +4,8 @@ import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
-type CacheIdentifier = (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
+type CacheIdentifier =
+  (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
 
 export interface CacheConfig {
   syncEventKey: string;
@@ -19,7 +20,8 @@ export abstract class BaseCacheService<T> {
   protected cacheLoaded = false;
   protected isLoading = false;
   protected loadingPromise: Promise<void> | null = null;
-  private messageHandler: ((channel: string, message: string) => void) | null = null;
+  private messageHandler: ((channel: string, message: string) => void) | null =
+    null;
 
   constructor(
     protected readonly config: CacheConfig,
@@ -35,14 +37,19 @@ export abstract class BaseCacheService<T> {
     if (this.messageHandler) return;
 
     this.messageHandler = async (channel: string, message: string) => {
-      if (this.redisPubSubService.isChannelForBase(channel, this.config.syncEventKey)) {
+      if (
+        this.redisPubSubService.isChannelForBase(
+          channel,
+          this.config.syncEventKey,
+        )
+      ) {
         await this.handleIncomingMessage(message);
       }
     };
 
     this.redisPubSubService.subscribeWithHandler(
       this.config.syncEventKey,
-      this.messageHandler
+      this.messageHandler,
     );
   }
 
@@ -55,7 +62,9 @@ export abstract class BaseCacheService<T> {
         return;
       }
 
-      this.logger.debug(`Sync signal received from ${payload.instanceId.slice(0, 8)}`);
+      this.logger.debug(
+        `Sync signal received from ${payload.instanceId.slice(0, 8)}`,
+      );
       await this.reload(false);
     } catch (error) {
       this.logger.error('Failed to parse cache sync message:', error);
@@ -82,7 +91,9 @@ export abstract class BaseCacheService<T> {
         this.cacheLoaded = true;
 
         const elapsed = Date.now() - start;
-        this.logger.log(`Loaded ${this.getLogCount()} in ${elapsed}ms${publish ? '' : ' (sync)'}`);
+        this.logger.log(
+          `Loaded ${this.getLogCount()} in ${elapsed}ms${publish ? '' : ' (sync)'}`,
+        );
 
         this.emitLoadedEvent();
 
@@ -110,7 +121,7 @@ export abstract class BaseCacheService<T> {
       };
       await this.redisPubSubService.publish(
         this.config.syncEventKey,
-        JSON.stringify(payload)
+        JSON.stringify(payload),
       );
     } catch (error) {
       this.logger.error('Failed to publish reload signal:', error);

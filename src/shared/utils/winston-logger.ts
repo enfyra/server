@@ -45,14 +45,26 @@ const consoleFormat = winston.format.combine(
   addLogId(),
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.colorize({ all: true }),
-  winston.format.printf(({ id, timestamp, level, message, context, correlationId, stack, ...meta }) => {
-    const idStr = id ? `[${id}] ` : '';
-    const contextStr = context ? `[${context}] ` : '';
-    const corrStr = correlationId ? `[${correlationId}] ` : '';
-    const metaStr = Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
-    const stackStr = stack ? `\n${stack}` : '';
-    return `${timestamp} ${level} ${idStr}${contextStr}${corrStr}${message}${metaStr}${stackStr}`;
-  }),
+  winston.format.printf(
+    ({
+      id,
+      timestamp,
+      level,
+      message,
+      context,
+      correlationId,
+      stack,
+      ...meta
+    }) => {
+      const idStr = id ? `[${id}] ` : '';
+      const contextStr = context ? `[${context}] ` : '';
+      const corrStr = correlationId ? `[${correlationId}] ` : '';
+      const metaStr =
+        Object.keys(meta).length > 0 ? ` ${JSON.stringify(meta)}` : '';
+      const stackStr = stack ? `\n${stack}` : '';
+      return `${timestamp} ${level} ${idStr}${contextStr}${corrStr}${message}${metaStr}${stackStr}`;
+    },
+  ),
 );
 
 // Create a single crash transport to reuse

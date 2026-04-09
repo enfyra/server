@@ -59,9 +59,14 @@ export class SqlPoolClusterCoordinatorService
     } else {
       const dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
       host = this.configService.get<string>('DB_HOST') || 'localhost';
-      port = this.configService.get<number>('DB_PORT') || (dbType === 'postgres' ? 5432 : 3306);
+      port =
+        this.configService.get<number>('DB_PORT') ||
+        (dbType === 'postgres' ? 5432 : 3306);
     }
-    return createHash('sha256').update(`${host}:${port}`).digest('hex').slice(0, 12);
+    return createHash('sha256')
+      .update(`${host}:${port}`)
+      .digest('hex')
+      .slice(0, 12);
   }
 
   onApplicationBootstrap(): void {
@@ -71,14 +76,22 @@ export class SqlPoolClusterCoordinatorService
     }
     this.redis = this.redisService.getOrNil();
     if (!this.redis) {
-      this.logger.warn('Redis unavailable; SQL pool cluster coordination skipped');
+      this.logger.warn(
+        'Redis unavailable; SQL pool cluster coordination skipped',
+      );
       return;
     }
     void this.heartbeatOnce();
-    this.heartbeatTimer = setInterval(() => void this.heartbeatOnce(), SQL_COORD_HEARTBEAT_MS);
+    this.heartbeatTimer = setInterval(
+      () => void this.heartbeatOnce(),
+      SQL_COORD_HEARTBEAT_MS,
+    );
     this.eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
       void this.reconcilePool();
-      this.reconcileTimer = setInterval(() => void this.reconcilePool(), SQL_COORD_RECONCILE_INTERVAL_MS);
+      this.reconcileTimer = setInterval(
+        () => void this.reconcilePool(),
+        SQL_COORD_RECONCILE_INTERVAL_MS,
+      );
     });
   }
 
@@ -101,7 +114,9 @@ export class SqlPoolClusterCoordinatorService
     try {
       await this.redis.zadd(this.zsetKey, Date.now(), this.instanceId);
     } catch (e) {
-      this.logger.warn(`Pool coordination heartbeat failed: ${(e as Error).message}`);
+      this.logger.warn(
+        `Pool coordination heartbeat failed: ${(e as Error).message}`,
+      );
     }
   }
 
@@ -110,7 +125,11 @@ export class SqlPoolClusterCoordinatorService
       return 1;
     }
     const now = Date.now();
-    await this.redis.zremrangebyscore(this.zsetKey, '-inf', now - SQL_COORD_STALE_MS);
+    await this.redis.zremrangebyscore(
+      this.zsetKey,
+      '-inf',
+      now - SQL_COORD_STALE_MS,
+    );
     const n = await this.redis.zcard(this.zsetKey);
     return Math.max(1, n);
   }
@@ -128,7 +147,9 @@ export class SqlPoolClusterCoordinatorService
         return Number.isFinite(n) ? n : null;
       }
       if (dbType === 'mysql' || dbType === 'mariadb') {
-        const r = await this.knexService.raw(`SHOW VARIABLES LIKE 'max_connections'`);
+        const r = await this.knexService.raw(
+          `SHOW VARIABLES LIKE 'max_connections'`,
+        );
         const rows = (r as any)[0] ?? (r as any).rows;
         const row = Array.isArray(rows) ? rows[0] : rows;
         const val = row?.Value ?? row?.value;
@@ -136,7 +157,9 @@ export class SqlPoolClusterCoordinatorService
         return Number.isFinite(n) ? n : null;
       }
     } catch (e) {
-      this.logger.warn(`Could not read server max_connections: ${(e as Error).message}`);
+      this.logger.warn(
+        `Could not read server max_connections: ${(e as Error).message}`,
+      );
     }
     return null;
   }
@@ -155,7 +178,10 @@ export class SqlPoolClusterCoordinatorService
         return;
       }
       const activeCount = await this.countActiveInstances();
-      const reserve = Math.max(SQL_COORD_RESERVE_MIN, Math.floor(serverMax * SQL_COORD_RESERVE_RATIO));
+      const reserve = Math.max(
+        SQL_COORD_RESERVE_MIN,
+        Math.floor(serverMax * SQL_COORD_RESERVE_RATIO),
+      );
       let target = computeCoordinatedPoolMax({
         serverMaxConnections: serverMax,
         activeInstanceCount: activeCount,
@@ -170,13 +196,18 @@ export class SqlPoolClusterCoordinatorService
         return;
       }
       this.lastAppliedTarget = target;
-      if (this.replicationManager && this.knexService.coordinatesPoolViaReplication()) {
+      if (
+        this.replicationManager &&
+        this.knexService.coordinatesPoolViaReplication()
+      ) {
         this.replicationManager.applyCoordinatedTotalPoolMax(target);
       } else {
         this.knexService.applyCoordinatedPoolMax(target);
       }
     } catch (e) {
-      this.logger.warn(`Pool coordination reconcile failed: ${(e as Error).message}`);
+      this.logger.warn(
+        `Pool coordination reconcile failed: ${(e as Error).message}`,
+      );
     }
   }
 }

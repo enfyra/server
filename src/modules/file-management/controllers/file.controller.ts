@@ -22,7 +22,10 @@ export class FileController {
   constructor(private fileManagementService: FileManagementService) {}
 
   @Post()
-  async uploadFile(@Req() req: RequestWithRouteData, @Body() body: UploadFileDto) {
+  async uploadFile(
+    @Req() req: RequestWithRouteData,
+    @Body() body: UploadFileDto,
+  ) {
     const file = req.file;
     if (!file) {
       throw new FileUploadException('No file provided');
@@ -69,7 +72,11 @@ export class FileController {
   }
 
   @Patch(':id')
-  async updateFile(@Param('id') id: string, @Req() req: RequestWithRouteData, @Body() body: UpdateFileDto) {
+  async updateFile(
+    @Param('id') id: string,
+    @Req() req: RequestWithRouteData,
+    @Body() body: UpdateFileDto,
+  ) {
     const file = req.file;
 
     const fileRepo =
@@ -91,17 +98,26 @@ export class FileController {
       try {
         let storageConfigId = currentFile.storageConfig?.id || null;
         if (body.storageConfig !== undefined && body.storageConfig !== null) {
-          storageConfigId = typeof body.storageConfig === 'object'
-            ? (body.storageConfig as any).id
-            : body.storageConfig;
+          storageConfigId =
+            typeof body.storageConfig === 'object'
+              ? (body.storageConfig as any).id
+              : body.storageConfig;
         }
 
         let storageConfig = null;
         if (storageConfigId) {
-          storageConfig = await this.fileManagementService.getStorageConfigById(storageConfigId);
+          storageConfig =
+            await this.fileManagementService.getStorageConfigById(
+              storageConfigId,
+            );
         }
 
-        if (storageConfig && (storageConfig.type === 'Google Cloud Storage' || storageConfig.type === 'Cloudflare R2' || storageConfig.type === 'Amazon S3')) {
+        if (
+          storageConfig &&
+          (storageConfig.type === 'Google Cloud Storage' ||
+            storageConfig.type === 'Cloudflare R2' ||
+            storageConfig.type === 'Amazon S3')
+        ) {
           await this.fileManagementService.replaceFileOnStorage(
             currentFile.location,
             file.buffer,
@@ -113,9 +129,14 @@ export class FileController {
             filename: file.originalname,
             mimetype: file.mimetype,
             filesize: file.size,
-            storageConfig: this.fileManagementService.createIdReference(storageConfigId),
+            storageConfig:
+              this.fileManagementService.createIdReference(storageConfigId),
             description: currentFile.description,
-            folder: body.folder ? (typeof body.folder === 'object' ? body.folder : { id: body.folder }) : currentFile.folder,
+            folder: body.folder
+              ? typeof body.folder === 'object'
+                ? body.folder
+                : { id: body.folder }
+              : currentFile.folder,
             uploadedBy: currentFile.uploadedBy,
             status: currentFile.status,
           };
@@ -158,7 +179,9 @@ export class FileController {
             uploadedBy: currentFile.uploadedBy,
             status: currentFile.status,
             storageConfig: processedFile.storage_config_id
-              ? this.fileManagementService.createIdReference(processedFile.storage_config_id)
+              ? this.fileManagementService.createIdReference(
+                  processedFile.storage_config_id,
+                )
               : null,
           };
 
@@ -186,13 +209,18 @@ export class FileController {
     const updateData: any = {};
 
     if (body.folder) {
-      updateData.folder = typeof body.folder === 'object' ? body.folder : { id: body.folder };
+      updateData.folder =
+        typeof body.folder === 'object' ? body.folder : { id: body.folder };
     }
 
     if (body.storageConfig !== undefined && body.storageConfig !== null) {
-      const storageConfigId = typeof body.storageConfig === 'object' ? body.storageConfig.id : body.storageConfig;
+      const storageConfigId =
+        typeof body.storageConfig === 'object'
+          ? body.storageConfig.id
+          : body.storageConfig;
       if (storageConfigId) {
-        updateData.storageConfig = this.fileManagementService.createIdReference(storageConfigId);
+        updateData.storageConfig =
+          this.fileManagementService.createIdReference(storageConfigId);
       }
     }
 

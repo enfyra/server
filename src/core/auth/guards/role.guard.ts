@@ -20,7 +20,8 @@ export class RoleGuard implements CanActivate {
     });
 
     if (decision.allow) return true;
-    if (isPolicyDeny(decision) && decision.statusCode === 401) throw new UnauthorizedException();
+    if (isPolicyDeny(decision) && decision.statusCode === 401)
+      throw new UnauthorizedException();
     return false;
   }
 }

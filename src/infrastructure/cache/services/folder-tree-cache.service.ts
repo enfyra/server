@@ -4,7 +4,11 @@ import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 import { FOLDER_TREE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
@@ -38,7 +42,12 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(FOLDER_TREE_CONFIG, redisPubSubService, instanceService, eventEmitter);
+    super(
+      FOLDER_TREE_CONFIG,
+      redisPubSubService,
+      instanceService,
+      eventEmitter,
+    );
   }
 
   @OnEvent(CACHE_EVENTS.METADATA_LOADED)
@@ -47,7 +56,10 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (payload.tableName === 'folder_definition') {
       await this.reload();
     }
@@ -82,7 +94,10 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   }
 
   private buildTree(folders: FolderNode[]): FolderNode[] {
-    const folderMap = new Map<string, FolderNode & { children?: FolderNode[] }>();
+    const folderMap = new Map<
+      string,
+      FolderNode & { children?: FolderNode[] }
+    >();
 
     folders.forEach((f) => {
       folderMap.set(f.id, { ...f, children: [] });
@@ -130,7 +145,10 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
     return this.cache.folders;
   }
 
-  async isCircular(folderId: string | null, newParentId: string | null): Promise<boolean> {
+  async isCircular(
+    folderId: string | null,
+    newParentId: string | null,
+  ): Promise<boolean> {
     await this.ensureLoaded();
 
     if (!folderId) return false;

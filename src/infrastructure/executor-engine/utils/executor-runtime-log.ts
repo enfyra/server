@@ -16,7 +16,9 @@ function fileLogEnabled(): boolean {
 
 const _enabled = fileLogEnabled();
 
-export function appendIsolatedExecutorRuntimeLog(record: Record<string, unknown>): void {
+export function appendIsolatedExecutorRuntimeLog(
+  record: Record<string, unknown>,
+): void {
   if (!_enabled) return;
   try {
     const dir = path.dirname(ISOLATED_EXECUTOR_RUNTIME_LOG_PATH);

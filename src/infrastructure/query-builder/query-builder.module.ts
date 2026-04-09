@@ -7,4 +7,3 @@ import { QueryBuilderService } from './query-builder.service';
   exports: [QueryBuilderService],
 })
 export class QueryBuilderModule {}
-

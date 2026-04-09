@@ -12,10 +12,47 @@ import { FolderTreeCacheService } from './services/folder-tree-cache.service';
 import { RepoRegistryService } from './services/repo-registry.service';
 import { FlowCacheService } from './services/flow-cache.service';
 import { PackageCdnLoaderService } from './services/package-cdn-loader.service';
+import { GuardCacheService } from './services/guard-cache.service';
+import { GuardEvaluatorService } from './services/guard-evaluator.service';
+import { SettingCacheService } from './services/setting-cache.service';
 
 @Global()
 @Module({
-  providers: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService, PackageCdnLoaderService],
-  exports: [CacheService, RedisPubSubService, MetadataCacheService, RouteCacheService, PackageCacheService, StorageConfigCacheService, WebsocketCacheService, OAuthConfigCacheService, RateLimitService, FolderTreeCacheService, RepoRegistryService, FlowCacheService, PackageCdnLoaderService],
+  providers: [
+    CacheService,
+    RedisPubSubService,
+    MetadataCacheService,
+    RouteCacheService,
+    PackageCacheService,
+    StorageConfigCacheService,
+    WebsocketCacheService,
+    OAuthConfigCacheService,
+    RateLimitService,
+    FolderTreeCacheService,
+    FlowCacheService,
+    PackageCdnLoaderService,
+    GuardCacheService,
+    GuardEvaluatorService,
+    SettingCacheService,
+    RepoRegistryService,
+  ],
+  exports: [
+    CacheService,
+    RedisPubSubService,
+    MetadataCacheService,
+    RouteCacheService,
+    PackageCacheService,
+    StorageConfigCacheService,
+    WebsocketCacheService,
+    OAuthConfigCacheService,
+    RateLimitService,
+    FolderTreeCacheService,
+    FlowCacheService,
+    PackageCdnLoaderService,
+    GuardCacheService,
+    GuardEvaluatorService,
+    SettingCacheService,
+    RepoRegistryService,
+  ],
 })
 export class CacheModule {}

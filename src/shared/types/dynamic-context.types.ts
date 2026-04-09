@@ -54,17 +54,20 @@ export interface TDynamicContext {
       title?: string;
       description?: string;
     }) => Promise<any>;
-    $updateFile?: (fileId: string | number, options: {
-      buffer?: Buffer;
-      originalname?: string;
-      filename?: string;
-      mimetype?: string;
-      size?: number;
-      folder?: number | { id: number };
-      storageConfig?: number;
-      title?: string;
-      description?: string;
-    }) => Promise<any>;
+    $updateFile?: (
+      fileId: string | number,
+      options: {
+        buffer?: Buffer;
+        originalname?: string;
+        filename?: string;
+        mimetype?: string;
+        size?: number;
+        folder?: number | { id: number };
+        storageConfig?: number;
+        title?: string;
+        description?: string;
+      },
+    ) => Promise<any>;
     $deleteFile?: (fileId: string | number) => Promise<any>;
     $fetch?: FetchHelper;
   };
@@ -122,7 +125,10 @@ export interface TDynamicContext {
   };
   $flow?: Record<string, any>;
   $dispatch?: {
-    trigger?: (flowIdOrName: string | number, payload?: any) => Promise<{ jobId: string; flowId: number | string }>;
+    trigger?: (
+      flowIdOrName: string | number,
+      payload?: any,
+    ) => Promise<{ jobId: string; flowId: number | string }>;
   };
 }
 

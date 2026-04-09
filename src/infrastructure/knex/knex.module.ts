@@ -19,7 +19,11 @@ import { CommonModule } from '../../shared/common/common.module';
     DatabaseSchemaService,
     SchemaMigrationLockService,
   ],
-  exports: [KnexService, SqlSchemaMigrationService, SchemaMigrationLockService, ReplicationManager],
+  exports: [
+    KnexService,
+    SqlSchemaMigrationService,
+    SchemaMigrationLockService,
+    ReplicationManager,
+  ],
 })
 export class KnexModule {}
-

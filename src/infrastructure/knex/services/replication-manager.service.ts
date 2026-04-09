@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Knex, knex } from 'knex';
 import { parseDatabaseUri } from '../../knex/utils/uri-parser';
@@ -33,7 +38,12 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       throw new Error('DB_URI is required');
     }
     const replicaUris = this.configService.get<string>('DB_REPLICA_URIS');
-    const replicaCount = replicaUris ? replicaUris.split(',').map(uri => uri.trim()).filter(Boolean).length : 0;
+    const replicaCount = replicaUris
+      ? replicaUris
+          .split(',')
+          .map((uri) => uri.trim())
+          .filter(Boolean).length
+      : 0;
     const split = splitSqlPoolAcrossReplication({
       totalMax: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
       totalMin: SQL_BOOTSTRAP_POOL_MIN,
@@ -44,7 +54,11 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     const replicaPoolMin = split.replicaMin;
     const replicaPoolMax = split.replicaMax;
     const masterConfig = parseDatabaseUri(DB_URI);
-    this.masterKnex = this.createKnexInstance(masterConfig, masterPoolMin, masterPoolMax);
+    this.masterKnex = this.createKnexInstance(
+      masterConfig,
+      masterPoolMin,
+      masterPoolMax,
+    );
     try {
       await this.masterKnex.raw('SELECT 1');
     } catch (error) {
@@ -52,11 +66,18 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       throw error;
     }
     if (replicaUris) {
-      const uris = replicaUris.split(',').map(uri => uri.trim()).filter(Boolean);
+      const uris = replicaUris
+        .split(',')
+        .map((uri) => uri.trim())
+        .filter(Boolean);
       for (const uri of uris) {
         try {
           const replicaConfig = parseDatabaseUri(uri);
-          const replicaKnex = this.createKnexInstance(replicaConfig, replicaPoolMin, replicaPoolMax);
+          const replicaKnex = this.createKnexInstance(
+            replicaConfig,
+            replicaPoolMin,
+            replicaPoolMax,
+          );
           await replicaKnex.raw('SELECT 1');
           this.replicaNodes.push({
             knex: replicaKnex,
@@ -65,8 +86,7 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
             errorCount: 0,
             connectionCount: 0,
           });
-        } catch (error) {
-        }
+        } catch (error) {}
       }
       if (this.replicaNodes.length > 0) {
         this.startHealthCheck();
@@ -74,9 +94,15 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     }
   }
   private createKnexInstance(
-    config: { host: string; port: number; user: string; password: string; database: string },
+    config: {
+      host: string;
+      port: number;
+      user: string;
+      password: string;
+      database: string;
+    },
     poolMinSize: number,
-    poolMaxSize: number
+    poolMaxSize: number,
   ): Knex {
     return knex({
       client: this.dbType === 'postgres' ? 'pg' : 'mysql2',
@@ -87,7 +113,11 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
         password: config.password,
         database: config.database,
         typeCast: (field: any, next: any) => {
-          if (field.type === 'DATE' || field.type === 'DATETIME' || field.type === 'TIMESTAMP') {
+          if (
+            field.type === 'DATE' ||
+            field.type === 'DATETIME' ||
+            field.type === 'TIMESTAMP'
+          ) {
             return field.string();
           }
           return next();
@@ -113,7 +143,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     });
     if (replicaCount === 0) {
       this.applyPoolLimits(this.masterKnex, split.masterMin, split.masterMax);
-      this.logger.log(`SQL pool coordinated (replication): totalMax=${total} masterOnly`);
+      this.logger.log(
+        `SQL pool coordinated (replication): totalMax=${total} masterOnly`,
+      );
       return;
     }
     this.applyPoolLimits(this.masterKnex, split.masterMin, split.masterMax);
@@ -147,8 +179,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     return this.masterKnex;
   }
   getReplicaKnex(): Knex {
-    const readFromMaster = this.configService.get<string>('DB_READ_FROM_MASTER') === 'true';
-    const healthyReplicas = this.replicaNodes.filter(node => node.isHealthy);
+    const readFromMaster =
+      this.configService.get<string>('DB_READ_FROM_MASTER') === 'true';
+    const healthyReplicas = this.replicaNodes.filter((node) => node.isHealthy);
     if (healthyReplicas.length === 0) {
       return this.masterKnex;
     }
@@ -167,13 +200,18 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       selectedNode.connectionCount++;
       return selectedNode.knex;
     }
-    const selectedNode = healthyReplicas[this.currentReplicaIndex % healthyReplicas.length];
-    this.currentReplicaIndex = (this.currentReplicaIndex + 1) % healthyReplicas.length;
+    const selectedNode =
+      healthyReplicas[this.currentReplicaIndex % healthyReplicas.length];
+    this.currentReplicaIndex =
+      (this.currentReplicaIndex + 1) % healthyReplicas.length;
     selectedNode.connectionCount++;
     return selectedNode.knex;
   }
   private startHealthCheck() {
-    const interval = parseInt(this.configService.get<string>('DB_REPLICA_HEALTH_CHECK_INTERVAL') || '30000');
+    const interval = parseInt(
+      this.configService.get<string>('DB_REPLICA_HEALTH_CHECK_INTERVAL') ||
+        '30000',
+    );
     this.healthCheckInterval = setInterval(async () => {
       for (const node of this.replicaNodes) {
         try {
@@ -210,9 +248,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
   getReplicaStats() {
     return {
       total: this.replicaNodes.length,
-      healthy: this.replicaNodes.filter(n => n.isHealthy).length,
-      unhealthy: this.replicaNodes.filter(n => !n.isHealthy).length,
-      replicas: this.replicaNodes.map(node => ({
+      healthy: this.replicaNodes.filter((n) => n.isHealthy).length,
+      unhealthy: this.replicaNodes.filter((n) => !n.isHealthy).length,
+      replicas: this.replicaNodes.map((node) => ({
         uri: node.uri.replace(/:[^:@]+@/, ':****@'),
         isHealthy: node.isHealthy,
         errorCount: node.errorCount,

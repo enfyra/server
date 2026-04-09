@@ -37,9 +37,20 @@ export class EventQueueService extends WorkerHost {
   }
 
   async process(job: Job<EventJobData>): Promise<any> {
-    const { requestId, socketId, userId, eventName, payload, gatewayPath, script, timeout } = job.data;
+    const {
+      requestId,
+      socketId,
+      userId,
+      eventName,
+      payload,
+      gatewayPath,
+      script,
+      timeout,
+    } = job.data;
 
-    this.logger.debug(`Processing event ${eventName} for socket ${socketId} on ${gatewayPath}`);
+    this.logger.debug(
+      `Processing event ${eventName} for socket ${socketId} on ${gatewayPath}`,
+    );
 
     const socketProxy = this.createSocketProxy(gatewayPath, socketId);
 
@@ -79,7 +90,11 @@ export class EventQueueService extends WorkerHost {
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     ctx.$dispatch = {
       trigger: (flowIdOrName: string | number, payload?: any) =>
-        this.flowService.trigger(flowIdOrName, payload, userId ? { id: userId } : null),
+        this.flowService.trigger(
+          flowIdOrName,
+          payload,
+          userId ? { id: userId } : null,
+        ),
     };
 
     try {

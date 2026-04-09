@@ -53,7 +53,9 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
           ];
           let route = null;
           for (const path of pathsToTry) {
-            route = await this.queryBuilder.findOneWhere('route_definition', { path });
+            route = await this.queryBuilder.findOneWhere('route_definition', {
+              path,
+            });
             if (route) break;
           }
           if (!route) {
@@ -63,9 +65,10 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           if (isMongoDB) {
-            transformedHook.route = typeof route._id === 'string'
-              ? new ObjectId(route._id)
-              : route._id;
+            transformedHook.route =
+              typeof route._id === 'string'
+                ? new ObjectId(route._id)
+                : route._id;
           } else {
             transformedHook.routeId = route.id;
             delete transformedHook.route;
@@ -78,7 +81,11 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
             delete transformedHook.route;
           }
         }
-        if (hook.methods && Array.isArray(hook.methods) && hook.methods.length > 0) {
+        if (
+          hook.methods &&
+          Array.isArray(hook.methods) &&
+          hook.methods.length > 0
+        ) {
           if (isMongoDB) {
             const result = await this.queryBuilder.select({
               tableName: 'method_definition',
@@ -87,7 +94,7 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
             });
             const methods = result.data;
             transformedHook.methods = methods.map((m: any) =>
-              typeof m._id === 'string' ? new ObjectId(m._id) : m._id
+              typeof m._id === 'string' ? new ObjectId(m._id) : m._id,
             );
           } else {
             transformedHook._methods = hook.methods;
@@ -121,7 +128,9 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
         const junctionTable = 'hook_definition_methods_method_definition';
         await this.queryBuilder.delete({
           table: junctionTable,
-          where: [{ field: 'hookDefinitionId', operator: '=', value: record.id }],
+          where: [
+            { field: 'hookDefinitionId', operator: '=', value: record.id },
+          ],
         });
         const junctionData = methodIds.map((methodId) => ({
           methodDefinitionId: methodId,

@@ -34,16 +34,24 @@ export class AuthService {
   async login(body: LoginAuthDto) {
     const { email, password } = body;
 
-    const user = await this.queryBuilder.findOneWhere('user_definition', { email });
+    const user = await this.queryBuilder.findOneWhere('user_definition', {
+      email,
+    });
 
-    if (!user || !user.password || !(await this.bcryptService.compare(password, user.password))) {
+    if (
+      !user ||
+      !user.password ||
+      !(await this.bcryptService.compare(password, user.password))
+    ) {
       throw new BadRequestException(`Login failed!`);
     }
 
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB
-      ? (typeof user._id === 'string' ? new ObjectId(user._id) : user._id)
-      : (user.id || user._id);
+      ? typeof user._id === 'string'
+        ? new ObjectId(user._id)
+        : user._id
+      : user.id || user._id;
 
     const remember = body.remember || false;
     const expiredAt = this.calculateExpiredAt(remember);
@@ -63,11 +71,14 @@ export class AuthService {
           loginProvider: null,
         };
 
-    const insertedSession = await this.queryBuilder.insertAndGet('session_definition', sessionData);
+    const insertedSession = await this.queryBuilder.insertAndGet(
+      'session_definition',
+      sessionData,
+    );
 
-    const sessionId = isMongoDB 
-      ? (insertedSession._id?.toString() || insertedSession.id)
-      : (insertedSession.id || sessionData.id);
+    const sessionId = isMongoDB
+      ? insertedSession._id?.toString() || insertedSession.id
+      : insertedSession.id || sessionData.id;
 
     const accessToken = this.jwtService.sign(
       {
@@ -75,7 +86,9 @@ export class AuthService {
         loginProvider: null,
       },
       {
-        expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as StringValue,
+        expiresIn: this.configService.get<string>(
+          'ACCESS_TOKEN_EXP',
+        ) as StringValue,
       },
     );
     const refreshToken = this.jwtService.sign(
@@ -85,7 +98,9 @@ export class AuthService {
       {
         expiresIn: (body.remember
           ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
-          : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP')) as StringValue,
+          : this.configService.get<string>(
+              'REFRESH_TOKEN_NO_REMEMBER_EXP',
+            )) as StringValue,
       },
     );
     const decoded: any = this.jwtService.decode(accessToken);
@@ -104,24 +119,33 @@ export class AuthService {
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
-    
+
     const { sessionId } = decoded;
 
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const session = await this.queryBuilder.findOneWhere('session_definition', { [sessionIdField]: sessionId });
+    const session = await this.queryBuilder.findOneWhere('session_definition', {
+      [sessionIdField]: sessionId,
+    });
 
     if (!req.user) {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    const userIdToCheck = this.queryBuilder.isMongoDb() ? req.user._id : req.user.id;
-    const sessionUserId = this.queryBuilder.isMongoDb() ? (session?.user?._id || session?.user) : session?.userId;
-    
+    const userIdToCheck = this.queryBuilder.isMongoDb()
+      ? req.user._id
+      : req.user.id;
+    const sessionUserId = this.queryBuilder.isMongoDb()
+      ? session?.user?._id || session?.user
+      : session?.userId;
+
     if (!session || String(sessionUserId) !== String(userIdToCheck)) {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    await this.queryBuilder.deleteById('session_definition', session._id || session.id);
+    await this.queryBuilder.deleteById(
+      'session_definition',
+      session._id || session.id,
+    );
     return 'Logout successfully!';
   }
 
@@ -135,25 +159,28 @@ export class AuthService {
 
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
     const session = await this.queryBuilder.findOneWhere('session_definition', {
-      [sessionIdField]: decoded.sessionId
+      [sessionIdField]: decoded.sessionId,
     });
 
     if (!session) {
       throw new BadRequestException('Session not found!');
     }
 
-    if (session.expiredAt && new Date(session.expiredAt).getTime() < Date.now()) {
+    if (
+      session.expiredAt &&
+      new Date(session.expiredAt).getTime() < Date.now()
+    ) {
       throw new BadRequestException('Session has expired!');
     }
 
     const userId = this.queryBuilder.isMongoDb()
-      ? (session.user?._id || session.user)
+      ? session.user?._id || session.user
       : session.userId;
 
     const remember = session.remember || false;
     const newExpiredAt = this.calculateExpiredAt(remember);
     const sessionId = this.queryBuilder.isMongoDb()
-      ? (session._id?.toString() || session._id)
+      ? session._id?.toString() || session._id
       : session.id;
 
     await this.queryBuilder.updateById('session_definition', sessionId, {
@@ -168,7 +195,9 @@ export class AuthService {
         loginProvider,
       },
       {
-        expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as StringValue,
+        expiresIn: this.configService.get<string>(
+          'ACCESS_TOKEN_EXP',
+        ) as StringValue,
       },
     );
 
@@ -178,11 +207,12 @@ export class AuthService {
     const refreshToken = this.jwtService.sign(
       { sessionId: sessionId },
       {
-        expiresIn: this.configService.get<string>(refreshTokenExp) as StringValue,
+        expiresIn: this.configService.get<string>(
+          refreshTokenExp,
+        ) as StringValue,
       },
     );
 
-     
     const accessTokenDecoded = await this.jwtService.decode(accessToken);
     return {
       accessToken,

@@ -29,7 +29,9 @@ async function bootstrap() {
   app.useLogger(new AppLogger());
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.use(require('express').json({ limit: '50mb' }));
-  expressApp.use(require('express').urlencoded({ limit: '50mb', extended: true }));
+  expressApp.use(
+    require('express').urlencoded({ limit: '50mb', extended: true }),
+  );
   const qs = require('qs');
   expressApp.set('query parser', (str: string) => {
     return qs.parse(str, {
@@ -72,14 +74,17 @@ async function bootstrap() {
     CACHE_EVENTS.OAUTH_CONFIG_LOADED,
     CACHE_EVENTS.WEBSOCKET_LOADED,
     CACHE_EVENTS.FLOW_LOADED,
+    CACHE_EVENTS.SETTING_LOADED,
     CACHE_EVENTS.GRAPHQL_LOADED,
   ];
 
   const received = new Set<string>();
   const systemReadyPromise = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      const missing = BOOT_EVENTS.filter(e => !received.has(e));
-      logger.warn(`Boot timeout after 60s. Missing events: ${missing.join(', ')}`);
+      const missing = BOOT_EVENTS.filter((e) => !received.has(e));
+      logger.warn(
+        `Boot timeout after 60s. Missing events: ${missing.join(', ')}`,
+      );
       resolve();
     }, 60000);
 

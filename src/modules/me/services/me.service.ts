@@ -31,7 +31,7 @@ export class MeService {
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
-    
+
     const userId = req.user._id || req.user.id;
     return await repo.update({ id: userId, data: body });
   }
@@ -41,9 +41,15 @@ export class MeService {
     const userId = req.user._id || req.user.id;
     const isMongoDB = this.queryBuilder.isMongoDb();
     const where = isMongoDB
-      ? { user: userId instanceof ObjectId ? userId : new ObjectId(String(userId)) }
+      ? {
+          user:
+            userId instanceof ObjectId ? userId : new ObjectId(String(userId)),
+        }
       : { userId };
-    const data = await this.queryBuilder.findWhere('oauth_account_definition', where);
+    const data = await this.queryBuilder.findWhere(
+      'oauth_account_definition',
+      where,
+    );
     return { data };
   }
 }

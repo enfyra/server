@@ -1,7 +1,11 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
-import { IStorageService, StorageConfig, UploadResult } from './storage.interface';
+import {
+  IStorageService,
+  StorageConfig,
+  UploadResult,
+} from './storage.interface';
 
 @Injectable()
 export class GCSStorageService implements IStorageService {
@@ -14,9 +18,10 @@ export class GCSStorageService implements IStorageService {
     config: StorageConfig,
   ): Promise<UploadResult> {
     try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
+      const credentials =
+        typeof config.credentials === 'string'
+          ? JSON.parse(config.credentials)
+          : config.credentials;
 
       const storage = new Storage({
         credentials: credentials,
@@ -35,7 +40,8 @@ export class GCSStorageService implements IStorageService {
         location: relativePath,
       };
     } catch (error: any) {
-      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const cloudError =
+        error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to upload to GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -44,9 +50,10 @@ export class GCSStorageService implements IStorageService {
 
   async delete(location: string, config: StorageConfig): Promise<void> {
     try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
+      const credentials =
+        typeof config.credentials === 'string'
+          ? JSON.parse(config.credentials)
+          : config.credentials;
 
       const storage = new Storage({
         credentials: credentials,
@@ -56,9 +63,9 @@ export class GCSStorageService implements IStorageService {
       const file = bucket.file(location);
 
       await file.delete({ ignoreNotFound: true });
-
     } catch (error: any) {
-      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const cloudError =
+        error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to delete from GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -67,9 +74,10 @@ export class GCSStorageService implements IStorageService {
 
   async getStream(location: string, config: StorageConfig): Promise<Readable> {
     try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
+      const credentials =
+        typeof config.credentials === 'string'
+          ? JSON.parse(config.credentials)
+          : config.credentials;
 
       const storage = new Storage({
         credentials: credentials,
@@ -85,10 +93,10 @@ export class GCSStorageService implements IStorageService {
 
       const stream = file.createReadStream();
 
-
       return stream;
     } catch (error: any) {
-      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const cloudError =
+        error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to stream from GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -97,9 +105,10 @@ export class GCSStorageService implements IStorageService {
 
   async getBuffer(location: string, config: StorageConfig): Promise<Buffer> {
     try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
+      const credentials =
+        typeof config.credentials === 'string'
+          ? JSON.parse(config.credentials)
+          : config.credentials;
 
       const storage = new Storage({
         credentials: credentials,
@@ -115,10 +124,10 @@ export class GCSStorageService implements IStorageService {
 
       const [buffer] = await file.download();
 
-
       return buffer;
     } catch (error: any) {
-      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const cloudError =
+        error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to download from GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -132,9 +141,10 @@ export class GCSStorageService implements IStorageService {
     config: StorageConfig,
   ): Promise<void> {
     try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
+      const credentials =
+        typeof config.credentials === 'string'
+          ? JSON.parse(config.credentials)
+          : config.credentials;
 
       const storage = new Storage({
         credentials: credentials,
@@ -148,9 +158,9 @@ export class GCSStorageService implements IStorageService {
           contentType: mimetype,
         },
       });
-
     } catch (error: any) {
-      const cloudError = error.message || error.code || error.name || 'Unknown error';
+      const cloudError =
+        error.message || error.code || error.name || 'Unknown error';
       const errorMessage = `Failed to replace file on GCS: ${cloudError}`;
       this.logger.error(errorMessage, error);
       throw new BadRequestException(errorMessage);
@@ -159,9 +169,10 @@ export class GCSStorageService implements IStorageService {
 
   async exists(location: string, config: StorageConfig): Promise<boolean> {
     try {
-      const credentials = typeof config.credentials === 'string'
-        ? JSON.parse(config.credentials)
-        : config.credentials;
+      const credentials =
+        typeof config.credentials === 'string'
+          ? JSON.parse(config.credentials)
+          : config.credentials;
 
       const storage = new Storage({
         credentials: credentials,
@@ -177,4 +188,3 @@ export class GCSStorageService implements IStorageService {
     }
   }
 }
-

@@ -20,17 +20,33 @@ export async function buildNestedSubquery(
   nestingLevel: number = 0,
   parentAliasOverride?: string,
   junctionAlias?: string,
+  maxDepth?: number,
 ): Promise<string | null> {
-  const relation = parentMeta.relations?.find(r => r.propertyName === relationName);
-  if (!relation) {
-    logToFile('debug', `Relation ${relationName} not found in ${parentTable}`, 'NestedSubquery');
+  if (maxDepth !== undefined && nestingLevel >= maxDepth) {
     return null;
   }
 
-  const targetTableName = (relation as any).targetTableName || relation.targetTable;
+  const relation = parentMeta.relations?.find(
+    (r) => r.propertyName === relationName,
+  );
+  if (!relation) {
+    logToFile(
+      'debug',
+      `Relation ${relationName} not found in ${parentTable}`,
+      'NestedSubquery',
+    );
+    return null;
+  }
+
+  const targetTableName =
+    (relation as any).targetTableName || relation.targetTable;
   const targetMeta = await metadataGetter(targetTableName);
   if (!targetMeta) {
-    logToFile('debug', `Target metadata not found for ${targetTableName}`, 'NestedSubquery');
+    logToFile(
+      'debug',
+      `Target metadata not found for ${targetTableName}`,
+      'NestedSubquery',
+    );
     return null;
   }
 
@@ -53,22 +69,33 @@ export async function buildNestedSubquery(
   }
 
   const currentAlias = nestingLevel === 0 ? 'c' : `c${nestingLevel}`;
-  const parentAlias = parentAliasOverride || (nestingLevel <= 1 ? 'c' : `c${nestingLevel - 1}`);
+  const parentAlias =
+    parentAliasOverride || (nestingLevel <= 1 ? 'c' : `c${nestingLevel - 1}`);
 
   const columns: string[] = [];
 
   if (rootFields.includes('*')) {
     const fkColumnsToOmit = new Set<string>();
     for (const rel of targetMeta.relations || []) {
-      if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
+      if (
+        rel.type === 'many-to-one' ||
+        (rel.type === 'one-to-one' && !(rel as any).isInverse)
+      ) {
         const relTargetTable = (rel as any).targetTableName || rel.targetTable;
-        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
+        const fkCol =
+          rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
         if (fkCol) fkColumnsToOmit.add(fkCol);
       }
     }
     for (const col of targetMeta.columns) {
       if (fkColumnsToOmit.has(col.name)) continue;
-      columns.push(`'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`);
+      if ((col as any).isHidden === true) {
+        columns.push(`'${col.name}', NULL`);
+      } else {
+        columns.push(
+          `'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`,
+        );
+      }
     }
 
     for (const rel of targetMeta.relations || []) {
@@ -79,9 +106,15 @@ export async function buildNestedSubquery(
   } else {
     for (const field of rootFields) {
       if (!field.includes('.')) {
-        const col = targetMeta.columns.find(c => c.name === field);
+        const col = targetMeta.columns.find((c) => c.name === field);
         if (col) {
-          columns.push(`'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`);
+          if ((col as any).isHidden === true) {
+            columns.push(`'${col.name}', NULL`);
+          } else {
+            columns.push(
+              `'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`,
+            );
+          }
         }
       }
     }
@@ -98,6 +131,7 @@ export async function buildNestedSubquery(
       nestingLevel + 1,
       currentAlias,
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel + 1}`,
+      maxDepth,
     );
 
     if (nestedSubquery) {
@@ -114,19 +148,26 @@ export async function buildNestedSubquery(
 
   const nextAlias = nestingLevel === 0 ? 'c' : `c${nestingLevel}`;
 
-  const parentRef = nestingLevel === 0 ? quoteIdentifier(parentTable, dbType) : parentAlias;
+  const parentRef =
+    nestingLevel === 0 ? quoteIdentifier(parentTable, dbType) : parentAlias;
   const targetPkColumn = getPrimaryKeyColumn(targetMeta);
   const targetPkName = targetPkColumn?.name || 'id';
   const parentPkColumn = getPrimaryKeyColumn(parentMeta);
   const parentPkName = parentPkColumn?.name || 'id';
 
-  if (relation.type === 'many-to-one' || (relation.type === 'one-to-one' && !(relation as any).isInverse)) {
-    const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relationName);
+  if (
+    relation.type === 'many-to-one' ||
+    (relation.type === 'one-to-one' && !(relation as any).isInverse)
+  ) {
+    const fkColumn =
+      relation.foreignKeyColumn || getForeignKeyColumnName(relationName);
     const leftSide = `${nextAlias}.${quoteIdentifier(targetPkName, dbType)}`;
     const rightSide = `${parentRef}.${quoteIdentifier(fkColumn, dbType)}`;
     return `(select ${jsonObject} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
   } else if (relation.type === 'one-to-one' && (relation as any).isInverse) {
-    const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relation.inversePropertyName || relationName);
+    const fkColumn =
+      relation.foreignKeyColumn ||
+      getForeignKeyColumnName(relation.inversePropertyName || relationName);
     const leftSide = `${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`;
     const rightSide = `${parentRef}.${quoteIdentifier(parentPkName, dbType)}`;
     return `(select ${jsonObject} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
@@ -138,13 +179,19 @@ export async function buildNestedSubquery(
         fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
       } else {
         const inverseRelation = targetMeta.relations?.find(
-          r => r.type === 'many-to-one' && ((r as any).targetTableName || r.targetTable) === parentTable
+          (r) =>
+            r.type === 'many-to-one' &&
+            ((r as any).targetTableName || r.targetTable) === parentTable,
         );
         if (inverseRelation?.foreignKeyColumn) {
           fkColumn = inverseRelation.foreignKeyColumn;
-      } else {
-        logToFile('debug', `O2M relation ${relationName} missing foreignKeyColumn and inversePropertyName`, 'NestedSubquery');
-        return null;
+        } else {
+          logToFile(
+            'debug',
+            `O2M relation ${relationName} missing foreignKeyColumn and inversePropertyName`,
+            'NestedSubquery',
+          );
+          return null;
         }
       }
     }
@@ -158,17 +205,27 @@ export async function buildNestedSubquery(
   } else if (relation.type === 'many-to-many') {
     const junctionTable = relation.junctionTableName;
     if (!junctionTable) {
-      logToFile('debug', `M2M relation ${relationName} missing junctionTableName`, 'NestedSubquery');
+      logToFile(
+        'debug',
+        `M2M relation ${relationName} missing junctionTableName`,
+        'NestedSubquery',
+      );
       return null;
     }
 
-    const junctionSourceCol = relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
-    const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
+    const junctionSourceCol =
+      relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
+    const junctionTargetCol =
+      relation.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
 
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
 
-    const jAlias = junctionAlias || (nestingLevel === 0 ? 'j' : `j_${relationName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel}`);
+    const jAlias =
+      junctionAlias ||
+      (nestingLevel === 0
+        ? 'j'
+        : `j_${relationName.replace(/[^a-zA-Z0-9]/g, '_')}_${nestingLevel}`);
     const joinLeft = `${jAlias}.${quoteIdentifier(junctionTargetCol, dbType)}`;
     const joinRight = `${nextAlias}.${quoteIdentifier(targetPkName, dbType)}`;
     const whereLeft = `${jAlias}.${quoteIdentifier(junctionSourceCol, dbType)}`;
@@ -191,17 +248,24 @@ export async function buildOwnerCTEStrategy(
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   limitedCTEName: string,
   parentIdColumn: string = 'id',
+  maxDepth?: number,
 ): Promise<string | null> {
-  const relation = parentMeta.relations?.find(r => r.propertyName === relationName);
+  const relation = parentMeta.relations?.find(
+    (r) => r.propertyName === relationName,
+  );
   if (!relation) {
     return null;
   }
 
-  if (relation.type !== 'many-to-one' && !(relation.type === 'one-to-one' && !(relation as any).isInverse)) {
+  if (
+    relation.type !== 'many-to-one' &&
+    !(relation.type === 'one-to-one' && !(relation as any).isInverse)
+  ) {
     return null;
   }
 
-  const targetTableName = (relation as any).targetTableName || relation.targetTable;
+  const targetTableName =
+    (relation as any).targetTableName || relation.targetTable;
   const targetMeta = await metadataGetter(targetTableName);
   if (!targetMeta) {
     return null;
@@ -229,9 +293,13 @@ export async function buildOwnerCTEStrategy(
   if (rootFields.includes('*')) {
     const fkColumnsToOmit = new Set<string>();
     for (const rel of targetMeta.relations || []) {
-      if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
+      if (
+        rel.type === 'many-to-one' ||
+        (rel.type === 'one-to-one' && !(rel as any).isInverse)
+      ) {
         const relTargetTable = (rel as any).targetTableName || rel.targetTable;
-        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
+        const fkCol =
+          rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
         if (fkCol) fkColumnsToOmit.add(fkCol);
       }
     }
@@ -248,7 +316,7 @@ export async function buildOwnerCTEStrategy(
   } else {
     for (const field of rootFields) {
       if (!field.includes('.')) {
-        const col = targetMeta.columns.find(c => c.name === field);
+        const col = targetMeta.columns.find((c) => c.name === field);
         if (col) {
           columns.push(`'${col.name}', r.${quoteIdentifier(col.name, dbType)}`);
         }
@@ -267,6 +335,7 @@ export async function buildOwnerCTEStrategy(
       1,
       'r',
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
+      maxDepth,
     );
 
     if (nestedSubquery) {
@@ -292,7 +361,8 @@ export async function buildOwnerCTEStrategy(
   const targetPkName = targetPkColumn?.name || 'id';
   const quotedTargetPk = quoteIdentifier(targetPkName, dbType);
 
-  const fkColumn = relation.foreignKeyColumn || getForeignKeyColumnName(relationName);
+  const fkColumn =
+    relation.foreignKeyColumn || getForeignKeyColumnName(relationName);
   const quotedFkCol = quoteIdentifier(fkColumn, dbType);
 
   return `${quoteIdentifier(`${relationName}_agg`, dbType)} AS (
@@ -317,8 +387,11 @@ export async function buildCTEStrategy(
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   limitedCTEName: string,
   parentIdColumn: string = 'id',
+  maxDepth?: number,
 ): Promise<string | null> {
-  const relation = parentMeta.relations?.find(r => r.propertyName === relationName);
+  const relation = parentMeta.relations?.find(
+    (r) => r.propertyName === relationName,
+  );
   if (!relation) {
     return null;
   }
@@ -327,7 +400,8 @@ export async function buildCTEStrategy(
     return null;
   }
 
-  const targetTableName = (relation as any).targetTableName || relation.targetTable;
+  const targetTableName =
+    (relation as any).targetTableName || relation.targetTable;
   const targetMeta = await metadataGetter(targetTableName);
   if (!targetMeta) {
     return null;
@@ -356,9 +430,13 @@ export async function buildCTEStrategy(
   if (rootFields.includes('*')) {
     const fkColumnsToOmit = new Set<string>();
     for (const rel of targetMeta.relations || []) {
-      if (rel.type === 'many-to-one' || (rel.type === 'one-to-one' && !(rel as any).isInverse)) {
+      if (
+        rel.type === 'many-to-one' ||
+        (rel.type === 'one-to-one' && !(rel as any).isInverse)
+      ) {
         const relTargetTable = (rel as any).targetTableName || rel.targetTable;
-        const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
+        const fkCol =
+          rel.foreignKeyColumn || getForeignKeyColumnName(relTargetTable);
         if (fkCol) fkColumnsToOmit.add(fkCol);
       }
     }
@@ -375,7 +453,7 @@ export async function buildCTEStrategy(
   } else {
     for (const field of rootFields) {
       if (!field.includes('.')) {
-        const col = targetMeta.columns.find(c => c.name === field);
+        const col = targetMeta.columns.find((c) => c.name === field);
         if (col) {
           columns.push(`'${col.name}', r.${quoteIdentifier(col.name, dbType)}`);
         }
@@ -394,6 +472,7 @@ export async function buildCTEStrategy(
       1,
       'r',
       `j_${subRelName.replace(/[^a-zA-Z0-9]/g, '_')}_1`,
+      maxDepth,
     );
 
     if (nestedSubquery) {
@@ -408,16 +487,24 @@ export async function buildCTEStrategy(
   const jsonObjectFunc = getJsonObjectFunc(dbType);
   const jsonObject = `${jsonObjectFunc}(${columns.join(',')})`;
   const jsonArrayAggFunc = getJsonArrayAggFunc(dbType);
-  const jsonArrayAgg = dbType === 'postgres' ? jsonArrayAggFunc.replace('json_agg', 'jsonb_agg') : jsonArrayAggFunc;
-  const emptyArray = dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
+  const jsonArrayAgg =
+    dbType === 'postgres'
+      ? jsonArrayAggFunc.replace('json_agg', 'jsonb_agg')
+      : jsonArrayAggFunc;
+  const emptyArray =
+    dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
 
   const quotedParentTable = quoteIdentifier(parentTable, dbType);
   const quotedTargetTable = quoteIdentifier(targetTableName, dbType);
   const quotedParentId = quoteIdentifier(parentIdColumn, dbType);
   const quotedRelationName = quoteIdentifier(relationName, dbType);
-  const targetPkColumn = targetMeta ? getPrimaryKeyColumn(targetMeta as any) : null;
+  const targetPkColumn = targetMeta
+    ? getPrimaryKeyColumn(targetMeta as any)
+    : null;
   const targetPkName = targetPkColumn?.name || 'id';
-  const parentPkColumn = parentMeta ? getPrimaryKeyColumn(parentMeta as any) : null;
+  const parentPkColumn = parentMeta
+    ? getPrimaryKeyColumn(parentMeta as any)
+    : null;
   const parentPkName = parentPkColumn?.name || 'id';
 
   if (relation.type === 'one-to-many') {
@@ -427,7 +514,9 @@ export async function buildCTEStrategy(
         fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
       } else {
         const inverseRelation = targetMeta.relations?.find(
-          r => r.type === 'many-to-one' && ((r as any).targetTableName || r.targetTable) === parentTable
+          (r) =>
+            r.type === 'many-to-one' &&
+            ((r as any).targetTableName || r.targetTable) === parentTable,
         );
         if (inverseRelation?.foreignKeyColumn) {
           fkColumn = inverseRelation.foreignKeyColumn;
@@ -444,9 +533,10 @@ export async function buildCTEStrategy(
     const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
 
-    const orderByClause = (dbType === 'postgres' || dbType === 'mysql')
-      ? ` ORDER BY r.${quotedTargetPk} ASC`
-      : '';
+    const orderByClause =
+      dbType === 'postgres' || dbType === 'mysql'
+        ? ` ORDER BY r.${quotedTargetPk} ASC`
+        : '';
 
     return `${quotedCTEName} AS (
       SELECT
@@ -462,8 +552,10 @@ export async function buildCTEStrategy(
       return null;
     }
 
-    const junctionSourceCol = relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
-    const junctionTargetCol = relation.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
+    const junctionSourceCol =
+      relation.junctionSourceColumn || getForeignKeyColumnName(parentTable);
+    const junctionTargetCol =
+      relation.junctionTargetColumn || getForeignKeyColumnName(targetTableName);
 
     const quotedJunctionTable = quoteIdentifier(junctionTable, dbType);
     const quotedJunctionSourceCol = quoteIdentifier(junctionSourceCol, dbType);
@@ -474,9 +566,10 @@ export async function buildCTEStrategy(
     const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
     const quotedTargetPk = quoteIdentifier(targetPkName, dbType);
 
-    const orderByClause = (dbType === 'postgres' || dbType === 'mysql')
-      ? ` ORDER BY r.${quotedTargetPk} ASC`
-      : '';
+    const orderByClause =
+      dbType === 'postgres' || dbType === 'mysql'
+        ? ` ORDER BY r.${quotedTargetPk} ASC`
+        : '';
 
     return `${quotedCTEName} AS (
       SELECT

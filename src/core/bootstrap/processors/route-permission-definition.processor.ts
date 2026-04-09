@@ -12,17 +12,22 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
-        if (transformedRecord.isEnabled === undefined) transformedRecord.isEnabled = true;
+        if (transformedRecord.isEnabled === undefined)
+          transformedRecord.isEnabled = true;
         if (isMongoDB) {
           const now = new Date();
           if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
-          if (!transformedRecord.allowedUsers) transformedRecord.allowedUsers = [];
+          if (!transformedRecord.allowedUsers)
+            transformedRecord.allowedUsers = [];
         }
         if (record.route) {
-          const routeEntity = await this.queryBuilder.findOneWhere('route_definition', {
-            path: record.route,
-          });
+          const routeEntity = await this.queryBuilder.findOneWhere(
+            'route_definition',
+            {
+              path: record.route,
+            },
+          );
           if (!routeEntity) {
             this.logger.warn(
               `Route '${record.route}' not found for permission, skipping.`,
@@ -30,18 +35,22 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           if (isMongoDB) {
-            transformedRecord.route = typeof routeEntity._id === 'string'
-              ? new ObjectId(routeEntity._id)
-              : routeEntity._id;
+            transformedRecord.route =
+              typeof routeEntity._id === 'string'
+                ? new ObjectId(routeEntity._id)
+                : routeEntity._id;
           } else {
             transformedRecord.routeId = routeEntity.id;
             delete transformedRecord.route;
           }
         }
         if (record.role) {
-          const roleEntity = await this.queryBuilder.findOneWhere('role_definition', {
-            name: record.role,
-          });
+          const roleEntity = await this.queryBuilder.findOneWhere(
+            'role_definition',
+            {
+              name: record.role,
+            },
+          );
           if (!roleEntity) {
             this.logger.warn(
               `Role '${record.role}' not found for permission, skipping.`,
@@ -49,9 +58,10 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           if (isMongoDB) {
-            transformedRecord.role = typeof roleEntity._id === 'string'
-              ? new ObjectId(roleEntity._id)
-              : roleEntity._id;
+            transformedRecord.role =
+              typeof roleEntity._id === 'string'
+                ? new ObjectId(roleEntity._id)
+                : roleEntity._id;
           } else {
             transformedRecord.roleId = roleEntity.id;
             delete transformedRecord.role;

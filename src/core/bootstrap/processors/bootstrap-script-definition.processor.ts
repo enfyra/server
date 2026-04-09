@@ -23,6 +23,19 @@ export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
     return { name: record.name };
   }
   protected getCompareFields(): string[] {
-    return ['name', 'description', 'logic', 'timeout', 'priority', 'isEnabled', 'environment', 'runOnce', 'runOnStartup', 'dependsOn', 'conditions', 'isSystem'];
+    return [
+      'name',
+      'description',
+      'logic',
+      'timeout',
+      'priority',
+      'isEnabled',
+      'environment',
+      'runOnce',
+      'runOnStartup',
+      'dependsOn',
+      'conditions',
+      'isSystem',
+    ];
   }
 }

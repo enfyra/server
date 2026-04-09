@@ -18,9 +18,12 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
         }
         if (record.route) {
-          const routeEntity = await this.queryBuilder.findOneWhere('route_definition', {
-            path: record.route,
-          });
+          const routeEntity = await this.queryBuilder.findOneWhere(
+            'route_definition',
+            {
+              path: record.route,
+            },
+          );
           if (!routeEntity) {
             this.logger.warn(
               `Route '${record.route}' not found for handler, skipping.`,
@@ -28,18 +31,22 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           if (isMongoDB) {
-            transformedRecord.route = typeof routeEntity._id === 'string'
-              ? new ObjectId(routeEntity._id)
-              : routeEntity._id;
+            transformedRecord.route =
+              typeof routeEntity._id === 'string'
+                ? new ObjectId(routeEntity._id)
+                : routeEntity._id;
           } else {
             transformedRecord.routeId = routeEntity.id;
             delete transformedRecord.route;
           }
         }
         if (record.method) {
-          const methodEntity = await this.queryBuilder.findOneWhere('method_definition', {
-            method: record.method,
-          });
+          const methodEntity = await this.queryBuilder.findOneWhere(
+            'method_definition',
+            {
+              method: record.method,
+            },
+          );
           if (!methodEntity) {
             this.logger.warn(
               `Method '${record.method}' not found for handler, skipping.`,
@@ -47,9 +54,10 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
             return null;
           }
           if (isMongoDB) {
-            transformedRecord.method = typeof methodEntity._id === 'string'
-              ? new ObjectId(methodEntity._id)
-              : methodEntity._id;
+            transformedRecord.method =
+              typeof methodEntity._id === 'string'
+                ? new ObjectId(methodEntity._id)
+                : methodEntity._id;
           } else {
             transformedRecord.methodId = methodEntity.id;
             delete transformedRecord.method;
@@ -63,7 +71,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any): object {
     return {
       routeId: record.routeId,
-      methodId: record.methodId
+      methodId: record.methodId,
     };
   }
   protected getCompareFields(): string[] {

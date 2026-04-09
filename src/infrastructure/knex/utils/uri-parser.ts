@@ -9,7 +9,7 @@ export interface ParsedDatabaseUri {
 export function parseDatabaseUri(uri: string): ParsedDatabaseUri {
   try {
     const url = new URL(uri);
-    
+
     const protocol = url.protocol.replace(':', '');
     const host = url.hostname;
     const port = url.port ? parseInt(url.port, 10) : getDefaultPort(protocol);
@@ -34,7 +34,9 @@ export function parseDatabaseUri(uri: string): ParsedDatabaseUri {
     };
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error(`Invalid database URI format: ${uri}. Expected format: mysql://user:pass@host:port/database or postgresql://user:pass@host:port/database`);
+      throw new Error(
+        `Invalid database URI format: ${uri}. Expected format: mysql://user:pass@host:port/database or postgresql://user:pass@host:port/database`,
+      );
     }
     throw error;
   }
@@ -45,11 +47,12 @@ function getDefaultPort(protocol: string): number {
     case 'mysql':
       return 3306;
     case 'postgresql':
-    return 5432;
+      return 5432;
     case 'postgres':
       return 5432;
     default:
-      throw new Error(`Unsupported database protocol: ${protocol}. Supported: mysql, postgresql, postgres`);
+      throw new Error(
+        `Unsupported database protocol: ${protocol}. Supported: mysql, postgresql, postgres`,
+      );
   }
 }
-

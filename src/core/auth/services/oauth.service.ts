@@ -19,11 +19,14 @@ interface OAuthUserInfo {
 export class OAuthService {
   private readonly logger = new Logger(OAuthService.name);
 
-  private readonly providerUrls: Record<OAuthProvider, {
-    authUrl: string;
-    tokenUrl: string;
-    userInfoUrl: string;
-  }> = {
+  private readonly providerUrls: Record<
+    OAuthProvider,
+    {
+      authUrl: string;
+      tokenUrl: string;
+      userInfoUrl: string;
+    }
+  > = {
     google: {
       authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
@@ -51,7 +54,9 @@ export class OAuthService {
   getAuthorizationUrl(provider: OAuthProvider, state: string): string {
     const config = this.oauthConfigCache.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
-      throw new BadRequestException(`OAuth provider '${provider}' is not configured or disabled`);
+      throw new BadRequestException(
+        `OAuth provider '${provider}' is not configured or disabled`,
+      );
     }
 
     const urls = this.providerUrls[provider];
@@ -81,7 +86,10 @@ export class OAuthService {
     }
   }
 
-  async handleCallback(provider: OAuthProvider, code: string): Promise<{
+  async handleCallback(
+    provider: OAuthProvider,
+    code: string,
+  ): Promise<{
     accessToken: string;
     refreshToken: string;
     expTime: number;
@@ -89,12 +97,23 @@ export class OAuthService {
   }> {
     const config = this.oauthConfigCache.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
-      throw new BadRequestException(`OAuth provider '${provider}' is not configured or disabled`);
+      throw new BadRequestException(
+        `OAuth provider '${provider}' is not configured or disabled`,
+      );
     }
 
     const urls = this.providerUrls[provider];
-    const tokens = await this.exchangeCodeForTokens(urls.tokenUrl, code, config, config.redirectUri);
-    const userInfo = await this.fetchUserInfo(urls.userInfoUrl, tokens.access_token, provider);
+    const tokens = await this.exchangeCodeForTokens(
+      urls.tokenUrl,
+      code,
+      config,
+      config.redirectUri,
+    );
+    const userInfo = await this.fetchUserInfo(
+      urls.userInfoUrl,
+      tokens.access_token,
+      provider,
+    );
 
     if (!userInfo.email) {
       throw new BadRequestException('Email is required from OAuth provider');
@@ -111,7 +130,7 @@ export class OAuthService {
     tokenUrl: string,
     code: string,
     config: { clientId: string; clientSecret: string },
-    redirectUri: string
+    redirectUri: string,
   ): Promise<{ access_token: string; refresh_token?: string }> {
     const params = new URLSearchParams({
       client_id: config.clientId,
@@ -125,7 +144,7 @@ export class OAuthService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       body: params.toString(),
     });
@@ -142,19 +161,21 @@ export class OAuthService {
   private async fetchUserInfo(
     userInfoUrl: string,
     accessToken: string,
-    provider: OAuthProvider
+    provider: OAuthProvider,
   ): Promise<OAuthUserInfo> {
     const response = await fetch(userInfoUrl, {
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
       },
     });
 
     if (!response.ok) {
       const error = await response.text();
       this.logger.error(`Failed to fetch user info: ${error}`);
-      throw new BadRequestException('Failed to fetch user info from OAuth provider');
+      throw new BadRequestException(
+        'Failed to fetch user info from OAuth provider',
+      );
     }
 
     const data = await response.json();
@@ -186,17 +207,23 @@ export class OAuthService {
     }
   }
 
-  private async findOrCreateUser(provider: OAuthProvider, userInfo: OAuthUserInfo): Promise<any> {
+  private async findOrCreateUser(
+    provider: OAuthProvider,
+    userInfo: OAuthUserInfo,
+  ): Promise<any> {
     const isMongoDB = this.queryBuilder.isMongoDb();
 
-    const existingAccount = await this.queryBuilder.findOneWhere('oauth_account_definition', {
-      provider,
-      providerUserId: userInfo.id,
-    });
+    const existingAccount = await this.queryBuilder.findOneWhere(
+      'oauth_account_definition',
+      {
+        provider,
+        providerUserId: userInfo.id,
+      },
+    );
 
     if (existingAccount) {
       const userId = isMongoDB
-        ? (existingAccount.user?._id || existingAccount.user)
+        ? existingAccount.user?._id || existingAccount.user
         : existingAccount.userId;
 
       const user = await this.queryBuilder.findOneWhere('user_definition', {
@@ -231,13 +258,19 @@ export class OAuthService {
               isSystem: false,
             };
 
-        user = await this.queryBuilder.insertAndGet('user_definition', userData);
-        this.logger.log(`Created new user via ${provider} OAuth: ${userInfo.email}`);
+        user = await this.queryBuilder.insertAndGet(
+          'user_definition',
+          userData,
+        );
+        this.logger.log(
+          `Created new user via ${provider} OAuth: ${userInfo.email}`,
+        );
       } catch {
         user = await this.queryBuilder.findOneWhere('user_definition', {
           email: userInfo.email,
         });
-        if (!user) throw new BadRequestException('Failed to create user account');
+        if (!user)
+          throw new BadRequestException('Failed to create user account');
       }
     }
 
@@ -247,20 +280,34 @@ export class OAuthService {
       : { provider, providerUserId: userInfo.id, userId };
 
     try {
-      await this.queryBuilder.insertAndGet('oauth_account_definition', accountData);
+      await this.queryBuilder.insertAndGet(
+        'oauth_account_definition',
+        accountData,
+      );
       this.logger.log(`Linked ${provider} account to user: ${userInfo.email}`);
     } catch {
-      this.logger.warn(`OAuth account already linked for ${provider}:${userInfo.id}`);
+      this.logger.warn(
+        `OAuth account already linked for ${provider}:${userInfo.id}`,
+      );
     }
 
     return user;
   }
 
-  private async createSession(user: any, provider: OAuthProvider): Promise<any> {
+  private async createSession(
+    user: any,
+    provider: OAuthProvider,
+  ): Promise<any> {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB ? user._id : user.id;
 
-    const expiredAt = new Date(Date.now() + ms((this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') || '7d') as StringValue));
+    const expiredAt = new Date(
+      Date.now() +
+        ms(
+          (this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') ||
+            '7d') as StringValue,
+        ),
+    );
 
     const sessionData: any = isMongoDB
       ? {
@@ -280,7 +327,10 @@ export class OAuthService {
     return this.queryBuilder.insertAndGet('session_definition', sessionData);
   }
 
-  private generateTokens(user: any, session: any): {
+  private generateTokens(
+    user: any,
+    session: any,
+  ): {
     accessToken: string;
     refreshToken: string;
     expTime: number;
@@ -293,12 +343,20 @@ export class OAuthService {
 
     const accessToken = this.jwtService.sign(
       { id: userId, loginProvider },
-      { expiresIn: this.configService.get<string>('ACCESS_TOKEN_EXP') as StringValue }
+      {
+        expiresIn: this.configService.get<string>(
+          'ACCESS_TOKEN_EXP',
+        ) as StringValue,
+      },
     );
 
     const refreshToken = this.jwtService.sign(
       { sessionId: sessionId?.toString() },
-      { expiresIn: this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') as StringValue }
+      {
+        expiresIn: this.configService.get<string>(
+          'REFRESH_TOKEN_REMEMBER_EXP',
+        ) as StringValue,
+      },
     );
 
     const decoded: any = this.jwtService.decode(accessToken);

@@ -5,8 +5,8 @@ export class FolderDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
     const transformedRecords = [];
-    const rootFolders = records.filter(r => !r.parent);
-    const childFolders = records.filter(r => r.parent);
+    const rootFolders = records.filter((r) => !r.parent);
+    const childFolders = records.filter((r) => r.parent);
     for (const record of rootFolders) {
       const transformed = { ...record };
       if (transformed.order === undefined) transformed.order = 0;

@@ -1,11 +1,14 @@
-export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql'): string {
+export function generateColumnDefinition(
+  col: any,
+  dbType: 'mysql' | 'postgres' | 'sqlite' = 'mysql',
+): string {
   let definition = '';
   switch (col.type) {
     case 'uuid':
       if (dbType === 'postgres') {
         definition = 'UUID';
       } else {
-      definition = 'VARCHAR(36)';
+        definition = 'VARCHAR(36)';
       }
       break;
     case 'int':
@@ -99,12 +102,12 @@ export function generateColumnDefinition(col: any, dbType: 'mysql' | 'postgres' 
       break;
     case 'enum':
       if (dbType === 'postgres' && Array.isArray(col.options)) {
-        const enumValues = col.options.map(opt => `'${opt}'`).join(', ');
+        const enumValues = col.options.map((opt) => `'${opt}'`).join(', ');
         definition = `VARCHAR(255) CHECK (${col.name} IN (${enumValues}))`;
       } else if (dbType === 'sqlite') {
         definition = 'TEXT';
       } else if (Array.isArray(col.options)) {
-        const enumValues = col.options.map(opt => `'${opt}'`).join(', ');
+        const enumValues = col.options.map((opt) => `'${opt}'`).join(', ');
         definition = `ENUM(${enumValues})`;
       } else {
         definition = 'VARCHAR(255)';

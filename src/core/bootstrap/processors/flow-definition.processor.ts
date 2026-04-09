@@ -9,7 +9,10 @@ export class FlowDefinitionProcessor extends BaseTableProcessor {
       if (transformed.isEnabled === undefined) transformed.isEnabled = true;
       if (transformed.timeout === undefined) transformed.timeout = 30000;
       if (transformed.icon === undefined) transformed.icon = 'lucide:workflow';
-      if (transformed.triggerConfig && typeof transformed.triggerConfig === 'object') {
+      if (
+        transformed.triggerConfig &&
+        typeof transformed.triggerConfig === 'object'
+      ) {
         transformed.triggerConfig = JSON.stringify(transformed.triggerConfig);
       }
       return transformed;
@@ -21,7 +24,15 @@ export class FlowDefinitionProcessor extends BaseTableProcessor {
   }
 
   protected getCompareFields(): string[] {
-    return ['name', 'description', 'icon', 'triggerType', 'triggerConfig', 'timeout', 'isEnabled'];
+    return [
+      'name',
+      'description',
+      'icon',
+      'triggerType',
+      'triggerConfig',
+      'timeout',
+      'isEnabled',
+    ];
   }
 
   protected getRecordIdentifier(record: any): string {

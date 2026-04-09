@@ -1,5 +1,8 @@
 import { Knex } from 'knex';
-export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void {
+export function addColumnToTable(
+  table: Knex.CreateTableBuilder,
+  col: any,
+): void {
   let column: Knex.ColumnBuilder;
   switch (col.type) {
     case 'uuid':
@@ -44,7 +47,11 @@ export function addColumnToTable(table: Knex.CreateTableBuilder, col: any): void
       column = table.date(col.name);
       break;
     case 'decimal':
-      column = table.decimal(col.name, col.options?.precision || 10, col.options?.scale || 2);
+      column = table.decimal(
+        col.name,
+        col.options?.precision || 10,
+        col.options?.scale || 2,
+      );
       break;
     case 'simple-json':
       column = table.text(col.name, 'longtext');
@@ -67,7 +74,8 @@ export function hasColumnChanged(oldCol: any, newCol: any): boolean {
     oldCol.type !== newCol.type ||
     oldCol.isNullable !== newCol.isNullable ||
     oldCol.isGenerated !== newCol.isGenerated ||
-    JSON.stringify(oldCol.defaultValue) !== JSON.stringify(newCol.defaultValue) ||
+    JSON.stringify(oldCol.defaultValue) !==
+      JSON.stringify(newCol.defaultValue) ||
     JSON.stringify(oldCol.options) !== JSON.stringify(newCol.options)
   );
 }

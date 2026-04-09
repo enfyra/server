@@ -3,9 +3,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 
 @Injectable()
 export class TableValidationService {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-  ) {}
+  constructor(private readonly queryBuilder: QueryBuilderService) {}
 
   async assertTableValid({
     operation,
@@ -50,4 +48,3 @@ export class TableValidationService {
     }
   }
 }
-

@@ -1,4 +1,9 @@
-import { JoinSpec, JoinType, JoinPurpose, RelationType } from './query-plan.types';
+import {
+  JoinSpec,
+  JoinType,
+  JoinPurpose,
+  RelationType,
+} from './query-plan.types';
 
 export class JoinRegistry {
   private readonly map = new Map<string, JoinSpec>();
@@ -27,7 +32,9 @@ export class JoinRegistry {
     parentJoinId: string | null = null,
     purpose: JoinPurpose = 'data',
   ): string | null {
-    const joinId = parentJoinId ? `${parentJoinId}.${propertyName}` : propertyName;
+    const joinId = parentJoinId
+      ? `${parentJoinId}.${propertyName}`
+      : propertyName;
 
     if (this.map.has(joinId)) {
       const existing = this.map.get(joinId)!;
@@ -39,7 +46,9 @@ export class JoinRegistry {
     const tableMeta = metadata?.tables?.get(parentTable);
     if (!tableMeta) return null;
 
-    const relation = tableMeta.relations?.find((r: any) => r.propertyName === propertyName);
+    const relation = tableMeta.relations?.find(
+      (r: any) => r.propertyName === propertyName,
+    );
     if (!relation) return null;
 
     const targetTable = relation.targetTableName || relation.targetTable;
@@ -60,5 +69,4 @@ export class JoinRegistry {
     this.map.set(joinId, spec);
     return joinId;
   }
-
 }

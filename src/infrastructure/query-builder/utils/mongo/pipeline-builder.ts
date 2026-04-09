@@ -5,9 +5,13 @@ export async function buildNestedLookupPipeline(
   metadata: any,
   tableName: string,
   nestedFields: string[],
-  relationFilter?: any
+  relationFilter?: any,
 ): Promise<any[]> {
-  const nestedExpanded = await expandFieldsMongo(metadata, tableName, nestedFields);
+  const nestedExpanded = await expandFieldsMongo(
+    metadata,
+    tableName,
+    nestedFields,
+  );
   const nestedPipeline: any[] = [];
 
   const fieldFilters: any = {};
@@ -18,9 +22,21 @@ export async function buildNestedLookupPipeline(
       if (typeof value === 'object' && value !== null) {
         const firstKey = Object.keys(value)[0];
         const FIELD_OPERATORS = [
-          '_eq', '_neq', '_gt', '_gte', '_lt', '_lte', '_in', '_not_in', '_nin',
-          '_contains', '_starts_with', '_ends_with', '_between',
-          '_is_null', '_is_not_null'
+          '_eq',
+          '_neq',
+          '_gt',
+          '_gte',
+          '_lt',
+          '_lte',
+          '_in',
+          '_not_in',
+          '_nin',
+          '_contains',
+          '_starts_with',
+          '_ends_with',
+          '_between',
+          '_is_null',
+          '_is_not_null',
         ];
         const isOperator = firstKey && FIELD_OPERATORS.includes(firstKey);
 
@@ -40,7 +56,14 @@ export async function buildNestedLookupPipeline(
     for (const [field, value] of Object.entries(fieldFilters)) {
       if (typeof value === 'object' && value !== null) {
         for (const [op, val] of Object.entries(value)) {
-          applyOperatorToMatch(metadata, matchCondition, tableName, field, op, val);
+          applyOperatorToMatch(
+            metadata,
+            matchCondition,
+            tableName,
+            field,
+            op,
+            val,
+          );
         }
       } else {
         matchCondition[field] = value;
@@ -56,9 +79,11 @@ export async function buildNestedLookupPipeline(
 
   const additionalRelations: any[] = [];
   for (const [relationName, _] of Object.entries(relationFilters)) {
-    const existsInExpanded = nestedExpanded.relations.some(r => r.propertyName === relationName);
+    const existsInExpanded = nestedExpanded.relations.some(
+      (r) => r.propertyName === relationName,
+    );
     if (!existsInExpanded) {
-      const relMeta = allRelations.find(r => r.propertyName === relationName);
+      const relMeta = allRelations.find((r) => r.propertyName === relationName);
       if (relMeta) {
         let localField: string;
         let foreignField: string;
@@ -79,7 +104,8 @@ export async function buildNestedLookupPipeline(
           }
         }
 
-        const isToMany = relMeta.type === 'one-to-many' || relMeta.type === 'many-to-many';
+        const isToMany =
+          relMeta.type === 'one-to-many' || relMeta.type === 'many-to-many';
 
         additionalRelations.push({
           propertyName: relationName,
@@ -87,21 +113,35 @@ export async function buildNestedLookupPipeline(
           localField,
           foreignField,
           type: isToMany ? 'many' : 'one',
-          nestedFields: []
+          nestedFields: [],
         });
       }
     }
   }
 
-  const allRelationsToProcess = [...nestedExpanded.relations, ...additionalRelations];
+  const allRelationsToProcess = [
+    ...nestedExpanded.relations,
+    ...additionalRelations,
+  ];
 
   for (const nestedRel of allRelationsToProcess) {
     const nestedRelationFilter = relationFilters[nestedRel.propertyName];
-    const nestedNestedPipeline = nestedRel.nestedFields && nestedRel.nestedFields.length > 0
-      ? await buildNestedLookupPipeline(metadata, nestedRel.targetTable, nestedRel.nestedFields, nestedRelationFilter)
-      : nestedRelationFilter
-      ? await buildNestedLookupPipeline(metadata, nestedRel.targetTable, ['_id'], nestedRelationFilter)
-      : [];
+    const nestedNestedPipeline =
+      nestedRel.nestedFields && nestedRel.nestedFields.length > 0
+        ? await buildNestedLookupPipeline(
+            metadata,
+            nestedRel.targetTable,
+            nestedRel.nestedFields,
+            nestedRelationFilter,
+          )
+        : nestedRelationFilter
+          ? await buildNestedLookupPipeline(
+              metadata,
+              nestedRel.targetTable,
+              ['_id'],
+              nestedRelationFilter,
+            )
+          : [];
 
     if (nestedRel.type === 'one' && nestedNestedPipeline.length > 0) {
       nestedNestedPipeline.push({ $limit: 1 });
@@ -113,36 +153,43 @@ export async function buildNestedLookupPipeline(
         localField: nestedRel.localField,
         foreignField: nestedRel.foreignField,
         as: nestedRel.propertyName,
-        pipeline: nestedNestedPipeline.length > 0 ? nestedNestedPipeline : undefined
-      }
+        pipeline:
+          nestedNestedPipeline.length > 0 ? nestedNestedPipeline : undefined,
+      },
     });
 
     if (nestedRel.type === 'one') {
       nestedPipeline.push({
         $unwind: {
           path: `$${nestedRel.propertyName}`,
-          preserveNullAndEmptyArrays: true
-        }
+          preserveNullAndEmptyArrays: true,
+        },
       });
 
       if (nestedRelationFilter) {
-        const hasIsNullFilter = checkIfFilterContainsIsNull(nestedRelationFilter);
+        const hasIsNullFilter =
+          checkIfFilterContainsIsNull(nestedRelationFilter);
         if (!hasIsNullFilter) {
           nestedPipeline.push({
             $match: {
-              [nestedRel.propertyName]: { $ne: null }
-            }
+              [nestedRel.propertyName]: { $ne: null },
+            },
           });
         }
       }
     }
   }
 
-  const unpopulatedRelations = allRelations.filter(rel =>
-    !allRelationsToProcess.some(r => r.propertyName === rel.propertyName)
+  const unpopulatedRelations = allRelations.filter(
+    (rel) =>
+      !allRelationsToProcess.some((r) => r.propertyName === rel.propertyName),
   );
 
-  if (nestedExpanded.scalarFields.length > 0 || nestedExpanded.relations.length > 0 || unpopulatedRelations.length > 0) {
+  if (
+    nestedExpanded.scalarFields.length > 0 ||
+    nestedExpanded.relations.length > 0 ||
+    unpopulatedRelations.length > 0
+  ) {
     const projection: any = { _id: 1 };
 
     for (const field of nestedExpanded.scalarFields) {
@@ -157,7 +204,9 @@ export async function buildNestedLookupPipeline(
 
     if (hasWildcard) {
       for (const rel of unpopulatedRelations) {
-        const isInverse = rel.type === 'one-to-many' || (rel.type === 'many-to-many' && rel.mappedBy);
+        const isInverse =
+          rel.type === 'one-to-many' ||
+          (rel.type === 'many-to-many' && rel.mappedBy);
         if (isInverse) continue;
 
         const isArray = rel.type === 'many-to-many';
@@ -167,16 +216,16 @@ export async function buildNestedLookupPipeline(
             $map: {
               input: `$${rel.propertyName}`,
               as: 'item',
-              in: { _id: '$$item' }
-            }
+              in: { _id: '$$item' },
+            },
           };
         } else {
           projection[rel.propertyName] = {
             $cond: {
               if: { $ne: [`$${rel.propertyName}`, null] },
               then: { _id: `$${rel.propertyName}` },
-              else: null
-            }
+              else: null,
+            },
           };
         }
       }
@@ -193,17 +242,18 @@ export async function addProjectionStage(
   pipeline: any[],
   tableName: string,
   scalarFields: string[],
-  relations: any[]
+  relations: any[],
 ): Promise<void> {
   const baseMeta = metadata?.tables?.get(tableName);
   const allRelations = baseMeta?.relations || [];
   const allColumns = baseMeta?.columns || [];
 
-  const unpopulatedRelations = allRelations.filter(rel =>
-    !relations.some(r => r.propertyName === rel.propertyName)
+  const unpopulatedRelations = allRelations.filter(
+    (rel) => !relations.some((r) => r.propertyName === rel.propertyName),
   );
 
-  const hasWildcard = scalarFields.length === allColumns.length ||
+  const hasWildcard =
+    scalarFields.length === allColumns.length ||
     (scalarFields.length === 0 && relations.length === 0);
 
   if (unpopulatedRelations.length > 0 || !hasWildcard) {
@@ -218,7 +268,8 @@ export async function addProjectionStage(
     }
 
     for (const rel of unpopulatedRelations) {
-      const isInverse = rel.type === 'one-to-many' ||
+      const isInverse =
+        rel.type === 'one-to-many' ||
         (rel.type === 'many-to-many' && rel.mappedBy);
 
       if (isInverse) {
@@ -232,16 +283,16 @@ export async function addProjectionStage(
           $map: {
             input: `$${rel.propertyName}`,
             as: 'item',
-            in: { _id: '$$item' }
-          }
+            in: { _id: '$$item' },
+          },
         };
       } else {
         projectStage[rel.propertyName] = {
           $cond: {
             if: { $ne: [`$${rel.propertyName}`, null] },
             then: { _id: `$${rel.propertyName}` },
-            else: null
-          }
+            else: null,
+          },
         };
       }
     }
@@ -260,15 +311,19 @@ function checkIfFilterContainsIsNull(filter: any): boolean {
   }
 
   if (Array.isArray(filter)) {
-    return filter.some(item => checkIfFilterContainsIsNull(item));
+    return filter.some((item) => checkIfFilterContainsIsNull(item));
   }
 
   if ('_or' in filter && Array.isArray(filter._or)) {
-    return filter._or.some((condition: any) => checkIfFilterContainsIsNull(condition));
+    return filter._or.some((condition: any) =>
+      checkIfFilterContainsIsNull(condition),
+    );
   }
 
   if ('_and' in filter && Array.isArray(filter._and)) {
-    return filter._and.some((condition: any) => checkIfFilterContainsIsNull(condition));
+    return filter._and.some((condition: any) =>
+      checkIfFilterContainsIsNull(condition),
+    );
   }
 
   if ('_not' in filter) {
@@ -284,7 +339,10 @@ function checkIfFilterContainsIsNull(filter: any): boolean {
     }
 
     if (typeof value === 'object') {
-      if ('_is_null' in value && (value._is_null === true || value._is_null === 'true')) {
+      if (
+        '_is_null' in value &&
+        (value._is_null === true || value._is_null === 'true')
+      ) {
         return true;
       }
       if ('_eq' in value && value._eq === null) {
@@ -301,4 +359,3 @@ function checkIfFilterContainsIsNull(filter: any): boolean {
 
   return false;
 }
-

@@ -7,4 +7,3 @@ import { PolicyService } from './policy.service';
   exports: [PolicyService],
 })
 export class PolicyModule {}
-

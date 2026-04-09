@@ -3,7 +3,10 @@ import { winstonLogger, shouldLog } from './winston-logger';
 
 @Injectable()
 export class AppLogger implements LoggerService {
-  private extractObjectMessage(message: Record<string, any>, fallback: string): { msg: string; meta: Record<string, any> } {
+  private extractObjectMessage(
+    message: Record<string, any>,
+    fallback: string,
+  ): { msg: string; meta: Record<string, any> } {
     const { message: msg, ...rest } = message;
     return { msg: msg || fallback, meta: rest };
   }

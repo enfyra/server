@@ -5,7 +5,7 @@ export async function executeCountQueries(
   query: Knex.QueryBuilder,
   tableName: string,
   metaParts: string[],
-  hasFilter: boolean
+  hasFilter: boolean,
 ): Promise<{ totalCount?: number; filterCount?: number }> {
   const result: { totalCount?: number; filterCount?: number } = {};
 
@@ -24,5 +24,3 @@ export async function executeCountQueries(
 
   return result;
 }
-
-

@@ -141,7 +141,8 @@
             { "name": "projectName", "type": "varchar", "isSystem": true, "description": "Name of the project/application" },
             { "name": "projectDescription", "type": "text", "isSystem": true, "description": "Description of the project/application" },
             { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" },
-            { "name": "corsAllowedOrigins", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Allowed CORS origins (array of domain URLs)" }
+            { "name": "corsAllowedOrigins", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Allowed CORS origins (array of domain URLs)" },
+            { "name": "maxQueryDepth", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 7, "description": "Maximum nesting depth for REST deep-fetch and GraphQL queries (default: 7)" }
         ],
         "relations": []
     },
@@ -585,6 +586,45 @@
         "relations": [
             { "propertyName": "flow", "type": "many-to-one", "targetTable": "flow_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "Flow that was executed" },
             { "propertyName": "triggeredBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who triggered the execution (null for cron/event triggers)" }
+        ]
+    },
+    "guard_definition": {
+        "name": "guard_definition",
+        "description": "Defines metadata-driven guards with nestable AND/OR logic tree for rate limiting, IP filtering, etc.",
+        "isSystem": true,
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "name", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Descriptive name for the guard" },
+            { "name": "position", "type": "enum", "isNullable": true, "isSystem": true, "options": ["pre_auth", "post_auth"], "description": "Execution position: pre_auth (before JWT, only IP available) or post_auth (after JWT+Role, user available). Only meaningful for root guards" },
+            { "name": "combinator", "type": "enum", "isNullable": false, "isSystem": true, "options": ["and", "or"], "defaultValue": "and", "description": "How children combine: and (all must pass) or or (any must pass)" },
+            { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order among sibling guards (lower numbers execute first)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the guard is active" },
+            { "name": "isGlobal", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this guard applies globally to all routes. Only meaningful for root guards" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined guard" },
+            { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the guard does" }
+        ],
+        "relations": [
+            { "propertyName": "parent", "type": "many-to-one", "targetTable": "guard_definition", "isSystem": true, "inversePropertyName": "children", "isNullable": true, "onDelete": "CASCADE", "description": "Parent guard for nested logic (null for root-level guards)" },
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "guards", "isNullable": true, "onDelete": "CASCADE", "description": "Route this guard is attached to (null when isGlobal is true). Only meaningful for root guards" },
+            { "propertyName": "methods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "description": "HTTP methods this guard applies to. Only meaningful for root guards" }
+        ]
+    },
+    "guard_rule_definition": {
+        "name": "guard_rule_definition",
+        "description": "Defines individual rules/conditions within a guard (rate limit, IP whitelist/blacklist)",
+        "isSystem": true,
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "type", "type": "enum", "isNullable": false, "isSystem": true, "options": ["rate_limit_by_ip", "rate_limit_by_user", "rate_limit_by_route", "ip_whitelist", "ip_blacklist"], "description": "Type of rule to evaluate" },
+            { "name": "config", "type": "simple-json", "isNullable": false, "isSystem": true, "description": "Type-specific configuration (e.g. { maxRequests, perSeconds } for rate limit, { ips: [] } for IP lists)" },
+            { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Evaluation order within the guard (lower numbers first)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this rule is active" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined rule" },
+            { "name": "description", "type": "text", "isSystem": true, "description": "Description of what this rule checks" }
+        ],
+        "relations": [
+            { "propertyName": "guard", "type": "many-to-one", "targetTable": "guard_definition", "isSystem": true, "inversePropertyName": "rules", "isNullable": false, "onDelete": "CASCADE", "description": "Guard this rule belongs to" },
+            { "propertyName": "users", "type": "many-to-many", "targetTable": "user_definition", "isSystem": true, "description": "Specific users this rule applies to (empty = all users)" }
         ]
     }
 }

@@ -7,6 +7,7 @@ import { TableHandlerService } from '../../../modules/table-management/services/
 import { PolicyService } from '../../../core/policy/policy.service';
 import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
 import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
+import { SettingCacheService } from './setting-cache.service';
 import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
@@ -23,6 +24,7 @@ export class RepoRegistryService {
     private readonly tableHandlerService: TableHandlerService,
     private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
+    private readonly settingCacheService: SettingCacheService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -61,11 +63,16 @@ export class RepoRegistryService {
     return this.aliasToName.get(nameOrAlias) ?? null;
   }
 
-  createReposProxy(context: TDynamicContext, mainTableName?: string): Record<string, any> {
+  createReposProxy(
+    context: TDynamicContext,
+    mainTableName?: string,
+  ): Record<string, any> {
     const repoCache = new Map<string, DynamicRepository>();
     const self = this;
 
-    const getOrCreateRepo = (tableName: string): DynamicRepository | undefined => {
+    const getOrCreateRepo = (
+      tableName: string,
+    ): DynamicRepository | undefined => {
       if (repoCache.has(tableName)) return repoCache.get(tableName);
 
       const resolvedName = self.resolveTableName(tableName);
@@ -86,6 +93,7 @@ export class RepoRegistryService {
         metadataCacheService: self.metadataCacheService,
         policyService: self.policyService,
         tableValidationService: self.tableValidationService,
+        settingCacheService: self.settingCacheService,
         eventEmitter: self.eventEmitter,
       });
 

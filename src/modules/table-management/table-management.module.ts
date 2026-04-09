@@ -6,7 +6,11 @@ import { MongoTableHandlerService } from './services/mongo-table-handler.service
 @Global()
 @Module({
   imports: [],
-  providers: [TableHandlerService, SqlTableHandlerService, MongoTableHandlerService],
+  providers: [
+    TableHandlerService,
+    SqlTableHandlerService,
+    MongoTableHandlerService,
+  ],
   exports: [TableHandlerService],
 })
 export class TableManagementModule {}

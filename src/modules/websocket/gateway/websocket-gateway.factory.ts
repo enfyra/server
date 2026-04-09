@@ -4,11 +4,13 @@ import { DynamicWebSocketGateway } from './dynamic-websocket.gateway';
 
 @Injectable()
 export class WebsocketGatewayFactory {
-  constructor(
-    private readonly dynamicGateway: DynamicWebSocketGateway,
-  ) {}
+  constructor(private readonly dynamicGateway: DynamicWebSocketGateway) {}
 
-  async emitToUser(userId: number | string, event: string, data: any): Promise<void> {
+  async emitToUser(
+    userId: number | string,
+    event: string,
+    data: any,
+  ): Promise<void> {
     this.dynamicGateway.emitToUser(userId, event, data);
   }
 

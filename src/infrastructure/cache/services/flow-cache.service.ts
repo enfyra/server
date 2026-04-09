@@ -4,12 +4,19 @@ import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { CACHE_EVENTS, CACHE_IDENTIFIERS, shouldReloadCache } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_EVENTS,
+  CACHE_IDENTIFIERS,
+  shouldReloadCache,
+} from '../../../shared/utils/cache-events.constants';
 import { transformCode } from '../../executor-engine/code-transformer';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
 import { FLOW_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
-export type { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
+export type {
+  FlowDefinition,
+  FlowStep,
+} from '../../../shared/types/flow.types';
 
 const FLOW_CONFIG: CacheConfig = {
   syncEventKey: FLOW_CACHE_SYNC_EVENT_KEY,
@@ -36,7 +43,10 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   }
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
+  async handleCacheInvalidation(payload: {
+    tableName: string;
+    action: string;
+  }) {
     if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
       await this.reload();
     }
@@ -58,7 +68,10 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
         .sort((a: any, b: any) => (a.stepOrder || 0) - (b.stepOrder || 0));
 
       const steps: FlowStep[] = rawSteps.map((step: any) => {
-        if ((step.type === 'script' || step.type === 'condition') && step.config?.code) {
+        if (
+          (step.type === 'script' || step.type === 'condition') &&
+          step.config?.code
+        ) {
           step.config.code = transformCode(step.config.code);
         }
         return {
