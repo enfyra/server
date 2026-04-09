@@ -44,7 +44,10 @@ describe('FileUploadMiddleware — disk storage', () => {
   let middleware: FileUploadMiddleware;
 
   beforeEach(() => {
-    middleware = new FileUploadMiddleware();
+    const mockSettingCache = {
+      getMaxUploadFileSizeBytes: () => 10 * 1024 * 1024,
+    } as any;
+    middleware = new FileUploadMiddleware(mockSettingCache);
   });
 
   it('reads buffer from temp file and deletes the temp file', async () => {

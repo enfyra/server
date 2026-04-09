@@ -31,6 +31,7 @@ import {
   PostAuthMetadataGuard,
 } from './shared/guards/metadata-guard.guard';
 import { DynamicInterceptor } from './shared/interceptors/dynamic.interceptor';
+import { BodyParserMiddleware } from './shared/middleware/body-parser.middleware';
 import { FileUploadMiddleware } from './shared/middleware/file-upload.middleware';
 import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware';
 import { RouteDetectMiddleware } from './infrastructure/middleware/route-detect.middleware';
@@ -150,6 +151,7 @@ import { FlowModule } from './modules/flow/flow.module';
 })
 export class AppModule implements NestModule {
   async configure(consumer: MiddlewareConsumer) {
+    consumer.apply(BodyParserMiddleware).forRoutes('*');
     consumer.apply(ParseQueryMiddleware).forRoutes('*');
     consumer.apply(FileUploadMiddleware).forRoutes('*');
     consumer.apply(RouteDetectMiddleware).forRoutes('*');

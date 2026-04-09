@@ -22,16 +22,11 @@ async function bootstrap() {
   }
   const nestStart = Date.now();
   const app = await NestFactory.create(AppModule, {
-    bodyParser: true,
-    rawBody: true,
+    bodyParser: false,
     bufferLogs: true,
   });
   app.useLogger(new AppLogger());
   const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.use(require('express').json({ limit: '50mb' }));
-  expressApp.use(
-    require('express').urlencoded({ limit: '50mb', extended: true }),
-  );
   const qs = require('qs');
   expressApp.set('query parser', (str: string) => {
     return qs.parse(str, {

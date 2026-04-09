@@ -5,23 +5,18 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { RequestWithRouteData } from '../types';
+import { SettingCacheService } from '../../infrastructure/cache/services/setting-cache.service';
+
+const diskStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+  filename: (_req, _file, cb) =>
+    cb(null, `enfyra-upload-${crypto.randomUUID()}`),
+});
+
 @Injectable()
 export class FileUploadMiddleware implements NestMiddleware {
-  private upload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, os.tmpdir()),
-      filename: (_req, _file, cb) =>
-        cb(null, `enfyra-upload-${crypto.randomUUID()}`),
-    }),
-    limits: {
-      fileSize: 10 * 1024 * 1024,
-    },
-    fileFilter: (req, file, cb) => {
-      cb(null, true);
-    },
-    preservePath: true,
-    encoding: 'utf8',
-  });
+  constructor(private readonly settingCacheService: SettingCacheService) {}
+
   use(req: RequestWithRouteData, res: Response, next: NextFunction) {
     const isPostOrPatch = ['POST', 'PATCH'].includes(req.method);
     const isMultipartContent = req.headers['content-type']?.includes(
@@ -30,20 +25,23 @@ export class FileUploadMiddleware implements NestMiddleware {
     if (!isPostOrPatch || !isMultipartContent) {
       return next();
     }
-    this.upload.single('file')(req, res, (error: any) => {
+    const upload = multer({
+      storage: diskStorage,
+      limits: { fileSize: this.settingCacheService.getMaxUploadFileSizeBytes() },
+      preservePath: true,
+    });
+    upload.single('file')(req, res, (error: any) => {
       if (error) {
         return next(error);
       }
       if (req.file?.path) {
         try {
           req.file.buffer = fs.readFileSync(req.file.path);
-        } finally {
-          try {
-            fs.unlinkSync(req.file.path);
-          } catch {
-            // ignore cleanup errors
-          }
+        } catch (readError) {
+          try { fs.unlinkSync(req.file.path); } catch {}
+          return next(readError);
         }
+        try { fs.unlinkSync(req.file.path); } catch {}
       }
       if (req.file && req.file.originalname) {
         try {
