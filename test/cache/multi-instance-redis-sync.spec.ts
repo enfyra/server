@@ -96,15 +96,14 @@ describe('RedisPubSubService.isChannelForBase (multi-instance cohort)', () => {
     'cluster:with:colons',
   ];
 
-  it.each(clusterIds)(
-    'NODE_NAME=%s: decorated channel matches base',
-    (nodeName) => {
+  it('NODE_NAME: decorated channel matches base (matrix)', () => {
+    for (const nodeName of clusterIds) {
       const svc = createPubSubMatcher(nodeName);
       const key = 'enfyra:package-cache-sync';
       expect(svc.isChannelForBase(`${key}:${nodeName}`, key)).toBe(true);
       expect(svc.isChannelForBase(key, key)).toBe(true);
-    },
-  );
+    }
+  });
 
   it('NODE_NAME empty: only exact base matches', () => {
     const svc = createPubSubMatcher(undefined);
@@ -126,16 +125,13 @@ describe('RedisPubSubService.isChannelForBase (multi-instance cohort)', () => {
     expect(svc.isChannelForBase(`${key}:suffix`, key)).toBe(false);
   });
 
-  it.each(ALL_SYNC_BASE_KEYS)(
-    'production sync key %s matches decorated peer channel',
-    (baseKey) => {
-      const nodeName = 'peer-shared';
-      const svc = createPubSubMatcher(nodeName);
-      expect(svc.isChannelForBase(`${baseKey}:${nodeName}`, baseKey)).toBe(
-        true,
-      );
-    },
-  );
+  it('production sync keys match decorated peer channel', () => {
+    const nodeName = 'peer-shared';
+    const svc = createPubSubMatcher(nodeName);
+    for (const baseKey of ALL_SYNC_BASE_KEYS) {
+      expect(svc.isChannelForBase(`${baseKey}:${nodeName}`, baseKey)).toBe(true);
+    }
+  });
 
   it('rejects wrong cluster suffix (different NODE_NAME on message)', () => {
     const svc = createPubSubMatcher('cluster-a');
@@ -176,13 +172,12 @@ describe('RedisPubSubService.isChannelForBase (multi-instance cohort)', () => {
       ['n', 'enfyra:a:n2', 'enfyra:a', false],
       ['long-name', 'k:long-name', 'k', true],
     ];
-    it.each(rows)(
-      'NODE_NAME=%j received=%j base=%j => %j',
-      (nodeName, received, base, expected) => {
+    it('matrix rows', () => {
+      for (const [nodeName, received, base, expected] of rows) {
         const svc = createPubSubMatcher(nodeName || undefined);
         expect(svc.isChannelForBase(received, base)).toBe(expected);
-      },
-    );
+      }
+    });
   });
 });
 
@@ -402,12 +397,15 @@ describe('Redis decorated channel round-trip (integration)', () => {
 });
 
 describe('Contract: decorateChannel equals base + ":" + NODE_NAME', () => {
-  it.each([
-    ['a', 'enfyra:k', 'enfyra:k:a'],
-    ['z-9', 'x:y', 'x:y:z-9'],
-  ])('NODE_NAME %s + base %s', (node, base, expected) => {
-    const svc = createPubSubMatcher(node);
-    expect(svc.isChannelForBase(expected, base)).toBe(true);
+  it('decorateChannel contract cases', () => {
+    const cases = [
+      ['a', 'enfyra:k', 'enfyra:k:a'],
+      ['z-9', 'x:y', 'x:y:z-9'],
+    ] as const;
+    for (const [node, base, expected] of cases) {
+      const svc = createPubSubMatcher(node);
+      expect(svc.isChannelForBase(expected, base)).toBe(true);
+    }
   });
 });
 

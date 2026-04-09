@@ -324,6 +324,32 @@ export async function applyColumnMigrations(
           if (changes.includes('enum-options')) {
             continue;
           }
+          if (changes.includes('default')) {
+            try {
+              if (col.defaultValue === undefined || col.defaultValue === null) {
+                await knex.raw(
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
+                );
+              } else if (col.type === 'boolean') {
+                const def =
+                  col.defaultValue === true ||
+                  col.defaultValue === 1 ||
+                  String(col.defaultValue).toLowerCase() === 'true' ||
+                  String(col.defaultValue) === '1';
+                await knex.raw(
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${def ? 'true' : 'false'}`,
+                );
+              } else if (typeof col.defaultValue === 'string') {
+                await knex.raw(
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
+                );
+              } else {
+                await knex.raw(
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
+                );
+              }
+            } catch (e) {}
+          }
           const knexType = getKnexColumnType(col);
         const currentTypeResult = await knex.raw(`
           SELECT data_type, udt_name

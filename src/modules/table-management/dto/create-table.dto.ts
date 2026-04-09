@@ -84,6 +84,10 @@ export class CreateColumnDto {
 
   @IsOptional()
   @IsBoolean()
+  isPublished?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   isUpdatable?: boolean;
 
   @IsOptional()
@@ -178,6 +182,14 @@ export class CreateRelationDto {
   @IsOptional()
   @IsBoolean()
   isSystem?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isHidden?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublished?: boolean;
 
   @IsOptional()
   @IsBoolean()

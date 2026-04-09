@@ -15,9 +15,11 @@ export class HideFieldInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     return next.handle().pipe(
       map((data) => {
+        const req = context.switchToHttp().getRequest();
+        const tableName = req?.routeData?.mainTable?.name;
         const metadata = this.metadataCacheService.getDirectMetadata();
         if (!metadata) return data;
-        return sanitizeHiddenFieldsDeep(data, metadata);
+        return sanitizeHiddenFieldsDeep(data, metadata as any, tableName);
       }),
     );
   }

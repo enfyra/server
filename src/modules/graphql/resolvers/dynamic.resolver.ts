@@ -97,7 +97,7 @@ export class DynamicResolver {
         handlerCtx,
         30000,
       );
-      return this.sanitizeResult(result);
+      return this.sanitizeResult(result, mainTable?.name);
     } catch (error) {
       throwGqlError('SCRIPT_ERROR', error.message);
     }
@@ -154,9 +154,9 @@ export class DynamicResolver {
         30000,
       );
       if (result && result.data && Array.isArray(result.data)) {
-        return this.sanitizeResult(result.data[0]);
+        return this.sanitizeResult(result.data[0], tableName);
       }
-      return this.sanitizeResult(result);
+      return this.sanitizeResult(result, tableName);
     } catch (error) {
       throwGqlError('MUTATION_ERROR', error.message);
     }
@@ -297,9 +297,9 @@ export class DynamicResolver {
     return resolveClientIpFromRequest({ headers, ip: undefined });
   }
 
-  private sanitizeResult(result: any): any {
+  private sanitizeResult(result: any, tableName?: string): any {
     const metadata = this.metadataCacheService.getDirectMetadata();
     if (!metadata) return result;
-    return sanitizeHiddenFieldsDeep(result, metadata);
+    return sanitizeHiddenFieldsDeep(result, metadata as any, tableName);
   }
 }

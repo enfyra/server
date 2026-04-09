@@ -87,6 +87,52 @@ describe('sanitizeHiddenFieldsDeep', () => {
     });
   });
 
+  describe('context-aware (tableName) sanitize', () => {
+    it('does not over-match hidden fields from unrelated tables', () => {
+      const meta = makeMetadata({
+        user_definition: [
+          { name: 'id' },
+          { name: 'password', isHidden: true },
+        ],
+        post: [{ name: 'id' }, { name: 'title' }],
+      });
+
+      const result = sanitizeHiddenFieldsDeep(
+        { id: 1, title: 't', password: 'should-stay' },
+        meta,
+        'post',
+      );
+
+      expect(result.password).toBe('should-stay');
+      expect(result.title).toBe('t');
+    });
+
+    it('sanitizes hidden relations by propertyName on the current table', () => {
+      const meta: SanitizeMetadata = {
+        tables: new Map([
+          [
+            'post',
+            {
+              columns: [{ name: 'id' }],
+              relations: [
+                { propertyName: 'author', isHidden: true, targetTable: 'user' },
+              ],
+            },
+          ],
+          ['user', { columns: [{ name: 'id' }, { name: 'email' }] }],
+        ]),
+      };
+
+      const result = sanitizeHiddenFieldsDeep(
+        { id: 1, author: { id: 2, email: 'a@b.com' } },
+        meta,
+        'post',
+      );
+
+      expect(result.author).toBeNull();
+    });
+  });
+
   describe('array of objects', () => {
     it('sanitizes each object in an array', () => {
       const meta = makeMetadata({

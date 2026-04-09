@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "enfyra": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@enfyra/mcp-server"
+      ],
+      "env": {
+        "ENFYRA_API_URL": "http://localhost:3000/api",
+        "ENFYRA_EMAIL": "enfyra@admin.com",
+        "ENFYRA_PASSWORD": "1234"
+      }
+    }
+  }
+}

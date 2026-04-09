@@ -18,6 +18,7 @@
             { "name": "options", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Additional options like enum values, array items, or validation rules" },
             { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the column can be updated after creation" },
             { "name": "isHidden", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether to hide this column from API responses" },
+            { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this column is publicly readable (published routes/anonymous included)" },
             { "name": "description", "type": "richtext", "isSystem": true, "description": "Rich text description of the column's purpose" },
             { "name": "placeholder", "type": "text", "isSystem": true, "description": "Placeholder text for form inputs" },
             { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the column" }
@@ -42,6 +43,7 @@
             { "name": "onDelete", "type": "enum", "isNullable": false, "isSystem": true, "options": ["CASCADE", "RESTRICT", "SET NULL"], "defaultValue": "SET NULL", "description": "Action to perform when referenced record is deleted" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined relation" },
             { "name": "isHidden", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether to hide this relation from API responses" },
+            { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation is publicly readable (published routes/anonymous included)" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of the relationship purpose" },
             { "name": "junctionTableName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Name of the junction table for many-to-many relations" },
             { "name": "junctionSourceColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Column name in junction table referencing source table" },
@@ -197,6 +199,30 @@
             { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "user_definition", "inversePropertyName": "allowedRoutePermissions", "description": "Specific users who have this permission" }
         ]
     },
+    "field_permission_definition": {
+        "name": "field_permission_definition",
+        "description": "Defines per-field permissions (columns and relations) by role and user, with optional conditions",
+        "isSystem": true,
+        "uniques": [
+            ["role", "table", "action", "column"],
+            ["role", "table", "action", "relation"]
+        ],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this rule is active" },
+            { "name": "description", "type": "text", "isSystem": true, "isNullable": true, "defaultValue": null, "description": "Description of what this rule does" },
+            { "name": "action", "type": "enum", "isNullable": false, "isSystem": true, "options": ["read", "create", "update"], "defaultValue": "read", "description": "Action this rule applies to" },
+            { "name": "effect", "type": "enum", "isNullable": false, "isSystem": true, "options": ["allow", "deny"], "defaultValue": "allow", "description": "Whether this rule allows or denies access" },
+            { "name": "condition", "type": "simple-json", "isNullable": true, "isSystem": true, "defaultValue": null, "description": "Optional filter DSL condition that must match for this rule to apply" }
+        ],
+        "relations": [
+            { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "onDelete": "CASCADE", "description": "Role that this rule applies to" },
+            { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "table_definition", "onDelete": "CASCADE", "description": "Table this rule applies to" },
+            { "propertyName": "column", "type": "many-to-one", "isSystem": true, "targetTable": "column_definition", "isNullable": true, "onDelete": "CASCADE", "description": "Column this rule applies to" },
+            { "propertyName": "relation", "type": "many-to-one", "isSystem": true, "targetTable": "relation_definition", "isNullable": true, "onDelete": "CASCADE", "description": "Relation this rule applies to" },
+            { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "user_definition", "description": "Specific users this rule applies to" }
+        ]
+    },
     "route_handler_definition": {
         "name": "route_handler_definition",
         "description": "Stores custom logic handlers for route endpoints",
@@ -224,7 +250,7 @@
             { "name": "name", "type": "varchar", "isSystem": true, "isNullable": false, "description": "Descriptive name for the hook" },
             { "name": "code", "type": "code", "isNullable": true, "isSystem": true, "description": "Code to execute before the main route handler" },
             { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order (lower numbers execute first)" },
-            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the hook is active" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the hook is active" },
             { "name": "isGlobal", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this hook applies globally to all routes" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the hook does" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }
@@ -243,7 +269,7 @@
             { "name": "name", "type": "varchar", "isSystem": true, "isNullable": false, "description": "Descriptive name for the hook" },
             { "name": "code", "type": "code", "isNullable": true, "isSystem": true, "description": "Code to execute after the main route handler" },
             { "name": "priority", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 0, "description": "Execution order (lower numbers execute first)" },
-            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether the hook is active" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the hook is active" },
             { "name": "isGlobal", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this hook applies globally to all routes" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what the hook does" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined hook" }

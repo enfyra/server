@@ -10,6 +10,7 @@ import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dyn
 import { SettingCacheService } from './setting-cache.service';
 import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { FieldPermissionCacheService } from './field-permission-cache.service';
 
 @Injectable()
 export class RepoRegistryService {
@@ -25,6 +26,7 @@ export class RepoRegistryService {
     private readonly policyService: PolicyService,
     private readonly tableValidationService: TableValidationService,
     private readonly settingCacheService: SettingCacheService,
+    private readonly fieldPermissionCacheService: FieldPermissionCacheService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -72,15 +74,18 @@ export class RepoRegistryService {
 
     const getOrCreateRepo = (
       tableName: string,
+      enforceFieldPermission: boolean,
     ): DynamicRepository | undefined => {
-      if (repoCache.has(tableName)) return repoCache.get(tableName);
+      const cacheKey = `${tableName}|${enforceFieldPermission ? '1' : '0'}`;
+      if (repoCache.has(cacheKey)) return repoCache.get(cacheKey);
 
       const resolvedName = self.resolveTableName(tableName);
       if (!resolvedName) return undefined;
 
-      if (repoCache.has(resolvedName)) {
-        const existing = repoCache.get(resolvedName);
-        repoCache.set(tableName, existing);
+      const resolvedKey = `${resolvedName}|${enforceFieldPermission ? '1' : '0'}`;
+      if (repoCache.has(resolvedKey)) {
+        const existing = repoCache.get(resolvedKey);
+        repoCache.set(cacheKey, existing);
         return existing;
       }
 
@@ -94,26 +99,39 @@ export class RepoRegistryService {
         policyService: self.policyService,
         tableValidationService: self.tableValidationService,
         settingCacheService: self.settingCacheService,
+        fieldPermissionCacheService: self.fieldPermissionCacheService,
+        enforceFieldPermission,
         eventEmitter: self.eventEmitter,
       });
 
-      repoCache.set(resolvedName, repo);
-      if (tableName !== resolvedName) {
-        repoCache.set(tableName, repo);
-      }
+      repoCache.set(resolvedKey, repo);
+      repoCache.set(cacheKey, repo);
       return repo;
     };
 
     return new Proxy({} as Record<string, any>, {
       get(_target, prop: string) {
         if (prop === 'main' && mainTableName) {
-          return getOrCreateRepo(mainTableName);
+          return getOrCreateRepo(mainTableName, true);
+        }
+        if (prop === 'secure') {
+          return new Proxy({} as Record<string, any>, {
+            get(_t, p: string) {
+              if (typeof p === 'symbol') return undefined;
+              return getOrCreateRepo(p, true);
+            },
+            has(_t, p: string) {
+              if (typeof p === 'symbol') return false;
+              return self.resolveTableName(p) !== null;
+            },
+          });
         }
         if (typeof prop === 'symbol') return undefined;
-        return getOrCreateRepo(prop);
+        return getOrCreateRepo(prop, false);
       },
       has(_target, prop: string) {
         if (prop === 'main' && mainTableName) return true;
+        if (prop === 'secure') return true;
         if (typeof prop === 'symbol') return false;
         return self.resolveTableName(prop) !== null;
       },

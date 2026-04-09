@@ -372,6 +372,7 @@ export class SqlTableHandlerService {
           isSystem: col.isSystem || false,
           isUpdatable: col.isUpdatable ?? true,
           isHidden: col.isHidden || false,
+          isPublished: col.isPublished ?? true,
           defaultValue:
             col.defaultValue !== undefined
               ? JSON.stringify(col.defaultValue)
@@ -417,6 +418,8 @@ export class SqlTableHandlerService {
             isNullable: rel.isNullable ?? true,
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable ?? true,
+            isHidden: rel.isHidden || false,
+            isPublished: rel.isPublished ?? true,
             description: rel.description,
             sourceTableId: tableId,
           };
@@ -693,6 +696,7 @@ export class SqlTableHandlerService {
               isSystem: col.isSystem || false,
               isUpdatable: col.isUpdatable ?? true,
               isHidden: col.isHidden || false,
+              isPublished: col.isPublished ?? true,
               defaultValue:
                 col.defaultValue !== undefined
                   ? JSON.stringify(col.defaultValue)
@@ -769,6 +773,8 @@ export class SqlTableHandlerService {
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable ?? true,
+              isHidden: rel.isHidden || false,
+              isPublished: rel.isPublished ?? true,
               description: rel.description,
               sourceTableId: id,
             };

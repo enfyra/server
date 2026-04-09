@@ -246,6 +246,14 @@ export function compareSchemas(
       if (snapshotNullable !== currentCol.isNullable) {
         changes.push('nullable');
       }
+
+      const snapshotDefault =
+        snapshotCol.defaultValue === undefined ? null : snapshotCol.defaultValue;
+      const currentDefault = normalizeDbDefaultValue(currentCol.defaultValue);
+      if (!isDefaultEquivalent(snapshotDefault, currentDefault, snapshotCol.type)) {
+        changes.push('default');
+      }
+
       if (changes.length > 0) {
         diff.columnsToModify.push({ column: snapshotCol, changes });
       }
@@ -334,6 +342,47 @@ export function compareSchemas(
     }
   }
   return diff;
+}
+
+function normalizeDbDefaultValue(value: any): any {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const v = value.trim();
+    if (v.toLowerCase() === 'null') return null;
+    if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1);
+    const m = v.match(/^'(.*)'::/);
+    if (m) return m[1];
+    if (v === 'true' || v === 'false') return v === 'true';
+    if (v === '1' || v === '0') return v === '1';
+    return v;
+  }
+  return value;
+}
+
+function isDefaultEquivalent(
+  snapshotDefault: any,
+  currentDefault: any,
+  colType: string,
+): boolean {
+  if (snapshotDefault == null && currentDefault == null) return true;
+  if (colType === 'boolean') {
+    const s =
+      snapshotDefault === undefined || snapshotDefault === null
+        ? null
+        : snapshotDefault === true ||
+            snapshotDefault === 1 ||
+            String(snapshotDefault).toLowerCase() === 'true' ||
+            String(snapshotDefault) === '1';
+    const c =
+      currentDefault === undefined || currentDefault === null
+        ? null
+        : currentDefault === true ||
+            currentDefault === 1 ||
+            String(currentDefault).toLowerCase() === 'true' ||
+            String(currentDefault) === '1';
+    return s === c;
+  }
+  return String(snapshotDefault) === String(currentDefault);
 }
 export function isTypeCompatible(type1: string, type2: string): boolean {
   const compatibleTypes: Record<string, string[]> = {

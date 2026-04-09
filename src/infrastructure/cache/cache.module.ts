@@ -15,6 +15,7 @@ import { PackageCdnLoaderService } from './services/package-cdn-loader.service';
 import { GuardCacheService } from './services/guard-cache.service';
 import { GuardEvaluatorService } from './services/guard-evaluator.service';
 import { SettingCacheService } from './services/setting-cache.service';
+import { FieldPermissionCacheService } from './services/field-permission-cache.service';
 
 @Global()
 @Module({
@@ -34,6 +35,7 @@ import { SettingCacheService } from './services/setting-cache.service';
     GuardCacheService,
     GuardEvaluatorService,
     SettingCacheService,
+    FieldPermissionCacheService,
     RepoRegistryService,
   ],
   exports: [
@@ -52,6 +54,7 @@ import { SettingCacheService } from './services/setting-cache.service';
     GuardCacheService,
     GuardEvaluatorService,
     SettingCacheService,
+    FieldPermissionCacheService,
     RepoRegistryService,
   ],
 })

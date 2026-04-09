@@ -390,6 +390,7 @@ export class MongoTableHandlerService {
                     isSystem: col.isSystem || false,
                     isUpdatable: col.isUpdatable ?? true,
                     isHidden: col.isHidden || false,
+                    isPublished: col.isPublished ?? true,
                     defaultValue: col.defaultValue
                       ? JSON.stringify(col.defaultValue)
                       : null,
@@ -463,6 +464,8 @@ export class MongoTableHandlerService {
                     isNullable: rel.isNullable ?? true,
                     isSystem: rel.isSystem || false,
                     isUpdatable: rel.isUpdatable ?? true,
+                    isHidden: rel.isHidden || false,
+                    isPublished: rel.isPublished ?? true,
                     description: rel.description,
                   },
                 );
@@ -702,6 +705,7 @@ export class MongoTableHandlerService {
               isSystem: col.isSystem || false,
               isUpdatable: col.isUpdatable ?? true,
               isHidden: col.isHidden || false,
+              isPublished: col.isPublished ?? true,
               defaultValue: col.defaultValue
                 ? JSON.stringify(col.defaultValue)
                 : null,
@@ -808,6 +812,8 @@ export class MongoTableHandlerService {
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable ?? true,
+              isHidden: rel.isHidden || false,
+              isPublished: rel.isPublished ?? true,
               description: rel.description,
             };
             let relObjectId;
