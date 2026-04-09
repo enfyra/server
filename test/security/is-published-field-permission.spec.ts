@@ -60,10 +60,36 @@ function makeRepoHarness(opts: {
   const tableName = opts.tableMeta.name;
 
   const queryEngine = {
-    find: jest.fn(async () => ({
-      data: opts.dataFixture ?? [],
-      meta: { totalCount: (opts.dataFixture ?? []).length },
-    })),
+    find: jest.fn(async (findOpts: any) => {
+      let data = JSON.parse(JSON.stringify(opts.dataFixture ?? []));
+      const f = findOpts?.fields;
+      if (f && f !== '' && f !== '*') {
+        const allowed = new Set(String(f).split(',').map((s: string) => s.split('.')[0].trim()));
+        data = data.map((row: any) => {
+          const out: any = {};
+          for (const key of Object.keys(row)) {
+            if (allowed.has(key)) out[key] = row[key];
+          }
+          return out;
+        });
+      }
+      const deepOpts = findOpts?.deep;
+      if (deepOpts && typeof deepOpts === 'object') {
+        for (const row of data) {
+          for (const relName of Object.keys(deepOpts)) {
+            if (!row[relName] || !deepOpts[relName]?.fields) continue;
+            const relFields = new Set(String(deepOpts[relName].fields).split(',').map((s: string) => s.trim()));
+            const nested = row[relName];
+            if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+              const cleaned: any = {};
+              for (const k of Object.keys(nested)) { if (relFields.has(k)) cleaned[k] = nested[k]; }
+              row[relName] = cleaned;
+            }
+          }
+        }
+      }
+      return { data, meta: { totalCount: (opts.dataFixture ?? []).length } };
+    }),
   } as any;
 
   const metadataCacheService = {
@@ -149,7 +175,9 @@ describe('field permissions (isPublished baseline + overrides)', () => {
   }
 
   function withMetadataMap(h: any) {
-    h.metadataCacheService.getDirectMetadata = jest.fn(() => makeMetadataMap());
+    const map = makeMetadataMap();
+    h.metadataCacheService.getDirectMetadata = jest.fn(() => map);
+    h.metadataCacheService.lookupTableByName = jest.fn(async (name: string) => map.tables.get(name) || null);
     return h;
   }
 
