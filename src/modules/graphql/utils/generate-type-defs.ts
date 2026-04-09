@@ -62,7 +62,7 @@ export function generateGraphQLTypeDefsFromTables(
       const columnType = column?.type;
       if (!isValidGqlIdentifier(fieldName)) continue;
       if (!columnType || typeof columnType !== 'string') continue;
-      if (column.isHidden === true) continue;
+      if (column.isPublished === false) continue;
       const gqlType = mapColumnTypeToGraphQL(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =
@@ -74,7 +74,7 @@ export function generateGraphQLTypeDefsFromTables(
     if (table.relations && Array.isArray(table.relations)) {
       for (const rel of table.relations) {
         if (!rel?.propertyName || !rel?.targetTableName) continue;
-        if (rel.isHidden === true) continue;
+        if (rel.isPublished === false) continue;
         const relName = rel.propertyName;
         const targetType = rel.targetTableName;
         if (
@@ -114,7 +114,7 @@ export function generateGraphQLTypeDefsFromTables(
       const columnType = column?.type;
       if (!isValidGqlIdentifier(fieldName)) continue;
       if (!columnType || typeof columnType !== 'string') continue;
-      if (column.isHidden === true) continue;
+      if (column.isPublished === false) continue;
       const gqlType = mapColumnTypeToGraphQL(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =

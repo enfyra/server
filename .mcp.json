@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "enfyra": {
-      "command": "node",
-      "args": ["/Users/thinhdo/Documents/enfyra/mcp-server/src/index.mjs"],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@enfyra/mcp-server"
+      ],
       "env": {
         "ENFYRA_API_URL": "http://localhost:3000/api",
         "ENFYRA_EMAIL": "enfyra@admin.com",

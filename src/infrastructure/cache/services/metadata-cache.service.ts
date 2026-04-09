@@ -253,7 +253,6 @@ export class MetadataCacheService
             'isNullable',
             'isSystem',
             'isUpdatable',
-            'isHidden',
             'isPublished',
           ];
           for (const field of booleanFields) {
@@ -269,7 +268,7 @@ export class MetadataCacheService
 
         const relations: any[] = [];
         for (const rel of relationsData) {
-          const relBooleanFields = ['isNullable', 'isSystem', 'isUpdatable', 'isHidden', 'isPublished'];
+          const relBooleanFields = ['isNullable', 'isSystem', 'isUpdatable', 'isPublished'];
           for (const field of relBooleanFields) {
             if (rel[field] !== undefined && rel[field] !== null) {
               rel[field] = rel[field] === 1 || rel[field] === true;

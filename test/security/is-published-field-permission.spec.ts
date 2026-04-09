@@ -1,7 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { DynamicRepository } from '../../src/modules/dynamic-api/repositories/dynamic.repository';
 import { matchFieldPermissionCondition } from '../../src/shared/utils/field-permission-condition.util';
-import { sanitizeHiddenFieldsDeep } from '../../src/shared/utils/sanitize-hidden-fields.util';
+
 
 type TPolicy = {
   unconditionalAllowedColumns: Set<string>;
@@ -87,6 +87,7 @@ function makeRepoHarness(opts: {
     queryBuilder: {
       isMongoDb: () => opts.isMongo === true,
       runWithPolicy: async (_cb: any, fn: any) => await fn(),
+      runWithFieldPermissionCheck: async (_cb: any, fn: any) => await fn(),
       insertAndGet: async () => ({ id: 1 }),
       updateById: async () => ({ id: 1 }),
       deleteById: async () => ({ id: 1 }),
@@ -122,7 +123,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
       { name: 'title', isPublished: true },
       { name: 'ownerId', isPublished: true },
       { name: 'secretNote', isPublished: false },
-      { name: 'internalCode', isPublished: true, isHidden: true },
+      { name: 'internalCode', isPublished: true },
     ],
     relations: [
       { propertyName: 'owner', targetTableName: usersTable, isPublished: false },
@@ -220,14 +221,14 @@ describe('field permissions (isPublished baseline + overrides)', () => {
         user: { isAnonymous: true },
         policies: [],
         fixture: [{ id: 1, secretNote: 'x' }],
-        expectValue: null,
+        expectValue: undefined,
       },
       {
         name: 'auth default => null',
         user: { id: 'u1', role: { id: 'r1' } },
         policies: [],
         fixture: [{ id: 1, secretNote: 'x' }],
-        expectValue: null,
+        expectValue: undefined,
       },
       {
         name: 'public allow => value',
@@ -258,7 +259,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
           { id: 1, ownerId: 'u1', secretNote: 'mine' },
           { id: 2, ownerId: 'u2', secretNote: 'other' },
         ],
-        expectValue: ['mine', null],
+        expectValue: ['mine', undefined],
       },
       {
         name: 'rootAdmin bypass => value',
@@ -289,21 +290,6 @@ describe('field permissions (isPublished baseline + overrides)', () => {
     }
   });
 
-  test('isHidden is final response fallback', async () => {
-    const h = withMetadataMap(
-      makeRepoHarness({
-        enforce: true,
-        query: { fields: 'id,internalCode' },
-        tableMeta: baseMeta,
-        policies: [],
-        dataFixture: [{ id: 1, internalCode: 'X' }],
-      }),
-    );
-    const res = await h.repo.find();
-    const hiddenSanitized = sanitizeHiddenFieldsDeep(res, makeMetadataMap() as any);
-    expect(hiddenSanitized.data[0].internalCode).toBeNull();
-  });
-
   test('relation deep shaping: unpublished relation => null; allow override works; nested unpublished column => null', async () => {
     const relAllowPolicy = makePolicy({
       unconditionalAllowedRelations: new Set(['owner']),
@@ -329,7 +315,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
       }),
     );
     const r1 = await h1.repo.find();
-    expect(r1.data[0].owner).toBeNull();
+    expect(r1.data[0].owner).toBeUndefined();
 
     const h2 = withMetadataMap(
       makeRepoHarness({
@@ -343,7 +329,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
     );
     const r2 = await h2.repo.find();
     expect(r2.data[0].owner?.id).toBe('u1');
-    expect(r2.data[0].owner?.email).toBeNull();
+    expect(r2.data[0].owner?.email).toBeUndefined();
   });
 
   test('query operators: unpublished field => 403 unless unconditional allow; select is never 403; rootAdmin bypass', async () => {
@@ -426,7 +412,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
       }),
     );
     const rSelectOnly = await hSelectOnly.repo.find();
-    expect(rSelectOnly.data[0].secretNote).toBeNull();
+    expect(rSelectOnly.data[0].secretNote).toBeUndefined();
 
     const hFilterPublishedSelectUnpub = withMetadataMap(
       makeRepoHarness({
@@ -439,7 +425,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
     );
     const r2 = await hFilterPublishedSelectUnpub.repo.find();
     expect(r2.data[0].title).toBe('t');
-    expect(r2.data[0].secretNote).toBeNull();
+    expect(r2.data[0].secretNote).toBeUndefined();
 
     const hRoot = withMetadataMap(
       makeRepoHarness({

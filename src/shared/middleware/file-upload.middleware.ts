@@ -1,11 +1,18 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Response, NextFunction } from 'express';
 import * as multer from 'multer';
+import * as os from 'os';
+import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { RequestWithRouteData } from '../types';
 @Injectable()
 export class FileUploadMiddleware implements NestMiddleware {
   private upload = multer({
-    storage: multer.memoryStorage(),
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+      filename: (_req, _file, cb) =>
+        cb(null, `enfyra-upload-${crypto.randomUUID()}`),
+    }),
     limits: {
       fileSize: 10 * 1024 * 1024,
     },
@@ -26,6 +33,17 @@ export class FileUploadMiddleware implements NestMiddleware {
     this.upload.single('file')(req, res, (error: any) => {
       if (error) {
         return next(error);
+      }
+      if (req.file?.path) {
+        try {
+          req.file.buffer = fs.readFileSync(req.file.path);
+        } finally {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch {
+            // ignore cleanup errors
+          }
+        }
       }
       if (req.file && req.file.originalname) {
         try {

@@ -348,17 +348,6 @@ export async function buildRelationSubquery(
 
   const targetMetadata = getMetadata ? await getMetadata(targetTable) : null;
 
-  if (targetMetadata) {
-    const hiddenColumns = new Set(
-      targetMetadata.columns
-        .filter((col: any) => col.isHidden === true)
-        .map((col: any) => col.name),
-    );
-    if (hiddenColumns.size > 0) {
-      relationFilter = stripHiddenFilterKeys(relationFilter, hiddenColumns);
-    }
-  }
-
   let subquery: Knex.QueryBuilder;
 
   switch (relation.type) {
@@ -775,24 +764,4 @@ export async function applyRelationFilters(
     dbType,
     getMetadata,
   );
-}
-
-function stripHiddenFilterKeys(filter: any, hiddenColumns: Set<string>): any {
-  if (!filter || typeof filter !== 'object') return filter;
-  if (Array.isArray(filter))
-    return filter.map((f) => stripHiddenFilterKeys(f, hiddenColumns));
-
-  const result: any = {};
-  for (const key of Object.keys(filter)) {
-    if (key === '_and' || key === '_or') {
-      result[key] = Array.isArray(filter[key])
-        ? filter[key].map((f: any) => stripHiddenFilterKeys(f, hiddenColumns))
-        : filter[key];
-    } else if (hiddenColumns.has(key)) {
-      continue;
-    } else {
-      result[key] = filter[key];
-    }
-  }
-  return result;
 }

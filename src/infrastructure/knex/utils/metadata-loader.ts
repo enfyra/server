@@ -65,7 +65,6 @@ export async function loadTableMetadata(
     defaultValue: col.defaultValue,
     options: col.options,
     isUpdatable: col.isUpdatable !== false,
-    isHidden: col.isHidden || false,
     isPublished: col.isPublished !== false,
     description: col.description,
     placeholder: col.placeholder,
@@ -82,7 +81,6 @@ export async function loadTableMetadata(
     inversePropertyName: rel.inversePropertyName,
     isNullable: rel.isNullable !== false,
     isSystem: rel.isSystem || false,
-    isHidden: rel.isHidden || false,
     isPublished: rel.isPublished !== false,
     onDelete: rel.onDelete || 'SET NULL',
   }));

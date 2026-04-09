@@ -8,9 +8,7 @@ import { RouteCacheService } from '../../../infrastructure/cache/services/route-
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { GuardCacheService } from '../../../infrastructure/cache/services/guard-cache.service';
 import { GuardEvaluatorService } from '../../../infrastructure/cache/services/guard-evaluator.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { sanitizeHiddenFieldsDeep } from '../../../shared/utils/sanitize-hidden-fields.util';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 
 @Injectable()
@@ -23,7 +21,6 @@ export class DynamicResolver {
     private repoRegistryService: RepoRegistryService,
     private guardCacheService: GuardCacheService,
     private guardEvaluatorService: GuardEvaluatorService,
-    private metadataCacheService: MetadataCacheService,
   ) {}
 
   async dynamicResolver(
@@ -297,9 +294,7 @@ export class DynamicResolver {
     return resolveClientIpFromRequest({ headers, ip: undefined });
   }
 
-  private sanitizeResult(result: any, tableName?: string): any {
-    const metadata = this.metadataCacheService.getDirectMetadata();
-    if (!metadata) return result;
-    return sanitizeHiddenFieldsDeep(result, metadata as any, tableName);
+  private sanitizeResult(result: any, _tableName?: string): any {
+    return result;
   }
 }

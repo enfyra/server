@@ -88,7 +88,7 @@ export async function sanitizeFieldPermissionsResult(params: {
           }, { defaultAllowed: false });
 
       if (!decision.allowed) {
-        out[colName] = null;
+        delete out[colName];
       }
     }
 
@@ -115,7 +115,7 @@ export async function sanitizeFieldPermissionsResult(params: {
           }, { defaultAllowed: false });
 
       if (!decision.allowed) {
-        out[relName] = null;
+        delete out[relName];
         continue;
       }
 

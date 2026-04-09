@@ -17,7 +17,6 @@
             { "name": "defaultValue", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Default value for the column when inserting new records" },
             { "name": "options", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Additional options like enum values, array items, or validation rules" },
             { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the column can be updated after creation" },
-            { "name": "isHidden", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether to hide this column from API responses" },
             { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this column is publicly readable (published routes/anonymous included)" },
             { "name": "description", "type": "richtext", "isSystem": true, "description": "Rich text description of the column's purpose" },
             { "name": "placeholder", "type": "text", "isSystem": true, "description": "Placeholder text for form inputs" },
@@ -42,7 +41,6 @@
             { "name": "isNullable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the relation can be null" },
             { "name": "onDelete", "type": "enum", "isNullable": false, "isSystem": true, "options": ["CASCADE", "RESTRICT", "SET NULL"], "defaultValue": "SET NULL", "description": "Action to perform when referenced record is deleted" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined relation" },
-            { "name": "isHidden", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether to hide this relation from API responses" },
             { "name": "isPublished", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation is publicly readable (published routes/anonymous included)" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of the relationship purpose" },
             { "name": "junctionTableName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Name of the junction table for many-to-many relations" },
@@ -86,7 +84,7 @@
         "columns": [
             { "name": "id", "type": "uuid", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Unique user identifier (UUID)" },
             { "name": "email", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": null, "description": "User's email address (unique login identifier)" },
-            { "name": "password", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": null, "isHidden": true, "description": "Hashed password for authentication (nullable for OAuth users)" },
+            { "name": "password", "type": "varchar", "isNullable": true, "isSystem": true, "defaultValue": null, "isPublished": false, "description": "Hashed password for authentication (nullable for OAuth users)" },
             { "name": "isRootAdmin", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "isUpdatable": false, "description": "Whether user has root admin privileges (cannot be changed)" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-generated user account" }
         ],
@@ -104,8 +102,8 @@
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "provider", "type": "enum", "options": ["google", "facebook", "github"], "isNullable": false, "isSystem": true, "description": "OAuth provider name" },
-            { "name": "clientId", "type": "varchar", "isNullable": false, "isSystem": true, "isHidden": true, "description": "OAuth client ID from the provider" },
-            { "name": "clientSecret", "type": "varchar", "isNullable": false, "isSystem": true, "isHidden": true, "description": "OAuth client secret from the provider" },
+            { "name": "clientId", "type": "varchar", "isNullable": false, "isSystem": true, "isPublished": false, "description": "OAuth client ID from the provider" },
+            { "name": "clientSecret", "type": "varchar", "isNullable": false, "isSystem": true, "isPublished": false, "description": "OAuth client secret from the provider" },
             { "name": "redirectUri", "type": "varchar", "isNullable": false, "isSystem": true, "description": "OAuth provider callback URL registered with the provider (e.g., https://api.enfyra.com/auth/google/callback)" },
             { "name": "appCallbackUrl", "type": "varchar", "isNullable": true, "isSystem": true, "description": "App callback URL where backend redirects with tokens after OAuth success (e.g., https://app.enfyra.com/api/auth/callback)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this OAuth provider is active" },
@@ -204,8 +202,8 @@
         "description": "Defines per-field permissions (columns and relations) by role and user, with optional conditions",
         "isSystem": true,
         "uniques": [
-            ["role", "table", "action", "column"],
-            ["role", "table", "action", "relation"]
+            ["role", "action", "column"],
+            ["role", "action", "relation"]
         ],
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
@@ -217,9 +215,8 @@
         ],
         "relations": [
             { "propertyName": "role", "type": "many-to-one", "isSystem": true, "targetTable": "role_definition", "onDelete": "CASCADE", "description": "Role that this rule applies to" },
-            { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "table_definition", "onDelete": "CASCADE", "description": "Table this rule applies to" },
-            { "propertyName": "column", "type": "many-to-one", "isSystem": true, "targetTable": "column_definition", "isNullable": true, "onDelete": "CASCADE", "description": "Column this rule applies to" },
-            { "propertyName": "relation", "type": "many-to-one", "isSystem": true, "targetTable": "relation_definition", "isNullable": true, "onDelete": "CASCADE", "description": "Relation this rule applies to" },
+            { "propertyName": "column", "type": "many-to-one", "isSystem": true, "targetTable": "column_definition", "isNullable": true, "onDelete": "CASCADE", "inversePropertyName": "fieldPermissions", "description": "Column this rule applies to" },
+            { "propertyName": "relation", "type": "many-to-one", "isSystem": true, "targetTable": "relation_definition", "isNullable": true, "onDelete": "CASCADE", "inversePropertyName": "fieldPermissions", "description": "Relation this rule applies to" },
             { "propertyName": "allowedUsers", "type": "many-to-many", "isSystem": true, "targetTable": "user_definition", "description": "Specific users this rule applies to" }
         ]
     },
@@ -501,10 +498,10 @@
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this storage configuration is active" },
             { "name": "bucket", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Bucket name (used for S3/GCS)" },
             { "name": "region", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Storage region - Required for S3 (e.g., us-east-1, ap-southeast-1), optional for R2 (use 'auto' or leave empty), not needed for GCS/Local Storage" },
-            { "name": "accessKeyId", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "S3/R2 access key ID" },
-            { "name": "secretAccessKey", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "S3/R2 secret access key" },
-            { "name": "accountId", "type": "varchar", "isNullable": true, "isSystem": true, "isHidden": true, "description": "Cloudflare account ID (for R2, used to generate endpoint automatically)" },
-            { "name": "credentials", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "GCS service account JSON credentials", "isHidden": true },
+            { "name": "accessKeyId", "type": "varchar", "isNullable": true, "isSystem": true, "isPublished": false, "description": "S3/R2 access key ID" },
+            { "name": "secretAccessKey", "type": "varchar", "isNullable": true, "isSystem": true, "isPublished": false, "description": "S3/R2 secret access key" },
+            { "name": "accountId", "type": "varchar", "isNullable": true, "isSystem": true, "isPublished": false, "description": "Cloudflare account ID (for R2, used to generate endpoint automatically)" },
+            { "name": "credentials", "type": "simple-json", "isNullable": true, "isSystem": true, "isPublished": false, "description": "GCS service account JSON credentials" },
             { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Description of this storage configuration" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined storage configuration" }
         ],

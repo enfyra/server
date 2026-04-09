@@ -42,7 +42,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:git-branch",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -51,7 +50,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:table",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
@@ -68,7 +66,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon": "lucide:settings",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
@@ -130,7 +127,6 @@
             "isEnabled": true,
             "isSystem":true,
             "icon":"lucide:route",
-            "publishedMethods": ["GET", "PATCH"],
             "availableMethods": ["GET", "PATCH"]
         },
         {
@@ -139,7 +135,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -196,7 +191,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:menu",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -205,7 +199,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:puzzle",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -213,7 +206,6 @@
             "mainTable": "extension_definition",
             "isEnabled": true,
             "isSystem": true,
-            "publishedMethods": ["POST"],
             "availableMethods": ["POST"]
         },
         {
@@ -230,7 +222,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:folder-tree",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -255,7 +246,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:download",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -312,7 +302,6 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:hard-drive",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
         },
         {
@@ -377,7 +366,6 @@
             "isSystem": true,
             "icon": "lucide:database",
             "description": "Get all table metadata from cache",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -386,7 +374,6 @@
             "isSystem": true,
             "icon": "lucide:table",
             "description": "Get single table metadata from cache",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {
@@ -395,7 +382,6 @@
             "isSystem": true,
             "icon": "lucide:file-code",
             "description": "GraphQL schema SDL (full definition for debugging)",
-            "publishedMethods": ["GET"],
             "availableMethods": ["GET"]
         },
         {

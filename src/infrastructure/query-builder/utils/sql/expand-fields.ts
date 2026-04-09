@@ -30,7 +30,7 @@ interface FieldExpansionResult {
 
 interface TableMetadata {
   name: string;
-  columns: Array<{ name: string; type: string; isHidden?: boolean }>;
+  columns: Array<{ name: string; type: string }>;
   relations: Array<{
     propertyName: string;
     type: 'many-to-one' | 'one-to-many' | 'one-to-one' | 'many-to-many';

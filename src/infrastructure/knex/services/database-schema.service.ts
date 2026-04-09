@@ -72,7 +72,6 @@ export class DatabaseSchemaService {
         isNullable: col.isNullable === 'YES',
         isSystem: this.isSystemColumn(col.name),
         isUpdatable: !col.extra?.includes('auto_increment'),
-        isHidden: false,
         defaultValue: col.defaultValue,
         description: col.description,
         options: {
@@ -163,7 +162,6 @@ export class DatabaseSchemaService {
         isNullable: col.isNullable === 'YES',
         isSystem: this.isSystemColumn(col.name),
         isUpdatable: true,
-        isHidden: false,
         defaultValue: col.defaultValue,
         description: null,
         options: {
@@ -258,7 +256,6 @@ export class DatabaseSchemaService {
       isNullable: col.isNullable === 'YES',
       isSystem: this.isSystemColumn(col.name),
       isUpdatable: !col.extra?.includes('auto_increment'),
-      isHidden: false,
       defaultValue: col.defaultValue,
       description: col.description,
       options: {
@@ -336,7 +333,6 @@ export class DatabaseSchemaService {
       isNullable: col.isNullable === 'YES',
       isSystem: this.isSystemColumn(col.name),
       isUpdatable: true,
-      isHidden: false,
       defaultValue: col.defaultValue,
       description: null,
       options: {

@@ -31,7 +31,6 @@ import {
   PostAuthMetadataGuard,
 } from './shared/guards/metadata-guard.guard';
 import { DynamicInterceptor } from './shared/interceptors/dynamic.interceptor';
-import { HideFieldInterceptor } from './shared/interceptors/hidden-field.interceptor';
 import { FileUploadMiddleware } from './shared/middleware/file-upload.middleware';
 import { ParseQueryMiddleware } from './shared/middleware/parse-query.middleware';
 import { RouteDetectMiddleware } from './infrastructure/middleware/route-detect.middleware';
@@ -138,7 +137,6 @@ import { FlowModule } from './modules/flow/flow.module';
     { provide: APP_GUARD, useClass: PostAuthMetadataGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: DynamicInterceptor },
-    { provide: APP_INTERCEPTOR, useClass: HideFieldInterceptor },
   ],
   exports: [
     KnexModule,

@@ -40,12 +40,6 @@ function toIdString(v: any): string | null {
   return String(v?._id ?? v?.id ?? v);
 }
 
-function toName(v: any): string | null {
-  if (!v) return null;
-  if (typeof v === 'string') return v;
-  return v?.name ?? null;
-}
-
 @Injectable()
 export class FieldPermissionCacheService extends BaseCacheService<
   Map<string, TCompiledFieldPolicy>
@@ -85,7 +79,6 @@ export class FieldPermissionCacheService extends BaseCacheService<
         '*',
         'role.*',
         'allowedUsers.*',
-        'table.*',
         'column.*',
         'column.table.*',
         'relation.*',
@@ -105,20 +98,9 @@ export class FieldPermissionCacheService extends BaseCacheService<
       const action = (row?.action as TFieldPermissionAction) || 'read';
       const effect = (row?.effect as TFieldPermissionEffect) || 'allow';
 
-      const derivedFromColumn =
-        toName(row?.column?.table) || row?.column?.table?.name || null;
-      const derivedFromRelation =
-        toName(row?.relation?.sourceTable) ||
-        row?.relation?.sourceTable?.name ||
-        row?.relation?.sourceTableName ||
-        row?.sourceTableName ||
-        null;
       const tableName =
-        derivedFromColumn ||
-        derivedFromRelation ||
-        toName(row?.table) ||
-        row?.tableName ||
-        row?.table?.name ||
+        row?.column?.table?.name ||
+        row?.relation?.sourceTable?.name ||
         null;
       if (!tableName) continue;
 
@@ -129,13 +111,8 @@ export class FieldPermissionCacheService extends BaseCacheService<
             .filter((x: any): x is string => !!x)
         : [];
 
-      const columnName =
-        toName(row?.column) || row?.columnName || row?.column?.name || null;
-      const relationPropertyName =
-        row?.relation?.propertyName ||
-        row?.relationPropertyName ||
-        row?.relation?.propertyName ||
-        null;
+      const columnName = row?.column?.name ?? null;
+      const relationPropertyName = row?.relation?.propertyName ?? null;
 
       const rule: TFieldPermissionRule = {
         id: row?.id,

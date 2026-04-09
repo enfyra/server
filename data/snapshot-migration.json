@@ -2,6 +2,7 @@
   "tables": [
     {
       "_unique": { "name": { "_eq": "column_definition" } },
+      "columnsToRemove": ["isHidden"],
       "columnsToModify": [
         {
           "from": { "type": "varchar" },
@@ -61,8 +62,16 @@
       ]
     },
     {
+      "_unique": { "name": { "_eq": "field_permission_definition" } },
+      "relationsToRemove": ["table"]
+    },
+    {
       "_unique": { "name": { "_eq": "file_permission_definition" } },
       "relationsToRemove": ["allowedUsers"]
+    },
+    {
+      "_unique": { "name": { "_eq": "relation_definition" } },
+      "columnsToRemove": ["isHidden"]
     },
     {
       "_unique": { "name": { "_eq": "websocket_definition" } },

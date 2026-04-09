@@ -206,7 +206,7 @@ export class DataMigrationService {
     const relationUpdates: any = {};
 
     for (const field of RELATION_FIELD_PREFIXES) {
-      if (data[field] && Array.isArray(data[field])) {
+      if (Array.isArray(data[field])) {
         relationUpdates[field] = data[field];
         delete data[field];
       }
@@ -233,11 +233,13 @@ export class DataMigrationService {
           const methodIds = result.data
             .map((m: any) => m._id || m.id)
             .filter(Boolean);
+          await this.queryBuilder.updateById('route_definition', recordId, {
+            [field]: methodIds,
+          });
           if (methodIds.length > 0) {
-            await this.queryBuilder.updateById('route_definition', recordId, {
-              [field]: methodIds,
-            });
             this.logger.log(`Linked ${methodIds.length} ${field} to route`);
+          } else {
+            this.logger.log(`Cleared ${field} for route`);
           }
         }
       }
