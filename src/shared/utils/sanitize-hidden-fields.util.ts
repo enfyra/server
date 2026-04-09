@@ -1,5 +1,11 @@
 export interface SanitizeMetadata {
-  tables: Map<string, { columns: Array<{ name: string; isHidden?: boolean }> }>;
+  tables: Map<
+    string,
+    {
+      columns: Array<{ name: string; isHidden?: boolean }>;
+      relations?: Array<{ propertyName: string; isHidden?: boolean }>;
+    }
+  >;
 }
 
 export function sanitizeHiddenFieldsDeep(
@@ -44,6 +50,7 @@ function sanitizeHiddenFieldsObject(obj: any, metadata: SanitizeMetadata): any {
 
   for (const [, tableMetadata] of metadata.tables.entries()) {
     const columns = tableMetadata.columns || [];
+    const relations = tableMetadata.relations || [];
 
     const objectKeys = Object.keys(obj);
     const matchingColumns = columns.filter((col) =>
@@ -54,6 +61,12 @@ function sanitizeHiddenFieldsObject(obj: any, metadata: SanitizeMetadata): any {
       for (const column of columns) {
         if (column.isHidden === true && column.name in sanitized) {
           sanitized[column.name] = null;
+        }
+      }
+
+      for (const rel of relations) {
+        if (rel.isHidden === true && rel.propertyName in sanitized) {
+          sanitized[rel.propertyName] = null;
         }
       }
     }

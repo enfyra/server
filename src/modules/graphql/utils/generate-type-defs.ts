@@ -74,6 +74,7 @@ export function generateGraphQLTypeDefsFromTables(
     if (table.relations && Array.isArray(table.relations)) {
       for (const rel of table.relations) {
         if (!rel?.propertyName || !rel?.targetTableName) continue;
+        if (rel.isHidden === true) continue;
         const relName = rel.propertyName;
         const targetType = rel.targetTableName;
         if (

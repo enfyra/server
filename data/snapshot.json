@@ -41,6 +41,7 @@
             { "name": "isNullable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the relation can be null" },
             { "name": "onDelete", "type": "enum", "isNullable": false, "isSystem": true, "options": ["CASCADE", "RESTRICT", "SET NULL"], "defaultValue": "SET NULL", "description": "Action to perform when referenced record is deleted" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined relation" },
+            { "name": "isHidden", "type": "boolean", "isNullable": true, "isSystem": true, "defaultValue": false, "description": "Whether to hide this relation from API responses" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of the relationship purpose" },
             { "name": "junctionTableName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Name of the junction table for many-to-many relations" },
             { "name": "junctionSourceColumn", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Column name in junction table referencing source table" },

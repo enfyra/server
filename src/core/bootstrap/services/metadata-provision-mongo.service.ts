@@ -283,6 +283,7 @@ export class MetadataProvisionMongoService {
               isNullable: rel.isNullable !== false,
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable !== false,
+              isHidden: rel.isHidden === true,
             };
             const inverseRelationRecord = this.buildRecordFromColumns(
               inverseData,

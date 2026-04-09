@@ -81,6 +81,7 @@ export async function loadTableMetadata(
     inversePropertyName: rel.inversePropertyName,
     isNullable: rel.isNullable !== false,
     isSystem: rel.isSystem || false,
+    isHidden: rel.isHidden || false,
     onDelete: rel.onDelete || 'SET NULL',
   }));
   return {

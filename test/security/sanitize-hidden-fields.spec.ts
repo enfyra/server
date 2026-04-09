@@ -8,10 +8,20 @@ function makeMetadata(
     string,
     Array<{ name: string; isHidden?: boolean }>
   >,
+  relationsByTable: Record<
+    string,
+    Array<{ propertyName: string; isHidden?: boolean }>
+  > = {},
 ): SanitizeMetadata {
-  const map = new Map<string, { columns: Array<{ name: string; isHidden?: boolean }> }>();
+  const map = new Map<
+    string,
+    {
+      columns: Array<{ name: string; isHidden?: boolean }>;
+      relations?: Array<{ propertyName: string; isHidden?: boolean }>;
+    }
+  >();
   for (const [tableName, columns] of Object.entries(tables)) {
-    map.set(tableName, { columns });
+    map.set(tableName, { columns, relations: relationsByTable[tableName] || [] });
   }
   return { tables: map };
 }
@@ -249,6 +259,31 @@ describe('sanitizeHiddenFieldsDeep', () => {
       expect(result.data[0].secretKey).toBeNull();
       expect(result.data[1].secretKey).toBeNull();
       expect(result.meta.totalCount).toBe(2);
+    });
+  });
+
+  describe('hidden relations', () => {
+    it('nulls a hidden relation property when object matches table columns', () => {
+      const meta = makeMetadata(
+        {
+          user_definition: [{ name: 'id' }, { name: 'email' }],
+        },
+        {
+          user_definition: [{ propertyName: 'role', isHidden: true }],
+        },
+      );
+
+      const result = sanitizeHiddenFieldsDeep(
+        {
+          id: 1,
+          email: 'a@b.com',
+          role: { id: 10, name: 'admin' },
+        },
+        meta,
+      );
+
+      expect(result.role).toBeNull();
+      expect(result.email).toBe('a@b.com');
     });
   });
 });

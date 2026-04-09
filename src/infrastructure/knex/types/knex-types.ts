@@ -26,6 +26,7 @@ export interface RelationMetadata {
   inversePropertyName?: string;
   isNullable: boolean;
   isSystem: boolean;
+  isHidden?: boolean;
   description?: string;
 
   foreignKeyColumn?: string;

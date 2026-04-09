@@ -172,6 +172,7 @@ export class MetadataProvisionSqlService {
               isSystem: rel.isSystem,
               isNullable: rel.isNullable,
               isUpdatable: rel.isUpdatable,
+              isHidden: rel.isHidden,
             };
             if (inverseType === 'many-to-many') {
               const junctionTableName = getJunctionTableName(
@@ -231,7 +232,9 @@ export class MetadataProvisionSqlService {
             (targetId !== undefined &&
               targetId !== existingRel.targetTableId) ||
             (rel.isUpdatable !== undefined &&
-              rel.isUpdatable !== existingRel.isUpdatable);
+              rel.isUpdatable !== existingRel.isUpdatable) ||
+            (rel.isHidden !== undefined &&
+              rel.isHidden !== (existingRel as any).isHidden);
           if (needsUpdate) {
             const updateData: any = {};
             updateData.propertyName = rel.propertyName;
@@ -241,6 +244,7 @@ export class MetadataProvisionSqlService {
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
             if (rel.isUpdatable !== undefined)
               updateData.isUpdatable = rel.isUpdatable;
+            if (rel.isHidden !== undefined) updateData.isHidden = rel.isHidden;
             if (rel.type !== undefined) updateData.type = rel.type;
             if (targetId !== undefined) updateData.targetTableId = targetId;
             if (rel.type === 'many-to-many') {
@@ -273,6 +277,7 @@ export class MetadataProvisionSqlService {
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable !== false,
+            isHidden: rel.isHidden === true,
             description: rel.description,
             sourceTableId: tableId,
             targetTableId: targetId,

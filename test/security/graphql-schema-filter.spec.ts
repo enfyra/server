@@ -112,6 +112,24 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
     });
   });
 
+  describe('hidden relation exclusion', () => {
+    it('excludes hidden relations from output type', () => {
+      const columns = [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('title')];
+      const relations = [
+        { propertyName: 'author', targetTableName: 'user_definition', type: 'many-to-one', isHidden: true },
+      ];
+      const schema = generateGraphQLTypeDefsFromTables(
+        [
+          makeTable('post', columns, relations),
+          makeTable('user_definition', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('email')]),
+        ],
+        new Set(['post', 'user_definition']),
+      );
+      expect(schema).toContain('type post');
+      expect(schema).not.toContain('author: user_definition');
+    });
+  });
+
   describe('stub types for non-GQL relation targets', () => {
     it('generates stub type for relation pointing to non-queryable table', () => {
       const columns = [

@@ -547,6 +547,12 @@ async function syncRelationOnDeleteChanges(
       table.enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL']).notNullable().defaultTo('SET NULL');
     });
   }
+  const hasIsHiddenColumn = await knex.schema.hasColumn('relation_definition', 'isHidden');
+  if (!hasIsHiddenColumn) {
+    await knex.schema.alterTable('relation_definition', (table) => {
+      table.boolean('isHidden').nullable().defaultTo(false);
+    });
+  }
   const tableDefRow = await knex('table_definition')
     .where('name', tableName)
     .first();

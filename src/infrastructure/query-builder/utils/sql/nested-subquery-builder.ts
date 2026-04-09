@@ -89,13 +89,9 @@ export async function buildNestedSubquery(
     }
     for (const col of targetMeta.columns) {
       if (fkColumnsToOmit.has(col.name)) continue;
-      if ((col as any).isHidden === true) {
-        columns.push(`'${col.name}', NULL`);
-      } else {
-        columns.push(
-          `'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`,
-        );
-      }
+      columns.push(
+        `'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`,
+      );
     }
 
     for (const rel of targetMeta.relations || []) {
@@ -108,13 +104,9 @@ export async function buildNestedSubquery(
       if (!field.includes('.')) {
         const col = targetMeta.columns.find((c) => c.name === field);
         if (col) {
-          if ((col as any).isHidden === true) {
-            columns.push(`'${col.name}', NULL`);
-          } else {
-            columns.push(
-              `'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`,
-            );
-          }
+          columns.push(
+            `'${col.name}', ${currentAlias}.${quoteIdentifier(col.name, dbType)}`,
+          );
         }
       }
     }
