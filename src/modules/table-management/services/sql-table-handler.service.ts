@@ -614,6 +614,15 @@ export class SqlTableHandlerService {
 
       if (body.isSingleRecord) {
       }
+      const affectedTables: string[] = [];
+      if (fullMetadata.relations) {
+        for (const rel of fullMetadata.relations) {
+          if (rel.targetTableName && rel.targetTableName !== body.name) {
+            affectedTables.push(rel.targetTableName);
+          }
+        }
+      }
+      fullMetadata.affectedTables = [...new Set(affectedTables)];
       return fullMetadata;
     } catch (error) {
       if (trx && !trx.isCompleted()) {
@@ -681,6 +690,7 @@ export class SqlTableHandlerService {
       });
     }
     this.validateRelations(body.relations);
+    const affectedTableNames = new Set<string>();
     try {
       const trx = await knex.transaction();
       try {
@@ -803,6 +813,16 @@ export class SqlTableHandlerService {
             body.relations,
           );
           if (deletedRelationIds.length > 0) {
+            const inverseRelations = await trx('relation_definition')
+              .whereIn('mappedById', deletedRelationIds)
+              .select('sourceTableId');
+            for (const inv of inverseRelations) {
+              const invTable = await trx('table_definition')
+                .where({ id: inv.sourceTableId })
+                .select('name')
+                .first();
+              if (invTable?.name) affectedTableNames.add(invTable.name);
+            }
             await trx('relation_definition')
               .whereIn('mappedById', deletedRelationIds)
               .delete();
@@ -999,6 +1019,8 @@ export class SqlTableHandlerService {
                     relationData.junctionSourceColumn;
                 }
                 await trx('relation_definition').insert(inverseData);
+                const targetName = targetTablesMap.get(targetTableId);
+                if (targetName) affectedTableNames.add(targetName);
                 this.logger.log(
                   `Auto-created inverse relation '${rel.inversePropertyName}'`,
                 );
@@ -1065,7 +1087,7 @@ export class SqlTableHandlerService {
           }
         }
 
-        return { id: exists.id, name: exists.name };
+        return { id: exists.id, name: exists.name, affectedTables: [...affectedTableNames] };
       } catch (innerError) {
         if (trx && !trx.isCompleted()) {
           try {
@@ -1102,6 +1124,7 @@ export class SqlTableHandlerService {
     context?: TDynamicContext,
   ) {
     const knex = this.queryBuilder.getKnex();
+    const affectedTableNames = new Set<string>();
     return await knex.transaction(async (trx) => {
       try {
         const exists = await trx('table_definition').where({ id }).first();
@@ -1262,6 +1285,13 @@ export class SqlTableHandlerService {
           } else {
           }
         } catch (error) {}
+        for (const rel of targetRelations) {
+          const sourceTable = await trx('table_definition')
+            .where({ id: rel.sourceTableId })
+            .select('name')
+            .first();
+          if (sourceTable?.name) affectedTableNames.add(sourceTable.name);
+        }
         await trx('relation_definition').where({ targetTableId: id }).delete();
         await trx('table_definition').where({ id }).delete();
         await this.schemaMigrationService.dropTable(
@@ -1270,6 +1300,7 @@ export class SqlTableHandlerService {
           trx,
         );
         await trx.commit();
+        exists.affectedTables = [...affectedTableNames];
         return exists;
       } catch (error) {
         if (trx && !trx.isCompleted()) {

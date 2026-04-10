@@ -1,14 +1,14 @@
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
-import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_IDENTIFIERS,
+  TCacheInvalidationPayload,
+} from '../../../shared/utils/cache-events.constants';
 
 type CacheIdentifier =
   (typeof CACHE_IDENTIFIERS)[keyof typeof CACHE_IDENTIFIERS];
 
 export interface CacheConfig {
-  syncEventKey: string;
   cacheIdentifier: CacheIdentifier;
   colorCode: string;
   cacheName: string;
@@ -20,55 +20,12 @@ export abstract class BaseCacheService<T> {
   protected cacheLoaded = false;
   protected isLoading = false;
   protected loadingPromise: Promise<void> | null = null;
-  private messageHandler: ((channel: string, message: string) => void) | null =
-    null;
 
   constructor(
     protected readonly config: CacheConfig,
-    protected readonly redisPubSubService: RedisPubSubService,
-    protected readonly instanceService: InstanceService,
     protected readonly eventEmitter?: EventEmitter2,
   ) {
     this.logger = new Logger(`${config.colorCode}${config.cacheName}\x1b[0m`);
-    this.setupSubscription();
-  }
-
-  private setupSubscription(): void {
-    if (this.messageHandler) return;
-
-    this.messageHandler = async (channel: string, message: string) => {
-      if (
-        this.redisPubSubService.isChannelForBase(
-          channel,
-          this.config.syncEventKey,
-        )
-      ) {
-        await this.handleIncomingMessage(message);
-      }
-    };
-
-    this.redisPubSubService.subscribeWithHandler(
-      this.config.syncEventKey,
-      this.messageHandler,
-    );
-  }
-
-  private async handleIncomingMessage(message: string): Promise<void> {
-    try {
-      const payload = JSON.parse(message);
-      const myInstanceId = this.instanceService.getInstanceId();
-
-      if (payload.instanceId === myInstanceId) {
-        return;
-      }
-
-      this.logger.debug(
-        `Sync signal received from ${payload.instanceId.slice(0, 8)}`,
-      );
-      await this.reload(false);
-    } catch (error) {
-      this.logger.error('Failed to parse cache sync message:', error);
-    }
   }
 
   async reload(publish = true): Promise<void> {
@@ -92,14 +49,10 @@ export abstract class BaseCacheService<T> {
 
         const elapsed = Date.now() - start;
         this.logger.log(
-          `Loaded ${this.getLogCount()} in ${elapsed}ms${publish ? '' : ' (sync)'}`,
+          `Loaded ${this.getLogCount()} in ${elapsed}ms`,
         );
 
         this.emitLoadedEvent();
-
-        if (publish) {
-          await this.publishReloadSignal();
-        }
       } catch (error) {
         this.logger.error('Failed to reload cache:', error);
         throw error;
@@ -112,20 +65,38 @@ export abstract class BaseCacheService<T> {
     return this.loadingPromise;
   }
 
-  private async publishReloadSignal(): Promise<void> {
-    try {
-      const payload = {
-        instanceId: this.instanceService.getInstanceId(),
-        type: 'RELOAD_SIGNAL',
-        timestamp: Date.now(),
-      };
-      await this.redisPubSubService.publish(
-        this.config.syncEventKey,
-        JSON.stringify(payload),
-      );
-    } catch (error) {
-      this.logger.error('Failed to publish reload signal:', error);
+  async partialReload(
+    payload: TCacheInvalidationPayload,
+    publish = true,
+  ): Promise<void> {
+    if (this.isLoading && this.loadingPromise) {
+      await this.loadingPromise;
     }
+    try {
+      const start = Date.now();
+      await this.applyPartialUpdate(payload);
+      const elapsed = Date.now() - start;
+      this.logger.log(
+        `Partial reload (${payload.ids?.length ?? 0} ids) in ${elapsed}ms`,
+      );
+
+      this.emitLoadedEvent();
+    } catch (error) {
+      this.logger.warn(
+        `Partial reload failed, falling back to full reload: ${error.message}`,
+      );
+      await this.reload(publish);
+    }
+  }
+
+  supportsPartialReload(): boolean {
+    return false;
+  }
+
+  protected async applyPartialUpdate(
+    _payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    throw new Error('applyPartialUpdate not implemented');
   }
 
   protected abstract loadFromDb(): Promise<any>;

@@ -276,6 +276,7 @@ export class MongoTableHandlerService {
     if (isPolicyDeny(decision)) {
       throw new ValidationException(decision.message);
     }
+    const affectedTableNames = new Set<string>();
     return await this.runWithSchemaLock(
       `mongo:create:${body?.name || 'unknown'}`,
       async () => {
@@ -533,6 +534,10 @@ export class MongoTableHandlerService {
                       ? new ObjectId(inverseRecord._id)
                       : inverseRecord._id;
                   insertedRelationIds.push(inverseId);
+                  const targetName = typeof rel.targetTable === 'string'
+                    ? rel.targetTable
+                    : rel.targetTable?.name;
+                  if (targetName) affectedTableNames.add(targetName);
                   this.logger.log(
                     `Auto-created inverse relation '${rel.inversePropertyName}'`,
                   );
@@ -616,6 +621,7 @@ export class MongoTableHandlerService {
             }
           }
 
+          fullMetadata.affectedTables = [...affectedTableNames];
           return fullMetadata;
         } catch (error) {
           this.loggingService.error('Collection creation failed', {
@@ -636,6 +642,7 @@ export class MongoTableHandlerService {
     );
   }
   async updateTable(id: any, body: CreateTableDto, context?: TDynamicContext) {
+    const affectedTableNames = new Set<string>();
     return await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
       if (body.name && /[A-Z]/.test(body.name)) {
         throw new ValidationException('Table name must be lowercase.', {
@@ -837,6 +844,7 @@ export class MongoTableHandlerService {
                 { mappedBy: deletedRelation._id },
               );
               for (const inv of inverseRels) {
+                if (inv.sourceTableName) affectedTableNames.add(inv.sourceTableName);
                 await this.queryBuilder.deleteById(
                   'relation_definition',
                   inv._id,
@@ -1024,6 +1032,7 @@ export class MongoTableHandlerService {
           }
         }
 
+        finalMetadata.affectedTables = [...affectedTableNames];
         return finalMetadata;
       } catch (error) {
         this.loggingService.error('Collection update failed', {
@@ -1044,6 +1053,7 @@ export class MongoTableHandlerService {
     });
   }
   async delete(id: string | number, context?: TDynamicContext) {
+    const affectedTableNames = new Set<string>();
     return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
       try {
         const { ObjectId } = require('mongodb');
@@ -1084,6 +1094,7 @@ export class MongoTableHandlerService {
           },
         );
         for (const rel of relations) {
+          if (rel.targetTableName) affectedTableNames.add(rel.targetTableName);
           await this.queryBuilder.deleteById('relation_definition', rel._id);
         }
         const columns = await this.queryBuilder.findWhere('column_definition', {
@@ -1094,6 +1105,7 @@ export class MongoTableHandlerService {
         }
         await this.queryBuilder.deleteById('table_definition', tableId);
         await this.schemaMigrationService.dropCollection(collectionName);
+        exists.affectedTables = [...affectedTableNames];
         return exists;
       } catch (error) {
         this.loggingService.error('Collection deletion failed', {

@@ -187,15 +187,6 @@ async function buildCacheService(opts: {
     qb.records.set(pkg.id, { ...pkg });
   }
 
-  const redisPubSub = {
-    subscribe: jest.fn(),
-    publish: jest.fn(),
-    subscribeWithHandler: jest.fn(),
-    isChannelForBase: jest.fn(() => false),
-  };
-  const instanceService = {
-    getInstanceId: jest.fn(() => 'test-instance'),
-  };
   const eventEmitter = {
     emit: jest.fn(),
     on: jest.fn(),
@@ -206,8 +197,6 @@ async function buildCacheService(opts: {
     await import('../../src/infrastructure/cache/services/package-cache.service');
   const service = new (mod.PackageCacheService as any)(
     qb,
-    redisPubSub,
-    instanceService,
     eventEmitter,
     opts.ws,
     opts.cdnLoader,

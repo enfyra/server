@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import {
   PackageCdnLoaderService,
   extractErrorMessage,
@@ -10,17 +8,13 @@ import {
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-  PACKAGE_CACHE_SYNC_EVENT_KEY,
 } from '../../../shared/utils/constant';
 import {
-  CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const PACKAGE_CONFIG: CacheConfig = {
-  syncEventKey: PACKAGE_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
   colorCode: '\x1b[35m',
   cacheName: 'PackageCache',
@@ -32,29 +26,11 @@ const SYSTEM_EVENT_PREFIX = '$system:package';
 export class PackageCacheService extends BaseCacheService<string[]> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
     private readonly websocketGateway: DynamicWebSocketGateway,
     private readonly cdnLoader: PackageCdnLoaderService,
   ) {
-    super(PACKAGE_CONFIG, redisPubSubService, instanceService, eventEmitter);
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    await this.reload(false);
-    this.eventEmitter?.emit(CACHE_EVENTS.PACKAGE_LOADED);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      await this.reload();
-    }
+    super(PACKAGE_CONFIG, eventEmitter);
   }
 
   protected async loadFromDb(): Promise<string[]> {

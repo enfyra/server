@@ -1,18 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import {
-  CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
 
 const STORAGE_CONFIG: CacheConfig = {
-  syncEventKey: STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.STORAGE,
   colorCode: '\x1b[37m',
   cacheName: 'StorageConfigCache',
@@ -24,27 +18,9 @@ export class StorageConfigCacheService extends BaseCacheService<
 > {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(STORAGE_CONFIG, redisPubSubService, instanceService, eventEmitter);
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    await this.reload(false);
-    this.eventEmitter?.emit(CACHE_EVENTS.STORAGE_LOADED);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      await this.reload();
-    }
+    super(STORAGE_CONFIG, eventEmitter);
   }
 
   protected async loadFromDb(): Promise<any[]> {

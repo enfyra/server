@@ -1,11 +1,8 @@
 import { Controller, Post, Param, Body, Logger } from '@nestjs/common';
-import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
-import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
-import { GraphqlService } from '../graphql/services/graphql.service';
+import { CacheOrchestratorService } from '../../infrastructure/cache/services/cache-orchestrator.service';
 import { FlowService } from '../flow/services/flow.service';
 import { ExecutorEngineService } from '../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../infrastructure/cache/services/repo-registry.service';
-import { GuardCacheService } from '../../infrastructure/cache/services/guard-cache.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { transformCode } from '../../infrastructure/executor-engine/code-transformer';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
@@ -15,56 +12,27 @@ import { TDynamicContext } from '../../shared/types';
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
   constructor(
-    private readonly metadataCacheService: MetadataCacheService,
-    private readonly routeCacheService: RouteCacheService,
-    private readonly graphqlService: GraphqlService,
+    private readonly orchestrator: CacheOrchestratorService,
     private readonly flowService: FlowService,
     private readonly handlerExecutorService: ExecutorEngineService,
     private readonly repoRegistryService: RepoRegistryService,
-    private readonly guardCacheService: GuardCacheService,
   ) {}
   @Post('reload')
   async reloadAll() {
     const startTime = Date.now();
     try {
-      await this.metadataCacheService.reload();
-      await this.routeCacheService.reload();
-      await this.guardCacheService.reload();
-      await this.graphqlService.reloadSchema();
+      await this.orchestrator.reloadAll();
       const duration = Date.now() - startTime;
-      this.logger.log(
-        `Admin reload: metadata, routes, guards, graphql OK (${duration}ms)`,
-      );
+      this.logger.log(`Admin reload: all caches OK (${duration}ms)`);
       return {
         success: true,
         message: 'All caches and schemas reloaded successfully',
         duration: `${duration}ms`,
-        reloaded: ['metadata', 'routes', 'guards', 'graphql'],
       };
     } catch (error) {
       this.logger.error('Error during reload:', error);
       throw error;
     }
-  }
-  @Post('reload/metadata')
-  async reloadMetadata() {
-    await this.metadataCacheService.reload();
-    return { success: true, message: 'Metadata cache reloaded' };
-  }
-  @Post('reload/routes')
-  async reloadRoutes() {
-    await this.routeCacheService.reload();
-    return { success: true, message: 'Routes cache reloaded' };
-  }
-  @Post('reload/guards')
-  async reloadGuards() {
-    await this.guardCacheService.reload();
-    return { success: true, message: 'Guards cache reloaded' };
-  }
-  @Post('reload/graphql')
-  async reloadGraphQL() {
-    await this.graphqlService.reloadSchema();
-    return { success: true, message: 'GraphQL schema reloaded' };
   }
   @Post('flow/test-step')
   async testFlowStep(@Body() body: any) {

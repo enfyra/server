@@ -1,17 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
 import { transformCode } from '../../executor-engine/code-transformer';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
-import { FLOW_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 export type {
   FlowDefinition,
@@ -19,7 +15,6 @@ export type {
 } from '../../../shared/types/flow.types';
 
 const FLOW_CONFIG: CacheConfig = {
-  syncEventKey: FLOW_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.FLOW,
   colorCode: '\x1b[35m',
   cacheName: 'FlowCache',
@@ -29,27 +24,10 @@ const FLOW_CONFIG: CacheConfig = {
 export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(FLOW_CONFIG, redisPubSubService, instanceService, eventEmitter);
+    super(FLOW_CONFIG, eventEmitter);
     this.cache = [];
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    await this.reload(false);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      await this.reload();
-    }
   }
 
   protected async loadFromDb(): Promise<any> {

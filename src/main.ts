@@ -61,42 +61,16 @@ async function bootstrap() {
   );
   const eventEmitter = app.get(EventEmitter2);
 
-  const BOOT_EVENTS = [
-    CACHE_EVENTS.METADATA_LOADED,
-    CACHE_EVENTS.ROUTE_LOADED,
-    CACHE_EVENTS.PACKAGE_LOADED,
-    CACHE_EVENTS.STORAGE_LOADED,
-    CACHE_EVENTS.OAUTH_CONFIG_LOADED,
-    CACHE_EVENTS.WEBSOCKET_LOADED,
-    CACHE_EVENTS.FLOW_LOADED,
-    CACHE_EVENTS.SETTING_LOADED,
-    CACHE_EVENTS.GRAPHQL_LOADED,
-  ];
-
-  const received = new Set<string>();
-  const systemReadyPromise = new Promise<void>((resolve, reject) => {
+  const systemReadyPromise = new Promise<void>((resolve) => {
     const timeout = setTimeout(() => {
-      const missing = BOOT_EVENTS.filter((e) => !received.has(e));
-      logger.warn(
-        `Boot timeout after 60s. Missing events: ${missing.join(', ')}`,
-      );
+      logger.warn('Boot timeout after 60s. SYSTEM_READY not received.');
       resolve();
     }, 60000);
 
-    const check = () => {
-      if (received.size === BOOT_EVENTS.length) {
-        clearTimeout(timeout);
-        eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
-        resolve();
-      }
-    };
-
-    for (const event of BOOT_EVENTS) {
-      eventEmitter.on(event, () => {
-        received.add(event);
-        check();
-      });
-    }
+    eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
+      clearTimeout(timeout);
+      resolve();
+    });
   });
 
   const appInitStart = Date.now();

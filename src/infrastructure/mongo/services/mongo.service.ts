@@ -5,10 +5,30 @@ import {
   Logger,
   Inject,
   forwardRef,
+  Optional,
 } from '@nestjs/common';
-import { MongoClient, Db, Collection, Document, ObjectId, Long } from 'mongodb';
+import {
+  MongoClient,
+  Db,
+  Collection,
+  Document,
+  ObjectId,
+  Long,
+  ClientSession,
+} from 'mongodb';
+import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import {
+  MongoSagaCoordinator,
+  MongoSagaSession,
+} from './mongo-saga-coordinator.service';
+import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
+import {
+  normalizeRelationOnDelete,
+  TRelationOnDeleteAction,
+} from '../utils/mongo-relation-on-delete.util';
+import { ValidationException } from '../../../core/exceptions/custom-exceptions';
 
 @Injectable()
 export class MongoService implements OnModuleInit, OnModuleDestroy {
@@ -29,10 +49,19 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       data: any,
     ) => Promise<void>;
   }>();
+  private nativeMultiDocSupported = false;
+  private readonly nativeTxBundleAls = new AsyncLocalStorage<{
+    session: ClientSession;
+    logicalTxId: string;
+  }>();
+  private readonly appTxSessionAls = new AsyncLocalStorage<MongoSagaSession>();
 
   constructor(
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCache: MetadataCacheService,
+    @Optional()
+    @Inject(forwardRef(() => MongoSagaCoordinator))
+    private readonly sagaCoordinator?: MongoSagaCoordinator,
   ) {}
 
   async runWithPolicy<T>(
@@ -99,6 +128,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       const dbName = this.extractDbName(uri);
       this.db = this.client.db(dbName);
 
+      await this.refreshNativeTransactionCapability();
       await this.db.command({ ping: 1 });
       this.logger.log(`Connected to MongoDB: ${dbName}`);
     } catch (error) {
@@ -128,7 +158,125 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return this.client;
   }
 
+  supportsNativeMultiDocumentTransactions(): boolean {
+    return this.nativeMultiDocSupported;
+  }
+
+  getActiveAppTransactionSession(): MongoSagaSession | undefined {
+    return this.appTxSessionAls.getStore();
+  }
+
+  isInTransaction(): boolean {
+    return (
+      this.nativeTxBundleAls.getStore() !== undefined ||
+      this.appTxSessionAls.getStore() !== undefined
+    );
+  }
+
+  getCurrentTransactionId(): string | undefined {
+    const n = this.nativeTxBundleAls.getStore();
+    if (n) {
+      return n.logicalTxId;
+    }
+    return this.appTxSessionAls.getStore()?.txId;
+  }
+
+  async runInTransaction<T>(fn: () => Promise<T>): Promise<{
+    success: boolean;
+    data?: T;
+    error?: unknown;
+    txId: string;
+    rollbackResult?: unknown;
+    stats?: unknown;
+  }> {
+    if (this.nativeMultiDocSupported) {
+      const logicalTxId = `tx-${randomUUID()}`;
+      const session = this.client.startSession();
+      try {
+        let dataOut: T | undefined;
+        await session.withTransaction(async () => {
+          dataOut = await this.nativeTxBundleAls.run({ session, logicalTxId }, fn);
+        });
+        return { success: true, data: dataOut as T, txId: logicalTxId };
+      } catch (error) {
+        return { success: false, error, txId: logicalTxId };
+      } finally {
+        await session.endSession();
+      }
+    }
+    if (!this.sagaCoordinator) {
+      throw new Error(
+        'MongoSagaCoordinator is required when native multi-document transactions are not available',
+      );
+    }
+    const execResult = await this.sagaCoordinator.execute((tx) =>
+      this.appTxSessionAls.run(tx, fn),
+    );
+    return {
+      success: execResult.success,
+      data: execResult.data,
+      error: execResult.error,
+      txId: execResult.txId,
+      rollbackResult: execResult.rollbackResult,
+      stats: execResult.stats,
+    };
+  }
+
+  private async refreshNativeTransactionCapability(): Promise<void> {
+    if (!this.client || !this.db) {
+      return;
+    }
+    if (process.env.MONGO_FORCE_APP_TRANSACTION === '1') {
+      this.nativeMultiDocSupported = false;
+      this.logger.log(
+        'MongoDB: MONGO_FORCE_APP_TRANSACTION=1, using application-level transactions',
+      );
+      return;
+    }
+    try {
+      const hello = await this.db.admin().command({ hello: 1 });
+      if (mongoTopologySupportsNativeTransactions(hello)) {
+        this.nativeMultiDocSupported = true;
+        const h = hello as Record<string, unknown>;
+        if (typeof h.setName === 'string' && h.setName.length > 0) {
+          this.logger.log(
+            'MongoDB: replica set detected (hello.setName), native multi-document transactions enabled',
+          );
+        } else {
+          this.logger.log(
+            'MongoDB: mongos detected (hello.msg=isdbgrid), native multi-document transactions enabled',
+          );
+        }
+        return;
+      }
+    } catch {}
+    const probeSession = this.client.startSession();
+    try {
+      probeSession.startTransaction();
+      await probeSession.abortTransaction();
+      this.nativeMultiDocSupported = true;
+      this.logger.log('MongoDB: native transaction probe succeeded');
+    } catch {
+      this.nativeMultiDocSupported = false;
+      this.logger.log(
+        'MongoDB: native transactions unavailable, using application-level transactions',
+      );
+    } finally {
+      await probeSession.endSession();
+    }
+  }
+
   collection<T extends Document = Document>(name: string): Collection<T> {
+    const nativeCtx = this.nativeTxBundleAls.getStore();
+    if (nativeCtx) {
+      return new NativeSessionCollection(
+        this.getDb().collection<T>(name),
+        nativeCtx.session,
+      ) as unknown as Collection<T>;
+    }
+    if (this.appTxSessionAls.getStore()) {
+      return new TransactionalCollection(name, this) as unknown as Collection<T>;
+    }
     return this.getDb().collection<T>(name);
   }
 
@@ -693,64 +841,276 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const relation of metadata.relations) {
-      if (!relation.mappedBy) continue;
+      if (!relation.mappedBy) {
+        continue;
+      }
 
+      const onDelete = normalizeRelationOnDelete(relation);
       const fieldName = relation.propertyName;
       const fieldValue = recordData?.[fieldName];
       const targetCollection = relation.targetTableName || relation.targetTable;
 
-      if (
-        !fieldValue &&
-        !['one-to-many', 'many-to-many'].includes(relation.type)
-      ) {
+      if (relation.type === 'many-to-one') {
+        await this.unlinkManyToOneInverse(
+          relation,
+          recordId,
+          recordData,
+          targetCollection,
+        );
         continue;
       }
 
-      if (['many-to-one', 'one-to-one'].includes(relation.type)) {
-        const targetId =
+      if (relation.type === 'one-to-many') {
+        await this.applyOneToManyOnDelete(
+          relation,
+          recordId,
+          targetCollection,
+          fieldValue,
+          onDelete,
+        );
+        continue;
+      }
+
+      if (relation.type === 'many-to-many') {
+        await this.applyManyToManyOnDelete(
+          relation,
+          recordId,
+          targetCollection,
+          fieldValue,
+          onDelete,
+        );
+        continue;
+      }
+
+      if (relation.type === 'one-to-one') {
+        await this.applyOneToOneOnDelete(
+          relation,
+          recordId,
+          targetCollection,
+          fieldValue,
+          onDelete,
+        );
+      }
+    }
+  }
+
+  private async isSystemFilterIfApplicable(
+    targetCollection: string,
+  ): Promise<Record<string, unknown>> {
+    const meta = await this.metadataCache.lookupTableByName(targetCollection);
+    const has = !!meta?.columns?.some((c: { name?: string }) => c.name === 'isSystem');
+    return has ? { isSystem: { $ne: true } } : {};
+  }
+
+  private async unlinkManyToOneInverse(
+    relation: any,
+    recordId: ObjectId,
+    recordData: any,
+    targetCollection: string,
+  ): Promise<void> {
+    const fieldName = relation.propertyName;
+    const mappedBy = relation.mappedBy;
+    const raw = recordData?.[fieldName];
+    const coll = this.getDb().collection(targetCollection);
+
+    if (raw != null && raw !== undefined) {
+      let parentId: ObjectId;
+      try {
+        parentId =
+          raw instanceof ObjectId ? raw : new ObjectId(String(raw));
+      } catch {
+        return;
+      }
+      const parent = await coll.findOne({ _id: parentId });
+      if (!parent) {
+        return;
+      }
+      if (Array.isArray(parent[mappedBy])) {
+        await coll.updateOne(
+          { _id: parentId },
+          { $pull: { [mappedBy]: recordId } } as any,
+        );
+      } else if (
+        parent[mappedBy] != null &&
+        parent[mappedBy].toString() === recordId.toString()
+      ) {
+        await coll.updateOne(
+          { _id: parentId },
+          { $unset: { [mappedBy]: '' } } as any,
+        );
+      }
+      return;
+    }
+
+    const alt = await coll.findOne({ [mappedBy]: recordId } as any);
+    if (!alt) {
+      return;
+    }
+    if (Array.isArray(alt[mappedBy])) {
+      await coll.updateOne(
+        { _id: alt._id },
+        { $pull: { [mappedBy]: recordId } } as any,
+      );
+    } else if (
+      alt[mappedBy] != null &&
+      alt[mappedBy].toString() === recordId.toString()
+    ) {
+      await coll.updateOne(
+        { _id: alt._id },
+        { $unset: { [mappedBy]: '' } } as any,
+      );
+    }
+  }
+
+  private async applyOneToManyOnDelete(
+    relation: any,
+    recordId: ObjectId,
+    targetCollection: string,
+    fieldValue: any,
+    onDelete: TRelationOnDeleteAction,
+  ): Promise<void> {
+    const mappedBy = relation.mappedBy;
+    let targetIds: ObjectId[] = [];
+    if (Array.isArray(fieldValue) && fieldValue.length > 0) {
+      targetIds = fieldValue.map((v) =>
+        v instanceof ObjectId ? v : new ObjectId(v),
+      );
+    } else {
+      const targets = await this.getDb()
+        .collection(targetCollection)
+        .find({ [mappedBy]: recordId } as any)
+        .toArray();
+      targetIds = targets.map((t) => t._id);
+    }
+
+    if (targetIds.length === 0) {
+      return;
+    }
+
+    if (onDelete === 'RESTRICT') {
+      throw new ValidationException(
+        `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
+        { relation: relation.propertyName, targetCollection },
+      );
+    }
+
+    const coll = this.getDb().collection(targetCollection);
+    const sys = await this.isSystemFilterIfApplicable(targetCollection);
+
+    if (onDelete === 'CASCADE') {
+      await coll.deleteMany({
+        _id: { $in: targetIds },
+        ...sys,
+      } as any);
+      return;
+    }
+
+    await coll.updateMany(
+      { _id: { $in: targetIds }, ...sys } as any,
+      { $set: { [mappedBy]: null } } as any,
+    );
+  }
+
+  private async applyManyToManyOnDelete(
+    relation: any,
+    recordId: ObjectId,
+    targetCollection: string,
+    fieldValue: any,
+    onDelete: TRelationOnDeleteAction,
+  ): Promise<void> {
+    const mappedBy = relation.mappedBy;
+    let targetIds: ObjectId[] = [];
+    if (Array.isArray(fieldValue) && fieldValue.length > 0) {
+      targetIds = fieldValue.map((v) =>
+        v instanceof ObjectId ? v : new ObjectId(v),
+      );
+    } else {
+      const targets = await this.getDb()
+        .collection(targetCollection)
+        .find({ [mappedBy]: recordId } as any)
+        .toArray();
+      targetIds = targets.map((t) => t._id);
+    }
+
+    if (onDelete === 'RESTRICT' && targetIds.length > 0) {
+      throw new ValidationException(
+        `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
+        { relation: relation.propertyName, targetCollection },
+      );
+    }
+
+    const coll = this.getDb().collection(targetCollection);
+    for (const targetId of targetIds) {
+      await coll.updateOne(
+        { _id: targetId },
+        { $pull: { [mappedBy]: recordId } } as any,
+      );
+    }
+  }
+
+  private async applyOneToOneOnDelete(
+    relation: any,
+    recordId: ObjectId,
+    targetCollection: string,
+    fieldValue: any,
+    onDelete: TRelationOnDeleteAction,
+  ): Promise<void> {
+    const mappedBy = relation.mappedBy;
+    const coll = this.getDb().collection(targetCollection);
+
+    const inverseDocs = await coll
+      .find({ [mappedBy]: recordId } as any)
+      .toArray();
+
+    let ownedChildId: ObjectId | null = null;
+    if (fieldValue != null && fieldValue !== undefined) {
+      try {
+        ownedChildId =
           fieldValue instanceof ObjectId
             ? fieldValue
-            : new ObjectId(fieldValue);
-
-        if (relation.type === 'one-to-one') {
-          await this.getDb()
-            .collection(targetCollection)
-            .updateOne({ _id: targetId }, {
-              $unset: { [relation.mappedBy]: '' },
-            } as any);
-        }
-      } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
-        let targetIds = [];
-
-        if (Array.isArray(fieldValue) && fieldValue.length > 0) {
-          targetIds = fieldValue.map((v) =>
-            v instanceof ObjectId ? v : new ObjectId(v),
-          );
-        } else {
-          const targets = await this.getDb()
-            .collection(targetCollection)
-            .find({ [relation.mappedBy]: recordId })
-            .toArray();
-          targetIds = targets.map((t) => t._id);
-        }
-
-        for (const targetId of targetIds) {
-          if (relation.type === 'one-to-many') {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne(
-                { _id: targetId },
-                { $set: { [relation.mappedBy]: null } },
-              );
-          } else {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne({ _id: targetId }, {
-                $pull: { [relation.mappedBy]: recordId },
-              } as any);
-          }
-        }
+            : new ObjectId(String(fieldValue));
+      } catch {
+        ownedChildId = null;
       }
+    }
+
+    const hasInverse = inverseDocs.length > 0;
+    const hasOwned = !!ownedChildId;
+
+    if (onDelete === 'RESTRICT' && (hasInverse || hasOwned)) {
+      throw new ValidationException(
+        `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
+        { relation: relation.propertyName, targetCollection },
+      );
+    }
+
+    const sys = await this.isSystemFilterIfApplicable(targetCollection);
+
+    if (onDelete === 'CASCADE') {
+      const byId = new Map<string, ObjectId>();
+      for (const d of inverseDocs) {
+        byId.set(d._id.toString(), d._id);
+      }
+      if (ownedChildId) {
+        byId.set(ownedChildId.toString(), ownedChildId);
+      }
+      for (const id of byId.values()) {
+        await coll.deleteOne({ _id: id, ...sys } as any);
+      }
+      return;
+    }
+
+    for (const d of inverseDocs) {
+      await coll.updateOne(
+        { _id: d._id },
+        { $unset: { [mappedBy]: '' } } as any,
+      );
+    }
+    if (ownedChildId) {
+      await coll.updateOne(
+        { _id: ownedChildId },
+        { $unset: { [mappedBy]: '' } } as any,
+      );
     }
   }
 
@@ -822,5 +1182,208 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   private extractDbName(uri: string): string {
     const match = uri.match(/\/([^/?]+)(\?|$)/);
     return match ? match[1] : 'enfyra';
+  }
+}
+
+export class NativeSessionCollection<T extends Document = Document> {
+  constructor(
+    private readonly base: Collection<T>,
+    private readonly session: ClientSession,
+  ) {}
+
+  find(filter: any): any {
+    const cursor = this.base.find(filter as any, { session: this.session });
+    let skipVal = 0;
+    let limitVal: number | undefined;
+    const self = {
+      skip: (n: number) => {
+        skipVal = n;
+        return self;
+      },
+      limit: (n: number) => {
+        limitVal = n;
+        return self;
+      },
+      toArray: () => {
+        let c = cursor;
+        if (skipVal) {
+          c = c.skip(skipVal);
+        }
+        if (limitVal !== undefined) {
+          c = c.limit(limitVal);
+        }
+        return c.toArray();
+      },
+      then: (onFulfilled: any, onRejected: any) => self.toArray().then(onFulfilled, onRejected),
+    };
+    return self;
+  }
+
+  findOne(filter: any, options?: any) {
+    return this.base.findOne(filter, { ...options, session: this.session });
+  }
+
+  countDocuments(filter?: any, options?: any) {
+    return this.base.countDocuments(filter || {}, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  insertOne(doc: any, options?: any) {
+    return this.base.insertOne(doc, { ...options, session: this.session });
+  }
+
+  insertMany(docs: any[], options?: any) {
+    return this.base.insertMany(docs, { ...options, session: this.session });
+  }
+
+  updateOne(filter: any, update: any, options?: any) {
+    return this.base.updateOne(filter, update, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  updateMany(filter: any, update: any, options?: any) {
+    return this.base.updateMany(filter, update, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  deleteOne(filter?: any, options?: any) {
+    return this.base.deleteOne(filter, { ...options, session: this.session });
+  }
+
+  deleteMany(filter?: any, options?: any) {
+    return this.base.deleteMany(filter || {}, {
+      ...options,
+      session: this.session,
+    });
+  }
+
+  aggregate(pipeline: any[], options?: any) {
+    return this.base.aggregate(pipeline, { ...options, session: this.session });
+  }
+
+  bulkWrite(operations: any[], options?: any) {
+    return this.base.bulkWrite(operations, { ...options, session: this.session });
+  }
+}
+
+export class TransactionalCollection<T extends Document = Document> {
+  constructor(
+    private readonly name: string,
+    private readonly mongo: MongoService,
+  ) {}
+
+  private session(): MongoSagaSession {
+    const tx = this.mongo.getActiveAppTransactionSession();
+    if (!tx) {
+      throw new Error('No active application transaction');
+    }
+    return tx;
+  }
+
+  find(filter?: any): any {
+    const collName = this.name;
+    const getTx = () => this.session();
+    let skipVal = 0;
+    let limitVal: number | undefined;
+    const self = {
+      skip: (n: number) => {
+        skipVal = n;
+        return self;
+      },
+      limit: (n: number) => {
+        limitVal = n;
+        return self;
+      },
+      toArray: () =>
+        getTx().find(collName, filter, {
+          skip: skipVal || undefined,
+          limit: limitVal,
+        }),
+      then: (onFulfilled: any, onRejected: any) => self.toArray().then(onFulfilled, onRejected),
+    };
+    return self;
+  }
+
+  findOne(filter: any, options?: any) {
+    return this.session().findOne(this.name, filter, options);
+  }
+
+  countDocuments(filter?: any) {
+    return this.mongo.getDb().collection(this.name).countDocuments(filter || {});
+  }
+
+  async insertOne(doc: any, options?: any) {
+    const r = await this.session().insertOne(this.name, doc, options);
+    return { acknowledged: true, insertedId: r._id };
+  }
+
+  insertMany(docs: any[], options?: any) {
+    return this.session().insertMany(this.name, docs, options);
+  }
+
+  async updateOne(filter: any, update: any, options?: any) {
+    const tx = this.session();
+    if (filter && filter._id != null) {
+      const opKeys =
+        update && typeof update === 'object' && !Array.isArray(update)
+          ? Object.keys(update)
+          : [];
+      const onlyPlainOrSet =
+        opKeys.length === 0 ||
+        (opKeys.length === 1 && opKeys[0] === '$set') ||
+        opKeys.every((k) => !k.startsWith('$'));
+      if (onlyPlainOrSet) {
+        const payload = update.$set ?? update;
+        return tx.updateOne(this.name, filter._id, payload, options);
+      }
+    }
+    return tx.updateOneByFilter(this.name, filter, update, options);
+  }
+
+  updateMany(filter: any, update: any, options?: any) {
+    return this.session().updateManyByFilter(this.name, filter, update, options);
+  }
+
+  async deleteOne(filter?: any, options?: any) {
+    const tx = this.session();
+    if (filter && filter._id != null) {
+      const ok = await tx.deleteOne(this.name, filter._id, options);
+      return { deletedCount: ok ? 1 : 0, acknowledged: true };
+    }
+    const coll = this.mongo.getDb().collection(this.name);
+    const doc = await coll.findOne(filter || {});
+    if (!doc) {
+      return { deletedCount: 0, acknowledged: true };
+    }
+    const ok = await tx.deleteOne(this.name, doc._id, options);
+    return { deletedCount: ok ? 1 : 0, acknowledged: true };
+  }
+
+  async deleteMany(filter?: any, options?: any) {
+    const coll = this.mongo.getDb().collection(this.name);
+    const docs = await coll.find(filter || {}).toArray();
+    if (docs.length === 0) {
+      return { deletedCount: 0, acknowledged: true };
+    }
+    const r = await this.session().deleteMany(
+      this.name,
+      docs.map((d) => d._id),
+      options,
+    );
+    return { deletedCount: r.deletedCount ?? 0, acknowledged: true };
+  }
+
+  aggregate(pipeline: any[], options?: any) {
+    return this.mongo.getDb().collection(this.name).aggregate(pipeline, options);
+  }
+
+  bulkWrite(operations: any[], options?: any) {
+    return this.mongo.getDb().collection(this.name).bulkWrite(operations, options);
   }
 }

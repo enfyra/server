@@ -8,9 +8,7 @@ describe('AdminController /admin/test/run', () => {
       repoRegistryService: any;
     }>,
   ) {
-    const metadataCacheService = { reload: jest.fn() } as any;
-    const routeCacheService = { reload: jest.fn() } as any;
-    const graphqlService = { reloadSchema: jest.fn() } as any;
+    const orchestrator = { reloadAll: jest.fn() } as any;
     const flowService = overrides?.flowService ?? { testStep: jest.fn() };
     const handlerExecutorService = overrides?.handlerExecutorService ?? {
       run: jest.fn(),
@@ -18,17 +16,13 @@ describe('AdminController /admin/test/run', () => {
     const repoRegistryService = overrides?.repoRegistryService ?? {
       createReposProxy: jest.fn(() => ({})),
     };
-    const guardCacheService = { reload: jest.fn() } as any;
 
     return {
       controller: new AdminController(
-        metadataCacheService,
-        routeCacheService,
-        graphqlService,
+        orchestrator,
         flowService,
         handlerExecutorService,
         repoRegistryService,
-        guardCacheService,
       ),
       flowService,
       handlerExecutorService,

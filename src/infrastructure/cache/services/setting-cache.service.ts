@@ -1,18 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { SETTING_CACHE_SYNC_EVENT_KEY, DEFAULT_MAX_QUERY_DEPTH, DEFAULT_MAX_UPLOAD_FILE_SIZE_MB, DEFAULT_MAX_REQUEST_BODY_SIZE_MB } from '../../../shared/utils/constant';
+import { DEFAULT_MAX_QUERY_DEPTH, DEFAULT_MAX_UPLOAD_FILE_SIZE_MB, DEFAULT_MAX_REQUEST_BODY_SIZE_MB } from '../../../shared/utils/constant';
 import {
-  CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
 
 const SETTING_CACHE_CONFIG: CacheConfig = {
-  syncEventKey: SETTING_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.SETTING,
   colorCode: '\x1b[36m',
   cacheName: 'SettingCache',
@@ -29,29 +24,9 @@ interface SettingData {
 export class SettingCacheService extends BaseCacheService<SettingData> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(SETTING_CACHE_CONFIG, redisPubSubService, instanceService, eventEmitter);
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    try {
-      await this.reload(false);
-    } catch {
-      this.cache = this.transformData({});
-      this.cacheLoaded = true;
-    }
-    this.eventEmitter?.emit(CACHE_EVENTS.SETTING_LOADED);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      await this.reload();
-    }
+    super(SETTING_CACHE_CONFIG, eventEmitter);
   }
 
   protected async loadFromDb(): Promise<any> {

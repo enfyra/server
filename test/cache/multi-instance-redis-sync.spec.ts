@@ -1,10 +1,6 @@
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import Redis from 'ioredis';
-import { BaseCacheService } from '../../src/infrastructure/cache/services/base-cache.service';
 import { RedisPubSubService } from '../../src/infrastructure/cache/services/redis-pubsub.service';
-import { InstanceService } from '../../src/shared/services/instance.service';
-import { CACHE_IDENTIFIERS } from '../../src/shared/utils/cache-events.constants';
 import {
   PACKAGE_CACHE_SYNC_EVENT_KEY,
   ROUTE_CACHE_SYNC_EVENT_KEY,
@@ -12,7 +8,6 @@ import {
   FLOW_CACHE_SYNC_EVENT_KEY,
   WEBSOCKET_CACHE_SYNC_EVENT_KEY,
   STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
-  AI_CONFIG_CACHE_SYNC_EVENT_KEY,
   OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY,
   FOLDER_TREE_CACHE_SYNC_EVENT_KEY,
 } from '../../src/shared/utils/constant';
@@ -34,43 +29,6 @@ function createPubSubMatcher(nodeName: string | undefined): RedisPubSubService {
   return new RedisPubSubService(mockConfig(nodeName));
 }
 
-class TestPackageCache extends BaseCacheService<string[]> {
-  reloadCallCount = 0;
-
-  constructor(
-    redisPubSub: RedisPubSubService | Record<string, unknown>,
-    instance: InstanceService,
-    emitter?: EventEmitter2,
-  ) {
-    super(
-      {
-        syncEventKey: PACKAGE_CACHE_SYNC_EVENT_KEY,
-        cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
-        colorCode: '',
-        cacheName: 'TestPackageCache',
-      },
-      redisPubSub as RedisPubSubService,
-      instance,
-      emitter,
-    );
-  }
-
-  protected async loadFromDb(): Promise<string[]> {
-    return ['stub-pkg'];
-  }
-
-  protected transformData(raw: string[]): string[] {
-    return raw;
-  }
-
-  protected handleSyncData(): void {}
-
-  async reload(): Promise<void> {
-    this.reloadCallCount++;
-    return super.reload();
-  }
-}
-
 function websocketChannelMatches(channel: string, baseKey: string): boolean {
   return channel === baseKey || channel.startsWith(`${baseKey}:`);
 }
@@ -81,7 +39,6 @@ const ALL_SYNC_BASE_KEYS = [
   METADATA_CACHE_SYNC_EVENT_KEY,
   FLOW_CACHE_SYNC_EVENT_KEY,
   STORAGE_CONFIG_CACHE_SYNC_EVENT_KEY,
-  AI_CONFIG_CACHE_SYNC_EVENT_KEY,
   OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY,
   WEBSOCKET_CACHE_SYNC_EVENT_KEY,
   FOLDER_TREE_CACHE_SYNC_EVENT_KEY,
@@ -197,127 +154,6 @@ describe('WebSocket gateway channel pattern vs isChannelForBase', () => {
     const matcher = createPubSubMatcher('node');
     expect(websocketChannelMatches(weird, base)).toBe(true);
     expect(matcher.isChannelForBase(weird, base)).toBe(false);
-  });
-});
-
-describe('BaseCacheService RELOAD_SIGNAL across instances (subscriber handler)', () => {
-  let registeredHandler: (ch: string, msg: string) => Promise<void>;
-
-  function buildAdapter(
-    nodeName: string | undefined,
-    instance: InstanceService,
-  ) {
-    const matcher = createPubSubMatcher(nodeName);
-    const redisPubSub = {
-      subscribeWithHandler: jest.fn(
-        (_: string, handler: (c: string, m: string) => Promise<void>) => {
-          registeredHandler = handler;
-          return true;
-        },
-      ),
-      publish: jest.fn().mockResolvedValue(undefined),
-      isChannelForBase: matcher.isChannelForBase.bind(matcher),
-    };
-    const cache = new TestPackageCache(
-      redisPubSub,
-      instance,
-      new EventEmitter2(),
-    );
-    return { cache, redisPubSub };
-  }
-
-  it('peer reload: decorated channel triggers reload on other instance', async () => {
-    const peerA = new InstanceService();
-    const peerB = new InstanceService();
-    const node = 'shared-01';
-    const { cache } = buildAdapter(node, peerB);
-    expect(registeredHandler).toBeDefined();
-
-    const msg = JSON.stringify({
-      instanceId: peerA.getInstanceId(),
-      type: 'RELOAD_SIGNAL',
-      timestamp: Date.now(),
-    });
-    await registeredHandler(`${PACKAGE_CACHE_SYNC_EVENT_KEY}:${node}`, msg);
-    expect(cache.reloadCallCount).toBe(1);
-  });
-
-  it('same instance id echo: no reload', async () => {
-    const self = new InstanceService();
-    const node = 'shared-02';
-    const { cache } = buildAdapter(node, self);
-    const msg = JSON.stringify({
-      instanceId: self.getInstanceId(),
-      type: 'RELOAD_SIGNAL',
-    });
-    await registeredHandler(`${PACKAGE_CACHE_SYNC_EVENT_KEY}:${node}`, msg);
-    expect(cache.reloadCallCount).toBe(0);
-  });
-
-  it('NODE_NAME unset: plain base channel triggers peer reload', async () => {
-    const peerA = new InstanceService();
-    const peerB = new InstanceService();
-    const { cache } = buildAdapter(undefined, peerB);
-    const msg = JSON.stringify({
-      instanceId: peerA.getInstanceId(),
-      type: 'RELOAD_SIGNAL',
-    });
-    await registeredHandler(PACKAGE_CACHE_SYNC_EVENT_KEY, msg);
-    expect(cache.reloadCallCount).toBe(1);
-  });
-
-  it('NODE_NAME set but handler sees wrong channel: no reload', async () => {
-    const peerA = new InstanceService();
-    const peerB = new InstanceService();
-    const { cache } = buildAdapter('correct-node', peerB);
-    const msg = JSON.stringify({
-      instanceId: peerA.getInstanceId(),
-      type: 'RELOAD_SIGNAL',
-    });
-    await registeredHandler(`${PACKAGE_CACHE_SYNC_EVENT_KEY}:wrong-node`, msg);
-    expect(cache.reloadCallCount).toBe(0);
-  });
-
-  it('malformed JSON: reload not counted (handler catches)', async () => {
-    const peerB = new InstanceService();
-    const node = 'shared-03';
-    const { cache } = buildAdapter(node, peerB);
-    const before = cache.reloadCallCount;
-    await registeredHandler(
-      `${PACKAGE_CACHE_SYNC_EVENT_KEY}:${node}`,
-      'not-json',
-    );
-    expect(cache.reloadCallCount).toBe(before);
-  });
-
-  it('peer JSON sync triggers reload (type field not filtered)', async () => {
-    const peerA = new InstanceService();
-    const peerB = new InstanceService();
-    const node = 'shared-04';
-    const { cache } = buildAdapter(node, peerB);
-    const msg = JSON.stringify({
-      instanceId: peerA.getInstanceId(),
-      type: 'OTHER',
-    });
-    await registeredHandler(`${PACKAGE_CACHE_SYNC_EVENT_KEY}:${node}`, msg);
-    expect(cache.reloadCallCount).toBe(1);
-  });
-
-  it('concurrent peer signals: each handler entry runs reload(); coalesced work inside BaseCacheService', async () => {
-    const peerA = new InstanceService();
-    const peerB = new InstanceService();
-    const node = 'shared-05';
-    const { cache } = buildAdapter(node, peerB);
-    const msg = JSON.stringify({
-      instanceId: peerA.getInstanceId(),
-      type: 'RELOAD_SIGNAL',
-    });
-    const ch = `${PACKAGE_CACHE_SYNC_EVENT_KEY}:${node}`;
-    const n = 40;
-    await Promise.all(
-      Array.from({ length: n }, () => registeredHandler(ch, msg)),
-    );
-    expect(cache.reloadCallCount).toBe(n);
   });
 });
 

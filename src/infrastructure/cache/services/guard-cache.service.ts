@@ -1,18 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
-import { GUARD_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 const GUARD_CONFIG: CacheConfig = {
-  syncEventKey: GUARD_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.GUARD,
   colorCode: '\x1b[35m',
   cacheName: 'GuardCache',
@@ -65,32 +60,15 @@ export interface GuardCache {
 export class GuardCacheService extends BaseCacheService<GuardCache> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(GUARD_CONFIG, redisPubSubService, instanceService, eventEmitter);
+    super(GUARD_CONFIG, eventEmitter);
     this.cache = {
       preAuthGlobal: [],
       postAuthGlobal: [],
       preAuthByRoute: new Map(),
       postAuthByRoute: new Map(),
     };
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    await this.reload(false);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      await this.reload();
-    }
   }
 
   protected async loadFromDb(): Promise<any> {

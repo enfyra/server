@@ -204,6 +204,18 @@ export class DatabaseSchemaService {
     return result;
   }
 
+  async getTableSchemas(tableNames: string[]): Promise<Map<string, any>> {
+    if (tableNames.length === 0) return new Map();
+    const results = await Promise.all(
+      tableNames.map((name) => this.getActualTableSchema(name)),
+    );
+    const map = new Map<string, any>();
+    for (let i = 0; i < tableNames.length; i++) {
+      if (results[i]) map.set(tableNames[i], results[i]);
+    }
+    return map;
+  }
+
   async getActualTableSchema(tableName: string): Promise<any> {
     const knex = this.knexService.getKnex();
     const dbType = process.env.DB_TYPE || 'mysql';

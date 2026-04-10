@@ -16,6 +16,7 @@ import { GuardCacheService } from './services/guard-cache.service';
 import { GuardEvaluatorService } from './services/guard-evaluator.service';
 import { SettingCacheService } from './services/setting-cache.service';
 import { FieldPermissionCacheService } from './services/field-permission-cache.service';
+import { CacheOrchestratorService } from './services/cache-orchestrator.service';
 
 @Global()
 @Module({
@@ -37,6 +38,7 @@ import { FieldPermissionCacheService } from './services/field-permission-cache.s
     SettingCacheService,
     FieldPermissionCacheService,
     RepoRegistryService,
+    CacheOrchestratorService,
   ],
   exports: [
     CacheService,
@@ -56,6 +58,7 @@ import { FieldPermissionCacheService } from './services/field-permission-cache.s
     SettingCacheService,
     FieldPermissionCacheService,
     RepoRegistryService,
+    CacheOrchestratorService,
   ],
 })
 export class CacheModule {}
