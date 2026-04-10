@@ -266,8 +266,8 @@ export class PolicyService {
 
     const relKey = (r: any) =>
       `${r.propertyName}|${r.type}|${r.targetTableName}|${r.mappedBy}|${r.foreignKeyColumn}|${r.junctionTableName}`;
-    const bRelKeys = new Set(bRels.map(relKey));
-    const aRelKeys = new Set(aRels.map(relKey));
+    const bRelKeys = new Set<string>(bRels.map(relKey));
+    const aRelKeys = new Set<string>(aRels.map(relKey));
     const removedRelations = Array.from(bRelKeys).filter(
       (k) => !aRelKeys.has(k),
     );
