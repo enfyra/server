@@ -7,7 +7,7 @@ import {
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { Db, ObjectId } from 'mongodb';
+import { Db, ObjectId, AggregationCursor } from 'mongodb';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MongoService } from './mongo.service';
 import { MongoTransactionLockService, ILockAcquisitionResult } from './mongo-transaction-lock.service';
@@ -276,7 +276,11 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
         if (coll.name.startsWith('system_')) continue;
         try {
           recovered += await this.recoverStaleMarkersInCollection(db, coll.name);
-        } catch {}
+        } catch (err) {
+          this.logger.warn(
+            `Saga orphan marker recovery skipped for collection "${coll.name}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       const result = { cleaned: orphanedLocks + oldLogs, recovered };
@@ -545,6 +549,43 @@ export class MongoSagaSession {
     }
   }
 
+  assertWithinMaxDuration(): void {
+    this.checkDuration();
+  }
+
+  private buildSagaDocumentVisibilityFilter(): Record<string, unknown> {
+    return {
+      $or: [
+        { __txId: { $exists: false } },
+        { __txId: null },
+        { __txId: this.txId },
+      ],
+    };
+  }
+
+  aggregate(
+    collectionName: string,
+    pipeline: any[],
+    options?: Record<string, unknown>,
+  ): AggregationCursor {
+    this.checkDuration();
+    const collection = this.mongoService.getDb().collection(collectionName);
+    const vis = this.buildSagaDocumentVisibilityFilter();
+    const fullPipeline = [{ $match: vis }, ...pipeline];
+    return collection.aggregate(fullPipeline, options);
+  }
+
+  async countDocuments(collectionName: string, filter?: any): Promise<number> {
+    this.checkDuration();
+    const collection = this.mongoService.getDb().collection(collectionName);
+    const vis = this.buildSagaDocumentVisibilityFilter();
+    const merged =
+      filter && typeof filter === 'object' && Object.keys(filter).length > 0
+        ? { $and: [filter, vis] }
+        : vis;
+    return collection.countDocuments(merged);
+  }
+
   private trackModifiedDocument(collection: string, id: string): void {
     this.context.modifiedDocuments.push({ collection, id });
   }
@@ -761,9 +802,14 @@ export class MongoSagaSession {
     this.checkDuration();
 
     const collection = this.mongoService.getDb().collection(collectionName);
-    const docs = await collection.find(filter || {}).toArray();
+    const cursor = collection.find(filter || {});
     let modified = 0;
-    for (const d of docs) {
+    let matched = 0;
+    for await (const d of cursor) {
+      matched++;
+      if (matched % 200 === 0) {
+        this.checkDuration();
+      }
       const r = await this.updateOneByFilter(
         collectionName,
         { _id: d._id },
@@ -774,7 +820,7 @@ export class MongoSagaSession {
     }
     return {
       acknowledged: true,
-      matchedCount: docs.length,
+      matchedCount: matched,
       modifiedCount: modified,
     };
   }

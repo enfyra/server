@@ -2,6 +2,7 @@ import { fork } from 'child_process';
 import * as path from 'path';
 
 const CHILD_SCRIPT = path.join(__dirname, '../helpers/benchmark-child.js');
+const RUN_BENCH = process.env.RUN_BENCHMARK_TESTS === '1';
 
 interface ChildResult {
   totalOps: number;
@@ -70,10 +71,17 @@ function report(label: string, results: ChildResult[]) {
   };
 }
 
-describe('Multi-process benchmark', () => {
-  jest.setTimeout(120000);
+describe(
+  RUN_BENCH ? 'Multi-process benchmark' : 'Multi-process benchmark (skipped)',
+  () => {
+    if (!RUN_BENCH) {
+      it('skipped (set RUN_BENCHMARK_TESTS=1)', () => undefined);
+      return;
+    }
 
-  it('1 process vs 2 processes — concurrency 10 per process, 5s', async () => {
+    jest.setTimeout(120000);
+
+    it('1 process vs 2 processes — concurrency 10 per process, 5s', async () => {
     console.log('\n=== Concurrency 10 per process, 5s duration ===\n');
 
     const r1 = await spawnChild(10, 5000);
@@ -130,4 +138,5 @@ describe('Multi-process benchmark', () => {
       `\n    Scale: 1→2 = ${fmt(s2.opsPerSec / s1.opsPerSec)}x | 1→4 = ${fmt(s4.opsPerSec / s1.opsPerSec)}x`,
     );
   });
-});
+  },
+);

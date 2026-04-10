@@ -28,7 +28,10 @@ import {
   normalizeRelationOnDelete,
   TRelationOnDeleteAction,
 } from '../utils/mongo-relation-on-delete.util';
-import { ValidationException } from '../../../core/exceptions/custom-exceptions';
+import {
+  DatabaseException,
+  ValidationException,
+} from '../../../core/exceptions/custom-exceptions';
 
 @Injectable()
 export class MongoService implements OnModuleInit, OnModuleDestroy {
@@ -181,7 +184,10 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return this.appTxSessionAls.getStore()?.txId;
   }
 
-  async runInTransaction<T>(fn: () => Promise<T>): Promise<{
+  async runInTransaction<T>(
+    fn: () => Promise<T>,
+    options?: { throwOnFailure?: boolean },
+  ): Promise<{
     success: boolean;
     data?: T;
     error?: unknown;
@@ -189,6 +195,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     rollbackResult?: unknown;
     stats?: unknown;
   }> {
+    const throwOnFailure = options?.throwOnFailure !== false;
     if (this.nativeMultiDocSupported) {
       const logicalTxId = `tx-${randomUUID()}`;
       const session = this.client.startSession();
@@ -199,6 +206,9 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         });
         return { success: true, data: dataOut as T, txId: logicalTxId };
       } catch (error) {
+        if (throwOnFailure) {
+          throw error;
+        }
         return { success: false, error, txId: logicalTxId };
       } finally {
         await session.endSession();
@@ -212,6 +222,16 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const execResult = await this.sagaCoordinator.execute((tx) =>
       this.appTxSessionAls.run(tx, fn),
     );
+    if (throwOnFailure && !execResult.success) {
+      const err = execResult.error;
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new DatabaseException(
+        typeof err === 'string' ? err : 'Application transaction failed',
+        { txId: execResult.txId },
+      );
+    }
     return {
       success: execResult.success,
       data: execResult.data,
@@ -531,35 +551,33 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
         if (oldId && (!newId || oldId.toString() !== newId.toString())) {
           if (relation.type === 'many-to-one') {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne({ _id: oldId }, {
+            await this.collection(targetCollection).updateOne(
+              { _id: oldId },
+              {
                 $pull: { [relation.mappedBy]: recordId },
-              } as any);
+              } as any,
+            );
           } else {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne({ _id: oldId }, {
+            await this.collection(targetCollection).updateOne(
+              { _id: oldId },
+              {
                 $unset: { [relation.mappedBy]: '' },
-              } as any);
+              } as any,
+            );
           }
         }
 
         if (newId && (!oldId || oldId.toString() !== newId.toString())) {
           if (relation.type === 'many-to-one') {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne(
-                { _id: newId },
-                { $addToSet: { [relation.mappedBy]: recordId } },
-              );
+            await this.collection(targetCollection).updateOne(
+              { _id: newId },
+              { $addToSet: { [relation.mappedBy]: recordId } },
+            );
           } else {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne(
-                { _id: newId },
-                { $set: { [relation.mappedBy]: recordId } },
-              );
+            await this.collection(targetCollection).updateOne(
+              { _id: newId },
+              { $set: { [relation.mappedBy]: recordId } },
+            );
           }
         }
       } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
@@ -589,35 +607,33 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
         for (const targetId of removed) {
           if (relation.type === 'one-to-many') {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne({ _id: targetId }, {
+            await this.collection(targetCollection).updateOne(
+              { _id: targetId },
+              {
                 $unset: { [relation.mappedBy]: '' },
-              } as any);
+              } as any,
+            );
           } else {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne({ _id: targetId }, {
+            await this.collection(targetCollection).updateOne(
+              { _id: targetId },
+              {
                 $pull: { [relation.mappedBy]: recordId },
-              } as any);
+              } as any,
+            );
           }
         }
 
         for (const targetId of added) {
           if (relation.type === 'one-to-many') {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne(
-                { _id: targetId },
-                { $set: { [relation.mappedBy]: recordId } },
-              );
+            await this.collection(targetCollection).updateOne(
+              { _id: targetId },
+              { $set: { [relation.mappedBy]: recordId } },
+            );
           } else {
-            await this.getDb()
-              .collection(targetCollection)
-              .updateOne(
-                { _id: targetId },
-                { $addToSet: { [relation.mappedBy]: recordId } },
-              );
+            await this.collection(targetCollection).updateOne(
+              { _id: targetId },
+              { $addToSet: { [relation.mappedBy]: recordId } },
+            );
           }
         }
       }
@@ -911,7 +927,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const fieldName = relation.propertyName;
     const mappedBy = relation.mappedBy;
     const raw = recordData?.[fieldName];
-    const coll = this.getDb().collection(targetCollection);
+    const coll = this.collection(targetCollection);
 
     if (raw != null && raw !== undefined) {
       let parentId: ObjectId;
@@ -976,8 +992,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         v instanceof ObjectId ? v : new ObjectId(v),
       );
     } else {
-      const targets = await this.getDb()
-        .collection(targetCollection)
+      const targets = await this.collection(targetCollection)
         .find({ [mappedBy]: recordId } as any)
         .toArray();
       targetIds = targets.map((t) => t._id);
@@ -994,7 +1009,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const coll = this.getDb().collection(targetCollection);
+    const coll = this.collection(targetCollection);
     const sys = await this.isSystemFilterIfApplicable(targetCollection);
 
     if (onDelete === 'CASCADE') {
@@ -1025,8 +1040,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         v instanceof ObjectId ? v : new ObjectId(v),
       );
     } else {
-      const targets = await this.getDb()
-        .collection(targetCollection)
+      const targets = await this.collection(targetCollection)
         .find({ [mappedBy]: recordId } as any)
         .toArray();
       targetIds = targets.map((t) => t._id);
@@ -1039,7 +1053,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const coll = this.getDb().collection(targetCollection);
+    const coll = this.collection(targetCollection);
     for (const targetId of targetIds) {
       await coll.updateOne(
         { _id: targetId },
@@ -1056,7 +1070,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     onDelete: TRelationOnDeleteAction,
   ): Promise<void> {
     const mappedBy = relation.mappedBy;
-    const coll = this.getDb().collection(targetCollection);
+    const coll = this.collection(targetCollection);
 
     const inverseDocs = await coll
       .find({ [mappedBy]: recordId } as any)
@@ -1144,15 +1158,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       const newId =
         newValue instanceof ObjectId ? newValue : new ObjectId(newValue);
 
-      await this.getDb()
-        .collection(collectionName)
-        .updateMany(
-          {
-            [fieldName]: newId,
-            _id: { $ne: recordId },
-          },
-          { $set: { [fieldName]: null } },
-        );
+      await this.collection(collectionName).updateMany(
+        {
+          [fieldName]: newId,
+          _id: { $ne: recordId },
+        },
+        { $set: { [fieldName]: null } },
+      );
     }
   }
 
@@ -1315,7 +1327,7 @@ export class TransactionalCollection<T extends Document = Document> {
   }
 
   countDocuments(filter?: any) {
-    return this.mongo.getDb().collection(this.name).countDocuments(filter || {});
+    return this.session().countDocuments(this.name, filter || {});
   }
 
   async insertOne(doc: any, options?: any) {
@@ -1356,8 +1368,7 @@ export class TransactionalCollection<T extends Document = Document> {
       const ok = await tx.deleteOne(this.name, filter._id, options);
       return { deletedCount: ok ? 1 : 0, acknowledged: true };
     }
-    const coll = this.mongo.getDb().collection(this.name);
-    const doc = await coll.findOne(filter || {});
+    const doc = await tx.findOne(this.name, filter || {});
     if (!doc) {
       return { deletedCount: 0, acknowledged: true };
     }
@@ -1366,24 +1377,34 @@ export class TransactionalCollection<T extends Document = Document> {
   }
 
   async deleteMany(filter?: any, options?: any) {
+    const tx = this.session();
     const coll = this.mongo.getDb().collection(this.name);
-    const docs = await coll.find(filter || {}).toArray();
-    if (docs.length === 0) {
-      return { deletedCount: 0, acknowledged: true };
+    const cursor = coll.find(filter || {});
+    const batch: ObjectId[] = [];
+    const BATCH = 500;
+    let total = 0;
+    const flush = async () => {
+      if (batch.length === 0) return;
+      const r = await tx.deleteMany(this.name, batch, options);
+      total += r.deletedCount ?? 0;
+      batch.length = 0;
+    };
+    for await (const doc of cursor) {
+      batch.push(doc._id);
+      if (batch.length >= BATCH) {
+        await flush();
+      }
     }
-    const r = await this.session().deleteMany(
-      this.name,
-      docs.map((d) => d._id),
-      options,
-    );
-    return { deletedCount: r.deletedCount ?? 0, acknowledged: true };
+    await flush();
+    return { deletedCount: total, acknowledged: true };
   }
 
   aggregate(pipeline: any[], options?: any) {
-    return this.mongo.getDb().collection(this.name).aggregate(pipeline, options);
+    return this.session().aggregate(this.name, pipeline, options);
   }
 
   bulkWrite(operations: any[], options?: any) {
+    this.session().assertWithinMaxDuration();
     return this.mongo.getDb().collection(this.name).bulkWrite(operations, options);
   }
 }

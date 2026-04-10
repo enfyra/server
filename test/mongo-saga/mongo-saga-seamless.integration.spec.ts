@@ -10,6 +10,8 @@ import { InstanceService } from '../../src/shared/services/instance.service';
 const MONGO_URI =
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_seamless_test?authSource=admin';
 
+const TX_RETURN_ENVELOPE = { throwOnFailure: false } as const;
+
 class MockMetadataCacheService {
   async lookupTableByName() {
     return null;
@@ -80,7 +82,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         } as any);
 
         return insertResult;
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
@@ -103,7 +105,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         } as any);
 
         throw new Error('Intentional error for rollback');
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -128,7 +130,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         );
 
         return { updated: true };
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(true);
 
@@ -148,7 +150,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         await orders.deleteOne({ _id: initial.insertedId } as any);
 
         return { deleted: true };
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(true);
 
@@ -183,7 +185,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         );
 
         return order;
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(true);
 
@@ -215,7 +217,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         } as any);
 
         throw new Error('Fail after multiple operations');
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(false);
 
@@ -242,7 +244,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         const count = await orders.countDocuments();
 
         return { found, count: all.length, totalCount: count };
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(result.success).toBe(true);
       expect(result.data?.found?.customerId).toBe('read-test');
@@ -262,7 +264,7 @@ describe('MongoDB Saga Seamless Integration', () => {
           await new Promise((resolve) => setTimeout(resolve, 20));
 
           return { index: i };
-        }),
+        }, TX_RETURN_ENVELOPE),
       );
 
       const results = await Promise.all(promises);
@@ -285,7 +287,7 @@ describe('MongoDB Saga Seamless Integration', () => {
       await mongoService.runInTransaction(async () => {
         capturedTxId = mongoService.getCurrentTransactionId();
         return {};
-      });
+      }, TX_RETURN_ENVELOPE);
 
       expect(capturedTxId).toBeDefined();
       expect(capturedTxId).toMatch(/^tx-/);
@@ -317,7 +319,7 @@ describe('MongoDB Saga Seamless Integration', () => {
             total: i,
           } as any);
         }
-      });
+      }, TX_RETURN_ENVELOPE);
       const txDuration = Date.now() - txStart;
 
       console.log(`\nPerformance Comparison (5 inserts):`);
