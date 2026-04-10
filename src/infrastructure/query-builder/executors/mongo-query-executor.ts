@@ -99,7 +99,7 @@ export class MongoQueryExecutor {
               else if (op === '_between') operator = '_between';
               else if (op === '_is_null') operator = '_is_null';
               else if (op === '_is_not_null') operator = '_is_not_null';
-              else operator = op.replace('_', ' ');
+              else continue;
 
               queryOptions.where.push({
                 field,
@@ -201,6 +201,8 @@ export class MongoQueryExecutor {
             options.tableName,
             this.dbType,
           );
+        } else if (queryOptions.mongoLogicalFilter) {
+          filter = queryOptions.mongoLogicalFilter;
         }
 
         filterCount = await collection.countDocuments(filter);

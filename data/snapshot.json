@@ -286,7 +286,8 @@
             { "name": "id", "type": "uuid", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Unique session identifier" },
             { "name": "expiredAt", "type": "date", "isNullable": false, "isSystem": true, "defaultValue": "now", "description": "When the session expires" },
             { "name": "remember", "type": "boolean", "isSystem": true, "defaultValue": false, "description": "Whether this is a long-lived 'remember me' session" },
-            { "name": "loginProvider", "type": "varchar", "isNullable": true, "isSystem": true, "description": "OAuth provider used to login (google, facebook, github) or null for email/password" }
+            { "name": "loginProvider", "type": "varchar", "isNullable": true, "isSystem": true, "description": "OAuth provider used to login (google, facebook, github) or null for email/password" },
+            { "name": "refreshTokenHash", "type": "varchar", "isNullable": true, "isSystem": true, "description": "SHA-256 hash of the current valid refresh token" }
         ],
         "relations": [
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }

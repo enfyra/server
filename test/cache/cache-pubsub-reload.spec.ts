@@ -583,4 +583,86 @@ describe('Cache PubSub Reload Flow', () => {
       expect(c.loadCount).toBe(1);
     });
   });
+
+  // ════════════════════════════════════════════════════════════════
+  // FORCE RELOAD COALESCING (MetadataCache forceReloadFromDb)
+  // ════════════════════════════════════════════════════════════════
+
+  describe('forceReloadFromDb coalescing', () => {
+    // Simulates the separate forceReloadFromDb path used by
+    // MetadataCacheService when receiving a Redis pub/sub signal.
+    // It must respect the same isLoading/loadingPromise guard as reload().
+    class ForceReloadableCacheService extends TestBaseCacheService {
+      async forceReloadFromDb(): Promise<void> {
+        if (this.isLoading && this.loadingPromise) {
+          await this.loadingPromise;
+          return;
+        }
+        this.isLoading = true;
+        this.loadingPromise = (async () => {
+          try {
+            this.loadCount++;
+            if (this.loadDelay > 0) {
+              await new Promise((r) => setTimeout(r, this.loadDelay));
+            }
+            this.cache = [...this.loadData];
+            this.cacheLoaded = true;
+          } finally {
+            this.isLoading = false;
+            this.loadingPromise = null;
+          }
+        })();
+        await this.loadingPromise;
+      }
+    }
+
+    it('concurrent forceReloadFromDb calls coalesce into one load', async () => {
+      const pubsub = createMockPubSub();
+      const c = new ForceReloadableCacheService(config, pubsub, 'inst-1');
+      c.loadDelay = 30;
+
+      await Promise.all([
+        c.forceReloadFromDb(),
+        c.forceReloadFromDb(),
+        c.forceReloadFromDb(),
+      ]);
+
+      expect(c.loadCount).toBe(1);
+      expect(c.cacheLoaded).toBe(true);
+    });
+
+    it('forceReloadFromDb waits for in-flight reload()', async () => {
+      const pubsub = createMockPubSub();
+      const c = new ForceReloadableCacheService(config, pubsub, 'inst-1');
+      c.loadDelay = 30;
+
+      const p1 = c.reload(false);
+      const p2 = c.forceReloadFromDb();
+      await Promise.all([p1, p2]);
+
+      expect(c.loadCount).toBe(1);
+    });
+
+    it('reload() waits for in-flight forceReloadFromDb()', async () => {
+      const pubsub = createMockPubSub();
+      const c = new ForceReloadableCacheService(config, pubsub, 'inst-1');
+      c.loadDelay = 30;
+
+      const p1 = c.forceReloadFromDb();
+      const p2 = c.reload(false);
+      await Promise.all([p1, p2]);
+
+      expect(c.loadCount).toBe(1);
+    });
+
+    it('sequential forceReloadFromDb calls each trigger a new load', async () => {
+      const pubsub = createMockPubSub();
+      const c = new ForceReloadableCacheService(config, pubsub, 'inst-1');
+
+      await c.forceReloadFromDb();
+      await c.forceReloadFromDb();
+
+      expect(c.loadCount).toBe(2);
+    });
+  });
 });

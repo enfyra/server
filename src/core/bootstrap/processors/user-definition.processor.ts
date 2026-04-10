@@ -29,29 +29,12 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           if (!transformed.createdAt) transformed.createdAt = now;
           if (!transformed.updatedAt) transformed.updatedAt = now;
         }
-        if (record.role && typeof record.role === 'string') {
-          const roleName = record.role;
-          const role = await this.queryBuilder.findOneWhere('role_definition', {
-            name: roleName,
-          });
-          if (!role) {
-            this.logger.warn(
-              `Role '${roleName}' not found for user ${record.email}, setting to null`,
-            );
-            transformed.role = null;
-          } else {
-            if (isMongoDB) {
-              transformed.role =
-                typeof role._id === 'string'
-                  ? new ObjectId(role._id)
-                  : role._id;
-            } else {
-              transformed.roleId = role.id;
-              delete transformed.role;
-            }
-          }
-        }
-        return transformed;
+        const result = await this.autoTransformFkFields(
+          transformed,
+          'user_definition',
+          this.queryBuilder,
+        );
+        return result;
       }),
     );
     return transformedRecords;

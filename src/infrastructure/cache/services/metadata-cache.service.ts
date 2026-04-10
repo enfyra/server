@@ -115,12 +115,25 @@ export class MetadataCacheService
   }
 
   private async forceReloadFromDb(): Promise<void> {
-    try {
-      const metadata = await this.loadMetadataFromDb();
-      this.inMemoryCache = metadata;
-    } catch (error) {
-      this.logger.error('Failed to force reload metadata:', error);
+    if (this.isLoading && this.loadingPromise) {
+      await this.loadingPromise;
+      return;
     }
+
+    this.isLoading = true;
+    this.loadingPromise = (async () => {
+      try {
+        const metadata = await this.loadMetadataFromDb();
+        this.inMemoryCache = metadata;
+      } catch (error) {
+        this.logger.error('Failed to force reload metadata:', error);
+      } finally {
+        this.isLoading = false;
+        this.loadingPromise = null;
+      }
+    })();
+
+    await this.loadingPromise;
   }
 
   private reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,7 +153,9 @@ export class MetadataCacheService
           const resolvers = this.reloadDebounceResolvers.splice(0);
           try {
             await this.reload();
-          } catch {}
+          } catch (error) {
+            this.logger.error('Cache invalidation reload failed:', error);
+          }
           resolvers.forEach((r) => r());
         }, 50);
       });

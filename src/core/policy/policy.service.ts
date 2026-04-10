@@ -618,7 +618,8 @@ export class PolicyService {
         ) {
           throw new Error('Cannot modify isRootAdmin');
         }
-        const getItemId = (item: any) => item?._id || item?.id;
+        const getItemId = (item: any) =>
+          String(item?._id ?? item?.id ?? '');
         const isSelf = getItemId(currentUser) === getItemId(fullExisting);
         if (isRoot && !isSelf)
           throw new Error('Only Root Admin can modify themselves');

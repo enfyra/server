@@ -407,6 +407,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
             }
           },
           onIoCall: (msg) => {
+            if (settled) return;
             if (msg.type === 'repoCall') {
               this.handleIoCall(
                 () => this.execRepoCall(msg, ctx),

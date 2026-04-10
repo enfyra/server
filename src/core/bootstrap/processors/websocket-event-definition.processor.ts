@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { ObjectId } from 'mongodb';
 
 @Injectable()
 export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
@@ -14,66 +13,32 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
 
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
-        const transformedRecord = { ...record };
+        const transformed = { ...record };
 
-        if (transformedRecord.description === undefined)
-          transformedRecord.description = null;
-        if (transformedRecord.isSystem === undefined)
-          transformedRecord.isSystem = false;
-        if (transformedRecord.isEnabled === undefined)
-          transformedRecord.isEnabled = true;
-        if (transformedRecord.handlerScript === undefined)
-          transformedRecord.handlerScript = null;
-        if (transformedRecord.timeout === undefined)
-          transformedRecord.timeout = 5000;
+        if (transformed.description === undefined)
+          transformed.description = null;
+        if (transformed.isSystem === undefined)
+          transformed.isSystem = false;
+        if (transformed.isEnabled === undefined)
+          transformed.isEnabled = true;
+        if (transformed.handlerScript === undefined)
+          transformed.handlerScript = null;
+        if (transformed.timeout === undefined)
+          transformed.timeout = 5000;
 
         if (isMongoDB) {
           const now = new Date();
-          if (!transformedRecord.createdAt) transformedRecord.createdAt = now;
-          if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
+          if (!transformed.createdAt) transformed.createdAt = now;
+          if (!transformed.updatedAt) transformed.updatedAt = now;
         }
 
-        if (record.gateway) {
-          if (isMongoDB) {
-            const gateway = await this.queryBuilder.findOneWhere(
-              'websocket_definition',
-              {
-                path: record.gateway,
-              },
-            );
-
-            if (!gateway) {
-              this.logger.warn(
-                `WebSocket gateway '${record.gateway}' not found for event ${record.eventName}, skipping.`,
-              );
-              return null;
-            }
-            transformedRecord.gatewayId =
-              typeof gateway._id === 'string'
-                ? new ObjectId(gateway._id)
-                : gateway._id;
-            delete transformedRecord.gateway;
-          } else {
-            const gateway = await this.queryBuilder.findOneWhere(
-              'websocket_definition',
-              {
-                path: record.gateway,
-              },
-            );
-
-            if (!gateway) {
-              this.logger.warn(
-                `WebSocket gateway '${record.gateway}' not found for event ${record.eventName}, skipping.`,
-              );
-              return null;
-            }
-
-            transformedRecord.gatewayId = gateway.id;
-            delete transformedRecord.gateway;
-          }
-        }
-
-        return transformedRecord;
+        const result = await this.autoTransformFkFields(
+          transformed,
+          'websocket_event_definition',
+          this.queryBuilder,
+        );
+        if (!result.gateway && !result.gatewayId) return null;
+        return result;
       }),
     );
 
@@ -81,18 +46,14 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return { eventName: record.eventName, gatewayId: record.gatewayId };
+    return this.autoGetUniqueIdentifier(
+      record,
+      'websocket_event_definition',
+    );
   }
 
   protected getCompareFields(): string[] {
-    return [
-      'eventName',
-      'isEnabled',
-      'isSystem',
-      'description',
-      'handlerScript',
-      'timeout',
-    ];
+    return this.autoGetCompareFields('websocket_event_definition');
   }
 
   protected getRecordIdentifier(record: any): string {

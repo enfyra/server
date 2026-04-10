@@ -409,7 +409,7 @@ export class DynamicRepository {
       limit:
         opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10),
       meta: opt?.meta || this.context.$query?.meta,
-      sort: opt?.sort || this.context.$query?.sort || 'id',
+      sort: opt?.sort || this.context.$query?.sort || this.getIdField(),
       aggregate: this.context.$query?.aggregate || {},
       deep: cleanDeep || {},
       debugMode: debugMode,
@@ -546,6 +546,9 @@ export class DynamicRepository {
       }
       if (body.id !== undefined) {
         delete body.id;
+      }
+      if (body._id !== undefined) {
+        delete body._id;
       }
       const inserted = await this.wrapWithFieldPermissionCheck(() =>
         this.queryBuilder.runWithPolicy(
@@ -886,7 +889,6 @@ export class DynamicRepository {
   }
 
   private async reload() {
-    await new Promise((resolve) => setTimeout(resolve, 750));
     this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
       tableName: this.tableName,
       action: 'reload',

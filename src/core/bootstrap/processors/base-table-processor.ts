@@ -1,6 +1,12 @@
 import { Knex } from 'knex';
 import { Logger } from '@nestjs/common';
 import { Db, ObjectId } from 'mongodb';
+import {
+  getManyToOneRelations,
+  getScalarColumns,
+  getUniqueFields,
+  FkRelationInfo,
+} from '../utils/snapshot-meta.util';
 export interface UpsertResult {
   created: number;
   skipped: number;
@@ -21,6 +27,78 @@ export abstract class BaseTableProcessor {
     if (record.method) return record.method;
     return JSON.stringify(record).substring(0, 50) + '...';
   }
+  protected async autoTransformFkFields(
+    record: any,
+    tableName: string,
+    queryBuilder: any,
+  ): Promise<any> {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const relations = getManyToOneRelations(tableName);
+    const transformed = { ...record };
+
+    for (const rel of relations) {
+      const rawValue = transformed[rel.propertyName];
+      if (rawValue === undefined || rawValue === null) continue;
+      if (typeof rawValue !== 'string') continue;
+
+      const target = await queryBuilder.findOneWhere(rel.targetTable, {
+        [rel.lookupKey]: rawValue,
+      });
+
+      if (!target) {
+        this.logger.warn(
+          `${rel.targetTable} '${rawValue}' not found for ${rel.propertyName}, skipping.`,
+        );
+        continue;
+      }
+
+      if (isMongoDB) {
+        transformed[rel.propertyName] =
+          typeof target._id === 'string'
+            ? new ObjectId(target._id)
+            : target._id;
+      } else {
+        transformed[`${rel.propertyName}Id`] = target.id;
+        delete transformed[rel.propertyName];
+      }
+    }
+
+    return transformed;
+  }
+
+  protected autoGetUniqueIdentifier(
+    record: any,
+    tableName: string,
+  ): object {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const uniques = getUniqueFields(tableName);
+
+    if (uniques.length > 0) {
+      const fields = uniques[0];
+      const where: any = {};
+      for (const field of fields) {
+        const relations = getManyToOneRelations(tableName);
+        const rel = relations.find((r) => r.propertyName === field);
+        if (rel && !isMongoDB) {
+          where[`${field}Id`] = record[`${field}Id`];
+        } else {
+          where[field] = record[field];
+        }
+      }
+      return where;
+    }
+
+    if (record.name !== undefined) return { name: record.name };
+    if (record.email !== undefined) return { email: record.email };
+    if (record.key !== undefined) return { key: record.key };
+    if (record.path !== undefined) return { path: record.path };
+    return {};
+  }
+
+  protected autoGetCompareFields(tableName: string): string[] {
+    return getScalarColumns(tableName);
+  }
+
   async processSql(
     records: any[],
     knex: Knex,

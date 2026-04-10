@@ -22,6 +22,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       data: any,
     ) => Promise<void>;
   }>();
+  private readonly fieldPermissionContext = new AsyncLocalStorage<{
+    check: (
+      tableName: string,
+      action: 'create' | 'update',
+      data: any,
+    ) => Promise<void>;
+  }>();
 
   constructor(
     @Inject(forwardRef(() => MetadataCacheService))
@@ -47,6 +54,28 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const ctx = this.policyContext.getStore();
     if (ctx) {
       await ctx.check(tableName, operation, data);
+    }
+  }
+
+  async runWithFieldPermissionCheck<T>(
+    checker: (
+      tableName: string,
+      action: 'create' | 'update',
+      data: any,
+    ) => Promise<void>,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    return this.fieldPermissionContext.run({ check: checker }, callback);
+  }
+
+  private async checkFieldPermission(
+    tableName: string,
+    action: 'create' | 'update',
+    data: any,
+  ): Promise<void> {
+    const ctx = this.fieldPermissionContext.getStore();
+    if (ctx) {
+      await ctx.check(tableName, action, data);
     }
   }
 
@@ -234,6 +263,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       dataWithRelations,
     );
     const dataWithTimestamps = this.applyTimestamps(dataWithoutInverse);
+
+    await this.checkFieldPermission(collectionName, 'create', dataWithTimestamps);
 
     // Clear unique FK holders before insert to prevent unique constraint violations
     // Use a dummy ObjectId since we don't have the real one yet
@@ -610,6 +641,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const dataWithTimestamp = this.applyUpdateTimestamp(
       dataWithoutNonUpdatable,
     );
+
+    await this.checkFieldPermission(collectionName, 'update', dataWithTimestamp);
 
     // Clear unique FK holders before update to prevent unique constraint violations
     await this.clearUniqueFKHolders(

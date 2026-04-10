@@ -396,6 +396,7 @@ export class MongoTableHandlerService {
                     options: col.options ? JSON.stringify(col.options) : null,
                     description: col.description,
                     placeholder: col.placeholder,
+                    metadata: col.metadata ?? null,
                     table: tableId,
                   },
                 );
@@ -709,6 +710,7 @@ export class MongoTableHandlerService {
               options: col.options ? JSON.stringify(col.options) : null,
               description: col.description,
               placeholder: col.placeholder,
+              metadata: col.metadata ?? null,
               table: queryId,
             };
             let colObjectId;

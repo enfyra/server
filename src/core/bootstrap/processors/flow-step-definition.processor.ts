@@ -9,8 +9,6 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
-
     return Promise.all(
       records.map(async (record) => {
         const transformed = { ...record };
@@ -25,40 +23,21 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
           transformed.config = JSON.stringify(transformed.config);
         }
 
-        if (record.flow && typeof record.flow === 'string') {
-          const flow = await this.queryBuilder.findOneWhere('flow_definition', {
-            name: record.flow,
-          });
-          if (flow) {
-            if (isMongoDB) {
-              transformed.flow = flow._id;
-            } else {
-              transformed.flowId = flow.id;
-              delete transformed.flow;
-            }
-          }
-        }
-
-        return transformed;
+        return this.autoTransformFkFields(
+          transformed,
+          'flow_step_definition',
+          this.queryBuilder,
+        );
       }),
     );
   }
 
   getUniqueIdentifier(record: any): object {
-    return { key: record.key, flowId: record.flowId };
+    return this.autoGetUniqueIdentifier(record, 'flow_step_definition');
   }
 
   protected getCompareFields(): string[] {
-    return [
-      'key',
-      'stepOrder',
-      'type',
-      'config',
-      'timeout',
-      'onError',
-      'retryAttempts',
-      'isEnabled',
-    ];
+    return this.autoGetCompareFields('flow_step_definition');
   }
 
   protected getRecordIdentifier(record: any): string {

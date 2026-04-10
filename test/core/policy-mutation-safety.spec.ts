@@ -1,4 +1,65 @@
+import { ObjectId } from 'mongodb';
 import { PolicyService } from '../../src/core/policy/policy.service';
+
+describe('PolicyService.assertSystemSafe — user_definition self-check', () => {
+  const makePolicy = () =>
+    new PolicyService(
+      { assertNoSystemFlagDeep: jest.fn() } as any,
+      {
+        getMetadata: jest.fn().mockResolvedValue({ tables: new Map() }),
+      } as any,
+    );
+
+  it('root admin can update themselves (SQL integer id)', async () => {
+    const policy = makePolicy();
+    const d = await policy.checkMutationSafety({
+      operation: 'update',
+      tableName: 'user_definition',
+      data: { password: 'newpass' },
+      existing: { id: 1, isRootAdmin: true },
+      currentUser: { id: 1 },
+    });
+    expect(d.allow).toBe(true);
+  });
+
+  it('root admin can update themselves (MongoDB ObjectId)', async () => {
+    const policy = makePolicy();
+    const hex = '507f1f77bcf86cd799439011';
+    const d = await policy.checkMutationSafety({
+      operation: 'update',
+      tableName: 'user_definition',
+      data: { password: 'newpass' },
+      existing: { _id: new ObjectId(hex), isRootAdmin: true },
+      currentUser: { _id: new ObjectId(hex) },
+    });
+    expect(d.allow).toBe(true);
+  });
+
+  it('non-root admin cannot update root admin', async () => {
+    const policy = makePolicy();
+    const d = await policy.checkMutationSafety({
+      operation: 'update',
+      tableName: 'user_definition',
+      data: { email: 'hack@test.com' },
+      existing: { _id: new ObjectId(), isRootAdmin: true },
+      currentUser: { _id: new ObjectId() },
+    });
+    expect(d.allow).toBe(false);
+  });
+
+  it('cannot modify isRootAdmin flag', async () => {
+    const policy = makePolicy();
+    const hex = '507f1f77bcf86cd799439011';
+    const d = await policy.checkMutationSafety({
+      operation: 'update',
+      tableName: 'user_definition',
+      data: { isRootAdmin: false },
+      existing: { _id: new ObjectId(hex), isRootAdmin: true },
+      currentUser: { _id: new ObjectId(hex) },
+    });
+    expect(d.allow).toBe(false);
+  });
+});
 
 describe('PolicyService.checkMutationSafety', () => {
   const makePolicy = () =>
