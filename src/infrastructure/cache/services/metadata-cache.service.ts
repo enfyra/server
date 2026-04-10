@@ -99,6 +99,24 @@ export class MetadataCacheService {
     }
   }
 
+  private applyRelationMappedByDerivedFields(
+    relations: any[],
+    relationIdMap: Map<string, any>,
+    isMongoDB: boolean,
+  ): void {
+    for (const rel of relations) {
+      const rawRef = isMongoDB ? rel.mappedBy : rel.mappedById;
+      rel.mappedByRelationId =
+        rawRef != null && rawRef !== '' ? String(rawRef) : null;
+      if (rawRef) {
+        const owningRelation = relationIdMap.get(String(rawRef));
+        rel.mappedBy = owningRelation?.propertyName || null;
+      } else {
+        rel.mappedBy = null;
+      }
+    }
+  }
+
   private async applyPartialUpdate(
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
@@ -178,15 +196,11 @@ export class MetadataCacheService {
       }
     }
 
-    for (const rel of allRelations) {
-      const mappedById = isMongoDB ? rel.mappedBy : rel.mappedById;
-      if (mappedById) {
-        const owningRelation = relationIdMap.get(String(mappedById));
-        rel.mappedBy = owningRelation?.propertyName || null;
-      } else {
-        rel.mappedBy = null;
-      }
-    }
+    this.applyRelationMappedByDerivedFields(
+      allRelations,
+      relationIdMap,
+      isMongoDB,
+    );
 
     const columnsByTable = new Map<string, any[]>();
     for (const col of columnsResult.data) {
@@ -464,15 +478,11 @@ export class MetadataCacheService {
       const relId = isMongoDB ? String(rel._id) : String(rel.id);
       relationIdMap.set(relId, rel);
     }
-    for (const rel of allRelations) {
-      const mappedById = isMongoDB ? rel.mappedBy : rel.mappedById;
-      if (mappedById) {
-        const owningRelation = relationIdMap.get(String(mappedById));
-        rel.mappedBy = owningRelation?.propertyName || null;
-      } else {
-        rel.mappedBy = null;
-      }
-    }
+    this.applyRelationMappedByDerivedFields(
+      allRelations,
+      relationIdMap,
+      isMongoDB,
+    );
 
     const columnsByTable = new Map<string, any[]>();
     for (const col of allColumnsResult.data) {

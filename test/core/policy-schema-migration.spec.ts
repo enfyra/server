@@ -167,4 +167,89 @@ describe('PolicyService.checkSchemaMigration', () => {
     expect((d as any).preview).toBe(true);
     expect((d.details as any).removedUniques.length).toBeGreaterThan(0);
   });
+
+  it('warns when removing owning relation that will cascade-delete inverse rows', async () => {
+    const owningTable = {
+      name: 'user',
+      columns: [],
+      relations: [
+        {
+          id: 10,
+          propertyName: 'posts',
+          type: 'one-to-many',
+          targetTableName: 'post',
+          mappedBy: 'author',
+          foreignKeyColumn: '',
+          junctionTableName: '',
+        },
+      ],
+    };
+    const inverseTable = {
+      name: 'post',
+      columns: [],
+      relations: [
+        {
+          id: 20,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTableName: 'user',
+          mappedById: 10,
+          foreignKeyColumn: 'author_id',
+          junctionTableName: '',
+        },
+      ],
+    };
+    const tables = new Map<string, any>([
+      ['user', owningTable],
+      ['post', inverseTable],
+    ]);
+    const policyWithMeta = new PolicyService({} as any, {
+      getMetadata: async () => ({ tables }),
+    } as any);
+    const d = await policyWithMeta.checkSchemaMigration({
+      operation: 'update',
+      tableName: 'user',
+      beforeMetadata: owningTable,
+      afterMetadata: { name: 'user', columns: [], relations: [] },
+      requestContext: { $query: {} } as any,
+    });
+    const w = (d.details as any).owningSideInverseCascadeWarnings;
+    expect(w.length).toBe(1);
+    expect(w[0].owningRelationId).toBe('10');
+    expect(w[0].cascadeDeletesInverseRelations[0]).toMatchObject({
+      inverseSourceTableName: 'post',
+      propertyName: 'author',
+      relationId: '20',
+    });
+  });
+
+  it('does not warn when removing inverse relation only', async () => {
+    const postTable = {
+      name: 'post',
+      columns: [],
+      relations: [
+        {
+          id: 20,
+          propertyName: 'author',
+          type: 'many-to-one',
+          targetTableName: 'user',
+          mappedById: 10,
+          foreignKeyColumn: 'author_id',
+          junctionTableName: '',
+        },
+      ],
+    };
+    const tables = new Map<string, any>([['post', postTable]]);
+    const policyWithMeta = new PolicyService({} as any, {
+      getMetadata: async () => ({ tables }),
+    } as any);
+    const d = await policyWithMeta.checkSchemaMigration({
+      operation: 'update',
+      tableName: 'post',
+      beforeMetadata: postTable,
+      afterMetadata: { name: 'post', columns: [], relations: [] },
+      requestContext: { $query: {} } as any,
+    });
+    expect((d.details as any).owningSideInverseCascadeWarnings).toEqual([]);
+  });
 });
