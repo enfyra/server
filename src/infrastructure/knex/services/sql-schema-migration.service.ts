@@ -394,9 +394,9 @@ export class SqlSchemaMigrationService {
       }
       for (const rel of tableMetadata.relations || []) {
         if (rel.type === 'one-to-many') {
-          if (!rel.inversePropertyName) {
+          if (!rel.mappedBy) {
             throw new Error(
-              `One-to-many relation '${rel.propertyName}' in table '${tableName}' MUST have inversePropertyName`,
+              `One-to-many relation '${rel.propertyName}' in table '${tableName}' MUST have mappedBy`,
             );
           }
           const targetTable = rel.targetTableName || rel.targetTable;
@@ -406,7 +406,7 @@ export class SqlSchemaMigrationService {
             );
           }
           const sourceTable = tableName;
-          const fkColumn = getForeignKeyColumnName(rel.inversePropertyName);
+          const fkColumn = getForeignKeyColumnName(rel.mappedBy);
           const sourcePkType = await this.getPrimaryKeyType(sourceTable);
           const dbType = this.queryBuilderService.getDatabaseType();
           const maxRetries = 3;

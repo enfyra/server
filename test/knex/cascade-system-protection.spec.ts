@@ -91,7 +91,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -120,7 +120,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -144,7 +144,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'childId',
             isInverse: true,
@@ -156,7 +156,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'childId',
                 isInverse: true,
@@ -187,7 +187,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'many-to-one',
             onDelete: 'SET NULL',
-            inversePropertyName: 'items',
+            mappedBy: 'items',
             targetTableName: 'other_table',
             foreignKeyColumn: 'parentId',
           },
@@ -211,7 +211,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -232,7 +232,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -256,7 +256,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -277,7 +277,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -298,7 +298,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -319,7 +319,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -341,7 +341,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -367,7 +367,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -395,7 +395,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'parent',
+            mappedBy: 'parent',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -427,7 +427,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'profile',
+            mappedBy: 'profile',
             targetTableName: 'profile_table',
             foreignKeyColumn: 'userId',
             isInverse: false,
@@ -435,7 +435,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'settings',
+            mappedBy: 'settings',
             targetTableName: 'settings_table',
             foreignKeyColumn: 'userId',
             isInverse: false,
@@ -447,7 +447,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'profile',
+                mappedBy: 'profile',
                 targetTableName: 'profile_table',
                 foreignKeyColumn: 'userId',
                 isInverse: false,
@@ -455,7 +455,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'settings',
+                mappedBy: 'settings',
                 targetTableName: 'settings_table',
                 foreignKeyColumn: 'userId',
                 isInverse: false,
@@ -504,7 +504,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'a',
+                mappedBy: 'a',
                 targetTableName: 'table_a',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -512,7 +512,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'b',
+                mappedBy: 'b',
                 targetTableName: 'table_b',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -520,7 +520,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'c',
+                mappedBy: 'c',
                 targetTableName: 'table_c',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -609,7 +609,7 @@ describe('afterDelete cascade – system record protection', () => {
               profile: {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'user',
+                mappedBy: 'user',
                 targetTableName: 'profile_table',
                 foreignKeyColumn: 'userId',
                 isInverse: false,
@@ -636,7 +636,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'ghost_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -648,7 +648,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'ghost_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -672,7 +672,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'broken_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -684,7 +684,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'broken_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -711,7 +711,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'no_cols_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -723,7 +723,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'no_cols_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -749,7 +749,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'empty_cols_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -761,7 +761,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'empty_cols_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -852,7 +852,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTable: 'fallback_child_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -883,7 +883,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'orphan',
+                mappedBy: 'orphan',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
               },
@@ -907,7 +907,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 isInverse: false,
               },
@@ -926,7 +926,7 @@ describe('afterDelete cascade – system record protection', () => {
       expect(deleted).toHaveLength(0);
     });
 
-    it('should skip relations without inversePropertyName', async () => {
+    it('should skip relations without mappedBy', async () => {
       const { registry, deleted } = setup({
         relations: [],
         metadataByTable: {
@@ -963,7 +963,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-many',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'items',
+                mappedBy: 'items',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -971,7 +971,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'many-to-many',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'tags',
+                mappedBy: 'tags',
                 targetTableName: 'tag_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -996,7 +996,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'SET NULL',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1004,7 +1004,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'RESTRICT',
-                inversePropertyName: 'other',
+                mappedBy: 'other',
                 targetTableName: 'other_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1029,7 +1029,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: '',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1077,7 +1077,7 @@ describe('afterDelete cascade – system record protection', () => {
             {
               type: 'one-to-one',
               onDelete: 'CASCADE',
-              inversePropertyName: 'child',
+              mappedBy: 'child',
               targetTableName: 'child_table',
               foreignKeyColumn: 'parentId',
               isInverse: false,
@@ -1152,7 +1152,7 @@ describe('afterDelete cascade – system record protection', () => {
                   {
                     type: 'one-to-one',
                     onDelete: 'CASCADE',
-                    inversePropertyName: 'a',
+                    mappedBy: 'a',
                     targetTableName: 'table_a',
                     foreignKeyColumn: 'parentId',
                     isInverse: false,
@@ -1160,7 +1160,7 @@ describe('afterDelete cascade – system record protection', () => {
                   {
                     type: 'one-to-one',
                     onDelete: 'CASCADE',
-                    inversePropertyName: 'b',
+                    mappedBy: 'b',
                     targetTableName: 'table_b',
                     foreignKeyColumn: 'parentId',
                     isInverse: false,
@@ -1213,7 +1213,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1230,7 +1230,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'grandchild',
+                mappedBy: 'grandchild',
                 targetTableName: 'grandchild_table',
                 foreignKeyColumn: 'childId',
                 isInverse: false,
@@ -1263,7 +1263,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'parent',
+                mappedBy: 'parent',
                 targetTableName: 'parent_table',
                 foreignKeyColumn: 'grandparentId',
                 isInverse: false,
@@ -1276,7 +1276,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1354,7 +1354,7 @@ describe('afterDelete cascade – system record protection', () => {
                   {
                     type: 'one-to-one',
                     onDelete: 'CASCADE',
-                    inversePropertyName: 'child',
+                    mappedBy: 'child',
                     targetTableName: 'child_table',
                     foreignKeyColumn: 'parentId',
                     isInverse: false,
@@ -1448,7 +1448,7 @@ describe('afterDelete cascade – system record protection', () => {
                   {
                     type: 'one-to-one',
                     onDelete: 'CASCADE',
-                    inversePropertyName: 'child',
+                    mappedBy: 'child',
                     targetTableName: 'child_table',
                     foreignKeyColumn: 'parentId',
                     isInverse: false,
@@ -1519,7 +1519,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'childId',
                 isInverse: true,
@@ -1553,7 +1553,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 foreignKeyColumn: 'childId',
                 isInverse: true,
@@ -1587,7 +1587,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'child',
+                mappedBy: 'child',
                 targetTableName: 'child_table',
                 isInverse: true,
               },
@@ -1619,7 +1619,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -1650,7 +1650,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'many-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'items',
+                mappedBy: 'items',
                 targetTableName: 'items_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1658,7 +1658,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'SET NULL',
-                inversePropertyName: 'profile',
+                mappedBy: 'profile',
                 targetTableName: 'profile_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1666,7 +1666,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'settings',
+                mappedBy: 'settings',
                 targetTableName: 'settings_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,
@@ -1727,7 +1727,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -1751,7 +1751,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -1775,7 +1775,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -1808,7 +1808,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'profile',
+                mappedBy: 'profile',
                 targetTableName: 'profile_table',
                 foreignKeyColumn: 'userId',
                 isInverse: false,
@@ -1816,7 +1816,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'auth',
+                mappedBy: 'auth',
                 targetTableName: 'auth_table',
                 foreignKeyColumn: 'authId',
                 isInverse: true,
@@ -1867,7 +1867,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -1891,7 +1891,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -1921,7 +1921,7 @@ describe('afterDelete cascade – system record protection', () => {
             {
               type: 'one-to-one',
               onDelete: 'CASCADE',
-              inversePropertyName: 'child',
+              mappedBy: 'child',
               targetTableName: 'child_table',
               foreignKeyColumn: 'parentId',
               isInverse: false,
@@ -1967,7 +1967,7 @@ describe('afterDelete cascade – system record protection', () => {
           {
             type: 'one-to-one',
             onDelete: 'CASCADE',
-            inversePropertyName: 'child',
+            mappedBy: 'child',
             targetTableName: 'child_table',
             foreignKeyColumn: 'parentId',
             isInverse: false,
@@ -2001,7 +2001,7 @@ describe('afterDelete cascade – system record protection', () => {
               {
                 type: 'one-to-one',
                 onDelete: 'CASCADE',
-                inversePropertyName: 'parent',
+                mappedBy: 'parent',
                 targetTableName: 'tree_table',
                 foreignKeyColumn: 'parentId',
                 isInverse: false,

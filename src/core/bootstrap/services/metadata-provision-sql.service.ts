@@ -145,11 +145,17 @@ export class MetadataProvisionSqlService {
         }
       }
       this.logger.log('Phase 3: Processing relation definitions...');
-      const allRelationsToProcess: Array<{
+      const owningRelations: Array<{
         tableName: string;
         tableId: number;
         relation: any;
-        isInverse: boolean;
+      }> = [];
+      const inverseRelations: Array<{
+        tableName: string;
+        tableId: number;
+        relation: any;
+        owningTableName: string;
+        owningPropertyName: string;
       }> = [];
       for (const [name, defRaw] of Object.entries(snapshot)) {
         const def = defRaw as any;
@@ -159,24 +165,15 @@ export class MetadataProvisionSqlService {
           if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
           const targetId = tableNameToId[rel.targetTable];
           if (!targetId) continue;
-          allRelationsToProcess.push({
-            tableName: name,
-            tableId,
-            relation: rel,
-            isInverse: false,
-          });
+          owningRelations.push({ tableName: name, tableId, relation: rel });
           if (rel.inversePropertyName) {
             let inverseType = rel.type;
-            if (rel.type === 'many-to-one') {
-              inverseType = 'one-to-many';
-            } else if (rel.type === 'one-to-many') {
-              inverseType = 'many-to-one';
-            }
+            if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+            else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
             const inverseRelation: any = {
               propertyName: rel.inversePropertyName,
               type: inverseType,
               targetTable: name,
-              inversePropertyName: rel.propertyName,
               isSystem: rel.isSystem,
               isNullable: rel.isNullable,
               isUpdatable: rel.isUpdatable,
@@ -194,24 +191,27 @@ export class MetadataProvisionSqlService {
               inverseRelation.junctionTargetColumn =
                 getForeignKeyColumnName(name);
             }
-            allRelationsToProcess.push({
+            inverseRelations.push({
               tableName: rel.targetTable,
               tableId: targetId,
               relation: inverseRelation,
-              isInverse: true,
+              owningTableName: name,
+              owningPropertyName: rel.propertyName,
             });
           }
         }
       }
       const relationRenameMap = loadRelationRenameMap();
-      for (const {
-        tableName,
-        tableId,
-        relation: rel,
-        isInverse,
-      } of allRelationsToProcess) {
+      const relationIdMap = new Map<string, number>();
+      const upsertRelation = async (
+        tableName: string,
+        tableId: number,
+        rel: any,
+        mappedById: number | null,
+        isInverse: boolean,
+      ) => {
         const targetId = tableNameToId[rel.targetTable];
-        if (!targetId) continue;
+        if (!targetId) return;
         let existingRel = await trx('relation_definition')
           .where('sourceTableId', tableId)
           .where('propertyName', rel.propertyName)
@@ -234,7 +234,7 @@ export class MetadataProvisionSqlService {
             rel.propertyName !== existingRel.propertyName ||
             (rel.isNullable !== undefined &&
               rel.isNullable !== existingRel.isNullable) ||
-            rel.inversePropertyName !== existingRel.inversePropertyName ||
+            mappedById !== existingRel.mappedById ||
             (rel.type !== undefined && rel.type !== existingRel.type) ||
             (targetId !== undefined &&
               targetId !== existingRel.targetTableId) ||
@@ -245,7 +245,7 @@ export class MetadataProvisionSqlService {
             updateData.propertyName = rel.propertyName;
             if (rel.isNullable !== undefined)
               updateData.isNullable = rel.isNullable;
-            updateData.inversePropertyName = rel.inversePropertyName || null;
+            updateData.mappedById = mappedById;
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
             if (rel.isUpdatable !== undefined)
               updateData.isUpdatable = rel.isUpdatable;
@@ -273,11 +273,12 @@ export class MetadataProvisionSqlService {
               `Updated relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`,
             );
           }
+          return existingRel.id;
         } else {
           const insertData: any = {
             propertyName: rel.propertyName,
             type: rel.type,
-            inversePropertyName: rel.inversePropertyName,
+            mappedById,
             isNullable: rel.isNullable !== false,
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable !== false,
@@ -300,10 +301,52 @@ export class MetadataProvisionSqlService {
               rel.junctionTargetColumn ||
               getForeignKeyColumnName(rel.targetTable);
           }
-          await trx('relation_definition').insert(insertData);
+          const id = await this.insertAndGetId(
+            trx,
+            'relation_definition',
+            insertData,
+          );
           this.logger.log(
             `Added relation ${rel.propertyName} for ${tableName}${isInverse ? ' (inverse)' : ''}`,
           );
+          return id;
+        }
+      };
+      for (const { tableName, tableId, relation: rel } of owningRelations) {
+        const id = await upsertRelation(tableName, tableId, rel, null, false);
+        if (id) relationIdMap.set(`${tableName}.${rel.propertyName}`, id);
+      }
+      const processedInverseKeys = new Set<string>();
+      for (const {
+        tableName,
+        tableId,
+        relation: rel,
+        owningTableName,
+        owningPropertyName,
+      } of inverseRelations) {
+        const inverseKey = `${tableName}.${rel.propertyName}`;
+        const reverseKey = `${owningTableName}.${owningPropertyName}`;
+        if (processedInverseKeys.has(reverseKey)) continue;
+        processedInverseKeys.add(inverseKey);
+        const snapshotRelId =
+          relationIdMap.get(`${owningTableName}.${owningPropertyName}`) || null;
+        if (rel.type === 'many-to-one') {
+          const generatedId = await upsertRelation(
+            tableName,
+            tableId,
+            rel,
+            null,
+            false,
+          );
+          if (generatedId)
+            relationIdMap.set(`${tableName}.${rel.propertyName}`, generatedId);
+          if (snapshotRelId && generatedId) {
+            await trx('relation_definition')
+              .where('id', snapshotRelId)
+              .update({ mappedById: generatedId });
+          }
+        } else {
+          await upsertRelation(tableName, tableId, rel, snapshotRelId, true);
         }
       }
       this.logger.log('SQL metadata sync completed');

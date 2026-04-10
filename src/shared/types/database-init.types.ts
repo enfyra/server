@@ -22,7 +22,6 @@ export interface RelationDef {
   type: 'one-to-one' | 'many-to-one' | 'one-to-many' | 'many-to-many';
   targetTable: string;
   inversePropertyName?: string;
-  mappedBy?: string;
   isNullable?: boolean;
   isSystem?: boolean;
   isUpdatable?: boolean;

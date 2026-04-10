@@ -185,8 +185,24 @@ export class MetadataCacheService
       columnsByTable.get(key)!.push(col);
     }
 
+    const allRelations = allRelationsResult.data;
+    const relationIdMap = new Map<string, any>();
+    for (const rel of allRelations) {
+      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      relationIdMap.set(relId, rel);
+    }
+    for (const rel of allRelations) {
+      const mappedById = isMongoDB ? rel.mappedBy : rel.mappedById;
+      if (mappedById) {
+        const owningRelation = relationIdMap.get(String(mappedById));
+        rel.mappedBy = owningRelation?.propertyName || null;
+      } else {
+        rel.mappedBy = null;
+      }
+    }
+
     const relationsBySource = new Map<string | number, any[]>();
-    for (const rel of allRelationsResult.data) {
+    for (const rel of allRelations) {
       const key = isMongoDB ? String(rel.sourceTable) : rel.sourceTableId;
       if (!relationsBySource.has(key)) relationsBySource.set(key, []);
       relationsBySource.get(key)!.push(rel);
@@ -330,8 +346,8 @@ export class MetadataCacheService
           if (rel.type === 'one-to-one') {
             if (relationMetadata.isInverse) {
               relationMetadata.foreignKeyColumn = isMongoDB
-                ? rel.inversePropertyName
-                : getForeignKeyColumnName(rel.inversePropertyName);
+                ? rel.mappedBy
+                : getForeignKeyColumnName(rel.mappedBy);
             } else {
               relationMetadata.foreignKeyColumn = isMongoDB
                 ? rel.propertyName
@@ -340,18 +356,18 @@ export class MetadataCacheService
           }
 
           if (rel.type === 'one-to-many') {
-            if (!rel.inversePropertyName) {
+            if (!rel.mappedBy) {
               this.logger.error(
-                `O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`,
+                `O2M relation '${rel.propertyName}' in table '${table.name}' missing mappedBy`,
               );
               throw new Error(
-                `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`,
+                `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have mappedBy`,
               );
             }
 
             relationMetadata.foreignKeyColumn = isMongoDB
-              ? rel.inversePropertyName
-              : getForeignKeyColumnName(rel.inversePropertyName);
+              ? rel.mappedBy
+              : getForeignKeyColumnName(rel.mappedBy);
           }
 
           if (rel.type === 'many-to-many') {
@@ -474,8 +490,6 @@ export class MetadataCacheService
       }
     }
 
-    this.generateInverseRelations(tablesList, tablesMap);
-
     const result = {
       tables: tablesMap,
       tablesList,
@@ -484,95 +498,6 @@ export class MetadataCacheService
     };
 
     return result;
-  }
-
-  private generateInverseRelations(
-    tablesList: any[],
-    tablesMap: Map<string, any>,
-  ): void {
-    for (const table of tablesList) {
-      for (const relation of table.relations || []) {
-        if (!relation.inversePropertyName) {
-          continue;
-        }
-
-        const targetTableName =
-          relation.targetTableName || relation.targetTable;
-        const targetTable = tablesMap.get(targetTableName);
-
-        if (!targetTable) {
-          continue;
-        }
-
-        const inverseExists = targetTable.relations?.some(
-          (r: any) => r.propertyName === relation.inversePropertyName,
-        );
-
-        if (inverseExists) {
-          continue;
-        }
-
-        let inverseType = 'one-to-many';
-        if (relation.type === 'one-to-many') {
-          inverseType = 'many-to-one';
-        } else if (relation.type === 'many-to-one') {
-          inverseType = 'one-to-many';
-        } else if (relation.type === 'one-to-one') {
-          inverseType = 'one-to-one';
-        } else if (relation.type === 'many-to-many') {
-          inverseType = 'many-to-many';
-        }
-
-        const inverseRelation: any = {
-          propertyName: relation.inversePropertyName,
-          type: inverseType,
-          targetTable: table.name,
-          targetTableName: table.name,
-          sourceTableName: targetTableName,
-          inversePropertyName: relation.propertyName,
-          isNullable: true,
-          isSystem: relation.isSystem || false,
-          isGenerated: true,
-          isInverse: true,
-          onDelete: relation.onDelete,
-        };
-
-        if (inverseType === 'many-to-one') {
-          const isMongoDB = this.queryBuilder.isMongoDb();
-          inverseRelation.foreignKeyColumn =
-            relation.foreignKeyColumn ||
-            (isMongoDB
-              ? relation.inversePropertyName
-              : getForeignKeyColumnName(relation.inversePropertyName));
-        }
-
-        if (inverseType === 'one-to-many') {
-          const isMongoDB = this.queryBuilder.isMongoDb();
-          inverseRelation.foreignKeyColumn = isMongoDB
-            ? relation.propertyName
-            : getForeignKeyColumnName(relation.propertyName);
-        }
-
-        if (inverseType === 'one-to-one') {
-          inverseRelation.mappedBy = relation.propertyName;
-          inverseRelation.isInverse = true;
-        }
-
-        if (inverseType === 'many-to-many') {
-          inverseRelation.junctionTableName = relation.junctionTableName;
-          inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
-          inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
-          if (relation.propertyName) {
-            inverseRelation.mappedBy = relation.propertyName;
-          }
-        }
-
-        if (!targetTable.relations) {
-          targetTable.relations = [];
-        }
-        targetTable.relations.push(inverseRelation);
-      }
-    }
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {

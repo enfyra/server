@@ -231,7 +231,7 @@ export class KnexHookRegistry {
         (relation: any) =>
           relation.type === 'one-to-one' &&
           relation.onDelete === 'CASCADE' &&
-          relation.inversePropertyName,
+          relation.mappedBy,
       );
       if (oneToOneCascadeRelations.length === 0) {
         return result;

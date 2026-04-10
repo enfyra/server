@@ -36,13 +36,13 @@ export class MongoTableHandlerService {
   ) {}
   private validateRelations(relations: any[]) {
     for (const relation of relations || []) {
-      if (relation.type === 'one-to-many' && !relation.inversePropertyName) {
+      if (relation.type === 'one-to-many' && !relation.mappedBy) {
         throw new ValidationException(
-          `One-to-many relation '${relation.propertyName}' must have inversePropertyName`,
+          `One-to-many relation '${relation.propertyName}' must have mappedBy`,
           {
             relationName: relation.propertyName,
             relationType: relation.type,
-            missingField: 'inversePropertyName',
+            missingField: 'mappedBy',
           },
         );
       }
@@ -107,15 +107,18 @@ export class MongoTableHandlerService {
             targetTable: querySourceId,
           },
         );
+        let sourceRelId: any = null;
+        const sourceRels = await this.queryBuilder.findWhere(
+          'relation_definition',
+          { sourceTable: querySourceId, propertyName: rel.propertyName },
+        );
+        if (sourceRels.length > 0) sourceRelId = sourceRels[0]._id;
         const matchingRelation = targetRelations.find((tr: any) => {
-          if (rel.inversePropertyName) {
-            return (
-              tr.propertyName === rel.inversePropertyName ||
-              tr.inversePropertyName === rel.propertyName
-            );
-          } else {
-            return tr.inversePropertyName === rel.propertyName;
+          if (rel.mappedBy && tr.propertyName === rel.mappedBy) return true;
+          if (sourceRelId && tr.mappedBy) {
+            return tr.mappedBy.toString() === sourceRelId.toString();
           }
+          return false;
         });
         if (matchingRelation) {
           inverseExists = true;
@@ -126,13 +129,13 @@ export class MongoTableHandlerService {
           };
         }
       } else if (rel.type === 'one-to-many') {
-        if (!rel.inversePropertyName) continue;
+        if (!rel.mappedBy) continue;
         const targetRelations = await this.queryBuilder.findWhere(
           'relation_definition',
           {
             sourceTable: targetTableId,
             targetTable: querySourceId,
-            propertyName: rel.inversePropertyName,
+            propertyName: rel.mappedBy,
           },
         );
         const matchingRelation = targetRelations.find((tr: any) =>
@@ -147,13 +150,13 @@ export class MongoTableHandlerService {
           };
         }
       } else if (rel.type === 'many-to-many') {
-        if (!rel.inversePropertyName) continue;
+        if (!rel.mappedBy) continue;
         const targetRelations = await this.queryBuilder.findWhere(
           'relation_definition',
           {
             sourceTable: targetTableId,
             targetTable: querySourceId,
-            propertyName: rel.inversePropertyName,
+            propertyName: rel.mappedBy,
             type: 'many-to-many',
           },
         );
@@ -250,7 +253,7 @@ export class MongoTableHandlerService {
         }
       }
       const sourceFieldName = relation.propertyName;
-      const inverseFieldName = relation.inversePropertyName;
+      const inverseFieldName = relation.mappedBy;
       if (sourceFieldName) {
         await db
           .collection(sourceTableName)
@@ -448,6 +451,14 @@ export class MongoTableHandlerService {
                     { tableName: body.name, relation: rel.propertyName },
                   );
                 }
+                let resolvedMappedBy = null;
+                if (rel.mappedBy) {
+                  const owningRels = await this.queryBuilder.findWhere(
+                    'relation_definition',
+                    { sourceTable: targetTableObjectId, propertyName: rel.mappedBy },
+                  );
+                  if (owningRels.length > 0) resolvedMappedBy = owningRels[0]._id;
+                }
                 const relationRecord = await this.queryBuilder.insertAndGet(
                   'relation_definition',
                   {
@@ -460,7 +471,7 @@ export class MongoTableHandlerService {
                         ? rel.targetTable
                         : rel.targetTable.name,
                     sourceTableName: body.name,
-                    inversePropertyName: rel.inversePropertyName,
+                    mappedBy: resolvedMappedBy,
                     isNullable: rel.isNullable ?? true,
                     isSystem: rel.isSystem || false,
                     isUpdatable: rel.isUpdatable ?? true,
@@ -473,6 +484,59 @@ export class MongoTableHandlerService {
                     ? new ObjectId(relationRecord._id)
                     : relationRecord._id;
                 insertedRelationIds.push(relId);
+                if (rel.inversePropertyName) {
+                  if (rel.mappedBy) {
+                    throw new ValidationException(
+                      `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
+                      { relationName: rel.propertyName },
+                    );
+                  }
+                  const existingOnTarget = await this.queryBuilder.findWhere(
+                    'relation_definition',
+                    { sourceTable: targetTableObjectId, propertyName: rel.inversePropertyName },
+                  );
+                  if (existingOnTarget.length > 0) {
+                    throw new ValidationException(
+                      `Cannot create inverse '${rel.inversePropertyName}' on target table: property name already exists`,
+                      { relationName: rel.inversePropertyName },
+                    );
+                  }
+                  const existingInverse = await this.queryBuilder.findWhere(
+                    'relation_definition',
+                    { mappedBy: relId },
+                  );
+                  if (existingInverse.length > 0) {
+                    throw new ValidationException(
+                      `Relation '${rel.propertyName}' already has an inverse '${existingInverse[0].propertyName}'`,
+                      { relationName: rel.propertyName },
+                    );
+                  }
+                  let inverseType = rel.type;
+                  if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+                  else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+                  const inverseRecord = await this.queryBuilder.insertAndGet(
+                    'relation_definition',
+                    {
+                      propertyName: rel.inversePropertyName,
+                      type: inverseType,
+                      sourceTable: targetTableObjectId,
+                      targetTable: tableId,
+                      mappedBy: relId,
+                      isNullable: rel.isNullable ?? true,
+                      isSystem: false,
+                      isUpdatable: rel.isUpdatable ?? true,
+                      isPublished: rel.isPublished ?? true,
+                    },
+                  );
+                  const inverseId =
+                    typeof inverseRecord._id === 'string'
+                      ? new ObjectId(inverseRecord._id)
+                      : inverseRecord._id;
+                  insertedRelationIds.push(inverseId);
+                  this.logger.log(
+                    `Auto-created inverse relation '${rel.inversePropertyName}'`,
+                  );
+                }
               }
             }
           } catch (error) {
@@ -768,8 +832,37 @@ export class MongoTableHandlerService {
                   .collection(exists.name)
                   .updateMany({}, { $unset: { [fieldName]: '' } });
               }
+              const inverseRels = await this.queryBuilder.findWhere(
+                'relation_definition',
+                { mappedBy: deletedRelation._id },
+              );
+              for (const inv of inverseRels) {
+                await this.queryBuilder.deleteById(
+                  'relation_definition',
+                  inv._id,
+                );
+              }
             }
             await this.queryBuilder.deleteById('relation_definition', relId);
+          }
+          for (const rel of body.relations) {
+            if (!rel._id && !rel.id) continue;
+            const relId = rel._id || rel.id;
+            const existingRel = existingRelations.find(
+              (r: any) => r._id?.toString() === relId.toString(),
+            );
+            if (existingRel?.mappedBy) {
+              const changed =
+                (rel.type !== undefined && rel.type !== existingRel.type) ||
+                (rel.isNullable !== undefined &&
+                  rel.isNullable !== existingRel.isNullable);
+              if (changed) {
+                throw new ValidationException(
+                  `Inverse relation '${existingRel.propertyName}' can only have its propertyName modified`,
+                  { relationName: existingRel.propertyName },
+                );
+              }
+            }
           }
           const relationIds = [];
           for (const rel of body.relations) {
@@ -797,6 +890,14 @@ export class MongoTableHandlerService {
               );
               continue;
             }
+            let updateResolvedMappedBy = null;
+            if (rel.mappedBy) {
+              const owningRels = await this.queryBuilder.findWhere(
+                'relation_definition',
+                { sourceTable: targetTableObjectId, propertyName: rel.mappedBy },
+              );
+              if (owningRels.length > 0) updateResolvedMappedBy = owningRels[0]._id;
+            }
             const relationData = {
               propertyName: rel.propertyName,
               type: rel.type,
@@ -807,7 +908,7 @@ export class MongoTableHandlerService {
                   ? rel.targetTable
                   : rel.targetTable.name || exists.name,
               sourceTableName: exists.name,
-              inversePropertyName: rel.inversePropertyName,
+              mappedBy: updateResolvedMappedBy,
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable ?? true,
@@ -835,6 +936,54 @@ export class MongoTableHandlerService {
                   : inserted._id;
             }
             relationIds.push(relObjectId);
+            if (rel.inversePropertyName && !(rel._id || rel.id)) {
+              if (rel.mappedBy) {
+                throw new ValidationException(
+                  `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
+                  { relationName: rel.propertyName },
+                );
+              }
+              const existingOnTarget = await this.queryBuilder.findWhere(
+                'relation_definition',
+                { sourceTable: targetTableObjectId, propertyName: rel.inversePropertyName },
+              );
+              if (existingOnTarget.length > 0) {
+                throw new ValidationException(
+                  `Cannot create inverse '${rel.inversePropertyName}' on target table: property name already exists`,
+                  { relationName: rel.inversePropertyName },
+                );
+              }
+              const existingInverse = await this.queryBuilder.findWhere(
+                'relation_definition',
+                { mappedBy: relObjectId },
+              );
+              if (existingInverse.length > 0) {
+                throw new ValidationException(
+                  `Relation '${rel.propertyName}' already has an inverse '${existingInverse[0].propertyName}'`,
+                  { relationName: rel.propertyName },
+                );
+              }
+              let inverseType = rel.type;
+              if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+              else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+              const inverseRecord = await this.queryBuilder.insertAndGet(
+                'relation_definition',
+                {
+                  propertyName: rel.inversePropertyName,
+                  type: inverseType,
+                  sourceTable: targetTableObjectId,
+                  targetTable: queryId,
+                  mappedBy: relObjectId,
+                  isNullable: rel.isNullable ?? true,
+                  isSystem: false,
+                  isUpdatable: rel.isUpdatable ?? true,
+                  isPublished: rel.isPublished ?? true,
+                },
+              );
+              this.logger.log(
+                `Auto-created inverse relation '${rel.inversePropertyName}'`,
+              );
+            }
           }
         }
         const finalMetadata = await this.getFullTableMetadata(id);

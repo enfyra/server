@@ -39,13 +39,13 @@ export class SqlTableHandlerService {
   ) {}
   private validateRelations(relations: any[]) {
     for (const relation of relations || []) {
-      if (relation.type === 'one-to-many' && !relation.inversePropertyName) {
+      if (relation.type === 'one-to-many' && !relation.mappedBy) {
         throw new ValidationException(
-          `One-to-many relation '${relation.propertyName}' must have inversePropertyName`,
+          `One-to-many relation '${relation.propertyName}' must have mappedBy`,
           {
             relationName: relation.propertyName,
             relationType: relation.type,
-            missingField: 'inversePropertyName',
+            missingField: 'mappedBy',
           },
         );
       }
@@ -73,13 +73,18 @@ export class SqlTableHandlerService {
           .where({ sourceTableId: targetTableId })
           .where({ targetTableId: sourceTableId })
           .where((builder: any) => {
-            if (rel.inversePropertyName) {
-              builder
-                .where({ propertyName: rel.inversePropertyName })
-                .orWhere({ inversePropertyName: rel.propertyName });
-            } else {
-              builder.where({ inversePropertyName: rel.propertyName });
+            if (rel.mappedBy) {
+              builder.where({ propertyName: rel.mappedBy });
             }
+            builder.orWhereIn(
+              'mappedById',
+              trx('relation_definition')
+                .select('id')
+                .where({
+                  sourceTableId: sourceTableId,
+                  propertyName: rel.propertyName,
+                }),
+            );
           })
           .select('*');
         if (targetRelations.length > 0) {
@@ -91,11 +96,11 @@ export class SqlTableHandlerService {
           };
         }
       } else if (rel.type === 'one-to-many') {
-        if (!rel.inversePropertyName) continue;
+        if (!rel.mappedBy) continue;
         const targetRelations = await trx('relation_definition')
           .where({ sourceTableId: targetTableId })
           .where({ targetTableId: sourceTableId })
-          .where({ propertyName: rel.inversePropertyName })
+          .where({ propertyName: rel.mappedBy })
           .whereIn('type', ['many-to-one', 'one-to-one'])
           .select('*');
         if (targetRelations.length > 0) {
@@ -107,11 +112,11 @@ export class SqlTableHandlerService {
           };
         }
       } else if (rel.type === 'many-to-many') {
-        if (!rel.inversePropertyName) continue;
+        if (!rel.mappedBy) continue;
         const targetRelations = await trx('relation_definition')
           .where({ sourceTableId: targetTableId })
           .where({ targetTableId: sourceTableId })
-          .where({ propertyName: rel.inversePropertyName })
+          .where({ propertyName: rel.mappedBy })
           .where({ type: 'many-to-many' })
           .select('*');
         if (targetRelations.length > 0) {
@@ -409,11 +414,19 @@ export class SqlTableHandlerService {
             typeof rel.targetTable === 'object'
               ? rel.targetTable.id
               : rel.targetTable;
+          let mappedById: number | null = null;
+          if (rel.mappedBy) {
+            const owningRel = await trx('relation_definition')
+              .where({ sourceTableId: targetTableId, propertyName: rel.mappedBy })
+              .select('id')
+              .first();
+            mappedById = owningRel?.id || null;
+          }
           const insertData: any = {
             propertyName: rel.propertyName,
             type: rel.type,
             targetTableId,
-            inversePropertyName: rel.inversePropertyName,
+            mappedById,
             isNullable: rel.isNullable ?? true,
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable ?? true,
@@ -446,9 +459,73 @@ export class SqlTableHandlerService {
             insertData.junctionSourceColumn = null;
             insertData.junctionTargetColumn = null;
           }
-          relationsToInsert.push(insertData);
+          relationsToInsert.push({ insertData, rel });
         }
-        await trx('relation_definition').insert(relationsToInsert);
+        await trx('relation_definition').insert(
+          relationsToInsert.map((r: any) => r.insertData),
+        );
+        for (const { insertData: inserted, rel } of relationsToInsert) {
+          if (!rel.inversePropertyName) continue;
+          if (rel.mappedBy) {
+            throw new ValidationException(
+              `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
+              { relationName: rel.propertyName },
+            );
+          }
+          const targetTableId = inserted.targetTableId;
+          const targetTableName = targetTablesMap.get(targetTableId);
+          const existingOnTarget = await trx('relation_definition')
+            .where({
+              sourceTableId: targetTableId,
+              propertyName: rel.inversePropertyName,
+            })
+            .first();
+          if (existingOnTarget) {
+            throw new ValidationException(
+              `Cannot create inverse '${rel.inversePropertyName}' on '${targetTableName}': property name already exists`,
+              { relationName: rel.inversePropertyName, targetTable: targetTableName },
+            );
+          }
+          const owningRel = await trx('relation_definition')
+            .where({
+              sourceTableId: tableId,
+              propertyName: rel.propertyName,
+            })
+            .first();
+          if (!owningRel) continue;
+          const existingInverse = await trx('relation_definition')
+            .where({ mappedById: owningRel.id })
+            .first();
+          if (existingInverse) {
+            throw new ValidationException(
+              `Relation '${rel.propertyName}' already has an inverse '${existingInverse.propertyName}'`,
+              { relationName: rel.propertyName },
+            );
+          }
+          let inverseType = rel.type;
+          if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+          else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+          const inverseData: any = {
+            propertyName: rel.inversePropertyName,
+            type: inverseType,
+            sourceTableId: targetTableId,
+            targetTableId: tableId,
+            mappedById: owningRel.id,
+            isNullable: rel.isNullable ?? true,
+            isSystem: rel.isSystem || false,
+            isUpdatable: rel.isUpdatable ?? true,
+            isPublished: rel.isPublished ?? true,
+          };
+          if (inverseType === 'many-to-many') {
+            inverseData.junctionTableName = inserted.junctionTableName;
+            inverseData.junctionSourceColumn = inserted.junctionTargetColumn;
+            inverseData.junctionTargetColumn = inserted.junctionSourceColumn;
+          }
+          await trx('relation_definition').insert(inverseData);
+          this.logger.log(
+            `Auto-created inverse relation '${rel.inversePropertyName}' on '${targetTableName}'`,
+          );
+        }
       }
       const existingRoute = await trx('route_definition')
         .where({ path: `/${body.name}` })
@@ -727,8 +804,34 @@ export class SqlTableHandlerService {
           );
           if (deletedRelationIds.length > 0) {
             await trx('relation_definition')
+              .whereIn('mappedById', deletedRelationIds)
+              .delete();
+            await trx('relation_definition')
               .whereIn('id', deletedRelationIds)
               .delete();
+          }
+          for (const rel of body.relations) {
+            if (!rel.id) continue;
+            const existingRel = await trx('relation_definition')
+              .where({ id: rel.id })
+              .first();
+            if (existingRel?.mappedById) {
+              const changed =
+                (rel.type !== undefined && rel.type !== existingRel.type) ||
+                (rel.targetTable !== undefined &&
+                  (typeof rel.targetTable === 'object'
+                    ? rel.targetTable.id
+                    : rel.targetTable) !== existingRel.targetTableId) ||
+                (rel.mappedBy !== undefined && rel.mappedBy !== null) ||
+                (rel.isNullable !== undefined &&
+                  rel.isNullable !== existingRel.isNullable);
+              if (changed) {
+                throw new ValidationException(
+                  `Inverse relation '${existingRel.propertyName}' can only have its propertyName modified`,
+                  { relationName: existingRel.propertyName },
+                );
+              }
+            }
           }
           const targetTableIds = body.relations
             .map((rel: any) =>
@@ -762,11 +865,19 @@ export class SqlTableHandlerService {
                 );
               }
             }
+            let updateMappedById: number | null = null;
+            if (rel.mappedBy) {
+              const owningRel = await trx('relation_definition')
+                .where({ sourceTableId: targetTableId, propertyName: rel.mappedBy })
+                .select('id')
+                .first();
+              updateMappedById = owningRel?.id || null;
+            }
             const relationData: any = {
               propertyName: rel.propertyName,
               type: rel.type,
               targetTableId,
-              inversePropertyName: rel.inversePropertyName,
+              mappedById: updateMappedById,
               isNullable: rel.isNullable ?? true,
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable ?? true,
@@ -833,6 +944,65 @@ export class SqlTableHandlerService {
                 .update(relationData);
             } else {
               await trx('relation_definition').insert(relationData);
+            }
+            if (rel.inversePropertyName && !rel.id) {
+              if (rel.mappedBy) {
+                throw new ValidationException(
+                  `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
+                  { relationName: rel.propertyName },
+                );
+              }
+              const existingOnTarget = await trx('relation_definition')
+                .where({
+                  sourceTableId: targetTableId,
+                  propertyName: rel.inversePropertyName,
+                })
+                .first();
+              if (existingOnTarget) {
+                throw new ValidationException(
+                  `Cannot create inverse '${rel.inversePropertyName}' on target table: property name already exists`,
+                  { relationName: rel.inversePropertyName },
+                );
+              }
+              const insertedRel = await trx('relation_definition')
+                .where({ sourceTableId: id, propertyName: rel.propertyName })
+                .first();
+              if (insertedRel) {
+                const existingInverse = await trx('relation_definition')
+                  .where({ mappedById: insertedRel.id })
+                  .first();
+                if (existingInverse) {
+                  throw new ValidationException(
+                    `Relation '${rel.propertyName}' already has an inverse '${existingInverse.propertyName}'`,
+                    { relationName: rel.propertyName },
+                  );
+                }
+                let inverseType = rel.type;
+                if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+                else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+                const inverseData: any = {
+                  propertyName: rel.inversePropertyName,
+                  type: inverseType,
+                  sourceTableId: targetTableId,
+                  targetTableId: id,
+                  mappedById: insertedRel.id,
+                  isNullable: rel.isNullable ?? true,
+                  isSystem: false,
+                  isUpdatable: rel.isUpdatable ?? true,
+                  isPublished: rel.isPublished ?? true,
+                };
+                if (inverseType === 'many-to-many') {
+                  inverseData.junctionTableName = relationData.junctionTableName;
+                  inverseData.junctionSourceColumn =
+                    relationData.junctionTargetColumn;
+                  inverseData.junctionTargetColumn =
+                    relationData.junctionSourceColumn;
+                }
+                await trx('relation_definition').insert(inverseData);
+                this.logger.log(
+                  `Auto-created inverse relation '${rel.inversePropertyName}'`,
+                );
+              }
             }
           }
         }

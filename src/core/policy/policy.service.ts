@@ -159,7 +159,7 @@ export class PolicyService {
           targetTableName: safeStr(
             r?.targetTableName ?? r?.targetTable?.name ?? r?.targetTable,
           ),
-          inversePropertyName: safeStr(r?.inversePropertyName),
+          mappedBy: safeStr(r?.mappedBy),
           foreignKeyColumn: safeStr(r?.foreignKeyColumn),
           junctionTableName: safeStr(r?.junctionTableName),
           isNullable: r?.isNullable ?? true,
@@ -265,7 +265,7 @@ export class PolicyService {
       .filter(Boolean);
 
     const relKey = (r: any) =>
-      `${r.propertyName}|${r.type}|${r.targetTableName}|${r.inversePropertyName}|${r.foreignKeyColumn}|${r.junctionTableName}`;
+      `${r.propertyName}|${r.type}|${r.targetTableName}|${r.mappedBy}|${r.foreignKeyColumn}|${r.junctionTableName}`;
     const bRelKeys = new Set(bRels.map(relKey));
     const aRelKeys = new Set(aRels.map(relKey));
     const removedRelations = Array.from(bRelKeys).filter(
@@ -374,8 +374,8 @@ export class PolicyService {
       const inverseRelations: string[] = [];
       for (const [, otherMeta] of metadata.tables) {
         for (const r of otherMeta.relations || []) {
-          if (r.targetTableName === tableMeta.name && r.inversePropertyName) {
-            inverseRelations.push(r.inversePropertyName);
+          if (r.targetTableName === tableMeta.name && r.mappedBy) {
+            inverseRelations.push(r.mappedBy);
           }
         }
       }

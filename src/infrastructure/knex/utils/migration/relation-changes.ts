@@ -256,6 +256,24 @@ async function handleDeletedRelations(
         reason: 'Relation deleted',
       });
     }
+
+    const inverseRels = await knex('relation_definition')
+      .where({ mappedById: relId })
+      .select('id', 'propertyName', 'sourceTableId');
+    for (const inv of inverseRels) {
+      if (!diff.cascadeDeletedInverses) {
+        diff.cascadeDeletedInverses = [];
+      }
+      const sourceTable = await knex('table_definition')
+        .where({ id: inv.sourceTableId })
+        .select('name')
+        .first();
+      diff.cascadeDeletedInverses.push({
+        id: inv.id,
+        propertyName: inv.propertyName,
+        tableName: sourceTable?.name,
+      });
+    }
   }
 }
 
@@ -303,13 +321,13 @@ async function handleCreatedRelations(
       });
     } else if (rel.type === 'one-to-many') {
       const targetTableName = rel.targetTableName;
-      if (!rel.inversePropertyName) {
+      if (!rel.mappedBy) {
         logger.warn(
-          `  O2M relation '${rel.propertyName}' missing inversePropertyName, cannot determine FK column name`,
+          `  O2M relation '${rel.propertyName}' missing mappedBy, cannot determine FK column name`,
         );
         continue;
       }
-      const fkColumn = getForeignKeyColumnName(rel.inversePropertyName);
+      const fkColumn = getForeignKeyColumnName(rel.mappedBy);
 
       const sourcePkType = await getPrimaryKeyTypeForTable(
         knex,
@@ -391,8 +409,8 @@ async function handleUpdatedRelations(
 
     const changes: string[] = [];
     const propertyNameChanged = oldRel.propertyName !== newRel.propertyName;
-    const inversePropertyNameChanged =
-      oldRel.inversePropertyName !== newRel.inversePropertyName;
+    const mappedByChanged =
+      oldRel.mappedBy !== newRel.mappedBy;
     const typeChanged = oldRel.type !== newRel.type;
     const targetTableChanged =
       oldRel.targetTableName !== newRel.targetTableName;
@@ -408,9 +426,9 @@ async function handleUpdatedRelations(
       changes.push(
         `target: ${oldRel.targetTableName} → ${newRel.targetTableName}`,
       );
-    if (inversePropertyNameChanged)
+    if (mappedByChanged)
       changes.push(
-        `inversePropertyName: ${oldRel.inversePropertyName} → ${newRel.inversePropertyName}`,
+        `mappedBy: ${oldRel.mappedBy} → ${newRel.mappedBy}`,
       );
     if (isNullableChanged)
       changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
@@ -428,7 +446,7 @@ async function handleUpdatedRelations(
           newColumns,
           metadataCacheService,
         );
-      } else if (propertyNameChanged || inversePropertyNameChanged) {
+      } else if (propertyNameChanged || mappedByChanged) {
         await handleRelationPropertyNameChange(
           knex,
           oldRel,
@@ -436,7 +454,7 @@ async function handleUpdatedRelations(
           diff,
           tableName,
           propertyNameChanged,
-          inversePropertyNameChanged,
+          mappedByChanged,
           metadataCacheService,
         );
       } else if (onDeleteChanged) {
@@ -453,7 +471,7 @@ async function handleRelationPropertyNameChange(
   diff: any,
   tableName: string,
   propertyNameChanged: boolean,
-  inversePropertyNameChanged: boolean,
+  mappedByChanged: boolean,
   metadataCacheService?: any,
 ): Promise<void> {
   const relationType = oldRel.type;
@@ -488,18 +506,18 @@ async function handleRelationPropertyNameChange(
         },
       });
     }
-  } else if (relationType === 'one-to-many' && inversePropertyNameChanged) {
-    if (!oldRel.inversePropertyName || !newRel.inversePropertyName) {
+  } else if (relationType === 'one-to-many' && mappedByChanged) {
+    if (!oldRel.mappedBy || !newRel.mappedBy) {
       logger.warn(
-        `  O2M relation missing inversePropertyName, cannot rename FK column`,
+        `  O2M relation missing mappedBy, cannot rename FK column`,
       );
       return;
     }
 
     const oldFkColumn =
       oldRel.foreignKeyColumn ||
-      getForeignKeyColumnName(oldRel.inversePropertyName);
-    const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
+      getForeignKeyColumnName(oldRel.mappedBy);
+    const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
 
     if (oldFkColumn !== newFkColumn) {
       if (!diff.crossTableOperations) {
@@ -527,7 +545,7 @@ async function handleRelationPropertyNameChange(
   } else if (
     relationType === 'one-to-many' &&
     propertyNameChanged &&
-    !inversePropertyNameChanged
+    !mappedByChanged
   ) {
   } else if (relationType === 'many-to-many' && propertyNameChanged) {
     const oldJunctionTableName = oldRel.junctionTableName;
@@ -639,14 +657,14 @@ async function handleRelationTypeChange(
       isUnique: newType === 'one-to-one',
     });
   } else if (oldType === 'one-to-many' && newType === 'many-to-many') {
-    if (!oldRel.inversePropertyName) {
+    if (!oldRel.mappedBy) {
       throw new Error(
-        `O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`,
+        `O2M relation '${oldRel.propertyName}' must have mappedBy to determine FK column name`,
       );
     }
     const oldFkColumn =
       oldRel.foreignKeyColumn ||
-      getForeignKeyColumnName(oldRel.inversePropertyName);
+      getForeignKeyColumnName(oldRel.mappedBy);
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -678,12 +696,12 @@ async function handleRelationTypeChange(
       reason: 'Relation type changed from M2M to O2M',
     });
 
-    if (!newRel.inversePropertyName) {
+    if (!newRel.mappedBy) {
       throw new Error(
-        `O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`,
+        `O2M relation '${newRel.propertyName}' must have mappedBy to determine FK column name`,
       );
     }
-    const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
 
     const sourcePkType = await getPrimaryKeyTypeForTable(
       knex,
@@ -714,12 +732,12 @@ async function handleRelationTypeChange(
       isForeignKey: true,
     });
 
-    if (!newRel.inversePropertyName) {
+    if (!newRel.mappedBy) {
       throw new Error(
-        `O2M relation '${newRel.propertyName}' must have inversePropertyName to determine FK column name`,
+        `O2M relation '${newRel.propertyName}' must have mappedBy to determine FK column name`,
       );
     }
-    const newFkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
+    const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
 
     const sourcePkType = await getPrimaryKeyTypeForTable(
       knex,
@@ -743,14 +761,14 @@ async function handleRelationTypeChange(
     oldType === 'one-to-many' &&
     (newType === 'many-to-one' || newType === 'one-to-one')
   ) {
-    if (!oldRel.inversePropertyName) {
+    if (!oldRel.mappedBy) {
       throw new Error(
-        `O2M relation '${oldRel.propertyName}' must have inversePropertyName to determine FK column name`,
+        `O2M relation '${oldRel.propertyName}' must have mappedBy to determine FK column name`,
       );
     }
     const oldFkColumn =
       oldRel.foreignKeyColumn ||
-      getForeignKeyColumnName(oldRel.inversePropertyName);
+      getForeignKeyColumnName(oldRel.mappedBy);
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -826,14 +844,14 @@ async function handleOnDeleteChange(
       onDelete: newRel.onDelete || 'SET NULL',
     });
   } else if (relationType === 'one-to-many') {
-    if (!newRel.inversePropertyName) {
+    if (!newRel.mappedBy) {
       logger.warn(
-        `  O2M relation '${newRel.propertyName}' missing inversePropertyName, cannot update FK constraint`,
+        `  O2M relation '${newRel.propertyName}' missing mappedBy, cannot update FK constraint`,
       );
       return;
     }
 
-    const fkColumn = getForeignKeyColumnName(newRel.inversePropertyName);
+    const fkColumn = getForeignKeyColumnName(newRel.mappedBy);
 
     if (!diff.foreignKeys) {
       diff.foreignKeys = { recreate: [] };

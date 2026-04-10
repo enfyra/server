@@ -348,7 +348,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const relation of metadata.relations) {
-      if (!relation.inversePropertyName) {
+      if (!relation.mappedBy) {
         continue;
       }
 
@@ -386,13 +386,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
             await this.getDb()
               .collection(targetCollection)
               .updateOne({ _id: oldId }, {
-                $pull: { [relation.inversePropertyName]: recordId },
+                $pull: { [relation.mappedBy]: recordId },
               } as any);
           } else {
             await this.getDb()
               .collection(targetCollection)
               .updateOne({ _id: oldId }, {
-                $unset: { [relation.inversePropertyName]: '' },
+                $unset: { [relation.mappedBy]: '' },
               } as any);
           }
         }
@@ -403,14 +403,14 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
               .collection(targetCollection)
               .updateOne(
                 { _id: newId },
-                { $addToSet: { [relation.inversePropertyName]: recordId } },
+                { $addToSet: { [relation.mappedBy]: recordId } },
               );
           } else {
             await this.getDb()
               .collection(targetCollection)
               .updateOne(
                 { _id: newId },
-                { $set: { [relation.inversePropertyName]: recordId } },
+                { $set: { [relation.mappedBy]: recordId } },
               );
           }
         }
@@ -444,13 +444,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
             await this.getDb()
               .collection(targetCollection)
               .updateOne({ _id: targetId }, {
-                $unset: { [relation.inversePropertyName]: '' },
+                $unset: { [relation.mappedBy]: '' },
               } as any);
           } else {
             await this.getDb()
               .collection(targetCollection)
               .updateOne({ _id: targetId }, {
-                $pull: { [relation.inversePropertyName]: recordId },
+                $pull: { [relation.mappedBy]: recordId },
               } as any);
           }
         }
@@ -461,14 +461,14 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
               .collection(targetCollection)
               .updateOne(
                 { _id: targetId },
-                { $set: { [relation.inversePropertyName]: recordId } },
+                { $set: { [relation.mappedBy]: recordId } },
               );
           } else {
             await this.getDb()
               .collection(targetCollection)
               .updateOne(
                 { _id: targetId },
-                { $addToSet: { [relation.inversePropertyName]: recordId } },
+                { $addToSet: { [relation.mappedBy]: recordId } },
               );
           }
         }
@@ -693,7 +693,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const relation of metadata.relations) {
-      if (!relation.inversePropertyName) continue;
+      if (!relation.mappedBy) continue;
 
       const fieldName = relation.propertyName;
       const fieldValue = recordData?.[fieldName];
@@ -716,7 +716,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
           await this.getDb()
             .collection(targetCollection)
             .updateOne({ _id: targetId }, {
-              $unset: { [relation.inversePropertyName]: '' },
+              $unset: { [relation.mappedBy]: '' },
             } as any);
         }
       } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
@@ -729,7 +729,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         } else {
           const targets = await this.getDb()
             .collection(targetCollection)
-            .find({ [relation.inversePropertyName]: recordId })
+            .find({ [relation.mappedBy]: recordId })
             .toArray();
           targetIds = targets.map((t) => t._id);
         }
@@ -740,13 +740,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
               .collection(targetCollection)
               .updateOne(
                 { _id: targetId },
-                { $set: { [relation.inversePropertyName]: null } },
+                { $set: { [relation.mappedBy]: null } },
               );
           } else {
             await this.getDb()
               .collection(targetCollection)
               .updateOne({ _id: targetId }, {
-                $pull: { [relation.inversePropertyName]: recordId },
+                $pull: { [relation.mappedBy]: recordId },
               } as any);
           }
         }

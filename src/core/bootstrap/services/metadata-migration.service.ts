@@ -317,8 +317,8 @@ export class MetadataMigrationService {
     for (const mod of modifications) {
       const hasChanges =
         mod.to.propertyName !== mod.from.propertyName ||
-        (mod.to.inversePropertyName !== undefined &&
-          mod.to.inversePropertyName !== mod.from.inversePropertyName) ||
+        (mod.to.mappedBy !== undefined &&
+          mod.to.mappedBy !== mod.from.mappedBy) ||
         (mod.to.isNullable !== undefined &&
           mod.to.isNullable !== mod.from.isNullable) ||
         (mod.to.isUpdatable !== undefined &&
@@ -336,9 +336,6 @@ export class MetadataMigrationService {
           [sourceTableField]: { _eq: tableId },
           propertyName: { _eq: oldName },
         };
-        if (mod.from.inversePropertyName !== undefined) {
-          filter.inversePropertyName = { _eq: mod.from.inversePropertyName };
-        }
         const relationResult = await this.queryBuilder.select({
           tableName: 'relation_definition',
           filter,
@@ -359,10 +356,36 @@ export class MetadataMigrationService {
           updateData.propertyName = mod.to.propertyName;
         }
         if (
-          mod.to.inversePropertyName !== undefined &&
-          mod.to.inversePropertyName !== mod.from.inversePropertyName
+          mod.to.mappedBy !== undefined &&
+          mod.to.mappedBy !== mod.from.mappedBy
         ) {
-          updateData.inversePropertyName = mod.to.inversePropertyName;
+          if (mod.to.mappedBy && isMongoDB) {
+            const targetTableId = relation.targetTable;
+            const owningRels = await this.queryBuilder.select({
+              tableName: 'relation_definition',
+              filter: {
+                sourceTable: { _eq: targetTableId },
+                propertyName: { _eq: mod.to.mappedBy },
+              },
+              limit: 1,
+            });
+            updateData.mappedBy = owningRels.data?.[0]?._id || null;
+          } else if (mod.to.mappedBy && !isMongoDB) {
+            const targetTableId = relation.targetTableId;
+            const owningRels = await this.queryBuilder.select({
+              tableName: 'relation_definition',
+              filter: {
+                sourceTableId: { _eq: targetTableId },
+                propertyName: { _eq: mod.to.mappedBy },
+              },
+              limit: 1,
+            });
+            const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
+            updateData[mappedByField] = owningRels.data?.[0]?.id || null;
+          } else {
+            const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
+            updateData[mappedByField] = null;
+          }
         }
         if (
           mod.to.isNullable !== undefined &&

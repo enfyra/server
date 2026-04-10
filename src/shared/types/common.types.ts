@@ -61,7 +61,7 @@ export type TInverseRelation = {
   isEager?: boolean;
   isNullable?: boolean;
   isIndex?: boolean;
-  inversePropertyName: string;
+  mappedBy: string;
   targetClass: string;
   targetGraphQLType?: string;
 };
