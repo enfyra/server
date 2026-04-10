@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { DataProvisionService } from './data-provision.service';
 import { MetadataProvisionService } from './metadata-provision.service';
@@ -7,6 +7,7 @@ import { MetadataMigrationService } from './metadata-migration.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 
 @Injectable()
@@ -22,6 +23,8 @@ export class ProvisionService implements OnModuleInit {
     private readonly queryBuilder: QueryBuilderService,
     private readonly cacheService: CacheService,
     private readonly instanceService: InstanceService,
+    @Inject(forwardRef(() => MetadataCacheService))
+    private readonly metadataCacheService: MetadataCacheService,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -99,6 +102,9 @@ export class ProvisionService implements OnModuleInit {
           );
           await this.metadataMigrationService.runMigrations();
         }
+
+        await this.metadataCacheService.getMetadata();
+        this.logger.log('Metadata cache warmed for data provision');
 
         await this.dataProvisionService.insertAllDefaultRecords();
 

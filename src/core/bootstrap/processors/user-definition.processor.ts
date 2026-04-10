@@ -2,9 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { ObjectId } from 'mongodb';
-import { Knex } from 'knex';
-import { Db } from 'mongodb';
+
 @Injectable()
 export class UserDefinitionProcessor extends BaseTableProcessor {
   constructor(
@@ -13,6 +11,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
   ) {
     super();
   }
+
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
     const transformedRecords = await Promise.all(
@@ -29,6 +28,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           if (!transformed.createdAt) transformed.createdAt = now;
           if (!transformed.updatedAt) transformed.updatedAt = now;
         }
+
         const result = await this.autoTransformFkFields(
           transformed,
           'user_definition',
@@ -39,31 +39,25 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     );
     return transformedRecords;
   }
-  async processSql(
+
+  async processWithQueryBuilder(
     records: any[],
-    knex: Knex,
+    queryBuilder: any,
     tableName: string,
     context?: any,
   ): Promise<UpsertResult> {
-    const { randomUUID } = await import('crypto');
-    let createdCount = 0;
-    let skippedCount = 0;
-    let existingRootAdmin = null;
-    try {
-      existingRootAdmin = await knex(tableName)
-        .where('isRootAdmin', true)
-        .first();
-    } catch (error) {
-      this.logger.log(
-        `   Table ${tableName} not ready yet, will create rootAdmin`,
-      );
-    }
+    const existingRootAdmin = await queryBuilder.findOneWhere(
+      tableName,
+      { isRootAdmin: true },
+    );
+
     if (existingRootAdmin) {
       this.logger.log(
         `   RootAdmin already exists: ${existingRootAdmin.email}`,
       );
       return { created: 0, skipped: 0 };
     }
+
     const adminUser = await this.getAdminUserFromEnv();
     if (!adminUser) {
       this.logger.warn(
@@ -71,31 +65,44 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
       );
       return { created: 0, skipped: 0 };
     }
-    const filteredRecords = [adminUser];
+
     const transformedRecords = await this.transformRecords(
-      filteredRecords,
+      [adminUser],
       context,
     );
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
-        const existingRecord = await knex(tableName).where(uniqueWhere).first();
+        const existingRecord = await queryBuilder.findOneWhere(
+          tableName,
+          uniqueWhere,
+        );
+
         if (existingRecord) {
           skippedCount++;
           this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
         } else {
-          const cleanedRecord = this.cleanRecordForKnex(record);
-          cleanedRecord.id = cleanedRecord.id || randomUUID();
-          cleanedRecord.password = await this.bcryptService.hash(
-            record._plainPassword,
+          const insertData = { ...record };
+          if (insertData._plainPassword) {
+            insertData.password = await this.bcryptService.hash(
+              insertData._plainPassword,
+            );
+            delete insertData._plainPassword;
+          }
+          const inserted = await queryBuilder.insertAndGet(
+            tableName,
+            insertData,
           );
-          delete cleanedRecord._plainPassword;
-          await knex(tableName).insert(cleanedRecord);
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
+            const idField = queryBuilder.isMongoDb() ? '_id' : 'id';
             await this.afterUpsert(
-              { ...record, id: cleanedRecord.id },
+              { ...record, [idField]: inserted[idField] },
               true,
               context,
             );
@@ -107,78 +114,15 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     }
     return { created: createdCount, skipped: skippedCount };
   }
-  async processMongo(
-    records: any[],
-    db: Db,
-    collectionName: string,
-    context?: any,
-  ): Promise<UpsertResult> {
-    let createdCount = 0;
-    let skippedCount = 0;
-    const existingRootAdmin = await db
-      .collection(collectionName)
-      .findOne({ isRootAdmin: true });
-    if (existingRootAdmin) {
-      this.logger.log(
-        `   RootAdmin already exists: ${existingRootAdmin.email}`,
-      );
-      return { created: 0, skipped: 0 };
-    }
-    const adminUser = await this.getAdminUserFromEnv();
-    if (!adminUser) {
-      this.logger.warn(
-        `   No ADMIN_EMAIL/ADMIN_PASSWORD in .env, skipping rootAdmin creation`,
-      );
-      return { created: 0, skipped: 0 };
-    }
-    const filteredRecords = [adminUser];
-    const transformedRecords = await this.transformRecords(
-      filteredRecords,
-      context,
-    );
-    for (const record of transformedRecords) {
-      try {
-        const uniqueWhere = this.getUniqueIdentifier(record);
-        const existingRecord = await db
-          .collection(collectionName)
-          .findOne(uniqueWhere);
-        if (existingRecord) {
-          skippedCount++;
-          this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
-        } else {
-          const cleanedRecord = this.cleanRecordForMongo(record);
-          if (record._plainPassword) {
-            cleanedRecord.password = await this.bcryptService.hash(
-              record._plainPassword,
-            );
-            delete cleanedRecord._plainPassword;
-          }
-          cleanedRecord.role = cleanedRecord.role || null;
-          const result = await db
-            .collection(collectionName)
-            .insertOne(cleanedRecord);
-          createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
-          if (this.afterUpsert) {
-            await this.afterUpsert(
-              { ...record, _id: result.insertedId },
-              true,
-              context,
-            );
-          }
-        }
-      } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
-      }
-    }
-    return { created: createdCount, skipped: skippedCount };
-  }
+
   getUniqueIdentifier(record: any): object {
     return { email: record.email };
   }
+
   protected getCompareFields(): string[] {
     return ['email', 'isRootAdmin', 'isSystem'];
   }
+
   private async getAdminUserFromEnv(): Promise<any | null> {
     const adminEmail = process.env.ADMIN_EMAIL;
     const adminPassword = process.env.ADMIN_PASSWORD;

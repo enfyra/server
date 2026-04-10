@@ -99,6 +99,82 @@ export abstract class BaseTableProcessor {
     return getScalarColumns(tableName);
   }
 
+  async processWithQueryBuilder(
+    records: any[],
+    queryBuilder: any,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
+    if (!records || records.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const idField = isMongoDB ? '_id' : 'id';
+    const transformedRecords = await this.transformRecords(records, context);
+    let createdCount = 0;
+    let skippedCount = 0;
+    for (const record of transformedRecords) {
+      try {
+        const uniqueWhere = this.getUniqueIdentifier(record);
+        const whereConditions = Array.isArray(uniqueWhere)
+          ? uniqueWhere
+          : [uniqueWhere];
+        let existingRecord = null;
+        for (const whereCondition of whereConditions) {
+          const cleanedCondition = { ...whereCondition };
+          for (const key in cleanedCondition) {
+            if (Array.isArray(cleanedCondition[key])) {
+              delete cleanedCondition[key];
+            }
+          }
+          existingRecord = await queryBuilder.findOneWhere(
+            tableName,
+            cleanedCondition,
+          );
+          if (existingRecord) break;
+        }
+        if (existingRecord) {
+          const hasChanges = this.detectRecordChanges(record, existingRecord);
+          if (hasChanges) {
+            const existingId = existingRecord[idField];
+            await queryBuilder.updateById(tableName, existingId, record);
+            skippedCount++;
+            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+          } else {
+            skippedCount++;
+            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+          }
+          if (this.afterUpsert) {
+            await this.afterUpsert(
+              { ...record, [idField]: existingRecord[idField] },
+              false,
+              context,
+            );
+          }
+        } else {
+          const inserted = await queryBuilder.insertAndGet(tableName, record);
+          const insertedId = inserted[idField];
+          createdCount++;
+          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          if (this.afterUpsert) {
+            await this.afterUpsert(
+              { ...record, [idField]: insertedId },
+              true,
+              context,
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Stack: ${error.stack}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
+      }
+    }
+    return { created: createdCount, skipped: skippedCount };
+  }
+
   async processSql(
     records: any[],
     knex: Knex,
