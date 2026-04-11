@@ -3,13 +3,14 @@ import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { getJunctionColumnNames } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 @Injectable()
 export class HookDefinitionProcessor extends BaseTableProcessor {
   constructor(private readonly queryBuilder: QueryBuilderService) {
     super();
   }
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (hook) => {
         const transformedHook = { ...hook };
@@ -115,7 +116,7 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
     return transformedRecords.filter(Boolean);
   }
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;
       const result = await this.queryBuilder.select({

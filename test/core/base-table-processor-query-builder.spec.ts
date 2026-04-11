@@ -1,4 +1,5 @@
 import { BaseTableProcessor, UpsertResult } from '../../src/core/bootstrap/processors/base-table-processor';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 class TestProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any) {
@@ -7,14 +8,12 @@ class TestProcessor extends BaseTableProcessor {
 }
 
 describe('BaseTableProcessor.processWithQueryBuilder', () => {
-  const prevDb = process.env.DB_TYPE;
-
   afterAll(() => {
-    process.env.DB_TYPE = prevDb;
+    DatabaseConfigService.resetForTesting();
   });
 
   beforeEach(() => {
-    process.env.DB_TYPE = 'mysql';
+    DatabaseConfigService.overrideForTesting('mysql');
   });
 
   it('returns zeros for empty input', async () => {

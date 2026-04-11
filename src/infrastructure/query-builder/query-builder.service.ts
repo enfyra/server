@@ -13,6 +13,7 @@ import {
 import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from './planner/query-planner';
+import { DatabaseConfigService } from '../../shared/services/database-config.service';
 
 let ObjectId: any;
 try {
@@ -34,8 +35,9 @@ export class QueryBuilderService {
     @Optional()
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCache: MetadataCacheService,
+    private readonly databaseConfig: DatabaseConfigService,
   ) {
-    this.dbType = process.env.DB_TYPE as DatabaseType;
+    this.dbType = this.databaseConfig.getDbType();
   }
 
   async runWithPolicy<T>(

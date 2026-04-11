@@ -1,50 +1,37 @@
 import { knex } from 'knex';
 import { parseDatabaseUri } from '../../../src/infrastructure/knex/utils/uri-parser';
+import { resolveDbTypeFromEnv } from '../resolve-db-type';
 
 export async function ensureDatabaseExists(): Promise<void> {
-  const DB_TYPE = process.env.DB_TYPE || 'mysql';
-  
-  let connectionConfig: {
-    host: string;
-    port: number;
-    user: string;
-    password: string;
-    database: string;
-  };
+  const dbType = resolveDbTypeFromEnv();
 
   const DB_URI = process.env.DB_URI;
-  if (DB_URI) {
-    const parsed = parseDatabaseUri(DB_URI);
-    connectionConfig = {
-      host: parsed.host,
-      port: parsed.port,
-      user: parsed.user,
-      password: parsed.password,
-      database: parsed.database,
-    };
-  } else {
-    connectionConfig = {
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || (DB_TYPE === 'postgres' ? 5432 : 3306),
-      user: process.env.DB_USERNAME || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'enfyra',
-    };
+  if (!DB_URI) {
+    throw new Error('DB_URI environment variable is required but not set.');
   }
 
+  const parsed = parseDatabaseUri(DB_URI);
+  const connectionConfig = {
+    host: parsed.host,
+    port: parsed.port,
+    user: parsed.user,
+    password: parsed.password,
+    database: parsed.database,
+  };
+
   const tempKnex = knex({
-    client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
+    client: dbType === 'postgres' ? 'pg' : 'mysql2',
     connection: {
       host: connectionConfig.host,
       port: connectionConfig.port,
       user: connectionConfig.user,
       password: connectionConfig.password,
-      ...(DB_TYPE === 'postgres' && { database: 'postgres' }),
+      ...(dbType === 'postgres' && { database: 'postgres' }),
     },
   });
 
   try {
-    if (DB_TYPE === 'mysql') {
+    if (dbType === 'mysql') {
       const result = await tempKnex.raw(
         `SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?`,
         [connectionConfig.database],
@@ -52,7 +39,7 @@ export async function ensureDatabaseExists(): Promise<void> {
       if (result[0].length === 0) {
         await tempKnex.raw(`CREATE DATABASE IF NOT EXISTS \`${connectionConfig.database}\``);
       }
-    } else if (DB_TYPE === 'postgres') {
+    } else if (dbType === 'postgres') {
       const result = await tempKnex.raw(
         `SELECT 1 FROM pg_database WHERE datname = ?`,
         [connectionConfig.database],

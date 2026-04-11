@@ -356,11 +356,18 @@ export function compareSchemas(
       diff.indexesToAdd.push(group);
     }
   }
+  const fkColumnSet = new Set(
+    currentSchema.foreignKeys.map((fk) => fk.column.toLowerCase()),
+  );
   for (const [key, info] of currentIndexMap.entries()) {
     const existsInSnapshot = snapshotIndexGroups.some(
       (g) => normalizeGroup(g) === key,
     );
     if (!existsInSnapshot) {
+      const isFkBackingIndex =
+        info.columns.length === 1 &&
+        fkColumnSet.has(info.columns[0].toLowerCase());
+      if (isFkBackingIndex) continue;
       diff.indexesToRemove.push({ columns: info.columns, name: info.name });
     }
   }

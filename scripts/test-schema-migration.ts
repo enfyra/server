@@ -5,10 +5,11 @@ import * as dotenv from 'dotenv';
 import { knex } from 'knex';
 import { MongoClient } from 'mongodb';
 import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
+import { resolveDbTypeFromEnv } from './utils/resolve-db-type';
 
 dotenv.config();
 
-const DB_TYPE = process.env.DB_TYPE || 'postgres';
+const DB_TYPE = resolveDbTypeFromEnv();
 const MONGO_URI = process.env.MONGO_URI;
 
 const TEST_TABLE = '_migration_test';

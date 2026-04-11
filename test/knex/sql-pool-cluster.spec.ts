@@ -6,6 +6,7 @@ import {
   splitSqlPoolAcrossReplication,
 } from '../../src/infrastructure/knex/utils/sql-pool-coordination.util';
 import { SqlPoolClusterCoordinatorService } from '../../src/infrastructure/knex/services/sql-pool-cluster-coordinator.service';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 describe('computeCoordinatedPoolMax', () => {
   it('divides budget by instance count', () => {
@@ -82,6 +83,20 @@ function buildCoordinator(
     get: (key: string) => envOverrides[key] ?? undefined,
   } as ConfigService;
 
+  const dbType = envOverrides.DB_URI
+    ? (new URL(envOverrides.DB_URI).protocol.replace(':', '') === 'postgresql'
+        ? 'postgres'
+        : new URL(envOverrides.DB_URI).protocol.replace(':', ''))
+    : envOverrides.DB_TYPE || 'mysql';
+
+  const databaseConfig = {
+    getDbType: () => dbType,
+    isMongoDb: () => dbType === 'mongodb',
+    isSql: () => dbType !== 'mongodb',
+    isPostgres: () => dbType === 'postgres',
+    isMySql: () => dbType === 'mysql',
+  } as DatabaseConfigService;
+
   const redisService = { getOrNil: () => null } as any;
   const eventEmitter = new EventEmitter2();
   const instanceService = { getInstanceId: () => 'test-instance' } as any;
@@ -90,6 +105,7 @@ function buildCoordinator(
   return new SqlPoolClusterCoordinatorService(
     redisService,
     configService,
+    databaseConfig,
     instanceService,
     knexService,
     eventEmitter,

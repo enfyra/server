@@ -3,6 +3,7 @@ import { SqlTableHandlerService } from './sql-table-handler.service';
 import { MongoTableHandlerService } from './mongo-table-handler.service';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { TDynamicContext } from '../../../shared/types';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 @Injectable()
 export class TableHandlerService {
@@ -13,12 +14,11 @@ export class TableHandlerService {
     private sqlTableHandler: SqlTableHandlerService,
     @Inject(forwardRef(() => MongoTableHandlerService))
     private mongoTableHandler: MongoTableHandlerService,
+    private databaseConfig: DatabaseConfigService,
   ) {}
 
   private getHandler() {
-    const dbType = process.env.DB_TYPE || 'mysql';
-
-    if (dbType === 'mongodb') {
+    if (this.databaseConfig.isMongoDb()) {
       return this.mongoTableHandler;
     }
 

@@ -7,6 +7,7 @@ import {
   getUniqueFields,
   FkRelationInfo,
 } from '../utils/snapshot-meta.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 export interface UpsertResult {
   created: number;
   skipped: number;
@@ -32,7 +33,7 @@ export abstract class BaseTableProcessor {
     tableName: string,
     queryBuilder: any,
   ): Promise<any> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const relations = getManyToOneRelations(tableName);
     const transformed = { ...record };
 
@@ -70,7 +71,7 @@ export abstract class BaseTableProcessor {
     record: any,
     tableName: string,
   ): object {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const uniques = getUniqueFields(tableName);
 
     if (uniques.length > 0) {
@@ -108,7 +109,7 @@ export abstract class BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
     const transformedRecords = await this.transformRecords(records, context);
     let createdCount = 0;

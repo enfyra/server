@@ -2,10 +2,15 @@ import { PreHookDefinitionProcessor } from '../../src/core/bootstrap/processors/
 import { PostHookDefinitionProcessor } from '../../src/core/bootstrap/processors/post-hook-definition.processor';
 import { HookDefinitionProcessor } from '../../src/core/bootstrap/processors/hook-definition.processor';
 import { getJunctionColumnNames } from '../../src/infrastructure/knex/utils/sql-schema-naming.util';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 describe('Hook processors junction column naming', () => {
   beforeEach(() => {
-    process.env.DB_TYPE = 'postgres';
+    DatabaseConfigService.overrideForTesting('postgres');
+  });
+
+  afterAll(() => {
+    DatabaseConfigService.resetForTesting();
   });
 
   it('PreHookDefinitionProcessor uses junction snake_case column names', async () => {

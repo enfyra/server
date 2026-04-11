@@ -1,6 +1,7 @@
 import * as knex from 'knex';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { resolveDbTypeFromEnv } from './utils/resolve-db-type';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
@@ -97,8 +98,8 @@ async function main() {
 
   if (target === 'local' || target === 'all') {
     const localUri = process.env.DB_URI;
-    const dbType = process.env.DB_TYPE || 'postgres';
     if (localUri) {
+      const dbType = resolveDbTypeFromEnv();
       await migrate(localUri, dbType, `Local (${dbType})`);
     } else {
       console.log('No DB_URI in .env, skipping local');

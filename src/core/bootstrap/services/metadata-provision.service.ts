@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { MetadataProvisionSqlService } from './metadata-provision-sql.service';
 import { MetadataProvisionMongoService } from './metadata-provision-mongo.service';
 import * as path from 'path';
@@ -12,11 +12,11 @@ export class MetadataProvisionService {
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
     private readonly metadataProvisionSqlService: MetadataProvisionSqlService,
     private readonly metadataProvisionMongoService: MetadataProvisionMongoService,
   ) {
-    this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
+    this.dbType = this.databaseConfig.getDbType();
   }
 
   async waitForDatabaseConnection(

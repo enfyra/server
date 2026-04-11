@@ -10,6 +10,7 @@ import {
   getUniqueFields,
   getLookupKey,
 } from '../../src/core/bootstrap/utils/snapshot-meta.util';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 // ─── snapshot-meta.util ─────────────────────────────────────────
 
@@ -142,8 +143,7 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
   const processor = new TestProcessor();
 
   it('transforms M2O FK fields for SQL (propertyName → propertyNameId)', async () => {
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mysql';
+    DatabaseConfigService.overrideForTesting('mysql');
 
     const mockQb = {
       findOneWhere: jest.fn(async (_table: string, where: any) => {
@@ -166,12 +166,11 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     expect(result.method).toBeUndefined();
     expect(result.logic).toBe('return {}');
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 
   it('transforms M2O FK fields for MongoDB (keeps propertyName, value → ObjectId)', async () => {
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mongodb';
+    DatabaseConfigService.overrideForTesting('mongodb');
 
     const oid = new ObjectId();
     const mockQb = {
@@ -190,12 +189,11 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     expect(result.routeId).toBeUndefined();
     expect(result.logic).toBe('return {}');
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 
   it('skips non-string FK values (already transformed)', async () => {
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mongodb';
+    DatabaseConfigService.overrideForTesting('mongodb');
 
     const existingOid = new ObjectId();
     const mockQb = { findOneWhere: jest.fn() };
@@ -210,12 +208,11 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     expect(result.route).toBe(existingOid);
     expect(mockQb.findOneWhere).not.toHaveBeenCalled();
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 
   it('warns and skips when target record not found', async () => {
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mysql';
+    DatabaseConfigService.overrideForTesting('mysql');
 
     const mockQb = { findOneWhere: jest.fn(async () => null) };
 
@@ -230,7 +227,7 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     expect(result.route).toBe('/nonexistent');
     expect(result.routeId).toBeUndefined();
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 });
 
@@ -248,20 +245,18 @@ describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
   const processor = new TestProcessor();
 
   it('SQL: returns FK fields with Id suffix for relation-based uniques', () => {
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mysql';
+    DatabaseConfigService.overrideForTesting('mysql');
 
     const record = { routeId: 42, methodId: 1, logic: 'x' };
     const result = processor.getUniqueIdentifier(record);
 
     expect(result).toEqual({ routeId: 42, methodId: 1 });
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 
   it('MongoDB: returns relation fields as-is (ObjectId)', () => {
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mongodb';
+    DatabaseConfigService.overrideForTesting('mongodb');
 
     const routeOid = new ObjectId();
     const methodOid = new ObjectId();
@@ -270,7 +265,7 @@ describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
 
     expect(result).toEqual({ route: routeOid, method: methodOid });
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 
   it('handles mixed unique keys (relation + scalar)', () => {
@@ -283,14 +278,13 @@ describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
     }
 
     const proc = new WsProcessor();
-    const oldEnv = process.env.DB_TYPE;
-    process.env.DB_TYPE = 'mysql';
+    DatabaseConfigService.overrideForTesting('mysql');
 
     const record = { gatewayId: 5, eventName: 'message' };
     const result = proc.getUniqueIdentifier(record);
     expect(result).toEqual({ gatewayId: 5, eventName: 'message' });
 
-    process.env.DB_TYPE = oldEnv;
+    DatabaseConfigService.resetForTesting();
   });
 });
 

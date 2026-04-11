@@ -18,6 +18,7 @@ import { CascadeHandler } from './utils/cascade-handler';
 import { FieldStripper } from './utils/field-stripper';
 import { RelationTransformer } from './utils/relation-transformer';
 import { parseDatabaseUri } from './utils/uri-parser';
+import { DatabaseConfigService } from '../../shared/services/database-config.service';
 import { ReplicationManager } from './services/replication-manager.service';
 import {
   SQL_ACQUIRE_TIMEOUT_MS,
@@ -78,6 +79,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCacheService: MetadataCacheService,
     @Optional()
@@ -87,10 +89,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     const start = Date.now();
-    const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
+    const DB_TYPE = this.databaseConfig.getDbType();
     this.dbType = DB_TYPE;
 
-    if (DB_TYPE === 'mongodb') {
+    if (this.databaseConfig.isMongoDb()) {
       return;
     }
 
@@ -139,7 +141,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
           host: this.configService.get<string>('DB_HOST') || 'localhost',
           port:
             this.configService.get<number>('DB_PORT') ||
-            (DB_TYPE === 'postgres' ? 5432 : 3306),
+            (this.databaseConfig.isPostgres() ? 5432 : 3306),
           user: this.configService.get<string>('DB_USERNAME') || 'root',
           password: this.configService.get<string>('DB_PASSWORD') || '',
           database: this.configService.get<string>('DB_NAME') || 'enfyra',
@@ -147,7 +149,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       }
 
       this.knexInstance = knex({
-        client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
+        client: this.databaseConfig.isPostgres() ? 'pg' : 'mysql2',
         connection: {
           host: connectionConfig.host,
           port: connectionConfig.port,
@@ -168,6 +170,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         pool: {
           min: SQL_BOOTSTRAP_POOL_MIN,
           max: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
+          afterCreate: this.databaseConfig.isMySql()
+            ? (conn: any, done: (err: any, conn: any) => void) => {
+                conn.query(
+                  'SET SESSION sort_buffer_size = 67108864, SESSION group_concat_max_len = 16777216',
+                  (err: any) => done(err, conn),
+                );
+              }
+            : undefined,
         },
         acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,
@@ -650,58 +660,79 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       return newQb;
     };
 
+    const ensureTransaction = async <T>(
+      run: () => Promise<T>,
+    ): Promise<T> => {
+      const activeKnex = self.getActiveKnex();
+      if ('commit' in activeKnex) {
+        return run();
+      }
+      return activeKnex.transaction(async (trx) => {
+        const { getIoAbortSignal } = await import(
+          '../executor-engine/services/isolated-executor.service'
+        );
+        const signal = getIoAbortSignal();
+        if (signal) {
+          const onAbort = () => {
+            if (!trx.isCompleted()) trx.rollback().catch(() => {});
+          };
+          if (signal.aborted) throw new Error('Operation aborted');
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+        return self.knexContext.run(trx, run);
+      });
+    };
+
     qb.insert = async function (data: any, ...rest: any[]) {
       const masterQb = getMasterQueryBuilder();
       const cascadeMap =
         self.cascadeContext.getStore() || new Map<string, any>();
-      return self.cascadeContext.run(cascadeMap, async () => {
-        const processedData = await self.runHooks(
-          'beforeInsert',
-          tableName,
-          data,
-        );
-        const result = await originalInsert.call(
-          masterQb,
-          processedData,
-          ...rest,
-        );
-        return self.runHooks('afterInsert', tableName, result);
-      });
+      const runInsert = () =>
+        self.cascadeContext.run(cascadeMap, async () => {
+          const processedData = await self.runHooks(
+            'beforeInsert',
+            tableName,
+            data,
+          );
+          const result = await originalInsert.call(
+            masterQb,
+            processedData,
+            ...rest,
+          );
+          return self.runHooks('afterInsert', tableName, result);
+        });
+      return ensureTransaction(runInsert);
     };
 
     qb.update = async function (data: any, ...rest: any[]) {
       const masterQb = getMasterQueryBuilder();
       const cascadeMap =
         self.cascadeContext.getStore() || new Map<string, any>();
-      return self.cascadeContext.run(cascadeMap, async () => {
-        const processedData = await self.runHooks(
-          'beforeUpdate',
-          tableName,
-          data,
-        );
-        const result = await originalUpdate.call(
-          masterQb,
-          processedData,
-          ...rest,
-        );
-        return self.runHooks('afterUpdate', tableName, result);
-      });
+      const runUpdate = () =>
+        self.cascadeContext.run(cascadeMap, async () => {
+          const processedData = await self.runHooks(
+            'beforeUpdate',
+            tableName,
+            data,
+          );
+          const result = await originalUpdate.call(
+            masterQb,
+            processedData,
+            ...rest,
+          );
+          return self.runHooks('afterUpdate', tableName, result);
+        });
+      return ensureTransaction(runUpdate);
     };
 
     qb.delete = qb.del = async function (...args: any[]) {
       const masterQb = getMasterQueryBuilder();
-      const activeKnex = self.getActiveKnex();
       const runDelete = async () => {
         await self.runHooks('beforeDelete', tableName, args);
         const result = await originalDelete.call(masterQb, ...args);
         return self.runHooks('afterDelete', tableName, result);
       };
-      if ('commit' in activeKnex) {
-        return runDelete();
-      }
-      return activeKnex.transaction(async (trx) => {
-        return self.knexContext.run(trx, runDelete);
-      });
+      return ensureTransaction(runDelete);
     };
 
     qb.then = function (onFulfilled: any, onRejected: any) {
@@ -875,9 +906,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getTableNames(): Promise<string[]> {
-    const DB_TYPE = this.configService.get<string>('DB_TYPE') || 'mysql';
-
-    if (DB_TYPE === 'postgres') {
+    if (this.databaseConfig.isPostgres()) {
       const result = await this.knexInstance.raw(`
         SELECT tablename 
         FROM pg_tables 

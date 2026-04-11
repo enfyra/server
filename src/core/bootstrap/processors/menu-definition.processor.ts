@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 @Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
@@ -315,7 +316,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
     let totalCreated = 0;
     let totalSkipped = 0;
@@ -385,7 +386,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     for (const record of records) {
       const transformed = { ...record };
@@ -446,7 +447,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return conditions;
   }
   protected getCompareFields(): string[] {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const parentField = isMongoDB ? 'parent' : 'parentId';
     return [
       'type',

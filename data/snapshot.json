@@ -51,7 +51,7 @@
         ],
         "relations": [
             { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table where this relation is defined" },
-            { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": false, "description": "The table that this relation points to" },
+            { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": true, "description": "The table that this relation points to" },
             { "propertyName": "mappedBy", "type": "many-to-one", "targetTable": "relation_definition", "isSystem": true, "isNullable": true, "onDelete": "CASCADE", "description": "Owning-side relation that this inverse maps to (self-referencing FK)" }
         ]
     },
@@ -463,7 +463,7 @@
             { "name": "lastError", "type": "text", "isNullable": true, "isSystem": true, "description": "Last error message from install/update/uninstall operation" }
         ],
         "relations": [
-            { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "description": "User who installed this package" }
+            { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who installed this package" }
         ]
     },
     "bootstrap_script_definition": {

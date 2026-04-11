@@ -18,7 +18,9 @@ import {
 } from 'mongodb';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
+import { ConfigService } from '@nestjs/config';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import {
   MongoSagaCoordinator,
   MongoSagaSession,
@@ -60,6 +62,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   private readonly appTxSessionAls = new AsyncLocalStorage<MongoSagaSession>();
 
   constructor(
+    private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCache: MetadataCacheService,
     @Optional()
@@ -112,16 +116,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    const dbType = process.env.DB_TYPE;
-
-    if (dbType !== 'mongodb') {
+    if (!this.databaseConfig.isMongoDb()) {
       return;
     }
 
-    const uri = process.env.MONGO_URI;
+    const uri =
+      this.configService.get<string>('MONGO_URI') ||
+      this.configService.get<string>('DB_URI');
 
     if (!uri) {
-      throw new Error('MONGO_URI is not defined in environment variables');
+      throw new Error(
+        'MONGO_URI or DB_URI is not defined in environment variables',
+      );
     }
 
     try {

@@ -10,6 +10,7 @@ import { RedisService } from '@liaoliaots/nestjs-redis';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { KnexService } from '../knex.service';
 import { ReplicationManager } from './replication-manager.service';
@@ -39,6 +40,7 @@ export class SqlPoolClusterCoordinatorService
   constructor(
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
     private readonly instanceService: InstanceService,
     private readonly knexService: KnexService,
     private readonly eventEmitter: EventEmitter2,
@@ -57,11 +59,10 @@ export class SqlPoolClusterCoordinatorService
       host = parsed.host;
       port = parsed.port;
     } else {
-      const dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
       host = this.configService.get<string>('DB_HOST') || 'localhost';
       port =
         this.configService.get<number>('DB_PORT') ||
-        (dbType === 'postgres' ? 5432 : 3306);
+        (this.databaseConfig.isPostgres() ? 5432 : 3306);
     }
     return createHash('sha256')
       .update(`${host}:${port}`)
@@ -70,8 +71,7 @@ export class SqlPoolClusterCoordinatorService
   }
 
   onApplicationBootstrap(): void {
-    const dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
-    if (dbType === 'mongodb') {
+    if (this.databaseConfig.isMongoDb()) {
       return;
     }
     this.redis = this.redisService.getOrNil();
@@ -135,9 +135,8 @@ export class SqlPoolClusterCoordinatorService
   }
 
   private async fetchServerMaxConnections(): Promise<number | null> {
-    const dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
     try {
-      if (dbType === 'postgres') {
+      if (this.databaseConfig.isPostgres()) {
         const r = await this.knexService.raw(
           `SELECT setting::int AS v FROM pg_settings WHERE name = 'max_connections'`,
         );
@@ -146,7 +145,7 @@ export class SqlPoolClusterCoordinatorService
         const n = typeof v === 'number' ? v : parseInt(String(v), 10);
         return Number.isFinite(n) ? n : null;
       }
-      if (dbType === 'mysql' || dbType === 'mariadb') {
+      if (this.databaseConfig.isMySql()) {
         const r = await this.knexService.raw(
           `SHOW VARIABLES LIKE 'max_connections'`,
         );
@@ -168,8 +167,7 @@ export class SqlPoolClusterCoordinatorService
     if (!this.redis) {
       return;
     }
-    const dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
-    if (dbType === 'mongodb') {
+    if (this.databaseConfig.isMongoDb()) {
       return;
     }
     try {

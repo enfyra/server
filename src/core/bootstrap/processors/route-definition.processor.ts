@@ -7,13 +7,14 @@ import {
   isCanonicalTableRoutePath,
   REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 @Injectable()
 export class RouteDefinitionProcessor extends BaseTableProcessor {
   constructor(private readonly queryBuilder: QueryBuilderService) {
     super();
   }
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
@@ -94,7 +95,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     return transformedRecords.filter(Boolean);
   }
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     if (
       !isMongoDB &&
       record._publishedMethods &&

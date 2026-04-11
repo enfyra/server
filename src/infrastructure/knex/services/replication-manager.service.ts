@@ -13,6 +13,7 @@ import {
   SQL_BOOTSTRAP_POOL_MIN,
 } from '../../../shared/utils/auto-scaling.constants';
 import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 export interface ReplicaNode {
   knex: Knex;
   uri: string;
@@ -29,8 +30,11 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ReplicationManager.name);
   private readonly dbType: string;
   private healthCheckInterval?: NodeJS.Timeout;
-  constructor(private readonly configService: ConfigService) {
-    this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
+  ) {
+    this.dbType = this.databaseConfig.getDbType();
   }
   async onModuleInit() {
     const DB_URI = this.configService.get<string>('DB_URI');
@@ -126,6 +130,15 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       pool: {
         min: poolMinSize,
         max: poolMaxSize,
+        afterCreate:
+          this.dbType === 'mysql'
+            ? (conn: any, done: (err: any, conn: any) => void) => {
+                conn.query(
+                  'SET SESSION sort_buffer_size = 67108864, SESSION group_concat_max_len = 16777216',
+                  (err: any) => done(err, conn),
+                );
+              }
+            : undefined,
       },
       acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
       debug: false,

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -40,7 +40,7 @@ export class DataProvisionService {
 
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
     private readonly bcryptService: BcryptService,
     private readonly userProcessor: UserDefinitionProcessor,
     private readonly menuProcessor: MenuDefinitionProcessor,
@@ -60,7 +60,7 @@ export class DataProvisionService {
     private readonly flowStepDefinitionProcessor: FlowStepDefinitionProcessor,
     private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor,
   ) {
-    this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
+    this.dbType = this.databaseConfig.getDbType();
     this.initializeProcessors();
   }
 

@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import {
   getJunctionTableName,
@@ -17,11 +17,11 @@ export class MetadataProvisionSqlService {
   private readonly dbType: string;
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    private readonly configService: ConfigService,
+    private readonly databaseConfig: DatabaseConfigService,
     @Inject(forwardRef(() => SqlSchemaMigrationService))
     private readonly schemaMigrationService: SqlSchemaMigrationService,
   ) {
-    this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
+    this.dbType = this.databaseConfig.getDbType();
   }
   private async insertAndGetId(
     trx: any,

@@ -1,19 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { KnexService } from '../knex.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 @Injectable()
 export class DatabaseSchemaService {
   private readonly logger = new Logger(DatabaseSchemaService.name);
 
-  constructor(private readonly knexService: KnexService) {}
+  constructor(
+    private readonly knexService: KnexService,
+    private readonly databaseConfig: DatabaseConfigService,
+  ) {}
 
   async getAllTableSchemas(): Promise<Map<string, any>> {
     const knex = this.knexService.getKnex();
-    const dbType = process.env.DB_TYPE;
 
-    if (dbType === 'mysql') {
+    if (this.databaseConfig.isMySql()) {
       return this.getAllMySQLTableSchemas(knex);
-    } else if (dbType === 'postgres') {
+    } else if (this.databaseConfig.isPostgres()) {
       return this.getAllPostgreSQLTableSchemas(knex);
     }
     return new Map();
@@ -218,14 +221,12 @@ export class DatabaseSchemaService {
 
   async getActualTableSchema(tableName: string): Promise<any> {
     const knex = this.knexService.getKnex();
-    const dbType = process.env.DB_TYPE || 'mysql';
-
-    if (dbType === 'mysql') {
+    if (this.databaseConfig.isMySql()) {
       return await this.getMySQLTableSchema(tableName, knex);
-    } else if (dbType === 'postgres') {
+    } else if (this.databaseConfig.isPostgres()) {
       return await this.getPostgreSQLTableSchema(tableName, knex);
     } else {
-      throw new Error(`Unsupported database type: ${dbType}`);
+      throw new Error(`Unsupported database type: ${this.databaseConfig.getDbType()}`);
     }
   }
 

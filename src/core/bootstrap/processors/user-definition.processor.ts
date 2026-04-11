@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 @Injectable()
 export class UserDefinitionProcessor extends BaseTableProcessor {
@@ -13,7 +14,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformed = {

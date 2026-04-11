@@ -147,6 +147,32 @@ export async function buildNestedSubquery(
   const parentPkColumn = getPrimaryKeyColumn(parentMeta);
   const parentPkName = parentPkColumn?.name || 'id';
 
+  const buildNarrowSelect = (alias: string, extraCols: string[] = []): string => {
+    const needed = new Set<string>();
+    needed.add(targetPkName);
+    for (const col of targetMeta.columns) {
+      if (rootFields.includes('*') || rootFields.includes(col.name)) {
+        needed.add(col.name);
+      }
+    }
+    // Include FK columns needed by nested sub-relations (M2O/O2O WHERE clauses)
+    for (const rel of targetMeta.relations || []) {
+      if (
+        subRelations.has(rel.propertyName) &&
+        (rel.type === 'many-to-one' ||
+          (rel.type === 'one-to-one' && !(rel as any).isInverse))
+      ) {
+        const fkCol =
+          rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+        needed.add(fkCol);
+      }
+    }
+    for (const c of extraCols) needed.add(c);
+    return [...needed]
+      .map((c) => `${alias}.${quoteIdentifier(c, dbType)}`)
+      .join(', ');
+  };
+
   if (
     relation.type === 'many-to-one' ||
     (relation.type === 'one-to-one' && !(relation as any).isInverse)
@@ -188,11 +214,15 @@ export async function buildNestedSubquery(
       }
     }
 
-    const orderByInAgg = ` ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC`;
     const jsonArrayAgg = getJsonArrayAggFunc(dbType);
     const emptyArray = getEmptyJsonArray(dbType);
     const leftSide = `${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`;
     const rightSide = `${parentRef}.${quoteIdentifier(parentPkName, dbType)}`;
+    if (dbType === 'mysql') {
+      const narrowCols = buildNarrowSelect(nextAlias, [fkColumn]);
+      return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from (select ${narrowCols} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC) ${nextAlias})`;
+    }
+    const orderByInAgg = ` ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC`;
     return `(select ${jsonArrayAgg}(${jsonObject}${orderByInAgg}), ${emptyArray}) from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide})`;
   } else if (relation.type === 'many-to-many') {
     const junctionTable = relation.junctionTableName;
@@ -223,8 +253,11 @@ export async function buildNestedSubquery(
     const whereLeft = `${jAlias}.${quoteIdentifier(junctionSourceCol, dbType)}`;
     const whereRight = `${parentRef}.${quoteIdentifier(parentPkName, dbType)}`;
 
+    if (dbType === 'mysql') {
+      const narrowCols = buildNarrowSelect(nextAlias);
+      return `(select ${jsonArrayAgg}(${jsonObject}), ${emptyArray}) from (select ${narrowCols} from ${quoteIdentifier(junctionTable, dbType)} ${jAlias} join ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight} ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC) ${nextAlias})`;
+    }
     const orderByInAgg = ` ORDER BY ${nextAlias}.${quoteIdentifier(targetPkName, dbType)} ASC`;
-
     return `(select ${jsonArrayAgg}(${jsonObject}${orderByInAgg}), ${emptyArray}) from ${quoteIdentifier(junctionTable, dbType)} ${jAlias} join ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} on ${joinLeft} = ${joinRight} where ${whereLeft} = ${whereRight})`;
   }
 
@@ -381,6 +414,10 @@ export async function buildCTEStrategy(
   parentIdColumn: string = 'id',
   maxDepth?: number,
 ): Promise<string | null> {
+  if (dbType === 'mysql') {
+    return null;
+  }
+
   const relation = parentMeta.relations?.find(
     (r) => r.propertyName === relationName,
   );
@@ -525,15 +562,10 @@ export async function buildCTEStrategy(
     const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
 
-    const orderByClause =
-      dbType === 'postgres' || dbType === 'mysql'
-        ? ` ORDER BY r.${quotedTargetPk} ASC`
-        : '';
-
     return `${quotedCTEName} AS (
       SELECT
         r.${quotedFkCol} as ${quotedParentIdCol},
-        ${jsonArrayAgg}(${jsonObject}${orderByClause}), ${emptyArray}) as ${quotedRelationName}
+        ${jsonArrayAgg}(${jsonObject} ORDER BY r.${quotedTargetPk} ASC), ${emptyArray}) as ${quotedRelationName}
       FROM ${quotedTargetTable} r
       INNER JOIN ${quotedLimitedCTE} l ON r.${quotedFkCol} = l.${quotedParentId}
       GROUP BY r.${quotedFkCol}
@@ -558,15 +590,10 @@ export async function buildCTEStrategy(
     const quotedParentIdCol = quoteIdentifier('parent_id', dbType);
     const quotedTargetPk = quoteIdentifier(targetPkName, dbType);
 
-    const orderByClause =
-      dbType === 'postgres' || dbType === 'mysql'
-        ? ` ORDER BY r.${quotedTargetPk} ASC`
-        : '';
-
     return `${quotedCTEName} AS (
       SELECT
         j.${quotedJunctionSourceCol} as ${quotedParentIdCol},
-        ${jsonArrayAgg}(${jsonObject}${orderByClause}), ${emptyArray}) as ${quotedRelationName}
+        ${jsonArrayAgg}(${jsonObject} ORDER BY r.${quotedTargetPk} ASC), ${emptyArray}) as ${quotedRelationName}
       FROM ${quotedJunctionTable} j
       INNER JOIN ${quotedTargetTable} r ON j.${quotedJunctionTargetCol} = r.${quotedTargetPk}
       INNER JOIN ${quotedLimitedCTE} l ON j.${quotedJunctionSourceCol} = l.${quotedParentId}

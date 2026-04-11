@@ -70,8 +70,17 @@
       "relationsToRemove": ["allowedUsers"]
     },
     {
+      "_unique": { "name": { "_eq": "package_definition" } },
+      "relationsToModify": [
+        { "from": { "propertyName": "installedBy", "isNullable": false }, "to": { "propertyName": "installedBy", "isNullable": true } }
+      ]
+    },
+    {
       "_unique": { "name": { "_eq": "relation_definition" } },
-      "columnsToRemove": ["isHidden", "inversePropertyName", "mappedBy"]
+      "columnsToRemove": ["isHidden", "inversePropertyName", "mappedBy"],
+      "relationsToModify": [
+        { "from": { "propertyName": "targetTable", "isNullable": false }, "to": { "propertyName": "targetTable", "isNullable": true } }
+      ]
     },
     {
       "_unique": { "name": { "_eq": "websocket_definition" } },
