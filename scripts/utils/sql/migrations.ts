@@ -429,32 +429,44 @@ export async function applyRelationMigrations(
         console.log(`    + ${fkColumn} → ${rel.targetTable}.id`);
         const targetPkType = getPrimaryKeyType(schemas, rel.targetTable);
         const dbType = knex.client.config.client;
-        await knex.schema.alterTable(tableName, (table) => {
-          let col;
-          if (targetPkType === 'uuid') {
-            if (dbType === 'pg') {
-              col = table.uuid(fkColumn);
-            } else {
-              col = table.string(fkColumn, 36);
-            }
-          } else {
-            col = table.integer(fkColumn).unsigned();
+        try {
+          const hasCol = await knex.schema.hasColumn(tableName, fkColumn);
+          if (!hasCol) {
+            await knex.schema.alterTable(tableName, (table) => {
+              let col;
+              if (targetPkType === 'uuid') {
+                if (dbType === 'pg') {
+                  col = table.uuid(fkColumn);
+                } else {
+                  col = table.string(fkColumn, 36);
+                }
+              } else {
+                col = table.integer(fkColumn).unsigned();
+              }
+              if (rel.isNullable === false) {
+                col.notNullable();
+              } else {
+                col.nullable();
+              }
+            });
           }
-          if (rel.isNullable === false) {
-            col.notNullable();
+          await knex.schema.alterTable(tableName, (table) => {
+            const fk = table
+              .foreign(fkColumn)
+              .references('id')
+              .inTable(rel.targetTable);
+            const onDeleteAction = (rel as any).onDelete || 'SET NULL';
+            fk.onDelete(onDeleteAction).onUpdate('CASCADE');
+            table.index([fkColumn]);
+          });
+        } catch (error) {
+          const msg = (error?.message || '').toLowerCase();
+          if (msg.includes('already exists') || msg.includes('duplicate')) {
+            console.log(`    ⏩ Relation ${fkColumn} already exists on ${tableName}`);
           } else {
-            col.nullable();
+            console.error(`    ❌ Failed to add relation ${fkColumn} on ${tableName}:`, error.message);
           }
-        });
-        await knex.schema.alterTable(tableName, (table) => {
-          const fk = table
-            .foreign(fkColumn)
-            .references('id')
-            .inTable(rel.targetTable);
-          const onDeleteAction = (rel as any).onDelete || 'SET NULL';
-          fk.onDelete(onDeleteAction).onUpdate('CASCADE');
-          table.index([fkColumn]);
-        });
+        }
       }
     }
   }

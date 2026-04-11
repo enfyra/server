@@ -50,29 +50,29 @@ export async function addForeignKeys(
     return;
   }
 
-  const BATCH = 5;
-  for (let i = 0; i < fkOperations.length; i += BATCH) {
-    await Promise.all(
-      fkOperations.slice(i, i + BATCH).map(async (fkOp) => {
-        console.log(
-          `  Adding FK: ${fkOp.tableName}.${fkOp.foreignKeyColumn} → ${fkOp.targetTable}.id (onDelete: ${fkOp.onDelete})`,
-        );
-        try {
-          await knex.schema.alterTable(fkOp.tableName, (table) => {
-            const fk = table
-              .foreign(fkOp.foreignKeyColumn)
-              .references('id')
-              .inTable(fkOp.targetTable);
-
-            fk.onDelete(fkOp.onDelete).onUpdate('CASCADE');
-
-            table.index([fkOp.foreignKeyColumn]);
-          });
-        } catch (error) {
-          console.log(`  ⚠️ FK constraint already exists: ${fkOp.tableName}.${fkOp.foreignKeyColumn}`);
-        }
-      }),
+  for (const fkOp of fkOperations) {
+    console.log(
+      `  Adding FK: ${fkOp.tableName}.${fkOp.foreignKeyColumn} → ${fkOp.targetTable}.id (onDelete: ${fkOp.onDelete})`,
     );
+    try {
+      await knex.schema.alterTable(fkOp.tableName, (table) => {
+        const fk = table
+          .foreign(fkOp.foreignKeyColumn)
+          .references('id')
+          .inTable(fkOp.targetTable);
+
+        fk.onDelete(fkOp.onDelete).onUpdate('CASCADE');
+
+        table.index([fkOp.foreignKeyColumn]);
+      });
+    } catch (error) {
+      const msg = (error?.message || '').toLowerCase();
+      if (msg.includes('already exists') || msg.includes('duplicate')) {
+        console.log(`  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.foreignKeyColumn}`);
+      } else {
+        console.error(`  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.foreignKeyColumn}:`, error.message);
+      }
+    }
   }
 
   console.log('✅ Foreign keys added');

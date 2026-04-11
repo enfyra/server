@@ -37,7 +37,6 @@ export class MetadataProvisionSqlService {
     }
   }
   async createInitMetadata(snapshot: any): Promise<void> {
-    const BATCH = 5;
     const qb = this.queryBuilder.getConnection();
     await qb.transaction(async (trx) => {
       const tableNameToId: Record<string, number> = {};
@@ -45,39 +44,35 @@ export class MetadataProvisionSqlService {
       const tableEntries = Object.entries(snapshot);
       const existingTables: any[] = await trx('table_definition').select('*');
       const existingTableMap = new Map<string, any>(existingTables.map((t: any) => [t.name, t]));
-      for (let i = 0; i < tableEntries.length; i += BATCH) {
-        await Promise.all(
-          tableEntries.slice(i, i + BATCH).map(async ([name, defRaw]) => {
-            const def = defRaw as any;
-            const exist = existingTableMap.get(def.name);
-            if (exist) {
-              tableNameToId[name] = exist.id;
-              const { columns, relations, ...rest } = def;
-              if (this.detectTableChanges(rest, exist)) {
-                await trx('table_definition').where('id', exist.id).update({
-                  isSystem: rest.isSystem,
-                  isSingleRecord: rest.isSingleRecord || false,
-                  alias: rest.alias,
-                  description: rest.description,
-                  uniques: JSON.stringify(rest.uniques || []),
-                  indexes: JSON.stringify(rest.indexes || []),
-                });
-              }
-            } else {
-              const { columns, relations, ...rest } = def;
-              const insertedId = await this.insertAndGetId(trx, 'table_definition', {
-                name: rest.name,
-                isSystem: rest.isSystem || false,
-                isSingleRecord: rest.isSingleRecord || false,
-                alias: rest.alias,
-                description: rest.description,
-                uniques: JSON.stringify(rest.uniques || []),
-                indexes: JSON.stringify(rest.indexes || []),
-              });
-              tableNameToId[name] = insertedId;
-            }
-          }),
-        );
+      for (const [name, defRaw] of tableEntries) {
+        const def = defRaw as any;
+        const exist = existingTableMap.get(def.name);
+        if (exist) {
+          tableNameToId[name] = exist.id;
+          const { columns, relations, ...rest } = def;
+          if (this.detectTableChanges(rest, exist)) {
+            await trx('table_definition').where('id', exist.id).update({
+              isSystem: rest.isSystem,
+              isSingleRecord: rest.isSingleRecord || false,
+              alias: rest.alias,
+              description: rest.description,
+              uniques: JSON.stringify(rest.uniques || []),
+              indexes: JSON.stringify(rest.indexes || []),
+            });
+          }
+        } else {
+          const { columns, relations, ...rest } = def;
+          const insertedId = await this.insertAndGetId(trx, 'table_definition', {
+            name: rest.name,
+            isSystem: rest.isSystem || false,
+            isSingleRecord: rest.isSingleRecord || false,
+            alias: rest.alias,
+            description: rest.description,
+            uniques: JSON.stringify(rest.uniques || []),
+            indexes: JSON.stringify(rest.indexes || []),
+          });
+          tableNameToId[name] = insertedId;
+        }
       }
       this.logger.log(`Phase 1 done: ${Object.keys(tableNameToId).length} tables`);
 
@@ -88,46 +83,42 @@ export class MetadataProvisionSqlService {
         if (!columnsByTable.has(col.tableId)) columnsByTable.set(col.tableId, new Map());
         columnsByTable.get(col.tableId)!.set(col.name, col);
       }
-      for (let i = 0; i < tableEntries.length; i += BATCH) {
-        await Promise.all(
-          tableEntries.slice(i, i + BATCH).map(async ([name, defRaw]) => {
-            const def = defRaw as any;
-            const tableId = tableNameToId[name];
-            if (!tableId) return;
-            const existingColumnsMap = columnsByTable.get(tableId) || new Map();
-            for (const snapshotCol of def.columns || []) {
-              const existingCol = existingColumnsMap.get(snapshotCol.name);
-              if (!existingCol) {
-                await trx('column_definition').insert({
-                  name: snapshotCol.name,
-                  type: snapshotCol.type,
-                  isPrimary: snapshotCol.isPrimary || false,
-                  isGenerated: snapshotCol.isGenerated || false,
-                  isNullable: snapshotCol.isNullable ?? true,
-                  isSystem: snapshotCol.isSystem || false,
-                  isUpdatable: snapshotCol.isUpdatable ?? true,
-                  isPublished: snapshotCol.isPublished ?? true,
-                  defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
-                  options: JSON.stringify(snapshotCol.options || null),
-                  description: snapshotCol.description,
-                  placeholder: snapshotCol.placeholder,
-                  tableId,
-                });
-              } else if (this.detectColumnChanges(snapshotCol, existingCol)) {
-                await trx('column_definition').where('id', existingCol.id).update({
-                  type: snapshotCol.type,
-                  isNullable: snapshotCol.isNullable ?? true,
-                  isPrimary: snapshotCol.isPrimary || false,
-                  isGenerated: snapshotCol.isGenerated || false,
-                  defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
-                  options: JSON.stringify(snapshotCol.options || null),
-                  isUpdatable: snapshotCol.isUpdatable ?? true,
-                  isPublished: snapshotCol.isPublished ?? true,
-                });
-              }
-            }
-          }),
-        );
+      for (const [name, defRaw] of tableEntries) {
+        const def = defRaw as any;
+        const tableId = tableNameToId[name];
+        if (!tableId) continue;
+        const existingColumnsMap = columnsByTable.get(tableId) || new Map();
+        for (const snapshotCol of def.columns || []) {
+          const existingCol = existingColumnsMap.get(snapshotCol.name);
+          if (!existingCol) {
+            await trx('column_definition').insert({
+              name: snapshotCol.name,
+              type: snapshotCol.type,
+              isPrimary: snapshotCol.isPrimary || false,
+              isGenerated: snapshotCol.isGenerated || false,
+              isNullable: snapshotCol.isNullable ?? true,
+              isSystem: snapshotCol.isSystem || false,
+              isUpdatable: snapshotCol.isUpdatable ?? true,
+              isPublished: snapshotCol.isPublished ?? true,
+              defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
+              options: JSON.stringify(snapshotCol.options || null),
+              description: snapshotCol.description,
+              placeholder: snapshotCol.placeholder,
+              tableId,
+            });
+          } else if (this.detectColumnChanges(snapshotCol, existingCol)) {
+            await trx('column_definition').where('id', existingCol.id).update({
+              type: snapshotCol.type,
+              isNullable: snapshotCol.isNullable ?? true,
+              isPrimary: snapshotCol.isPrimary || false,
+              isGenerated: snapshotCol.isGenerated || false,
+              defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
+              options: JSON.stringify(snapshotCol.options || null),
+              isUpdatable: snapshotCol.isUpdatable ?? true,
+              isPublished: snapshotCol.isPublished ?? true,
+            });
+          }
+        }
       }
       this.logger.log('Phase 2 done');
 
@@ -229,16 +220,9 @@ export class MetadataProvisionSqlService {
         }
       };
 
-      for (let i = 0; i < owningRelations.length; i += BATCH) {
-        const batch = owningRelations.slice(i, i + BATCH);
-        const results = await Promise.all(
-          batch.map(({ tableName, tableId, relation: rel }) =>
-            upsertRelation(tableName, tableId, rel, null, false).then(id => ({ key: `${tableName}.${rel.propertyName}`, id })),
-          ),
-        );
-        for (const { key, id } of results) {
-          if (id) relationIdMap.set(key, id);
-        }
+      for (const { tableName, tableId, relation: rel } of owningRelations) {
+        const id = await upsertRelation(tableName, tableId, rel, null, false);
+        if (id) relationIdMap.set(`${tableName}.${rel.propertyName}`, id);
       }
 
       const processedInverseKeys = new Set<string>();
@@ -275,16 +259,11 @@ export class MetadataProvisionSqlService {
   private async syncPhysicalSchemaFromMetadata(snapshot: any): Promise<void> {
     const qb = this.queryBuilder.getConnection();
     const schemas = parseSnapshotToSchema(snapshot);
-    const BATCH = 5;
-    for (let i = 0; i < schemas.length; i += BATCH) {
-      await Promise.all(
-        schemas.slice(i, i + BATCH).map(async (schema) => {
-          const exists = await qb.schema.hasTable(schema.tableName);
-          if (exists) {
-            await syncTable(qb, schema, schemas);
-          }
-        }),
-      );
+    for (const schema of schemas) {
+      const exists = await qb.schema.hasTable(schema.tableName);
+      if (exists) {
+        await syncTable(qb, schema, schemas);
+      }
     }
     await syncJunctionTables(qb, schemas);
   }

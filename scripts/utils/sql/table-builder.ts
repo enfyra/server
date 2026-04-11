@@ -229,18 +229,22 @@ export async function createAllTables(
 ): Promise<void> {
   console.log('🚀 Creating all tables...');
 
-  const BATCH = 5;
-  for (let i = 0; i < schemas.length; i += BATCH) {
-    await Promise.all(
-      schemas.slice(i, i + BATCH).map(async (schema) => {
-        const exists = await knex.schema.hasTable(schema.tableName);
-        if (!exists) {
-          await createTable(knex, schema, dbType, schemas);
+  for (const schema of schemas) {
+    const exists = await knex.schema.hasTable(schema.tableName);
+    if (!exists) {
+      try {
+        await createTable(knex, schema, dbType, schemas);
+      } catch (error) {
+        const nowExists = await knex.schema.hasTable(schema.tableName);
+        if (nowExists) {
+          console.log(`⏩ Table created by another instance: ${schema.tableName}`);
         } else {
-          console.log(`⏩ Table already exists: ${schema.tableName}`);
+          throw error;
         }
-      }),
-    );
+      }
+    } else {
+      console.log(`⏩ Table already exists: ${schema.tableName}`);
+    }
   }
 
   await addForeignKeys(knex, schemas, dbType);

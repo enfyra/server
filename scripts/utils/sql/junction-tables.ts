@@ -46,52 +46,61 @@ export async function createJunctionTables(
     const sourcePkType = getPrimaryKeyType(schemas, junction.sourceTable);
     const targetPkType = getPrimaryKeyType(schemas, junction.targetTable);
 
-    await knex.schema.createTable(junction.tableName, (table) => {
-      let sourceCol;
-      if (sourcePkType === 'uuid') {
-        sourceCol = table.uuid(junction.sourceColumn).notNullable();
+    try {
+      await knex.schema.createTable(junction.tableName, (table) => {
+        let sourceCol;
+        if (sourcePkType === 'uuid') {
+          sourceCol = table.uuid(junction.sourceColumn).notNullable();
+        } else {
+          sourceCol = table.integer(junction.sourceColumn).unsigned().notNullable();
+        }
+
+        const sourceFk = sourceCol
+          .references('id')
+          .inTable(junction.sourceTable)
+          .onDelete('CASCADE')
+          .onUpdate('CASCADE');
+
+        const sourceFkName = getShortFkConstraintName(junction.tableName, junction.sourceColumn, 'src');
+        sourceFk.withKeyName(sourceFkName);
+
+        let targetCol;
+        if (targetPkType === 'uuid') {
+          targetCol = table.uuid(junction.targetColumn).notNullable();
+        } else {
+          targetCol = table.integer(junction.targetColumn).unsigned().notNullable();
+        }
+
+        const targetFk = targetCol
+          .references('id')
+          .inTable(junction.targetTable)
+          .onDelete('CASCADE')
+          .onUpdate('CASCADE');
+
+        const targetFkName = getShortFkConstraintName(junction.tableName, junction.targetColumn, 'tgt');
+        targetFk.withKeyName(targetFkName);
+
+        const pkName = getShortPkName(junction.tableName);
+        table.primary([junction.sourceColumn, junction.targetColumn], pkName);
+
+        const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
+        const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
+        const reverseIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'rev');
+
+        table.index([junction.sourceColumn], sourceIndexName);
+        table.index([junction.targetColumn], targetIndexName);
+        table.index([junction.targetColumn, junction.sourceColumn], reverseIndexName);
+      });
+
+      console.log(`✅ Created junction table: ${junction.tableName}`);
+    } catch (error) {
+      const nowExists = await knex.schema.hasTable(junction.tableName);
+      if (nowExists) {
+        console.log(`⏩ Junction table created by another instance: ${junction.tableName}`);
       } else {
-        sourceCol = table.integer(junction.sourceColumn).unsigned().notNullable();
+        throw error;
       }
-
-      const sourceFk = sourceCol
-        .references('id')
-        .inTable(junction.sourceTable)
-        .onDelete('CASCADE')
-        .onUpdate('CASCADE');
-
-      const sourceFkName = getShortFkConstraintName(junction.tableName, junction.sourceColumn, 'src');
-      sourceFk.withKeyName(sourceFkName);
-
-      let targetCol;
-      if (targetPkType === 'uuid') {
-        targetCol = table.uuid(junction.targetColumn).notNullable();
-      } else {
-        targetCol = table.integer(junction.targetColumn).unsigned().notNullable();
-      }
-
-      const targetFk = targetCol
-        .references('id')
-        .inTable(junction.targetTable)
-        .onDelete('CASCADE')
-        .onUpdate('CASCADE');
-
-      const targetFkName = getShortFkConstraintName(junction.tableName, junction.targetColumn, 'tgt');
-      targetFk.withKeyName(targetFkName);
-
-      const pkName = getShortPkName(junction.tableName);
-      table.primary([junction.sourceColumn, junction.targetColumn], pkName);
-
-      const sourceIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'src');
-      const targetIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'tgt');
-      const reverseIndexName = getShortIndexName(junction.sourceTable, junction.sourcePropertyName, 'rev');
-
-      table.index([junction.sourceColumn], sourceIndexName);
-      table.index([junction.targetColumn], targetIndexName);
-      table.index([junction.targetColumn, junction.sourceColumn], reverseIndexName);
-    });
-
-    console.log(`✅ Created junction table: ${junction.tableName}`);
+    }
   }
 
   console.log('✅ Junction tables created');
@@ -113,18 +122,16 @@ export async function syncJunctionTables(
       }
     }
   }
-  const BATCH = 5;
-  for (let i = 0; i < uniqueJunctions.length; i += BATCH) {
-    await Promise.all(
-      uniqueJunctions.slice(i, i + BATCH).map(async (junction) => {
-      const exists = await knex.schema.hasTable(junction.tableName);
+  for (const junction of uniqueJunctions) {
+    const exists = await knex.schema.hasTable(junction.tableName);
 
-      if (!exists) {
-        console.log(`  📝 Creating junction table: ${junction.tableName}`);
+    if (!exists) {
+      console.log(`  📝 Creating junction table: ${junction.tableName}`);
 
-        const sourcePkType = getPrimaryKeyType(schemas, junction.sourceTable);
-        const targetPkType = getPrimaryKeyType(schemas, junction.targetTable);
+      const sourcePkType = getPrimaryKeyType(schemas, junction.sourceTable);
+      const targetPkType = getPrimaryKeyType(schemas, junction.targetTable);
 
+      try {
         await knex.schema.createTable(junction.tableName, (table) => {
           const sourceFkName = getShortFkName(junction.sourceTable, junction.sourcePropertyName, 'src');
           let sourceCol;
@@ -170,11 +177,17 @@ export async function syncJunctionTables(
         });
 
         console.log(`  ✅ Created junction table: ${junction.tableName}`);
-      } else {
-        console.log(`  ⏩ Junction table already exists: ${junction.tableName}`);
+      } catch (error) {
+        const nowExists = await knex.schema.hasTable(junction.tableName);
+        if (nowExists) {
+          console.log(`  ⏩ Junction table created by another instance: ${junction.tableName}`);
+        } else {
+          throw error;
+        }
       }
-      }),
-    );
+    } else {
+      console.log(`  ⏩ Junction table already exists: ${junction.tableName}`);
+    }
   }
 }
 
