@@ -337,14 +337,6 @@
             "availableMethods": ["POST"]
         },
         {
-            "path": "/admin/reload/swagger",
-            "isEnabled": true,
-            "isSystem": true,
-            "icon": "lucide:file-code",
-            "description": "Reload Swagger spec",
-            "availableMethods": ["POST"]
-        },
-        {
             "path": "/admin/reload/graphql",
             "isEnabled": true,
             "isSystem": true,
