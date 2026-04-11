@@ -250,7 +250,7 @@ export class CacheOrchestratorService
       await this.publishSignal(payload);
     }
 
-    if (chain.includes('metadata')) {
+    if (publish && chain.includes('metadata')) {
       this.notifyClients('pending');
     }
 
@@ -291,7 +291,7 @@ export class CacheOrchestratorService
       `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.tableName} in ${elapsed}ms`,
     );
 
-    if (chain.includes('metadata')) {
+    if (publish && chain.includes('metadata')) {
       this.notifyClients('done');
     }
   }
@@ -429,13 +429,13 @@ export class CacheOrchestratorService
       scope: 'full',
       timestamp: Date.now(),
     });
-    await this.reloadAllLocal();
+    await this.reloadAllLocal(true);
   }
 
-  private async reloadAllLocal(): Promise<void> {
+  private async reloadAllLocal(notify = false): Promise<void> {
     const start = Date.now();
     this.logger.log('Admin: reload ALL caches');
-    this.notifyClients('pending');
+    if (notify) this.notifyClients('pending');
     await this.metadataCache.reload();
     this.logger.log(`  metadata: ${Date.now() - start}ms`);
     const parallelStart = Date.now();
@@ -458,7 +458,7 @@ export class CacheOrchestratorService
       await this.graphqlService.reloadSchema();
       this.logger.log(`  graphql: ${Date.now() - gqlStart}ms`);
     }
-    this.notifyClients('done');
+    if (notify) this.notifyClients('done');
     this.logger.log(`Admin: reload ALL done (${Date.now() - start}ms)`);
   }
 

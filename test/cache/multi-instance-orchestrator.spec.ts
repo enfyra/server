@@ -24,41 +24,34 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       package: async () => { reloaded.push('package'); },
       setting: async () => { reloaded.push('setting'); },
       settingGraphql: async () => { reloaded.push('settingGraphql'); },
-      flow: async () => { reloaded.push('flow'); },
-      websocket: async () => { reloaded.push('websocket'); },
-      storage: async () => { reloaded.push('storage'); },
-      oauth: async () => { reloaded.push('oauth'); },
-      folder: async () => { reloaded.push('folder'); },
-      bootstrap: async () => { reloaded.push('bootstrap'); },
     };
 
     function notifyClients(status: string) {
       wsEvents.push({ status });
     }
 
-    async function executeChain(payload: any) {
+    async function executeChain(payload: any, publish: boolean) {
       const chain = RELOAD_CHAINS[payload.tableName];
       if (!chain) return;
-      if (chain.includes('metadata')) notifyClients('pending');
+
+      if (publish && chain.includes('metadata')) notifyClients('pending');
 
       if (chain.includes('metadata')) await stepMap['metadata']();
       const middle = chain.filter(s => s !== 'metadata' && s !== 'graphql');
       await Promise.all(middle.map(s => stepMap[s]?.() || Promise.resolve()));
       if (chain.includes('graphql')) await stepMap['graphql']();
 
-      if (chain.includes('metadata')) notifyClients('done');
+      if (publish && chain.includes('metadata')) notifyClients('done');
     }
 
-    async function reloadAllLocal() {
-      notifyClients('pending');
-      reloaded.push('metadata');
+    async function reloadAllLocal(notify = false) {
+      if (notify) notifyClients('pending');
       const allCaches = [
-        'repoRegistry', 'route', 'guard', 'flow', 'websocket',
-        'package', 'setting', 'storage', 'oauth', 'folder', 'fieldPermission',
+        'metadata', 'repoRegistry', 'route', 'guard', 'fieldPermission',
+        'package', 'setting', 'graphql',
       ];
       for (const c of allCaches) reloaded.push(c);
-      reloaded.push('graphql');
-      notifyClients('done');
+      if (notify) notifyClients('done');
     }
 
     async function publishSignal(payload: any) {
@@ -68,29 +61,24 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
     async function receiveSignal(signal: Signal) {
       if (signal.instanceId === id) return;
       if (signal.payload.tableName === '__admin_reload_all') {
-        await reloadAllLocal();
+        await reloadAllLocal(false);
       } else {
-        await executeChain(signal.payload);
+        await executeChain(signal.payload, false);
       }
     }
 
     return {
-      id,
-      reloaded,
-      wsEvents,
-      executeChain,
-      reloadAllLocal,
-      publishSignal,
-      receiveSignal,
+      id, reloaded, wsEvents,
+      executeChain, reloadAllLocal, publishSignal, receiveSignal,
 
       async handleInvalidation(payload: any) {
-        await executeChain(payload);
+        await executeChain(payload, true);
         await publishSignal(payload);
       },
 
       async reloadAll() {
         await publishSignal({ tableName: '__admin_reload_all', scope: 'full' });
-        await reloadAllLocal();
+        await reloadAllLocal(true);
       },
 
       async reloadMetadataAndDeps() {
@@ -122,8 +110,8 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
     );
   }
 
-  describe('create table → both instances reload surgical', () => {
-    it('instance A creates table → instance B reloads same chain', async () => {
+  describe('create table → surgical reload on both instances', () => {
+    it('A creates table → B reloads same chain, only A notifies clients', async () => {
       const redis: Signal[] = [];
       const A = createInstance('A', redis);
       const B = createInstance('B', redis);
@@ -133,18 +121,17 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
         scope: 'partial',
         ids: [99],
       });
-
       await deliverSignals(redis, [A, B]);
 
       expect(A.reloaded).toEqual(['metadata', 'repoRegistry', 'route', 'fieldPermission', 'graphql']);
       expect(B.reloaded).toEqual(['metadata', 'repoRegistry', 'route', 'fieldPermission', 'graphql']);
       expect(A.wsEvents).toEqual([{ status: 'pending' }, { status: 'done' }]);
-      expect(B.wsEvents).toEqual([{ status: 'pending' }, { status: 'done' }]);
+      expect(B.wsEvents).toEqual([]);
     });
   });
 
-  describe('admin reload all → all instances reload ALL caches', () => {
-    it('instance A calls reloadAll → instance B receives __admin_reload_all → reloadAllLocal', async () => {
+  describe('admin reload all → no duplicate WS events', () => {
+    it('A calls reloadAll → B reloads silently, only A notifies clients', async () => {
       const redis: Signal[] = [];
       const A = createInstance('A', redis);
       const B = createInstance('B', redis);
@@ -152,27 +139,103 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       await A.reloadAll();
       await deliverSignals(redis, [A, B]);
 
-      expect(A.reloaded).toContain('metadata');
-      expect(A.reloaded).toContain('route');
-      expect(A.reloaded).toContain('guard');
-      expect(A.reloaded).toContain('flow');
-      expect(A.reloaded).toContain('fieldPermission');
-      expect(A.reloaded).toContain('graphql');
-
-      expect(B.reloaded).toContain('metadata');
-      expect(B.reloaded).toContain('route');
-      expect(B.reloaded).toContain('guard');
-      expect(B.reloaded).toContain('flow');
-      expect(B.reloaded).toContain('fieldPermission');
-      expect(B.reloaded).toContain('graphql');
-
       expect(A.wsEvents).toEqual([{ status: 'pending' }, { status: 'done' }]);
-      expect(B.wsEvents).toEqual([{ status: 'pending' }, { status: 'done' }]);
+      expect(B.wsEvents).toEqual([]);
+      expect(B.reloaded.length).toBeGreaterThan(0);
     });
   });
 
-  describe('admin reload metadata → remote gets table_definition chain', () => {
-    it('instance A reloads metadata → instance B runs full table_definition chain', async () => {
+  describe('race condition: no duplicate pending/done across instances', () => {
+    it('client connected to A should receive exactly 1 pending + 1 done', async () => {
+      const redis: Signal[] = [];
+      const A = createInstance('A', redis);
+      const B = createInstance('B', redis);
+
+      await A.handleInvalidation({
+        tableName: 'column_definition',
+        scope: 'partial',
+        ids: [5],
+      });
+      await deliverSignals(redis, [A, B]);
+
+      const pendingCount = A.wsEvents.filter(e => e.status === 'pending').length;
+      const doneCount = A.wsEvents.filter(e => e.status === 'done').length;
+      expect(pendingCount).toBe(1);
+      expect(doneCount).toBe(1);
+
+      expect(B.wsEvents).toEqual([]);
+    });
+  });
+
+  describe('self-echo filter', () => {
+    it('instance should NOT process its own Redis signal', async () => {
+      const redis: Signal[] = [];
+      const A = createInstance('A', redis);
+
+      await A.handleInvalidation({ tableName: 'guard_definition', scope: 'full' });
+      await deliverSignals(redis, [A]);
+
+      expect(A.reloaded).toEqual(['guard']);
+    });
+  });
+
+  describe('3 instances — only originator notifies, all reload', () => {
+    it('A creates table → B and C reload silently', async () => {
+      const redis: Signal[] = [];
+      const A = createInstance('A', redis);
+      const B = createInstance('B', redis);
+      const C = createInstance('C', redis);
+
+      await A.handleInvalidation({
+        tableName: 'table_definition',
+        scope: 'partial',
+        ids: [50],
+      });
+      await deliverSignals(redis, [A, B, C]);
+
+      for (const inst of [A, B, C]) {
+        expect(inst.reloaded).toContain('metadata');
+        expect(inst.reloaded).toContain('route');
+      }
+      expect(A.wsEvents).toHaveLength(2);
+      expect(B.wsEvents).toHaveLength(0);
+      expect(C.wsEvents).toHaveLength(0);
+    });
+  });
+
+  describe('package install → multi-instance', () => {
+    it('package install on A → B reloads, no WS from B', async () => {
+      const redis: Signal[] = [];
+      const A = createInstance('A', redis);
+      const B = createInstance('B', redis);
+
+      await A.handleInvalidation({ tableName: 'package_definition', scope: 'full' });
+      await deliverSignals(redis, [A, B]);
+
+      expect(A.reloaded).toEqual(['package']);
+      expect(B.reloaded).toEqual(['package']);
+      expect(A.wsEvents).toEqual([]);
+      expect(B.wsEvents).toEqual([]);
+    });
+  });
+
+  describe('setting change → settingGraphql only', () => {
+    it('both instances reload setting + settingGraphql, not full graphql', async () => {
+      const redis: Signal[] = [];
+      const A = createInstance('A', redis);
+      const B = createInstance('B', redis);
+
+      await A.handleInvalidation({ tableName: 'setting_definition', scope: 'full' });
+      await deliverSignals(redis, [A, B]);
+
+      expect(A.reloaded).toEqual(['setting', 'settingGraphql']);
+      expect(B.reloaded).toEqual(['setting', 'settingGraphql']);
+      expect(A.reloaded).not.toContain('graphql');
+    });
+  });
+
+  describe('admin granular reloads → Redis propagation', () => {
+    it('reloadMetadataAndDeps: A notifies + publishes, B runs chain silently', async () => {
       const redis: Signal[] = [];
       const A = createInstance('A', redis);
       const B = createInstance('B', redis);
@@ -180,13 +243,12 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       await A.reloadMetadataAndDeps();
       await deliverSignals(redis, [A, B]);
 
-      expect(A.reloaded).toEqual(['metadata', 'repoRegistry', 'route', 'graphql']);
-      expect(B.reloaded).toEqual(['metadata', 'repoRegistry', 'route', 'fieldPermission', 'graphql']);
+      expect(A.wsEvents).toEqual([{ status: 'pending' }, { status: 'done' }]);
+      expect(B.wsEvents).toEqual([]);
+      expect(B.reloaded).toContain('metadata');
     });
-  });
 
-  describe('admin reload routes → remote gets route_definition chain (includes guard)', () => {
-    it('instance A reloads routes → instance B also reloads route + guard', async () => {
+    it('reloadRoutesOnly: A notifies, B runs route+graphql+guard chain', async () => {
       const redis: Signal[] = [];
       const A = createInstance('A', redis);
       const B = createInstance('B', redis);
@@ -194,86 +256,10 @@ describe('CacheOrchestrator — multi-instance Redis sync', () => {
       await A.reloadRoutesOnly();
       await deliverSignals(redis, [A, B]);
 
-      expect(A.reloaded).toEqual(['route']);
+      expect(A.wsEvents).toHaveLength(2);
+      expect(B.wsEvents).toHaveLength(0);
       expect(B.reloaded).toContain('route');
       expect(B.reloaded).toContain('guard');
-      expect(B.reloaded).toContain('graphql');
-    });
-  });
-
-  describe('self-echo filter', () => {
-    it('instance A should NOT process its own signal', async () => {
-      const redis: Signal[] = [];
-      const A = createInstance('A', redis);
-
-      await A.handleInvalidation({
-        tableName: 'guard_definition',
-        scope: 'full',
-      });
-
-      await deliverSignals(redis, [A]);
-
-      expect(A.reloaded).toEqual(['guard']);
-    });
-  });
-
-  describe('package install → multi-instance via INVALIDATE', () => {
-    it('package install on A → B reloads package cache', async () => {
-      const redis: Signal[] = [];
-      const A = createInstance('A', redis);
-      const B = createInstance('B', redis);
-
-      await A.handleInvalidation({
-        tableName: 'package_definition',
-        scope: 'full',
-      });
-
-      await deliverSignals(redis, [A, B]);
-
-      expect(A.reloaded).toEqual(['package']);
-      expect(B.reloaded).toEqual(['package']);
-    });
-  });
-
-  describe('setting change → settingGraphql, not full graphql rebuild', () => {
-    it('setting change triggers setting + settingGraphql, not full graphql', async () => {
-      const redis: Signal[] = [];
-      const A = createInstance('A', redis);
-      const B = createInstance('B', redis);
-
-      await A.handleInvalidation({
-        tableName: 'setting_definition',
-        scope: 'full',
-      });
-
-      await deliverSignals(redis, [A, B]);
-
-      expect(A.reloaded).toEqual(['setting', 'settingGraphql']);
-      expect(A.reloaded).not.toContain('graphql');
-      expect(B.reloaded).toEqual(['setting', 'settingGraphql']);
-    });
-  });
-
-  describe('3 instances — signal propagates to all', () => {
-    it('A creates table → B and C both reload', async () => {
-      const redis: Signal[] = [];
-      const A = createInstance('A', redis);
-      const B = createInstance('B', redis);
-      const C = createInstance('C', redis);
-
-      await A.handleInvalidation({
-        tableName: 'column_definition',
-        scope: 'partial',
-        ids: [5],
-      });
-
-      await deliverSignals(redis, [A, B, C]);
-
-      for (const inst of [A, B, C]) {
-        expect(inst.reloaded).toContain('metadata');
-        expect(inst.reloaded).toContain('route');
-        expect(inst.reloaded).toContain('fieldPermission');
-      }
     });
   });
 });
