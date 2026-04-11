@@ -24,6 +24,8 @@ import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
+import { GraphqlService } from '../../../modules/graphql/services/graphql.service';
+import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -119,15 +121,14 @@ export class CacheOrchestratorService
 
   async onApplicationBootstrap() {
     try {
-      this.graphqlService = this.moduleRef.get('GraphqlService', {
+      this.graphqlService = this.moduleRef.get(GraphqlService, {
         strict: false,
       });
     } catch {}
     try {
-      this.bootstrapScriptService = this.moduleRef.get(
-        'BootstrapScriptService',
-        { strict: false },
-      );
+      this.bootstrapScriptService = this.moduleRef.get(BootstrapScriptService, {
+        strict: false,
+      });
     } catch {}
     try {
       this.websocketGateway = this.moduleRef.get(DynamicWebSocketGateway, {
