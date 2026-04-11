@@ -22,6 +22,8 @@ import { FieldPermissionCacheService } from './field-permission-cache.service';
 import { RepoRegistryService } from './repo-registry.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -67,6 +69,7 @@ export class CacheOrchestratorService
   private stepMap: Record<string, ReloadStep>;
   private graphqlService: any;
   private bootstrapScriptService: any;
+  private websocketGateway: any;
   private messageHandler: ((channel: string, message: string) => void) | null =
     null;
 
@@ -126,16 +129,23 @@ export class CacheOrchestratorService
         { strict: false },
       );
     } catch {}
+    try {
+      this.websocketGateway = this.moduleRef.get(DynamicWebSocketGateway, {
+        strict: false,
+      });
+    } catch {}
 
     await this.bootstrap();
   }
 
   private async bootstrap(): Promise<void> {
     const start = Date.now();
-
+    this.logger.log('Bootstrap: metadata reload...');
     await this.metadataCache.reload();
     this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
+    this.logger.log(`Bootstrap: metadata done (${Date.now() - start}ms), loading caches in parallel...`);
 
+    const parallel = Date.now();
     await Promise.all([
       this.routeCache.reload(false),
       this.guardCache.reload(false),
@@ -149,9 +159,12 @@ export class CacheOrchestratorService
       this.reloadRepoRegistry(),
       this.bootstrapScriptService?.onMetadataLoaded?.(),
     ]);
+    this.logger.log(`Bootstrap: parallel caches done (${Date.now() - parallel}ms)`);
 
     if (this.graphqlService) {
+      const gqlStart = Date.now();
       await this.graphqlService.reloadSchema();
+      this.logger.log(`Bootstrap: graphql done (${Date.now() - gqlStart}ms)`);
     }
     this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
 
@@ -161,6 +174,9 @@ export class CacheOrchestratorService
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {
+    this.logger.log(
+      `Invalidate: ${payload.tableName} (${payload.scope || 'full'}${payload.ids?.length ? `, ${payload.ids.length} ids` : ''})`,
+    );
     return new Promise<void>((resolve) => {
       this.debounceResolvers.push(resolve);
       this.mergePayload(payload);
@@ -187,11 +203,18 @@ export class CacheOrchestratorService
       this.pendingPayload = { ...payload };
       return;
     }
-    if (
-      this.pendingPayload.tableName !== payload.tableName ||
-      payload.scope === 'full' ||
-      this.pendingPayload.scope === 'full'
-    ) {
+    if (this.pendingPayload.tableName !== payload.tableName) {
+      const currentChain = RELOAD_CHAINS[this.pendingPayload.tableName] || [];
+      const incomingChain = RELOAD_CHAINS[payload.tableName] || [];
+      if (incomingChain.length > currentChain.length) {
+        this.pendingPayload.tableName = payload.tableName;
+      }
+      this.pendingPayload.scope = 'full';
+      this.pendingPayload.ids = undefined;
+      this.pendingPayload.affectedTables = undefined;
+      return;
+    }
+    if (payload.scope === 'full' || this.pendingPayload.scope === 'full') {
       this.pendingPayload.scope = 'full';
       this.pendingPayload.ids = undefined;
       this.pendingPayload.affectedTables = undefined;
@@ -225,18 +248,39 @@ export class CacheOrchestratorService
       await this.publishSignal(payload);
     }
 
+    if (chain.includes('metadata')) {
+      this.notifyClients('pending');
+    }
+
     const start = Date.now();
+    const stepTimings: string[] = [];
     for (const step of chain) {
       const fn = this.stepMap[step];
       if (fn) {
+        const stepStart = Date.now();
         await fn(payload);
+        stepTimings.push(`${step}:${Date.now() - stepStart}ms`);
       }
     }
 
     const elapsed = Date.now() - start;
     this.logger.log(
-      `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${chain.join(' → ')}] for ${payload.tableName} in ${elapsed}ms`,
+      `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.tableName} in ${elapsed}ms`,
     );
+
+    if (chain.includes('metadata')) {
+      this.notifyClients('done');
+    }
+  }
+
+  private notifyClients(status: 'pending' | 'done'): void {
+    try {
+      this.websocketGateway?.emitToNamespace?.(
+        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+        '$system:metadata:reload',
+        { status },
+      );
+    } catch {}
   }
 
   private async reloadMetadata(
@@ -247,8 +291,10 @@ export class CacheOrchestratorService
       payload.ids?.length &&
       this.metadataCache.isLoaded()
     ) {
+      this.logger.log(`  metadata: partial (ids: ${payload.ids.join(', ')})`);
       await this.metadataCache.partialReload(payload);
     } else {
+      this.logger.log('  metadata: full reload');
       await this.metadataCache.reload();
     }
   }
@@ -265,8 +311,10 @@ export class CacheOrchestratorService
       this.routeCache.isLoaded() &&
       this.routeCache.supportsPartialReload()
     ) {
+      this.logger.log(`  route: partial (ids: ${payload.ids?.join(', ') || 'none'})`);
       await this.routeCache.partialReload(payload, false);
     } else {
+      this.logger.log('  route: full reload');
       await this.routeCache.reload(false);
     }
   }
@@ -291,31 +339,51 @@ export class CacheOrchestratorService
   }
 
   async reloadMetadataAndDeps(): Promise<void> {
+    const start = Date.now();
+    this.logger.log('Admin: reload metadata + deps');
+    this.notifyClients('pending');
     await this.metadataCache.reload();
     await this.reloadRepoRegistry();
     await this.routeCache.reload(false);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
+    this.notifyClients('done');
+    this.logger.log(`Admin: metadata + deps done (${Date.now() - start}ms)`);
   }
 
   async reloadRoutesOnly(): Promise<void> {
+    const start = Date.now();
+    this.logger.log('Admin: reload routes');
+    this.notifyClients('pending');
     await this.routeCache.reload(false);
+    this.notifyClients('done');
+    this.logger.log(`Admin: routes done (${Date.now() - start}ms)`);
   }
 
   async reloadGraphqlOnly(): Promise<void> {
+    const start = Date.now();
+    this.logger.log('Admin: reload graphql');
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
+    this.logger.log(`Admin: graphql done (${Date.now() - start}ms)`);
   }
 
   async reloadGuardsOnly(): Promise<void> {
+    const start = Date.now();
+    this.logger.log('Admin: reload guards');
     await this.guardCache.reload(false);
+    this.logger.log(`Admin: guards done (${Date.now() - start}ms)`);
   }
 
   async reloadAll(): Promise<void> {
     const start = Date.now();
+    this.logger.log('Admin: reload ALL caches');
+    this.notifyClients('pending');
     await this.metadataCache.reload();
+    this.logger.log(`  metadata: ${Date.now() - start}ms`);
+    const parallelStart = Date.now();
     await Promise.all([
       this.reloadRepoRegistry(),
       this.routeCache.reload(false),
@@ -329,10 +397,14 @@ export class CacheOrchestratorService
       this.folderCache.reload(false),
       this.fieldPermissionCache.reload(false),
     ]);
+    this.logger.log(`  parallel caches: ${Date.now() - parallelStart}ms`);
     if (this.graphqlService) {
+      const gqlStart = Date.now();
       await this.graphqlService.reloadSchema();
+      this.logger.log(`  graphql: ${Date.now() - gqlStart}ms`);
     }
-    this.logger.log(`Full reload all in ${Date.now() - start}ms`);
+    this.notifyClients('done');
+    this.logger.log(`Admin: reload ALL done (${Date.now() - start}ms), publishing signal...`);
     await this.publishSignal({
       tableName: 'table_definition',
       action: 'reload',
@@ -353,8 +425,8 @@ export class CacheOrchestratorService
           if (signal.instanceId === this.instanceService.getInstanceId()) {
             return;
           }
-          this.logger.debug(
-            `Signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.tableName}`,
+          this.logger.log(
+            `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.tableName} (${signal.payload?.scope || 'full'})`,
           );
           await this.executeChain(signal.payload, false);
         } catch (error) {

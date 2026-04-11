@@ -632,8 +632,6 @@ export class SqlSchemaMigrationService {
         await knex('table_definition')
           .where('name', tableName)
           .update(updateData);
-
-        await this.metadataCacheService.reload();
       } catch (error) {
         this.logger.error(
           `  Failed to update metadata fields for ${tableName}: ${error.message}`,
@@ -1159,8 +1157,6 @@ export class SqlSchemaMigrationService {
       await knex('table_definition')
         .where('name', tableName)
         .update({ indexes: JSON.stringify(mergedIndexes) });
-
-      await this.metadataCacheService.reload();
     } catch (error) {
       this.logger.error(
         `  Failed to update indexes metadata for ${tableName}: ${error.message}`,
