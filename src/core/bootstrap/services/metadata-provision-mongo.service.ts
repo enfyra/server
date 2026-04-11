@@ -335,17 +335,14 @@ export class MetadataProvisionMongoService {
       if (inverseType === 'many-to-many') {
         const {
           getJunctionTableName,
-          getForeignKeyColumnName,
         } = require('../../../infrastructure/knex/utils/sql-schema-naming.util');
-        inverseRelationRecord.junctionTableName = getJunctionTableName(
-          owningTableName,
-          owningPropertyName,
-          tableName,
-        );
-        inverseRelationRecord.junctionSourceColumn =
-          getForeignKeyColumnName(tableName);
-        inverseRelationRecord.junctionTargetColumn =
-          getForeignKeyColumnName(owningTableName);
+        const owningDoc = snapshotRelId
+          ? await relationColl.findOne({ _id: snapshotRelId })
+          : null;
+        inverseRelationRecord.junctionTableName = owningDoc?.junctionTableName
+          || getJunctionTableName(owningTableName, owningPropertyName, tableName);
+        inverseRelationRecord.junctionSourceColumn = owningDoc?.junctionTargetColumn || null;
+        inverseRelationRecord.junctionTargetColumn = owningDoc?.junctionSourceColumn || null;
       }
       const existing = await relationColl.findOne({
         [sourceTableFieldName]: tableId,

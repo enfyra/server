@@ -184,12 +184,11 @@ export class MetadataProvisionSqlService {
                 rel.propertyName,
                 rel.targetTable,
               );
+              const owningSourceColumn = rel.junctionSourceColumn || getForeignKeyColumnName(name);
+              const owningTargetColumn = rel.junctionTargetColumn || getForeignKeyColumnName(rel.targetTable);
               inverseRelation.junctionTableName = junctionTableName;
-              inverseRelation.junctionSourceColumn = getForeignKeyColumnName(
-                rel.targetTable,
-              );
-              inverseRelation.junctionTargetColumn =
-                getForeignKeyColumnName(name);
+              inverseRelation.junctionSourceColumn = owningTargetColumn;
+              inverseRelation.junctionTargetColumn = owningSourceColumn;
             }
             inverseRelations.push({
               tableName: rel.targetTable,
@@ -230,6 +229,10 @@ export class MetadataProvisionSqlService {
           }
         }
         if (existingRel) {
+          const junctionChanged = rel.type === 'many-to-many' && (
+            (rel.junctionSourceColumn && rel.junctionSourceColumn !== existingRel.junctionSourceColumn) ||
+            (rel.junctionTargetColumn && rel.junctionTargetColumn !== existingRel.junctionTargetColumn)
+          );
           const needsUpdate =
             rel.propertyName !== existingRel.propertyName ||
             (rel.isNullable !== undefined &&
@@ -239,7 +242,8 @@ export class MetadataProvisionSqlService {
             (targetId !== undefined &&
               targetId !== existingRel.targetTableId) ||
             (rel.isUpdatable !== undefined &&
-              rel.isUpdatable !== existingRel.isUpdatable);
+              rel.isUpdatable !== existingRel.isUpdatable) ||
+            junctionChanged;
           if (needsUpdate) {
             const updateData: any = {};
             updateData.propertyName = rel.propertyName;
@@ -254,6 +258,7 @@ export class MetadataProvisionSqlService {
             if (rel.type === 'many-to-many') {
               const junctionTableName =
                 rel.junctionTableName ||
+                existingRel.junctionTableName ||
                 getJunctionTableName(
                   tableName,
                   rel.propertyName,
@@ -261,10 +266,9 @@ export class MetadataProvisionSqlService {
                 );
               updateData.junctionTableName = junctionTableName;
               updateData.junctionSourceColumn =
-                rel.junctionSourceColumn || getForeignKeyColumnName(tableName);
+                rel.junctionSourceColumn || existingRel.junctionSourceColumn || getForeignKeyColumnName(tableName);
               updateData.junctionTargetColumn =
-                rel.junctionTargetColumn ||
-                getForeignKeyColumnName(rel.targetTable);
+                rel.junctionTargetColumn || existingRel.junctionTargetColumn || getForeignKeyColumnName(rel.targetTable);
             }
             await trx('relation_definition')
               .where('id', existingRel.id)
