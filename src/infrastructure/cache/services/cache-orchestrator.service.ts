@@ -34,16 +34,16 @@ const SYNC_CHANNEL = 'enfyra:cache-orchestrator-sync';
 type ReloadStep = (payload: TCacheInvalidationPayload) => Promise<void>;
 
 const RELOAD_CHAINS: Record<string, string[]> = {
-  table_definition: ['metadata', 'repoRegistry', 'route', 'graphql'],
-  column_definition: ['metadata', 'repoRegistry', 'route', 'graphql'],
-  relation_definition: ['metadata', 'repoRegistry', 'route', 'graphql'],
+  table_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+  column_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+  relation_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
 
-  route_definition: ['route', 'graphql'],
-  pre_hook_definition: ['route', 'graphql'],
-  post_hook_definition: ['route', 'graphql'],
-  route_handler_definition: ['route', 'graphql'],
-  route_permission_definition: ['route', 'graphql'],
-  role_definition: ['route', 'graphql'],
+  route_definition: ['route', 'graphql', 'guard'],
+  pre_hook_definition: ['route'],
+  post_hook_definition: ['route'],
+  route_handler_definition: ['route'],
+  route_permission_definition: ['route'],
+  role_definition: ['route'],
   method_definition: ['route', 'graphql'],
 
   guard_definition: ['guard'],
@@ -51,7 +51,7 @@ const RELOAD_CHAINS: Record<string, string[]> = {
 
   field_permission_definition: ['fieldPermission'],
 
-  setting_definition: ['setting', 'graphql'],
+  setting_definition: ['setting', 'settingGraphql'],
   storage_config_definition: ['storage'],
   oauth_config_definition: ['oauth'],
   websocket_definition: ['websocket'],
@@ -111,6 +111,7 @@ export class CacheOrchestratorService
       oauth: (p) => this.reloadSimple(this.oauthCache, p),
       folder: (p) => this.reloadSimple(this.folderCache, p),
       fieldPermission: (p) => this.reloadSimple(this.fieldPermissionCache, p),
+      settingGraphql: () => this.reloadSettingGraphql(),
       bootstrap: () => this.reloadBootstrapScripts(),
     };
   }
@@ -255,13 +256,34 @@ export class CacheOrchestratorService
 
     const start = Date.now();
     const stepTimings: string[] = [];
-    for (const step of chain) {
-      const fn = this.stepMap[step];
-      if (fn) {
-        const stepStart = Date.now();
-        await fn(payload);
-        stepTimings.push(`${step}:${Date.now() - stepStart}ms`);
-      }
+
+    // Phase 1: metadata must run first (others depend on it)
+    if (chain.includes('metadata')) {
+      const s = Date.now();
+      await this.stepMap['metadata'](payload);
+      stepTimings.push(`metadata:${Date.now() - s}ms`);
+    }
+
+    // Phase 2: middle steps run in parallel (all depend on metadata, not each other)
+    const middleSteps = chain.filter(
+      (s) => s !== 'metadata' && s !== 'graphql',
+    );
+    if (middleSteps.length > 0) {
+      const s = Date.now();
+      await Promise.all(
+        middleSteps.map(async (step) => {
+          const fn = this.stepMap[step];
+          if (fn) await fn(payload);
+        }),
+      );
+      stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
+    }
+
+    // Phase 3: graphql must run last (depends on metadata + route)
+    if (chain.includes('graphql')) {
+      const s = Date.now();
+      await this.stepMap['graphql'](payload);
+      stepTimings.push(`graphql:${Date.now() - s}ms`);
     }
 
     const elapsed = Date.now() - start;
@@ -332,6 +354,10 @@ export class CacheOrchestratorService
     _payload: TCacheInvalidationPayload,
   ): Promise<void> {
     await cache.reload(false);
+  }
+
+  private async reloadSettingGraphql(): Promise<void> {
+    this.graphqlService?.onSettingChanged?.();
   }
 
   private async reloadBootstrapScripts(): Promise<void> {
