@@ -12,7 +12,8 @@
     { "table": "menu_definition", "filter": { "path": { "_eq": "/ai" } } },
     { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/chat" } } },
     { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/config" } } },
-    { "table": "websocket_event_definition", "filter": { "eventName": { "_eq": "ping" } } }
+    { "table": "websocket_event_definition", "filter": { "eventName": { "_eq": "ping" } } },
+    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/reload/swagger" } } }
   ],
   "menu_definition": [
     {

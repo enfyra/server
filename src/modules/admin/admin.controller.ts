@@ -34,6 +34,30 @@ export class AdminController {
       throw error;
     }
   }
+  @Post('reload/metadata')
+  async reloadMetadata() {
+    const start = Date.now();
+    await this.orchestrator.reloadMetadataAndDeps();
+    return { success: true, duration: `${Date.now() - start}ms` };
+  }
+  @Post('reload/routes')
+  async reloadRoutes() {
+    const start = Date.now();
+    await this.orchestrator.reloadRoutesOnly();
+    return { success: true, duration: `${Date.now() - start}ms` };
+  }
+  @Post('reload/graphql')
+  async reloadGraphql() {
+    const start = Date.now();
+    await this.orchestrator.reloadGraphqlOnly();
+    return { success: true, duration: `${Date.now() - start}ms` };
+  }
+  @Post('reload/guards')
+  async reloadGuards() {
+    const start = Date.now();
+    await this.orchestrator.reloadGuardsOnly();
+    return { success: true, duration: `${Date.now() - start}ms` };
+  }
   @Post('flow/test-step')
   async testFlowStep(@Body() body: any) {
     return this.runTest({ kind: 'flow_step', ...body });

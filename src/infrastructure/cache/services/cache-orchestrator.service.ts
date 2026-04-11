@@ -290,16 +290,55 @@ export class CacheOrchestratorService
     await this.bootstrapScriptService.reloadBootstrapScripts();
   }
 
-  async reloadAll(): Promise<void> {
-    const start = Date.now();
+  async reloadMetadataAndDeps(): Promise<void> {
     await this.metadataCache.reload();
     await this.reloadRepoRegistry();
     await this.routeCache.reload(false);
+    if (this.graphqlService) {
+      await this.graphqlService.reloadSchema();
+    }
+  }
+
+  async reloadRoutesOnly(): Promise<void> {
+    await this.routeCache.reload(false);
+  }
+
+  async reloadGraphqlOnly(): Promise<void> {
+    if (this.graphqlService) {
+      await this.graphqlService.reloadSchema();
+    }
+  }
+
+  async reloadGuardsOnly(): Promise<void> {
     await this.guardCache.reload(false);
+  }
+
+  async reloadAll(): Promise<void> {
+    const start = Date.now();
+    await this.metadataCache.reload();
+    await Promise.all([
+      this.reloadRepoRegistry(),
+      this.routeCache.reload(false),
+      this.guardCache.reload(false),
+      this.flowCache.reload(false),
+      this.websocketCache.reload(false),
+      this.packageCache.reload(false),
+      this.settingCache.reload(false),
+      this.storageCache.reload(false),
+      this.oauthCache.reload(false),
+      this.folderCache.reload(false),
+      this.fieldPermissionCache.reload(false),
+    ]);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
     this.logger.log(`Full reload all in ${Date.now() - start}ms`);
+    await this.publishSignal({
+      tableName: 'table_definition',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
   }
 
   private subscribeToRedis(): void {
