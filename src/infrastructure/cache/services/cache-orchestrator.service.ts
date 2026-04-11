@@ -221,6 +221,10 @@ export class CacheOrchestratorService
       return;
     }
 
+    if (publish) {
+      await this.publishSignal(payload);
+    }
+
     const start = Date.now();
     for (const step of chain) {
       const fn = this.stepMap[step];
@@ -233,10 +237,6 @@ export class CacheOrchestratorService
     this.logger.log(
       `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${chain.join(' → ')}] for ${payload.tableName} in ${elapsed}ms`,
     );
-
-    if (publish) {
-      await this.publishSignal(payload);
-    }
   }
 
   private async reloadMetadata(

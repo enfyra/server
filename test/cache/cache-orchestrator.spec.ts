@@ -294,16 +294,16 @@ class TestCacheOrchestrator {
     const chain = RELOAD_CHAINS[payload.tableName];
     if (!chain) return;
 
+    if (publish) {
+      await this.publishSignal(payload);
+    }
+
     for (const step of chain) {
       const fn = this.stepMap[step];
       if (fn) {
         this.callOrder.push(step);
         await fn(payload);
       }
-    }
-
-    if (publish) {
-      await this.publishSignal(payload);
     }
   }
 
@@ -1193,6 +1193,17 @@ describe('F. Multi-instance Redis sync', () => {
       SYNC_CHANNEL,
       expect.any(String),
     );
+  });
+
+  it('executeChain with publish=true → Redis publish before local reload', async () => {
+    const { svc, routeCache } = makeOrchestrator();
+    svc.graphqlService = makeGraphqlService();
+
+    await svc.executeChain(makePayload('route_definition', 'full'), true);
+
+    const publishOrder = svc.pubSub.publish.mock.invocationCallOrder[0];
+    const routeOrder = routeCache.reload.mock.invocationCallOrder[0];
+    expect(publishOrder).toBeLessThan(routeOrder);
   });
 
   it('executeChain with publish=false → does NOT publish', async () => {
