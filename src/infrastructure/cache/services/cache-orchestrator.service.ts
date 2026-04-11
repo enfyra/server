@@ -292,6 +292,9 @@ export class CacheOrchestratorService
     );
 
     if (publish && chain.includes('metadata')) {
+      if (elapsed < 500) {
+        await new Promise((r) => setTimeout(r, 500 - elapsed));
+      }
       this.notifyClients('done');
     }
   }
@@ -458,7 +461,13 @@ export class CacheOrchestratorService
       await this.graphqlService.reloadSchema();
       this.logger.log(`  graphql: ${Date.now() - gqlStart}ms`);
     }
-    if (notify) this.notifyClients('done');
+    if (notify) {
+      const elapsed = Date.now() - start;
+      if (elapsed < 200) {
+        await new Promise((r) => setTimeout(r, 200 - elapsed));
+      }
+      this.notifyClients('done');
+    }
     this.logger.log(`Admin: reload ALL done (${Date.now() - start}ms)`);
   }
 
