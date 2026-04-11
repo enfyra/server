@@ -181,7 +181,7 @@ async function createIndexes(
           }
         }
       }
-      if (relation.type === 'many-to-many' && !relation.mappedBy) {
+      if (relation.type === 'many-to-many') {
         const fieldName = relation.propertyName;
         const indexName = `${collectionName}_${fieldName}_fk_idx`;
         try {

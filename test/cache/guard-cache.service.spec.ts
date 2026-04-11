@@ -12,17 +12,9 @@ async function loadGuardCache(
     return { data: [] };
   });
   const qb = { select, isMongoDb: () => false };
-  const redis = {
-    subscribeWithHandler: jest.fn(() => true),
-    publish: jest.fn().mockResolvedValue(undefined),
-    isChannelForBase: jest.fn(() => true),
-  };
-  const instance = { getInstanceId: () => 'test-instance' };
   const ee = new EventEmitter2();
   const svc = new GuardCacheService(
     qb as any,
-    redis as any,
-    instance as any,
     ee,
   );
   await svc.reload(false);

@@ -23,7 +23,8 @@ export interface RelationMetadata {
   targetTableId: number;
   sourceTable: string;
   sourceTableId: number;
-  inversePropertyName?: string;
+  mappedBy?: string;
+  mappedById?: number;
   isNullable: boolean;
   isSystem: boolean;
   isPublished?: boolean;

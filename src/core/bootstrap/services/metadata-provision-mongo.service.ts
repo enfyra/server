@@ -79,7 +79,6 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
   protected getCompareFields(): string[] {
     return [
       'type',
-      'inversePropertyName',
       'isNullable',
       'isSystem',
       'description',
@@ -203,13 +202,20 @@ export class MetadataProvisionMongoService {
         );
       }
     }
-    this.logger.log('Step 3: Upserting relations...');
-    const processedInverseRelations = new Set<string>();
+    this.logger.log('Step 3: Upserting owning relations...');
     const relationRenameMap = loadRelationRenameMap();
     const relationColl = db.collection('relation_definition');
     if (!relationDef || !relationDef.columns) {
       throw new Error('relation_definition not found in snapshot');
     }
+    const owningIdMap = new Map<string, ObjectId>();
+    const pendingInverses: Array<{
+      tableName: string;
+      tableId: ObjectId;
+      rel: any;
+      owningTableName: string;
+      owningPropertyName: string;
+    }> = [];
     for (const [tableName, defRaw] of Object.entries(snapshot)) {
       const def = defRaw as any;
       const tableId = tableNameToId[tableName];
@@ -236,8 +242,6 @@ export class MetadataProvisionMongoService {
               propertyName: rel.propertyName,
               type: rel.type,
             };
-            if (rel.inversePropertyName !== undefined)
-              updatePayload.inversePropertyName = rel.inversePropertyName;
             if (rel.isNullable !== undefined)
               updatePayload.isNullable = rel.isNullable;
             if (rel.isSystem !== undefined)
@@ -254,52 +258,145 @@ export class MetadataProvisionMongoService {
             this.logger.log(
               `Relation rename (Mongo): ${tableName}.${oldPropertyName} → ${rel.propertyName}`,
             );
+            owningIdMap.set(`${tableName}.${rel.propertyName}`, existing._id);
             if (rel.inversePropertyName) {
-              const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
-              processedInverseRelations.add(inverseKey);
+              pendingInverses.push({
+                tableName: rel.targetTable,
+                tableId: targetTableId,
+                rel,
+                owningTableName: tableName,
+                owningPropertyName: rel.propertyName,
+              });
             }
             continue;
           }
         }
-        const directResult = await relationProcessor.processMongo(
+        await relationProcessor.processMongo(
           [directRelationRecord],
           db,
           'relation_definition',
         );
+        const insertedDoc = await relationColl.findOne({
+          [sourceTableFieldName]: tableId,
+          propertyName: rel.propertyName,
+        });
+        if (insertedDoc) {
+          owningIdMap.set(`${tableName}.${rel.propertyName}`, insertedDoc._id);
+        }
         if (rel.inversePropertyName) {
-          const inverseKey = `${rel.targetTable}.${rel.inversePropertyName}`;
-          if (!processedInverseRelations.has(inverseKey)) {
-            processedInverseRelations.add(inverseKey);
-            let inverseType = rel.type;
-            if (rel.type === 'many-to-one') {
-              inverseType = 'one-to-many';
-            } else if (rel.type === 'one-to-many') {
-              inverseType = 'many-to-one';
-            }
-            const inverseData = {
-              propertyName: rel.inversePropertyName,
-              type: inverseType,
-              inversePropertyName: rel.propertyName,
-              isNullable: rel.isNullable !== false,
-              isSystem: rel.isSystem || false,
-              isUpdatable: rel.isUpdatable !== false,
-            };
-            const inverseRelationRecord = this.buildRecordFromColumns(
-              inverseData,
-              relationDef.columns,
-            );
-            inverseRelationRecord[sourceTableFieldName] = targetTableId;
-            inverseRelationRecord[targetTableFieldName] = tableId;
-            const inverseResult = await relationProcessor.processMongo(
-              [inverseRelationRecord],
-              db,
-              'relation_definition',
-            );
-          }
+          pendingInverses.push({
+            tableName: rel.targetTable,
+            tableId: targetTableId,
+            rel,
+            owningTableName: tableName,
+            owningPropertyName: rel.propertyName,
+          });
         }
       }
     }
-    this.logger.log('Step 4: Skipped - inverse relations not stored');
+    this.logger.log('Step 4: Upserting inverse relations...');
+    const processedInverseRelations = new Set<string>();
+    for (const {
+      tableName,
+      tableId,
+      rel,
+      owningTableName,
+      owningPropertyName,
+    } of pendingInverses) {
+      const inverseKey = `${tableName}.${rel.inversePropertyName}`;
+      const reverseKey = `${owningTableName}.${owningPropertyName}`;
+      if (processedInverseRelations.has(inverseKey)) continue;
+      if (processedInverseRelations.has(reverseKey)) continue;
+      processedInverseRelations.add(inverseKey);
+      let inverseType = rel.type;
+      if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+      else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+      const snapshotRelId = owningIdMap.get(
+        `${owningTableName}.${owningPropertyName}`,
+      );
+      const isGeneratedManyToOne = inverseType === 'many-to-one';
+      const inverseData: any = {
+        propertyName: rel.inversePropertyName,
+        type: inverseType,
+        isNullable: rel.isNullable !== false,
+        isSystem: rel.isSystem || false,
+        isUpdatable: rel.isUpdatable !== false,
+      };
+      const inverseRelationRecord = this.buildRecordFromColumns(
+        inverseData,
+        relationDef.columns,
+      );
+      inverseRelationRecord[sourceTableFieldName] = tableId;
+      inverseRelationRecord[targetTableFieldName] =
+        tableNameToId[owningTableName];
+      inverseRelationRecord.mappedBy = isGeneratedManyToOne
+        ? null
+        : snapshotRelId || null;
+      if (inverseType === 'many-to-many') {
+        const {
+          getJunctionTableName,
+        } = require('../../../infrastructure/knex/utils/sql-schema-naming.util');
+        const owningDoc = snapshotRelId
+          ? await relationColl.findOne({ _id: snapshotRelId })
+          : null;
+        inverseRelationRecord.junctionTableName = owningDoc?.junctionTableName
+          || getJunctionTableName(owningTableName, owningPropertyName, tableName);
+        inverseRelationRecord.junctionSourceColumn = owningDoc?.junctionTargetColumn || null;
+        inverseRelationRecord.junctionTargetColumn = owningDoc?.junctionSourceColumn || null;
+      }
+      const existing = await relationColl.findOne({
+        [sourceTableFieldName]: tableId,
+        propertyName: rel.inversePropertyName,
+      });
+      if (existing) {
+        const mappedByValue = isGeneratedManyToOne ? null : snapshotRelId || null;
+        const needsUpdate =
+          existing.mappedBy?.toString() !== mappedByValue?.toString() ||
+          existing.type !== inverseType;
+        if (needsUpdate) {
+          await relationColl.updateOne(
+            { _id: existing._id },
+            {
+              $set: {
+                mappedBy: mappedByValue,
+                type: inverseType,
+                updatedAt: new Date(),
+              },
+            },
+          );
+          this.logger.log(
+            `Updated inverse relation ${rel.inversePropertyName} for ${tableName}`,
+          );
+        }
+        if (isGeneratedManyToOne && snapshotRelId) {
+          await relationColl.updateOne(
+            { _id: snapshotRelId },
+            { $set: { mappedBy: existing._id } },
+          );
+        }
+      } else {
+        await relationProcessor.processMongo(
+          [inverseRelationRecord],
+          db,
+          'relation_definition',
+        );
+        if (isGeneratedManyToOne && snapshotRelId) {
+          const insertedDoc = await relationColl.findOne({
+            [sourceTableFieldName]: tableId,
+            propertyName: rel.inversePropertyName,
+          });
+          if (insertedDoc) {
+            await relationColl.updateOne(
+              { _id: snapshotRelId },
+              { $set: { mappedBy: insertedDoc._id } },
+            );
+          }
+        }
+        this.logger.log(
+          `Added inverse relation ${rel.inversePropertyName} for ${tableName}`,
+        );
+      }
+    }
     this.logger.log('MongoDB metadata creation completed');
   }
 }

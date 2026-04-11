@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
 
@@ -22,6 +22,10 @@ export class AuthService {
     private jwtService: JwtService,
     private queryBuilder: QueryBuilderService,
   ) {}
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
   private calculateExpiredAt(remember: boolean): Date {
     const expiryConfig = remember
@@ -103,6 +107,11 @@ export class AuthService {
             )) as StringValue,
       },
     );
+
+    await this.queryBuilder.updateById('session_definition', sessionId, {
+      refreshTokenHash: this.hashToken(refreshToken),
+    });
+
     const decoded: any = this.jwtService.decode(accessToken);
     return {
       accessToken,
@@ -173,6 +182,13 @@ export class AuthService {
       throw new BadRequestException('Session has expired!');
     }
 
+    if (
+      session.refreshTokenHash &&
+      session.refreshTokenHash !== this.hashToken(body.refreshToken)
+    ) {
+      throw new BadRequestException('Refresh token has been revoked!');
+    }
+
     const userId = this.queryBuilder.isMongoDb()
       ? session.user?._id || session.user
       : session.userId;
@@ -182,10 +198,6 @@ export class AuthService {
     const sessionId = this.queryBuilder.isMongoDb()
       ? session._id?.toString() || session._id
       : session.id;
-
-    await this.queryBuilder.updateById('session_definition', sessionId, {
-      expiredAt: newExpiredAt,
-    });
 
     const loginProvider = session.loginProvider ?? null;
 
@@ -212,6 +224,11 @@ export class AuthService {
         ) as StringValue,
       },
     );
+
+    await this.queryBuilder.updateById('session_definition', sessionId, {
+      expiredAt: newExpiredAt,
+      refreshTokenHash: this.hashToken(refreshToken),
+    });
 
     const accessTokenDecoded = await this.jwtService.decode(accessToken);
     return {

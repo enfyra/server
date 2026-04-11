@@ -305,15 +305,89 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
     return { created: true, skipped: false };
   }
+
+  async processWithQueryBuilder(
+    records: any[],
+    queryBuilder: any,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
+    if (!records || records.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const idField = isMongoDB ? '_id' : 'id';
+    let totalCreated = 0;
+    let totalSkipped = 0;
+
+    const dropdownMenus = records.filter((r) => r.type === 'Dropdown Menu');
+    const menuItems = records.filter((r) => r.type === 'Menu');
+
+    const dropdownsWithoutParent = dropdownMenus.filter((r) => !r.parent);
+    const dropdownsWithParent = dropdownMenus.filter((r) => r.parent);
+
+    const processRecord = async (record: any) => {
+      const uniqueWhere = this.getUniqueIdentifier(record);
+      const whereConditions = Array.isArray(uniqueWhere)
+        ? uniqueWhere
+        : [uniqueWhere];
+      let existingRecord = null;
+      for (const wc of whereConditions) {
+        const cleaned = { ...wc };
+        for (const key in cleaned) {
+          if (Array.isArray(cleaned[key])) delete cleaned[key];
+        }
+        existingRecord = await queryBuilder.findOneWhere(tableName, cleaned);
+        if (existingRecord) break;
+      }
+      if (existingRecord) {
+        this.logger.log(
+          `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
+        );
+        if (this.afterUpsert) {
+          await this.afterUpsert(
+            { ...record, [idField]: existingRecord[idField] },
+            false,
+            context,
+          );
+        }
+        totalSkipped++;
+        return;
+      }
+      const inserted = await queryBuilder.insertAndGet(tableName, record);
+      this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+      if (this.afterUpsert) {
+        await this.afterUpsert(
+          { ...record, [idField]: inserted[idField] },
+          true,
+          context,
+        );
+      }
+      totalCreated++;
+    };
+
+    for (const batch of [
+      await this.transformRecords(dropdownsWithoutParent, context),
+      await this.transformRecords(dropdownsWithParent, context),
+      await this.transformRecords(menuItems, context),
+    ]) {
+      for (const record of batch) {
+        try {
+          await processRecord(record);
+        } catch (error) {
+          this.logger.error(`Error: ${error.message}`);
+          this.logger.error(
+            `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+          );
+        }
+      }
+    }
+
+    return { created: totalCreated, skipped: totalSkipped };
+  }
+
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    const knex = context?.knex;
-    if (!isMongoDB && !knex) {
-      this.logger.warn(
-        'Knex not provided in context for SQL, returning records as-is',
-      );
-      return records;
-    }
     const transformedRecords = [];
     for (const record of records) {
       const transformed = { ...record };
@@ -325,48 +399,31 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         const now = new Date();
         if (!transformed.createdAt) transformed.createdAt = now;
         if (!transformed.updatedAt) transformed.updatedAt = now;
-      }
-      if (isMongoDB) {
         if (!('parent' in transformed)) transformed.parent = null;
       }
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
-        if (isMongoDB) {
-          const parent = await this.queryBuilder.findOneWhere(
-            'menu_definition',
-            {
-              type: 'Dropdown Menu',
-              label: parentLabel,
-            },
-          );
-          if (parent) {
-            this.logger.debug(
-              `Found parent: ${parentLabel} with id ${parent._id}`,
-            );
+        const parent = await this.queryBuilder.findOneWhere(
+          'menu_definition',
+          { type: 'Dropdown Menu', label: parentLabel },
+        );
+        if (parent) {
+          if (isMongoDB) {
             transformed.parent =
               typeof parent._id === 'string'
                 ? new ObjectId(parent._id)
                 : parent._id;
           } else {
-            this.logger.warn(
-              `Parent not found: ${parentLabel} for ${transformed.label}`,
-            );
-            transformed.parent = null;
-          }
-        } else {
-          const parent = await knex('menu_definition')
-            .where({ type: 'Dropdown Menu', label: parentLabel })
-            .first();
-          if (parent) {
-            this.logger.debug(
-              `Found parent: ${parentLabel} with id ${parent.id}`,
-            );
             transformed.parentId = parent.id;
             delete transformed.parent;
+          }
+        } else {
+          this.logger.warn(
+            `Parent not found: ${parentLabel} for ${transformed.label}`,
+          );
+          if (isMongoDB) {
+            transformed.parent = null;
           } else {
-            this.logger.warn(
-              `Parent not found: ${parentLabel} for ${transformed.label}`,
-            );
             delete transformed.parent;
           }
         }

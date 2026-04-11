@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
@@ -13,11 +13,6 @@ import {
   REDIS_TTL,
 } from '../../../shared/utils/constant';
 import { transformCode } from '../../../infrastructure/executor-engine/code-transformer';
-import {
-  CACHE_EVENTS,
-  CACHE_IDENTIFIERS,
-  shouldReloadCache,
-} from '../../../shared/utils/cache-events.constants';
 
 @Injectable()
 export class BootstrapScriptService {
@@ -32,7 +27,6 @@ export class BootstrapScriptService {
     private eventEmitter: EventEmitter2,
   ) {}
 
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
   async onMetadataLoaded() {
     const start = Date.now();
     await this.waitForTableExists();
@@ -40,16 +34,6 @@ export class BootstrapScriptService {
     this.logger.log(
       `Completed in ${Date.now() - start}ms (${scriptCount} scripts)`,
     );
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.BOOTSTRAP)) {
-      await this.reloadBootstrapScripts();
-    }
   }
 
   async reloadBootstrapScripts() {

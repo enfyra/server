@@ -159,7 +159,7 @@ export async function buildNestedSubquery(
   } else if (relation.type === 'one-to-one' && (relation as any).isInverse) {
     const fkColumn =
       relation.foreignKeyColumn ||
-      getForeignKeyColumnName(relation.inversePropertyName || relationName);
+      getForeignKeyColumnName(relation.mappedBy || relationName);
     const leftSide = `${nextAlias}.${quoteIdentifier(fkColumn, dbType)}`;
     const rightSide = `${parentRef}.${quoteIdentifier(parentPkName, dbType)}`;
     return `(select ${jsonObject} from ${quoteIdentifier(targetTableName, dbType)} ${nextAlias} where ${leftSide} = ${rightSide} limit 1)`;
@@ -167,8 +167,8 @@ export async function buildNestedSubquery(
     let fkColumn = relation.foreignKeyColumn;
 
     if (!fkColumn) {
-      if (relation.inversePropertyName) {
-        fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
+      if (relation.mappedBy) {
+        fkColumn = getForeignKeyColumnName(relation.mappedBy);
       } else {
         const inverseRelation = targetMeta.relations?.find(
           (r) =>
@@ -180,7 +180,7 @@ export async function buildNestedSubquery(
         } else {
           logToFile(
             'debug',
-            `O2M relation ${relationName} missing foreignKeyColumn and inversePropertyName`,
+            `O2M relation ${relationName} missing foreignKeyColumn and mappedBy`,
             'NestedSubquery',
           );
           return null;
@@ -502,8 +502,8 @@ export async function buildCTEStrategy(
   if (relation.type === 'one-to-many') {
     let fkColumn = relation.foreignKeyColumn;
     if (!fkColumn) {
-      if (relation.inversePropertyName) {
-        fkColumn = getForeignKeyColumnName(relation.inversePropertyName);
+      if (relation.mappedBy) {
+        fkColumn = getForeignKeyColumnName(relation.mappedBy);
       } else {
         const inverseRelation = targetMeta.relations?.find(
           (r) =>

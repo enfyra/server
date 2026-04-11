@@ -116,11 +116,17 @@ export async function initializeDatabaseSql(): Promise<void> {
 
     await createAllTables(knexInstance, schemas, DB_TYPE);
 
-    for (const schema of schemas) {
-      const exists = await knexInstance.schema.hasTable(schema.tableName);
-      if (exists) {
-        await syncTable(knexInstance, schema, schemas);
-      }
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < schemas.length; i += BATCH_SIZE) {
+      const batch = schemas.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (schema) => {
+          const exists = await knexInstance.schema.hasTable(schema.tableName);
+          if (exists) {
+            await syncTable(knexInstance, schema, schemas);
+          }
+        }),
+      );
     }
 
     await syncJunctionTables(knexInstance, schemas);

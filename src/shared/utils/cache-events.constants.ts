@@ -1,6 +1,9 @@
+export type { TCacheInvalidationPayload } from '../types/cache.types';
+
 export const CACHE_EVENTS = {
   INVALIDATE: 'cache:invalidate',
   METADATA_LOADED: 'cache:metadata:loaded',
+  METADATA_CHANGED: 'cache:metadata:changed',
   ROUTE_LOADED: 'cache:route:loaded',
   STORAGE_LOADED: 'cache:storage:loaded',
   OAUTH_CONFIG_LOADED: 'cache:oauth-config:loaded',
@@ -77,4 +80,14 @@ export function shouldReloadCache(
 ): boolean {
   const cachesToReload = CACHE_INVALIDATION_MAP[tableName];
   return cachesToReload?.includes(cacheIdentifier) ?? false;
+}
+
+const METADATA_TABLES = new Set([
+  'table_definition',
+  'column_definition',
+  'relation_definition',
+]);
+
+export function isMetadataTable(tableName: string): boolean {
+  return METADATA_TABLES.has(tableName);
 }

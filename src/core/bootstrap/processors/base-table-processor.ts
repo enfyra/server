@@ -1,6 +1,12 @@
 import { Knex } from 'knex';
 import { Logger } from '@nestjs/common';
 import { Db, ObjectId } from 'mongodb';
+import {
+  getManyToOneRelations,
+  getScalarColumns,
+  getUniqueFields,
+  FkRelationInfo,
+} from '../utils/snapshot-meta.util';
 export interface UpsertResult {
   created: number;
   skipped: number;
@@ -21,6 +27,154 @@ export abstract class BaseTableProcessor {
     if (record.method) return record.method;
     return JSON.stringify(record).substring(0, 50) + '...';
   }
+  protected async autoTransformFkFields(
+    record: any,
+    tableName: string,
+    queryBuilder: any,
+  ): Promise<any> {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const relations = getManyToOneRelations(tableName);
+    const transformed = { ...record };
+
+    for (const rel of relations) {
+      const rawValue = transformed[rel.propertyName];
+      if (rawValue === undefined || rawValue === null) continue;
+      if (typeof rawValue !== 'string') continue;
+
+      const target = await queryBuilder.findOneWhere(rel.targetTable, {
+        [rel.lookupKey]: rawValue,
+      });
+
+      if (!target) {
+        this.logger.warn(
+          `${rel.targetTable} '${rawValue}' not found for ${rel.propertyName}, skipping.`,
+        );
+        continue;
+      }
+
+      if (isMongoDB) {
+        transformed[rel.propertyName] =
+          typeof target._id === 'string'
+            ? new ObjectId(target._id)
+            : target._id;
+      } else {
+        transformed[`${rel.propertyName}Id`] = target.id;
+        delete transformed[rel.propertyName];
+      }
+    }
+
+    return transformed;
+  }
+
+  protected autoGetUniqueIdentifier(
+    record: any,
+    tableName: string,
+  ): object {
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const uniques = getUniqueFields(tableName);
+
+    if (uniques.length > 0) {
+      const fields = uniques[0];
+      const where: any = {};
+      for (const field of fields) {
+        const relations = getManyToOneRelations(tableName);
+        const rel = relations.find((r) => r.propertyName === field);
+        if (rel && !isMongoDB) {
+          where[`${field}Id`] = record[`${field}Id`];
+        } else {
+          where[field] = record[field];
+        }
+      }
+      return where;
+    }
+
+    if (record.name !== undefined) return { name: record.name };
+    if (record.email !== undefined) return { email: record.email };
+    if (record.key !== undefined) return { key: record.key };
+    if (record.path !== undefined) return { path: record.path };
+    return {};
+  }
+
+  protected autoGetCompareFields(tableName: string): string[] {
+    return getScalarColumns(tableName);
+  }
+
+  async processWithQueryBuilder(
+    records: any[],
+    queryBuilder: any,
+    tableName: string,
+    context?: any,
+  ): Promise<UpsertResult> {
+    if (!records || records.length === 0) {
+      return { created: 0, skipped: 0 };
+    }
+    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const idField = isMongoDB ? '_id' : 'id';
+    const transformedRecords = await this.transformRecords(records, context);
+    let createdCount = 0;
+    let skippedCount = 0;
+    for (const record of transformedRecords) {
+      try {
+        const uniqueWhere = this.getUniqueIdentifier(record);
+        const whereConditions = Array.isArray(uniqueWhere)
+          ? uniqueWhere
+          : [uniqueWhere];
+        let existingRecord = null;
+        for (const whereCondition of whereConditions) {
+          const cleanedCondition = { ...whereCondition };
+          for (const key in cleanedCondition) {
+            if (Array.isArray(cleanedCondition[key])) {
+              delete cleanedCondition[key];
+            }
+          }
+          existingRecord = await queryBuilder.findOneWhere(
+            tableName,
+            cleanedCondition,
+          );
+          if (existingRecord) break;
+        }
+        if (existingRecord) {
+          const hasChanges = this.detectRecordChanges(record, existingRecord);
+          if (hasChanges) {
+            const existingId = existingRecord[idField];
+            await queryBuilder.updateById(tableName, existingId, record);
+            skippedCount++;
+            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+          } else {
+            skippedCount++;
+            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+          }
+          if (this.afterUpsert) {
+            await this.afterUpsert(
+              { ...record, [idField]: existingRecord[idField] },
+              false,
+              context,
+            );
+          }
+        } else {
+          const inserted = await queryBuilder.insertAndGet(tableName, record);
+          const insertedId = inserted[idField];
+          createdCount++;
+          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          if (this.afterUpsert) {
+            await this.afterUpsert(
+              { ...record, [idField]: insertedId },
+              true,
+              context,
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`   Stack: ${error.stack}`);
+        this.logger.error(
+          `   Record: ${JSON.stringify(record).substring(0, 200)}`,
+        );
+      }
+    }
+    return { created: createdCount, skipped: skippedCount };
+  }
+
   async processSql(
     records: any[],
     knex: Knex,

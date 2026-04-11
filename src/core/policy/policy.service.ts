@@ -159,7 +159,7 @@ export class PolicyService {
           targetTableName: safeStr(
             r?.targetTableName ?? r?.targetTable?.name ?? r?.targetTable,
           ),
-          inversePropertyName: safeStr(r?.inversePropertyName),
+          mappedBy: safeStr(r?.mappedBy),
           foreignKeyColumn: safeStr(r?.foreignKeyColumn),
           junctionTableName: safeStr(r?.junctionTableName),
           isNullable: r?.isNullable ?? true,
@@ -265,9 +265,9 @@ export class PolicyService {
       .filter(Boolean);
 
     const relKey = (r: any) =>
-      `${r.propertyName}|${r.type}|${r.targetTableName}|${r.inversePropertyName}|${r.foreignKeyColumn}|${r.junctionTableName}`;
-    const bRelKeys = new Set(bRels.map(relKey));
-    const aRelKeys = new Set(aRels.map(relKey));
+      `${r.propertyName}|${r.type}|${r.targetTableName}|${r.mappedBy}|${r.foreignKeyColumn}|${r.junctionTableName}`;
+    const bRelKeys = new Set<string>(bRels.map(relKey));
+    const aRelKeys = new Set<string>(aRels.map(relKey));
     const removedRelations = Array.from(bRelKeys).filter(
       (k) => !aRelKeys.has(k),
     );
@@ -286,6 +286,12 @@ export class PolicyService {
     const aIKeys = new Set(Array.isArray(aI) ? aI.map(itemKey) : []);
     const removedIndexes = Array.from(bIKeys).filter((k) => !aIKeys.has(k));
     const addedIndexes = Array.from(aIKeys).filter((k) => !bIKeys.has(k));
+
+    const owningSideInverseCascadeWarnings =
+      await this.collectOwningSideInverseCascadeWarnings(
+        before,
+        removedRelations,
+      );
 
     const stripKey = (cols: any[]) => cols.map(({ key, ...rest }) => rest);
     const canonicalPayload = {
@@ -316,6 +322,7 @@ export class PolicyService {
       addedUniques,
       removedIndexes,
       addedIndexes,
+      owningSideInverseCascadeWarnings,
     };
     const requiredConfirmHash = buildHash(canonicalPayload);
 
@@ -335,6 +342,7 @@ export class PolicyService {
       removedIndexes,
       addedIndexes,
       requiredConfirmHash,
+      owningSideInverseCascadeWarnings,
     };
 
     const clientHash = getClientHash();
@@ -361,6 +369,132 @@ export class PolicyService {
     };
   }
 
+  private relationDiffKeyFromRaw(r: any): string {
+    const safeStr = (v: any) => (v == null ? '' : String(v));
+    const x = {
+      propertyName: safeStr(r?.propertyName),
+      type: safeStr(r?.type),
+      targetTableName: safeStr(
+        r?.targetTableName ?? r?.targetTable?.name ?? r?.targetTable,
+      ),
+      mappedBy: safeStr(r?.mappedBy),
+      foreignKeyColumn: safeStr(r?.foreignKeyColumn),
+      junctionTableName: safeStr(r?.junctionTableName),
+    };
+    return `${x.propertyName}|${x.type}|${x.targetTableName}|${x.mappedBy}|${x.foreignKeyColumn}|${x.junctionTableName}`;
+  }
+
+  private getRelationMappedByRef(rel: any): string | null {
+    const v = rel?.mappedByRelationId ?? rel?.mappedById;
+    if (v == null || v === '') {
+      return null;
+    }
+    return String(v);
+  }
+
+  private findInversesPointingToOwningId(
+    owningId: string,
+    meta: { tables: Map<string, any> },
+  ): Array<{
+    inverseSourceTableName: string;
+    propertyName: string;
+    relationId: string;
+  }> {
+    const safeStr = (v: any) => (v == null ? '' : String(v));
+    const out: Array<{
+      inverseSourceTableName: string;
+      propertyName: string;
+      relationId: string;
+    }> = [];
+    for (const [tableName, t] of meta.tables) {
+      for (const r of t.relations || []) {
+        const ref = this.getRelationMappedByRef(r);
+        if (ref === owningId) {
+          const rid = r.id ?? r._id;
+          if (rid == null) continue;
+          out.push({
+            inverseSourceTableName: tableName,
+            propertyName: safeStr(r.propertyName),
+            relationId: String(rid),
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  private async collectOwningSideInverseCascadeWarnings(
+    beforeMetadata: any,
+    removedRelationKeys: string[],
+  ): Promise<
+    Array<{
+      owningRelationId: string;
+      owningPropertyName: string;
+      owningSourceTableName: string;
+      cascadeDeletesInverseRelations: Array<{
+        inverseSourceTableName: string;
+        propertyName: string;
+        relationId: string;
+      }>;
+    }>
+  > {
+    if (!beforeMetadata || removedRelationKeys.length === 0) {
+      return [];
+    }
+    if (!this.metadataCache) {
+      return [];
+    }
+    let meta: { tables: Map<string, any> };
+    try {
+      meta = await this.metadataCache.getMetadata();
+    } catch {
+      return [];
+    }
+    if (!meta?.tables) {
+      return [];
+    }
+    const safeStr = (v: any) => (v == null ? '' : String(v));
+    const removedSet = new Set(removedRelationKeys);
+    const beforeRels = Array.isArray(beforeMetadata.relations)
+      ? beforeMetadata.relations
+      : [];
+    const warnings: Array<{
+      owningRelationId: string;
+      owningPropertyName: string;
+      owningSourceTableName: string;
+      cascadeDeletesInverseRelations: Array<{
+        inverseSourceTableName: string;
+        propertyName: string;
+        relationId: string;
+      }>;
+    }> = [];
+    for (const rel of beforeRels) {
+      const k = this.relationDiffKeyFromRaw(rel);
+      if (!removedSet.has(k)) {
+        continue;
+      }
+      const rid = rel.id ?? rel._id;
+      if (rid == null) {
+        continue;
+      }
+      const ridStr = String(rid);
+      if (this.getRelationMappedByRef(rel)) {
+        continue;
+      }
+      const inverses = this.findInversesPointingToOwningId(ridStr, meta);
+      if (inverses.length === 0) {
+        continue;
+      }
+      warnings.push({
+        owningRelationId: ridStr,
+        owningPropertyName: safeStr(rel.propertyName),
+        owningSourceTableName: safeStr(beforeMetadata.name),
+        cascadeDeletesInverseRelations: inverses,
+      });
+    }
+    return warnings;
+  }
+
   private async getAllRelationFieldsWithInverse(
     tableName: string,
   ): Promise<string[]> {
@@ -374,8 +508,8 @@ export class PolicyService {
       const inverseRelations: string[] = [];
       for (const [, otherMeta] of metadata.tables) {
         for (const r of otherMeta.relations || []) {
-          if (r.targetTableName === tableMeta.name && r.inversePropertyName) {
-            inverseRelations.push(r.inversePropertyName);
+          if (r.targetTableName === tableMeta.name && r.mappedBy) {
+            inverseRelations.push(r.mappedBy);
           }
         }
       }
@@ -618,7 +752,8 @@ export class PolicyService {
         ) {
           throw new Error('Cannot modify isRootAdmin');
         }
-        const getItemId = (item: any) => item?._id || item?.id;
+        const getItemId = (item: any) =>
+          String(item?._id ?? item?.id ?? '');
         const isSelf = getItemId(currentUser) === getItemId(fullExisting);
         if (isRoot && !isSelf)
           throw new Error('Only Root Admin can modify themselves');

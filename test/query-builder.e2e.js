@@ -86,7 +86,7 @@ async function loadMetadata() {
         junctionTableName: r.junctionTableName,
         junctionSourceColumn: r.junctionSourceColumn,
         junctionTargetColumn: r.junctionTargetColumn,
-        inversePropertyName: r.inversePropertyName,
+        mappedBy: r.mappedBy,
         isInverse: r.isInverse,
       })),
     });

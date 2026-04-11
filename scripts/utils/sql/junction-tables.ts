@@ -104,13 +104,19 @@ export async function syncJunctionTables(
   console.log('🔗 Syncing junction tables...');
 
   const createdJunctions = new Set<string>();
-
+  const uniqueJunctions: typeof schemas[0]['junctionTables'] = [];
   for (const schema of schemas) {
     for (const junction of schema.junctionTables) {
-      if (createdJunctions.has(junction.tableName)) {
-        continue;
+      if (!createdJunctions.has(junction.tableName)) {
+        createdJunctions.add(junction.tableName);
+        uniqueJunctions.push(junction);
       }
-
+    }
+  }
+  const BATCH = 5;
+  for (let i = 0; i < uniqueJunctions.length; i += BATCH) {
+    await Promise.all(
+      uniqueJunctions.slice(i, i + BATCH).map(async (junction) => {
       const exists = await knex.schema.hasTable(junction.tableName);
 
       if (!exists) {
@@ -167,9 +173,8 @@ export async function syncJunctionTables(
       } else {
         console.log(`  ⏩ Junction table already exists: ${junction.tableName}`);
       }
-
-      createdJunctions.add(junction.tableName);
-    }
+      }),
+    );
   }
 }
 

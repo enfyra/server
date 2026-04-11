@@ -30,9 +30,11 @@ export class RepoRegistryService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    const tables = await this.metadataCacheService.getAllTablesMetadata();
+  async rebuildFromMetadata(
+    metadataCache?: MetadataCacheService,
+  ): Promise<void> {
+    const cache = metadataCache || this.metadataCacheService;
+    const tables = await cache.getAllTablesMetadata();
     const newMap = new Map<string, string>();
     for (const table of tables) {
       newMap.set(table.name, table.name);

@@ -93,7 +93,7 @@ export async function buildNestedLookupPipeline(
           foreignField = '_id';
         } else if (relMeta.type === 'one-to-many') {
           localField = '_id';
-          foreignField = relMeta.inversePropertyName || relMeta.propertyName;
+          foreignField = relMeta.mappedBy || relMeta.propertyName;
         } else if (relMeta.type === 'many-to-many') {
           if (relMeta.mappedBy) {
             localField = '_id';

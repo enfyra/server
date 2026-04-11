@@ -42,6 +42,7 @@ export async function loadTableMetadata(
       'r.*',
       'sourceTable.name as sourceTableName',
       'targetTable.name as targetTableName',
+      'owningRel.propertyName as mappedByPropertyName',
     )
     .leftJoin(
       'table_definition as sourceTable',
@@ -52,6 +53,11 @@ export async function loadTableMetadata(
       'table_definition as targetTable',
       'r.targetTableId',
       'targetTable.id',
+    )
+    .leftJoin(
+      'relation_definition as owningRel',
+      'r.mappedById',
+      'owningRel.id',
     )
     .where('r.sourceTableId', tableDef.id);
   const columnMetadata: ColumnMetadata[] = columns.map((col) => ({
@@ -78,7 +84,8 @@ export async function loadTableMetadata(
     targetTableId: rel.targetTableId,
     sourceTable: rel.sourceTableName,
     sourceTableId: rel.sourceTableId,
-    inversePropertyName: rel.inversePropertyName,
+    mappedBy: rel.mappedByPropertyName || null,
+    mappedById: rel.mappedById || null,
     isNullable: rel.isNullable !== false,
     isSystem: rel.isSystem || false,
     isPublished: rel.isPublished !== false,

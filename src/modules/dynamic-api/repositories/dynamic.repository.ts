@@ -10,6 +10,7 @@ import { TDynamicContext } from '../../../shared/types';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { FieldPermissionCacheService } from '../../../infrastructure/cache/services/field-permission-cache.service';
 import {
   buildRequestedShapeFromQuery,
@@ -409,7 +410,7 @@ export class DynamicRepository {
       limit:
         opt && 'limit' in opt ? opt.limit : (this.context.$query?.limit ?? 10),
       meta: opt?.meta || this.context.$query?.meta,
-      sort: opt?.sort || this.context.$query?.sort || 'id',
+      sort: opt?.sort || this.context.$query?.sort || this.getIdField(),
       aggregate: this.context.$query?.aggregate || {},
       deep: cleanDeep || {},
       debugMode: debugMode,
@@ -537,8 +538,11 @@ export class DynamicRepository {
           body,
           this.context,
         );
-        await this.reload();
         const idValue = table._id || table.id;
+        await this.reload({
+          ids: [idValue],
+          affectedTables: table.affectedTables,
+        });
         return await this.find({
           where: { [this.getIdField()]: { _eq: idValue } },
           fields,
@@ -546,6 +550,9 @@ export class DynamicRepository {
       }
       if (body.id !== undefined) {
         delete body.id;
+      }
+      if (body._id !== undefined) {
+        delete body._id;
       }
       const inserted = await this.wrapWithFieldPermissionCheck(() =>
         this.queryBuilder.runWithPolicy(
@@ -559,7 +566,7 @@ export class DynamicRepository {
           where: { [this.getIdField()]: { _eq: createdId } },
           fields,
         });
-        await this.reload();
+        await this.reload({ ids: [createdId] });
         return result;
       } catch (error: any) {
         const errorMessage = error?.message || error?.toString() || '';
@@ -567,7 +574,7 @@ export class DynamicRepository {
           errorMessage.includes('operator does not exist') ||
           errorMessage.includes('character varying')
         ) {
-          await this.reload();
+          await this.reload({ ids: [createdId] });
           return {
             data: [inserted],
             count: 1,
@@ -697,7 +704,10 @@ export class DynamicRepository {
           return { data: [table] };
         }
         const tableId = table._id || table.id;
-        await this.reload();
+        await this.reload({
+          ids: [tableId],
+          affectedTables: table.affectedTables,
+        });
         return this.find({
           where: { [this.getIdField()]: { _eq: tableId } },
           fields,
@@ -713,7 +723,7 @@ export class DynamicRepository {
         where: { [this.getIdField()]: { _eq: id } },
         fields,
       });
-      await this.reload();
+      await this.reload({ ids: [id] });
       return result;
     } catch (error: any) {
       if (error instanceof ForbiddenException) {
@@ -749,15 +759,18 @@ export class DynamicRepository {
         throw new BadRequestException(deleteDecision.message);
       }
       if (this.tableName === 'table_definition') {
-        await this.tableHandlerService.delete(id, this.context);
-        await this.reload();
+        const deleted: any = await this.tableHandlerService.delete(id, this.context);
+        await this.reload({
+          ids: [id],
+          affectedTables: deleted?.affectedTables,
+        });
         return { message: 'Success', statusCode: 200 };
       }
       await this.queryBuilder.runWithPolicy(
         (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
         () => this.queryBuilder.deleteById(this.tableName, id),
       );
-      await this.reload();
+      await this.reload({ ids: [id] });
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error) {
       throw new BadRequestException(error.message);
@@ -885,12 +898,18 @@ export class DynamicRepository {
     );
   }
 
-  private async reload() {
-    await new Promise((resolve) => setTimeout(resolve, 750));
-    this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
+  private async reload(opts?: {
+    ids?: (string | number)[];
+    affectedTables?: string[];
+  }) {
+    const payload: TCacheInvalidationPayload = {
       tableName: this.tableName,
       action: 'reload',
       timestamp: Date.now(),
-    });
+      scope: opts?.ids?.length ? 'partial' : 'full',
+      ids: opts?.ids,
+      affectedTables: opts?.affectedTables,
+    };
+    this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, payload);
   }
 }

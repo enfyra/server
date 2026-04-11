@@ -106,7 +106,7 @@ export async function expandFieldsMongo(
       isInverse = false;
     } else if (rel.type === 'one-to-many') {
       localField = '_id';
-      foreignField = rel.inversePropertyName || rel.propertyName;
+      foreignField = rel.mappedBy || rel.propertyName;
       isInverse = true;
     } else if (rel.type === 'many-to-many') {
       if (rel.mappedBy) {

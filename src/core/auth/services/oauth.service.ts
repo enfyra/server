@@ -1,7 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import ms, { type StringValue } from 'ms';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
@@ -123,7 +123,7 @@ export class OAuthService {
 
     const session = await this.createSession(user, provider);
 
-    return this.generateTokens(user, session);
+    return await this.generateTokens(user, session);
   }
 
   private async exchangeCodeForTokens(
@@ -327,15 +327,15 @@ export class OAuthService {
     return this.queryBuilder.insertAndGet('session_definition', sessionData);
   }
 
-  private generateTokens(
+  private async generateTokens(
     user: any,
     session: any,
-  ): {
+  ): Promise<{
     accessToken: string;
     refreshToken: string;
     expTime: number;
     loginProvider: string | null;
-  } {
+  }> {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const userId = isMongoDB ? user._id : user.id;
     const sessionId = isMongoDB ? session._id : session.id;
@@ -357,6 +357,15 @@ export class OAuthService {
           'REFRESH_TOKEN_REMEMBER_EXP',
         ) as StringValue,
       },
+    );
+
+    const refreshTokenHash = createHash('sha256')
+      .update(refreshToken)
+      .digest('hex');
+    await this.queryBuilder.updateById(
+      'session_definition',
+      sessionId?.toString(),
+      { refreshTokenHash },
     );
 
     const decoded: any = this.jwtService.decode(accessToken);

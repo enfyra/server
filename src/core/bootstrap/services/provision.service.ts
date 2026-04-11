@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { DataProvisionService } from './data-provision.service';
 import { MetadataProvisionService } from './metadata-provision.service';
@@ -7,6 +7,7 @@ import { MetadataMigrationService } from './metadata-migration.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
+import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 
 @Injectable()
@@ -22,6 +23,8 @@ export class ProvisionService implements OnModuleInit {
     private readonly queryBuilder: QueryBuilderService,
     private readonly cacheService: CacheService,
     private readonly instanceService: InstanceService,
+    @Inject(forwardRef(() => MetadataCacheService))
+    private readonly metadataCacheService: MetadataCacheService,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -91,22 +94,30 @@ export class ProvisionService implements OnModuleInit {
 
         this.logger.log('First time initialization...');
 
+        const t1 = Date.now();
         await this.metadataProvisionService.createInitMetadata();
+        this.logger.log(`createInitMetadata: ${Date.now() - t1}ms`);
 
         if (this.metadataMigrationService.hasMigrations()) {
-          this.logger.log(
-            'Running metadata migrations from snapshot-migration.json...',
-          );
+          const t2 = Date.now();
+          this.logger.log('Running metadata migrations...');
           await this.metadataMigrationService.runMigrations();
+          this.logger.log(`Metadata migrations: ${Date.now() - t2}ms`);
         }
 
+        const t3 = Date.now();
+        await this.metadataCacheService.getMetadata();
+        this.logger.log(`Metadata cache warmed: ${Date.now() - t3}ms`);
+
+        const t4 = Date.now();
         await this.dataProvisionService.insertAllDefaultRecords();
+        this.logger.log(`Default records: ${Date.now() - t4}ms`);
 
         if (this.dataMigrationService.hasMigrations()) {
-          this.logger.log(
-            'Running data migrations from data-migration.json...',
-          );
+          const t5 = Date.now();
+          this.logger.log('Running data migrations...');
           await this.dataMigrationService.runMigrations();
+          this.logger.log(`Data migrations: ${Date.now() - t5}ms`);
         }
 
         const settings2Result = await this.queryBuilder.select({

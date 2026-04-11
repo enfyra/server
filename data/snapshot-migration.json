@@ -71,12 +71,12 @@
     },
     {
       "_unique": { "name": { "_eq": "relation_definition" } },
-      "columnsToRemove": ["isHidden"]
+      "columnsToRemove": ["isHidden", "inversePropertyName", "mappedBy"]
     },
     {
       "_unique": { "name": { "_eq": "websocket_definition" } },
       "relationsToRemove": ["targetTables"]
     }
   ],
-  "tablesToDrop": ["ai_config_definition", "ai_conversation_definition", "ai_message_definition"]
+  "tablesToDrop": []
 }

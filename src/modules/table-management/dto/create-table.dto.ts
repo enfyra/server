@@ -141,6 +141,10 @@ export class CreateRelationDto {
 
   @IsSafeIdentifier()
   @IsOptional()
+  mappedBy?: string;
+
+  @IsSafeIdentifier()
+  @IsOptional()
   inversePropertyName?: string;
 
   @IsIn(['one-to-one', 'one-to-many', 'many-to-one', 'many-to-many'])

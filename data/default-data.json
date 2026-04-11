@@ -53,6 +53,14 @@
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
+            "path": "/relation_definition",
+            "mainTable": "relation_definition",
+            "isEnabled": true,
+            "isSystem":true,
+            "icon": "lucide:git-branch",
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
             "path": "/user_definition",
             "mainTable": "user_definition",
             "isEnabled": true,

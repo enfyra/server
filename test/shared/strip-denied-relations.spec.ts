@@ -109,6 +109,7 @@ function makeRepo({
   repo.enforceFieldPermission = enforceFieldPermission;
   repo.tableName = 'main_table';
   repo.context = { $user: { id: 1, role: { id: '2' }, isRootAdmin } };
+  repo.queryBuilder = { isMongoDb: () => false };
   repo.metadataCacheService = {
     lookupTableByName: jest.fn().mockImplementation(async (name: string) => tableMetaMap[name] ?? null),
   };
@@ -455,6 +456,7 @@ describe('DynamicRepository.find — stripDeniedFields integration', () => {
       $user: { id: 1, role: { id: '2' }, isRootAdmin },
       $query: {},
     };
+    repo.queryBuilder = { isMongoDb: () => false };
     repo.tableMetadata = TABLE_META['main_table'];
     repo.metadataCacheService = {
       lookupTableByName: jest.fn().mockImplementation(

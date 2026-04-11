@@ -5,7 +5,7 @@ import {
   OnGatewayDisconnect,
   OnGatewayInit,
 } from '@nestjs/websockets';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { Server, Socket } from 'socket.io';
@@ -31,13 +31,15 @@ interface SocketData extends Socket {
   cors: { origin: '*' },
 })
 export class DynamicWebSocketGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
 {
   @WebSocketServer()
   server: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
   private registeredGateways = new Set<string>();
   private gatewayConfigsByPath = new Map<string, any>();
+  private redisPubClient: Redis | null = null;
+  private redisSubClient: Redis | null = null;
   constructor(
     private readonly configService: ConfigService,
     @InjectQueue(SYSTEM_QUEUES.WS_CONNECTION)
@@ -76,6 +78,9 @@ export class DynamicWebSocketGateway
       ? new Redis(redisUri, redisOptions)
       : new Redis(redisOptions);
     const subClient = pubClient.duplicate();
+
+    this.redisPubClient = pubClient;
+    this.redisSubClient = subClient;
 
     pubClient
       .connect()
@@ -343,6 +348,15 @@ export class DynamicWebSocketGateway
   }
   async handleConnection(_client: Socket) {}
   async handleDisconnect(_client: Socket) {}
+
+  async onModuleDestroy() {
+    try {
+      this.redisPubClient?.disconnect();
+    } catch {}
+    try {
+      this.redisSubClient?.disconnect();
+    } catch {}
+  }
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
     for (const path of this.registeredGateways) {

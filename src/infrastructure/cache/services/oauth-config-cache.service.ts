@@ -1,18 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 import {
-  CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
 
 const OAUTH_CONFIG: CacheConfig = {
-  syncEventKey: OAUTH_CONFIG_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
   colorCode: '\x1b[33m',
   cacheName: 'OAuthConfigCache',
@@ -35,27 +29,9 @@ export class OAuthConfigCacheService extends BaseCacheService<
 > {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(OAUTH_CONFIG, redisPubSubService, instanceService, eventEmitter);
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    await this.reload(false);
-    this.eventEmitter?.emit(CACHE_EVENTS.OAUTH_CONFIG_LOADED);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, this.config.cacheIdentifier)) {
-      await this.reload();
-    }
+    super(OAUTH_CONFIG, eventEmitter);
   }
 
   protected async loadFromDb(): Promise<OAuthConfig[]> {

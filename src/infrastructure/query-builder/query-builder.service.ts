@@ -66,6 +66,9 @@ export class QueryBuilderService {
     if (this.knexService) {
       return this.knexService.runWithFieldPermissionCheck(checker, callback);
     }
+    if (this.mongoService) {
+      return this.mongoService.runWithFieldPermissionCheck(checker, callback);
+    }
     return callback();
   }
 
@@ -493,6 +496,6 @@ export class QueryBuilderService {
   }
 
   isSql(): boolean {
-    return ['mysql', 'postgres'].includes(this.dbType);
+    return ['mysql', 'postgres', 'mariadb', 'sqlite'].includes(this.dbType);
   }
 }

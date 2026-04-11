@@ -1,18 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
-  CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
-import { FOLDER_TREE_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
 
 const FOLDER_TREE_CONFIG: CacheConfig = {
-  syncEventKey: FOLDER_TREE_CACHE_SYNC_EVENT_KEY,
   cacheIdentifier: CACHE_IDENTIFIERS.FOLDER_TREE,
   colorCode: '\x1b[36m',
   cacheName: 'FolderTreeCache',
@@ -38,31 +32,9 @@ interface FolderTreeCache {
 export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
-    super(
-      FOLDER_TREE_CONFIG,
-      redisPubSubService,
-      instanceService,
-      eventEmitter,
-    );
-  }
-
-  @OnEvent(CACHE_EVENTS.METADATA_LOADED)
-  async onMetadataLoaded() {
-    await this.reload(false);
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (payload.tableName === 'folder_definition') {
-      await this.reload();
-    }
+    super(FOLDER_TREE_CONFIG, eventEmitter);
   }
 
   protected async loadFromDb(): Promise<FolderNode[]> {

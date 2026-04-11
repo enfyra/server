@@ -180,12 +180,22 @@ export class GuardEvaluatorService {
     };
   }
 
+  private normalizeIp(ip: string): string {
+    if (ip.startsWith('::ffff:')) {
+      const v4 = ip.slice(7);
+      if (this.ipToNum(v4) !== null) return v4;
+    }
+    return ip;
+  }
+
   private matchIp(clientIp: string, patterns: string[]): boolean {
+    const normalized = this.normalizeIp(clientIp);
     for (const pattern of patterns) {
-      if (pattern.includes('/')) {
-        if (this.matchCidr(clientIp, pattern)) return true;
+      const normalizedPattern = this.normalizeIp(pattern);
+      if (normalizedPattern.includes('/')) {
+        if (this.matchCidr(normalized, normalizedPattern)) return true;
       } else {
-        if (clientIp === pattern) return true;
+        if (normalized === normalizedPattern) return true;
       }
     }
     return false;

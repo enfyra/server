@@ -31,13 +31,13 @@
         "description": "Defines relationships between tables (one-to-one, one-to-many, many-to-one, many-to-many)",
         "isSystem": true,
         "uniques": [
-            ["propertyName", "sourceTable"]
+            ["propertyName", "sourceTable"],
+            ["mappedBy"]
         ],
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
             { "name": "type", "type": "enum", "isNullable": false, "isSystem": true, "options": ["one-to-one", "many-to-one", "one-to-many", "many-to-many"], "description": "Type of relationship between tables" },
             { "name": "propertyName", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Property name for accessing the relation in queries" },
-            { "name": "inversePropertyName", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Property name on the target table for bidirectional relations" },
             { "name": "isNullable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether the relation can be null" },
             { "name": "onDelete", "type": "enum", "isNullable": false, "isSystem": true, "options": ["CASCADE", "RESTRICT", "SET NULL"], "defaultValue": "SET NULL", "description": "Action to perform when referenced record is deleted" },
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined relation" },
@@ -51,7 +51,8 @@
         ],
         "relations": [
             { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table where this relation is defined" },
-            { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": false, "description": "The table that this relation points to" }
+            { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": false, "description": "The table that this relation points to" },
+            { "propertyName": "mappedBy", "type": "many-to-one", "targetTable": "relation_definition", "isSystem": true, "isNullable": true, "onDelete": "CASCADE", "description": "Owning-side relation that this inverse maps to (self-referencing FK)" }
         ]
     },
     "table_definition": {
@@ -286,7 +287,8 @@
             { "name": "id", "type": "uuid", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Unique session identifier" },
             { "name": "expiredAt", "type": "date", "isNullable": false, "isSystem": true, "defaultValue": "now", "description": "When the session expires" },
             { "name": "remember", "type": "boolean", "isSystem": true, "defaultValue": false, "description": "Whether this is a long-lived 'remember me' session" },
-            { "name": "loginProvider", "type": "varchar", "isNullable": true, "isSystem": true, "description": "OAuth provider used to login (google, facebook, github) or null for email/password" }
+            { "name": "loginProvider", "type": "varchar", "isNullable": true, "isSystem": true, "description": "OAuth provider used to login (google, facebook, github) or null for email/password" },
+            { "name": "refreshTokenHash", "type": "varchar", "isNullable": true, "isSystem": true, "description": "SHA-256 hash of the current valid refresh token" }
         ],
         "relations": [
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }

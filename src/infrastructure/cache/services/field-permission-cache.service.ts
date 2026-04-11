@@ -1,15 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import {
-  CACHE_EVENTS,
   CACHE_IDENTIFIERS,
-  shouldReloadCache,
 } from '../../../shared/utils/cache-events.constants';
-import { FIELD_PERMISSION_CACHE_SYNC_EVENT_KEY } from '../../../shared/utils/constant';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { BaseCacheService } from './base-cache.service';
-import { RedisPubSubService } from './redis-pubsub.service';
 
 export type TFieldPermissionAction = 'read' | 'create' | 'update';
 export type TFieldPermissionEffect = 'allow' | 'deny';
@@ -46,30 +41,16 @@ export class FieldPermissionCacheService extends BaseCacheService<
 > {
   constructor(
     private readonly queryBuilder: QueryBuilderService,
-    redisPubSubService: RedisPubSubService,
-    instanceService: InstanceService,
     eventEmitter: EventEmitter2,
   ) {
     super(
       {
-        syncEventKey: FIELD_PERMISSION_CACHE_SYNC_EVENT_KEY,
         cacheIdentifier: CACHE_IDENTIFIERS.FIELD_PERMISSION,
         colorCode: '\x1b[38;5;215m',
         cacheName: 'FieldPermissionCache',
       },
-      redisPubSubService,
-      instanceService,
       eventEmitter,
     );
-  }
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: { tableName: string; action: string }) {
-    if (
-      shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.FIELD_PERMISSION)
-    ) {
-      await this.reload();
-    }
   }
 
   protected async loadFromDb(): Promise<any> {

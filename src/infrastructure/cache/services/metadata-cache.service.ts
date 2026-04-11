@@ -1,30 +1,18 @@
 import {
   Injectable,
   Logger,
-  OnApplicationBootstrap,
-  OnModuleInit,
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
   getJunctionColumnNames,
 } from '../../knex/utils/sql-schema-naming.util';
-import {
-  METADATA_CACHE_SYNC_EVENT_KEY,
-  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-} from '../../../shared/utils/constant';
-import {
-  CACHE_EVENTS,
-  CACHE_IDENTIFIERS,
-  shouldReloadCache,
-} from '../../../shared/utils/cache-events.constants';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const COLOR = '\x1b[36m';
@@ -38,112 +26,433 @@ export interface EnfyraMetadata {
 }
 
 @Injectable()
-export class MetadataCacheService
-  implements OnApplicationBootstrap, OnModuleInit
-{
+export class MetadataCacheService {
   private readonly logger = new Logger(`${COLOR}MetadataCache${RESET}`);
   private inMemoryCache: EnfyraMetadata | null = null;
   private isLoading: boolean = false;
   private loadingPromise: Promise<void> | null = null;
-  private messageHandler: ((channel: string, message: string) => void) | null =
-    null;
 
   constructor(
     @Inject(forwardRef(() => QueryBuilderService))
     private readonly queryBuilder: QueryBuilderService,
-    private readonly redisPubSubService: RedisPubSubService,
-    private readonly instanceService: InstanceService,
     private readonly databaseSchemaService: DatabaseSchemaService,
-    private readonly eventEmitter: EventEmitter2,
     private readonly websocketGateway: DynamicWebSocketGateway,
   ) {}
 
-  async onModuleInit() {
-    this.subscribe();
+  async reload(): Promise<void> {
+    if (this.isLoading && this.loadingPromise) {
+      return this.loadingPromise;
+    }
+
+    this.isLoading = true;
+    this.loadingPromise = (async () => {
+      try {
+        try {
+          this.websocketGateway.emitToNamespace(
+            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+            '$system:metadata:reload',
+            { status: 'pending' },
+          );
+        } catch {}
+
+        const metadata = await this.loadMetadataFromDb();
+        this.inMemoryCache = metadata;
+
+        try {
+          this.websocketGateway.emitToNamespace(
+            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+            '$system:metadata:reload',
+            { status: 'done' },
+          );
+        } catch {}
+
+        this.logger.log(
+          `Loaded ${metadata.tablesList.length} table definitions`,
+        );
+      } catch (error) {
+        this.logger.error('Failed to reload metadata cache:', error);
+        throw error;
+      } finally {
+        this.isLoading = false;
+        this.loadingPromise = null;
+      }
+    })();
+
+    return this.loadingPromise;
   }
 
-  async onApplicationBootstrap() {
+  async partialReload(payload: TCacheInvalidationPayload): Promise<void> {
+    if (this.isLoading && this.loadingPromise) {
+      await this.loadingPromise;
+    }
     try {
       const start = Date.now();
-      await this.reload();
+      await this.applyPartialUpdate(payload);
       this.logger.log(
-        `Loaded ${this.inMemoryCache?.tablesList?.length || 0} table definitions in ${Date.now() - start}ms`,
+        `Partial reload (${payload.ids?.length ?? 0} tables) in ${Date.now() - start}ms`,
       );
-      this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
     } catch (error) {
-      this.logger.error('MetadataCacheService initialization failed:', error);
-      throw error;
+      this.logger.warn(
+        `Partial reload failed, falling back to full: ${error.message}`,
+      );
+      await this.reload();
     }
   }
 
-  private subscribe() {
-    if (this.messageHandler) {
+  private applyRelationMappedByDerivedFields(
+    relations: any[],
+    relationIdMap: Map<string, any>,
+    isMongoDB: boolean,
+  ): void {
+    for (const rel of relations) {
+      const rawRef = isMongoDB ? rel.mappedBy : rel.mappedById;
+      rel.mappedByRelationId =
+        rawRef != null && rawRef !== '' ? String(rawRef) : null;
+      if (rawRef) {
+        const owningRelation = relationIdMap.get(String(rawRef));
+        rel.mappedBy = owningRelation?.propertyName || null;
+      } else {
+        rel.mappedBy = null;
+      }
+    }
+  }
+
+  private async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (!this.inMemoryCache) {
+      throw new Error('Cache not initialized, cannot partial reload');
+    }
+
+    const isMongoDB = this.queryBuilder.isMongoDb();
+    const tableIds = payload.ids || [];
+
+    let tables: any[] = [];
+    if (tableIds.length > 0) {
+      const tablesResult = await this.queryBuilder.select({
+        tableName: 'table_definition',
+        filter: { id: { _in: tableIds } },
+      });
+      tables = tablesResult.data;
+    }
+
+    if (tables.length === 0 && !payload.affectedTables?.length) {
       return;
     }
 
-    this.messageHandler = async (channel: string, message: string) => {
-      if (
-        this.redisPubSubService.isChannelForBase(
-          channel,
-          METADATA_CACHE_SYNC_EVENT_KEY,
-        )
-      ) {
-        try {
-          const payload = JSON.parse(message);
-          const myInstanceId = this.instanceService.getInstanceId();
+    const allTableIds = [...tableIds];
+    const affectedTableNames = new Set(payload.affectedTables || []);
 
-          if (payload.instanceId === myInstanceId) {
-            return;
-          }
+    if (affectedTableNames.size > 0) {
+      const affectedResult = await this.queryBuilder.select({
+        tableName: 'table_definition',
+        filter: { name: { _in: [...affectedTableNames] } },
+      });
+      for (const t of affectedResult.data) {
+        tables.push(t);
+        const tid = isMongoDB ? String(t._id) : t.id;
+        allTableIds.push(tid);
+      }
+    }
 
-          if (payload.type === 'RELOAD_SIGNAL') {
-            this.forceReloadFromDb();
-          }
-        } catch (error) {
-          this.logger.error(
-            'Failed to parse metadata cache sync message:',
-            error,
+    const uniqueTableIds = [...new Set(allTableIds.map(String))];
+
+    const [columnsResult, relationsResult] = await Promise.all([
+      this.queryBuilder.select({
+        tableName: 'column_definition',
+        filter: isMongoDB
+          ? { table: { _in: uniqueTableIds } }
+          : { tableId: { _in: uniqueTableIds } },
+      }),
+      this.queryBuilder.select({
+        tableName: 'relation_definition',
+        filter: isMongoDB
+          ? { sourceTable: { _in: uniqueTableIds } }
+          : { sourceTableId: { _in: uniqueTableIds } },
+      }),
+    ]);
+
+    let schemasForTables: Map<string, any> | null = null;
+    if (!isMongoDB) {
+      const tableNames = tables.map((t: any) => t.name);
+      schemasForTables =
+        await this.databaseSchemaService.getTableSchemas(tableNames);
+    }
+
+    const allRelations = relationsResult.data;
+    const relationIdMap = new Map<string, any>();
+    for (const rel of allRelations) {
+      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      relationIdMap.set(relId, rel);
+    }
+
+    const existingRelations = this.inMemoryCache.tablesList.flatMap(
+      (t: any) => t.relations || [],
+    );
+    for (const rel of existingRelations) {
+      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      if (!relationIdMap.has(relId)) {
+        relationIdMap.set(relId, rel);
+      }
+    }
+
+    this.applyRelationMappedByDerivedFields(
+      allRelations,
+      relationIdMap,
+      isMongoDB,
+    );
+
+    const columnsByTable = new Map<string, any[]>();
+    for (const col of columnsResult.data) {
+      const key = String(isMongoDB ? col.table : col.tableId);
+      if (!columnsByTable.has(key)) columnsByTable.set(key, []);
+      columnsByTable.get(key)!.push(col);
+    }
+
+    const relationsBySource = new Map<string, any[]>();
+    for (const rel of allRelations) {
+      const key = String(isMongoDB ? rel.sourceTable : rel.sourceTableId);
+      if (!relationsBySource.has(key)) relationsBySource.set(key, []);
+      relationsBySource.get(key)!.push(rel);
+    }
+
+    const globalTableIdToName = new Map<string, string>();
+    for (const t of this.inMemoryCache.tablesList) {
+      const tid = String(isMongoDB ? t._id : t.id);
+      globalTableIdToName.set(tid, t.name);
+    }
+    for (const t of tables) {
+      const tid = String(isMongoDB ? t._id : t.id);
+      globalTableIdToName.set(tid, t.name);
+    }
+
+    for (const table of tables) {
+      const metadata = this.buildTableMetadata(
+        table,
+        columnsByTable,
+        relationsBySource,
+        globalTableIdToName,
+        schemasForTables,
+        isMongoDB,
+      );
+      if (!metadata) continue;
+
+      const existingIndex = this.inMemoryCache.tablesList.findIndex(
+        (t: any) => t.name === table.name,
+      );
+      if (existingIndex >= 0) {
+        this.inMemoryCache.tablesList[existingIndex] = metadata;
+      } else {
+        this.inMemoryCache.tablesList.push(metadata);
+      }
+      this.inMemoryCache.tables.set(table.name, metadata);
+    }
+
+    const deletedTableIds = new Set(uniqueTableIds);
+    for (const table of tables) {
+      const tid = String(isMongoDB ? table._id : table.id);
+      deletedTableIds.delete(tid);
+    }
+    if (deletedTableIds.size > 0) {
+      const namesToRemove = new Set<string>();
+      for (const tid of deletedTableIds) {
+        const name = globalTableIdToName.get(tid);
+        if (name) namesToRemove.add(name);
+      }
+      for (const name of namesToRemove) {
+        this.inMemoryCache.tables.delete(name);
+      }
+      this.inMemoryCache.tablesList = this.inMemoryCache.tablesList.filter(
+        (t: any) => !namesToRemove.has(t.name),
+      );
+    }
+
+    this.inMemoryCache.version = Date.now();
+    this.inMemoryCache.timestamp = new Date();
+
+    try {
+      this.websocketGateway.emitToNamespace(
+        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
+        '$system:metadata:reload',
+        { status: 'done' },
+      );
+    } catch {}
+  }
+
+  private buildTableMetadata(
+    table: any,
+    columnsByTable: Map<string, any[]>,
+    relationsBySource: Map<string, any[]>,
+    tableIdToName: Map<string, string>,
+    schemasForTables: Map<string, any> | null,
+    isMongoDB: boolean,
+  ): any | null {
+    try {
+      let actualSchema = null;
+      if (!isMongoDB) {
+        actualSchema = schemasForTables?.get(table.name);
+        if (!actualSchema) {
+          this.logger.warn(
+            `Table ${table.name} not found in database, skipping...`,
           );
+          return null;
         }
       }
-    };
 
-    this.redisPubSubService.subscribeWithHandler(
-      METADATA_CACHE_SYNC_EVENT_KEY,
-      this.messageHandler,
-    );
-  }
+      let uniques = [];
+      let indexes = [];
+      if (table.uniques) {
+        if (typeof table.uniques === 'string') {
+          try { uniques = JSON.parse(table.uniques); } catch (e) {
+            this.logger.warn(`Failed to parse uniques for table ${table.name}`);
+          }
+        } else if (Array.isArray(table.uniques)) {
+          uniques = table.uniques;
+        }
+      }
+      if (table.indexes) {
+        if (typeof table.indexes === 'string') {
+          try { indexes = JSON.parse(table.indexes); } catch (e) {
+            this.logger.warn(`Failed to parse indexes for table ${table.name}`);
+          }
+        } else if (Array.isArray(table.indexes)) {
+          indexes = table.indexes;
+        }
+      }
 
-  private async forceReloadFromDb(): Promise<void> {
-    try {
-      const metadata = await this.loadMetadataFromDb();
-      this.inMemoryCache = metadata;
-    } catch (error) {
-      this.logger.error('Failed to force reload metadata:', error);
-    }
-  }
+      const tableIdValue = String(isMongoDB ? table._id : table.id);
+      const explicitColumns = columnsByTable.get(tableIdValue) || [];
 
-  private reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private reloadDebounceResolvers: Array<() => void> = [];
-
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  async handleCacheInvalidation(payload: {
-    tableName: string;
-    action: string;
-  }) {
-    if (shouldReloadCache(payload.tableName, CACHE_IDENTIFIERS.METADATA)) {
-      return new Promise<void>((resolve) => {
-        this.reloadDebounceResolvers.push(resolve);
-        if (this.reloadDebounceTimer) clearTimeout(this.reloadDebounceTimer);
-        this.reloadDebounceTimer = setTimeout(async () => {
-          this.reloadDebounceTimer = null;
-          const resolvers = this.reloadDebounceResolvers.splice(0);
-          try {
-            await this.reload();
-          } catch {}
-          resolvers.forEach((r) => r());
-        }, 50);
+      const parsedExplicitColumns = explicitColumns.map((col: any) => {
+        const column = { ...col };
+        if (col.options && typeof col.options === 'string') {
+          try { column.options = JSON.parse(col.options); } catch (e) {}
+        }
+        if (col.defaultValue && typeof col.defaultValue === 'string') {
+          try { column.defaultValue = JSON.parse(col.defaultValue); } catch (e) {}
+        }
+        const booleanFields = ['isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isPublished'];
+        for (const field of booleanFields) {
+          if (column[field] !== undefined && column[field] !== null) {
+            column[field] = column[field] === 1 || column[field] === true;
+          }
+        }
+        return column;
       });
+
+      const relationsData = relationsBySource.get(tableIdValue) || [];
+      const relations: any[] = [];
+      for (const rel of relationsData) {
+        const relBooleanFields = ['isNullable', 'isSystem', 'isUpdatable', 'isPublished'];
+        for (const field of relBooleanFields) {
+          if (rel[field] !== undefined && rel[field] !== null) {
+            rel[field] = rel[field] === 1 || rel[field] === true;
+          }
+        }
+
+        const targetTableIdValue = String(isMongoDB ? rel.targetTable : rel.targetTableId);
+        const targetTableName = tableIdToName.get(targetTableIdValue);
+
+        const relationMetadata: any = {
+          ...rel,
+          sourceTableName: table.name,
+          targetTableName: targetTableName || rel.targetTableName,
+        };
+
+        if (rel.type === 'one-to-many') {
+          relationMetadata.isInverse = true;
+        } else if (rel.type === 'many-to-many' && rel.mappedBy) {
+          relationMetadata.isInverse = true;
+        } else if (rel.type === 'one-to-one') {
+          if (rel.mappedBy) {
+            relationMetadata.isInverse = true;
+          } else {
+            const fkColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
+            const hasFkColumn = actualSchema?.columns?.some((col: any) => col.name === fkColumn);
+            relationMetadata.isInverse = !hasFkColumn;
+          }
+        } else {
+          relationMetadata.isInverse = false;
+        }
+
+        if (rel.type === 'many-to-one') {
+          relationMetadata.foreignKeyColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
+        }
+        if (rel.type === 'one-to-one') {
+          if (relationMetadata.isInverse) {
+            relationMetadata.foreignKeyColumn = isMongoDB ? rel.mappedBy : getForeignKeyColumnName(rel.mappedBy);
+          } else {
+            relationMetadata.foreignKeyColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
+          }
+        }
+        if (rel.type === 'one-to-many') {
+          if (!rel.mappedBy) {
+            this.logger.error(`O2M relation '${rel.propertyName}' in table '${table.name}' missing mappedBy`);
+            throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have mappedBy`);
+          }
+          relationMetadata.foreignKeyColumn = isMongoDB ? rel.mappedBy : getForeignKeyColumnName(rel.mappedBy);
+        }
+        if (rel.type === 'many-to-many') {
+          relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
+          const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
+          relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
+          relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
+        }
+
+        relations.push(relationMetadata);
+      }
+
+      const combinedColumns = [...parsedExplicitColumns];
+
+      if (!isMongoDB && actualSchema) {
+        for (const rel of relations) {
+          if (['many-to-one', 'one-to-one'].includes(rel.type)) {
+            const fkColumn = rel.foreignKeyColumn;
+            const existsInExplicit = parsedExplicitColumns.some((col) => col.name === fkColumn);
+            if (!existsInExplicit) {
+              const actualFkColumn = actualSchema.columns.find((col) => col.name === fkColumn);
+              if (actualFkColumn) {
+                combinedColumns.push({
+                  ...actualFkColumn,
+                  isForeignKey: true,
+                  relationPropertyName: rel.propertyName,
+                  isUpdatable: rel.isUpdatable !== false,
+                  description: `FK column for ${rel.propertyName} relation`,
+                });
+              }
+            } else {
+              const explicitFkColumn = combinedColumns.find((col) => col.name === fkColumn);
+              if (explicitFkColumn && rel.isUpdatable === false) {
+                explicitFkColumn.isUpdatable = false;
+              }
+            }
+          }
+        }
+
+        const hasCreatedAt = combinedColumns.some((col) => col.name === 'createdAt');
+        const hasUpdatedAt = combinedColumns.some((col) => col.name === 'updatedAt');
+        if (!hasCreatedAt) {
+          const actualCreatedAt = actualSchema.columns.find((col) => col.name === 'createdAt');
+          if (actualCreatedAt) combinedColumns.push({ ...actualCreatedAt, isSystem: true, isUpdatable: false });
+        }
+        if (!hasUpdatedAt) {
+          const actualUpdatedAt = actualSchema.columns.find((col) => col.name === 'updatedAt');
+          if (actualUpdatedAt) combinedColumns.push({ ...actualUpdatedAt, isSystem: true, isUpdatable: false });
+        }
+      }
+
+      const tableData: any = { ...table };
+      for (const key in tableData) {
+        if (tableData[key] !== undefined && tableData[key] !== null) {
+          if (tableData[key] === 1 || tableData[key] === true) tableData[key] = true;
+          else if (tableData[key] === 0 || tableData[key] === false) tableData[key] = false;
+        }
+      }
+
+      return { ...tableData, uniques, indexes, columns: combinedColumns, relations };
+    } catch (error) {
+      this.logger.error(`Failed to load metadata for table ${table.name}:`, error.message);
+      return null;
     }
   }
 
@@ -163,23 +472,35 @@ export class MetadataCacheService
       allSchemas = await this.databaseSchemaService.getAllTableSchemas();
     }
 
-    const columnsByTable = new Map<string | number, any[]>();
+    const allRelations = allRelationsResult.data;
+    const relationIdMap = new Map<string, any>();
+    for (const rel of allRelations) {
+      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      relationIdMap.set(relId, rel);
+    }
+    this.applyRelationMappedByDerivedFields(
+      allRelations,
+      relationIdMap,
+      isMongoDB,
+    );
+
+    const columnsByTable = new Map<string, any[]>();
     for (const col of allColumnsResult.data) {
-      const key = isMongoDB ? String(col.table) : col.tableId;
+      const key = String(isMongoDB ? col.table : col.tableId);
       if (!columnsByTable.has(key)) columnsByTable.set(key, []);
       columnsByTable.get(key)!.push(col);
     }
 
-    const relationsBySource = new Map<string | number, any[]>();
-    for (const rel of allRelationsResult.data) {
-      const key = isMongoDB ? String(rel.sourceTable) : rel.sourceTableId;
+    const relationsBySource = new Map<string, any[]>();
+    for (const rel of allRelations) {
+      const key = String(isMongoDB ? rel.sourceTable : rel.sourceTableId);
       if (!relationsBySource.has(key)) relationsBySource.set(key, []);
       relationsBySource.get(key)!.push(rel);
     }
 
-    const tableIdToName = new Map<string | number, string>();
+    const tableIdToName = new Map<string, string>();
     for (const t of tables) {
-      const id = isMongoDB ? String(t._id) : t.id;
+      const id = String(isMongoDB ? t._id : t.id);
       tableIdToName.set(id, t.name);
     }
 
@@ -187,383 +508,17 @@ export class MetadataCacheService
     const tablesMap = new Map<string, any>();
 
     for (const table of tables) {
-      try {
-        let actualSchema = null;
-        if (!isMongoDB) {
-          actualSchema = allSchemas!.get(table.name);
-          if (!actualSchema) {
-            this.logger.warn(
-              `Table ${table.name} not found in database, skipping...`,
-            );
-            continue;
-          }
-        }
-
-        let uniques = [];
-        let indexes = [];
-        if (table.uniques) {
-          if (typeof table.uniques === 'string') {
-            try {
-              uniques = JSON.parse(table.uniques);
-            } catch (e) {
-              this.logger.warn(
-                `Failed to parse uniques for table ${table.name}`,
-              );
-            }
-          } else if (Array.isArray(table.uniques)) {
-            uniques = table.uniques;
-          }
-        }
-        if (table.indexes) {
-          if (typeof table.indexes === 'string') {
-            try {
-              indexes = JSON.parse(table.indexes);
-            } catch (e) {
-              this.logger.warn(
-                `Failed to parse indexes for table ${table.name}`,
-              );
-            }
-          } else if (Array.isArray(table.indexes)) {
-            indexes = table.indexes;
-          }
-        }
-
-        const tableIdValue = isMongoDB ? String(table._id) : table.id;
-
-        const explicitColumns = columnsByTable.get(tableIdValue) || [];
-
-        const parsedExplicitColumns = explicitColumns.map((col: any) => {
-          const column = { ...col };
-
-          if (col.options && typeof col.options === 'string') {
-            try {
-              column.options = JSON.parse(col.options);
-            } catch (e) {}
-          }
-
-          if (col.defaultValue && typeof col.defaultValue === 'string') {
-            try {
-              column.defaultValue = JSON.parse(col.defaultValue);
-            } catch (e) {}
-          }
-
-          const booleanFields = [
-            'isPrimary',
-            'isGenerated',
-            'isNullable',
-            'isSystem',
-            'isUpdatable',
-            'isPublished',
-          ];
-          for (const field of booleanFields) {
-            if (column[field] !== undefined && column[field] !== null) {
-              column[field] = column[field] === 1 || column[field] === true;
-            }
-          }
-
-          return column;
-        });
-
-        const relationsData = relationsBySource.get(tableIdValue) || [];
-
-        const relations: any[] = [];
-        for (const rel of relationsData) {
-          const relBooleanFields = ['isNullable', 'isSystem', 'isUpdatable', 'isPublished'];
-          for (const field of relBooleanFields) {
-            if (rel[field] !== undefined && rel[field] !== null) {
-              rel[field] = rel[field] === 1 || rel[field] === true;
-            }
-          }
-
-          const targetTableIdValue = isMongoDB
-            ? String(rel.targetTable)
-            : rel.targetTableId;
-          const targetTableName = tableIdToName.get(targetTableIdValue);
-
-          const relationMetadata: any = {
-            ...rel,
-            sourceTableName: table.name,
-            targetTableName: targetTableName || rel.targetTableName,
-          };
-
-          if (rel.type === 'one-to-many') {
-            relationMetadata.isInverse = true;
-          } else if (rel.type === 'many-to-many' && rel.mappedBy) {
-            relationMetadata.isInverse = true;
-          } else if (rel.type === 'one-to-one') {
-            if (rel.mappedBy) {
-              relationMetadata.isInverse = true;
-            } else {
-              const fkColumn = isMongoDB
-                ? rel.propertyName
-                : getForeignKeyColumnName(rel.propertyName);
-              const hasFkColumn = actualSchema?.columns?.some(
-                (col: any) => col.name === fkColumn,
-              );
-              relationMetadata.isInverse = !hasFkColumn;
-            }
-          } else {
-            relationMetadata.isInverse = false;
-          }
-
-          if (rel.type === 'many-to-one') {
-            relationMetadata.foreignKeyColumn = isMongoDB
-              ? rel.propertyName
-              : getForeignKeyColumnName(rel.propertyName);
-          }
-
-          if (rel.type === 'one-to-one') {
-            if (relationMetadata.isInverse) {
-              relationMetadata.foreignKeyColumn = isMongoDB
-                ? rel.inversePropertyName
-                : getForeignKeyColumnName(rel.inversePropertyName);
-            } else {
-              relationMetadata.foreignKeyColumn = isMongoDB
-                ? rel.propertyName
-                : getForeignKeyColumnName(rel.propertyName);
-            }
-          }
-
-          if (rel.type === 'one-to-many') {
-            if (!rel.inversePropertyName) {
-              this.logger.error(
-                `O2M relation '${rel.propertyName}' in table '${table.name}' missing inversePropertyName`,
-              );
-              throw new Error(
-                `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have inversePropertyName`,
-              );
-            }
-
-            relationMetadata.foreignKeyColumn = isMongoDB
-              ? rel.inversePropertyName
-              : getForeignKeyColumnName(rel.inversePropertyName);
-          }
-
-          if (rel.type === 'many-to-many') {
-            relationMetadata.junctionTableName =
-              rel.junctionTableName ||
-              getJunctionTableName(
-                table.name,
-                rel.propertyName,
-                relationMetadata.targetTableName,
-              );
-            const { sourceColumn, targetColumn } = getJunctionColumnNames(
-              table.name,
-              rel.propertyName,
-              relationMetadata.targetTableName,
-            );
-            relationMetadata.junctionSourceColumn =
-              rel.junctionSourceColumn || sourceColumn;
-            relationMetadata.junctionTargetColumn =
-              rel.junctionTargetColumn || targetColumn;
-          }
-
-          relations.push(relationMetadata);
-        }
-
-        const combinedColumns = [...parsedExplicitColumns];
-
-        if (!isMongoDB && actualSchema) {
-          for (const rel of relations) {
-            if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-              const fkColumn = rel.foreignKeyColumn;
-              const existsInExplicit = parsedExplicitColumns.some(
-                (col) => col.name === fkColumn,
-              );
-
-              if (!existsInExplicit) {
-                const actualFkColumn = actualSchema.columns.find(
-                  (col) => col.name === fkColumn,
-                );
-                if (actualFkColumn) {
-                  combinedColumns.push({
-                    ...actualFkColumn,
-                    isForeignKey: true,
-                    relationPropertyName: rel.propertyName,
-                    isUpdatable: rel.isUpdatable !== false,
-                    description: `FK column for ${rel.propertyName} relation`,
-                  });
-                }
-              } else {
-                const explicitFkColumn = combinedColumns.find(
-                  (col) => col.name === fkColumn,
-                );
-                if (explicitFkColumn && rel.isUpdatable === false) {
-                  explicitFkColumn.isUpdatable = false;
-                }
-              }
-            }
-          }
-
-          const hasCreatedAt = combinedColumns.some(
-            (col) => col.name === 'createdAt',
-          );
-          const hasUpdatedAt = combinedColumns.some(
-            (col) => col.name === 'updatedAt',
-          );
-
-          if (!hasCreatedAt) {
-            const actualCreatedAt = actualSchema.columns.find(
-              (col) => col.name === 'createdAt',
-            );
-            if (actualCreatedAt) {
-              combinedColumns.push({
-                ...actualCreatedAt,
-                isSystem: true,
-                isUpdatable: false,
-              });
-            }
-          }
-
-          if (!hasUpdatedAt) {
-            const actualUpdatedAt = actualSchema.columns.find(
-              (col) => col.name === 'updatedAt',
-            );
-            if (actualUpdatedAt) {
-              combinedColumns.push({
-                ...actualUpdatedAt,
-                isSystem: true,
-                isUpdatable: false,
-              });
-            }
-          }
-        }
-
-        const tableData: any = { ...table };
-
-        for (const key in tableData) {
-          if (tableData[key] !== undefined && tableData[key] !== null) {
-            if (tableData[key] === 1 || tableData[key] === true) {
-              tableData[key] = true;
-            } else if (tableData[key] === 0 || tableData[key] === false) {
-              tableData[key] = false;
-            }
-          }
-        }
-
-        const metadata: any = {
-          ...tableData,
-          uniques,
-          indexes,
-          columns: combinedColumns,
-          relations,
-        };
-
-        tablesList.push(metadata);
-        tablesMap.set(table.name, metadata);
-      } catch (error) {
-        this.logger.error(
-          `Failed to load metadata for table ${table.name}:`,
-          error.message,
-        );
-      }
+      const metadata = this.buildTableMetadata(table, columnsByTable, relationsBySource, tableIdToName, allSchemas, isMongoDB);
+      if (!metadata) continue;
+      tablesList.push(metadata);
+      tablesMap.set(table.name, metadata);
     }
 
-    this.generateInverseRelations(tablesList, tablesMap);
-
-    const result = {
-      tables: tablesMap,
-      tablesList,
-      version: Date.now(),
-      timestamp: new Date(),
-    };
-
-    return result;
-  }
-
-  private generateInverseRelations(
-    tablesList: any[],
-    tablesMap: Map<string, any>,
-  ): void {
-    for (const table of tablesList) {
-      for (const relation of table.relations || []) {
-        if (!relation.inversePropertyName) {
-          continue;
-        }
-
-        const targetTableName =
-          relation.targetTableName || relation.targetTable;
-        const targetTable = tablesMap.get(targetTableName);
-
-        if (!targetTable) {
-          continue;
-        }
-
-        const inverseExists = targetTable.relations?.some(
-          (r: any) => r.propertyName === relation.inversePropertyName,
-        );
-
-        if (inverseExists) {
-          continue;
-        }
-
-        let inverseType = 'one-to-many';
-        if (relation.type === 'one-to-many') {
-          inverseType = 'many-to-one';
-        } else if (relation.type === 'many-to-one') {
-          inverseType = 'one-to-many';
-        } else if (relation.type === 'one-to-one') {
-          inverseType = 'one-to-one';
-        } else if (relation.type === 'many-to-many') {
-          inverseType = 'many-to-many';
-        }
-
-        const inverseRelation: any = {
-          propertyName: relation.inversePropertyName,
-          type: inverseType,
-          targetTable: table.name,
-          targetTableName: table.name,
-          sourceTableName: targetTableName,
-          inversePropertyName: relation.propertyName,
-          isNullable: true,
-          isSystem: relation.isSystem || false,
-          isGenerated: true,
-          isInverse: true,
-          onDelete: relation.onDelete,
-        };
-
-        if (inverseType === 'many-to-one') {
-          const isMongoDB = this.queryBuilder.isMongoDb();
-          inverseRelation.foreignKeyColumn =
-            relation.foreignKeyColumn ||
-            (isMongoDB
-              ? relation.inversePropertyName
-              : getForeignKeyColumnName(relation.inversePropertyName));
-        }
-
-        if (inverseType === 'one-to-many') {
-          const isMongoDB = this.queryBuilder.isMongoDb();
-          inverseRelation.foreignKeyColumn = isMongoDB
-            ? relation.propertyName
-            : getForeignKeyColumnName(relation.propertyName);
-        }
-
-        if (inverseType === 'one-to-one') {
-          inverseRelation.mappedBy = relation.propertyName;
-          inverseRelation.isInverse = true;
-        }
-
-        if (inverseType === 'many-to-many') {
-          inverseRelation.junctionTableName = relation.junctionTableName;
-          inverseRelation.junctionSourceColumn = relation.junctionTargetColumn;
-          inverseRelation.junctionTargetColumn = relation.junctionSourceColumn;
-          if (relation.propertyName) {
-            inverseRelation.mappedBy = relation.propertyName;
-          }
-        }
-
-        if (!targetTable.relations) {
-          targetTable.relations = [];
-        }
-        targetTable.relations.push(inverseRelation);
-      }
-    }
+    return { tables: tablesMap, tablesList, version: Date.now(), timestamp: new Date() };
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {
-    if (this.inMemoryCache) {
-      return this.inMemoryCache;
-    }
+    if (this.inMemoryCache) return this.inMemoryCache;
     return await this.loadAndCacheMetadata();
   }
 
@@ -583,64 +538,6 @@ export class MetadataCacheService
     return this.initialLoadPromise;
   }
 
-  async reload(): Promise<void> {
-    if (this.isLoading && this.loadingPromise) {
-      return this.loadingPromise;
-    }
-
-    this.isLoading = true;
-    this.loadingPromise = (async () => {
-      try {
-        try {
-          this.websocketGateway.emitToNamespace(
-            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-            '$system:metadata:reload',
-            { status: 'pending' },
-          );
-        } catch {}
-
-        const metadata = await this.loadMetadataFromDb();
-
-        this.inMemoryCache = metadata;
-
-        await this.publishReloadSignal();
-
-        try {
-          this.websocketGateway.emitToNamespace(
-            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-            '$system:metadata:reload',
-            { status: 'done' },
-          );
-        } catch {}
-      } catch (error) {
-        this.logger.error('Failed to reload metadata cache:', error);
-        throw error;
-      } finally {
-        this.isLoading = false;
-        this.loadingPromise = null;
-      }
-    })();
-
-    return this.loadingPromise;
-  }
-
-  private async publishReloadSignal(): Promise<void> {
-    try {
-      const payload = {
-        instanceId: this.instanceService.getInstanceId(),
-        type: 'RELOAD_SIGNAL',
-        timestamp: Date.now(),
-      };
-
-      await this.redisPubSubService.publish(
-        METADATA_CACHE_SYNC_EVENT_KEY,
-        JSON.stringify(payload),
-      );
-    } catch (error) {
-      this.logger.error('Failed to publish reload signal:', error);
-    }
-  }
-
   async getTableMetadata(tableName: string): Promise<any | null> {
     const metadata = await this.getMetadata();
     return metadata.tables.get(tableName) || null;
@@ -657,10 +554,7 @@ export class MetadataCacheService
 
   async lookupTableById(tableId: number | string): Promise<any | null> {
     const metadata = await this.getMetadata();
-    const table = metadata.tablesList.find(
-      (t) => t.id === tableId || t.id === Number(tableId),
-    );
-    return table || null;
+    return metadata.tablesList.find((t) => t.id === tableId || t.id === Number(tableId)) || null;
   }
 
   async clearMetadataCache(): Promise<void> {

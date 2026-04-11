@@ -124,7 +124,13 @@ export class MongoSchemaMigrationLockService {
       .listCollections({ name: this.collectionName })
       .toArray();
     if (collections.length === 0) {
-      await db.createCollection(this.collectionName);
+      try {
+        await db.createCollection(this.collectionName);
+      } catch (error: any) {
+        if (error.code !== 48) {
+          throw error;
+        }
+      }
     }
 
     this.collectionReady = true;

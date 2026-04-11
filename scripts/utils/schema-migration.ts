@@ -66,8 +66,12 @@ export async function applySqlSchemaMigrations(
   }
 
   // Apply table migrations
-  for (const tableMigration of migration.tables || []) {
-    await applySqlTableMigration(knex, tableMigration, dbType);
+  const BATCH = 5;
+  const tables = migration.tables || [];
+  for (let i = 0; i < tables.length; i += BATCH) {
+    await Promise.all(
+      tables.slice(i, i + BATCH).map(t => applySqlTableMigration(knex, t, dbType)),
+    );
   }
 }
 

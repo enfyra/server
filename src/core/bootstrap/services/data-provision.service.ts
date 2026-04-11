@@ -114,11 +114,6 @@ export class DataProvisionService {
   async insertAllDefaultRecords(): Promise<void> {
     this.logger.log('Starting default data upsert...');
 
-    if (this.dbType === 'mongodb') {
-      return this.insertAllDefaultRecordsMongo();
-    }
-
-    const qb = this.queryBuilder.getConnection();
     let totalCreated = 0;
     let totalSkipped = 0;
 
@@ -128,9 +123,9 @@ export class DataProvisionService {
         this.logger.log(
           `Processing 'user_definition' (ensure rootAdmin from env)...`,
         );
-        const result = await userProcessor.processSql(
+        const result = await userProcessor.processWithQueryBuilder(
           [],
-          qb,
+          this.queryBuilder,
           'user_definition',
           {},
         );
@@ -163,14 +158,11 @@ export class DataProvisionService {
       try {
         const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
 
-        const dbType = this.queryBuilder.getDatabaseType();
-        const context = { knex: qb, tableName, dbType };
-
-        const result = await processor.processSql(
+        const result = await processor.processWithQueryBuilder(
           records,
-          qb,
+          this.queryBuilder,
           tableName,
-          context,
+          {},
         );
 
         totalCreated += result.created;
@@ -190,80 +182,6 @@ export class DataProvisionService {
     );
   }
 
-  private async insertAllDefaultRecordsMongo(): Promise<void> {
-    this.logger.log('🍃 MongoDB: Inserting default data with processors...');
-
-    const db = this.queryBuilder.getMongoDb();
-    let totalCreated = 0;
-    let totalSkipped = 0;
-
-    const userProcessor = this.processors.get('user_definition');
-    if (userProcessor) {
-      try {
-        this.logger.log(
-          `Processing 'user_definition' (ensure rootAdmin from env)...`,
-        );
-        const result = await userProcessor.processMongo(
-          [],
-          db,
-          'user_definition',
-          {},
-        );
-        totalCreated += result.created;
-        totalSkipped += result.skipped;
-      } catch (error) {
-        this.logger.error(
-          `Error processing 'user_definition': ${error.message}`,
-        );
-      }
-    }
-
-    for (const [collectionName, rawRecords] of Object.entries(initJson)) {
-      if (
-        !rawRecords ||
-        (Array.isArray(rawRecords) && rawRecords.length === 0)
-      ) {
-        continue;
-      }
-
-      this.logger.log(`Processing '${collectionName}'...`);
-
-      try {
-        const processor = this.processors.get(collectionName);
-        if (!processor) {
-          this.logger.warn(
-            `No processor found for '${collectionName}', skipping.`,
-          );
-          continue;
-        }
-
-        const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
-
-        const result = await processor.processMongo(
-          records,
-          db,
-          collectionName,
-          { db },
-        );
-
-        totalCreated += result.created;
-        totalSkipped += result.skipped;
-
-        this.logger.log(
-          `'${collectionName}': ${result.created} created, ${result.skipped} skipped`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Error processing '${collectionName}': ${error.message}`,
-        );
-      }
-    }
-
-    this.logger.log(
-      `MongoDB default data completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
-    );
-  }
-
   async insertTableRecords(tableName: string): Promise<UpsertResult> {
     const rawRecords = initJson[tableName];
     if (!rawRecords) {
@@ -278,17 +196,13 @@ export class DataProvisionService {
     }
 
     const records = Array.isArray(rawRecords) ? rawRecords : [rawRecords];
-    const isMongoDB = this.dbType === 'mongodb';
 
-    if (isMongoDB) {
-      const db = this.queryBuilder.getMongoDb();
-      return await processor.processMongo(records, db, tableName, { db });
-    } else {
-      const qb = this.queryBuilder.getConnection();
-      const dbType = this.queryBuilder.getDatabaseType();
-      const context = { knex: qb, tableName, dbType };
-      return await processor.processSql(records, qb, tableName, context);
-    }
+    return await processor.processWithQueryBuilder(
+      records,
+      this.queryBuilder,
+      tableName,
+      {},
+    );
   }
 
   private async insertAndGetId(

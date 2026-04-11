@@ -6,6 +6,29 @@ import {
   KnexTableSchema,
 } from '../../../src/shared/types/database-init.types';
 import { getKnexColumnType } from './schema-parser';
+function parsePgArray(val: any): string[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string' && val.startsWith('{') && val.endsWith('}')) {
+    const inner = val.slice(1, -1);
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < inner.length; i++) {
+      const ch = inner[i];
+      if (ch === '"' && inner[i - 1] !== '\\') {
+        inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
+  }
+  return val ? [String(val)] : [];
+}
 type CurrentSchema = {
   columns: Array<{
     name: string;
@@ -148,20 +171,20 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         type: col.type === 'USER-DEFINED' && col.enum_values ? 'enum' : col.type,
         isNullable: col.isNullable === 'YES',
         defaultValue: col.defaultValue,
-        enumValues: col.enum_values || null,
+        enumValues: parsePgArray(col.enum_values).length > 0 ? parsePgArray(col.enum_values) : null,
       })),
       foreignKeys: fkResult.rows,
       uniques: indexResult.rows
         .filter((row: any) => row.is_unique === true)
         .map((row: any) => ({
           name: row.index_name,
-          columns: row.columns || [],
+          columns: parsePgArray(row.columns),
         })),
       indexes: indexResult.rows
         .filter((row: any) => row.is_unique === false)
         .map((row: any) => ({
           name: row.index_name,
-          columns: row.columns || [],
+          columns: parsePgArray(row.columns),
         })),
     };
   }
@@ -352,8 +375,11 @@ function normalizeDbDefaultValue(value: any): any {
     if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1);
     const m = v.match(/^'(.*)'::/);
     if (m) return m[1];
+    const numericMatch = v.match(/^(-?\d+(?:\.\d+)?)::/);
+    if (numericMatch) return numericMatch[1];
     if (v === 'true' || v === 'false') return v === 'true';
-    if (v === '1' || v === '0') return v === '1';
+    const num = Number(v);
+    if (!isNaN(num) && v !== '') return num;
     return v;
   }
   return value;
@@ -365,6 +391,14 @@ function isDefaultEquivalent(
   colType: string,
 ): boolean {
   if (snapshotDefault == null && currentDefault == null) return true;
+  const sqlFunctions = ['now', 'current_timestamp', 'current_date', 'current_time'];
+  if (typeof snapshotDefault === 'string' && sqlFunctions.includes(snapshotDefault.toLowerCase())) {
+    if (typeof currentDefault === 'string') {
+      const normalized = currentDefault.toLowerCase().replace(/[()]/g, '');
+      if (sqlFunctions.includes(normalized)) return true;
+    }
+    return false;
+  }
   if (colType === 'boolean') {
     const s =
       snapshotDefault === undefined || snapshotDefault === null
@@ -386,11 +420,12 @@ function isDefaultEquivalent(
 }
 export function isTypeCompatible(type1: string, type2: string): boolean {
   const compatibleTypes: Record<string, string[]> = {
-    'integer': ['int', 'integer', 'bigint', 'smallint', 'tinyint'],
-    'string': ['varchar', 'text', 'char'],
-    'text': ['varchar', 'text', 'longtext', 'mediumtext'],
-    'timestamp': ['timestamp', 'datetime'],
+    'integer': ['int', 'integer', 'bigint', 'bigInteger', 'smallint', 'tinyint'],
+    'string': ['varchar', 'text', 'char', 'character varying'],
+    'text': ['varchar', 'text', 'longtext', 'mediumtext', 'character varying'],
+    'timestamp': ['timestamp', 'datetime', 'timestamp without time zone', 'timestamp with time zone'],
     'boolean': ['tinyint', 'boolean', 'bool'],
+    'real': ['real', 'float', 'double precision'],
   };
   for (const [baseType, variants] of Object.entries(compatibleTypes)) {
     if ((type1 === baseType || variants.includes(type1)) &&
