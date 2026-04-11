@@ -359,6 +359,7 @@ export class SqlQueryExecutor {
       ];
       cteClauses = expandedResult.cteClauses || [];
       useCTE = cteClauses.length > 0;
+      var pendingBatchFetches = expandedResult.batchFetchDescriptors || [];
     }
 
     if (queryOptions.where) {
@@ -745,6 +746,24 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       });
     }
 
+    if (pendingBatchFetches && pendingBatchFetches.length > 0 && results.length > 0) {
+      const metadataGetter = this.getMetadataGetter();
+      if (metadataGetter) {
+        const { executeBatchFetches } = await import(
+          '../utils/sql/batch-relation-fetcher'
+        );
+        await executeBatchFetches(
+          this.knex,
+          results,
+          pendingBatchFetches,
+          metadataGetter,
+          this.maxQueryDepth ?? 3,
+          0,
+          queryOptions.table,
+        );
+      }
+    }
+
     if (this.knexService) {
       results = await this.knexService.parseResult(results, queryOptions.table);
     } else {
@@ -995,6 +1014,23 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     return query;
   }
 
+  private getMetadataGetter() {
+    const allMetadata = this.metadata;
+    if (!allMetadata) return null;
+    return async (tName: string) => {
+      const tableMeta = allMetadata.tables?.get(tName);
+      if (!tableMeta) return null;
+      return {
+        name: tableMeta.name,
+        columns: (tableMeta.columns || []).map((col: any) => ({
+          name: col.name,
+          type: col.type,
+        })),
+        relations: tableMeta.relations || [],
+      };
+    };
+  }
+
   private async expandFieldsToSelect(
     tableName: string,
     fields: string[],
@@ -1003,32 +1039,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     whereClause?: string,
     offset?: number,
     limitedCteSortJoin?: any,
-  ): Promise<{ select: string[]; cteClauses?: string[] }> {
-    if (!this.metadata) {
+  ): Promise<{ select: string[]; cteClauses?: string[]; batchFetchDescriptors?: any[] }> {
+    const metadataGetter = this.getMetadataGetter();
+    if (!metadataGetter) {
       return { select: fields };
     }
-
-    const allMetadata = this.metadata;
-
-    const metadataGetter = async (tName: string) => {
-      try {
-        const tableMeta = allMetadata.tables.get(tName);
-        if (!tableMeta) {
-          return null;
-        }
-
-        return {
-          name: tableMeta.name,
-          columns: (tableMeta.columns || []).map((col: any) => ({
-            name: col.name,
-            type: col.type,
-          })),
-          relations: tableMeta.relations || [],
-        };
-      } catch (error) {
-        return null;
-      }
-    };
 
     try {
       const { expandFieldsToJoinsAndSelect } =
@@ -1038,7 +1053,6 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         fields,
         metadataGetter,
         this.dbType,
-        undefined,
         limit,
         orderByClause,
         whereClause,
@@ -1046,7 +1060,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         limitedCteSortJoin,
         this.maxQueryDepth,
       );
-      return { select: expanded.select, cteClauses: expanded.cteClauses };
+      return {
+        select: expanded.select,
+        cteClauses: expanded.cteClauses,
+        batchFetchDescriptors: expanded.batchFetchDescriptors,
+      };
     } catch (error) {
       return { select: fields };
     }

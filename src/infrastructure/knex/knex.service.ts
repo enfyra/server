@@ -170,14 +170,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         pool: {
           min: SQL_BOOTSTRAP_POOL_MIN,
           max: SQL_BOOTSTRAP_POOL_MAX_TOTAL,
-          afterCreate: this.databaseConfig.isMySql()
-            ? (conn: any, done: (err: any, conn: any) => void) => {
-                conn.query(
-                  'SET SESSION sort_buffer_size = 67108864, SESSION group_concat_max_len = 16777216',
-                  (err: any) => done(err, conn),
-                );
-              }
-            : undefined,
         },
         acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
         debug: false,

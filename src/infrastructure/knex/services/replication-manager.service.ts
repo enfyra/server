@@ -130,15 +130,6 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       pool: {
         min: poolMinSize,
         max: poolMaxSize,
-        afterCreate:
-          this.dbType === 'mysql'
-            ? (conn: any, done: (err: any, conn: any) => void) => {
-                conn.query(
-                  'SET SESSION sort_buffer_size = 67108864, SESSION group_concat_max_len = 16777216',
-                  (err: any) => done(err, conn),
-                );
-              }
-            : undefined,
       },
       acquireConnectionTimeout: SQL_ACQUIRE_TIMEOUT_MS,
       debug: false,
