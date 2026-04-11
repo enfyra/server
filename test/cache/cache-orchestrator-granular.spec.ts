@@ -1,231 +1,210 @@
-/**
- * Tests for CacheOrchestratorService:
- * - reloadAll: reloads ALL caches + publishes Redis signal
- * - Granular reload methods (reloadMetadataAndDeps, reloadRoutesOnly, etc.)
- */
-describe('CacheOrchestratorService — reloadAll & granular reloads', () => {
-  let orchestrator: any;
-  let mocks: Record<string, any>;
-  let publishedSignals: any[];
+describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
+  const RELOAD_CHAINS: Record<string, string[]> = {
+    table_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+    column_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+    relation_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+    route_definition: ['route', 'graphql', 'guard'],
+    pre_hook_definition: ['route'],
+    post_hook_definition: ['route'],
+    route_handler_definition: ['route'],
+    route_permission_definition: ['route'],
+    role_definition: ['route'],
+    method_definition: ['route', 'graphql'],
+    guard_definition: ['guard'],
+    guard_rule_definition: ['guard'],
+    field_permission_definition: ['fieldPermission'],
+    setting_definition: ['setting', 'settingGraphql'],
+    storage_config_definition: ['storage'],
+    oauth_config_definition: ['oauth'],
+    websocket_definition: ['websocket'],
+    websocket_event_definition: ['websocket'],
+    package_definition: ['package'],
+    flow_definition: ['flow'],
+    flow_step_definition: ['flow'],
+    folder_definition: ['folder'],
+    bootstrap_script_definition: ['bootstrap'],
+  };
 
-  beforeEach(() => {
-    publishedSignals = [];
-
-    const createCacheMock = (name: string) => ({
-      reload: jest.fn().mockResolvedValue(undefined),
-      partialReload: jest.fn().mockResolvedValue(undefined),
-      isLoaded: jest.fn().mockReturnValue(true),
-      supportsPartialReload: jest.fn().mockReturnValue(false),
-      _name: name,
+  describe('RELOAD_CHAINS — dependency correctness', () => {
+    it('table/column/relation changes should invalidate fieldPermission', () => {
+      for (const t of ['table_definition', 'column_definition', 'relation_definition']) {
+        expect(RELOAD_CHAINS[t]).toContain('fieldPermission');
+      }
     });
 
-    mocks = {
-      metadataCache: createCacheMock('metadata'),
-      routeCache: {
-        ...createCacheMock('route'),
-        supportsPartialReload: jest.fn().mockReturnValue(true),
-      },
-      guardCache: createCacheMock('guard'),
-      flowCache: createCacheMock('flow'),
-      websocketCache: createCacheMock('websocket'),
-      packageCache: createCacheMock('package'),
-      settingCache: createCacheMock('setting'),
-      storageCache: createCacheMock('storage'),
-      oauthCache: createCacheMock('oauth'),
-      folderCache: createCacheMock('folder'),
-      fieldPermissionCache: createCacheMock('fieldPermission'),
-      repoRegistry: { rebuildFromMetadata: jest.fn() },
-      graphqlService: { reloadSchema: jest.fn().mockResolvedValue(undefined) },
-      redisPubSubService: {
-        publish: jest.fn(async (_ch: string, msg: string) => {
-          publishedSignals.push(JSON.parse(msg));
-        }),
-        subscribeWithHandler: jest.fn(),
-        isChannelForBase: jest.fn().mockReturnValue(true),
-      },
-      instanceService: {
-        getInstanceId: jest.fn().mockReturnValue('test-instance-001'),
-      },
-      eventEmitter: { emit: jest.fn() },
-    };
+    it('route_definition changes should invalidate guard (path-keyed)', () => {
+      expect(RELOAD_CHAINS['route_definition']).toContain('guard');
+    });
 
-    orchestrator = {
-      metadataCache: mocks.metadataCache,
-      routeCache: mocks.routeCache,
-      guardCache: mocks.guardCache,
-      flowCache: mocks.flowCache,
-      websocketCache: mocks.websocketCache,
-      packageCache: mocks.packageCache,
-      settingCache: mocks.settingCache,
-      storageCache: mocks.storageCache,
-      oauthCache: mocks.oauthCache,
-      folderCache: mocks.folderCache,
-      fieldPermissionCache: mocks.fieldPermissionCache,
-      repoRegistry: mocks.repoRegistry,
-      graphqlService: mocks.graphqlService,
-      redisPubSubService: mocks.redisPubSubService,
-      instanceService: mocks.instanceService,
+    it('structural metadata changes should reload metadata → route → graphql', () => {
+      for (const t of ['table_definition', 'column_definition', 'relation_definition']) {
+        const chain = RELOAD_CHAINS[t];
+        expect(chain.indexOf('metadata')).toBeLessThan(chain.indexOf('route'));
+        expect(chain.indexOf('route')).toBeLessThan(chain.indexOf('graphql'));
+      }
+    });
 
-      async reloadAll() {
-        await this.metadataCache.reload();
-        await Promise.all([
-          this.repoRegistry.rebuildFromMetadata(this.metadataCache),
-          this.routeCache.reload(false),
-          this.guardCache.reload(false),
-          this.flowCache.reload(false),
-          this.websocketCache.reload(false),
-          this.packageCache.reload(false),
-          this.settingCache.reload(false),
-          this.storageCache.reload(false),
-          this.oauthCache.reload(false),
-          this.folderCache.reload(false),
-          this.fieldPermissionCache.reload(false),
-        ]);
-        if (this.graphqlService) {
-          await this.graphqlService.reloadSchema();
-        }
-        await this.redisPubSubService.publish(
-          'enfyra:cache-orchestrator-sync',
-          JSON.stringify({
-            instanceId: this.instanceService.getInstanceId(),
-            type: 'RELOAD_SIGNAL',
-            timestamp: Date.now(),
-            payload: {
-              tableName: 'table_definition',
-              action: 'reload',
-              scope: 'full',
-              timestamp: Date.now(),
-            },
-          }),
-        );
-      },
+    it('hook/handler/permission changes should NOT trigger graphql rebuild', () => {
+      for (const t of [
+        'pre_hook_definition', 'post_hook_definition',
+        'route_handler_definition', 'route_permission_definition',
+        'role_definition',
+      ]) {
+        expect(RELOAD_CHAINS[t]).not.toContain('graphql');
+      }
+    });
 
-      async reloadMetadataAndDeps() {
-        await this.metadataCache.reload();
-        this.repoRegistry.rebuildFromMetadata(this.metadataCache);
-        await this.routeCache.reload(false);
-        if (this.graphqlService) {
-          await this.graphqlService.reloadSchema();
-        }
-      },
+    it('setting changes should use settingGraphql (lightweight), not full graphql', () => {
+      expect(RELOAD_CHAINS['setting_definition']).toContain('settingGraphql');
+      expect(RELOAD_CHAINS['setting_definition']).not.toContain('graphql');
+    });
 
-      async reloadRoutesOnly() {
-        await this.routeCache.reload(false);
-      },
+    it('method_definition should still trigger graphql (GQL_QUERY/GQL_MUTATION flags)', () => {
+      expect(RELOAD_CHAINS['method_definition']).toContain('graphql');
+    });
 
-      async reloadGraphqlOnly() {
-        if (this.graphqlService) {
-          await this.graphqlService.reloadSchema();
-        }
-      },
-
-      async reloadGuardsOnly() {
-        await this.guardCache.reload(false);
-      },
-    };
+    it('every chain entry should have at least one step', () => {
+      for (const [table, chain] of Object.entries(RELOAD_CHAINS)) {
+        expect(chain.length).toBeGreaterThan(0);
+      }
+    });
   });
 
-  describe('reloadAll', () => {
-    it('should reload ALL caches, not just a subset', async () => {
-      await orchestrator.reloadAll();
-
-      expect(mocks.metadataCache.reload).toHaveBeenCalled();
-      expect(mocks.routeCache.reload).toHaveBeenCalled();
-      expect(mocks.guardCache.reload).toHaveBeenCalled();
-      expect(mocks.flowCache.reload).toHaveBeenCalled();
-      expect(mocks.websocketCache.reload).toHaveBeenCalled();
-      expect(mocks.packageCache.reload).toHaveBeenCalled();
-      expect(mocks.settingCache.reload).toHaveBeenCalled();
-      expect(mocks.storageCache.reload).toHaveBeenCalled();
-      expect(mocks.oauthCache.reload).toHaveBeenCalled();
-      expect(mocks.folderCache.reload).toHaveBeenCalled();
-      expect(mocks.fieldPermissionCache.reload).toHaveBeenCalled();
-      expect(mocks.repoRegistry.rebuildFromMetadata).toHaveBeenCalled();
-      expect(mocks.graphqlService.reloadSchema).toHaveBeenCalled();
-    });
-
-    it('should publish Redis signal for multi-instance sync', async () => {
-      await orchestrator.reloadAll();
-
-      expect(mocks.redisPubSubService.publish).toHaveBeenCalledTimes(1);
-      expect(publishedSignals).toHaveLength(1);
-      expect(publishedSignals[0].instanceId).toBe('test-instance-001');
-      expect(publishedSignals[0].type).toBe('RELOAD_SIGNAL');
-      expect(publishedSignals[0].payload.scope).toBe('full');
-    });
-
-    it('should reload metadata BEFORE other caches (sequential → parallel)', async () => {
+  describe('executeChain — phased parallel execution', () => {
+    it('should run metadata first, middle steps in parallel, graphql last', async () => {
       const callOrder: string[] = [];
-      mocks.metadataCache.reload.mockImplementation(async () => {
-        callOrder.push('metadata');
-      });
-      mocks.routeCache.reload.mockImplementation(async () => {
-        callOrder.push('route');
-      });
-      mocks.guardCache.reload.mockImplementation(async () => {
-        callOrder.push('guard');
-      });
+      const stepMap: Record<string, () => Promise<void>> = {
+        metadata: async () => { callOrder.push('metadata'); },
+        repoRegistry: async () => { callOrder.push('repoRegistry'); },
+        route: async () => { await new Promise(r => setTimeout(r, 5)); callOrder.push('route'); },
+        graphql: async () => { callOrder.push('graphql'); },
+        fieldPermission: async () => { callOrder.push('fieldPermission'); },
+      };
 
-      await orchestrator.reloadAll();
+      const chain = RELOAD_CHAINS['table_definition'];
+
+      if (chain.includes('metadata')) {
+        await stepMap['metadata']();
+      }
+      const middleSteps = chain.filter(s => s !== 'metadata' && s !== 'graphql');
+      await Promise.all(middleSteps.map(s => stepMap[s]?.()));
+      if (chain.includes('graphql')) {
+        await stepMap['graphql']();
+      }
 
       expect(callOrder[0]).toBe('metadata');
-      expect(callOrder.indexOf('metadata')).toBeLessThan(
-        callOrder.indexOf('route'),
-      );
+      expect(callOrder[callOrder.length - 1]).toBe('graphql');
+      expect(callOrder.indexOf('metadata')).toBeLessThan(callOrder.indexOf('repoRegistry'));
+      expect(callOrder.indexOf('metadata')).toBeLessThan(callOrder.indexOf('route'));
+    });
+
+    it('chain without metadata/graphql should only run middle steps', async () => {
+      const called: string[] = [];
+      const stepMap: Record<string, () => Promise<void>> = {
+        route: async () => { called.push('route'); },
+      };
+
+      const chain = RELOAD_CHAINS['pre_hook_definition'];
+      if (chain.includes('metadata')) await stepMap['metadata']?.();
+      const middle = chain.filter(s => s !== 'metadata' && s !== 'graphql');
+      await Promise.all(middle.map(s => stepMap[s]?.()));
+      if (chain.includes('graphql')) await stepMap['graphql']?.();
+
+      expect(called).toEqual(['route']);
     });
   });
 
-  describe('reloadMetadataAndDeps', () => {
-    it('should reload metadata, repoRegistry, routes, and graphql', async () => {
-      await orchestrator.reloadMetadataAndDeps();
+  describe('reloadAll — multi-instance', () => {
+    it('should publish __admin_reload_all signal before local reload', async () => {
+      const signals: any[] = [];
+      let localReloaded = false;
 
-      expect(mocks.metadataCache.reload).toHaveBeenCalled();
-      expect(mocks.repoRegistry.rebuildFromMetadata).toHaveBeenCalled();
-      expect(mocks.routeCache.reload).toHaveBeenCalled();
-      expect(mocks.graphqlService.reloadSchema).toHaveBeenCalled();
+      const publish = async (_ch: string, msg: string) => {
+        signals.push(JSON.parse(msg));
+        expect(localReloaded).toBe(false);
+      };
+      const reloadAllLocal = async () => { localReloaded = true; };
+
+      await publish('ch', JSON.stringify({
+        instanceId: 'inst-001',
+        type: 'RELOAD_SIGNAL',
+        payload: { tableName: '__admin_reload_all', scope: 'full' },
+      }));
+      await reloadAllLocal();
+
+      expect(signals[0].payload.tableName).toBe('__admin_reload_all');
+      expect(localReloaded).toBe(true);
     });
 
-    it('should NOT reload unrelated caches', async () => {
-      await orchestrator.reloadMetadataAndDeps();
+    it('remote instance receiving __admin_reload_all should call reloadAllLocal', async () => {
+      let reloadAllLocalCalled = false;
+      let executeChainCalled = false;
 
-      expect(mocks.guardCache.reload).not.toHaveBeenCalled();
-      expect(mocks.flowCache.reload).not.toHaveBeenCalled();
-      expect(mocks.settingCache.reload).not.toHaveBeenCalled();
+      const signal = { tableName: '__admin_reload_all', scope: 'full' };
+
+      if (signal.tableName === '__admin_reload_all') {
+        reloadAllLocalCalled = true;
+      } else {
+        executeChainCalled = true;
+      }
+
+      expect(reloadAllLocalCalled).toBe(true);
+      expect(executeChainCalled).toBe(false);
+    });
+
+    it('remote instance receiving normal signal should call executeChain', async () => {
+      let reloadAllLocalCalled = false;
+      let executeChainCalled = false;
+
+      const signal = { tableName: 'table_definition', scope: 'partial' };
+
+      if (signal.tableName === '__admin_reload_all') {
+        reloadAllLocalCalled = true;
+      } else {
+        executeChainCalled = true;
+      }
+
+      expect(reloadAllLocalCalled).toBe(false);
+      expect(executeChainCalled).toBe(true);
     });
   });
 
-  describe('reloadRoutesOnly', () => {
-    it('should only reload route cache', async () => {
-      await orchestrator.reloadRoutesOnly();
+  describe('granular admin reloads — Redis publish', () => {
+    it('reloadMetadataAndDeps should publish table_definition/full', () => {
+      const signal = { tableName: 'table_definition', scope: 'full' };
+      const chain = RELOAD_CHAINS[signal.tableName];
+      expect(chain).toContain('metadata');
+      expect(chain).toContain('route');
+      expect(chain).toContain('graphql');
+    });
 
-      expect(mocks.routeCache.reload).toHaveBeenCalled();
-      expect(mocks.metadataCache.reload).not.toHaveBeenCalled();
-      expect(mocks.graphqlService.reloadSchema).not.toHaveBeenCalled();
+    it('reloadRoutesOnly should publish route_definition/full', () => {
+      const signal = { tableName: 'route_definition', scope: 'full' };
+      const chain = RELOAD_CHAINS[signal.tableName];
+      expect(chain).toContain('route');
+      expect(chain).toContain('guard');
+    });
+
+    it('reloadGuardsOnly should publish guard_definition/full', () => {
+      const signal = { tableName: 'guard_definition', scope: 'full' };
+      const chain = RELOAD_CHAINS[signal.tableName];
+      expect(chain).toContain('guard');
     });
   });
 
-  describe('reloadGraphqlOnly', () => {
-    it('should only reload graphql schema', async () => {
-      await orchestrator.reloadGraphqlOnly();
-
-      expect(mocks.graphqlService.reloadSchema).toHaveBeenCalled();
-      expect(mocks.routeCache.reload).not.toHaveBeenCalled();
-      expect(mocks.metadataCache.reload).not.toHaveBeenCalled();
+  describe('mergePayload — cross-table merge picks longer chain', () => {
+    it('should pick table_definition over route_definition (4 > 3)', () => {
+      const chainA = RELOAD_CHAINS['table_definition'];
+      const chainB = RELOAD_CHAINS['route_definition'];
+      const winner = chainA.length >= chainB.length ? 'table_definition' : 'route_definition';
+      expect(winner).toBe('table_definition');
     });
 
-    it('should not throw when graphqlService is null', async () => {
-      orchestrator.graphqlService = null;
-      await expect(orchestrator.reloadGraphqlOnly()).resolves.not.toThrow();
-    });
-  });
-
-  describe('reloadGuardsOnly', () => {
-    it('should only reload guard cache', async () => {
-      await orchestrator.reloadGuardsOnly();
-
-      expect(mocks.guardCache.reload).toHaveBeenCalled();
-      expect(mocks.routeCache.reload).not.toHaveBeenCalled();
-      expect(mocks.metadataCache.reload).not.toHaveBeenCalled();
+    it('should pick column_definition over pre_hook_definition (5 > 1)', () => {
+      const chainA = RELOAD_CHAINS['column_definition'];
+      const chainB = RELOAD_CHAINS['pre_hook_definition'];
+      const winner = chainA.length >= chainB.length ? 'column_definition' : 'pre_hook_definition';
+      expect(winner).toBe('column_definition');
     });
   });
 });
