@@ -204,6 +204,10 @@ export async function applyColumnMigrations(
               await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`);
             }
 
+            try {
+              await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`);
+            } catch (e) {}
+
             if (currentType !== 'text') {
               await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
             }

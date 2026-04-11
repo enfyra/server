@@ -366,11 +366,9 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       totalCreated++;
     };
 
-    for (const batch of [
-      await this.transformRecords(dropdownsWithoutParent, context),
-      await this.transformRecords(dropdownsWithParent, context),
-      await this.transformRecords(menuItems, context),
-    ]) {
+    const rawBatches = [dropdownsWithoutParent, dropdownsWithParent, menuItems];
+    for (const rawBatch of rawBatches) {
+      const batch = await this.transformRecords(rawBatch, context);
       for (const record of batch) {
         try {
           await processRecord(record);

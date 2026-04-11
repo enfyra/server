@@ -216,6 +216,9 @@ export class MetadataProvisionSqlService {
             insertData.junctionTargetColumn = rel.junctionTargetColumn || getForeignKeyColumnName(rel.targetTable);
           }
           const id = await this.insertAndGetId(trx, 'relation_definition', insertData);
+          const newRel = { ...insertData, id };
+          if (!relationsBySourceTable.has(tableId)) relationsBySourceTable.set(tableId, []);
+          relationsBySourceTable.get(tableId)!.push(newRel);
           return id;
         }
       };
