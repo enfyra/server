@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  Inject,
-  forwardRef,
-} from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
 import {
@@ -11,9 +6,7 @@ import {
   getForeignKeyColumnName,
   getJunctionColumnNames,
 } from '../../knex/utils/sql-schema-naming.util';
-import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -36,7 +29,6 @@ export class MetadataCacheService {
     @Inject(forwardRef(() => QueryBuilderService))
     private readonly queryBuilder: QueryBuilderService,
     private readonly databaseSchemaService: DatabaseSchemaService,
-    private readonly websocketGateway: DynamicWebSocketGateway,
   ) {}
 
   async reload(): Promise<void> {
@@ -47,24 +39,8 @@ export class MetadataCacheService {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        try {
-          this.websocketGateway.emitToNamespace(
-            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-            '$system:metadata:reload',
-            { status: 'pending' },
-          );
-        } catch {}
-
         const metadata = await this.loadMetadataFromDb();
         this.inMemoryCache = metadata;
-
-        try {
-          this.websocketGateway.emitToNamespace(
-            ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-            '$system:metadata:reload',
-            { status: 'done' },
-          );
-        } catch {}
 
         this.logger.log(
           `Loaded ${metadata.tablesList.length} table definitions`,
@@ -269,14 +245,6 @@ export class MetadataCacheService {
 
     this.inMemoryCache.version = Date.now();
     this.inMemoryCache.timestamp = new Date();
-
-    try {
-      this.websocketGateway.emitToNamespace(
-        ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-        '$system:metadata:reload',
-        { status: 'done' },
-      );
-    } catch {}
   }
 
   private buildTableMetadata(

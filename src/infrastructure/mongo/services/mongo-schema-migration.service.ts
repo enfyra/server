@@ -292,7 +292,6 @@ export class MongoSchemaMigrationService {
         data: updateData,
       });
 
-      await this.metadataCacheService.reload();
     } catch (error) {
       this.logger.error(
         `  Failed to update metadata for ${collectionName}: ${error.message}`,
@@ -333,7 +332,6 @@ export class MongoSchemaMigrationService {
         data: { indexes: JSON.stringify(mergedIndexes) },
       });
 
-      await this.metadataCacheService.reload();
     } catch (error) {
       this.logger.error(
         `  Failed to update indexes metadata for ${collectionName}: ${error.message}`,
