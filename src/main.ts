@@ -23,9 +23,8 @@ async function bootstrap() {
   const nestStart = Date.now();
   const app = await NestFactory.create(AppModule, {
     bodyParser: false,
-    bufferLogs: true,
+    logger: new AppLogger(),
   });
-  app.useLogger(new AppLogger());
   const expressApp = app.getHttpAdapter().getInstance();
   const qs = require('qs');
   expressApp.set('query parser', (str: string) => {
