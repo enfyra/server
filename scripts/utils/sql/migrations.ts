@@ -340,9 +340,16 @@ export async function applyColumnMigrations(
                   `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${def ? 'true' : 'false'}`,
                 );
               } else if (typeof col.defaultValue === 'string') {
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
-                );
+                const sqlFunctions = ['now', 'current_timestamp', 'current_date', 'current_time'];
+                if (sqlFunctions.includes(col.defaultValue.toLowerCase())) {
+                  await knex.raw(
+                    `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}()`,
+                  );
+                } else {
+                  await knex.raw(
+                    `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
+                  );
+                }
               } else {
                 await knex.raw(
                   `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
@@ -350,6 +357,7 @@ export async function applyColumnMigrations(
               }
             } catch (e) {}
           }
+          if (changes.includes('type')) {
           const knexType = getKnexColumnType(col);
         const currentTypeResult = await knex.raw(`
           SELECT data_type, udt_name
@@ -388,6 +396,7 @@ export async function applyColumnMigrations(
           }
       });
         }
+          }
         if (changes.includes('nullable')) {
           if (col.isNullable === false) {
             await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`);

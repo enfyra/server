@@ -94,25 +94,30 @@ export class ProvisionService implements OnModuleInit {
 
         this.logger.log('First time initialization...');
 
+        const t1 = Date.now();
         await this.metadataProvisionService.createInitMetadata();
+        this.logger.log(`createInitMetadata: ${Date.now() - t1}ms`);
 
         if (this.metadataMigrationService.hasMigrations()) {
-          this.logger.log(
-            'Running metadata migrations from snapshot-migration.json...',
-          );
+          const t2 = Date.now();
+          this.logger.log('Running metadata migrations...');
           await this.metadataMigrationService.runMigrations();
+          this.logger.log(`Metadata migrations: ${Date.now() - t2}ms`);
         }
 
+        const t3 = Date.now();
         await this.metadataCacheService.getMetadata();
-        this.logger.log('Metadata cache warmed for data provision');
+        this.logger.log(`Metadata cache warmed: ${Date.now() - t3}ms`);
 
+        const t4 = Date.now();
         await this.dataProvisionService.insertAllDefaultRecords();
+        this.logger.log(`Default records: ${Date.now() - t4}ms`);
 
         if (this.dataMigrationService.hasMigrations()) {
-          this.logger.log(
-            'Running data migrations from data-migration.json...',
-          );
+          const t5 = Date.now();
+          this.logger.log('Running data migrations...');
           await this.dataMigrationService.runMigrations();
+          this.logger.log(`Data migrations: ${Date.now() - t5}ms`);
         }
 
         const settings2Result = await this.queryBuilder.select({
