@@ -7,17 +7,18 @@ import {
   Req,
   Logger,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { RequestWithRouteData } from '../../../shared/types';
 import {
   ValidationException,
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 import { extractErrorMessage } from '../../../infrastructure/cache/services/package-cdn-loader.service';
-import { PackageCacheService } from '../../../infrastructure/cache/services/package-cache.service';
 import { PackageCdnLoaderService } from '../../../infrastructure/cache/services/package-cdn-loader.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DynamicWebSocketGateway } from '../../websocket/gateway/dynamic-websocket.gateway';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 const SYSTEM_EVENT_PREFIX = '$system:package';
 
 @Controller('package_definition')
@@ -25,11 +26,20 @@ export class PackageController {
   private readonly logger = new Logger(PackageController.name);
 
   constructor(
-    private packageCacheService: PackageCacheService,
     private cdnLoader: PackageCdnLoaderService,
     private queryBuilder: QueryBuilderService,
     private websocketGateway: DynamicWebSocketGateway,
+    private eventEmitter: EventEmitter2,
   ) {}
+
+  private invalidatePackageCache() {
+    this.eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
+      tableName: 'package_definition',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
+  }
 
   private emitEvent(event: string, data: any) {
     try {
@@ -144,7 +154,7 @@ export class PackageController {
       await this.cdnLoader.loadPackage(name, version);
 
       await this.updateStatus(id, 'installed', { lastError: null });
-      await this.packageCacheService.reload();
+      this.invalidatePackageCache();
 
       this.emitEvent('installed', { id, name, version });
     } catch (error) {
@@ -186,7 +196,7 @@ export class PackageController {
 
     if (packageRecord.type === 'App') {
       const result = await packageRepo.update({ id, data: body });
-      await this.packageCacheService.reload();
+      this.invalidatePackageCache();
       return result;
     }
 
@@ -194,7 +204,7 @@ export class PackageController {
 
     if (!needsReload) {
       const result = await packageRepo.update({ id, data: body });
-      await this.packageCacheService.reload();
+      this.invalidatePackageCache();
       return result;
     }
 
@@ -227,7 +237,7 @@ export class PackageController {
         lastError: null,
       });
 
-      await this.packageCacheService.reload();
+      this.invalidatePackageCache();
 
       this.emitEvent('installed', { id, name, version: newVersion });
     } catch (error) {
@@ -270,11 +280,11 @@ export class PackageController {
     }
 
     if (packageRecord.type === 'Server') {
-      this.cdnLoader.invalidatePackage(packageRecord.name);
+      await this.cdnLoader.invalidatePackage(packageRecord.name);
     }
 
     const result = await packageRepo.delete({ id });
-    await this.packageCacheService.reload();
+    this.invalidatePackageCache();
 
     this.emitEvent('uninstalled', { id, name: packageRecord.name });
     return result;

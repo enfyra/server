@@ -351,6 +351,12 @@ export class CacheOrchestratorService
     }
     this.notifyClients('done');
     this.logger.log(`Admin: metadata + deps done (${Date.now() - start}ms)`);
+    await this.publishSignal({
+      tableName: 'table_definition',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
   }
 
   async reloadRoutesOnly(): Promise<void> {
@@ -360,6 +366,12 @@ export class CacheOrchestratorService
     await this.routeCache.reload(false);
     this.notifyClients('done');
     this.logger.log(`Admin: routes done (${Date.now() - start}ms)`);
+    await this.publishSignal({
+      tableName: 'route_definition',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
   }
 
   async reloadGraphqlOnly(): Promise<void> {
@@ -376,9 +388,25 @@ export class CacheOrchestratorService
     this.logger.log('Admin: reload guards');
     await this.guardCache.reload(false);
     this.logger.log(`Admin: guards done (${Date.now() - start}ms)`);
+    await this.publishSignal({
+      tableName: 'guard_definition',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
   }
 
   async reloadAll(): Promise<void> {
+    await this.publishSignal({
+      tableName: '__admin_reload_all',
+      action: 'reload',
+      scope: 'full',
+      timestamp: Date.now(),
+    });
+    await this.reloadAllLocal();
+  }
+
+  private async reloadAllLocal(): Promise<void> {
     const start = Date.now();
     this.logger.log('Admin: reload ALL caches');
     this.notifyClients('pending');
@@ -405,13 +433,7 @@ export class CacheOrchestratorService
       this.logger.log(`  graphql: ${Date.now() - gqlStart}ms`);
     }
     this.notifyClients('done');
-    this.logger.log(`Admin: reload ALL done (${Date.now() - start}ms), publishing signal...`);
-    await this.publishSignal({
-      tableName: 'table_definition',
-      action: 'reload',
-      scope: 'full',
-      timestamp: Date.now(),
-    });
+    this.logger.log(`Admin: reload ALL done (${Date.now() - start}ms)`);
   }
 
   private subscribeToRedis(): void {
@@ -429,7 +451,11 @@ export class CacheOrchestratorService
           this.logger.log(
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.tableName} (${signal.payload?.scope || 'full'})`,
           );
-          await this.executeChain(signal.payload, false);
+          if (signal.payload?.tableName === '__admin_reload_all') {
+            await this.reloadAllLocal();
+          } else {
+            await this.executeChain(signal.payload, false);
+          }
         } catch (error) {
           this.logger.error('Failed to process Redis signal:', error);
         }
