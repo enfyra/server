@@ -37,6 +37,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     this.dbType = this.databaseConfig.getDbType();
   }
   async onModuleInit() {
+    if (this.databaseConfig.isMongoDb()) {
+      return;
+    }
     const DB_URI = this.configService.get<string>('DB_URI');
     if (!DB_URI) {
       throw new Error('DB_URI is required');
