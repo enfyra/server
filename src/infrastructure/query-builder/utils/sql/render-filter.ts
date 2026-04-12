@@ -70,6 +70,9 @@ function applyNode(
       applyComparison(query, node, ctx, combine);
       return;
     case 'relation_exists':
+      console.warn(
+        `[sql-render-filter] relation_exists node reached renderer directly (rootTable=${ctx.rootTable}, joinId=${node.joinId}) — expected to be handled by applyRelationFilters. Filter silently skipped.`,
+      );
       return;
   }
 }
@@ -81,6 +84,9 @@ function applyComparison(
   combine: 'and' | 'or',
 ): void {
   if (node.field.joinId !== null) {
+    console.warn(
+      `[sql-render-filter] compare node has joinId=${node.field.joinId} (field=${node.field.fieldName}) but reached renderer — expected join path to handle it. Filter silently skipped.`,
+    );
     return;
   }
   const fullField = resolveFieldName(node.field, ctx);

@@ -94,6 +94,9 @@ function applyNode(
       applyComparison(node, container, ctx);
       return;
     case 'relation_exists': {
+      console.warn(
+        `[mongo-render-filter] relation_exists node reached renderer directly (rootTable=${ctx.rootTable}, joinId=${node.joinId}) — expected applyRelationFilters or null-only short-circuit to handle it. Filter silently skipped.`,
+      );
       return;
     }
   }
@@ -108,6 +111,9 @@ function applyComparison(
   if (fieldName === 'id') fieldName = '_id';
 
   if (node.field.joinId !== null) {
+    console.warn(
+      `[mongo-render-filter] compare node has joinId=${node.field.joinId} (field=${node.field.fieldName}) but reached renderer — expected relation pipeline to handle it. Filter silently skipped.`,
+    );
     return;
   }
 
