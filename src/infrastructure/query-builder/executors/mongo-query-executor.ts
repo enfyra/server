@@ -7,6 +7,7 @@ import {
   addProjectionStage,
 } from '../utils/mongo/pipeline-builder';
 import { applyMixedFilters } from '../utils/mongo/relation-filter';
+import { hasAnyRelations } from '../utils/shared/filter-separator.util';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 import {
   executeMongoBatchFetches,
@@ -115,21 +116,13 @@ export class MongoQueryExecutor {
       totalCount = await collection.countDocuments({});
     }
 
+    const filterCountTableMeta = this.metadata?.tables?.get(options.tableName);
+    const filterCountRelNames = new Set<string>(
+      (filterCountTableMeta?.relations ?? []).map((r: any) => r.propertyName),
+    );
     const hasRelationFilters =
-      queryOptions.mongoRawFilter &&
-      Object.keys(queryOptions.mongoRawFilter).some((key) => {
-        const value = queryOptions.mongoRawFilter[key];
-        if (typeof value === 'object' && value !== null) {
-          const firstKey = Object.keys(value)[0];
-          const isOperator =
-            firstKey?.startsWith('_') ||
-            ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(
-              firstKey,
-            );
-          return !isOperator; // Has relation filter
-        }
-        return false;
-      });
+      !!queryOptions.mongoRawFilter &&
+      hasAnyRelations(queryOptions.mongoRawFilter, filterCountRelNames);
 
     if (metaParts.includes('filterCount') || metaParts.includes('*')) {
       if (!hasRelationFilters) {
@@ -239,17 +232,14 @@ export class MongoQueryExecutor {
   ): Promise<any[]> {
     const pipeline: any[] = [];
 
+    const tableMetaForRelCheck = this.metadata?.tables?.get(options.table);
+    const relationNames = new Set<string>(
+      (tableMetaForRelCheck?.relations ?? []).map((r: any) => r.propertyName),
+    );
     const hasRelationFilters =
-      options.mongoRawFilter &&
-      this.metadata &&
-      Object.keys(options.mongoRawFilter).some((key) => {
-        const tableMeta = this.metadata.tables?.get(options.table);
-        if (!tableMeta) return false;
-        const relation = tableMeta.relations?.find(
-          (r: any) => r.propertyName === key,
-        );
-        return !!relation; // Is a relation field
-      });
+      !!options.mongoRawFilter &&
+      !!this.metadata &&
+      hasAnyRelations(options.mongoRawFilter, relationNames);
 
     const planForFilter: QueryPlan | undefined = options.plan;
     const useFilterTree =

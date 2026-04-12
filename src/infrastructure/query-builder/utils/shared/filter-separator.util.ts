@@ -1,6 +1,6 @@
 import { TableMetadata } from '../../../knex/types/knex-types';
 
-function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
+export function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
   if (!filter || typeof filter !== 'object') {
     return false;
   }
@@ -20,23 +20,7 @@ function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
       }
     } else if (relationNames.has(key)) {
       if (typeof value === 'object' && value !== null) {
-        const keys = Object.keys(value);
-        const hasOperator = keys.some((k) => k.startsWith('_'));
-        if (!hasOperator) {
-          return true;
-        }
-        const idOperators = [
-          '_is_null',
-          '_is_not_null',
-          '_eq',
-          '_neq',
-          '_in',
-          '_not_in',
-          '_nin',
-        ];
-        if (keys.length === 1 && idOperators.includes(keys[0])) {
-          return true;
-        }
+        return true;
       }
     }
   }
@@ -78,11 +62,9 @@ export function separateFilters(
             '_nin',
           ];
           if (keys.length === 1 && idOperators.includes(keys[0])) {
-            relationFilters[key] = {
-              id: value,
-            };
+            relationFilters[key] = { id: value };
           } else {
-            fieldFilters[key] = value;
+            relationFilters[key] = value;
           }
         } else {
           relationFilters[key] = value;
