@@ -584,6 +584,9 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
             rootTable: queryOptions.table,
           });
         } else {
+          console.warn(
+            `[sql-executor:fallback] buildWhereClause path hit for table=${queryOptions.table} filter=${JSON.stringify(originalFilter)}`,
+          );
           query = buildWhereClause(
             query,
             originalFilter,

@@ -193,6 +193,9 @@ export class MongoQueryExecutor {
           this.metadata,
         );
       } else {
+        console.warn(
+          `[mongo-executor:fallback] expandFieldsMongo path hit for table=${options.table} fields=${JSON.stringify(options.fields)}`,
+        );
         options.mongoFieldsExpanded = await expandFieldsMongo(
           this.metadata,
           options.table,
@@ -275,6 +278,9 @@ export class MongoQueryExecutor {
         pipeline.push({ $match: matchDoc });
       }
     } else if (options.where) {
+      console.warn(
+        `[mongo-executor:fallback] whereToMongoFilter path hit for table=${options.table} where=${JSON.stringify(options.where)}`,
+      );
       const filter = whereToMongoFilter(
         this.metadata,
         options.where,

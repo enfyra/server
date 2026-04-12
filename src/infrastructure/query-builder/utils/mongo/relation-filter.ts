@@ -71,6 +71,21 @@ export async function applyRelationFilters(
       continue;
     }
 
+    if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+      const nullOnly = classifyRelationNullOnlyFilter(relationFilter);
+      if (nullOnly !== null) {
+        const fkField =
+          relation.foreignKeyColumn || `${relationName}Id`;
+        const effectiveNull = invert ? !nullOnly : nullOnly;
+        pipeline.push({
+          $match: {
+            [fkField]: effectiveNull ? { $eq: null } : { $ne: null },
+          },
+        });
+        continue;
+      }
+    }
+
     const lookupFieldName = `__lookup_${relationName}`;
 
     const lookupPipeline = await buildRelationLookupPipeline(
@@ -90,6 +105,14 @@ export async function applyRelationFilters(
     } else if (relation.type === 'one-to-many') {
       localField = '_id';
       foreignField = relation.foreignKeyColumn || 'id';
+    } else if (relation.type === 'many-to-many') {
+      if ((relation as any).isInverse) {
+        localField = '_id';
+        foreignField = relation.mappedBy || relationName;
+      } else {
+        localField = relationName;
+        foreignField = '_id';
+      }
     } else {
       continue;
     }
@@ -125,6 +148,42 @@ export async function applyRelationFilters(
       },
     });
   }
+}
+
+function classifyRelationNullOnlyFilter(relFilter: any): boolean | null {
+  if (!relFilter || typeof relFilter !== 'object' || Array.isArray(relFilter)) {
+    return null;
+  }
+  const keys = Object.keys(relFilter);
+  if (keys.length === 0) return null;
+
+  let target: Record<string, any> = relFilter;
+  if (keys.length === 1 && keys[0] === 'id') {
+    if (
+      typeof relFilter.id !== 'object' ||
+      relFilter.id === null ||
+      Array.isArray(relFilter.id)
+    ) {
+      return null;
+    }
+    target = relFilter.id;
+  }
+
+  const targetKeys = Object.keys(target);
+  if (targetKeys.length === 0) return null;
+
+  let wantsNull: boolean | null = null;
+  for (const k of targetKeys) {
+    let v: boolean | null = null;
+    if (k === '_is_null') v = target[k] === true ? true : false;
+    else if (k === '_is_not_null') v = target[k] === true ? false : true;
+    else if (k === '_eq' && target[k] === null) v = true;
+    else if (k === '_neq' && target[k] === null) v = false;
+    else return null;
+    if (wantsNull !== null && wantsNull !== v) return null;
+    wantsNull = v;
+  }
+  return wantsNull;
 }
 
 function isM2oFkNullOnlyFilter(
@@ -273,6 +332,14 @@ export async function applyMixedFilters(
         } else if (relation.type === 'one-to-many') {
           localField = '_id';
           foreignField = relation.foreignKeyColumn || 'id';
+        } else if (relation.type === 'many-to-many') {
+          if ((relation as any).isInverse) {
+            localField = '_id';
+            foreignField = relation.mappedBy || relCondition.relationName;
+          } else {
+            localField = relCondition.relationName;
+            foreignField = '_id';
+          }
         } else {
           continue;
         }
