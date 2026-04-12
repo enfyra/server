@@ -19,6 +19,8 @@ import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
 } from '../utils/mongo/batch-relation-fetcher';
+import { renderFilterToMongo } from '../utils/mongo/render-filter';
+import { renderFieldsToMongo } from '../utils/mongo/render-fields';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -255,12 +257,19 @@ export class MongoQueryExecutor {
 
   private async selectLegacy(options: QueryOptions): Promise<any[]> {
     if (options.fields && options.fields.length > 0) {
-      const expanded = await expandFieldsMongo(
-        this.metadata,
-        options.table,
-        options.fields,
-      );
-      options.mongoFieldsExpanded = expanded; // Store for MongoDB usage
+      const planForFields: QueryPlan | undefined = options.plan;
+      if (planForFields?.fieldTree) {
+        options.mongoFieldsExpanded = renderFieldsToMongo(
+          planForFields.fieldTree,
+          this.metadata,
+        );
+      } else {
+        options.mongoFieldsExpanded = await expandFieldsMongo(
+          this.metadata,
+          options.table,
+          options.fields,
+        );
+      }
     }
 
     if (options.where) {
@@ -310,7 +319,33 @@ export class MongoQueryExecutor {
         return !!relation; // Is a relation field
       });
 
-    if (options.mongoRawFilter && this.metadata) {
+    const planForFilter: QueryPlan | undefined = options.plan;
+    const useFilterTree =
+      planForFilter?.filterTree &&
+      !planForFilter.hasRelationFilters &&
+      !options.where;
+
+    if (options.mongoRawFilter && this.metadata && hasRelationFilters) {
+      const tableMeta = this.metadata.tables?.get(options.table);
+      if (tableMeta) {
+        await applyMixedFilters(
+          this.metadata,
+          pipeline,
+          options.mongoRawFilter,
+          options.table,
+          tableMeta,
+          this.dbType,
+        );
+      }
+    } else if (useFilterTree) {
+      const matchDoc = renderFilterToMongo(planForFilter!.filterTree, {
+        metadata: this.metadata,
+        rootTable: options.table,
+      });
+      if (Object.keys(matchDoc).length > 0) {
+        pipeline.push({ $match: matchDoc });
+      }
+    } else if (options.mongoRawFilter && this.metadata) {
       const tableMeta = this.metadata.tables?.get(options.table);
       if (tableMeta) {
         await applyMixedFilters(

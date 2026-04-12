@@ -19,6 +19,7 @@ import { getForeignKeyColumnName } from '../../knex/utils/sql-schema-naming.util
 import { KnexService } from '../../knex/knex.service';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 import { decideSqlStrategy } from '../planner/sql-strategy-decider';
+import { renderFilterToKnex } from '../utils/sql/render-filter';
 
 export class SqlQueryExecutor {
   private readonly logger = new Logger(SqlQueryExecutor.name);
@@ -571,6 +572,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
                 this.dbType,
                 (tableName: string) => this.metadata?.tables?.get(tableName),
               );
+            } else if (options.plan?.filterTree) {
+              renderFilterToKnex(query, options.plan.filterTree, {
+                dbType: this.dbType as any,
+                rootTable: queryOptions.table,
+              });
             } else {
               query = buildWhereClause(
                 query,
@@ -580,6 +586,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
                 metadata,
               );
             }
+          } else if (options.plan?.filterTree) {
+            renderFilterToKnex(query, options.plan.filterTree, {
+              dbType: this.dbType as any,
+              rootTable: queryOptions.table,
+            });
           } else {
             const metadata = this.metadata?.tables?.get(queryOptions.table);
             query = buildWhereClause(
@@ -590,6 +601,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
               metadata,
             );
           }
+        } else if (options.plan?.filterTree) {
+          renderFilterToKnex(query, options.plan.filterTree, {
+            dbType: this.dbType as any,
+            rootTable: queryOptions.table,
+          });
         } else {
           const metadata = this.metadata?.tables?.get(queryOptions.table);
           query = buildWhereClause(

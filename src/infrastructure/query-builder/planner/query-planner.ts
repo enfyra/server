@@ -8,6 +8,8 @@ import {
 } from './query-plan.types';
 import { parseFilter } from './filter-parser';
 import { FilterNode } from './types/filter-ast';
+import { parseFields } from './field-parser';
+import { FieldTree } from './types/field-tree';
 
 export interface PlannerInput {
   tableName: string;
@@ -40,24 +42,9 @@ export class QueryPlanner {
 
     const rawFields = this.parseFields(fields);
 
+    let fieldTree: FieldTree | null = null;
     if (rawFields && tableMeta) {
-      for (const field of rawFields) {
-        if (field === '*') continue;
-        const topRelName = field.split('.')[0];
-        const isRelation = tableMeta.relations?.some(
-          (r: any) => r.propertyName === topRelName,
-        );
-        if (isRelation) {
-          registry.registerWithParent(
-            tableName,
-            topRelName,
-            metadata,
-            'left',
-            null,
-            'data',
-          );
-        }
-      }
+      fieldTree = parseFields(rawFields, tableName, metadata, registry);
     }
 
     let hasRelationFilters = false;
@@ -168,6 +155,7 @@ export class QueryPlanner {
       limitedCteFilterJoins,
       limitedCteSortJoin,
       filterTree,
+      fieldTree,
     };
   }
 
