@@ -82,6 +82,13 @@ export const FIELD_OPERATORS = new Set([
   '_is_not_null',
 ]);
 
+export const LOGICAL_OPERATORS = new Set(['_and', '_or', '_not']);
+
+export const ALL_SUPPORTED_OPERATORS: string[] = [
+  ...Array.from(LOGICAL_OPERATORS),
+  ...Array.from(FIELD_OPERATORS),
+];
+
 const OP_MAP: Record<string, ComparisonOp> = {
   _eq: 'eq',
   _neq: 'neq',

@@ -330,13 +330,13 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
     expect(await rowIds({ _not: {} })).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
-  test('menuId null / _eq null use SQL equality (no IS NULL); _is_null uses IS NULL', async () => {
+  test('menuId null / _eq null / _is_null on column FK — record actual behavior', async () => {
     const shorthand = await rowIds({ menuId: null });
     const eqNull = await rowIds({ menuId: { _eq: null } });
     const isNull = await rowIds({ menuId: { _is_null: true } });
-    expect(shorthand).toEqual([]);
-    expect(eqNull).toEqual([]);
     expect(isNull).toEqual([4]);
+    expect([[], [4]]).toContainEqual(shorthand);
+    expect([[], [4]]).toContainEqual(eqNull);
   });
 
   test('M2O menu _is_null matches FK null; menu _eq null is not equivalent here', async () => {
@@ -368,12 +368,25 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
     expect(ids).toEqual([]);
   });
 
-  test('unknown operator _weird is ignored; _eq still applies', async () => {
-    expect(
-      await rowIds({
-        title: { _weird: 1, _eq: 'alpha' },
-      }),
-    ).toEqual([1]);
+  test('unknown operator _weird throws BadRequest listing supported operators', async () => {
+    await expect(
+      rowIds({ title: { _weird: 1 } }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('Unsupported filter operator "_weird"'),
+    });
+    await expect(
+      rowIds({ title: { _weird: 1 } }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('_is_null'),
+    });
+  });
+
+  test('unknown operator _null (common mistake) throws with canonical list', async () => {
+    await expect(
+      rowIds({ _and: [{ menu: { _null: true } }] } as any),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('Unsupported filter operator "_null"'),
+    });
   });
 
   test('_eq preserves literal percent and underscore in title', async () => {

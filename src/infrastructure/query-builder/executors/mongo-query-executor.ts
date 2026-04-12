@@ -15,6 +15,8 @@ import {
 } from '../utils/mongo/batch-relation-fetcher';
 import { renderFilterToMongo } from '../utils/mongo/render-filter';
 import { renderFieldsToMongo } from '../utils/mongo/render-fields';
+import { validateFilterShape } from '../utils/shared/filter-sanitizer.util';
+import { QueryPlanner } from '../planner/query-planner';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -45,6 +47,24 @@ export class MongoQueryExecutor {
   }): Promise<any> {
     this.metadata = options.metadata;
     this.dbType = options.dbType || 'mongodb';
+
+    if (!options.plan) {
+      const planner = new QueryPlanner();
+      options = {
+        ...options,
+        plan: planner.plan({
+          tableName: options.tableName,
+          fields: options.fields,
+          filter: options.filter,
+          sort: options.sort,
+          page: options.page,
+          limit: options.limit,
+          meta: options.meta,
+          metadata: options.metadata,
+          dbType: 'mongodb' as any,
+        }),
+      };
+    }
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
 
@@ -65,6 +85,7 @@ export class MongoQueryExecutor {
     }
 
     if (options.filter) {
+      validateFilterShape(options.filter, options.tableName, options.metadata);
       queryOptions.mongoRawFilter = options.filter;
     }
 

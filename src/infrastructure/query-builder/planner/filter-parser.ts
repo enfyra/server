@@ -7,6 +7,7 @@ import {
   dslOpToCompareOp,
   ComparisonOp,
 } from './types/filter-ast';
+import { throwUnsupportedFieldOperator } from '../utils/shared/filter-sanitizer.util';
 
 export interface FilterParseContext {
   tableName: string;
@@ -93,6 +94,13 @@ function parseEntry(
     return parseRelationEntry(key, value, relation, ctx);
   }
 
+  if (key.startsWith('_')) {
+    const column = tableMeta?.columns?.find((c: any) => c.name === key);
+    if (!column) {
+      throwUnsupportedFieldOperator(key, key, ctx.currentTable);
+    }
+  }
+
   return parseFieldEntry(key, value, ctx);
 }
 
@@ -173,7 +181,22 @@ function parseRelationEntry(
     currentTable: targetTable,
   };
 
-  const inner = parseObject(value, nestedCtx);
+  const idImplicitOps = new Set([
+    '_eq',
+    '_neq',
+    '_in',
+    '_not_in',
+    '_nin',
+    '_gt',
+    '_gte',
+    '_lt',
+    '_lte',
+  ]);
+  const allKeysAreIdImplicit =
+    keys.length > 0 && keys.every((k) => idImplicitOps.has(k));
+  const effectiveValue = allKeysAreIdImplicit ? { id: value } : value;
+
+  const inner = parseObject(effectiveValue, nestedCtx);
   return { node: inner.node, hasRelationFilters: true };
 }
 
@@ -210,6 +233,12 @@ function parseFieldEntry(
       },
       hasRelationFilters: false,
     };
+  }
+
+  for (const k of Object.keys(value)) {
+    if (k.startsWith('_') && !FIELD_OPERATORS.has(k)) {
+      throwUnsupportedFieldOperator(k, fieldName, ctx.tableName);
+    }
   }
 
   const opEntries = Object.entries(value).filter(([k]) =>

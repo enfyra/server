@@ -325,9 +325,13 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     ).toEqual([]);
   });
 
-  runOrSkip('unknown operator is silently ignored', async () => {
-    const ids = await idsOf({ title: { _weird: 1, _eq: 'alpha' } } as any);
-    expect(ids).toEqual(idSetOf([0]));
+  runOrSkip('unknown operator throws BadRequest listing supported operators', async () => {
+    await expect(idsOf({ title: { _weird: 1 } } as any)).rejects.toMatchObject({
+      message: expect.stringContaining('Unsupported filter operator "_weird"'),
+    });
+    await expect(idsOf({ title: { _weird: 1 } } as any)).rejects.toMatchObject({
+      message: expect.stringContaining('_is_null'),
+    });
   });
 
   runOrSkip('_eq preserves literal % and _ in title', async () => {

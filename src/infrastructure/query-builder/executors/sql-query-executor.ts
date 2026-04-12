@@ -20,6 +20,8 @@ import { KnexService } from '../../knex/knex.service';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 import { decideSqlStrategy } from '../planner/sql-strategy-decider';
 import { renderFilterToKnex } from '../utils/sql/render-filter';
+import { validateFilterShape } from '../utils/shared/filter-sanitizer.util';
+import { QueryPlanner } from '../planner/query-planner';
 
 export class SqlQueryExecutor {
   private readonly logger = new Logger(SqlQueryExecutor.name);
@@ -50,6 +52,28 @@ export class SqlQueryExecutor {
     this.metadata = options.metadata;
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
+
+    if (options.filter) {
+      validateFilterShape(options.filter, options.tableName, options.metadata);
+    }
+
+    if (!options.plan) {
+      const planner = new QueryPlanner();
+      options = {
+        ...options,
+        plan: planner.plan({
+          tableName: options.tableName,
+          fields: options.fields,
+          filter: options.filter,
+          sort: options.sort,
+          page: options.page,
+          limit: options.limit,
+          meta: options.meta,
+          metadata: options.metadata,
+          dbType: this.dbType as any,
+        }),
+      };
+    }
 
     const queryOptions: QueryOptions = {
       table: options.tableName,
