@@ -16,8 +16,9 @@ export async function executeBatchFetches(
   maxDepth: number = 3,
   currentDepth: number = 0,
   parentTableName?: string,
+  dbType: 'postgres' | 'mysql' | 'sqlite' = 'postgres',
 ): Promise<void> {
-  const adapter = new SqlBatchAdapter(knex);
+  const adapter = new SqlBatchAdapter(knex, dbType);
   const engine = new BatchFetchEngine(adapter, metadataGetter);
   await engine.execute(parentRows, descriptors, maxDepth, currentDepth, parentTableName);
 }

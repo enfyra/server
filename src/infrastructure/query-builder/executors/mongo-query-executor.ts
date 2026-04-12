@@ -1,13 +1,6 @@
 import { Db, Collection, ObjectId } from 'mongodb';
-import {
-  QueryOptions,
-  WhereCondition,
-} from '../../../shared/types/query-builder.types';
-import { hasLogicalOperators } from '../utils/shared/logical-operators.util';
-import {
-  whereToMongoFilter,
-  convertLogicalFilterToMongo,
-} from '../utils/mongo/filter-builder';
+import { QueryOptions } from '../../../shared/types/query-builder.types';
+import { whereToMongoFilter } from '../utils/mongo/filter-builder';
 import { expandFieldsMongo } from '../utils/mongo/expand-fields';
 import {
   buildNestedLookupPipeline,
@@ -72,63 +65,6 @@ export class MongoQueryExecutor {
 
     if (options.filter) {
       queryOptions.mongoRawFilter = options.filter;
-
-      if (!hasLogicalOperators(options.filter)) {
-        queryOptions.where = [];
-
-        for (const [field, value] of Object.entries(options.filter)) {
-          if (typeof value === 'object' && value !== null) {
-            const firstKey = Object.keys(value)[0];
-            const isOperator =
-              firstKey?.startsWith('_') ||
-              ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'like'].includes(
-                firstKey,
-              );
-
-            if (!isOperator) {
-              continue;
-            }
-
-            for (const [op, val] of Object.entries(value)) {
-              let operator: string;
-              if (op === '_eq') operator = '=';
-              else if (op === '_neq') operator = '!=';
-              else if (op === '_in') operator = 'in';
-              else if (op === '_not_in' || op === '_nin') operator = 'not in';
-              else if (op === '_gt') operator = '>';
-              else if (op === '_gte') operator = '>=';
-              else if (op === '_lt') operator = '<';
-              else if (op === '_lte') operator = '<=';
-              else if (op === '_contains') operator = '_contains';
-              else if (op === '_starts_with') operator = '_starts_with';
-              else if (op === '_ends_with') operator = '_ends_with';
-              else if (op === '_between') operator = '_between';
-              else if (op === '_is_null') operator = '_is_null';
-              else if (op === '_is_not_null') operator = '_is_not_null';
-              else continue;
-
-              queryOptions.where.push({
-                field,
-                operator,
-                value: val,
-              } as WhereCondition);
-            }
-          } else {
-            queryOptions.where.push({
-              field,
-              operator: '=',
-              value,
-            } as WhereCondition);
-          }
-        }
-      } else {
-        queryOptions.mongoLogicalFilter = convertLogicalFilterToMongo(
-          this.metadata,
-          options.filter,
-          options.tableName,
-          this.dbType,
-        );
-      }
     }
 
     if (options.sort) {
@@ -198,19 +134,12 @@ export class MongoQueryExecutor {
     if (metaParts.includes('filterCount') || metaParts.includes('*')) {
       if (!hasRelationFilters) {
         const collection = this.mongoService.collection(options.tableName);
-        let filter = {};
-
-        if (queryOptions.where && queryOptions.where.length > 0) {
-          filter = whereToMongoFilter(
-            this.metadata,
-            queryOptions.where,
-            options.tableName,
-            this.dbType,
-          );
-        } else if (queryOptions.mongoLogicalFilter) {
-          filter = queryOptions.mongoLogicalFilter;
-        }
-
+        const filter = options.plan?.filterTree
+          ? renderFilterToMongo(options.plan.filterTree, {
+              metadata: this.metadata,
+              rootTable: options.tableName,
+            })
+          : {};
         filterCount = await collection.countDocuments(filter);
       }
     }
@@ -345,18 +274,6 @@ export class MongoQueryExecutor {
       if (Object.keys(matchDoc).length > 0) {
         pipeline.push({ $match: matchDoc });
       }
-    } else if (options.mongoRawFilter && this.metadata) {
-      const tableMeta = this.metadata.tables?.get(options.table);
-      if (tableMeta) {
-        await applyMixedFilters(
-          this.metadata,
-          pipeline,
-          options.mongoRawFilter,
-          options.table,
-          tableMeta,
-          this.dbType,
-        );
-      }
     } else if (options.where) {
       const filter = whereToMongoFilter(
         this.metadata,
@@ -365,8 +282,6 @@ export class MongoQueryExecutor {
         this.dbType,
       );
       pipeline.push({ $match: filter });
-    } else if (options.mongoLogicalFilter) {
-      pipeline.push({ $match: options.mongoLogicalFilter });
     }
 
     const plan: QueryPlan | undefined = options.plan;

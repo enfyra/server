@@ -1,10 +1,11 @@
 import {
   FilterNode,
   ComparisonNode,
-  ComparisonOp,
 } from '../../planner/types/filter-ast';
 import { getMongoFoldTextSearchJs } from '../../../../shared/utils/mongo-fold-text-search';
 import { convertValueByType } from './type-converter';
+import { parseFilter } from '../../planner/filter-parser';
+import { JoinRegistry } from '../../planner/join-registry';
 
 const MONGO_FOLD_PENDING = '__mongoFoldTextTriples';
 
@@ -28,6 +29,17 @@ export function renderFilterToMongo(
   applyNode(node, result, ctx);
   flushFoldTextSearchExpr(result);
   return result;
+}
+
+export function renderRawFilterToMongo(
+  metadata: any,
+  raw: any,
+  tableName: string,
+): any {
+  if (!raw) return {};
+  const registry = new JoinRegistry();
+  const { node } = parseFilter(raw, tableName, metadata, registry);
+  return renderFilterToMongo(node, { metadata, rootTable: tableName });
 }
 
 function applyNode(

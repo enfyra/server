@@ -1,10 +1,5 @@
-import { WhereCondition } from '../../../../shared/types/query-builder.types';
-import { hasLogicalOperators } from '../shared/logical-operators.util';
 import { separateFilters } from '../shared/filter-separator.util';
-import {
-  whereToMongoFilter,
-  convertLogicalFilterToMongo,
-} from './filter-builder';
+import { renderRawFilterToMongo } from './render-filter';
 
 export async function buildRelationLookupPipeline(
   metadata: any,
@@ -19,57 +14,13 @@ export async function buildRelationLookupPipeline(
   const { fieldFilters, relationFilters } = separated;
 
   if (fieldFilters && Object.keys(fieldFilters).length > 0) {
-    if (!hasLogicalOperators(fieldFilters)) {
-      const whereConditions: WhereCondition[] = [];
-      for (const [field, value] of Object.entries(fieldFilters)) {
-        if (typeof value === 'object' && value !== null) {
-          for (const [op, val] of Object.entries(value)) {
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in' || op === '_nin') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = '_contains';
-            else if (op === '_starts_with') operator = '_starts_with';
-            else if (op === '_ends_with') operator = '_ends_with';
-            else if (op === '_between') operator = '_between';
-            else if (op === '_is_null') operator = '_is_null';
-            else if (op === '_is_not_null') operator = '_is_not_null';
-            else operator = op.replace('_', ' ');
-
-            whereConditions.push({
-              field,
-              operator,
-              value: val,
-            } as WhereCondition);
-          }
-        } else {
-          whereConditions.push({
-            field,
-            operator: '=',
-            value,
-          } as WhereCondition);
-        }
-      }
-      const matchFilter = whereToMongoFilter(
-        metadata,
-        whereConditions,
-        targetTable,
-        dbType,
-      );
+    const matchFilter = renderRawFilterToMongo(
+      metadata,
+      fieldFilters,
+      targetTable,
+    );
+    if (Object.keys(matchFilter).length > 0) {
       subPipeline.push({ $match: matchFilter });
-    } else {
-      const logicalFilter = convertLogicalFilterToMongo(
-        metadata,
-        fieldFilters,
-        targetTable,
-        dbType,
-      );
-      subPipeline.push({ $match: logicalFilter });
     }
   }
 
@@ -244,7 +195,7 @@ export async function applyMixedFilters(
 
     if (fieldConditions.length > 0) {
       const mongoFieldConditions = fieldConditions.map((fc) =>
-        convertLogicalFilterToMongo(metadata, fc, tableName, dbType),
+        renderRawFilterToMongo(metadata, fc, tableName),
       );
       pipeline.push({ $match: { $and: mongoFieldConditions } });
     }
@@ -347,9 +298,7 @@ export async function applyMixedFilters(
       const orConditions: any[] = [];
 
       for (const fc of fieldConditions) {
-        orConditions.push(
-          convertLogicalFilterToMongo(metadata, fc, tableName, dbType),
-        );
+        orConditions.push(renderRawFilterToMongo(metadata, fc, tableName));
       }
 
       for (const lookupField of lookupFields) {
@@ -371,7 +320,7 @@ export async function applyMixedFilters(
           )
         ) {
           orConditions.push(
-            convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+            renderRawFilterToMongo(metadata, condition, tableName),
           );
         }
       }
@@ -389,7 +338,7 @@ export async function applyMixedFilters(
       }
     } else {
       const mongoFieldConditions = filter._or.map((condition: any) =>
-        convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+        renderRawFilterToMongo(metadata, condition, tableName),
       );
       pipeline.push({ $match: { $or: mongoFieldConditions } });
     }
@@ -400,11 +349,10 @@ export async function applyMixedFilters(
     const separated = separateFilters(filter._not, tableMeta);
 
     if (Object.keys(separated.fieldFilters).length > 0) {
-      const mongoFilter = convertLogicalFilterToMongo(
+      const mongoFilter = renderRawFilterToMongo(
         metadata,
         separated.fieldFilters,
         tableName,
-        dbType,
       );
       pipeline.push({ $match: { $nor: [mongoFilter] } });
     }
@@ -425,57 +373,13 @@ export async function applyMixedFilters(
   const { fieldFilters, relationFilters } = separated;
 
   if (fieldFilters && Object.keys(fieldFilters).length > 0) {
-    if (!hasLogicalOperators(fieldFilters)) {
-      const whereConditions: WhereCondition[] = [];
-      for (const [field, value] of Object.entries(fieldFilters)) {
-        if (typeof value === 'object' && value !== null) {
-          for (const [op, val] of Object.entries(value)) {
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in' || op === '_nin') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = '_contains';
-            else if (op === '_starts_with') operator = '_starts_with';
-            else if (op === '_ends_with') operator = '_ends_with';
-            else if (op === '_between') operator = '_between';
-            else if (op === '_is_null') operator = '_is_null';
-            else if (op === '_is_not_null') operator = '_is_not_null';
-            else operator = op.replace('_', ' ');
-
-            whereConditions.push({
-              field,
-              operator,
-              value: val,
-            } as WhereCondition);
-          }
-        } else {
-          whereConditions.push({
-            field,
-            operator: '=',
-            value,
-          } as WhereCondition);
-        }
-      }
-      const matchFilter = whereToMongoFilter(
-        metadata,
-        whereConditions,
-        tableName,
-        dbType,
-      );
+    const matchFilter = renderRawFilterToMongo(
+      metadata,
+      fieldFilters,
+      tableName,
+    );
+    if (Object.keys(matchFilter).length > 0) {
       pipeline.push({ $match: matchFilter });
-    } else {
-      const logicalFilter = convertLogicalFilterToMongo(
-        metadata,
-        fieldFilters,
-        tableName,
-        dbType,
-      );
-      pipeline.push({ $match: logicalFilter });
     }
   }
 

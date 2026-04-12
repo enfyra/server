@@ -220,7 +220,10 @@ export async function expandFieldsToJoinsAndSelect(
       const fkColumn =
         relation.foreignKeyColumn ||
         getForeignKeyColumnName(relation.targetTableName || (relation as any).targetTable);
-      select.push(`${tableName}.${fkColumn} as ${relationName}`);
+      const quotedTable = quoteIdentifier(tableName, dbType);
+      const quotedFk = quoteIdentifier(fkColumn, dbType);
+      const quotedAlias = quoteIdentifier(relationName, dbType);
+      select.push(`${quotedTable}.${quotedFk} as ${quotedAlias}`);
     }
 
     const targetTable = relation.targetTableName || (relation as any).targetTable;

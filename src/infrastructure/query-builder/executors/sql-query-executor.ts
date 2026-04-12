@@ -524,6 +524,9 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
           if (typeof field === 'string' && field.trim().startsWith('(')) {
             return this.knex.raw(field);
           }
+          if (typeof field === 'string' && / as /i.test(field)) {
+            return this.knex.raw(field);
+          }
           return field;
         });
         query = query.select(selectItems);
@@ -556,58 +559,31 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         (hasLogicalOperators(originalFilter) ||
           Object.keys(originalFilter).length > 0)
       ) {
-        if (!isSystemTable) {
-          const metadata = this.metadata?.tables?.get(queryOptions.table);
+        const metadata = this.metadata?.tables?.get(queryOptions.table);
+        const hasRelations =
+          !isSystemTable &&
+          metadata &&
+          metadata.relations &&
+          metadata.relations.length > 0
+            ? separateFilters(originalFilter, metadata).hasRelations
+            : false;
 
-          if (metadata && metadata.relations && metadata.relations.length > 0) {
-            const { hasRelations } = separateFilters(originalFilter, metadata);
-
-            if (hasRelations) {
-              await applyRelationFilters(
-                this.knex,
-                query,
-                originalFilter,
-                queryOptions.table,
-                metadata,
-                this.dbType,
-                (tableName: string) => this.metadata?.tables?.get(tableName),
-              );
-            } else if (options.plan?.filterTree) {
-              renderFilterToKnex(query, options.plan.filterTree, {
-                dbType: this.dbType as any,
-                rootTable: queryOptions.table,
-              });
-            } else {
-              query = buildWhereClause(
-                query,
-                originalFilter,
-                queryOptions.table,
-                this.dbType,
-                metadata,
-              );
-            }
-          } else if (options.plan?.filterTree) {
-            renderFilterToKnex(query, options.plan.filterTree, {
-              dbType: this.dbType as any,
-              rootTable: queryOptions.table,
-            });
-          } else {
-            const metadata = this.metadata?.tables?.get(queryOptions.table);
-            query = buildWhereClause(
-              query,
-              originalFilter,
-              queryOptions.table,
-              this.dbType,
-              metadata,
-            );
-          }
+        if (hasRelations) {
+          await applyRelationFilters(
+            this.knex,
+            query,
+            originalFilter,
+            queryOptions.table,
+            metadata,
+            this.dbType,
+            (tableName: string) => this.metadata?.tables?.get(tableName),
+          );
         } else if (options.plan?.filterTree) {
           renderFilterToKnex(query, options.plan.filterTree, {
             dbType: this.dbType as any,
             rootTable: queryOptions.table,
           });
         } else {
-          const metadata = this.metadata?.tables?.get(queryOptions.table);
           query = buildWhereClause(
             query,
             originalFilter,
@@ -779,6 +755,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
           this.maxQueryDepth ?? 3,
           0,
           queryOptions.table,
+          this.dbType as any,
         );
       }
     }

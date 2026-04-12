@@ -1,6 +1,7 @@
 import { Knex } from 'knex';
 import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
+import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 import {
   BatchFetchAdapter,
   BatchFetchDescriptor,
@@ -12,7 +13,29 @@ import {
 export class SqlBatchAdapter implements BatchFetchAdapter {
   pkField = 'id';
 
-  constructor(private knex: Knex) {}
+  constructor(
+    private knex: Knex,
+    private dbType: 'postgres' | 'mysql' | 'sqlite' = 'postgres',
+  ) {}
+
+  private toKnexSelect(col: string, prefix?: string): any {
+    const asIdx = col.indexOf(' as ');
+    if (asIdx !== -1) {
+      const colPart = col.substring(0, asIdx);
+      const alias = col.substring(asIdx + 4);
+      const quotedAlias = quoteIdentifier(alias, this.dbType);
+      const quotedCol = prefix
+        ? `${prefix}.${quoteIdentifier(colPart, this.dbType)}`
+        : quoteIdentifier(colPart, this.dbType);
+      return this.knex.raw(`${quotedCol} as ${quotedAlias}`);
+    }
+    if (prefix) {
+      return this.knex.raw(
+        `${prefix}.${quoteIdentifier(col, this.dbType)} as ${quoteIdentifier(col, this.dbType)}`,
+      );
+    }
+    return col;
+  }
 
   keyOf(value: any): string {
     return value == null ? '' : String(value);
@@ -145,10 +168,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     fkValues: any[],
     fetchSpec: { selectCols: string[]; pkCol: string },
   ): Promise<any[]> {
+    const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
     return chunkedFetch(fkValues, (chunk) =>
-      this.knex(targetTable)
-        .select(fetchSpec.selectCols)
-        .whereIn(fetchSpec.pkCol, chunk),
+      this.knex(targetTable).select(selects).whereIn(fetchSpec.pkCol, chunk),
     );
   }
 
@@ -170,9 +192,10 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
       fkPushedAsRaw = true;
     }
 
+    const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
     const docs = await chunkedFetch(parentIds, (chunk) =>
       this.knex(targetTable)
-        .select(fetchSpec.selectCols)
+        .select(selects)
         .whereIn(fkField, chunk)
         .orderBy(fetchSpec.pkCol, 'asc'),
     );
@@ -231,15 +254,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
       return { grouped, docs: [] };
     }
 
-    const targetSelectCols = fetchSpec.selectCols.map((c) => {
-      const asIdx = c.indexOf(' as ');
-      if (asIdx !== -1) {
-        const col = c.substring(0, asIdx);
-        const alias = c.substring(asIdx + 4);
-        return `t.${col} as ${alias}`;
-      }
-      return `t.${c} as ${c}`;
-    });
+    const targetSelectCols = fetchSpec.selectCols.map((c) =>
+      this.toKnexSelect(c, 't'),
+    );
 
     const rows = await chunkedFetch(parentIds, (chunk) =>
       this.knex(junctionTable)
