@@ -94,10 +94,16 @@ function parseEntry(
     return parseRelationEntry(key, value, relation, ctx);
   }
 
-  if (key.startsWith('_')) {
-    const column = tableMeta?.columns?.find((c: any) => c.name === key);
+  if (tableMeta) {
+    const column = tableMeta.columns?.find((c: any) => c.name === key);
     if (!column) {
-      throwUnsupportedFieldOperator(key, key, ctx.currentTable);
+      if (key.startsWith('_')) {
+        throwUnsupportedFieldOperator(key, key, ctx.currentTable);
+      }
+      console.warn(
+        `[filter-parser] Unknown field "${key}" on table "${ctx.currentTable}" — skipped (not a column or relation in metadata).`,
+      );
+      return { node: null, hasRelationFilters: false };
     }
   }
 

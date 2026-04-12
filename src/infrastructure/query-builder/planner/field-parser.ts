@@ -23,6 +23,15 @@ export function parseFields(
       const dot = field.indexOf('.');
       const relName = field.substring(0, dot);
       const remaining = field.substring(dot + 1);
+      const isKnownRelation = tableMeta.relations?.some(
+        (r: any) => r.propertyName === relName,
+      );
+      if (!isKnownRelation) {
+        console.warn(
+          `[field-parser] Unknown relation "${relName}" on table "${tableName}" — skipped (field path "${field}" dropped).`,
+        );
+        continue;
+      }
       if (!fieldsByRelation.has(relName)) fieldsByRelation.set(relName, []);
       fieldsByRelation.get(relName)!.push(remaining);
     } else {
@@ -32,6 +41,15 @@ export function parseFields(
       if (isRelation) {
         if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, ['id']);
       } else {
+        const isColumn = tableMeta.columns?.some(
+          (c: any) => c.name === field,
+        );
+        if (!isColumn) {
+          console.warn(
+            `[field-parser] Unknown field "${field}" on table "${tableName}" — skipped (not a column or relation in metadata).`,
+          );
+          continue;
+        }
         rootFields.push(field);
       }
     }
@@ -103,6 +121,15 @@ function parseFieldsRecursive(
       const dot = field.indexOf('.');
       const relName = field.substring(0, dot);
       const remaining = field.substring(dot + 1);
+      const isKnownRelation = tableMeta.relations?.some(
+        (r: any) => r.propertyName === relName,
+      );
+      if (!isKnownRelation) {
+        console.warn(
+          `[field-parser] Unknown relation "${relName}" on table "${tableName}" — skipped (field path "${field}" dropped).`,
+        );
+        continue;
+      }
       if (!fieldsByRelation.has(relName)) fieldsByRelation.set(relName, []);
       fieldsByRelation.get(relName)!.push(remaining);
     } else {
@@ -112,6 +139,15 @@ function parseFieldsRecursive(
       if (isRelation) {
         if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, ['id']);
       } else {
+        const isColumn = tableMeta.columns?.some(
+          (c: any) => c.name === field,
+        );
+        if (!isColumn) {
+          console.warn(
+            `[field-parser] Unknown field "${field}" on table "${tableName}" — skipped (not a column or relation in metadata).`,
+          );
+          continue;
+        }
         rootFields.push(field);
       }
     }
