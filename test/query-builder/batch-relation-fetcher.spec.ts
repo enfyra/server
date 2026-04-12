@@ -566,7 +566,8 @@ describe('batch-relation-fetcher', () => {
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
-      expect(rows[0].profile).toEqual({ id: 1, userId: 1, bio: 'Software dev' });
+      expect(rows[0].profile).toEqual({ id: 1, bio: 'Software dev' });
+      expect(rows[0].profile).not.toHaveProperty('userId');
       expect(rows[1].profile).toBeNull();
     });
   });
@@ -1299,6 +1300,61 @@ describe('batch-relation-fetcher', () => {
 
       expect(rows[0].tags).toEqual([]);
       expect(rows[1].tags).toEqual([]);
+    });
+
+    it('should strip raw FK column from O2M children when not aliased', async () => {
+      const rows = [{ id: 1, name: 'Alice' }];
+      const descs: BatchFetchDescriptor[] = [{
+        relationName: 'posts',
+        type: 'one-to-many',
+        targetTable: 'posts',
+        fields: ['id', 'title'],
+        fkColumn: 'authorId',
+        isInverse: true,
+        mappedBy: 'author',
+      }];
+
+      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
+
+      const post = rows[0].posts[0];
+      expect(post).toHaveProperty('id');
+      expect(post).toHaveProperty('title');
+      expect(post).not.toHaveProperty('authorId');
+    });
+
+    it('should run independent descriptors in parallel (parent rows mutated by all)', async () => {
+      const rows = [{ id: 1, title: 'Post A', author: 1, category: 1 }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['name'],
+          fkColumn: 'authorId',
+        },
+        {
+          relationName: 'category',
+          type: 'many-to-one',
+          targetTable: 'categories',
+          fields: ['name'],
+          fkColumn: 'categoryId',
+        },
+        {
+          relationName: 'tags',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['label'],
+          junctionTableName: 'posts_tags_tags',
+          junctionSourceColumn: 'postsId',
+          junctionTargetColumn: 'tagsId',
+        },
+      ];
+
+      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
+
+      expect(rows[0].author).toHaveProperty('name', 'Alice');
+      expect(rows[0].category).toHaveProperty('name', 'Tech');
+      expect(rows[0].tags).toHaveLength(2);
     });
 
     it('should survive maxDepth=1 cutting off nested relations silently', async () => {

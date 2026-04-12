@@ -36,6 +36,23 @@ interface TableMeta {
 
 type MetadataGetter = (tableName: string) => Promise<TableMeta | null>;
 
+const WHERE_IN_CHUNK_SIZE = 5000;
+
+async function chunkedFetch<T>(
+  values: any[],
+  fetchFn: (chunk: any[]) => Promise<T[]>,
+): Promise<T[]> {
+  if (values.length <= WHERE_IN_CHUNK_SIZE) {
+    return fetchFn(values);
+  }
+  const chunks: any[][] = [];
+  for (let i = 0; i < values.length; i += WHERE_IN_CHUNK_SIZE) {
+    chunks.push(values.slice(i, i + WHERE_IN_CHUNK_SIZE));
+  }
+  const results = await Promise.all(chunks.map(fetchFn));
+  return results.flat();
+}
+
 export async function executeBatchFetches(
   knex: Knex,
   parentRows: any[],
@@ -53,15 +70,16 @@ export async function executeBatchFetches(
     parentMeta = await metadataGetter(parentTableName) ?? undefined;
   }
 
-  for (const desc of descriptors) {
+  await Promise.all(descriptors.map((desc) => {
     if (desc.type === 'many-to-one' || (desc.type === 'one-to-one' && !desc.isInverse)) {
-      await fetchOwnerRelation(knex, parentRows, desc, metadataGetter, maxDepth, currentDepth);
+      return fetchOwnerRelation(knex, parentRows, desc, metadataGetter, maxDepth, currentDepth);
     } else if (desc.type === 'one-to-many' || (desc.type === 'one-to-one' && desc.isInverse)) {
-      await fetchInverseRelation(knex, parentRows, desc, metadataGetter, maxDepth, currentDepth, parentMeta);
+      return fetchInverseRelation(knex, parentRows, desc, metadataGetter, maxDepth, currentDepth, parentMeta);
     } else if (desc.type === 'many-to-many') {
-      await fetchManyToMany(knex, parentRows, desc, metadataGetter, maxDepth, currentDepth, parentMeta);
+      return fetchManyToMany(knex, parentRows, desc, metadataGetter, maxDepth, currentDepth, parentMeta);
     }
-  }
+    return Promise.resolve();
+  }));
 }
 
 async function fetchOwnerRelation(
@@ -89,9 +107,18 @@ async function fetchOwnerRelation(
   const pkCol = getPrimaryKeyColumn(targetMeta as any)?.name || 'id';
   const { selectCols, nestedDescs } = resolveFieldsAndNested(desc.fields, targetMeta);
 
-  const rows = await knex(desc.targetTable)
-    .select(selectCols)
-    .whereIn(pkCol, fkValues);
+  const isPkOnly = selectCols.length === 1 && selectCols[0] === pkCol && nestedDescs.length === 0;
+  if (isPkOnly) {
+    for (const parentRow of parentRows) {
+      const fkVal = parentRow[fkKey];
+      parentRow[fkKey] = fkVal != null ? { [pkCol]: fkVal } : null;
+    }
+    return;
+  }
+
+  const rows = await chunkedFetch(fkValues, (chunk) =>
+    knex(desc.targetTable).select(selectCols).whereIn(pkCol, chunk),
+  );
 
   if (nestedDescs.length > 0) {
     await executeBatchFetches(knex, rows, nestedDescs, metadataGetter, maxDepth, currentDepth + 1, desc.targetTable);
@@ -138,21 +165,28 @@ async function fetchInverseRelation(
   const { selectCols, nestedDescs } = resolveFieldsAndNested(desc.fields, targetMeta);
 
   let groupKey = fkColumn;
+  let fkPushedAsRaw = false;
   const aliasEntry = selectCols.find((c) => c.startsWith(`${fkColumn} as `));
   if (aliasEntry) {
     groupKey = aliasEntry.split(' as ')[1].trim();
   } else if (!selectCols.includes(fkColumn)) {
     selectCols.push(fkColumn);
+    fkPushedAsRaw = true;
   }
 
-  const rows = await knex(desc.targetTable)
-    .select(selectCols)
-    .whereIn(fkColumn, parentIds)
-    .orderBy(pkCol, 'asc');
+  const rows = await chunkedFetch(parentIds, (chunk) =>
+    knex(desc.targetTable)
+      .select(selectCols)
+      .whereIn(fkColumn, chunk)
+      .orderBy(pkCol, 'asc'),
+  );
 
   const grouped = new Map<any, any[]>();
   for (const row of rows) {
     const key = row[groupKey];
+    if (fkPushedAsRaw) {
+      delete row[fkColumn];
+    }
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(row);
   }
@@ -196,6 +230,28 @@ async function fetchManyToMany(
   const pkCol = getPrimaryKeyColumn(targetMeta as any)?.name || 'id';
   const { selectCols, nestedDescs } = resolveFieldsAndNested(desc.fields, targetMeta);
 
+  const isPkOnly = selectCols.length === 1 && selectCols[0] === pkCol && nestedDescs.length === 0;
+  if (isPkOnly) {
+    const junctionRows = await chunkedFetch(parentIds, (chunk) =>
+      knex(junctionTable)
+        .select([`${sourceCol} as __sourceId__`, `${targetCol} as __targetId__`])
+        .whereIn(sourceCol, chunk)
+        .orderBy(targetCol, 'asc'),
+    );
+
+    const grouped = new Map<any, any[]>();
+    for (const row of junctionRows) {
+      const key = row.__sourceId__;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push({ [pkCol]: row.__targetId__ });
+    }
+
+    for (const parentRow of parentRows) {
+      parentRow[desc.relationName] = grouped.get(parentRow[parentPk]) || [];
+    }
+    return;
+  }
+
   const targetSelectCols = selectCols.map((c) => {
     const asIdx = c.indexOf(' as ');
     if (asIdx !== -1) {
@@ -206,26 +262,24 @@ async function fetchManyToMany(
     return `t.${c} as ${c}`;
   });
 
-  const rows: any[] = await knex(junctionTable)
-    .join(`${desc.targetTable} as t`, `${junctionTable}.${targetCol}`, `t.${pkCol}`)
-    .select([`${junctionTable}.${sourceCol} as __sourceId__`, ...targetSelectCols])
-    .whereIn(`${junctionTable}.${sourceCol}`, parentIds)
-    .orderBy(`t.${pkCol}`, 'asc');
-
-  const cleanRows = rows.map((r) => {
-    const { __sourceId__, ...rest } = r;
-    return rest;
-  });
-
-  if (nestedDescs.length > 0) {
-    await executeBatchFetches(knex, cleanRows, nestedDescs, metadataGetter, maxDepth, currentDepth + 1, desc.targetTable);
-  }
+  const rows = await chunkedFetch(parentIds, (chunk) =>
+    knex(junctionTable)
+      .join(`${desc.targetTable} as t`, `${junctionTable}.${targetCol}`, `t.${pkCol}`)
+      .select([`${junctionTable}.${sourceCol} as __sourceId__`, ...targetSelectCols])
+      .whereIn(`${junctionTable}.${sourceCol}`, chunk)
+      .orderBy(`t.${pkCol}`, 'asc'),
+  );
 
   const grouped = new Map<any, any[]>();
-  for (let i = 0; i < rows.length; i++) {
-    const key = rows[i].__sourceId__;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(cleanRows[i]);
+  for (const row of rows) {
+    const sourceId = row.__sourceId__;
+    delete row.__sourceId__;
+    if (!grouped.has(sourceId)) grouped.set(sourceId, []);
+    grouped.get(sourceId)!.push(row);
+  }
+
+  if (nestedDescs.length > 0) {
+    await executeBatchFetches(knex, rows, nestedDescs, metadataGetter, maxDepth, currentDepth + 1, desc.targetTable);
   }
 
   for (const parentRow of parentRows) {
