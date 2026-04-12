@@ -15,6 +15,10 @@ import {
 } from '../utils/mongo/pipeline-builder';
 import { applyMixedFilters } from '../utils/mongo/relation-filter';
 import { QueryPlan } from '../planner/query-plan.types';
+import {
+  executeMongoBatchFetches,
+  MongoBatchFetchDescriptor,
+} from '../utils/mongo/batch-relation-fetcher';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -408,83 +412,90 @@ export class MongoQueryExecutor {
       }
     }
 
+    const batchFetchableRelations: typeof relations = [];
     for (const rel of relations) {
-      const needsNestedPipeline =
-        rel.nestedFields && rel.nestedFields.length > 0;
       const relationFilter = options.mongoRawFilter?.[rel.propertyName];
+      const isSortedOn = options.sort?.some((s) => s.field.startsWith(`${rel.propertyName}.`));
 
-      if (needsNestedPipeline) {
-        const nestedPipeline = await buildNestedLookupPipeline(
-          this.metadata,
-          rel.targetTable,
-          rel.nestedFields,
-          relationFilter,
-        );
+      if (relationFilter || isSortedOn) {
+        const needsNestedPipeline =
+          rel.nestedFields && rel.nestedFields.length > 0;
 
-        if (rel.type === 'one' && nestedPipeline.length > 0) {
-          nestedPipeline.push({ $limit: 1 });
+        if (needsNestedPipeline) {
+          const nestedPipeline = await buildNestedLookupPipeline(
+            this.metadata,
+            rel.targetTable,
+            rel.nestedFields,
+            relationFilter,
+          );
+
+          if (rel.type === 'one' && nestedPipeline.length > 0) {
+            nestedPipeline.push({ $limit: 1 });
+          }
+
+          pipeline.push({
+            $lookup: {
+              from: rel.targetTable,
+              localField: rel.localField,
+              foreignField: rel.foreignField,
+              as: rel.propertyName,
+              pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
+            },
+          });
+        } else if (relationFilter) {
+          const nestedPipeline = await buildNestedLookupPipeline(
+            this.metadata,
+            rel.targetTable,
+            ['_id'],
+            relationFilter,
+          );
+
+          if (rel.type === 'one' && nestedPipeline.length > 0) {
+            nestedPipeline.push({ $limit: 1 });
+          }
+
+          pipeline.push({
+            $lookup: {
+              from: rel.targetTable,
+              localField: rel.localField,
+              foreignField: rel.foreignField,
+              as: rel.propertyName,
+              pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
+            },
+          });
+        } else {
+          pipeline.push({
+            $lookup: {
+              from: rel.targetTable,
+              localField: rel.localField,
+              foreignField: rel.foreignField,
+              as: rel.propertyName,
+            },
+          });
         }
 
-        pipeline.push({
-          $lookup: {
-            from: rel.targetTable,
-            localField: rel.localField,
-            foreignField: rel.foreignField,
-            as: rel.propertyName,
-            pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
-          },
-        });
-      } else if (relationFilter) {
-        const nestedPipeline = await buildNestedLookupPipeline(
-          this.metadata,
-          rel.targetTable,
-          ['_id'],
-          relationFilter,
-        );
+        if (rel.type === 'one') {
+          pipeline.push({
+            $unwind: {
+              path: `$${rel.propertyName}`,
+              preserveNullAndEmptyArrays: true,
+            },
+          });
 
-        if (rel.type === 'one' && nestedPipeline.length > 0) {
-          nestedPipeline.push({ $limit: 1 });
-        }
-
-        pipeline.push({
-          $lookup: {
-            from: rel.targetTable,
-            localField: rel.localField,
-            foreignField: rel.foreignField,
-            as: rel.propertyName,
-            pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
-          },
-        });
-      } else {
-        pipeline.push({
-          $lookup: {
-            from: rel.targetTable,
-            localField: rel.localField,
-            foreignField: rel.foreignField,
-            as: rel.propertyName,
-          },
-        });
-      }
-
-      if (rel.type === 'one') {
-        pipeline.push({
-          $unwind: {
-            path: `$${rel.propertyName}`,
-            preserveNullAndEmptyArrays: true,
-          },
-        });
-
-        if (relationFilter) {
-          const hasIsNullFilter =
-            this.checkIfFilterContainsIsNull(relationFilter);
-          if (!hasIsNullFilter) {
-            pipeline.push({
-              $match: {
-                [rel.propertyName]: { $ne: null },
-              },
-            });
+          if (relationFilter) {
+            const hasIsNullFilter =
+              this.checkIfFilterContainsIsNull(relationFilter);
+            if (!hasIsNullFilter) {
+              pipeline.push({
+                $match: {
+                  [rel.propertyName]: { $ne: null },
+                },
+              });
+            }
           }
         }
+      } else {
+        batchFetchableRelations.push(rel);
       }
     }
 
@@ -512,7 +523,7 @@ export class MongoQueryExecutor {
       pipeline,
       options.table,
       scalarFields,
-      relations,
+      [...relations],
     );
 
     if (options.mongoCountOnly) {
@@ -534,7 +545,52 @@ export class MongoQueryExecutor {
       return results;
     }
 
+    if (batchFetchableRelations.length > 0 && results.length > 0) {
+      const descriptors: MongoBatchFetchDescriptor[] = batchFetchableRelations.map((rel) => {
+        const tableMeta = this.metadata?.tables?.get(options.table);
+        const relMeta = tableMeta?.relations?.find((r: any) => r.propertyName === rel.propertyName);
+        return {
+          relationName: rel.propertyName,
+          type: relMeta?.type as MongoBatchFetchDescriptor['type'],
+          targetTable: rel.targetTable,
+          fields: rel.nestedFields && rel.nestedFields.length > 0 ? rel.nestedFields : ['_id'],
+          isInverse: relMeta?.isInverse,
+          localField: rel.localField,
+          foreignField: rel.foreignField,
+        };
+      });
+
+      const metadataGetter = this.getMongoMetadataGetter();
+      if (metadataGetter) {
+        await executeMongoBatchFetches(
+          this.db,
+          results,
+          descriptors,
+          metadataGetter,
+          3,
+          0,
+        );
+      }
+    }
+
     return this.normalizeMongoResults(results);
+  }
+
+  private getMongoMetadataGetter() {
+    const allMetadata = this.metadata;
+    if (!allMetadata) return null;
+    return async (tName: string) => {
+      const tableMeta = allMetadata.tables?.get(tName);
+      if (!tableMeta) return null;
+      return {
+        name: tableMeta.name,
+        columns: (tableMeta.columns || []).map((col: any) => ({
+          name: col.name,
+          type: col.type,
+        })),
+        relations: tableMeta.relations || [],
+      };
+    };
   }
 
   private buildMongoSortSpec(
