@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException } from '@nestjs/common';
 import {
   ScriptExecutionException,
   BusinessLogicException,
@@ -81,18 +81,38 @@ export class DynamicService {
 
       return value;
     } catch (error) {
-      this.loggingService.error('Handler execution failed', {
-        context: 'runHandler',
-        error: error.message,
-        stack: error.stack,
-        method: req.method,
-        url: req.url,
-        handler: req.routeData?.handler,
-        isTableOperation: isTableDefinitionOperation,
-        userId: req.user?.id,
-      });
-      if (isCustomException(error)) {
+      const httpStatus =
+        error instanceof HttpException
+          ? error.getStatus()
+          : typeof error?.statusCode === 'number'
+            ? error.statusCode
+            : undefined;
+      const isClientError =
+        httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
+
+      if (!isClientError) {
+        this.loggingService.error('Handler execution failed', {
+          context: 'runHandler',
+          error: error.message,
+          stack: error.stack,
+          method: req.method,
+          url: req.url,
+          handler: req.routeData?.handler,
+          isTableOperation: isTableDefinitionOperation,
+          userId: req.user?.id,
+        });
+      }
+      if (isCustomException(error) || error instanceof HttpException) {
         throw error;
+      }
+      if (isClientError) {
+        const details = (error as any)?.details;
+        throw new HttpException(
+          details && typeof details === 'object'
+            ? details
+            : error.message,
+          httpStatus!,
+        );
       }
       throw new ScriptExecutionException(
         error.message,
