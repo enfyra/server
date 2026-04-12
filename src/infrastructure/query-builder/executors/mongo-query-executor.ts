@@ -14,7 +14,7 @@ import {
   addProjectionStage,
 } from '../utils/mongo/pipeline-builder';
 import { applyMixedFilters } from '../utils/mongo/relation-filter';
-import { QueryPlan } from '../planner/query-plan.types';
+import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
@@ -214,6 +214,7 @@ export class MongoQueryExecutor {
     }
 
     this.lastBuiltPipeline = null;
+    queryOptions.plan = options.plan;
     const results = await this.selectLegacy(queryOptions);
 
     if (options.debugMode) {
@@ -333,22 +334,32 @@ export class MongoQueryExecutor {
       pipeline.push({ $match: options.mongoLogicalFilter });
     }
 
-    const hasSortOnRelation =
-      options.sort?.some((s) => {
-        if (!s.field.includes('.')) return false;
-        const relName = s.field.split('.')[0];
-        return (
-          options.mongoFieldsExpanded?.relations?.some(
-            (r) => r.propertyName === relName,
-          ) ?? false
-        );
-      }) ?? false;
+    const plan: QueryPlan | undefined = options.plan;
+    const hasSortOnRelation = plan
+      ? plan.hasRelationSort
+      : (options.sort?.some((s) => {
+          if (!s.field.includes('.')) return false;
+          const relName = s.field.split('.')[0];
+          return (
+            options.mongoFieldsExpanded?.relations?.some(
+              (r) => r.propertyName === relName,
+            ) ?? false
+          );
+        }) ?? false);
 
     const sortAfterJoins = hasRelationFilters || hasSortOnRelation;
 
+    const buildSort = () =>
+      plan?.sortItems
+        ? this.buildMongoSortSpecFromPlan(plan.sortItems)
+        : options.sort
+          ? this.buildMongoSortSpec(options.sort)
+          : null;
+
     if (!options.mongoFieldsExpanded) {
-      if (options.sort) {
-        pipeline.push({ $sort: this.buildMongoSortSpec(options.sort) });
+      const sortSpec = buildSort();
+      if (sortSpec) {
+        pipeline.push({ $sort: sortSpec });
       }
 
       if (options.mongoCountOnly) {
@@ -394,8 +405,9 @@ export class MongoQueryExecutor {
     const { scalarFields, relations } = options.mongoFieldsExpanded;
 
     if (!sortAfterJoins) {
-      if (options.sort) {
-        pipeline.push({ $sort: this.buildMongoSortSpec(options.sort) });
+      const sortSpec = buildSort();
+      if (sortSpec) {
+        pipeline.push({ $sort: sortSpec });
       }
 
       if (!options.mongoCountOnly) {
@@ -500,8 +512,9 @@ export class MongoQueryExecutor {
     }
 
     if (sortAfterJoins) {
-      if (options.sort) {
-        pipeline.push({ $sort: this.buildMongoSortSpec(options.sort) });
+      const sortSpec = buildSort();
+      if (sortSpec) {
+        pipeline.push({ $sort: sortSpec });
       }
 
       if (!options.mongoCountOnly) {
@@ -603,6 +616,18 @@ export class MongoQueryExecutor {
       if (mongoField === 'id') mongoField = '_id';
 
       spec[mongoField] = sortOpt.direction === 'asc' ? 1 : -1;
+    }
+    return spec;
+  }
+
+  private buildMongoSortSpecFromPlan(
+    sortItems: ResolvedSortItem[],
+  ): Record<string, 1 | -1> {
+    const spec: Record<string, 1 | -1> = {};
+    for (const item of sortItems) {
+      let mongoField = item.joinId !== null ? item.fullPath : item.field;
+      if (mongoField === 'id') mongoField = '_id';
+      spec[mongoField] = item.direction === 'asc' ? 1 : -1;
     }
     return spec;
   }

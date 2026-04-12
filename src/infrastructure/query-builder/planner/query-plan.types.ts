@@ -1,3 +1,4 @@
+import { FilterNode } from './types/filter-ast';
 export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mongodb';
 export type RelationType =
   | 'many-to-one'
@@ -45,5 +46,5 @@ export interface QueryPlan {
   hasOnlyManyToOneDataJoins: boolean;
   limitedCteFilterJoins: JoinSpec[];
   limitedCteSortJoin: JoinSpec | null;
-  sqlStrategy: SqlStrategy;
+  filterTree: FilterNode | null;
 }

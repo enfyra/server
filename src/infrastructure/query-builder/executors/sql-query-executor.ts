@@ -18,6 +18,7 @@ import { getPrimaryKeyColumn } from '../../knex/utils/metadata-loader';
 import { getForeignKeyColumnName } from '../../knex/utils/sql-schema-naming.util';
 import { KnexService } from '../../knex/knex.service';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
+import { decideSqlStrategy } from '../planner/sql-strategy-decider';
 
 export class SqlQueryExecutor {
   private readonly logger = new Logger(SqlQueryExecutor.name);
@@ -159,9 +160,11 @@ export class SqlQueryExecutor {
       }));
 
     const planLimitedCteSortJoin = options.plan?.limitedCteSortJoin ?? null;
+    const planSqlStrategy = options.plan
+      ? decideSqlStrategy(options.plan, this.dbType as any)
+      : undefined;
     const usePlanCTE =
-      options.plan?.sqlStrategy === 'cte-flat' ||
-      options.plan?.sqlStrategy === 'cte-aggregate';
+      planSqlStrategy === 'cte-flat' || planSqlStrategy === 'cte-aggregate';
 
     const mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> =
       [];

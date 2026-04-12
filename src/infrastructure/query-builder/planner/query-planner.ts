@@ -3,10 +3,11 @@ import {
   QueryPlan,
   DatabaseType,
   ResolvedSortItem,
-  SqlStrategy,
   PaginationPlacement,
   JoinSpec,
 } from './query-plan.types';
+import { parseFilter } from './filter-parser';
+import { FilterNode } from './types/filter-ast';
 
 export interface PlannerInput {
   tableName: string;
@@ -60,15 +61,11 @@ export class QueryPlanner {
     }
 
     let hasRelationFilters = false;
+    let filterTree: FilterNode | null = null;
     if (filter && tableMeta) {
-      hasRelationFilters = this.registerFilterJoins(
-        filter,
-        tableName,
-        tableMeta,
-        metadata,
-        registry,
-        null,
-      );
+      const result = parseFilter(filter, tableName, metadata, registry);
+      filterTree = result.node;
+      hasRelationFilters = result.hasRelationFilters;
     }
 
     const rawSort = this.parseSort(sort);
@@ -153,23 +150,6 @@ export class QueryPlanner {
       (j) => j.purposes.includes('filter') && !j.purposes.includes('data'),
     );
 
-    const canUseCTE =
-      (dbType === 'postgres' || dbType === 'mysql') &&
-      (hasJoins || hasRelationSort) &&
-      parsedLimit !== undefined;
-
-    let sqlStrategy: SqlStrategy;
-    if (canUseCTE) {
-      sqlStrategy =
-        hasOnlyManyToOneDataJoins && !hasRelationSort
-          ? 'cte-flat'
-          : 'cte-aggregate';
-    } else if (hasJoins) {
-      sqlStrategy = 'subquery';
-    } else {
-      sqlStrategy = 'simple';
-    }
-
     return {
       table: tableName,
       dbType,
@@ -187,7 +167,7 @@ export class QueryPlanner {
       hasOnlyManyToOneDataJoins,
       limitedCteFilterJoins,
       limitedCteSortJoin,
-      sqlStrategy,
+      filterTree,
     };
   }
 
@@ -275,117 +255,4 @@ export class QueryPlanner {
     );
   }
 
-  private registerFilterJoins(
-    filter: any,
-    tableName: string,
-    tableMeta: any,
-    metadata: any,
-    registry: JoinRegistry,
-    parentJoinId: string | null,
-  ): boolean {
-    if (!filter || typeof filter !== 'object') return false;
-
-    let hasRelation = false;
-    const relationNames = new Set<string>(
-      (tableMeta?.relations || []).map((r: any) => r.propertyName),
-    );
-
-    for (const [key, value] of Object.entries(filter)) {
-      if (key === '_and' || key === '_or') {
-        if (Array.isArray(value)) {
-          for (const item of value) {
-            if (
-              this.registerFilterJoins(
-                item,
-                tableName,
-                tableMeta,
-                metadata,
-                registry,
-                parentJoinId,
-              )
-            ) {
-              hasRelation = true;
-            }
-          }
-        }
-        continue;
-      }
-
-      if (key === '_not') {
-        if (
-          this.registerFilterJoins(
-            value,
-            tableName,
-            tableMeta,
-            metadata,
-            registry,
-            parentJoinId,
-          )
-        ) {
-          hasRelation = true;
-        }
-        continue;
-      }
-
-      if (
-        relationNames.has(key) &&
-        typeof value === 'object' &&
-        value !== null
-      ) {
-        const keys = Object.keys(value);
-        const hasOperator = keys.some((k) => k.startsWith('_'));
-
-        if (
-          hasOperator &&
-          keys.length === 1 &&
-          [
-            '_is_null',
-            '_is_not_null',
-            '_eq',
-            '_neq',
-            '_in',
-            '_not_in',
-            '_nin',
-          ].includes(keys[0])
-        ) {
-          hasRelation = true;
-          continue;
-        }
-
-        if (!hasOperator) {
-          const rel = tableMeta.relations?.find(
-            (r: any) => r.propertyName === key,
-          );
-          if (rel) {
-            const joinId = registry.registerWithParent(
-              tableName,
-              key,
-              metadata,
-              'left',
-              parentJoinId,
-              'filter',
-            );
-            hasRelation = true;
-            const targetMeta = metadata?.tables?.get(
-              rel.targetTableName || rel.targetTable,
-            );
-            if (targetMeta && joinId) {
-              this.registerFilterJoins(
-                value,
-                rel.targetTableName || rel.targetTable,
-                targetMeta,
-                metadata,
-                registry,
-                joinId,
-              );
-            }
-          }
-        } else {
-          hasRelation = true;
-        }
-      }
-    }
-
-    return hasRelation;
-  }
 }
