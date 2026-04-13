@@ -30,7 +30,7 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
   async process(job: Job): Promise<any> {
     const startTime = Date.now();
     const now = new Date().toISOString();
-    const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const idField = this.queryBuilder.getPkField();
     let totalDeleted = 0;
     let hasMore = true;
 

@@ -25,17 +25,17 @@ export class DatabaseConfigService {
     const protocol = new URL(uri).protocol.replace(':', '');
     switch (protocol) {
       case 'mysql':
-      case 'mariadb':
         return 'mysql';
       case 'postgres':
       case 'postgresql':
         return 'postgres';
       case 'mongodb':
-      case 'mongodb+srv':
         return 'mongodb';
+      case 'sqlite':
+        return 'sqlite';
       default:
         throw new Error(
-          `Unsupported database protocol "${protocol}" in URI. Supported: mysql, postgres, mongodb.`,
+          `Unsupported database protocol "${protocol}" in URI. Supported: mysql, postgres, postgresql, mongodb, sqlite.`,
         );
     }
   }
@@ -60,6 +60,14 @@ export class DatabaseConfigService {
     return this.dbType === 'mysql';
   }
 
+  getPkField(): string {
+    return this.isMongoDb() ? '_id' : 'id';
+  }
+
+  getRecordId(record: any): any {
+    return this.isMongoDb() ? record._id : record.id;
+  }
+
   static getInstanceDbType(): DatabaseType {
     if (!DatabaseConfigService.instance) {
       throw new Error('DatabaseConfigService has not been initialized yet.');
@@ -73,6 +81,14 @@ export class DatabaseConfigService {
 
   static instanceIsSql(): boolean {
     return DatabaseConfigService.getInstanceDbType() !== 'mongodb';
+  }
+
+  static getPkField(): string {
+    return DatabaseConfigService.instanceIsMongoDb() ? '_id' : 'id';
+  }
+
+  static getRecordId(record: any): any {
+    return DatabaseConfigService.instanceIsMongoDb() ? record._id : record.id;
   }
 
   static overrideForTesting(dbType: DatabaseType): void {

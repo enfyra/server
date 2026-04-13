@@ -126,7 +126,7 @@ export class MetadataCacheService {
       });
       for (const t of affectedResult.data) {
         tables.push(t);
-        const tid = isMongoDB ? String(t._id) : t.id;
+        const tid = String(DatabaseConfigService.getRecordId(t));
         allTableIds.push(tid);
       }
     }
@@ -158,7 +158,7 @@ export class MetadataCacheService {
     const allRelations = relationsResult.data;
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
-      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      const relId = String(DatabaseConfigService.getRecordId(rel));
       relationIdMap.set(relId, rel);
     }
 
@@ -166,7 +166,7 @@ export class MetadataCacheService {
       (t: any) => t.relations || [],
     );
     for (const rel of existingRelations) {
-      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      const relId = String(DatabaseConfigService.getRecordId(rel));
       if (!relationIdMap.has(relId)) {
         relationIdMap.set(relId, rel);
       }
@@ -194,11 +194,11 @@ export class MetadataCacheService {
 
     const globalTableIdToName = new Map<string, string>();
     for (const t of this.inMemoryCache.tablesList) {
-      const tid = String(isMongoDB ? t._id : t.id);
+      const tid = String(DatabaseConfigService.getRecordId(t));
       globalTableIdToName.set(tid, t.name);
     }
     for (const t of tables) {
-      const tid = String(isMongoDB ? t._id : t.id);
+      const tid = String(DatabaseConfigService.getRecordId(t));
       globalTableIdToName.set(tid, t.name);
     }
 
@@ -226,7 +226,7 @@ export class MetadataCacheService {
 
     const deletedTableIds = new Set(uniqueTableIds);
     for (const table of tables) {
-      const tid = String(isMongoDB ? table._id : table.id);
+      const tid = String(DatabaseConfigService.getRecordId(table));
       deletedTableIds.delete(tid);
     }
     if (deletedTableIds.size > 0) {
@@ -288,7 +288,7 @@ export class MetadataCacheService {
         }
       }
 
-      const tableIdValue = String(isMongoDB ? table._id : table.id);
+      const tableIdValue = String(DatabaseConfigService.getRecordId(table));
       const explicitColumns = columnsByTable.get(tableIdValue) || [];
 
       const parsedExplicitColumns = explicitColumns.map((col: any) => {
@@ -443,7 +443,7 @@ export class MetadataCacheService {
     const allRelations = allRelationsResult.data;
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
-      const relId = isMongoDB ? String(rel._id) : String(rel.id);
+      const relId = String(DatabaseConfigService.getRecordId(rel));
       relationIdMap.set(relId, rel);
     }
     this.applyRelationMappedByDerivedFields(
@@ -468,7 +468,7 @@ export class MetadataCacheService {
 
     const tableIdToName = new Map<string, string>();
     for (const t of tables) {
-      const id = String(isMongoDB ? t._id : t.id);
+      const id = String(DatabaseConfigService.getRecordId(t));
       tableIdToName.set(id, t.name);
     }
 

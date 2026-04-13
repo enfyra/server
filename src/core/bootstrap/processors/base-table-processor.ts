@@ -113,7 +113,7 @@ export abstract class BaseTableProcessor {
       return { created: 0, skipped: 0 };
     }
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const idField = DatabaseConfigService.getPkField();
     const transformedRecords = await this.transformRecords(records, context);
     let createdCount = 0;
     let skippedCount = 0;

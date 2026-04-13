@@ -103,7 +103,7 @@ export class DataMigrationService {
     records: { table: string; filter: Record<string, any> }[],
   ): Promise<void> {
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const idField = DatabaseConfigService.getPkField();
 
     for (const { table, filter } of records) {
       try {
@@ -137,7 +137,7 @@ export class DataMigrationService {
     const recordsArray = Array.isArray(records) ? records : [records];
     let migratedCount = 0;
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const idField = DatabaseConfigService.getPkField();
 
     for (const oldRecord of recordsArray) {
       try {
@@ -217,7 +217,7 @@ export class DataMigrationService {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
         if (field === 'publishedMethods' || field === 'availableMethods') {
           const isMongoDB = this.queryBuilder.isMongoDb();
-          const idField = isMongoDB ? '_id' : 'id';
+          const idField = DatabaseConfigService.getPkField();
           const result = await this.queryBuilder.find({
             table: 'method_definition',
             filter: { method: { _in: methodNames as string[] } },

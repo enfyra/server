@@ -373,7 +373,7 @@ export class MetadataMigrationService {
           continue;
         }
 
-        const relationId = isMongoDB ? relation._id : relation.id;
+        const relationId = DatabaseConfigService.getRecordId(relation);
         const updateData: any = {};
 
         if (mod.to.propertyName !== mod.from.propertyName) {

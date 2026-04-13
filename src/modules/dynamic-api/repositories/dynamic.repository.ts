@@ -92,7 +92,7 @@ export class DynamicRepository {
   }
 
   private getIdField(): string {
-    return this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    return this.queryBuilder.getPkField();
   }
 
   private getItemId(item: any): any {

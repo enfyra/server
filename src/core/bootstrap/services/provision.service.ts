@@ -64,7 +64,7 @@ export class ProvisionService implements OnModuleInit {
     }
 
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const sortField = isMongoDB ? '_id' : 'id';
+    const sortField = DatabaseConfigService.getPkField();
     const settingsResult = await this.queryBuilder.find({
       table: 'setting_definition',
       sort: [sortField],
@@ -153,7 +153,7 @@ export class ProvisionService implements OnModuleInit {
         }
 
         const settingId = newSetting._id || newSetting.id;
-        const idField = isMongoDB ? '_id' : 'id';
+        const idField = DatabaseConfigService.getPkField();
         await this.queryBuilder.update('setting_definition', { where: [{ field: idField, operator: '=', value: settingId }] }, { isInit: true });
 
         this.logger.log(`Initialization completed in ${Date.now() - start}ms`);

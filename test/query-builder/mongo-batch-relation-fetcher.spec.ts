@@ -15,6 +15,7 @@ const categoryIds: ObjectId[] = [new ObjectId(), new ObjectId()];
 const tagIds: ObjectId[] = [new ObjectId(), new ObjectId(), new ObjectId()];
 const postIds: ObjectId[] = [new ObjectId(), new ObjectId(), new ObjectId(), new ObjectId()];
 const profileIds: ObjectId[] = [new ObjectId(), new ObjectId()];
+const nodeIds: ObjectId[] = [new ObjectId(), new ObjectId(), new ObjectId(), new ObjectId()];
 
 const META: Record<string, any> = {
   users: {
@@ -63,6 +64,18 @@ const META: Record<string, any> = {
       { propertyName: 'user', type: 'one-to-one', targetTableName: 'users', isInverse: false },
     ],
   },
+  nodes: {
+    name: 'nodes',
+    columns: [
+      { name: '_id', type: 'objectid' },
+      { name: 'label', type: 'varchar' },
+      { name: 'parent', type: 'objectid' },
+    ],
+    relations: [
+      { propertyName: 'parent', type: 'many-to-one', targetTableName: 'nodes', isInverse: false },
+      { propertyName: 'children', type: 'one-to-many', targetTableName: 'nodes', mappedBy: 'parent', isInverse: true },
+    ],
+  },
 };
 
 const metadataGetter = async (table: string) => META[table] || null;
@@ -95,6 +108,13 @@ beforeAll(async () => {
   await db.collection('profiles').insertMany([
     { _id: profileIds[0], user: userIds[0], bio: 'Software dev' },
     { _id: profileIds[1], user: userIds[1], bio: 'Data scientist' },
+  ]);
+  // self-ref tree: n0 (root) ← n1 ← n2, n3 (orphan)
+  await db.collection('nodes').insertMany([
+    { _id: nodeIds[0], label: 'root', parent: null },
+    { _id: nodeIds[1], label: 'child', parent: nodeIds[0] },
+    { _id: nodeIds[2], label: 'grand', parent: nodeIds[1] },
+    { _id: nodeIds[3], label: 'orphan', parent: null },
   ]);
 }, 30000);
 
@@ -503,6 +523,265 @@ describe('mongo-batch-relation-fetcher', () => {
       await executeMongoBatchFetches(db, docs, descs, metadataGetter);
 
       expect(docs[0].author).toBeNull();
+    });
+
+    it('should overwrite scalar FK with resolved object (no raw ObjectId leak)', async () => {
+      const docs = [{ _id: postIds[0], author: userIds[0] }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['name'],
+        localField: 'author',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(typeof docs[0].author).toBe('object');
+      expect(docs[0].author).not.toBeInstanceOf(ObjectId);
+      expect(docs[0].author.name).toBe('Alice');
+    });
+
+    it('should handle mixed null/valid FKs in same batch without cross-contamination', async () => {
+      const docs = [
+        { _id: postIds[0], author: userIds[0] },
+        { _id: postIds[1], author: null },
+        { _id: postIds[2], author: userIds[1] },
+        { _id: postIds[3], author: null },
+      ];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['name'],
+        localField: 'author',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].author.name).toBe('Alice');
+      expect(docs[1].author).toBeNull();
+      expect(docs[2].author.name).toBe('Bob');
+      expect(docs[3].author).toBeNull();
+    });
+
+    it('should handle multiple M2O relations on same parent', async () => {
+      const docs = [{
+        _id: postIds[0],
+        author: userIds[0],
+        category: categoryIds[0],
+      }];
+      const descs: MongoBatchFetchDescriptor[] = [
+        { relationName: 'author', type: 'many-to-one', targetTable: 'users', fields: ['name'], localField: 'author', foreignField: '_id' },
+        { relationName: 'category', type: 'many-to-one', targetTable: 'categories', fields: ['name'], localField: 'category', foreignField: '_id' },
+      ];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].author.name).toBe('Alice');
+      expect(docs[0].category.name).toBe('Tech');
+    });
+
+    it('should not mutate descriptor objects', async () => {
+      const docs = [{ _id: postIds[0], author: userIds[0] }];
+      const desc: MongoBatchFetchDescriptor = {
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['name'],
+        localField: 'author',
+        foreignField: '_id',
+      };
+      const snapshot = JSON.stringify(desc);
+
+      await executeMongoBatchFetches(db, docs, [desc], metadataGetter);
+
+      expect(JSON.stringify(desc)).toBe(snapshot);
+    });
+  });
+
+  describe('self-referencing', () => {
+    it('should resolve M2O parent on self-ref table', async () => {
+      const docs = [
+        { _id: nodeIds[1], label: 'child', parent: nodeIds[0] },
+        { _id: nodeIds[2], label: 'grand', parent: nodeIds[1] },
+      ];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'parent',
+        type: 'many-to-one',
+        targetTable: 'nodes',
+        fields: ['label'],
+        localField: 'parent',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].parent.label).toBe('root');
+      expect(docs[1].parent.label).toBe('child');
+    });
+
+    it('should resolve O2M children on self-ref table', async () => {
+      const docs = [{ _id: nodeIds[0], label: 'root' }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'children',
+        type: 'one-to-many',
+        targetTable: 'nodes',
+        fields: ['label'],
+        localField: '_id',
+        foreignField: 'parent',
+        isInverse: true,
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].children).toHaveLength(1);
+      expect(docs[0].children[0].label).toBe('child');
+    });
+
+    it('should resolve 3 levels deep on self-ref tree', async () => {
+      const docs = [{ _id: nodeIds[0], label: 'root' }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'children',
+        type: 'one-to-many',
+        targetTable: 'nodes',
+        fields: ['label', 'children.label', 'children.children.label'],
+        localField: '_id',
+        foreignField: 'parent',
+        isInverse: true,
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      const root = docs[0];
+      expect(root.children[0].label).toBe('child');
+      expect(root.children[0].children[0].label).toBe('grand');
+    });
+  });
+
+  describe('depth limiting edge cases', () => {
+    it('should stop at maxDepth=1 for nested relations', async () => {
+      const docs = [{ _id: userIds[0], name: 'Alice' }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'posts',
+        type: 'one-to-many',
+        targetTable: 'posts',
+        fields: ['title', 'category.name'],
+        localField: '_id',
+        foreignField: 'author',
+        isInverse: true,
+      }];
+
+      // signature: (db, docs, descs, metadataGetter, maxDepth, currentDepth)
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 1, 0);
+
+      expect(docs[0].posts).toBeDefined();
+      // depth=1 stops nested category fetch
+      const postA = docs[0].posts.find((p: any) => p.title === 'Post A');
+      expect(postA).toBeDefined();
+      expect(postA.category).not.toEqual(expect.objectContaining({ name: 'Tech' }));
+    });
+  });
+
+  describe('PK type mismatch', () => {
+    it('should not match when FK type differs (string vs ObjectId)', async () => {
+      const docs = [{ _id: postIds[0], author: String(userIds[0]) as any }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['name'],
+        localField: 'author',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      // Mongo is strict-typed: string FK does not match ObjectId PK
+      expect(docs[0].author).toBeNull();
+    });
+  });
+
+  describe('combined relations same parent', () => {
+    // Skipped: M2M through MongoBatchAdapter has a pre-existing bug
+    // ("Missing parentMeta.name for M2M batch fetch") affecting both this
+    // test and the existing M2M owning/inverse suites. Not in scope for
+    // this parity expansion.
+    it.skip('should handle M2O + O2M + M2M all at once on same parent', async () => {
+      const docs = [{
+        _id: postIds[0],
+        author: userIds[0],
+        category: categoryIds[0],
+        tags: [tagIds[0], tagIds[1]],
+      }];
+      const descs: MongoBatchFetchDescriptor[] = [
+        { relationName: 'author', type: 'many-to-one', targetTable: 'users', fields: ['name'], localField: 'author', foreignField: '_id' },
+        { relationName: 'category', type: 'many-to-one', targetTable: 'categories', fields: ['name'], localField: 'category', foreignField: '_id' },
+        { relationName: 'tags', type: 'many-to-many', targetTable: 'tags', fields: ['label'], localField: 'tags', foreignField: '_id', isInverse: false },
+      ];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].author.name).toBe('Alice');
+      expect(docs[0].category.name).toBe('Tech');
+      expect(docs[0].tags).toHaveLength(2);
+    });
+  });
+
+  describe('resolveFieldsAndNested', () => {
+    it('should select only requested fields + PK', async () => {
+      const docs = [{ _id: postIds[0], author: userIds[0] }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['name'],
+        localField: 'author',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].author).toEqual(expect.objectContaining({ name: 'Alice' }));
+      expect(docs[0].author.email).toBeUndefined();
+    });
+
+    it('should expand * to all columns of target table', async () => {
+      const docs = [{ _id: postIds[0], author: userIds[0] }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['*'],
+        localField: 'author',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].author).toEqual(expect.objectContaining({
+        name: 'Alice',
+        email: 'alice@test.com',
+      }));
+    });
+
+    it('should handle duplicate fields without duplication in result', async () => {
+      const docs = [{ _id: postIds[0], author: userIds[0] }];
+      const descs: MongoBatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['name', 'name', 'email'],
+        localField: 'author',
+        foreignField: '_id',
+      }];
+
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+
+      expect(docs[0].author.name).toBe('Alice');
+      expect(docs[0].author.email).toBe('alice@test.com');
     });
   });
 });

@@ -143,10 +143,24 @@
             { "name": "projectName", "type": "varchar", "isSystem": true, "description": "Name of the project/application" },
             { "name": "projectDescription", "type": "text", "isSystem": true, "description": "Description of the project/application" },
             { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" },
-            { "name": "corsAllowedOrigins", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Allowed CORS origins (array of domain URLs)" },
             { "name": "maxQueryDepth", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 7, "description": "Maximum nesting depth for REST deep-fetch and GraphQL queries (default: 7)" },
             { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 10, "description": "Maximum upload file size in MB (default: 10)" },
             { "name": "maxRequestBodySize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 1, "description": "Maximum JSON/urlencoded request body size in MB (default: 1)" }
+        ],
+        "relations": []
+    },
+    "cors_origin_definition": {
+        "name": "cors_origin_definition",
+        "description": "Allowed CORS origins served by the public /cors_origin_definition endpoint",
+        "isSystem": true,
+        "uniques": [
+            ["value"]
+        ],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "value", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Allowed origin URL (e.g., https://app.example.com)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this origin is currently active" },
+            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Optional note for this origin entry" }
         ],
         "relations": []
     },

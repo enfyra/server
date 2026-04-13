@@ -228,7 +228,7 @@ export class OAuthService {
 
       const user = await this.queryBuilder.findOne({
         table: 'user_definition',
-        where: { [isMongoDB ? '_id' : 'id']: userId },
+        where: { [DatabaseConfigService.getPkField()]: userId },
       });
 
       if (!user) {
@@ -277,7 +277,7 @@ export class OAuthService {
       }
     }
 
-    const userId = isMongoDB ? user._id : user.id;
+    const userId = DatabaseConfigService.getRecordId(user);
     const accountData: any = isMongoDB
       ? { provider, providerUserId: userInfo.id, user: userId }
       : { provider, providerUserId: userInfo.id, userId };
@@ -302,7 +302,7 @@ export class OAuthService {
     provider: OAuthProvider,
   ): Promise<any> {
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const userId = isMongoDB ? user._id : user.id;
+    const userId = DatabaseConfigService.getRecordId(user);
 
     const expiredAt = new Date(
       Date.now() +
@@ -340,8 +340,8 @@ export class OAuthService {
     loginProvider: string | null;
   }> {
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const userId = isMongoDB ? user._id : user.id;
-    const sessionId = isMongoDB ? session._id : session.id;
+    const userId = DatabaseConfigService.getRecordId(user);
+    const sessionId = DatabaseConfigService.getRecordId(session);
     const loginProvider = session.loginProvider ?? null;
 
     const accessToken = this.jwtService.sign(

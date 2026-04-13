@@ -85,6 +85,10 @@
     {
       "_unique": { "name": { "_eq": "websocket_definition" } },
       "relationsToRemove": ["targetTables"]
+    },
+    {
+      "_unique": { "name": { "_eq": "setting_definition" } },
+      "columnsToRemove": ["corsAllowedOrigins"]
     }
   ],
   "tablesToDrop": []

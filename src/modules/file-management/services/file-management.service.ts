@@ -20,7 +20,7 @@ export class FileManagementService {
   ) {}
 
   private getIdField(): string {
-    return this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    return this.queryBuilder.getPkField();
   }
 
   public createIdReference(id: number | string | null | undefined): any {
@@ -104,7 +104,7 @@ export class FileManagementService {
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
 
-      const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+      const idField = this.queryBuilder.getPkField();
       const storageConfigIdValue = storageConfig?.[idField];
 
       if (!storageConfig || !storageConfigIdValue) {

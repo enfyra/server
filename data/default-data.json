@@ -77,6 +77,15 @@
             "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
         },
         {
+            "path": "/cors_origin_definition",
+            "mainTable": "cors_origin_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:globe",
+            "publishedMethods": ["GET"],
+            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+        },
+        {
             "path": "/role_definition",
             "mainTable": "role_definition",
             "isEnabled": true,

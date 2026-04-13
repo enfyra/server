@@ -38,7 +38,7 @@ export class StorageConfigCacheService extends BaseCacheService<
     const isMongoDb = this.queryBuilder.isMongoDb();
 
     for (const config of configs) {
-      const idField = isMongoDb ? '_id' : 'id';
+      const idField = DatabaseConfigService.getPkField();
       let id = config[idField];
 
       if (!id) {

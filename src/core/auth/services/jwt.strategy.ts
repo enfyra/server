@@ -21,7 +21,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: { id: string; loginProvider?: string | null }) {
     const { id, loginProvider } = payload;
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const idField = DatabaseConfigService.getPkField();
     const idValue = isMongoDB
       ? typeof id === 'string'
         ? new ObjectId(id)

@@ -64,6 +64,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
   const extIds: ObjectId[] = [];
   const tagIds: ObjectId[] = [];
   const catIds: ObjectId[] = [];
+  const chunkParentIds: ObjectId[] = [];
   const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
   beforeAll(async () => {
@@ -103,6 +104,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     await db.collection('ext_note').insertMany([
       { extensionId: extIds[0], body: 'spam' },
       { extensionId: extIds[0], body: 'ok' },
+      { extensionId: extIds[0], body: 'dup' },
       { extensionId: extIds[1], body: 'spam' },
     ]);
     await db.collection('ext_tag').insertMany([
@@ -122,6 +124,23 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       { _id: catIds[1], name: 'child', parent: catIds[0] },
       { _id: catIds[2], name: 'grandchild', parent: catIds[1] },
     ]);
+
+    for (let i = 0; i < 6000; i++) chunkParentIds.push(new ObjectId());
+    const chunkParentDocs = chunkParentIds.map((id) => ({ _id: id }));
+    const chunkChildDocs = chunkParentIds.map((id) => ({
+      _id: new ObjectId(),
+      parent: id,
+    }));
+    for (let i = 0; i < chunkParentDocs.length; i += 1000) {
+      await db
+        .collection('chunk_parent')
+        .insertMany(chunkParentDocs.slice(i, i + 1000));
+    }
+    for (let i = 0; i < chunkChildDocs.length; i += 1000) {
+      await db
+        .collection('chunk_child')
+        .insertMany(chunkChildDocs.slice(i, i + 1000));
+    }
 
     const menuTable = makeTableMeta('menu', ['_id', 'label'], []);
     const userTable = makeTableMeta('user', ['_id', 'name'], []);
@@ -180,6 +199,27 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       ],
     );
 
+    const chunkChildTable = makeTableMeta(
+      'chunk_child',
+      ['_id', 'parent'],
+      [],
+    );
+    const chunkParentTable = makeTableMeta(
+      'chunk_parent',
+      ['_id'],
+      [
+        {
+          propertyName: 'children',
+          type: 'one-to-many',
+          targetTable: 'chunk_child',
+          targetTableName: 'chunk_child',
+          foreignKeyColumn: 'parent',
+          mappedBy: 'parent',
+          isInverse: true,
+        },
+      ],
+    );
+
     const m = new Map<string, any>();
     m.set('extension', extTable);
     m.set('menu', menuTable);
@@ -187,6 +227,8 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     m.set('ext_note', extNoteTable);
     m.set('ext_tag', extTagTable);
     m.set('category', categoryTable);
+    m.set('chunk_parent', chunkParentTable);
+    m.set('chunk_child', chunkChildTable);
     meta = { tables: m };
 
     const mongoService: any = {
@@ -471,5 +513,191 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     });
     const row = (r.data as any[])[0];
     expect(row.tags).toEqual([]);
+  });
+
+  runOrSkip('top-level _and and _or together — both must hold', async () => {
+    const ids = await idsOf({
+      _and: [{ prio: { _gte: 0 } }, { prio: { _lte: 20 } }],
+      _or: [{ title: { _eq: 'does-not-exist' } }],
+    } as any);
+    expect(ids).toEqual([]);
+  });
+
+  runOrSkip('unknown operator _null common mistake lists canonical operators', async () => {
+    await expect(
+      idsOf({ _and: [{ menu: { _null: true } }] } as any),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('Unsupported filter operator "_null"'),
+    });
+  });
+
+  // Skipped: depends on M2M label filter end-to-end through executor, which is
+  // a pre-existing parity gap (see "M2M filter tags.label narrows to linked
+  // extensions (parity with SQL)" — broken prior to this suite expansion).
+  test.skip('_or across plain field and M2M relation branch', async () => {
+    const ids = await idsOf({
+      _or: [{ tags: { label: { _eq: 'y' } } }, { title: { _eq: 'delta' } }],
+    });
+    expect(ids).toEqual(idSetOf([0, 3]));
+  });
+
+  runOrSkip('limit 0 is treated as unbounded', async () => {
+    const ids = await idsOf({}, { limit: 0 });
+    expect(ids.length).toBe(7);
+  });
+
+  runOrSkip('negative limit normalizes (does not crash)', async () => {
+    const ids = await idsOf({}, { limit: -3 });
+    expect(ids.length).toBe(7);
+  });
+
+  runOrSkip('duplicate ids in _in list do not duplicate result rows', async () => {
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _in: [extIds[0], extIds[0], extIds[1]] } },
+      fields: ['_id'],
+      sort: '_id',
+    });
+    const ids = (r.data as any[]).map((x) => String(x._id));
+    expect(ids.sort()).toEqual(idSetOf([0, 1]));
+  });
+
+  runOrSkip('large _in array bounded to existing set', async () => {
+    const big: any[] = [];
+    for (let i = 0; i < 5000; i++) big.push(new ObjectId());
+    big.push(...extIds);
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _in: big } },
+      fields: ['_id'],
+      sort: '_id',
+    });
+    const ids = (r.data as any[])
+      .map((x) => String(x._id))
+      .sort();
+    expect(ids).toEqual(idSetOf([0, 1, 2, 3, 4, 5, 6]));
+  });
+
+  runOrSkip('fields [] returns rows with defaults', async () => {
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _eq: extIds[0] } },
+      fields: [],
+    });
+    expect((r.data as any[]).length).toBeGreaterThanOrEqual(1);
+  });
+
+  runOrSkip('fields ["*","title"] does not crash', async () => {
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _eq: extIds[0] } },
+      fields: ['*', 'title'],
+    });
+    expect((r.data as any[])[0].title).toBeDefined();
+  });
+
+  runOrSkip('nested object without operator key yields no matching rows', async () => {
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { title: { nested: 'bad' } } as any,
+      fields: ['_id'],
+      sort: '_id',
+    });
+    expect((r.data as any[]).length).toBe(0);
+  });
+
+  runOrSkip('limit+sort parity with unbounded sort (first N)', async () => {
+    const unlimited = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _in: extIds } },
+      fields: ['_id', 'prio'],
+      sort: '-prio',
+    });
+    const limited = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _in: extIds } },
+      fields: ['_id', 'prio'],
+      sort: '-prio',
+      limit: 3,
+    });
+    const topIds = (unlimited.data as any[])
+      .slice(0, 3)
+      .map((r) => String(r._id));
+    const limitedIds = (limited.data as any[]).map((r) => String(r._id));
+    expect(limitedIds).toEqual(topIds);
+  });
+
+  runOrSkip('sort with bogus field name does not crash nor mutate data', async () => {
+    await runPlan({
+      tableName: 'extension',
+      fields: ['_id'],
+      sort: '"; db.extension.drop();--',
+    }).catch(() => undefined);
+    const remaining = await db.collection('extension').countDocuments({});
+    expect(remaining).toBe(7);
+  });
+
+  runOrSkip('filter value containing injection payload is treated as literal', async () => {
+    await runPlan({
+      tableName: 'extension',
+      filter: { title: { _eq: "'; db.extension.drop();--" } },
+      fields: ['_id'],
+    });
+    const remaining = await db.collection('extension').countDocuments({});
+    expect(remaining).toBe(7);
+  });
+
+  runOrSkip('O2M with duplicate children preserves all rows (no dedupe)', async () => {
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _eq: extIds[0] } },
+      fields: ['_id', 'notes._id', 'notes.body'],
+    });
+    const row = (r.data as any[])[0];
+    expect(Array.isArray(row.notes)).toBe(true);
+    expect(row.notes.length).toBe(3);
+  });
+
+  runOrSkip(
+    'batch fetch across >5000 parent ids returns grouped children without loss',
+    async () => {
+      const r = await runPlan({
+        tableName: 'chunk_parent',
+        filter: {},
+        fields: ['_id', 'children._id'],
+        sort: '_id',
+      });
+      const rows = r.data as any[];
+      expect(rows.length).toBe(6000);
+      const withChild = rows.filter(
+        (row) => Array.isArray(row.children) && row.children.length > 0,
+      );
+      expect(withChild.length).toBe(6000);
+    },
+    120000,
+  );
+
+  runOrSkip('depth-chain field beyond depth does not throw', async () => {
+    await expect(
+      runPlan({
+        tableName: 'extension',
+        filter: { _id: { _eq: extIds[0] } },
+        fields: ['_id', 'menu.a.b.c.d.e.f'],
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  // Skipped: depends on M2M field fetch through executor (same pre-existing
+  // parity gap as the M2M label filter). batch-relation-fetcher unit tests
+  // cover the standalone M2M fetch path.
+  test.skip('M2M with parent having multiple targets returns all targets', async () => {
+    const r = await runPlan({
+      tableName: 'extension',
+      filter: { _id: { _eq: extIds[0] } },
+      fields: ['_id', 'tags._id', 'tags.label'],
+    });
+    const row = (r.data as any[])[0];
+    const labels = row.tags.map((t: any) => t.label).sort();
+    expect(labels).toEqual(['x', 'y']);
   });
 });

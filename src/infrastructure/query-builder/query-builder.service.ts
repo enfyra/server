@@ -349,14 +349,59 @@ export class QueryBuilderService {
 
   private whereToFilter(where: Record<string, any>): any {
     const filter: any = {};
+    const isMongo = this.databaseConfig.isMongoDb();
     for (const [key, value] of Object.entries(where)) {
       if (key === 'id' || key === '_id') {
-        filter._id = { _eq: this.safeObjectId(value) };
+        if (isMongo) {
+          filter._id = { _eq: this.safeObjectId(value) };
+        } else {
+          filter.id = { _eq: value };
+        }
       } else {
         filter[key] = { _eq: value };
       }
     }
     return filter;
+  }
+
+  private filterToWhere(filter: any): WhereCondition[] {
+    const conditions: WhereCondition[] = [];
+
+    for (const [field, value] of Object.entries(filter)) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const operatorEntry = Object.entries(value)[0];
+        if (operatorEntry) {
+          const [operator, operand] = operatorEntry;
+          const sqlOperator = this.mapFilterOperatorToSql(operator);
+          conditions.push({
+            field,
+            operator: sqlOperator,
+            value: operand,
+          } as WhereCondition);
+        }
+      }
+    }
+
+    return conditions;
+  }
+
+  private mapFilterOperatorToSql(op: string): string {
+    const opMap: Record<string, string> = {
+      _eq: '=',
+      _neq: '!=',
+      _gt: '>',
+      _gte: '>=',
+      _lt: '<',
+      _lte: '<=',
+      _in: 'in',
+      _not_in: 'not in',
+      _contains: 'like',
+      _starts_with: 'like',
+      _ends_with: 'like',
+      _is_null: 'is null',
+      _is_not_null: 'is not null',
+    };
+    return opMap[op] || '=';
   }
 
   async find(options: {
@@ -453,6 +498,12 @@ export class QueryBuilderService {
     }
     const knex = this.knexService.getKnex();
     let query: any = knex(table);
+
+    if (filter && Object.keys(filter).length > 0) {
+      const where = this.filterToWhere(filter);
+      query = this.applyWhereToKnex(query, where);
+    }
+
     const result = await query.count('* as count').first();
     return Number(result?.count || 0);
   }
@@ -612,5 +663,13 @@ export class QueryBuilderService {
 
   isSql(): boolean {
     return ['mysql', 'postgres', 'mariadb', 'sqlite'].includes(this.dbType);
+  }
+
+  getPkField(): string {
+    return this.isMongoDb() ? '_id' : 'id';
+  }
+
+  getRecordId(record: any): any {
+    return this.isMongoDb() ? record._id : record.id;
   }
 }

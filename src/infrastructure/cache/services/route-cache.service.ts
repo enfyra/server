@@ -47,7 +47,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (payload.table === 'table_definition' && payload.ids?.length) {
       const isMongoDB = this.queryBuilder.isMongoDb();
-      const idField = isMongoDB ? '_id' : 'id';
+      const idField = DatabaseConfigService.getPkField();
       const mainTableField = isMongoDB ? 'mainTable' : 'mainTableId';
 
       const result = await this.queryBuilder.find({
@@ -136,7 +136,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     routeIds: (string | number)[],
   ): Promise<void> {
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const idField = DatabaseConfigService.getPkField();
 
     const result = await this.queryBuilder.find({
       table: 'route_definition',
@@ -171,7 +171,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const routeIdSet = new Set(routeIds.map(String));
 
     this.cache.routes = this.cache.routes.filter((r: any) => {
-      const rid = String(isMongoDB ? r._id : r.id);
+      const rid = String(DatabaseConfigService.getRecordId(r));
       return !routeIdSet.has(rid);
     });
 
@@ -185,7 +185,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     ids: (string | number)[],
   ): Promise<(string | number)[]> {
     const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const idField = DatabaseConfigService.getPkField();
     const routeField = 'route';
 
     const result = await this.queryBuilder.find({
@@ -315,8 +315,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       (hook, index, self) =>
         index ===
         self.findIndex((h) => {
-          const hId = isMongoDB ? h?._id?.toString() : h?.id;
-          const hookId = isMongoDB ? hook?._id?.toString() : hook?.id;
+          const hId = DatabaseConfigService.getRecordId(h)?.toString();
+          const hookId = DatabaseConfigService.getRecordId(hook)?.toString();
           return hId === hookId;
         }),
     );

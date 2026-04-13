@@ -87,7 +87,7 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(
       {
-        id: isMongoDB ? user._id : user.id,
+        id: DatabaseConfigService.getRecordId(user),
         loginProvider: null,
       },
       {
@@ -132,7 +132,7 @@ export class AuthService {
 
     const { sessionId } = decoded;
 
-    const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const sessionIdField = this.queryBuilder.getPkField();
     const session = await this.queryBuilder.findOne({
       table: 'session_definition',
       where: { [sessionIdField]: sessionId },
@@ -168,7 +168,7 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
 
-    const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const sessionIdField = this.queryBuilder.getPkField();
     const session = await this.queryBuilder.findOne({
       table: 'session_definition',
       where: { [sessionIdField]: decoded.sessionId },

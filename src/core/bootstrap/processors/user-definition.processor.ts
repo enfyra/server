@@ -101,7 +101,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
-            const idField = queryBuilder.isMongoDb() ? '_id' : 'id';
+            const idField = queryBuilder.getPkField();
             await this.afterUpsert(
               { ...record, [idField]: inserted[idField] },
               true,
