@@ -180,6 +180,16 @@ export class DataProvisionService {
     this.logger.log(
       `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
     );
+
+    if (this.routeProcessor) {
+      this.logger.log('Ensuring missing route handlers...');
+      try {
+        await this.routeProcessor.ensureMissingHandlers();
+      } catch (error) {
+        this.logger.error(`Error ensuring route handlers: ${error.message}`);
+        this.logger.debug(error);
+      }
+    }
   }
 
   async insertTableRecords(tableName: string): Promise<UpsertResult> {

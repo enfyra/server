@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
+import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { DataProvisionService } from './data-provision.service';
 import { MetadataProvisionService } from './metadata-provision.service';
@@ -25,6 +26,8 @@ export class ProvisionService implements OnModuleInit {
     private readonly instanceService: InstanceService,
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCacheService: MetadataCacheService,
+    @Inject(forwardRef(() => RouteDefinitionProcessor))
+    private readonly routeDefinitionProcessor: RouteDefinitionProcessor,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -52,6 +55,12 @@ export class ProvisionService implements OnModuleInit {
     } catch (err) {
       this.logger.error('Error during application provision:', err);
       return;
+    }
+
+    try {
+      await this.routeDefinitionProcessor.ensureMissingHandlers();
+    } catch (error) {
+      this.logger.error(`Error ensuring route handlers: ${error.message}`);
     }
 
     const isMongoDB = this.queryBuilder.isMongoDb();
@@ -112,6 +121,15 @@ export class ProvisionService implements OnModuleInit {
         const t4 = Date.now();
         await this.dataProvisionService.insertAllDefaultRecords();
         this.logger.log(`Default records: ${Date.now() - t4}ms`);
+
+        if (this.routeDefinitionProcessor) {
+          this.logger.log('Ensuring missing route handlers after init...');
+          try {
+            await this.routeDefinitionProcessor.ensureMissingHandlers();
+          } catch (error) {
+            this.logger.error(`Error ensuring route handlers: ${error.message}`);
+          }
+        }
 
         if (this.dataMigrationService.hasMigrations()) {
           const t5 = Date.now();
