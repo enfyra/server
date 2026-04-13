@@ -75,7 +75,9 @@ export function validateFilterShape(
     }
 
     if (key.startsWith('_') && !columnNames.has(key)) {
-      throwUnsupportedFieldOperator(key, key, tableName);
+      if (key !== '_id') {
+        throwUnsupportedFieldOperator(key, key, tableName);
+      }
     }
 
     if (value && typeof value === 'object' && !Array.isArray(value)) {

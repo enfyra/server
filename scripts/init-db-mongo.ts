@@ -221,9 +221,9 @@ async function createCollection(db: Db, tableDef: TableDef, allTables: Record<st
   await createIndexes(db, collectionName, tableDef);
 }
 export async function initializeDatabaseMongo(): Promise<void> {
-  const MONGO_URI = process.env.MONGO_URI;
+  const MONGO_URI = process.env.DB_URI || process.env.MONGO_URI;
   if (!MONGO_URI) {
-    throw new Error('MONGO_URI is not defined in environment variables');
+    throw new Error('DB_URI or MONGO_URI is not defined in environment variables');
   }
   console.log('🚀 Initializing MongoDB database...');
   const client = new MongoClient(MONGO_URI);

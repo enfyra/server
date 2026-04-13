@@ -32,9 +32,6 @@ export function parseFields(
         (r: any) => r.propertyName === relName,
       );
       if (!isKnownRelation) {
-        console.warn(
-          `[field-parser] Unknown relation "${relName}" on table "${tableName}" — skipped (field path "${field}" dropped).`,
-        );
         continue;
       }
       if (!fieldsByRelation.has(relName)) fieldsByRelation.set(relName, []);
@@ -50,9 +47,6 @@ export function parseFields(
           (c: any) => c.name === field,
         );
         if (!isColumn) {
-          console.warn(
-            `[field-parser] Unknown field "${field}" on table "${tableName}" — skipped (not a column or relation in metadata).`,
-          );
           continue;
         }
         rootFields.push(field);
@@ -135,9 +129,6 @@ function parseFieldsRecursive(
         (r: any) => r.propertyName === relName,
       );
       if (!isKnownRelation) {
-        console.warn(
-          `[field-parser] Unknown relation "${relName}" on table "${tableName}" — skipped (field path "${field}" dropped).`,
-        );
         continue;
       }
       if (!fieldsByRelation.has(relName)) fieldsByRelation.set(relName, []);
@@ -153,9 +144,6 @@ function parseFieldsRecursive(
           (c: any) => c.name === field,
         );
         if (!isColumn) {
-          console.warn(
-            `[field-parser] Unknown field "${field}" on table "${tableName}" — skipped (not a column or relation in metadata).`,
-          );
           continue;
         }
         rootFields.push(field);

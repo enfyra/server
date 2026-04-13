@@ -142,12 +142,9 @@ export class CacheOrchestratorService
 
   private async bootstrap(): Promise<void> {
     const start = Date.now();
-    this.logger.log('Bootstrap: metadata reload...');
     await this.metadataCache.reload();
     this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
-    this.logger.log(`Bootstrap: metadata done (${Date.now() - start}ms), loading caches in parallel...`);
 
-    const parallel = Date.now();
     await Promise.all([
       this.routeCache.reload(false),
       this.guardCache.reload(false),
@@ -161,12 +158,9 @@ export class CacheOrchestratorService
       this.reloadRepoRegistry(),
       this.bootstrapScriptService?.onMetadataLoaded?.(),
     ]);
-    this.logger.log(`Bootstrap: parallel caches done (${Date.now() - parallel}ms)`);
 
     if (this.graphqlService) {
-      const gqlStart = Date.now();
       await this.graphqlService.reloadSchema();
-      this.logger.log(`Bootstrap: graphql done (${Date.now() - gqlStart}ms)`);
     }
     this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
 
@@ -176,9 +170,6 @@ export class CacheOrchestratorService
 
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {
-    this.logger.log(
-      `Invalidate: ${payload.table} (${payload.scope || 'full'}${payload.ids?.length ? `, ${payload.ids.length} ids` : ''})`,
-    );
     return new Promise<void>((resolve) => {
       this.debounceResolvers.push(resolve);
       this.mergePayload(payload);
@@ -317,10 +308,8 @@ export class CacheOrchestratorService
       payload.ids?.length &&
       this.metadataCache.isLoaded()
     ) {
-      this.logger.log(`  metadata: partial (ids: ${payload.ids.join(', ')})`);
       await this.metadataCache.partialReload(payload);
     } else {
-      this.logger.log('  metadata: full reload');
       await this.metadataCache.reload();
     }
   }
@@ -337,10 +326,8 @@ export class CacheOrchestratorService
       this.routeCache.isLoaded() &&
       this.routeCache.supportsPartialReload()
     ) {
-      this.logger.log(`  route: partial (ids: ${payload.ids?.join(', ') || 'none'})`);
       await this.routeCache.partialReload(payload, false);
     } else {
-      this.logger.log('  route: full reload');
       await this.routeCache.reload(false);
     }
   }
@@ -370,7 +357,6 @@ export class CacheOrchestratorService
 
   async reloadMetadataAndDeps(): Promise<void> {
     const start = Date.now();
-    this.logger.log('Admin: reload metadata + deps');
     this.notifyClients('pending');
     await this.metadataCache.reload();
     await this.reloadRepoRegistry();
@@ -379,7 +365,7 @@ export class CacheOrchestratorService
       await this.graphqlService.reloadSchema();
     }
     this.notifyClients('done');
-    this.logger.log(`Admin: metadata + deps done (${Date.now() - start}ms)`);
+    this.logger.log(`Admin reload metadata+deps: ${Date.now() - start}ms`);
     await this.publishSignal({
       table: 'table_definition',
       action: 'reload',
@@ -390,11 +376,10 @@ export class CacheOrchestratorService
 
   async reloadRoutesOnly(): Promise<void> {
     const start = Date.now();
-    this.logger.log('Admin: reload routes');
     this.notifyClients('pending');
     await this.routeCache.reload(false);
     this.notifyClients('done');
-    this.logger.log(`Admin: routes done (${Date.now() - start}ms)`);
+    this.logger.log(`Admin reload routes: ${Date.now() - start}ms`);
     await this.publishSignal({
       table: 'route_definition',
       action: 'reload',
@@ -405,18 +390,16 @@ export class CacheOrchestratorService
 
   async reloadGraphqlOnly(): Promise<void> {
     const start = Date.now();
-    this.logger.log('Admin: reload graphql');
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
-    this.logger.log(`Admin: graphql done (${Date.now() - start}ms)`);
+    this.logger.log(`Admin reload graphql: ${Date.now() - start}ms`);
   }
 
   async reloadGuardsOnly(): Promise<void> {
     const start = Date.now();
-    this.logger.log('Admin: reload guards');
     await this.guardCache.reload(false);
-    this.logger.log(`Admin: guards done (${Date.now() - start}ms)`);
+    this.logger.log(`Admin reload guards: ${Date.now() - start}ms`);
     await this.publishSignal({
       table: 'guard_definition',
       action: 'reload',
@@ -437,11 +420,8 @@ export class CacheOrchestratorService
 
   private async reloadAllLocal(notify = false): Promise<void> {
     const start = Date.now();
-    this.logger.log('Admin: reload ALL caches');
     if (notify) this.notifyClients('pending');
     await this.metadataCache.reload();
-    this.logger.log(`  metadata: ${Date.now() - start}ms`);
-    const parallelStart = Date.now();
     await Promise.all([
       this.reloadRepoRegistry(),
       this.routeCache.reload(false),
@@ -455,11 +435,8 @@ export class CacheOrchestratorService
       this.folderCache.reload(false),
       this.fieldPermissionCache.reload(false),
     ]);
-    this.logger.log(`  parallel caches: ${Date.now() - parallelStart}ms`);
     if (this.graphqlService) {
-      const gqlStart = Date.now();
       await this.graphqlService.reloadSchema();
-      this.logger.log(`  graphql: ${Date.now() - gqlStart}ms`);
     }
     if (notify) {
       const elapsed = Date.now() - start;
@@ -468,7 +445,7 @@ export class CacheOrchestratorService
       }
       this.notifyClients('done');
     }
-    this.logger.log(`Admin: reload ALL done (${Date.now() - start}ms)`);
+    this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
   }
 
   private subscribeToRedis(): void {

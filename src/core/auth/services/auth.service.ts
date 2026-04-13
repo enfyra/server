@@ -100,6 +100,7 @@ export class AuthService {
     const refreshToken = this.jwtService.sign(
       {
         sessionId: sessionId,
+        jti: randomUUID(),
       },
       {
         expiresIn: (body.remember
@@ -186,16 +187,17 @@ export class AuthService {
       throw new BadRequestException('Session has expired!');
     }
 
+    const incomingHash = this.hashToken(body.refreshToken);
     if (
       session.refreshTokenHash &&
-      session.refreshTokenHash !== this.hashToken(body.refreshToken)
+      session.refreshTokenHash !== incomingHash
     ) {
       throw new BadRequestException('Refresh token has been revoked!');
     }
 
     const userId = this.queryBuilder.isMongoDb()
       ? session.user?._id || session.user
-      : session.userId;
+      : session.userId || session.user?.id || session.user;
 
     const remember = session.remember || false;
     const newExpiredAt = this.calculateExpiredAt(remember);
@@ -221,7 +223,7 @@ export class AuthService {
       ? 'REFRESH_TOKEN_REMEMBER_EXP'
       : 'REFRESH_TOKEN_NO_REMEMBER_EXP';
     const refreshToken = this.jwtService.sign(
-      { sessionId: sessionId },
+      { sessionId: sessionId, jti: randomUUID() },
       {
         expiresIn: this.configService.get<string>(
           refreshTokenExp,
@@ -229,10 +231,20 @@ export class AuthService {
       },
     );
 
+    const newHash = this.hashToken(refreshToken);
     await this.queryBuilder.update('session_definition', sessionId, {
       expiredAt: newExpiredAt,
-      refreshTokenHash: this.hashToken(refreshToken),
+      refreshTokenHash: newHash,
     });
+
+    const verifySession = await this.queryBuilder.findOne({
+      table: 'session_definition',
+      where: { [sessionIdField]: sessionId },
+      fields: ['refreshTokenHash'],
+    });
+    if (!verifySession || verifySession.refreshTokenHash !== newHash) {
+      throw new BadRequestException('Failed to rotate refresh token!');
+    }
 
     const accessTokenDecoded = await this.jwtService.decode(accessToken);
     return {

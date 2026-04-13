@@ -112,6 +112,7 @@ function makeRepoHarness(opts: {
     queryEngine,
     queryBuilder: {
       isMongoDb: () => opts.isMongo === true,
+      getPkField: () => 'id',
       runWithPolicy: async (_cb: any, fn: any) => await fn(),
       runWithFieldPermissionCheck: async (_cb: any, fn: any) => await fn(),
       insertAndGet: async () => ({ id: 1 }),
@@ -290,11 +291,11 @@ describe('field permissions (isPublished baseline + overrides)', () => {
         expectValue: ['mine', undefined],
       },
       {
-        name: 'rootAdmin bypass => value',
+        name: 'rootAdmin => isPublished:false stripped',
         user: { id: 'root', isRootAdmin: true, role: { id: 'r_root' } },
         policies: [],
         fixture: [{ id: 1, secretNote: 'x' }],
-        expectValue: 'x',
+        expectValue: undefined,
       },
     ];
 
@@ -360,7 +361,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
     expect(r2.data[0].owner?.email).toBeUndefined();
   });
 
-  test('query operators: unpublished field => 403 unless unconditional allow; select is never 403; rootAdmin bypass', async () => {
+  test('query operators: unpublished field => 403 unless unconditional allow; select is never 403; rootAdmin enforced', async () => {
     const conditionalAllowPolicy = makePolicy({
       rules: [
         makeRule({
@@ -465,7 +466,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
         dataFixture: [],
       }),
     );
-    await expect(hRoot.repo.find()).resolves.toBeTruthy();
+    await expect(hRoot.repo.find()).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   test('write enforcement: unpublished blocked by default, allow override works, deny can block published', async () => {

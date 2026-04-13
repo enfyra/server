@@ -69,3 +69,4 @@ CLAUDE.md
 .mcp.json
 docs/
 .agent
+.internal/

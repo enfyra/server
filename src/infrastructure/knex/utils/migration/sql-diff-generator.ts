@@ -59,6 +59,41 @@ async function getPrimaryKeyTypeForTable(
     return 'int';
   }
 }
+function isIdempotentDDLError(err: any, dbType: string): boolean {
+  const code = err?.code || err?.errno;
+  const msg = String(err?.message || '').toLowerCase();
+  if (dbType.includes('mysql') || dbType.includes('mariadb')) {
+    const idempotentErrnos = new Set([
+      1060, // Duplicate column name
+      1061, // Duplicate key name
+      1050, // Table already exists
+      1091, // Can't DROP; doesn't exist
+      1826, // Duplicate foreign key constraint
+      3822, // Duplicate check constraint
+      1068, // Multiple primary keys defined (already has one)
+    ]);
+    if (idempotentErrnos.has(Number(code))) return true;
+    if (
+      msg.includes('duplicate column') ||
+      msg.includes('duplicate key name') ||
+      msg.includes('already exists') ||
+      msg.includes("check that column/key exists") ||
+      msg.includes('duplicate foreign key')
+    ) {
+      return true;
+    }
+  }
+  if (dbType.includes('pg') || dbType.includes('postgres')) {
+    const pgCodes = new Set([
+      '42701', // duplicate_column
+      '42P07', // duplicate_table
+      '42710', // duplicate_object (constraint/index)
+      '42P16', // invalid_table_definition (PK already)
+    ]);
+    if (pgCodes.has(String(code))) return true;
+  }
+  return false;
+}
 function generateRollbackSQL(statement: string, dbType: string): string | null {
   const stmt = statement.trim().toUpperCase();
   const qt = (id: string) => {
@@ -510,20 +545,40 @@ export async function executeBatchSQL(
     logger.log(`Executing ${statements.length} statement(s) individually...`);
     const executedStatements: string[] = [];
     const rollbackStatements: string[] = [];
+    const ddlTimeoutSec = 30;
     try {
       for (let i = 0; i < statements.length; i++) {
         const statement = statements[i];
         logger.log(
           `  [${i + 1}/${statements.length}] Executing: ${statement.substring(0, 80)}${statement.length > 80 ? '...' : ''}`,
         );
+        const isMysqlLike =
+          detectedDbType.includes('mysql') ||
+          detectedDbType.includes('mariadb');
         try {
-          await knex.raw(statement);
+          await knex.transaction(async (conn) => {
+            if (isMysqlLike) {
+              await conn.raw(
+                `SET SESSION lock_wait_timeout = ${ddlTimeoutSec}`,
+              );
+              await conn.raw(
+                `SET SESSION innodb_lock_wait_timeout = ${ddlTimeoutSec}`,
+              );
+            }
+            await conn.raw(statement);
+          });
           executedStatements.push(statement);
           const rollbackSQL = generateRollbackSQL(statement, detectedDbType);
           if (rollbackSQL) {
             rollbackStatements.push(rollbackSQL);
           }
         } catch (statementError: any) {
+          if (isIdempotentDDLError(statementError, detectedDbType)) {
+            logger.warn(
+              `  [${i + 1}/${statements.length}] Skipping idempotent error: ${statementError.message}`,
+            );
+            continue;
+          }
           logger.error(
             `Failed at statement [${i + 1}/${statements.length}]: ${statement.substring(0, 100)}`,
           );

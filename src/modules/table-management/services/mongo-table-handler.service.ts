@@ -425,14 +425,14 @@ export class MongoTableHandlerService {
             if (body.relations?.length > 0) {
               for (const rel of body.relations) {
                 let targetTableObjectId;
-                if (
-                  typeof rel.targetTable === 'object' &&
-                  rel.targetTable._id
-                ) {
+                const targetTableIdFromObj = typeof rel.targetTable === 'object'
+                  ? (rel.targetTable._id || rel.targetTable.id)
+                  : null;
+                if (targetTableIdFromObj) {
                   targetTableObjectId =
-                    typeof rel.targetTable._id === 'string'
-                      ? new ObjectId(rel.targetTable._id)
-                      : rel.targetTable._id;
+                    typeof targetTableIdFromObj === 'string'
+                      ? new ObjectId(targetTableIdFromObj)
+                      : targetTableIdFromObj;
                 } else if (typeof rel.targetTable === 'string') {
                   const targetTableRecord =
                     await this.queryBuilder.findOne({
@@ -688,7 +688,19 @@ export class MongoTableHandlerService {
   }
   async updateTable(id: any, body: CreateTableDto, context?: TDynamicContext) {
     const affectedTableNames = new Set<string>();
-    return await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
+    const tag = `[mongo:updateTable:${id}]`;
+    const stepLog = (msg: string) => this.logger.log(`${tag} ${msg}`);
+    const t0 = Date.now();
+    let t = Date.now();
+    const lap = () => {
+      const e = Date.now() - t;
+      t = Date.now();
+      return e;
+    };
+    stepLog(`STEP 0 acquiring schema lock`);
+    const out = await this.runWithSchemaLock(`mongo:update:${id}`, async () => {
+      stepLog(`STEP 1 lock acquired (+${Date.now() - t0}ms)`);
+      t = Date.now();
       if (body.name && /[A-Z]/.test(body.name)) {
         throw new ValidationException('Table name must be lowercase.', {
           tableName: body.name,
@@ -700,6 +712,7 @@ export class MongoTableHandlerService {
         });
       }
       this.validateRelations(body.relations);
+      stepLog(`STEP 2 validated name+relations (+${lap()}ms)`);
       try {
         const { ObjectId } = require('mongodb');
         const queryId = typeof id === 'string' ? new ObjectId(id) : id;
@@ -707,6 +720,7 @@ export class MongoTableHandlerService {
           table: 'table_definition',
           where: { _id: queryId },
         });
+        stepLog(`STEP 3 fetched table_definition (+${lap()}ms)`);
         if (!exists) {
           throw new ResourceNotFoundException('table_definition', String(id));
         }
@@ -724,9 +738,11 @@ export class MongoTableHandlerService {
             body.relations,
           );
         }
+        stepLog(`STEP 4 validators done (+${lap()}ms)`);
         const oldMetadata = await this.metadataCacheService.lookupTableByName(
           exists.name,
         );
+        stepLog(`STEP 5 loaded oldMetadata (+${lap()}ms)`);
         let schemaDecision: any = null;
         if (oldMetadata) {
           const afterMetadata = {
@@ -754,6 +770,7 @@ export class MongoTableHandlerService {
               schemaDecision.details,
             );
           }
+          stepLog(`STEP 6 policy checked (+${lap()}ms)`);
         }
         const updateData: any = {};
         if ('name' in body) updateData.name = body.name;
@@ -770,6 +787,7 @@ export class MongoTableHandlerService {
             updateData,
           );
         }
+        stepLog(`STEP 7 updated table_definition row (+${lap()}ms)`);
         if (body.columns) {
           const { data: existingColumns } = await this.queryBuilder.find({
             table: 'column_definition',
@@ -850,6 +868,9 @@ export class MongoTableHandlerService {
             columnIds.push(colObjectId);
           }
         }
+        stepLog(
+          `STEP 8 processed ${body.columns?.length ?? 0} column(s) (+${lap()}ms)`,
+        );
         if (body.relations) {
           const { data: existingRelations } = await this.queryBuilder.find({
             table: 'relation_definition',
@@ -918,11 +939,14 @@ export class MongoTableHandlerService {
           const relationIds = [];
           for (const rel of body.relations) {
             let targetTableObjectId;
-            if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
+            const targetTableIdFromObj = typeof rel.targetTable === 'object'
+              ? (rel.targetTable._id || rel.targetTable.id)
+              : null;
+            if (targetTableIdFromObj) {
               targetTableObjectId =
-                typeof rel.targetTable._id === 'string'
-                  ? new ObjectId(rel.targetTable._id)
-                  : rel.targetTable._id;
+                typeof targetTableIdFromObj === 'string'
+                  ? new ObjectId(targetTableIdFromObj)
+                  : targetTableIdFromObj;
             } else if (typeof rel.targetTable === 'string') {
               const targetTableRecord = await this.queryBuilder.findOne({
                 table: 'table_definition',
@@ -1055,18 +1079,24 @@ export class MongoTableHandlerService {
             }
           }
         }
+        stepLog(
+          `STEP 9 processed ${body.relations?.length ?? 0} relation(s) (+${lap()}ms)`,
+        );
         const finalMetadata = await this.getFullTableMetadata(id);
+        stepLog(`STEP 10 loaded finalMetadata (+${lap()}ms)`);
 
         if (
           schemaDecision?.details?.schemaChanged === true &&
           oldMetadata &&
           finalMetadata
         ) {
+          stepLog(`STEP 11 running schemaMigrationService.updateCollection...`);
           await this.schemaMigrationService.updateCollection(
             exists.name,
             oldMetadata,
             finalMetadata,
           );
+          stepLog(`STEP 11 updateCollection done (+${lap()}ms)`);
 
           const oldM2mJunctions = new Set<string>(
             (oldMetadata.relations || [])
@@ -1103,6 +1133,7 @@ export class MongoTableHandlerService {
               }
             }
           }
+          stepLog(`STEP 12 junction collections synced (+${lap()}ms)`);
         }
 
         if (body.isSingleRecord === true && !exists.isSingleRecord) {
@@ -1130,6 +1161,7 @@ export class MongoTableHandlerService {
         }
 
         finalMetadata.affectedTables = [...affectedTableNames];
+        stepLog(`STEP 13 isSingleRecord cleanup done (+${lap()}ms)`);
         return finalMetadata;
       } catch (error) {
         this.loggingService.error('Collection update failed', {
@@ -1148,6 +1180,8 @@ export class MongoTableHandlerService {
         );
       }
     });
+    stepLog(`STEP DONE total=${Date.now() - t0}ms`);
+    return out;
   }
   async delete(id: string | number, context?: TDynamicContext) {
     const affectedTableNames = new Set<string>();
@@ -1250,11 +1284,29 @@ export class MongoTableHandlerService {
     const { ObjectId } = require('mongodb');
     const queryId =
       typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
-    const table = await this.queryBuilder.findOne({
-      table: 'table_definition',
-      where: { _id: queryId },
-    });
-    if (!table) return null;
+
+    // Use direct MongoDB queries to avoid filter DSL routing issues
+    // where FK column names (e.g. 'table', 'sourceTable') collide with relation names
+    const db = this.mongoService.getDb();
+    const normalize = (doc: any) => {
+      if (!doc) return doc;
+      const normalized: any = {};
+      for (const [key, value] of Object.entries(doc)) {
+        if (value instanceof ObjectId) {
+          normalized[key] = value.toString();
+        } else if (value instanceof Date) {
+          normalized[key] = value.toISOString();
+        } else {
+          normalized[key] = value;
+        }
+      }
+      return normalized;
+    };
+
+    const rawTable = await db.collection('table_definition').findOne({ _id: queryId });
+    if (!rawTable) return null;
+    const table = normalize(rawTable);
+
     if (table.uniques && typeof table.uniques === 'string') {
       try {
         table.uniques = JSON.parse(table.uniques);
@@ -1269,12 +1321,8 @@ export class MongoTableHandlerService {
         table.indexes = [];
       }
     }
-    const { data: columns } = await this.queryBuilder.find({
-      table: 'column_definition',
-      where: {
-        table: queryId,
-      },
-    });
+    const rawColumns = await db.collection('column_definition').find({ table: queryId }).toArray();
+    const columns = rawColumns.map(normalize);
     table.columns = columns;
     for (const col of table.columns) {
       if (col.defaultValue && typeof col.defaultValue === 'string') {
@@ -1288,12 +1336,8 @@ export class MongoTableHandlerService {
         } catch (e) {}
       }
     }
-    const { data: relations } = await this.queryBuilder.find({
-      table: 'relation_definition',
-      where: {
-        sourceTable: queryId,
-      },
-    });
+    const rawRelations = await db.collection('relation_definition').find({ sourceTable: queryId }).toArray();
+    const relations = rawRelations.map(normalize);
     table.relations = relations;
     return table;
   }

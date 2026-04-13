@@ -44,23 +44,10 @@ export class SchemaMigrationLockService {
       return { token, dbType };
     }
 
-    if (dbType === 'mysql') {
-      const result = await knex.raw('SELECT GET_LOCK(?, 0) AS locked', [
-        this.lockName,
-      ]);
-      const rawLocked =
-        result?.[0]?.[0]?.locked ??
-        result?.[0]?.[0]?.LOCKED ??
-        Object.values(result?.[0]?.[0] || {})[0];
-      const lockedValue =
-        typeof rawLocked === 'number' ? rawLocked : Number(rawLocked);
-      if (lockedValue !== 1) {
-        throw await this.buildLockedError(knex);
-      }
-      await this.setLockRow(knex, lockedBy, context, token);
-      return { token, dbType };
-    }
-
+    // MySQL named locks (GET_LOCK/RELEASE_LOCK) are connection-scoped and
+    // incompatible with Knex connection pooling — acquire and release would
+    // use different connections.  Fall through to table-row lock for all
+    // non-postgres databases.
     return await this.acquireTableRowLock(dbType, lockedBy, context, token);
   }
 
@@ -77,12 +64,6 @@ export class SchemaMigrationLockService {
         this.logger.error(
           `pg_advisory_unlock failed: ${(error as Error).message}`,
         );
-      }
-    } else if (handle.dbType === 'mysql') {
-      try {
-        await knex.raw('SELECT RELEASE_LOCK(?)', [this.lockName]);
-      } catch (error) {
-        this.logger.error(`RELEASE_LOCK failed: ${(error as Error).message}`);
       }
     }
 

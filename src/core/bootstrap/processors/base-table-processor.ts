@@ -143,10 +143,10 @@ export abstract class BaseTableProcessor {
             const existingId = existingRecord[idField];
             await queryBuilder.update(tableName, existingId, record);
             skippedCount++;
-            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
             skippedCount++;
-            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(`   Skipped: ${this.getRecordIdentifier(record)}`);
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -159,7 +159,7 @@ export abstract class BaseTableProcessor {
           const inserted = await queryBuilder.insert(tableName, record);
           const insertedId = inserted[idField];
           createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
             await this.afterUpsert(
               { ...record, [idField]: insertedId },
@@ -220,10 +220,10 @@ export abstract class BaseTableProcessor {
               tableName,
             );
             skippedCount++;
-            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
             skippedCount++;
-            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(`   Skipped: ${this.getRecordIdentifier(record)}`);
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -251,7 +251,7 @@ export abstract class BaseTableProcessor {
             this.logger.debug(`Inserted ID: ${insertedId}`);
           }
           createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
             await this.afterUpsert(
               { ...record, id: insertedId },
@@ -374,10 +374,10 @@ export abstract class BaseTableProcessor {
               collectionName,
             );
             skippedCount++;
-            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
             skippedCount++;
-            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(`   Skipped: ${this.getRecordIdentifier(record)}`);
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -393,7 +393,7 @@ export abstract class BaseTableProcessor {
             .insertOne(cleanedRecord);
           const insertedId = result.insertedId;
           createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
             await this.afterUpsert(
               { ...record, _id: insertedId },

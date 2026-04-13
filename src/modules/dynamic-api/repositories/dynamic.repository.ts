@@ -232,9 +232,7 @@ export class DynamicRepository {
     if (!this.enforceFieldPermission || !this.fieldPermissionCacheService) {
       return { fields, deep, needsPostSql: false };
     }
-    if (this.context?.$user?.isRootAdmin) {
-      return { fields, deep, needsPostSql: false };
-    }
+
 
     const meta = await this.metadataCacheService.lookupTableByName(tableName);
     if (!meta) return { fields, deep, needsPostSql: false };
@@ -255,10 +253,7 @@ export class DynamicRepository {
 
     let fieldsArr: string[];
     if (isWildcard) {
-      fieldsArr = [...columnSet];
-      for (const key of Object.keys(deep || {})) {
-        if (relationSet.has(key)) fieldsArr.push(key);
-      }
+      fieldsArr = [...columnSet, ...relationSet];
     } else {
       fieldsArr =
         typeof fields === 'string'

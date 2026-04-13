@@ -492,7 +492,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return {
       ...dataWithTimestamps,
       _id: insertedId,
-      id: insertedId.toString(),
     };
   }
 
@@ -701,6 +700,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
           fieldValue instanceof ObjectId ||
           fieldValue instanceof Date
         ) {
+          if (typeof fieldValue === 'string' && fieldValue.length === 24) {
+            try {
+              processed[fieldName] = new ObjectId(fieldValue);
+            } catch (_) {
+              // Not a valid ObjectId, leave as-is
+            }
+          }
           continue;
         }
 

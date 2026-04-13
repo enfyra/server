@@ -135,11 +135,17 @@ describe('stripDeniedFields — bypass conditions', () => {
     expect(result.deep).toEqual({ author: {} });
   });
 
-  it('returns as-is when user is rootAdmin', async () => {
+  it('published fields pass through for rootAdmin', async () => {
     const repo = makeRepo({ isRootAdmin: true });
     const result = await strip(repo, 'main_table', ['id', 'author.name'], { author: {} });
     expect(result.fields).toEqual(['id', 'author.name']);
     expect(result.deep).toEqual({ author: {} });
+  });
+
+  it('strips isPublished:false column even for rootAdmin', async () => {
+    const repo = makeRepo({ isRootAdmin: true });
+    const result = await strip(repo, 'main_table', ['id', 'name', 'secret'], undefined);
+    expect(result.fields).toEqual(['id', 'name']);
   });
 
   it('does not call metadataCacheService when enforceFieldPermission is false', async () => {
@@ -148,10 +154,10 @@ describe('stripDeniedFields — bypass conditions', () => {
     expect(repo.metadataCacheService.lookupTableByName).not.toHaveBeenCalled();
   });
 
-  it('does not call getPoliciesFor when rootAdmin', async () => {
+  it('calls getPoliciesFor for rootAdmin to check isPublished fields', async () => {
     const repo = makeRepo({ isRootAdmin: true });
-    await strip(repo, 'main_table', ['id'], {});
-    expect(repo.fieldPermissionCacheService.getPoliciesFor).not.toHaveBeenCalled();
+    await strip(repo, 'main_table', ['id', 'name'], {});
+    expect(repo.fieldPermissionCacheService.getPoliciesFor).toHaveBeenCalled();
   });
 });
 
@@ -292,6 +298,14 @@ describe('stripDeniedFields — wildcard resolution', () => {
     const fields = String(result.fields).split(',');
     expect(fields).toContain('id');
     expect(fields).toContain('name');
+  });
+
+  it('includes all relations in wildcard expansion (fields=*)', async () => {
+    const repo = makeRepo();
+    const result = await strip(repo, 'main_table', '*', undefined);
+    const fields = String(result.fields).split(',');
+    expect(fields).toContain('author');
+    expect(fields).toContain('category');
   });
 
   it('includes deep relation names in resolved wildcard fields', async () => {
@@ -456,7 +470,7 @@ describe('DynamicRepository.find — stripDeniedFields integration', () => {
       $user: { id: 1, role: { id: '2' }, isRootAdmin },
       $query: {},
     };
-    repo.queryBuilder = { isMongoDb: () => false };
+    repo.queryBuilder = { isMongoDb: () => false, getPkField: () => 'id' };
     repo.tableMetadata = TABLE_META['main_table'];
     repo.metadataCacheService = {
       lookupTableByName: jest.fn().mockImplementation(

@@ -189,7 +189,7 @@ export class MetadataProvisionMongoService {
           record.name = '_id';
         }
         if (tableName === 'table_definition' && col.name === 'name') {
-          this.logger.log(
+          this.logger.debug(
             `Sample column record: ${JSON.stringify(record, null, 2)}`,
           );
         }
@@ -201,7 +201,7 @@ export class MetadataProvisionMongoService {
           db,
           'column_definition',
         );
-        this.logger.log(
+        this.logger.debug(
           `${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`,
         );
       }
@@ -273,7 +273,7 @@ export class MetadataProvisionMongoService {
               { _id: existing._id },
               { $set: updatePayload },
             );
-            this.logger.log(
+            this.logger.debug(
               `Relation rename (Mongo): ${tableName}.${oldPropertyName} → ${rel.propertyName}`,
             );
             owningIdMap.set(`${tableName}.${rel.propertyName}`, existing._id);
@@ -394,7 +394,7 @@ export class MetadataProvisionMongoService {
               },
             },
           );
-          this.logger.log(
+          this.logger.debug(
             `Updated inverse relation ${rel.inversePropertyName} for ${tableName}`,
           );
         }
@@ -422,7 +422,7 @@ export class MetadataProvisionMongoService {
             );
           }
         }
-        this.logger.log(
+        this.logger.debug(
           `Added inverse relation ${rel.inversePropertyName} for ${tableName}`,
         );
       }

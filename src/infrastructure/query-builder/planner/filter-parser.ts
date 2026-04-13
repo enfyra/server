@@ -103,7 +103,9 @@ function parseEntry(
     const column = tableMeta.columns?.find((c: any) => c.name === normalizedKey);
     if (!column) {
       if (key.startsWith('_')) {
-        throwUnsupportedFieldOperator(key, key, ctx.currentTable);
+        if (key !== '_id') {
+          throwUnsupportedFieldOperator(key, key, ctx.currentTable);
+        }
       }
       console.warn(
         `[filter-parser] Unknown field "${key}" on table "${ctx.currentTable}" — skipped (not a column or relation in metadata).`,

@@ -15,6 +15,7 @@ import {
   GraphQLScalarType,
   Kind,
 } from 'graphql';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export const GraphQLJSON = new GraphQLScalarType({
   name: 'JSON',
@@ -116,9 +117,10 @@ export function buildTableGraphQLDef(
     if (!columnType || typeof columnType !== 'string') continue;
     if (column.isPublished === false) continue;
 
-    const baseType = mapColumnTypeToGraphQLType(columnType);
+    const isMongoId = DatabaseConfigService.instanceIsMongoDb() && column.isPrimary && fieldName === '_id';
+    const baseType = isMongoId ? GraphQLID : mapColumnTypeToGraphQLType(columnType);
     let finalType: GraphQLOutputType;
-    if (column.isPrimary && baseType === GraphQLID) {
+    if (column.isPrimary && (baseType === GraphQLID || isMongoId)) {
       finalType = new GraphQLNonNull(GraphQLID);
     } else if (!column.isNullable) {
       finalType = new GraphQLNonNull(baseType);
@@ -324,10 +326,11 @@ export function generateGraphQLTypeDefsFromTables(
       if (!isValidGqlIdentifier(fieldName)) continue;
       if (!columnType || typeof columnType !== 'string') continue;
       if (column.isPublished === false) continue;
-      const gqlType = mapColumnTypeToGraphQLTypeString(columnType);
+      const isMongoId = DatabaseConfigService.instanceIsMongoDb() && column.isPrimary && fieldName === '_id';
+      const gqlType = isMongoId ? 'ID' : mapColumnTypeToGraphQLTypeString(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =
-        column.isPrimary && gqlType === 'ID'
+        column.isPrimary && (gqlType === 'ID' || isMongoId)
           ? 'ID!'
           : `${gqlType}${isRequired}`;
       validFields.push(`  ${fieldName}: ${finalType}`);
@@ -376,14 +379,15 @@ export function generateGraphQLTypeDefsFromTables(
       if (!isValidGqlIdentifier(fieldName)) continue;
       if (!columnType || typeof columnType !== 'string') continue;
       if (column.isPublished === false) continue;
-      const gqlType = mapColumnTypeToGraphQLTypeString(columnType);
+      const isMongoId = DatabaseConfigService.instanceIsMongoDb() && column.isPrimary && fieldName === '_id';
+      const gqlType = isMongoId ? 'ID' : mapColumnTypeToGraphQLTypeString(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =
-        column.isPrimary && gqlType === 'ID'
+        column.isPrimary && (gqlType === 'ID' || isMongoId)
           ? 'ID!'
           : `${gqlType}${isRequired}`;
       inputFields.push(`  ${fieldName}: ${finalType}`);
-      const updateType = column.isPrimary && gqlType === 'ID' ? 'ID' : gqlType;
+      const updateType = column.isPrimary && (gqlType === 'ID' || isMongoId) ? 'ID' : gqlType;
       updateInputFields.push(`  ${fieldName}: ${updateType}`);
     }
     if (inputFields.length > 0 && allowQuery(typeName)) {

@@ -690,15 +690,30 @@ export class SqlTableHandlerService {
     body: CreateTableDto,
     context?: TDynamicContext,
   ) {
-    return await this.runWithSchemaLock(`table:update:${id}`, () =>
-      this.updateTableInternal(id, body, context),
-    );
+    const t0 = Date.now();
+    this.logger.log(`[updateTable:${id}] STEP 0 acquiring schema lock`);
+    const result = await this.runWithSchemaLock(`table:update:${id}`, () => {
+      this.logger.log(
+        `[updateTable:${id}] STEP 1 lock acquired (+${Date.now() - t0}ms) → calling updateTableInternal`,
+      );
+      return this.updateTableInternal(id, body, context);
+    });
+    this.logger.log(`[updateTable:${id}] STEP DONE total=${Date.now() - t0}ms`);
+    return result;
   }
   private async updateTableInternal(
     id: string | number,
     body: CreateTableDto,
     context?: TDynamicContext,
   ) {
+    const tag = `[updateTable:${id}]`;
+    const stepLog = (msg: string) => this.logger.log(`${tag} ${msg}`);
+    let t = Date.now();
+    const lap = () => {
+      const e = Date.now() - t;
+      t = Date.now();
+      return e;
+    };
     const knex = this.queryBuilder.getKnex();
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
@@ -711,9 +726,12 @@ export class SqlTableHandlerService {
       });
     }
     this.validateRelations(body.relations);
+    stepLog(`STEP 2 name+relation validate done (+${lap()}ms)`);
     const affectedTableNames = new Set<string>();
     try {
+      stepLog(`STEP 3 opening knex transaction...`);
       const trx = await knex.transaction();
+      stepLog(`STEP 4 transaction opened (+${lap()}ms)`);
       const abortSignal = getIoAbortSignal();
       if (abortSignal) {
         const onAbort = () => {
@@ -729,6 +747,7 @@ export class SqlTableHandlerService {
       }
       try {
         const exists = await trx('table_definition').where({ id }).first();
+        stepLog(`STEP 5 fetched table_definition row (+${lap()}ms)`);
         if (!exists) {
           throw new ResourceNotFoundException('table_definition', String(id));
         }
@@ -768,10 +787,12 @@ export class SqlTableHandlerService {
             m2mTargetTablesMap,
           );
         }
+        stepLog(`STEP 6 validators done (+${lap()}ms)`);
         const oldMetadata = await this.getFullTableMetadataInTransaction(
           trx,
           exists.id,
         );
+        stepLog(`STEP 7 loaded oldMetadata (+${lap()}ms)`);
         await trx('table_definition')
           .where({ id })
           .update({
@@ -788,6 +809,7 @@ export class SqlTableHandlerService {
               isSingleRecord: body.isSingleRecord,
             }),
           });
+        stepLog(`STEP 8 updated table_definition row (+${lap()}ms)`);
         if (body.columns) {
           const existingColumns = await trx('column_definition')
             .where({ tableId: id })
@@ -838,6 +860,9 @@ export class SqlTableHandlerService {
             }
           }
         }
+        stepLog(
+          `STEP 9 processed ${body.columns?.length ?? 0} column(s) (+${lap()}ms)`,
+        );
         if (body.relations) {
           const existingRelations = await trx('relation_definition')
             .where({ sourceTableId: id })
@@ -1062,9 +1087,13 @@ export class SqlTableHandlerService {
             }
           }
         }
+        stepLog(
+          `STEP 10 processed ${body.relations?.length ?? 0} relation(s) (+${lap()}ms)`,
+        );
         if (oldMetadata) {
           const updatedFullMetadata =
             await this.getFullTableMetadataInTransaction(trx, exists.id);
+          stepLog(`STEP 11 reloaded metadata in trx (+${lap()}ms)`);
           if (!updatedFullMetadata) {
             throw new Error(
               `Failed to reload metadata after transaction for table ${exists.name}`,
@@ -1079,6 +1108,7 @@ export class SqlTableHandlerService {
             afterMetadata: updatedFullMetadata,
             requestContext: context,
           });
+          stepLog(`STEP 12 policy checked (+${lap()}ms)`);
           if (isPolicyPreview(decision)) {
             await trx.rollback();
             return { _preview: true, ...decision.details };
@@ -1087,20 +1117,45 @@ export class SqlTableHandlerService {
             throw new ValidationException(decision.message, decision.details);
           }
 
-          if (decision.details?.schemaChanged === true) {
-            var pendingUpdate = await this.schemaMigrationService.updateTable(
-              exists.name,
-              oldMetadata,
-              updatedFullMetadata,
-            );
-          }
+          var schemaChanged = decision.details?.schemaChanged === true;
+          var oldMetaSnapshot = oldMetadata;
+          var newMetaSnapshot = updatedFullMetadata;
         }
+        stepLog(`STEP 13 committing metadata trx before DDL...`);
         await trx.commit();
+        stepLog(`STEP 14 metadata trx committed (+${lap()}ms)`);
+
+        if (schemaChanged) {
+          stepLog(`STEP 15 running schemaMigrationService.updateTable...`);
+          const ddlTimeoutMs = 90 * 1000;
+          var pendingUpdate: any = await Promise.race([
+            this.schemaMigrationService.updateTable(
+              exists.name,
+              oldMetaSnapshot,
+              newMetaSnapshot,
+            ),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `schemaMigrationService.updateTable timed out after ${ddlTimeoutMs}ms`,
+                    ),
+                  ),
+                ddlTimeoutMs,
+              ),
+            ),
+          ]);
+          stepLog(`STEP 15 schema migration done (+${lap()}ms)`);
+        } else {
+          stepLog(`STEP 15 no schema change, skip migration`);
+        }
 
         if (pendingUpdate?.pendingMetadataUpdate) {
           await this.schemaMigrationService.applyPendingMetadataUpdate(
             pendingUpdate.pendingMetadataUpdate,
           );
+          stepLog(`STEP 16 applied pending metadata update (+${lap()}ms)`);
         }
 
         if (body.isSingleRecord === true && !exists.isSingleRecord) {
@@ -1127,6 +1182,7 @@ export class SqlTableHandlerService {
           }
         }
 
+        stepLog(`STEP 17 isSingleRecord cleanup done (+${lap()}ms)`);
         return { id: exists.id, name: exists.name, affectedTables: [...affectedTableNames] };
       } catch (innerError) {
         if (trx && !trx.isCompleted()) {

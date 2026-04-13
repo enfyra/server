@@ -44,15 +44,77 @@ export async function dropForeignKeyIfExists(
         constraintName,
         dbType,
       );
-      await knex.raw(dropSQL);
+      await knex.transaction(async (conn) => {
+        if (dbType === 'mysql') {
+          await conn.raw(`SET SESSION lock_wait_timeout = 30`);
+          await conn.raw(`SET SESSION innodb_lock_wait_timeout = 30`);
+        }
+        try {
+          await conn.raw(dropSQL);
+        } catch (ddlError: any) {
+          if (
+            dbType === 'mysql' &&
+            /lock wait timeout/i.test(String(ddlError?.message || ''))
+          ) {
+            try {
+              const blockers = await knex.raw(
+                `SELECT ml.OWNER_THREAD_ID, t.PROCESSLIST_ID, t.PROCESSLIST_COMMAND,
+                        t.PROCESSLIST_TIME, t.PROCESSLIST_STATE,
+                        COUNT(*) AS mdl_count,
+                        GROUP_CONCAT(DISTINCT ml.OBJECT_NAME ORDER BY ml.OBJECT_NAME) AS tables_locked
+                 FROM performance_schema.metadata_locks ml
+                 JOIN performance_schema.threads t ON t.THREAD_ID = ml.OWNER_THREAD_ID
+                 WHERE ml.OBJECT_SCHEMA = DATABASE()
+                 GROUP BY ml.OWNER_THREAD_ID, t.PROCESSLIST_ID
+                 ORDER BY mdl_count DESC
+                 LIMIT 5`,
+              );
+              logger.error(
+                `Top MDL-holding threads: ${JSON.stringify(blockers?.[0] ?? blockers)}`,
+              );
+              const lastStmt = await knex.raw(
+                `SELECT h.THREAD_ID, LEFT(h.SQL_TEXT, 500) AS sql_text, h.EVENT_NAME
+                 FROM performance_schema.events_statements_history h
+                 WHERE h.THREAD_ID IN (
+                   SELECT DISTINCT OWNER_THREAD_ID FROM performance_schema.metadata_locks
+                   WHERE OBJECT_SCHEMA = DATABASE()
+                 )
+                 AND h.SQL_TEXT IS NOT NULL
+                 ORDER BY h.THREAD_ID, h.EVENT_ID DESC
+                 LIMIT 40`,
+              );
+              logger.error(
+                `Last statements from MDL-holding threads: ${JSON.stringify(lastStmt?.[0] ?? lastStmt)}`,
+              );
+            } catch (diagErr: any) {
+              logger.error(`Diagnostic failed: ${diagErr?.message}`);
+            }
+          }
+          throw ddlError;
+        }
+      });
       logger.log(`Successfully dropped FK constraint: ${constraintName}`);
     } else {
       logger.log(`No FK constraint found for column ${columnName}`);
     }
-  } catch (error) {
-    logger.log(
-      `Error checking/dropping FK constraint for ${columnName}: ${error.message}`,
+  } catch (error: any) {
+    const msg = String(error?.message || '').toLowerCase();
+    const errno = Number(error?.errno);
+    if (
+      msg.includes("check that column/key exists") ||
+      msg.includes('does not exist') ||
+      errno === 1091 ||
+      errno === 1025
+    ) {
+      logger.log(
+        `FK constraint for ${columnName} not present, skipping: ${error.message}`,
+      );
+      return;
+    }
+    logger.error(
+      `Failed to drop FK constraint for ${columnName}: ${error.message}`,
     );
+    throw error;
   }
 }
 export async function dropAllForeignKeysReferencingTable(
