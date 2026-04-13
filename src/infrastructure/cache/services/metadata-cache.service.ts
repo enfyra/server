@@ -1,3 +1,4 @@
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';

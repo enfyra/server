@@ -1,3 +1,4 @@
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';

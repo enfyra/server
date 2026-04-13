@@ -1,3 +1,4 @@
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
 import { CommonService } from '../../../shared/common/services/common.service';

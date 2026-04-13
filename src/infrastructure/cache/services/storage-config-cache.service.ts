@@ -1,3 +1,4 @@
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
