@@ -59,11 +59,7 @@ export class PackageController {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilder.update({
-        table: 'package_definition',
-        where: [{ field: 'id', operator: '=', value: id }],
-        data: { status, ...extra },
-      });
+      await this.queryBuilder.update('package_definition', { where: [{ field: 'id', operator: '=', value: id }] }, { status, ...extra });
     } catch (error) {
       this.logger.error(
         `Failed to update status to ${status} for package ${id}: ${error.message}`,
@@ -102,7 +98,7 @@ export class PackageController {
     }
 
     const userId = req.routeData?.context?.$user?.id;
-    const savedPackage = await this.queryBuilder.insertAndGet(
+    const savedPackage = await this.queryBuilder.insert(
       'package_definition',
       {
         ...body,

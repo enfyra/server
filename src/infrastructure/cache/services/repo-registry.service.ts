@@ -62,6 +62,11 @@ export class RepoRegistryService {
     this.initialized = true;
   }
 
+  @OnEvent(CACHE_EVENTS.INVALIDATE)
+  private handleCacheInvalidation() {
+    this.initialized = false;
+  }
+
   resolveTableName(nameOrAlias: string): string | null {
     this.ensureInitialized();
     return this.aliasToName.get(nameOrAlias) ?? null;

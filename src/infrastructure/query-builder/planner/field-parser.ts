@@ -13,10 +13,15 @@ export function parseFields(
   const tableMeta = metadata?.tables?.get(tableName);
   if (!tableMeta) return tree;
 
+  const hasMongoId = tableMeta.columns?.some((c: any) => c.name === '_id' && c.isPrimary);
+  const hasSqlId = tableMeta.columns?.some((c: any) => c.name === 'id');
+  const pkAlias = hasMongoId && !hasSqlId ? '_id' : 'id';
+
   const fieldsByRelation = new Map<string, string[]>();
   const rootFields: string[] = [];
 
-  for (const field of fields) {
+  for (const rawField of fields) {
+    const field = rawField === 'id' ? pkAlias : rawField;
     if (field === '*') {
       rootFields.push('*');
     } else if (field.includes('.')) {
@@ -39,7 +44,7 @@ export function parseFields(
         (r: any) => r.propertyName === field,
       );
       if (isRelation) {
-        if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, ['id']);
+        if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, [pkAlias]);
       } else {
         const isColumn = tableMeta.columns?.some(
           (c: any) => c.name === field,
@@ -59,7 +64,7 @@ export function parseFields(
     tree.nodes.push({ kind: 'wildcard' });
     for (const rel of tableMeta.relations || []) {
       if (!fieldsByRelation.has(rel.propertyName)) {
-        fieldsByRelation.set(rel.propertyName, ['id']);
+        fieldsByRelation.set(rel.propertyName, [pkAlias]);
       }
     }
   } else {
@@ -111,10 +116,15 @@ function parseFieldsRecursive(
   const tableMeta = metadata?.tables?.get(tableName);
   if (!tableMeta) return [];
 
+  const hasMongoId = tableMeta.columns?.some((c: any) => c.name === '_id' && c.isPrimary);
+  const hasSqlId = tableMeta.columns?.some((c: any) => c.name === 'id');
+  const pkAlias = hasMongoId && !hasSqlId ? '_id' : 'id';
+
   const fieldsByRelation = new Map<string, string[]>();
   const rootFields: string[] = [];
 
-  for (const field of fields) {
+  for (const rawField of fields) {
+    const field = rawField === 'id' ? pkAlias : rawField;
     if (field === '*') {
       rootFields.push('*');
     } else if (field.includes('.')) {
@@ -137,7 +147,7 @@ function parseFieldsRecursive(
         (r: any) => r.propertyName === field,
       );
       if (isRelation) {
-        if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, ['id']);
+        if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, [pkAlias]);
       } else {
         const isColumn = tableMeta.columns?.some(
           (c: any) => c.name === field,
@@ -158,7 +168,7 @@ function parseFieldsRecursive(
     nodes.push({ kind: 'wildcard' });
     for (const rel of tableMeta.relations || []) {
       if (!fieldsByRelation.has(rel.propertyName)) {
-        fieldsByRelation.set(rel.propertyName, ['id']);
+        fieldsByRelation.set(rel.propertyName, [pkAlias]);
       }
     }
   } else {

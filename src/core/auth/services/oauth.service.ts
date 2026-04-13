@@ -213,21 +213,22 @@ export class OAuthService {
   ): Promise<any> {
     const isMongoDB = this.queryBuilder.isMongoDb();
 
-    const existingAccount = await this.queryBuilder.findOneWhere(
-      'oauth_account_definition',
-      {
+    const existingAccount = await this.queryBuilder.findOne({
+      table: 'oauth_account_definition',
+      where: {
         provider,
         providerUserId: userInfo.id,
       },
-    );
+    });
 
     if (existingAccount) {
       const userId = isMongoDB
         ? existingAccount.user?._id || existingAccount.user
         : existingAccount.userId;
 
-      const user = await this.queryBuilder.findOneWhere('user_definition', {
-        [isMongoDB ? '_id' : 'id']: userId,
+      const user = await this.queryBuilder.findOne({
+        table: 'user_definition',
+        where: { [isMongoDB ? '_id' : 'id']: userId },
       });
 
       if (!user) {
@@ -237,8 +238,9 @@ export class OAuthService {
       return user;
     }
 
-    let user = await this.queryBuilder.findOneWhere('user_definition', {
-      email: userInfo.email,
+    let user = await this.queryBuilder.findOne({
+      table: 'user_definition',
+      where: { email: userInfo.email },
     });
 
     if (!user) {
@@ -258,7 +260,7 @@ export class OAuthService {
               isSystem: false,
             };
 
-        user = await this.queryBuilder.insertAndGet(
+        user = await this.queryBuilder.insert(
           'user_definition',
           userData,
         );
@@ -266,8 +268,9 @@ export class OAuthService {
           `Created new user via ${provider} OAuth: ${userInfo.email}`,
         );
       } catch {
-        user = await this.queryBuilder.findOneWhere('user_definition', {
-          email: userInfo.email,
+        user = await this.queryBuilder.findOne({
+          table: 'user_definition',
+          where: { email: userInfo.email },
         });
         if (!user)
           throw new BadRequestException('Failed to create user account');
@@ -280,7 +283,7 @@ export class OAuthService {
       : { provider, providerUserId: userInfo.id, userId };
 
     try {
-      await this.queryBuilder.insertAndGet(
+      await this.queryBuilder.insert(
         'oauth_account_definition',
         accountData,
       );
@@ -324,7 +327,7 @@ export class OAuthService {
           loginProvider: provider,
         };
 
-    return this.queryBuilder.insertAndGet('session_definition', sessionData);
+    return this.queryBuilder.insert('session_definition', sessionData);
   }
 
   private async generateTokens(
@@ -362,7 +365,7 @@ export class OAuthService {
     const refreshTokenHash = createHash('sha256')
       .update(refreshToken)
       .digest('hex');
-    await this.queryBuilder.updateById(
+    await this.queryBuilder.update(
       'session_definition',
       sessionId?.toString(),
       { refreshTokenHash },

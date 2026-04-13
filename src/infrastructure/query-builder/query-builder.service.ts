@@ -14,6 +14,7 @@ import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from './planner/query-planner';
 import { DatabaseConfigService } from '../../shared/services/database-config.service';
+import { normalizeMongoDocument } from '../mongo/utils/normalize-mongo-document.util';
 
 let ObjectId: any;
 try {
@@ -174,7 +175,7 @@ export class QueryBuilderService {
     return query;
   }
 
-  async insert(options: InsertOptions): Promise<any> {
+  async insertWithOptions(options: InsertOptions): Promise<any> {
     if (this.dbType === 'mongodb') {
       const collection = this.mongoService.collection(options.table);
       if (Array.isArray(options.data)) {
@@ -262,7 +263,7 @@ export class QueryBuilderService {
     return executor.execute({ ...options, metadata, plan });
   }
 
-  async update(options: UpdateOptions): Promise<any> {
+  async updateWithOptions(options: UpdateOptions): Promise<any> {
     if (this.dbType === 'mongodb') {
       const dataWithRelations = await this.mongoService.processNestedRelations(
         options.table,
@@ -308,7 +309,7 @@ export class QueryBuilderService {
     return { affected: recordsToUpdate.length };
   }
 
-  async delete(options: DeleteOptions): Promise<number> {
+  async deleteWithOptions(options: DeleteOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
       const filter = this.buildMongoFilter(options.where);
 
@@ -340,6 +341,118 @@ export class QueryBuilderService {
       query = this.applyWhereToKnex(query, options.where);
     }
 
+    const result = await query.count('* as count').first();
+    return Number(result?.count || 0);
+  }
+
+  // ─── New Unified CRUD API ─────────────────────────────────────
+
+  private whereToFilter(where: Record<string, any>): any {
+    const filter: any = {};
+    for (const [key, value] of Object.entries(where)) {
+      if (key === 'id' || key === '_id') {
+        filter._id = { _eq: this.safeObjectId(value) };
+      } else {
+        filter[key] = { _eq: value };
+      }
+    }
+    return filter;
+  }
+
+  async find(options: {
+    table: string;
+    filter?: any;
+    where?: Record<string, any>;
+    fields?: string | string[];
+    sort?: string | string[];
+    page?: number;
+    limit?: number;
+    meta?: string | string[];
+    deep?: Record<string, any>;
+    debugMode?: boolean;
+    debugLog?: any[];
+    pipeline?: any[];
+    maxQueryDepth?: number;
+  }): Promise<any> {
+    const filter = options.filter || (options.where ? this.whereToFilter(options.where) : undefined);
+    return this.select({
+      tableName: options.table,
+      filter,
+      fields: options.fields,
+      sort: options.sort,
+      page: options.page,
+      limit: options.limit,
+      meta: options.meta as any,
+      deep: options.deep,
+      debugMode: options.debugMode,
+      debugLog: options.debugLog,
+      pipeline: options.pipeline,
+      maxQueryDepth: options.maxQueryDepth,
+    });
+  }
+
+  async findOne(options: {
+    table: string;
+    filter?: any;
+    where?: Record<string, any>;
+    fields?: string | string[];
+  }): Promise<any> {
+    const result = await this.find({
+      ...options,
+      limit: 1,
+    });
+    return result?.data?.[0] ?? null;
+  }
+
+  async insert(table: string, data: Record<string, any>): Promise<any> {
+    if (this.dbType === 'mongodb') {
+      const result = await this.mongoService.insertOne(table, data);
+      return normalizeMongoDocument(result);
+    }
+    const insertedId = await this.knexService.insertWithCascade(table, data);
+    const knex = this.knexService.getKnex();
+    const recordId = insertedId || data.id;
+    return await knex(table).where('id', recordId).first();
+  }
+
+  async update(table: string, id: any, data: Record<string, any>): Promise<any> {
+    // Bulk update via options object
+    if (id && typeof id === 'object' && 'where' in id) {
+      return this.updateWithOptions({ table, where: id.where, data });
+    }
+
+    // Single record update by ID
+    if (this.dbType === 'mongodb') {
+      const result = await this.mongoService.updateOne(table, id, data);
+      return normalizeMongoDocument(result);
+    }
+    await this.knexService.updateWithCascade(table, id, data);
+    const knex = this.knexService.getKnex();
+    return await knex(table).where('id', id).first();
+  }
+
+  async delete(table: string, id: any): Promise<boolean> {
+    // Bulk delete via options object
+    if (id && typeof id === 'object' && 'where' in id) {
+      const count = await this.deleteWithOptions({ table, where: id.where });
+      return count > 0;
+    }
+
+    // Single record delete by ID
+    if (this.dbType === 'mongodb') {
+      return this.mongoService.deleteOne(table, id);
+    }
+    const knex = this.knexService.getKnex();
+    const deleted = await knex(table).where('id', id).delete();
+    return deleted > 0;
+  }
+
+  async countRecords(table: string, filter?: any): Promise<number> {
+    if (this.dbType === 'mongodb') {
+      return this.mongoService.count(table, filter || {});
+    }
+    const knex = this.knexService.getKnex();
+    let query: any = knex(table);
     const result = await query.count('* as count').first();
     return Number(result?.count || 0);
   }

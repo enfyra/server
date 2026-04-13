@@ -38,8 +38,9 @@ export class AuthService {
   async login(body: LoginAuthDto) {
     const { email, password } = body;
 
-    const user = await this.queryBuilder.findOneWhere('user_definition', {
-      email,
+    const user = await this.queryBuilder.findOne({
+      table: 'user_definition',
+      where: { email },
     });
 
     if (
@@ -75,7 +76,7 @@ export class AuthService {
           loginProvider: null,
         };
 
-    const insertedSession = await this.queryBuilder.insertAndGet(
+    const insertedSession = await this.queryBuilder.insert(
       'session_definition',
       sessionData,
     );
@@ -108,7 +109,7 @@ export class AuthService {
       },
     );
 
-    await this.queryBuilder.updateById('session_definition', sessionId, {
+    await this.queryBuilder.update('session_definition', sessionId, {
       refreshTokenHash: this.hashToken(refreshToken),
     });
 
@@ -132,8 +133,9 @@ export class AuthService {
     const { sessionId } = decoded;
 
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const session = await this.queryBuilder.findOneWhere('session_definition', {
-      [sessionIdField]: sessionId,
+    const session = await this.queryBuilder.findOne({
+      table: 'session_definition',
+      where: { [sessionIdField]: sessionId },
     });
 
     if (!req.user) {
@@ -151,7 +153,7 @@ export class AuthService {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    await this.queryBuilder.deleteById(
+    await this.queryBuilder.delete(
       'session_definition',
       session._id || session.id,
     );
@@ -167,8 +169,9 @@ export class AuthService {
     }
 
     const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const session = await this.queryBuilder.findOneWhere('session_definition', {
-      [sessionIdField]: decoded.sessionId,
+    const session = await this.queryBuilder.findOne({
+      table: 'session_definition',
+      where: { [sessionIdField]: decoded.sessionId },
     });
 
     if (!session) {
@@ -225,7 +228,7 @@ export class AuthService {
       },
     );
 
-    await this.queryBuilder.updateById('session_definition', sessionId, {
+    await this.queryBuilder.update('session_definition', sessionId, {
       expiredAt: newExpiredAt,
       refreshTokenHash: this.hashToken(refreshToken),
     });

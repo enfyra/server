@@ -35,8 +35,8 @@ export class OAuthConfigCacheService extends BaseCacheService<
   }
 
   protected async loadFromDb(): Promise<OAuthConfig[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'oauth_config_definition',
+    const result = await this.queryBuilder.find({
+      table: 'oauth_config_definition',
       filter: { isEnabled: { _eq: true } },
     });
     if (!result.data || result.data.length === 0) {

@@ -1,4 +1,4 @@
-import { Db, Collection, ObjectId } from 'mongodb';
+import { Db, Collection } from 'mongodb';
 import { QueryOptions } from '../../../shared/types/query-builder.types';
 import { whereToMongoFilter } from '../utils/mongo/filter-builder';
 import { expandFieldsMongo } from '../utils/mongo/expand-fields';
@@ -17,6 +17,7 @@ import { renderFilterToMongo } from '../utils/mongo/render-filter';
 import { renderFieldsToMongo } from '../utils/mongo/render-fields';
 import { validateFilterShape } from '../utils/shared/filter-sanitizer.util';
 import { QueryPlanner } from '../planner/query-planner';
+import { normalizeMongoDocument } from '../../mongo/utils/normalize-mongo-document.util';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -535,6 +536,8 @@ export class MongoQueryExecutor {
           targetTable: rel.targetTable,
           fields: rel.nestedFields && rel.nestedFields.length > 0 ? rel.nestedFields : ['_id'],
           isInverse: relMeta?.isInverse,
+          mappedBy: relMeta?.mappedBy,
+          junctionTableName: relMeta?.junctionTableName,
           localField: rel.localField,
           foreignField: rel.foreignField,
         };
@@ -549,6 +552,7 @@ export class MongoQueryExecutor {
           metadataGetter,
           3,
           0,
+          options.table,
         );
       }
     }
@@ -659,77 +663,6 @@ export class MongoQueryExecutor {
   }
 
   private normalizeMongoResults(results: any[]): any[] {
-    return results.map((result) => this.normalizeMongoObject(result));
-  }
-
-  private normalizeMongoObject(obj: any): any {
-    if (!obj || typeof obj !== 'object') {
-      return obj;
-    }
-
-    if (obj instanceof ObjectId) {
-      return obj.toString();
-    }
-
-    if (obj instanceof Date) {
-      return obj.toISOString();
-    }
-
-    if (Array.isArray(obj)) {
-      return obj.map((item) => this.normalizeMongoObject(item));
-    }
-
-    if (
-      'buffer' in obj &&
-      obj.buffer &&
-      typeof obj.buffer === 'object' &&
-      Object.keys(obj.buffer).length === 12
-    ) {
-      try {
-        const bufferObj = obj.buffer as Record<string, number>;
-        const bufferArray = Object.keys(bufferObj)
-          .sort((a, b) => parseInt(a) - parseInt(b))
-          .map((key) => bufferObj[key]);
-        const objectId = new ObjectId(Buffer.from(bufferArray));
-        return objectId.toString();
-      } catch {}
-    }
-
-    const normalized: any = {};
-    for (const [key, value] of Object.entries(obj)) {
-      if (value instanceof ObjectId) {
-        normalized[key] = value.toString();
-      } else if (value instanceof Date) {
-        normalized[key] = value.toISOString();
-      } else if (
-        value &&
-        typeof value === 'object' &&
-        !(value instanceof Buffer)
-      ) {
-        if (
-          'buffer' in value &&
-          value.buffer &&
-          typeof value.buffer === 'object' &&
-          Object.keys(value.buffer).length === 12
-        ) {
-          try {
-            const bufferObj = value.buffer as Record<string, number>;
-            const bufferArray = Object.keys(bufferObj)
-              .sort((a, b) => parseInt(a) - parseInt(b))
-              .map((key) => bufferObj[key]);
-            const objectId = new ObjectId(Buffer.from(bufferArray));
-            normalized[key] = objectId.toString();
-          } catch {
-            normalized[key] = this.normalizeMongoObject(value);
-          }
-        } else {
-          normalized[key] = this.normalizeMongoObject(value);
-        }
-      } else {
-        normalized[key] = value;
-      }
-    }
-
-    return normalized;
+    return results.map(normalizeMongoDocument);
   }
 }

@@ -6,7 +6,7 @@ export class MongoQueryEngine {
   constructor(private queryBuilder: QueryBuilderService) {}
 
   async find(options: {
-    tableName: string;
+    table: string;
     fields?: string | string[];
     filter?: any;
     sort?: string | string[];
@@ -18,7 +18,7 @@ export class MongoQueryEngine {
     debugMode?: boolean;
   }): Promise<any> {
     const {
-      tableName,
+      table: tableName,
       fields,
       filter,
       sort,
@@ -30,8 +30,8 @@ export class MongoQueryEngine {
 
     const normalizedFields = fields || '*';
 
-    const result = await this.queryBuilder.select({
-      tableName,
+    const result = await this.queryBuilder.find({
+      table: tableName,
       fields: normalizedFields,
       filter,
       sort,

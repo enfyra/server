@@ -115,7 +115,7 @@ function makeRepoHarness(opts: {
       runWithPolicy: async (_cb: any, fn: any) => await fn(),
       runWithFieldPermissionCheck: async (_cb: any, fn: any) => await fn(),
       insertAndGet: async () => ({ id: 1 }),
-      updateById: async () => ({ id: 1 }),
+      update: async () => ({ id: 1 }),
       deleteById: async () => ({ id: 1 }),
     } as any,
     tableHandlerService: {

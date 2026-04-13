@@ -110,8 +110,8 @@ export class BootstrapScriptService {
   }
 
   private async executeBootstrapScriptsWithoutLock(): Promise<number> {
-    const result = await this.queryBuilder.select({
-      tableName: 'bootstrap_script_definition',
+    const result = await this.queryBuilder.find({
+      table: 'bootstrap_script_definition',
       filter: { isEnabled: { _eq: true } },
       sort: ['priority'],
     });

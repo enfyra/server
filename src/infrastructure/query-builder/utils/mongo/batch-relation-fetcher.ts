@@ -15,8 +15,15 @@ export async function executeMongoBatchFetches(
   metadataGetter: MetadataGetter,
   maxDepth: number = 3,
   currentDepth: number = 0,
+  parentTableName?: string,
 ): Promise<void> {
   const adapter = new MongoBatchAdapter(db);
   const engine = new BatchFetchEngine(adapter, metadataGetter);
-  await engine.execute(parentDocs, descriptors, maxDepth, currentDepth);
+  await engine.execute(
+    parentDocs,
+    descriptors,
+    maxDepth,
+    currentDepth,
+    parentTableName,
+  );
 }

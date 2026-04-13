@@ -133,8 +133,8 @@ export class FlowExecutionQueueService extends WorkerHost {
   private async cleanupOldExecutions(flow: FlowDefinition): Promise<void> {
     const maxExecutions = flow.maxExecutions || 100;
     try {
-      const countResult = await this.queryBuilder.select({
-        tableName: 'flow_execution_definition',
+      const countResult = await this.queryBuilder.find({
+        table: 'flow_execution_definition',
         filter: { flow: { _eq: flow.id } },
         fields: ['id'],
         limit: 1,
@@ -145,8 +145,8 @@ export class FlowExecutionQueueService extends WorkerHost {
       if (total <= maxExecutions) return;
 
       const deleteCount = Math.min(total - maxExecutions, 200);
-      const oldResult = await this.queryBuilder.select({
-        tableName: 'flow_execution_definition',
+      const oldResult = await this.queryBuilder.find({
+        table: 'flow_execution_definition',
         filter: { flow: { _eq: flow.id } },
         sort: ['startedAt'],
         fields: ['id'],
@@ -154,7 +154,7 @@ export class FlowExecutionQueueService extends WorkerHost {
       });
       const toDelete = oldResult.data || [];
       for (const row of toDelete) {
-        await this.queryBuilder.deleteById(
+        await this.queryBuilder.delete(
           'flow_execution_definition',
           row.id || row._id,
         );
@@ -382,7 +382,7 @@ export class FlowExecutionQueueService extends WorkerHost {
     payload: any,
     triggeredBy: any,
   ): Promise<number | string> {
-    const record = await this.queryBuilder.insertAndGet(
+    const record = await this.queryBuilder.insert(
       'flow_execution_definition',
       {
         flowId: flow.id,
@@ -398,7 +398,7 @@ export class FlowExecutionQueueService extends WorkerHost {
     executionId: number | string,
     data: any,
   ): Promise<void> {
-    await this.queryBuilder.updateById(
+    await this.queryBuilder.update(
       'flow_execution_definition',
       executionId,
       data,

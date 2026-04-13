@@ -338,7 +338,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         for (const key in cleaned) {
           if (Array.isArray(cleaned[key])) delete cleaned[key];
         }
-        existingRecord = await queryBuilder.findOneWhere(tableName, cleaned);
+        existingRecord = await queryBuilder.findOne({ table: tableName, where: cleaned });
         if (existingRecord) break;
       }
       if (existingRecord) {
@@ -355,7 +355,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         totalSkipped++;
         return;
       }
-      const inserted = await queryBuilder.insertAndGet(tableName, record);
+      const inserted = await queryBuilder.insert(tableName, record);
       this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
       if (this.afterUpsert) {
         await this.afterUpsert(
@@ -402,10 +402,10 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       }
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
-        const parent = await this.queryBuilder.findOneWhere(
-          'menu_definition',
-          { type: 'Dropdown Menu', label: parentLabel },
-        );
+        const parent = await this.queryBuilder.findOne({
+          table: 'menu_definition',
+          where: { type: 'Dropdown Menu', label: parentLabel },
+        });
         if (parent) {
           if (isMongoDB) {
             transformed.parent =

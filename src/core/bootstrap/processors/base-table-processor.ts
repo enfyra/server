@@ -42,8 +42,11 @@ export abstract class BaseTableProcessor {
       if (rawValue === undefined || rawValue === null) continue;
       if (typeof rawValue !== 'string') continue;
 
-      const target = await queryBuilder.findOneWhere(rel.targetTable, {
-        [rel.lookupKey]: rawValue,
+      const target = await queryBuilder.findOne({
+        table: rel.targetTable,
+        where: {
+          [rel.lookupKey]: rawValue,
+        },
       });
 
       if (!target) {
@@ -128,17 +131,17 @@ export abstract class BaseTableProcessor {
               delete cleanedCondition[key];
             }
           }
-          existingRecord = await queryBuilder.findOneWhere(
-            tableName,
-            cleanedCondition,
-          );
+          existingRecord = await queryBuilder.findOne({
+            table: tableName,
+            where: cleanedCondition,
+          });
           if (existingRecord) break;
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
             const existingId = existingRecord[idField];
-            await queryBuilder.updateById(tableName, existingId, record);
+            await queryBuilder.update(tableName, existingId, record);
             skippedCount++;
             this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
           } else {
@@ -153,7 +156,7 @@ export abstract class BaseTableProcessor {
             );
           }
         } else {
-          const inserted = await queryBuilder.insertAndGet(tableName, record);
+          const inserted = await queryBuilder.insert(tableName, record);
           const insertedId = inserted[idField];
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);

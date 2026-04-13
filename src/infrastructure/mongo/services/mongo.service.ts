@@ -30,6 +30,9 @@ import {
   normalizeRelationOnDelete,
   TRelationOnDeleteAction,
 } from '../utils/mongo-relation-on-delete.util';
+import { resolveMongoJunctionInfo } from '../utils/mongo-junction.util';
+
+const M2M_PENDING = Symbol('mongoService.m2mPending');
 import {
   DatabaseException,
   ValidationException,
@@ -407,9 +410,10 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     const result = { ...data };
 
     for (const relation of metadata.relations) {
+      if (relation.type === 'many-to-many') continue;
+
       const isInverse =
         relation.type === 'one-to-many' ||
-        (relation.type === 'many-to-many' && relation.mappedBy) ||
         relation.isInverse;
 
       if (isInverse && relation.propertyName in result) {
@@ -479,6 +483,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       dataWithRelations,
     );
 
+    await this.writeM2mJunctionsForInsert(
+      collectionName,
+      insertedId,
+      dataWithRelations,
+    );
+
     return {
       ...dataWithTimestamps,
       _id: insertedId,
@@ -522,6 +532,9 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const relation of metadata.relations) {
+      if (relation.type === 'many-to-many') {
+        continue;
+      }
       if (!relation.mappedBy) {
         continue;
       }
@@ -661,7 +674,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
       const isInverse =
         relation.type === 'one-to-many' ||
-        (relation.type === 'many-to-many' && relation.mappedBy) ||
         (relation.type === 'one-to-one' &&
           (relation.mappedBy || relation.isInverse));
 
@@ -674,7 +686,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
       if (fieldValue === null || fieldValue === undefined) {
         if (relation.type === 'many-to-many') {
-          processed[fieldName] = [];
+          this.setM2mPending(processed, fieldName, []);
+          delete processed[fieldName];
         } else {
           processed[fieldName] = null;
         }
@@ -715,7 +728,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         }
       } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
         if (!Array.isArray(fieldValue)) {
-          processed[fieldName] = [];
+          if (relation.type === 'many-to-many') {
+            this.setM2mPending(processed, fieldName, []);
+            delete processed[fieldName];
+          } else {
+            processed[fieldName] = [];
+          }
           continue;
         }
 
@@ -755,7 +773,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
             );
           }
         }
-        processed[fieldName] = processedArray;
+        if (relation.type === 'many-to-many') {
+          this.setM2mPending(processed, fieldName, processedArray);
+          delete processed[fieldName];
+        } else {
+          processed[fieldName] = processedArray;
+        }
       }
     }
 
@@ -830,6 +853,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       dataWithRelations,
     );
 
+    await this.writeM2mJunctionsForUpdate(
+      collectionName,
+      objectId,
+      dataWithRelations,
+    );
+
     return this.findOne(collectionName, { _id: objectId });
   }
 
@@ -863,14 +892,19 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const relation of metadata.relations) {
-      if (!relation.mappedBy) {
-        continue;
-      }
-
       const onDelete = normalizeRelationOnDelete(relation);
       const fieldName = relation.propertyName;
       const fieldValue = recordData?.[fieldName];
       const targetCollection = relation.targetTableName || relation.targetTable;
+
+      if (relation.type === 'many-to-many') {
+        await this.applyManyToManyOnDelete(tableName, relation, recordId, onDelete);
+        continue;
+      }
+
+      if (!relation.mappedBy) {
+        continue;
+      }
 
       if (relation.type === 'many-to-one') {
         await this.unlinkManyToOneInverse(
@@ -884,17 +918,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
       if (relation.type === 'one-to-many') {
         await this.applyOneToManyOnDelete(
-          relation,
-          recordId,
-          targetCollection,
-          fieldValue,
-          onDelete,
-        );
-        continue;
-      }
-
-      if (relation.type === 'many-to-many') {
-        await this.applyManyToManyOnDelete(
           relation,
           recordId,
           targetCollection,
@@ -1033,38 +1056,121 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async applyManyToManyOnDelete(
+    tableName: string,
     relation: any,
     recordId: ObjectId,
-    targetCollection: string,
-    fieldValue: any,
     onDelete: TRelationOnDeleteAction,
   ): Promise<void> {
-    const mappedBy = relation.mappedBy;
-    let targetIds: ObjectId[] = [];
-    if (Array.isArray(fieldValue) && fieldValue.length > 0) {
-      targetIds = fieldValue.map((v) =>
-        v instanceof ObjectId ? v : new ObjectId(v),
-      );
-    } else {
-      const targets = await this.collection(targetCollection)
-        .find({ [mappedBy]: recordId } as any)
-        .toArray();
-      targetIds = targets.map((t) => t._id);
+    const info = this.resolveJunctionInfo(tableName, relation);
+    if (!info) return;
+
+    const junctionColl = this.collection(info.junctionName);
+
+    if (onDelete === 'RESTRICT') {
+      const count = await junctionColl.countDocuments({
+        [info.selfColumn]: recordId,
+      } as any);
+      if (count > 0) {
+        const targetCollection =
+          relation.targetTableName || relation.targetTable;
+        throw new ValidationException(
+          `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
+          { relation: relation.propertyName, targetCollection },
+        );
+      }
     }
 
-    if (onDelete === 'RESTRICT' && targetIds.length > 0) {
-      throw new ValidationException(
-        `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
-        { relation: relation.propertyName, targetCollection },
-      );
-    }
+    await junctionColl.deleteMany({ [info.selfColumn]: recordId } as any);
+  }
 
-    const coll = this.collection(targetCollection);
-    for (const targetId of targetIds) {
-      await coll.updateOne(
-        { _id: targetId },
-        { $pull: { [mappedBy]: recordId } } as any,
+  private setM2mPending(
+    carrier: any,
+    propertyName: string,
+    ids: ObjectId[],
+  ): void {
+    if (!carrier[M2M_PENDING]) {
+      carrier[M2M_PENDING] = new Map<string, ObjectId[]>();
+    }
+    (carrier[M2M_PENDING] as Map<string, ObjectId[]>).set(propertyName, ids);
+  }
+
+  private getM2mPending(carrier: any): Map<string, ObjectId[]> | null {
+    return (carrier?.[M2M_PENDING] as Map<string, ObjectId[]>) || null;
+  }
+
+  private resolveJunctionInfo(currentTable: string, relation: any) {
+    return resolveMongoJunctionInfo(currentTable, relation);
+  }
+
+  private async writeM2mJunctionsForInsert(
+    tableName: string,
+    recordId: ObjectId,
+    data: any,
+  ): Promise<void> {
+    const pending = this.getM2mPending(data);
+    if (!pending || pending.size === 0) return;
+
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    if (!metadata?.relations) return;
+
+    for (const [propertyName, targetIds] of pending.entries()) {
+      const relation = metadata.relations.find(
+        (r: any) => r.propertyName === propertyName,
       );
+      if (!relation) continue;
+      const info = this.resolveJunctionInfo(tableName, relation);
+      if (!info) continue;
+      if (!targetIds.length) continue;
+
+      const rows = targetIds.map((otherId) => ({
+        [info.selfColumn]: recordId,
+        [info.otherColumn]: otherId,
+      }));
+
+      try {
+        await this.collection(info.junctionName).insertMany(rows as any, {
+          ordered: false,
+        });
+      } catch (err: any) {
+        if (err?.code !== 11000) throw err;
+      }
+    }
+  }
+
+  private async writeM2mJunctionsForUpdate(
+    tableName: string,
+    recordId: ObjectId,
+    data: any,
+  ): Promise<void> {
+    const pending = this.getM2mPending(data);
+    if (!pending || pending.size === 0) return;
+
+    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    if (!metadata?.relations) return;
+
+    for (const [propertyName, targetIds] of pending.entries()) {
+      const relation = metadata.relations.find(
+        (r: any) => r.propertyName === propertyName,
+      );
+      if (!relation) continue;
+      const info = this.resolveJunctionInfo(tableName, relation);
+      if (!info) continue;
+
+      const junctionColl = this.collection(info.junctionName);
+
+      await junctionColl.deleteMany({ [info.selfColumn]: recordId } as any);
+
+      if (!targetIds.length) continue;
+
+      const rows = targetIds.map((otherId) => ({
+        [info.selfColumn]: recordId,
+        [info.otherColumn]: otherId,
+      }));
+      try {
+        await junctionColl.insertMany(rows as any, { ordered: false });
+      } catch (err: any) {
+        if (err?.code !== 11000) throw err;
+      }
     }
   }
 
@@ -1187,9 +1293,6 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     for (const unique of uniques) {
       const fields = Array.isArray(unique) ? unique : [unique];
       if (fields.length === 1 && fields[0] === fieldName) {
-        return true;
-      }
-      if (fields.includes(fieldName)) {
         return true;
       }
     }

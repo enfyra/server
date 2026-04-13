@@ -14,6 +14,10 @@ import {
   hasSchemaMigrations,
   applyMongoSchemaMigrations,
 } from './utils/schema-migration';
+import {
+  buildJunctionDefs,
+  createJunctionCollections,
+} from './utils/mongo/junction-collections';
 dotenv.config();
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {
@@ -67,12 +71,6 @@ function createValidationSchema(tableDef: TableDef, allTables: Record<string, Ta
         properties[rel.propertyName] = {
           bsonType: ['objectId', 'null'],
           description: `Reference to ${rel.targetTable}`,
-        };
-      } else if (rel.type === 'many-to-many') {
-        properties[rel.propertyName] = {
-          bsonType: 'array',
-          items: { bsonType: 'objectId' },
-          description: `Many-to-many relation to ${rel.targetTable}`,
         };
       }
     }
@@ -181,23 +179,6 @@ async function createIndexes(
           }
         }
       }
-      if (relation.type === 'many-to-many') {
-        const fieldName = relation.propertyName;
-        const indexName = `${collectionName}_${fieldName}_fk_idx`;
-        try {
-          await collection.createIndex(
-            { [fieldName]: 1 },
-            { name: indexName }
-          );
-          console.log(`  Created index on M2M field: ${fieldName}`);
-        } catch (error: any) {
-          if (error.code === 85 || error.code === 86) {
-            console.log(`  Index on ${fieldName} already exists, skipping`);
-          } else {
-            throw error;
-          }
-        }
-      }
     }
   }
 }
@@ -274,6 +255,10 @@ export async function initializeDatabaseMongo(): Promise<void> {
     for (const tableDef of tables) {
       await createCollection(db, tableDef, snapshot);
     }
+
+    const junctionDefs = buildJunctionDefs(snapshot);
+    await createJunctionCollections(db, junctionDefs);
+
     console.log('🎉 MongoDB database initialization completed!');
   } catch (error) {
     console.error('❌ Error during MongoDB initialization:', error);

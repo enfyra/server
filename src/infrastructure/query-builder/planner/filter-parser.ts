@@ -86,16 +86,21 @@ function parseEntry(
   }
 
   const tableMeta = ctx.metadata?.tables?.get(ctx.currentTable);
+  const hasMongoId = tableMeta?.columns?.some((c: any) => c.name === '_id' && c.isPrimary);
+  const hasSqlId = tableMeta?.columns?.some((c: any) => c.name === 'id');
+  const pkAlias = hasMongoId && !hasSqlId ? '_id' : 'id';
+  const normalizedKey = key === 'id' ? pkAlias : key;
+
   const relation = tableMeta?.relations?.find(
-    (r: any) => r.propertyName === key,
+    (r: any) => r.propertyName === normalizedKey,
   );
 
   if (relation) {
-    return parseRelationEntry(key, value, relation, ctx);
+    return parseRelationEntry(normalizedKey, value, relation, ctx);
   }
 
   if (tableMeta) {
-    const column = tableMeta.columns?.find((c: any) => c.name === key);
+    const column = tableMeta.columns?.find((c: any) => c.name === normalizedKey);
     if (!column) {
       if (key.startsWith('_')) {
         throwUnsupportedFieldOperator(key, key, ctx.currentTable);
@@ -107,7 +112,7 @@ function parseEntry(
     }
   }
 
-  return parseFieldEntry(key, value, ctx);
+  return parseFieldEntry(normalizedKey, value, ctx);
 }
 
 function parseLogicalArray(

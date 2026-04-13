@@ -114,7 +114,7 @@ export class GraphqlService {
     if (queryableChanged) return null;
 
     const isMetadata = ['table_definition', 'column_definition', 'relation_definition']
-      .includes(payload.tableName);
+      .includes(payload.table);
 
     if (!isMetadata) {
       return new Set();

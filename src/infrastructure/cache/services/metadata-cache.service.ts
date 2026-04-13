@@ -105,8 +105,8 @@ export class MetadataCacheService {
 
     let tables: any[] = [];
     if (tableIds.length > 0) {
-      const tablesResult = await this.queryBuilder.select({
-        tableName: 'table_definition',
+      const tablesResult = await this.queryBuilder.find({
+        table: 'table_definition',
         filter: { id: { _in: tableIds } },
       });
       tables = tablesResult.data;
@@ -120,8 +120,8 @@ export class MetadataCacheService {
     const affectedTableNames = new Set(payload.affectedTables || []);
 
     if (affectedTableNames.size > 0) {
-      const affectedResult = await this.queryBuilder.select({
-        tableName: 'table_definition',
+      const affectedResult = await this.queryBuilder.find({
+        table: 'table_definition',
         filter: { name: { _in: [...affectedTableNames] } },
       });
       for (const t of affectedResult.data) {
@@ -134,14 +134,14 @@ export class MetadataCacheService {
     const uniqueTableIds = [...new Set(allTableIds.map(String))];
 
     const [columnsResult, relationsResult] = await Promise.all([
-      this.queryBuilder.select({
-        tableName: 'column_definition',
+      this.queryBuilder.find({
+        table: 'column_definition',
         filter: isMongoDB
           ? { table: { _in: uniqueTableIds } }
           : { tableId: { _in: uniqueTableIds } },
       }),
-      this.queryBuilder.select({
-        tableName: 'relation_definition',
+      this.queryBuilder.find({
+        table: 'relation_definition',
         filter: isMongoDB
           ? { sourceTable: { _in: uniqueTableIds } }
           : { sourceTableId: { _in: uniqueTableIds } },
@@ -429,9 +429,9 @@ export class MetadataCacheService {
 
     const [tablesResult, allColumnsResult, allRelationsResult] =
       await Promise.all([
-        this.queryBuilder.select({ tableName: 'table_definition' }),
-        this.queryBuilder.select({ tableName: 'column_definition' }),
-        this.queryBuilder.select({ tableName: 'relation_definition' }),
+        this.queryBuilder.find({ table: 'table_definition' }),
+        this.queryBuilder.find({ table: 'column_definition' }),
+        this.queryBuilder.find({ table: 'relation_definition' }),
       ]);
     const tables = tablesResult.data;
 

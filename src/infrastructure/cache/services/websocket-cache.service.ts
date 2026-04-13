@@ -49,8 +49,8 @@ export class WebsocketCacheService extends BaseCacheService<
   }
 
   protected async loadFromDb(): Promise<WebSocketGateway[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'websocket_definition',
+    const result = await this.queryBuilder.find({
+      table: 'websocket_definition',
       filter: { isEnabled: { _eq: true } },
       fields: ['*', 'events.*'],
     });

@@ -1,5 +1,6 @@
 import { separateFilters } from '../shared/filter-separator.util';
 import { renderRawFilterToMongo } from './render-filter';
+import { resolveMongoJunctionInfo } from '../../../mongo/utils/mongo-junction.util';
 
 export async function buildRelationLookupPipeline(
   metadata: any,
@@ -96,6 +97,58 @@ export async function applyRelationFilters(
       dbType,
     );
 
+    if (relation.type === 'many-to-many') {
+      const info = resolveMongoJunctionInfo(tableName, relation as any);
+      if (!info) continue;
+
+      if (lookupPipeline.length > 0) {
+        pipeline.push({
+          $lookup: {
+            from: info.junctionName,
+            localField: '_id',
+            foreignField: info.selfColumn,
+            as: lookupFieldName,
+            pipeline: [
+              {
+                $lookup: {
+                  from: targetTable,
+                  localField: info.otherColumn,
+                  foreignField: '_id',
+                  as: 'targetDocs',
+                  pipeline: lookupPipeline,
+                },
+              },
+              { $match: { $expr: { $gt: [{ $size: '$targetDocs' }, 0] } } },
+            ],
+          },
+        });
+      } else {
+        pipeline.push({
+          $lookup: {
+            from: info.junctionName,
+            localField: '_id',
+            foreignField: info.selfColumn,
+            as: lookupFieldName,
+          },
+        });
+      }
+
+      pipeline.push({
+        $match: {
+          $expr: invert
+            ? { $eq: [{ $size: `$${lookupFieldName}` }, 0] }
+            : { $gt: [{ $size: `$${lookupFieldName}` }, 0] },
+        },
+      });
+
+      pipeline.push({
+        $project: {
+          [lookupFieldName]: 0,
+        },
+      });
+      continue;
+    }
+
     let localField: string;
     let foreignField: string;
 
@@ -105,14 +158,6 @@ export async function applyRelationFilters(
     } else if (relation.type === 'one-to-many') {
       localField = '_id';
       foreignField = relation.foreignKeyColumn || 'id';
-    } else if (relation.type === 'many-to-many') {
-      if ((relation as any).isInverse) {
-        localField = '_id';
-        foreignField = relation.mappedBy || relationName;
-      } else {
-        localField = relationName;
-        foreignField = '_id';
-      }
     } else {
       continue;
     }
@@ -325,6 +370,44 @@ export async function applyMixedFilters(
         let localField: string;
         let foreignField: string;
 
+        if (relation.type === 'many-to-many') {
+          const info = resolveMongoJunctionInfo(tableName, relation as any);
+          if (!info) continue;
+
+          if (lookupPipeline.length > 0) {
+            pipeline.push({
+              $lookup: {
+                from: info.junctionName,
+                localField: '_id',
+                foreignField: info.selfColumn,
+                as: lookupFieldName,
+                pipeline: [
+                  {
+                    $lookup: {
+                      from: targetTable,
+                      localField: info.otherColumn,
+                      foreignField: '_id',
+                      as: 'targetDocs',
+                      pipeline: lookupPipeline,
+                    },
+                  },
+                  { $match: { $expr: { $gt: [{ $size: '$targetDocs' }, 0] } } },
+                ],
+              },
+            });
+          } else {
+            pipeline.push({
+              $lookup: {
+                from: info.junctionName,
+                localField: '_id',
+                foreignField: info.selfColumn,
+                as: lookupFieldName,
+              },
+            });
+          }
+          continue;
+        }
+
         if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
           localField =
             relation.foreignKeyColumn || `${relCondition.relationName}Id`;
@@ -332,14 +415,6 @@ export async function applyMixedFilters(
         } else if (relation.type === 'one-to-many') {
           localField = '_id';
           foreignField = relation.foreignKeyColumn || 'id';
-        } else if (relation.type === 'many-to-many') {
-          if ((relation as any).isInverse) {
-            localField = '_id';
-            foreignField = relation.mappedBy || relCondition.relationName;
-          } else {
-            localField = relCondition.relationName;
-            foreignField = '_id';
-          }
         } else {
           continue;
         }

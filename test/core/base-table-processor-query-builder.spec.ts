@@ -21,7 +21,7 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
     const qb = {
       findOneWhere: jest.fn(),
       insertAndGet: jest.fn(),
-      updateById: jest.fn(),
+      update: jest.fn(),
     };
     const r: UpsertResult = await p.processWithQueryBuilder(
       [],
@@ -37,7 +37,7 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
     const qb = {
       findOneWhere: jest.fn().mockResolvedValue(null),
       insertAndGet: jest.fn().mockResolvedValue({ id: 10, name: 'alpha' }),
-      updateById: jest.fn(),
+      update: jest.fn(),
     };
     const r = await p.processWithQueryBuilder(
       [{ name: 'alpha', description: 'd' }],
@@ -58,7 +58,7 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
         .fn()
         .mockResolvedValue({ id: 7, name: 'alpha', description: 'old' }),
       insertAndGet: jest.fn(),
-      updateById: jest.fn().mockResolvedValue(undefined),
+      update: jest.fn().mockResolvedValue(undefined),
     };
     const r = await p.processWithQueryBuilder(
       [{ name: 'alpha', description: 'new' }],
@@ -66,7 +66,7 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
       'demo_table',
     );
     expect(r.skipped).toBe(1);
-    expect(qb.updateById).toHaveBeenCalledWith('demo_table', 7, {
+    expect(qb.update).toHaveBeenCalledWith('demo_table', 7, {
       name: 'alpha',
       description: 'new',
     });

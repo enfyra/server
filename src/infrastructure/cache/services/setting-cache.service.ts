@@ -31,8 +31,8 @@ export class SettingCacheService extends BaseCacheService<SettingData> {
 
   protected async loadFromDb(): Promise<any> {
     try {
-      const result = await this.queryBuilder.select({
-        tableName: 'setting_definition',
+      const result = await this.queryBuilder.find({
+        table: 'setting_definition',
         limit: 1,
       });
       return result?.data?.[0] || {};

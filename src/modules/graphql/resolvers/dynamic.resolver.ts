@@ -214,15 +214,17 @@ export class DynamicResolver {
     } catch {
       throwGqlError('401', 'Unauthorized');
     }
-    const user = await this.queryBuilder.findOneWhere('user_definition', {
-      id: decoded.id,
+    const user = await this.queryBuilder.findOne({
+      table: 'user_definition',
+      where: { id: decoded.id },
     });
     if (!user) {
       throwGqlError('401', 'Invalid user');
     }
     if (user.roleId) {
-      user.role = await this.queryBuilder.findOneWhere('role_definition', {
-        id: user.roleId,
+      user.role = await this.queryBuilder.findOne({
+        table: 'role_definition',
+        where: { id: user.roleId },
       });
     }
 

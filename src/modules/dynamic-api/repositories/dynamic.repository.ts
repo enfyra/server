@@ -402,8 +402,10 @@ export class DynamicRepository {
       this.context.$query?.debugMode === true;
     const filterValue =
       opt?.filter ?? opt?.where ?? this.context.$query?.filter ?? {};
+    if (this.tableName === 'table_definition') {
+    }
     const result = await this.queryEngine.find({
-      tableName: this.tableName,
+      table: this.tableName,
       fields: cleanFields || '',
       filter: filterValue,
       page: this.context.$query?.page || 1,
@@ -557,7 +559,7 @@ export class DynamicRepository {
       const inserted = await this.wrapWithFieldPermissionCheck(() =>
         this.queryBuilder.runWithPolicy(
           (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-          () => this.queryBuilder.insertAndGet(this.tableName, body),
+          () => this.queryBuilder.insert(this.tableName, body),
         ),
       );
       const createdId = inserted.id || inserted._id || body.id;
@@ -716,7 +718,7 @@ export class DynamicRepository {
       await this.wrapWithFieldPermissionCheck(() =>
         this.queryBuilder.runWithPolicy(
           (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-          () => this.queryBuilder.updateById(this.tableName, id, body),
+          () => this.queryBuilder.update(this.tableName, id, body),
         ),
       );
       const result = await this.find({
@@ -768,7 +770,7 @@ export class DynamicRepository {
       }
       await this.queryBuilder.runWithPolicy(
         (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-        () => this.queryBuilder.deleteById(this.tableName, id),
+        () => this.queryBuilder.delete(this.tableName, id),
       );
       await this.reload({ ids: [id] });
       return { message: 'Delete successfully!', statusCode: 200 };
@@ -903,7 +905,7 @@ export class DynamicRepository {
     affectedTables?: string[];
   }) {
     const payload: TCacheInvalidationPayload = {
-      tableName: this.tableName,
+      table: this.tableName,
       action: 'reload',
       timestamp: Date.now(),
       scope: opts?.ids?.length ? 'partial' : 'full',

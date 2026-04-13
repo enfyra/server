@@ -14,7 +14,7 @@ export class SqlQueryEngine {
   ) {}
 
   async find(options: {
-    tableName: string;
+    table: string;
     fields?: string | string[];
     filter?: any;
     sort?: string | string[];
@@ -28,8 +28,8 @@ export class SqlQueryEngine {
     try {
       const fields = options.fields || '*';
 
-      const result = await this.queryBuilder.select({
-        tableName: options.tableName,
+      const result = await this.queryBuilder.find({
+        table: options.table,
         fields: fields,
         filter: options.filter,
         sort: options.sort,
@@ -47,7 +47,7 @@ export class SqlQueryEngine {
         context: 'find',
         error: error.message,
         stack: error.stack,
-        tableName: options.tableName,
+        table: options.table,
         fields: options.fields,
         filterPresent: !!options.filter,
         sortPresent: !!options.sort,
@@ -62,7 +62,7 @@ export class SqlQueryEngine {
       ) {
         throw new ResourceNotFoundException(
           'Table or Relation',
-          options.tableName,
+          options.table,
         );
       }
 
@@ -73,7 +73,7 @@ export class SqlQueryEngine {
         throw new DatabaseQueryException(
           `Invalid column in query: ${error.message}`,
           {
-            tableName: options.tableName,
+            table: options.table,
             fields: options.fields,
             operation: 'query',
           },
@@ -81,7 +81,7 @@ export class SqlQueryEngine {
       }
 
       throw new DatabaseQueryException(`Query failed: ${error.message}`, {
-        tableName: options.tableName,
+        table: options.table,
         operation: 'find',
         originalError: error.message,
       });

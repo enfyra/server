@@ -39,8 +39,8 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
 
     while (hasMore && iterations < MAX_ITERATIONS) {
       iterations++;
-      const result = await this.queryBuilder.select({
-        tableName: 'session_definition',
+      const result = await this.queryBuilder.find({
+        table: 'session_definition',
         filter: { expiredAt: { _lt: now } },
         fields: [idField],
         limit: BATCH_SIZE,
@@ -52,7 +52,7 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
       let batchDeleted = 0;
       for (const session of expired) {
         try {
-          await this.queryBuilder.deleteById(
+          await this.queryBuilder.delete(
             'session_definition',
             session[idField],
           );

@@ -34,8 +34,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   protected async loadFromDb(): Promise<string[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'package_definition',
+    const result = await this.queryBuilder.find({
+      table: 'package_definition',
       fields: ['name'],
       filter: {
         isEnabled: true,
@@ -79,11 +79,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilder.update({
-        table: 'package_definition',
-        where: [{ field: 'id', operator: '=', value: id }],
-        data: { status, ...extra },
-      });
+      await this.queryBuilder.update('package_definition', { where: [{ field: 'id', operator: '=', value: id }] }, { status, ...extra });
     } catch (error) {
       this.logger.error(
         `Failed to update status to ${status} for package ${id}: ${error.message}`,
@@ -150,8 +146,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       status: string;
     }>
   > {
-    const result = await this.queryBuilder.select({
-      tableName: 'package_definition',
+    const result = await this.queryBuilder.find({
+      table: 'package_definition',
       fields: ['id', 'name', 'version', 'status'],
       filter: {
         isEnabled: true,

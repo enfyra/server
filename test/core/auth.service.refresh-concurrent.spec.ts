@@ -28,7 +28,7 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
     const queryBuilder = {
       isMongoDb: () => false,
       findOneWhere: jest.fn(async () => ({ ...sessionStore })),
-      updateById: jest.fn(
+      update: jest.fn(
         async (_table: string, _id: string, patch: Record<string, unknown>) => {
           Object.assign(sessionStore, patch);
         },

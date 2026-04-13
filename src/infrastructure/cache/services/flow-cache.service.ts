@@ -34,8 +34,8 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
 
-    const flowsResult = await this.queryBuilder.select({
-      tableName: 'flow_definition',
+    const flowsResult = await this.queryBuilder.find({
+      table: 'flow_definition',
       filter: { isEnabled: { _eq: true } },
       fields: ['*', 'steps.*'],
     });

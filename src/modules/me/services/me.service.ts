@@ -46,10 +46,10 @@ export class MeService {
             userId instanceof ObjectId ? userId : new ObjectId(String(userId)),
         }
       : { userId };
-    const data = await this.queryBuilder.findWhere(
-      'oauth_account_definition',
+    const { data } = await this.queryBuilder.find({
+      table: 'oauth_account_definition',
       where,
-    );
+    });
     return { data };
   }
 }

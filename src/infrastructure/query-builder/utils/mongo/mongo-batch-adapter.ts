@@ -6,6 +6,7 @@ import {
   chunkedFetch,
   parseFields,
 } from '../shared/batch-fetch-engine';
+import { resolveMongoJunctionInfo } from '../../../mongo/utils/mongo-junction.util';
 
 export class MongoBatchAdapter implements BatchFetchAdapter {
   pkField = '_id';
@@ -81,8 +82,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       if (
         rel &&
         (rel.type === 'many-to-one' ||
-          (rel.type === 'one-to-one' && !(rel as any).isInverse) ||
-          (rel.type === 'many-to-many' && !(rel as any).isInverse))
+          (rel.type === 'one-to-one' && !(rel as any).isInverse))
       ) {
         if (!projectAll) {
           projection[rel.propertyName] = 1;
@@ -134,6 +134,9 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
         isInverse: (rel as any).isInverse,
         fkColumn: rel.foreignKeyColumn,
         mappedBy: (rel as any).mappedBy,
+        junctionTableName: (rel as any).junctionTableName,
+        junctionSourceColumn: (rel as any).junctionSourceColumn,
+        junctionTargetColumn: (rel as any).junctionTargetColumn,
         localField,
         foreignField,
       });
@@ -173,7 +176,17 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       projection[fkField] = 1;
     }
 
-    const docs = await chunkedFetch(parentIds, (chunk) =>
+    const objectIds = parentIds
+      .filter((v) => v != null)
+      .map((v) => {
+        try {
+          return typeof v === 'string' ? new ObjectId(v) : v;
+        } catch {
+          return v;
+        }
+      });
+
+    const docs = await chunkedFetch(objectIds, (chunk) =>
       this.db
         .collection(targetTable)
         .find(
@@ -199,41 +212,69 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     targetMeta: TableMeta,
     fetchSpec: { projection: any | undefined },
   ): Promise<{ grouped: Map<string, any[]>; docs: any[] }> {
-    if (desc.isInverse) {
-      return this.fetchM2MInverse(parentDocs, desc, fetchSpec);
+    const parentTableName = parentMeta?.name;
+    if (!parentTableName) {
+      throw new Error(
+        `Missing parentMeta.name for M2M batch fetch: ${desc.relationName}`,
+      );
     }
-    return this.fetchM2MOwning(parentDocs, desc, targetMeta, fetchSpec);
-  }
 
-  private async fetchM2MOwning(
-    parentDocs: any[],
-    desc: BatchFetchDescriptor,
-    targetMeta: TableMeta,
-    fetchSpec: { projection: any | undefined },
-  ): Promise<{ grouped: Map<string, any[]>; docs: any[] }> {
-    const fkKey = desc.relationName;
-    const allTargetIds: any[] = [];
-    const seen = new Set<string>();
-    for (const doc of parentDocs) {
-      const arr = doc[fkKey];
-      if (!Array.isArray(arr)) continue;
-      for (const v of arr) {
-        if (v == null) continue;
-        const k = this.keyOf(v);
-        if (!seen.has(k)) {
-          seen.add(k);
-          allTargetIds.push(v);
-        }
-      }
+    const info = resolveMongoJunctionInfo(parentTableName, {
+      type: 'many-to-many',
+      propertyName: desc.relationName,
+      targetTable: desc.targetTable,
+      mappedBy: desc.isInverse ? desc.mappedBy : undefined,
+    });
+
+    if (!info) {
+      throw new Error(
+        `Failed to resolve junction info for ${parentTableName}.${desc.relationName}`,
+      );
     }
+
+    const parentIds = parentDocs
+      .map((d) => d._id)
+      .filter((v) => v != null);
 
     const grouped = new Map<string, any[]>();
+    for (const parent of parentDocs) {
+      grouped.set(this.keyOf(parent._id), []);
+    }
 
-    if (allTargetIds.length === 0) {
-      for (const doc of parentDocs) {
-        grouped.set(this.keyOf(doc._id), []);
-      }
+    if (parentIds.length === 0) {
       return { grouped, docs: [] };
+    }
+
+    const junctionRows = await chunkedFetch(parentIds, (chunk) =>
+      this.db
+        .collection(info.junctionName)
+        .find(
+          { [info.selfColumn]: { $in: chunk } } as any,
+          {
+            projection: {
+              _id: 0,
+              [info.selfColumn]: 1,
+              [info.otherColumn]: 1,
+            },
+          },
+        )
+        .toArray(),
+    );
+
+    if (junctionRows.length === 0) {
+      return { grouped, docs: [] };
+    }
+
+    const otherIdKeySet = new Set<string>();
+    const otherIds: any[] = [];
+    for (const row of junctionRows) {
+      const v = row[info.otherColumn];
+      if (v == null) continue;
+      const k = this.keyOf(v);
+      if (!otherIdKeySet.has(k)) {
+        otherIdKeySet.add(k);
+        otherIds.push(v);
+      }
     }
 
     const isPkOnly =
@@ -241,92 +282,32 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       Object.keys(fetchSpec.projection).length === 1 &&
       fetchSpec.projection._id === 1;
 
+    let docs: any[] = [];
+    const docById = new Map<string, any>();
+
     if (isPkOnly) {
-      for (const doc of parentDocs) {
-        const arr = doc[fkKey];
-        if (!Array.isArray(arr)) {
-          grouped.set(this.keyOf(doc._id), []);
-          continue;
-        }
-        const list = arr.filter((v) => v != null).map((v) => ({ _id: v }));
-        grouped.set(this.keyOf(doc._id), list);
+      for (const otherId of otherIds) {
+        docById.set(this.keyOf(otherId), { _id: otherId });
       }
-      return { grouped, docs: [] };
-    }
-
-    const docs = await chunkedFetch(allTargetIds, (chunk) =>
-      this.db
-        .collection(desc.targetTable)
-        .find({ _id: { $in: chunk } }, { projection: fetchSpec.projection })
-        .toArray(),
-    );
-
-    const map = new Map<string, any>();
-    for (const doc of docs) {
-      map.set(this.keyOf(doc._id), doc);
-    }
-
-    for (const parentDoc of parentDocs) {
-      const arr = parentDoc[fkKey];
-      if (!Array.isArray(arr)) {
-        grouped.set(this.keyOf(parentDoc._id), []);
-        continue;
-      }
-      const resolved: any[] = [];
-      for (const v of arr) {
-        if (v == null) continue;
-        const matched = map.get(this.keyOf(v));
-        if (matched) resolved.push(matched);
-      }
-      grouped.set(this.keyOf(parentDoc._id), resolved);
-    }
-
-    return { grouped, docs };
-  }
-
-  private async fetchM2MInverse(
-    parentDocs: any[],
-    desc: BatchFetchDescriptor,
-    fetchSpec: { projection: any | undefined },
-  ): Promise<{ grouped: Map<string, any[]>; docs: any[] }> {
-    const parentIds = parentDocs.map((d) => d._id).filter((v) => v != null);
-    const fkField = desc.foreignField || desc.mappedBy;
-    if (!fkField) {
-      throw new Error(`Missing foreignField for M2M inverse: ${desc.relationName}`);
-    }
-
-    const projection = fetchSpec.projection;
-    if (projection && projection[fkField] === undefined) {
-      projection[fkField] = 1;
-    }
-
-    const docs = await chunkedFetch(parentIds, (chunk) =>
-      this.db
-        .collection(desc.targetTable)
-        .find(
-          { [fkField]: { $in: chunk } },
-          { projection, sort: { _id: 1 } },
-        )
-        .toArray(),
-    );
-
-    const grouped = new Map<string, any[]>();
-    for (const doc of docs) {
-      const arr = doc[fkField];
-      if (!Array.isArray(arr)) continue;
-      for (const v of arr) {
-        const k = this.keyOf(v);
-        if (!grouped.has(k)) grouped.set(k, []);
-        grouped.get(k)!.push(doc);
-      }
-    }
-
-    const userRequestedFk =
-      desc.fields.includes(fkField) || desc.fields.includes('*');
-    if (!userRequestedFk) {
+    } else {
+      docs = await chunkedFetch(otherIds, (chunk) =>
+        this.db
+          .collection(desc.targetTable)
+          .find({ _id: { $in: chunk } }, { projection: fetchSpec.projection })
+          .toArray(),
+      );
       for (const doc of docs) {
-        delete doc[fkField];
+        docById.set(this.keyOf(doc._id), doc);
       }
+    }
+
+    for (const row of junctionRows) {
+      const parentKey = this.keyOf(row[info.selfColumn]);
+      const otherKey = this.keyOf(row[info.otherColumn]);
+      const doc = docById.get(otherKey);
+      if (!doc) continue;
+      const list = grouped.get(parentKey);
+      if (list) list.push(doc);
     }
 
     return { grouped, docs };

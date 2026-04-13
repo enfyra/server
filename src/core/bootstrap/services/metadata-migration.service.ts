@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ObjectId, Db } from 'mongodb';
 import {
   SchemaMigrationDef,
   TableMigrationDef,
@@ -50,6 +51,11 @@ export class MetadataMigrationService {
     );
   }
 
+  private getMongoDb(): Db | null {
+    if (!this.queryBuilder.isMongoDb()) return null;
+    return this.queryBuilder.getMongoDb();
+  }
+
   async runMigrations(): Promise<void> {
     if (!this.hasMigrations()) {
       this.logger.log('No metadata migrations to run');
@@ -75,6 +81,29 @@ export class MetadataMigrationService {
     this.logger.log('Metadata migrations completed');
   }
 
+  private async findTableId(
+    tableName: string,
+    isMongoDB: boolean,
+  ): Promise<{ tableId: any; tableIdField: string } | null> {
+    if (isMongoDB) {
+      const db = this.getMongoDb()!;
+      const table = await db
+        .collection('table_definition')
+        .findOne({ name: tableName });
+      if (!table) return null;
+      return { tableId: table._id, tableIdField: 'table' };
+    }
+
+    const tableResult = await this.queryBuilder.find({
+      table: 'table_definition',
+      filter: { name: { _eq: tableName } },
+      limit: 1,
+    });
+    if (!tableResult.data?.length) return null;
+    const table = tableResult.data[0];
+    return { tableId: table.id, tableIdField: 'tableId' };
+  }
+
   private async dropTableMetadata(
     tableNames: string[],
     isMongoDB: boolean,
@@ -83,40 +112,29 @@ export class MetadataMigrationService {
 
     for (const tableName of tableNames) {
       try {
-        // Find table definition
-        const tableResult = await this.queryBuilder.select({
-          tableName: 'table_definition',
-          filter: { name: { _eq: tableName } },
-          limit: 1,
-        });
+        const found = await this.findTableId(tableName, isMongoDB);
+        if (!found) continue;
 
-        if (tableResult.data?.length > 0) {
-          const table = tableResult.data[0];
-          const tableId = isMongoDB ? table._id : table.id;
-          const idField = isMongoDB ? '_id' : 'id';
+        const { tableId } = found;
 
-          // Delete relations
-          const relationField = isMongoDB ? 'sourceTable' : 'sourceTableId';
-          await this.queryBuilder.delete({
-            table: 'relation_definition',
-            where: [{ field: relationField, operator: '=', value: tableId }],
-          });
-
-          // Delete columns
-          const columnField = isMongoDB ? 'table' : 'tableId';
-          await this.queryBuilder.delete({
-            table: 'column_definition',
-            where: [{ field: columnField, operator: '=', value: tableId }],
-          });
-
-          // Delete table
-          await this.queryBuilder.delete({
-            table: 'table_definition',
-            where: [{ field: idField, operator: '=', value: tableId }],
-          });
-
-          this.logger.log(`  Dropped metadata for table: ${tableName}`);
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          await db
+            .collection('relation_definition')
+            .deleteMany({ sourceTable: tableId });
+          await db
+            .collection('column_definition')
+            .deleteMany({ table: tableId });
+          await db
+            .collection('table_definition')
+            .deleteOne({ _id: tableId });
+        } else {
+          await this.queryBuilder.delete('relation_definition', { where: [{ field: 'sourceTableId', operator: '=', value: tableId }] });
+          await this.queryBuilder.delete('column_definition', { where: [{ field: 'tableId', operator: '=', value: tableId }] });
+          await this.queryBuilder.delete('table_definition', { where: [{ field: 'id', operator: '=', value: tableId }] });
         }
+
+        this.logger.log(`  Dropped metadata for table: ${tableName}`);
       } catch (error) {
         this.logger.error(
           `  Failed to drop metadata for ${tableName}: ${error.message}`,
@@ -132,21 +150,13 @@ export class MetadataMigrationService {
     const tableName = migration._unique.name._eq;
     this.logger.log(`Migrating metadata for table: ${tableName}`);
 
-    // Find table definition
-    const tableResult = await this.queryBuilder.select({
-      tableName: 'table_definition',
-      filter: { name: { _eq: tableName } },
-      limit: 1,
-    });
-
-    if (!tableResult.data?.length) {
+    const found = await this.findTableId(tableName, isMongoDB);
+    if (!found) {
       this.logger.warn(`  Table ${tableName} not found in metadata, skipping`);
       return;
     }
 
-    const table = tableResult.data[0];
-    const tableId = isMongoDB ? table._id : table.id;
-    const tableIdField = isMongoDB ? 'table' : 'tableId';
+    const { tableId, tableIdField } = found;
 
     // Handle column modifications
     if (migration.columnsToModify?.length > 0) {
@@ -194,7 +204,6 @@ export class MetadataMigrationService {
     isMongoDB: boolean,
   ): Promise<void> {
     for (const mod of modifications) {
-      // Skip if no actual changes detected (name is same and no property changes)
       const hasChanges =
         mod.to.name !== mod.from.name ||
         (mod.to.isNullable !== undefined &&
@@ -210,29 +219,31 @@ export class MetadataMigrationService {
       const oldName = mod.from.name;
 
       try {
-        // Find column by old name
-        const columnResult = await this.queryBuilder.select({
-          tableName: 'column_definition',
-          filter: {
-            [tableIdField]: { _eq: tableId },
-            name: { _eq: oldName },
-          },
-          limit: 1,
-        });
+        let columnId: any;
 
-        if (!columnResult.data?.length) {
-          // Silently skip if column not found in metadata
-          continue;
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          const column = await db.collection('column_definition').findOne({
+            table: tableId,
+            name: oldName,
+          });
+          if (!column) continue;
+          columnId = column._id;
+        } else {
+          const columnResult = await this.queryBuilder.find({
+            table: 'column_definition',
+            filter: {
+              [tableIdField]: { _eq: tableId },
+              name: { _eq: oldName },
+            },
+            limit: 1,
+          });
+          if (!columnResult.data?.length) continue;
+          columnId = columnResult.data[0].id;
         }
 
-        const column = columnResult.data[0];
-        const columnId = isMongoDB ? column._id : column.id;
-        const idField = isMongoDB ? '_id' : 'id';
-
-        // Build update data from "to" object
         const updateData: any = {};
 
-        // Only update fields that differ
         if (mod.to.name !== mod.from.name) {
           updateData.name = mod.to.name;
         }
@@ -253,11 +264,15 @@ export class MetadataMigrationService {
         }
 
         if (Object.keys(updateData).length > 0) {
-          await this.queryBuilder.update({
-            table: 'column_definition',
-            where: [{ field: idField, operator: '=', value: columnId }],
-            data: updateData,
-          });
+          if (isMongoDB) {
+            const db = this.getMongoDb()!;
+            updateData.updatedAt = new Date();
+            await db
+              .collection('column_definition')
+              .updateOne({ _id: columnId }, { $set: updateData });
+          } else {
+            await this.queryBuilder.update('column_definition', { where: [{ field: 'id', operator: '=', value: columnId }] }, updateData);
+          }
           this.logger.log(
             `  Modified column metadata: ${oldName} → ${mod.to.name}`,
           );
@@ -278,27 +293,29 @@ export class MetadataMigrationService {
   ): Promise<void> {
     for (const colName of columns) {
       try {
-        const columnResult = await this.queryBuilder.select({
-          tableName: 'column_definition',
-          filter: {
-            [tableIdField]: { _eq: tableId },
-            name: { _eq: colName },
-          },
-          limit: 1,
-        });
-
-        if (columnResult.data?.length > 0) {
-          const column = columnResult.data[0];
-          const columnId = isMongoDB ? column._id : column.id;
-          const idField = isMongoDB ? '_id' : 'id';
-
-          await this.queryBuilder.delete({
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          const result = await db
+            .collection('column_definition')
+            .deleteOne({ table: tableId, name: colName });
+          if (result.deletedCount > 0) {
+            this.logger.log(`  Removed column metadata: ${colName}`);
+          }
+        } else {
+          const columnResult = await this.queryBuilder.find({
             table: 'column_definition',
-            where: [{ field: idField, operator: '=', value: columnId }],
+            filter: {
+              [tableIdField]: { _eq: tableId },
+              name: { _eq: colName },
+            },
+            limit: 1,
           });
-          this.logger.log(`  Removed column metadata: ${colName}`);
+          if (columnResult.data?.length > 0) {
+            const columnId = columnResult.data[0].id;
+            await this.queryBuilder.delete('column_definition', { where: [{ field: 'id', operator: '=', value: columnId }] });
+            this.logger.log(`  Removed column metadata: ${colName}`);
+          }
         }
-        // Silently skip if column not found in metadata
       } catch (err) {
         this.logger.warn(
           `  Failed to remove column ${colName}: ${(err as Error).message}`,
@@ -332,24 +349,31 @@ export class MetadataMigrationService {
       const oldName = mod.from.propertyName;
 
       try {
-        const filter: any = {
-          [sourceTableField]: { _eq: tableId },
-          propertyName: { _eq: oldName },
-        };
-        const relationResult = await this.queryBuilder.select({
-          tableName: 'relation_definition',
-          filter,
-          limit: 1,
-        });
+        let relation: any;
 
-        if (!relationResult.data?.length) {
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          relation = await db.collection('relation_definition').findOne({
+            sourceTable: tableId,
+            propertyName: oldName,
+          });
+        } else {
+          const relationResult = await this.queryBuilder.find({
+            table: 'relation_definition',
+            filter: {
+              [sourceTableField]: { _eq: tableId },
+              propertyName: { _eq: oldName },
+            },
+            limit: 1,
+          });
+          relation = relationResult.data?.[0];
+        }
+
+        if (!relation) {
           continue;
         }
 
-        const relation = relationResult.data[0];
         const relationId = isMongoDB ? relation._id : relation.id;
-        const idField = isMongoDB ? '_id' : 'id';
-
         const updateData: any = {};
 
         if (mod.to.propertyName !== mod.from.propertyName) {
@@ -360,28 +384,26 @@ export class MetadataMigrationService {
           mod.to.mappedBy !== mod.from.mappedBy
         ) {
           if (mod.to.mappedBy && isMongoDB) {
+            const db = this.getMongoDb()!;
             const targetTableId = relation.targetTable;
-            const owningRels = await this.queryBuilder.select({
-              tableName: 'relation_definition',
-              filter: {
-                sourceTable: { _eq: targetTableId },
-                propertyName: { _eq: mod.to.mappedBy },
-              },
-              limit: 1,
-            });
-            updateData.mappedBy = owningRels.data?.[0]?._id || null;
+            const owningRel = await db
+              .collection('relation_definition')
+              .findOne({
+                sourceTable: targetTableId,
+                propertyName: mod.to.mappedBy,
+              });
+            updateData.mappedBy = owningRel?._id || null;
           } else if (mod.to.mappedBy && !isMongoDB) {
             const targetTableId = relation.targetTableId;
-            const owningRels = await this.queryBuilder.select({
-              tableName: 'relation_definition',
+            const owningRels = await this.queryBuilder.find({
+              table: 'relation_definition',
               filter: {
                 sourceTableId: { _eq: targetTableId },
                 propertyName: { _eq: mod.to.mappedBy },
               },
               limit: 1,
             });
-            const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
-            updateData[mappedByField] = owningRels.data?.[0]?.id || null;
+            updateData.mappedById = owningRels.data?.[0]?.id || null;
           } else {
             const mappedByField = isMongoDB ? 'mappedBy' : 'mappedById';
             updateData[mappedByField] = null;
@@ -404,11 +426,15 @@ export class MetadataMigrationService {
         }
 
         if (Object.keys(updateData).length > 0) {
-          await this.queryBuilder.update({
-            table: 'relation_definition',
-            where: [{ field: idField, operator: '=', value: relationId }],
-            data: updateData,
-          });
+          if (isMongoDB) {
+            const db = this.getMongoDb()!;
+            updateData.updatedAt = new Date();
+            await db
+              .collection('relation_definition')
+              .updateOne({ _id: relationId }, { $set: updateData });
+          } else {
+            await this.queryBuilder.update('relation_definition', { where: [{ field: 'id', operator: '=', value: relationId }] }, updateData);
+          }
           this.logger.log(
             `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
           );
@@ -430,25 +456,28 @@ export class MetadataMigrationService {
 
     for (const relName of relations) {
       try {
-        const relationResult = await this.queryBuilder.select({
-          tableName: 'relation_definition',
-          filter: {
-            [sourceTableField]: { _eq: tableId },
-            propertyName: { _eq: relName },
-          },
-          limit: 1,
-        });
-
-        if (relationResult.data?.length > 0) {
-          const relation = relationResult.data[0];
-          const relationId = isMongoDB ? relation._id : relation.id;
-          const idField = isMongoDB ? '_id' : 'id';
-
-          await this.queryBuilder.delete({
+        if (isMongoDB) {
+          const db = this.getMongoDb()!;
+          const result = await db
+            .collection('relation_definition')
+            .deleteOne({ sourceTable: tableId, propertyName: relName });
+          if (result.deletedCount > 0) {
+            this.logger.log(`  Removed relation metadata: ${relName}`);
+          }
+        } else {
+          const relationResult = await this.queryBuilder.find({
             table: 'relation_definition',
-            where: [{ field: idField, operator: '=', value: relationId }],
+            filter: {
+              [sourceTableField]: { _eq: tableId },
+              propertyName: { _eq: relName },
+            },
+            limit: 1,
           });
-          this.logger.log(`  Removed relation metadata: ${relName}`);
+          if (relationResult.data?.length > 0) {
+            const relationId = relationResult.data[0].id;
+            await this.queryBuilder.delete('relation_definition', { where: [{ field: 'id', operator: '=', value: relationId }] });
+            this.logger.log(`  Removed relation metadata: ${relName}`);
+          }
         }
       } catch (err) {
         this.logger.warn(

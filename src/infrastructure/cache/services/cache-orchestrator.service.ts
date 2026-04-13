@@ -177,7 +177,7 @@ export class CacheOrchestratorService
   @OnEvent(CACHE_EVENTS.INVALIDATE)
   handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {
     this.logger.log(
-      `Invalidate: ${payload.tableName} (${payload.scope || 'full'}${payload.ids?.length ? `, ${payload.ids.length} ids` : ''})`,
+      `Invalidate: ${payload.table} (${payload.scope || 'full'}${payload.ids?.length ? `, ${payload.ids.length} ids` : ''})`,
     );
     return new Promise<void>((resolve) => {
       this.debounceResolvers.push(resolve);
@@ -205,11 +205,11 @@ export class CacheOrchestratorService
       this.pendingPayload = { ...payload };
       return;
     }
-    if (this.pendingPayload.tableName !== payload.tableName) {
-      const currentChain = RELOAD_CHAINS[this.pendingPayload.tableName] || [];
-      const incomingChain = RELOAD_CHAINS[payload.tableName] || [];
+    if (this.pendingPayload.table !== payload.table) {
+      const currentChain = RELOAD_CHAINS[this.pendingPayload.table] || [];
+      const incomingChain = RELOAD_CHAINS[payload.table] || [];
       if (incomingChain.length > currentChain.length) {
-        this.pendingPayload.tableName = payload.tableName;
+        this.pendingPayload.table = payload.table;
       }
       this.pendingPayload.scope = 'full';
       this.pendingPayload.ids = undefined;
@@ -240,9 +240,9 @@ export class CacheOrchestratorService
     payload: TCacheInvalidationPayload,
     publish: boolean,
   ): Promise<void> {
-    const chain = RELOAD_CHAINS[payload.tableName];
+    const chain = RELOAD_CHAINS[payload.table];
     if (!chain) {
-      this.logger.debug(`No reload chain for table: ${payload.tableName}`);
+      this.logger.debug(`No reload chain for table: ${payload.table}`);
       return;
     }
 
@@ -288,7 +288,7 @@ export class CacheOrchestratorService
 
     const elapsed = Date.now() - start;
     this.logger.log(
-      `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.tableName} in ${elapsed}ms`,
+      `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
     );
 
     if (publish && chain.includes('metadata')) {
@@ -381,7 +381,7 @@ export class CacheOrchestratorService
     this.notifyClients('done');
     this.logger.log(`Admin: metadata + deps done (${Date.now() - start}ms)`);
     await this.publishSignal({
-      tableName: 'table_definition',
+      table: 'table_definition',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
@@ -396,7 +396,7 @@ export class CacheOrchestratorService
     this.notifyClients('done');
     this.logger.log(`Admin: routes done (${Date.now() - start}ms)`);
     await this.publishSignal({
-      tableName: 'route_definition',
+      table: 'route_definition',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
@@ -418,7 +418,7 @@ export class CacheOrchestratorService
     await this.guardCache.reload(false);
     this.logger.log(`Admin: guards done (${Date.now() - start}ms)`);
     await this.publishSignal({
-      tableName: 'guard_definition',
+      table: 'guard_definition',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),
@@ -427,7 +427,7 @@ export class CacheOrchestratorService
 
   async reloadAll(): Promise<void> {
     await this.publishSignal({
-      tableName: '__admin_reload_all',
+      table: '__admin_reload_all',
       action: 'reload',
       scope: 'full',
       timestamp: Date.now(),

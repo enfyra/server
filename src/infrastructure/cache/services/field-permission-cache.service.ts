@@ -54,8 +54,8 @@ export class FieldPermissionCacheService extends BaseCacheService<
   }
 
   protected async loadFromDb(): Promise<any> {
-    const result = await this.queryBuilder.select({
-      tableName: 'field_permission_definition',
+    const result = await this.queryBuilder.find({
+      table: 'field_permission_definition',
       fields: [
         '*',
         'role.*',

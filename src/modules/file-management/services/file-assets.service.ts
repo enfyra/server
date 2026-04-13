@@ -29,8 +29,8 @@ export class FileAssetsService {
     if (!fileId)
       return void res.status(400).json({ error: 'File ID is required' });
 
-    const fileResult = await this.queryBuilder.select({
-      tableName: 'file_definition',
+    const fileResult = await this.queryBuilder.find({
+      table: 'file_definition',
       filter: { id: { _eq: fileId } },
       fields: ['*', 'storageConfig.*'],
     });
@@ -39,8 +39,8 @@ export class FileAssetsService {
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
 
     if (file.isPublished !== true) {
-      const permissionsResult = await this.queryBuilder.select({
-        tableName: 'file_permission_definition',
+      const permissionsResult = await this.queryBuilder.find({
+        table: 'file_permission_definition',
         filter: {
           fileId: { _eq: fileId },
           isEnabled: { _eq: true },
@@ -54,8 +54,9 @@ export class FileAssetsService {
 
       for (const perm of permissions) {
         if (perm.roleId && !perm.role) {
-          perm.role = await this.queryBuilder.findOneWhere('role_definition', {
-            id: perm.roleId,
+          perm.role = await this.queryBuilder.findOne({
+            table: 'role_definition',
+            where: { id: perm.roleId },
           });
         }
       }

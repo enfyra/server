@@ -18,6 +18,9 @@ export class PolicyService {
   ) {}
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
+    console.log(`[DEBUG] checkRequestAccess for route: ${ctx.routeData?.path}, method: ${ctx.method}`);
+    console.log(`[DEBUG] mapped publishedMethods:`, JSON.stringify(ctx.routeData?.publishedMethods, null, 2));
+
     const isPublished = ctx.routeData?.publishedMethods?.some(
       (m: any) => m.method === ctx.method,
     );

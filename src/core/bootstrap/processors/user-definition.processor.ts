@@ -47,10 +47,10 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     tableName: string,
     context?: any,
   ): Promise<UpsertResult> {
-    const existingRootAdmin = await queryBuilder.findOneWhere(
-      tableName,
-      { isRootAdmin: true },
-    );
+    const existingRootAdmin = await queryBuilder.findOne({
+      table: tableName,
+      where: { isRootAdmin: true },
+    });
 
     if (existingRootAdmin) {
       this.logger.log(
@@ -78,10 +78,10 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
-        const existingRecord = await queryBuilder.findOneWhere(
-          tableName,
-          uniqueWhere,
-        );
+        const existingRecord = await queryBuilder.findOne({
+          table: tableName,
+          where: uniqueWhere,
+        });
 
         if (existingRecord) {
           skippedCount++;
@@ -94,7 +94,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
             );
             delete insertData._plainPassword;
           }
-          const inserted = await queryBuilder.insertAndGet(
+          const inserted = await queryBuilder.insert(
             tableName,
             insertData,
           );

@@ -56,8 +56,8 @@ export class ProvisionService implements OnModuleInit {
 
     const isMongoDB = this.queryBuilder.isMongoDb();
     const sortField = isMongoDB ? '_id' : 'id';
-    const settingsResult = await this.queryBuilder.select({
-      tableName: 'setting_definition',
+    const settingsResult = await this.queryBuilder.find({
+      table: 'setting_definition',
       sort: [sortField],
       limit: 1,
     });
@@ -79,8 +79,8 @@ export class ProvisionService implements OnModuleInit {
       }
 
       try {
-        const recheckResult = await this.queryBuilder.select({
-          tableName: 'setting_definition',
+        const recheckResult = await this.queryBuilder.find({
+          table: 'setting_definition',
           sort: [sortField],
           limit: 1,
         });
@@ -120,8 +120,8 @@ export class ProvisionService implements OnModuleInit {
           this.logger.log(`Data migrations: ${Date.now() - t5}ms`);
         }
 
-        const settings2Result = await this.queryBuilder.select({
-          tableName: 'setting_definition',
+        const settings2Result = await this.queryBuilder.find({
+          table: 'setting_definition',
           sort: [sortField],
           limit: 1,
         });
@@ -136,11 +136,7 @@ export class ProvisionService implements OnModuleInit {
 
         const settingId = newSetting._id || newSetting.id;
         const idField = isMongoDB ? '_id' : 'id';
-        await this.queryBuilder.update({
-          table: 'setting_definition',
-          where: [{ field: idField, operator: '=', value: settingId }],
-          data: { isInit: true },
-        });
+        await this.queryBuilder.update('setting_definition', { where: [{ field: idField, operator: '=', value: settingId }] }, { isInit: true });
 
         this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
       } finally {
@@ -160,8 +156,8 @@ export class ProvisionService implements OnModuleInit {
     for (let i = 0; i < maxAttempts; i++) {
       await this.commonService.delay(interval);
       try {
-        const result = await this.queryBuilder.select({
-          tableName: 'setting_definition',
+        const result = await this.queryBuilder.find({
+          table: 'setting_definition',
           sort: [sortField],
           limit: 1,
         });

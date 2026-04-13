@@ -45,13 +45,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   ): Promise<void> {
     const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
-    if (payload.tableName === 'table_definition' && payload.ids?.length) {
+    if (payload.table === 'table_definition' && payload.ids?.length) {
       const isMongoDB = this.queryBuilder.isMongoDb();
       const idField = isMongoDB ? '_id' : 'id';
       const mainTableField = isMongoDB ? 'mainTable' : 'mainTableId';
 
-      const result = await this.queryBuilder.select({
-        tableName: 'route_definition',
+      const result = await this.queryBuilder.find({
+        table: 'route_definition',
         filter: { [mainTableField]: { _in: payload.ids } },
         fields: [idField],
       });
@@ -78,19 +78,19 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       return;
     }
 
-    if (payload.tableName === 'route_definition' && payload.ids?.length) {
+    if (payload.table === 'route_definition' && payload.ids?.length) {
       await this.reloadSpecificRoutes(payload.ids);
       return;
     }
 
     if (
       ['route_handler_definition', 'route_permission_definition'].includes(
-        payload.tableName,
+        payload.table,
       ) &&
       payload.ids?.length
     ) {
       const routeIds = await this.findRouteIdsForChildRecords(
-        payload.tableName,
+        payload.table,
         payload.ids,
       );
       if (routeIds.length > 0) {
@@ -101,14 +101,14 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     if (
       ['pre_hook_definition', 'post_hook_definition'].includes(
-        payload.tableName,
+        payload.table,
       )
     ) {
       await this.reloadGlobalHooksAndMerge();
       return;
     }
 
-    if (['role_definition', 'method_definition'].includes(payload.tableName)) {
+    if (['role_definition', 'method_definition'].includes(payload.table)) {
       await this.reload();
       return;
     }
@@ -138,8 +138,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const isMongoDB = this.queryBuilder.isMongoDb();
     const idField = isMongoDB ? '_id' : 'id';
 
-    const result = await this.queryBuilder.select({
-      tableName: 'route_definition',
+    const result = await this.queryBuilder.find({
+      table: 'route_definition',
       filter: {
         _and: [
           { isEnabled: { _eq: true } },
@@ -188,8 +188,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const idField = isMongoDB ? '_id' : 'id';
     const routeField = 'route';
 
-    const result = await this.queryBuilder.select({
-      tableName,
+    const result = await this.queryBuilder.find({
+      table: tableName,
       filter: { [idField]: { _in: ids } },
       fields: [`${routeField}.*`],
     });
@@ -223,13 +223,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async loadFromDb(): Promise<any> {
-    const methodsResult = await this.queryBuilder.select({
-      tableName: 'method_definition',
+    const methodsResult = await this.queryBuilder.find({
+      table: 'method_definition',
     });
     this.allMethods = methodsResult.data.map((m: any) => m.method);
 
-    const result = await this.queryBuilder.select({
-      tableName: 'route_definition',
+    const result = await this.queryBuilder.find({
+      table: 'route_definition',
       filter: { isEnabled: { _eq: true } },
       fields: [
         '*',
@@ -268,8 +268,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private async loadGlobalHooks(tableName: string): Promise<any[]> {
-    const result = await this.queryBuilder.select({
-      tableName,
+    const result = await this.queryBuilder.find({
+      table: tableName,
       filter: {
         _and: [{ isEnabled: { _eq: true } }, { isGlobal: { _eq: true } }],
       },

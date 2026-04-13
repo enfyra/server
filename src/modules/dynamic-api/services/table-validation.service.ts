@@ -29,7 +29,7 @@ export class TableValidationService {
     tableMetadata: any,
   ) {
     const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const existingResult = await this.queryBuilder.findWhere(tableName, {});
+    const { data: existingResult } = await this.queryBuilder.find({ table: tableName });
     const existingRecords = existingResult || [];
     const hasExistingRecord = existingRecords.length > 0;
 

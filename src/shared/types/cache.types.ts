@@ -1,5 +1,5 @@
 export interface TCacheInvalidationPayload {
-  tableName: string;
+  table: string;
   action: 'reload';
   timestamp: number;
   scope: 'full' | 'partial';
