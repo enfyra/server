@@ -125,24 +125,53 @@ export class FileController {
             storageConfigId,
           );
 
+          const nextDescription =
+            body.description !== undefined
+              ? body.description
+              : currentFile.description;
+          const nextFolder = body.folder
+            ? typeof body.folder === 'object'
+              ? body.folder
+              : { id: body.folder }
+            : currentFile.folder;
+          const nextStatus =
+            body.status !== undefined ? body.status : currentFile.status;
+          const nextIsPublished =
+            body.isPublished !== undefined
+              ? body.isPublished
+              : currentFile.isPublished;
+
           const updateData = {
             filename: file.originalname,
             mimetype: file.mimetype,
             filesize: file.size,
             storageConfig:
               this.fileManagementService.createIdReference(storageConfigId),
-            description: currentFile.description,
-            folder: body.folder
-              ? typeof body.folder === 'object'
-                ? body.folder
-                : { id: body.folder }
-              : currentFile.folder,
+            description: nextDescription,
+            folder: nextFolder,
             uploadedBy: currentFile.uploadedBy,
-            status: currentFile.status,
+            status: nextStatus,
+            isPublished: nextIsPublished,
           };
 
           return await fileRepo.update({ id, data: updateData });
         }
+
+        const nextDescription =
+          body.description !== undefined
+            ? body.description
+            : currentFile.description;
+        const nextFolder = body.folder
+          ? typeof body.folder === 'object'
+            ? body.folder
+            : { id: body.folder }
+          : currentFile.folder;
+        const nextStatus =
+          body.status !== undefined ? body.status : currentFile.status;
+        const nextIsPublished =
+          body.isPublished !== undefined
+            ? body.isPublished
+            : currentFile.isPublished;
 
         const processedFile =
           await this.fileManagementService.processFileUpload(
@@ -151,9 +180,9 @@ export class FileController {
               mimetype: file.mimetype,
               buffer: file.buffer,
               size: file.size,
-              folder: currentFile.folder,
+              folder: nextFolder,
               title: file.originalname,
-              description: currentFile.description,
+              description: nextDescription,
             },
             storageConfigId,
           );
@@ -174,10 +203,11 @@ export class FileController {
             type: processedFile.type,
             filesize: processedFile.filesize,
             location: currentFile.location,
-            description: processedFile.description,
-            folder: currentFile.folder,
+            description: nextDescription,
+            folder: nextFolder,
             uploadedBy: currentFile.uploadedBy,
-            status: currentFile.status,
+            status: nextStatus,
+            isPublished: nextIsPublished,
             storageConfig: processedFile.storage_config_id
               ? this.fileManagementService.createIdReference(
                   processedFile.storage_config_id,
