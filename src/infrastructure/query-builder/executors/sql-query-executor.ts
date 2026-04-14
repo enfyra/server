@@ -1428,6 +1428,22 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
                 chunks.push(
                   `${fkRef} NOT IN (${vals.map((v: any) => this.escapeSqlValue(v)).join(', ')})`,
                 );
+              } else if (idFilter._gt !== undefined) {
+                chunks.push(
+                  `${fkRef} > ${this.escapeSqlValue(idFilter._gt)}`,
+                );
+              } else if (idFilter._gte !== undefined) {
+                chunks.push(
+                  `${fkRef} >= ${this.escapeSqlValue(idFilter._gte)}`,
+                );
+              } else if (idFilter._lt !== undefined) {
+                chunks.push(
+                  `${fkRef} < ${this.escapeSqlValue(idFilter._lt)}`,
+                );
+              } else if (idFilter._lte !== undefined) {
+                chunks.push(
+                  `${fkRef} <= ${this.escapeSqlValue(idFilter._lte)}`,
+                );
               }
             }
           }

@@ -120,6 +120,18 @@ async function collectRelationSqlFragments(
               .map((v) => escapeSqlString(v, dbType))
               .join(', ');
             subqueries.push(`${fkColumn} NOT IN (${notInStr})`);
+          } else if (idFilter._gt !== undefined) {
+            const escapedValue = escapeSqlString(idFilter._gt, dbType);
+            subqueries.push(`${fkColumn} > ${escapedValue}`);
+          } else if (idFilter._gte !== undefined) {
+            const escapedValue = escapeSqlString(idFilter._gte, dbType);
+            subqueries.push(`${fkColumn} >= ${escapedValue}`);
+          } else if (idFilter._lt !== undefined) {
+            const escapedValue = escapeSqlString(idFilter._lt, dbType);
+            subqueries.push(`${fkColumn} < ${escapedValue}`);
+          } else if (idFilter._lte !== undefined) {
+            const escapedValue = escapeSqlString(idFilter._lte, dbType);
+            subqueries.push(`${fkColumn} <= ${escapedValue}`);
           }
         }
       }
@@ -330,18 +342,32 @@ export async function buildRelationSubquery(
     );
   }
 
+  const fkDirectOps = new Set([
+    '_is_null',
+    '_is_not_null',
+    '_eq',
+    '_neq',
+    '_in',
+    '_not_in',
+    '_nin',
+    '_gt',
+    '_gte',
+    '_lt',
+    '_lte',
+  ]);
+
   if (
     (relation.type === 'many-to-one' || relation.type === 'one-to-one') &&
     relation.foreignKeyColumn
   ) {
     const filterKeys = Object.keys(relationFilter || {});
-    const isOnlyIdNull =
+    const isFkDirectCheck =
       filterKeys.length === 1 &&
       filterKeys[0] === 'id' &&
       typeof relationFilter.id === 'object' &&
-      ('_is_null' in relationFilter.id || '_is_not_null' in relationFilter.id);
+      Object.keys(relationFilter.id).every((k) => fkDirectOps.has(k));
 
-    if (isOnlyIdNull) {
+    if (isFkDirectCheck) {
       return null;
     }
   }

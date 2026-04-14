@@ -60,6 +60,10 @@ export function separateFilters(
             '_in',
             '_not_in',
             '_nin',
+            '_gt',
+            '_gte',
+            '_lt',
+            '_lte',
           ];
           if (keys.length === 1 && idOperators.includes(keys[0])) {
             relationFilters[key] = { id: value };
