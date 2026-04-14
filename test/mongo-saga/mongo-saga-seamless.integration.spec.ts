@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, Db } from 'mongodb';
 import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
-import { MongoTransactionLockService } from '../../src/infrastructure/mongo/services/mongo-transaction-lock.service';
+import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
 import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
 import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
 import { MetadataCacheService } from '../../src/infrastructure/cache/services/metadata-cache.service';
@@ -34,7 +34,7 @@ describe('MongoDB Saga Seamless Integration', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MongoService,
-        MongoTransactionLockService,
+        MongoSagaLockService,
         MongoOperationLogService,
         InstanceService,
         MongoSagaCoordinator,
@@ -66,11 +66,11 @@ describe('MongoDB Saga Seamless Integration', () => {
       const collection = mongoService.collection('seamless_orders');
 
       expect(mongoService.isInTransaction()).toBe(false);
-      expect(collection.constructor.name).not.toBe('TransactionalCollection');
+      expect(collection.constructor.name).not.toBe('SagaCollection');
     });
 
     it('should execute transaction with automatic enrollment', async () => {
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
 
         expect(mongoService.isInTransaction()).toBe(true);
@@ -96,7 +96,7 @@ describe('MongoDB Saga Seamless Integration', () => {
     it('should rollback on error automatically', async () => {
       const startCount = await db.collection('seamless_orders').countDocuments();
 
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
 
         await orders.insertOne({
@@ -121,7 +121,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         status: 'pending',
       });
 
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
 
         await orders.updateOne(
@@ -144,7 +144,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         total: 400,
       });
 
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
 
         await orders.deleteOne({ _id: initial.insertedId } as any);
@@ -159,7 +159,7 @@ describe('MongoDB Saga Seamless Integration', () => {
     });
 
     it('should support multiple operations in single transaction', async () => {
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
         const inventory = mongoService.collection('seamless_inventory');
 
@@ -197,7 +197,7 @@ describe('MongoDB Saga Seamless Integration', () => {
     });
 
     it('should rollback all operations on failure', async () => {
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
         const inventory = mongoService.collection('seamless_inventory');
 
@@ -236,7 +236,7 @@ describe('MongoDB Saga Seamless Integration', () => {
         total: 800,
       });
 
-      const result = await mongoService.runInTransaction(async () => {
+      const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
 
         const found = await orders.findOne({ customerId: 'read-test' } as any);
@@ -253,7 +253,7 @@ describe('MongoDB Saga Seamless Integration', () => {
 
     it('should handle concurrent transactions correctly', async () => {
       const promises = Array.from({ length: 3 }, (_, i) =>
-        mongoService.runInTransaction(async () => {
+        mongoService.runInSaga(async () => {
           const orders = mongoService.collection('seamless_orders');
 
           await orders.insertOne({
@@ -284,7 +284,7 @@ describe('MongoDB Saga Seamless Integration', () => {
     it('should track transaction ID correctly', async () => {
       let capturedTxId: string | undefined;
 
-      await mongoService.runInTransaction(async () => {
+      await mongoService.runInSaga(async () => {
         capturedTxId = mongoService.getCurrentTransactionId();
         return {};
       }, TX_RETURN_ENVELOPE);
@@ -311,7 +311,7 @@ describe('MongoDB Saga Seamless Integration', () => {
       const nativeDuration = Date.now() - nativeStart;
 
       const txStart = Date.now();
-      await mongoService.runInTransaction(async () => {
+      await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
         for (let i = 0; i < 5; i++) {
           await orders.insertOne({

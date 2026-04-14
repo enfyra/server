@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
-import { MongoTransactionLockService } from '../../src/infrastructure/mongo/services/mongo-transaction-lock.service';
+import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
 import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
 import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
 import { MetadataCacheService } from '../../src/infrastructure/cache/services/metadata-cache.service';
@@ -30,7 +30,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
   let mongoClient: MongoClient;
   let db: Db;
   let mongoService: MongoService;
-  let lockService: MongoTransactionLockService;
+  let lockService: MongoSagaLockService;
   let logService: MongoOperationLogService;
   let coordinator: MongoSagaCoordinator;
   let benchmarkResults: IBenchmarkResult[] = [];
@@ -53,7 +53,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MongoService,
-        MongoTransactionLockService,
+        MongoSagaLockService,
         MongoOperationLogService,
         InstanceService,
         MongoSagaCoordinator,
@@ -65,7 +65,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
     }).compile();
 
     mongoService = module.get<MongoService>(MongoService);
-    lockService = module.get<MongoTransactionLockService>(MongoTransactionLockService);
+    lockService = module.get<MongoSagaLockService>(MongoSagaLockService);
     logService = module.get<MongoOperationLogService>(MongoOperationLogService);
     coordinator = module.get<MongoSagaCoordinator>(MongoSagaCoordinator);
 
@@ -1129,7 +1129,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
         { customerId: 'clean', total: 100 },
       ]);
 
-      const result = await coordinator.recoverOrphanedTransactions();
+      const result = await coordinator.recoverOrphanedSagas();
       expect(result.recovered).toBeGreaterThanOrEqual(2);
 
       const docs = await db.collection(COLLECTIONS.orders).find({}).toArray();
@@ -1144,7 +1144,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
         __txId: liveTxId,
       });
 
-      const result = await coordinator.recoverOrphanedTransactions();
+      const result = await coordinator.recoverOrphanedSagas();
       expect(result.recovered).toBe(0);
 
       const doc = await db.collection(COLLECTIONS.orders).findOne({ customerId: 'live-1' });
@@ -1786,9 +1786,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('recoverOrphanedTransactions(boot) updates recovery metrics', async () => {
+    it('recoverOrphanedSagas(boot) updates recovery metrics', async () => {
       const before = coordinator.getSagaRecoveryMetrics();
-      await coordinator.recoverOrphanedTransactions('boot');
+      await coordinator.recoverOrphanedSagas('boot');
       const after = coordinator.getSagaRecoveryMetrics();
       expect(after.totalRuns).toBe(before.totalRuns + 1);
       expect(after.bootRuns).toBe(before.bootRuns + 1);
@@ -1796,9 +1796,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(after.lastError).toBeNull();
     });
 
-    it('recoverOrphanedTransactions(periodic) increments periodicRuns', async () => {
+    it('recoverOrphanedSagas(periodic) increments periodicRuns', async () => {
       const before = coordinator.getSagaRecoveryMetrics();
-      await coordinator.recoverOrphanedTransactions('periodic');
+      await coordinator.recoverOrphanedSagas('periodic');
       const after = coordinator.getSagaRecoveryMetrics();
       expect(after.totalRuns).toBe(before.totalRuns + 1);
       expect(after.periodicRuns).toBe(before.periodicRuns + 1);

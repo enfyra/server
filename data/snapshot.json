@@ -308,16 +308,24 @@
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }
         ]
     },
-    "schema_history": {
-        "name": "schema_history",
-        "description": "Tracks database schema changes and migrations",
+    "schema_migration_definition": {
+        "name": "schema_migration_definition",
+        "description": "Tracks schema migration operations with up/down scripts for automatic recovery",
         "isSystem": true,
         "columns": [
-            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "schema", "type": "simple-json", "isNullable": false, "isSystem": true, "description": "Full schema snapshot at this point in time" },
-            { "name": "description", "type": "text", "isSystem": true, "description": "Description of changes made in this version" },
-            { "name": "hash", "type": "text", "isSystem": true, "description": "Hash of the schema for comparison and integrity checking" }
-        ]
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key" },
+            { "name": "uuid", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique migration version identifier" },
+            { "name": "tableName", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Affected table name" },
+            { "name": "operation", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Operation type: create, update, or delete" },
+            { "name": "status", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "pending", "description": "Status: pending, running, completed, failed, rolled_back" },
+            { "name": "upScript", "type": "text", "isSystem": true, "description": "DDL statements to apply the migration" },
+            { "name": "downScript", "type": "text", "isSystem": true, "description": "DDL statements to revert the migration" },
+            { "name": "beforeSnapshot", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Table metadata before migration" },
+            { "name": "errorMessage", "type": "text", "isNullable": true, "isSystem": true, "description": "Error details if migration failed" },
+            { "name": "startedAt", "type": "date", "isSystem": true, "description": "When migration started executing" },
+            { "name": "completedAt", "type": "date", "isNullable": true, "isSystem": true, "description": "When migration completed or was rolled back" }
+        ],
+        "uniques": [["uuid"]]
     },
     "method_definition": {
         "name": "method_definition",

@@ -506,11 +506,18 @@ export function generateBatchSQL(sqlStatements: string[]): string {
   });
   return batchSQL;
 }
+export interface JournalContext {
+  uuid: string;
+  markFailed: (error: string) => Promise<void>;
+  executeRollback: (uuid: string) => Promise<void>;
+}
+
 export async function executeBatchSQL(
   knex: Knex,
   batchSQL: string,
   dbType?: 'mysql' | 'postgres' | 'sqlite',
   trx?: Knex.Transaction,
+  journal?: JournalContext,
 ): Promise<void> {
   if (!batchSQL || batchSQL.trim() === '' || batchSQL.trim() === ';') {
     logger.log('No SQL to execute (empty batch)');
@@ -590,7 +597,7 @@ export async function executeBatchSQL(
           logger.error(`Error: ${statementError.message}`);
           if (executedStatements.length > 0) {
             logger.error(`\n${'='.repeat(80)}`);
-            logger.error(`⚠️  PARTIAL MIGRATION DETECTED`);
+            logger.error(`PARTIAL MIGRATION DETECTED`);
             logger.error(`${'='.repeat(80)}`);
             logger.error(
               `Successfully executed ${executedStatements.length} statement(s) before failure:`,
@@ -600,14 +607,41 @@ export async function executeBatchSQL(
                 `  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`,
               );
             });
-            logger.error(
-              `\nTo rollback, execute these statements in reverse order:`,
-            );
-            rollbackStatements.reverse().forEach((stmt, idx) => {
-              logger.error(
-                `  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`,
+
+            if (journal && rollbackStatements.length > 0) {
+              logger.warn(
+                `Auto-rolling back ${rollbackStatements.length} statement(s) via journal ${journal.uuid}...`,
               );
-            });
+              try {
+                for (let ri = rollbackStatements.length - 1; ri >= 0; ri--) {
+                  const rbStmt = rollbackStatements[ri];
+                  try {
+                    await knex.raw(rbStmt);
+                    logger.log(
+                      `  Rollback OK: ${rbStmt.substring(0, 80)}`,
+                    );
+                  } catch (rbErr: any) {
+                    logger.warn(
+                      `  Rollback FAILED: ${rbStmt.substring(0, 80)} — ${rbErr.message}`,
+                    );
+                  }
+                }
+                logger.warn(`Auto-rollback completed for ${journal.uuid}`);
+              } catch (rbUnexpected: any) {
+                logger.error(
+                  `Auto-rollback unexpected error: ${rbUnexpected.message}`,
+                );
+              }
+            } else {
+              logger.error(
+                `\nTo rollback, execute these statements in reverse order:`,
+              );
+              rollbackStatements.reverse().forEach((stmt, idx) => {
+                logger.error(
+                  `  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`,
+                );
+              });
+            }
             logger.error(`${'='.repeat(80)}\n`);
           }
           throw statementError;
@@ -615,17 +649,27 @@ export async function executeBatchSQL(
       }
       logger.log(`All ${statements.length} statement(s) executed successfully`);
     } catch (error: any) {
+      if (journal) {
+        try {
+          await journal.markFailed(error.message || 'Unknown error');
+        } catch (journalErr: any) {
+          logger.warn(`Failed to update journal status: ${journalErr.message}`);
+        }
+      }
       logger.error(`\n${'='.repeat(80)}`);
-      logger.error(`❌ MIGRATION FAILED`);
+      logger.error(`MIGRATION FAILED`);
       logger.error(`${'='.repeat(80)}`);
       logger.error(`Error: ${error.message}`);
       if (executedStatements.length > 0) {
-        logger.error(
-          `\n⚠️  ${executedStatements.length} statement(s) were executed before failure.`,
-        );
-        logger.error(
-          `Manual rollback may be required. See rollback statements above.`,
-        );
+        if (journal) {
+          logger.warn(
+            `${executedStatements.length} statement(s) executed before failure. Auto-rollback attempted via journal.`,
+          );
+        } else {
+          logger.error(
+            `${executedStatements.length} statement(s) were executed before failure. Manual rollback may be required.`,
+          );
+        }
       }
       logger.error(`${'='.repeat(80)}\n`);
       throw error;

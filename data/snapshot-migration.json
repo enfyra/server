@@ -92,5 +92,5 @@
       "columnsToRemove": ["corsAllowedOrigins"]
     }
   ],
-  "tablesToDrop": []
+  "tablesToDrop": ["schema_history"]
 }

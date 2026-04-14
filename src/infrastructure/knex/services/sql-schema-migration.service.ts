@@ -15,7 +15,9 @@ import {
   generateSQLFromDiff,
   generateBatchSQL,
   executeBatchSQL,
+  JournalContext,
 } from '../utils/migration/sql-diff-generator';
+import { MigrationJournalService } from './migration-journal.service';
 @Injectable()
 export class SqlSchemaMigrationService {
   private readonly logger = new Logger(SqlSchemaMigrationService.name);
@@ -25,6 +27,8 @@ export class SqlSchemaMigrationService {
     private readonly metadataCacheService: MetadataCacheService,
     @Inject(forwardRef(() => QueryBuilderService))
     private readonly queryBuilderService: QueryBuilderService,
+    @Inject(forwardRef(() => MigrationJournalService))
+    private readonly journalService: MigrationJournalService,
   ) {}
   private async getPrimaryKeyType(
     targetTableName: string,
@@ -617,9 +621,60 @@ export class SqlSchemaMigrationService {
       return {};
     }
     const schemaDiff = await this.generateSchemaDiff(oldMetadata, newMetadata);
-    await this.executeSchemaDiff(tableName, schemaDiff, trx);
-    await this.compareMetadataWithActualSchema(tableName, newMetadata);
-    return { pendingMetadataUpdate: { tableName, diff: schemaDiff } };
+    const dbType = this.queryBuilderService.getDatabaseType();
+
+    // Generate up and down scripts for journal
+    const upStatements = await generateSQLFromDiff(
+      knex, tableName, schemaDiff, dbType as 'mysql' | 'postgres' | 'sqlite', this.metadataCacheService,
+    );
+    const upScript = generateBatchSQL(upStatements);
+
+    // Generate down script by reversing the diff (new → old)
+    const reverseDiff = await this.generateSchemaDiff(newMetadata, oldMetadata);
+    const downStatements = await generateSQLFromDiff(
+      knex, tableName, reverseDiff, dbType as 'mysql' | 'postgres' | 'sqlite', this.metadataCacheService,
+    );
+    const downScript = generateBatchSQL(downStatements);
+
+    // Record in journal
+    let journalUuid: string | undefined;
+    try {
+      journalUuid = await this.journalService.record({
+        tableName,
+        operation: 'update',
+        upScript,
+        downScript,
+        beforeSnapshot: oldMetadata,
+      });
+      await this.journalService.markRunning(journalUuid);
+    } catch (journalErr: any) {
+      this.logger.warn(`Journal record failed (non-fatal): ${journalErr.message}`);
+    }
+
+    // Build journal context for executeBatchSQL
+    const journalContext: JournalContext | undefined = journalUuid
+      ? {
+          uuid: journalUuid,
+          markFailed: (err) => this.journalService.markFailed(journalUuid!, err),
+          executeRollback: (uuid) => this.journalService.executeRollback(uuid),
+        }
+      : undefined;
+
+    try {
+      await this.executeSchemaDiff(tableName, schemaDiff, trx, journalContext);
+      await this.compareMetadataWithActualSchema(tableName, newMetadata);
+
+      if (journalUuid) {
+        await this.journalService.markCompleted(journalUuid).catch(() => {});
+      }
+
+      return { pendingMetadataUpdate: { tableName, diff: schemaDiff } };
+    } catch (error) {
+      if (journalUuid) {
+        await this.journalService.markFailed(journalUuid, error.message || 'Unknown error').catch(() => {});
+      }
+      throw error;
+    }
   }
 
   async applyPendingMetadataUpdate(
@@ -975,6 +1030,7 @@ export class SqlSchemaMigrationService {
     tableName: string,
     diff: any,
     trx?: any,
+    journal?: JournalContext,
   ): Promise<string> {
     const knex = this.knexService.getKnex();
     const dbType = this.queryBuilderService.getDatabaseType() as
@@ -989,7 +1045,7 @@ export class SqlSchemaMigrationService {
       this.metadataCacheService,
     );
     const batchSQL = generateBatchSQL(sqlStatements);
-    await executeBatchSQL(knex, batchSQL, dbType, trx);
+    await executeBatchSQL(knex, batchSQL, dbType, trx, journal);
     return batchSQL;
   }
   private hasColumnChanged(oldCol: any, newCol: any): boolean {

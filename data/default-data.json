@@ -687,6 +687,16 @@
             "availableMethods": [
                 "POST"
             ]
+        },
+        {
+            "path": "/schema_migration_definition",
+            "mainTable": "schema_migration_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:scroll-text",
+            "availableMethods": [
+                "GET"
+            ]
         }
     ],
     "pre_hook_definition": [

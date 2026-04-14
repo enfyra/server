@@ -10,6 +10,9 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { MigrationJournalService } from '../../../infrastructure/knex/services/migration-journal.service';
+import { MongoMigrationJournalService } from '../../../infrastructure/mongo/services/mongo-migration-journal.service';
+import { MongoSchemaMigrationService } from '../../../infrastructure/mongo/services/mongo-schema-migration.service';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 
 @Injectable()
@@ -29,6 +32,12 @@ export class ProvisionService implements OnModuleInit {
     private readonly metadataCacheService: MetadataCacheService,
     @Inject(forwardRef(() => RouteDefinitionProcessor))
     private readonly routeDefinitionProcessor: RouteDefinitionProcessor,
+    @Inject(forwardRef(() => MigrationJournalService))
+    private readonly migrationJournalService: MigrationJournalService,
+    @Inject(forwardRef(() => MongoMigrationJournalService))
+    private readonly mongoJournalService: MongoMigrationJournalService,
+    @Inject(forwardRef(() => MongoSchemaMigrationService))
+    private readonly mongoSchemaMigrationService: MongoSchemaMigrationService,
   ) {}
 
   private async waitForDatabaseConnection(
@@ -62,6 +71,35 @@ export class ProvisionService implements OnModuleInit {
       await this.routeDefinitionProcessor.ensureMissingHandlers();
     } catch (error) {
       this.logger.error(`Error ensuring route handlers: ${error.message}`);
+    }
+
+    // Recover any pending/running migrations from previous crash
+    if (!this.queryBuilder.isMongoDb()) {
+      try {
+        await this.migrationJournalService.recoverPending();
+      } catch (error) {
+        this.logger.warn(`SQL migration journal recovery failed (non-fatal): ${error.message}`);
+      }
+      try {
+        await this.migrationJournalService.cleanup();
+      } catch (error) {
+        this.logger.warn(`SQL journal cleanup failed (non-fatal): ${error.message}`);
+      }
+    } else {
+      try {
+        await this.mongoJournalService.recoverPending(
+          (diff) => this.mongoSchemaMigrationService['executeMongoSchemaDiff'](
+            diff.tableName || 'unknown', diff, null, null,
+          ),
+        );
+      } catch (error) {
+        this.logger.warn(`Mongo migration journal recovery failed (non-fatal): ${error.message}`);
+      }
+      try {
+        await this.mongoJournalService.cleanup();
+      } catch (error) {
+        this.logger.warn(`Mongo journal cleanup failed (non-fatal): ${error.message}`);
+      }
     }
 
     const isMongoDB = this.queryBuilder.isMongoDb();

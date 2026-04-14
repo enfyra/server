@@ -114,6 +114,30 @@ export class MetadataCacheService {
     }
 
     if (tables.length === 0 && !payload.affectedTables?.length) {
+      const deletedIds = tableIds.filter(
+        (tid) =>
+          !tables.some(
+            (t) => String(DatabaseConfigService.getRecordId(t)) === String(tid),
+          ),
+      );
+      if (deletedIds.length > 0) {
+        const namesToRemove = new Set<string>();
+        for (const tid of deletedIds) {
+          for (const t of this.inMemoryCache.tablesList) {
+            if (String(DatabaseConfigService.getRecordId(t)) === String(tid)) {
+              namesToRemove.add(t.name);
+            }
+          }
+        }
+        for (const name of namesToRemove) {
+          this.inMemoryCache.tables.delete(name);
+        }
+        this.inMemoryCache.tablesList = this.inMemoryCache.tablesList.filter(
+          (t: any) => !namesToRemove.has(t.name),
+        );
+        this.inMemoryCache.version = Date.now();
+        this.inMemoryCache.timestamp = new Date();
+      }
       return;
     }
 

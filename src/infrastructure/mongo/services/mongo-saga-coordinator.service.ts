@@ -10,7 +10,7 @@ import {
 import { Db, ObjectId, AggregationCursor } from 'mongodb';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MongoService } from './mongo.service';
-import { MongoTransactionLockService, ILockAcquisitionResult } from './mongo-transaction-lock.service';
+import { MongoSagaLockService, ILockAcquisitionResult } from './mongo-saga-lock.service';
 import { MongoOperationLogService, IOperationLog, IRollbackResult, TOperationType } from './mongo-operation-log.service';
 import { DatabaseException, ValidationException } from '../../../core/exceptions/custom-exceptions';
 import { CacheService } from '../../cache/services/cache.service';
@@ -105,7 +105,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(forwardRef(() => MongoService))
     private readonly mongoService: MongoService,
-    private readonly lockService: MongoTransactionLockService,
+    private readonly lockService: MongoSagaLockService,
     private readonly logService: MongoOperationLogService,
     private readonly instanceService: InstanceService,
     @Optional() private readonly cacheService?: CacheService,
@@ -118,7 +118,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
       return;
     }
     try {
-      await this.recoverOrphanedTransactions('boot');
+      await this.recoverOrphanedSagas('boot');
     } catch (error) {
       this.logger.error(
         `Saga boot recovery failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -137,7 +137,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
     const firstDelay = jitterCap > 0 ? Math.floor(Math.random() * (jitterCap + 1)) : 0;
     const run = async () => {
       try {
-        await this.recoverOrphanedTransactions('periodic');
+        await this.recoverOrphanedSagas('periodic');
       } catch (error) {
         this.logger.error(
           `Periodic cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -232,7 +232,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
     return total;
   }
 
-  async recoverOrphanedTransactions(
+  async recoverOrphanedSagas(
     source: 'boot' | 'periodic' = 'periodic',
   ): Promise<{ cleaned: number; recovered: number }> {
     if (this.cacheService) {
@@ -521,8 +521,8 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getTransactionStatus(txId: string) {
-    return this.lockService.getTransactionStatus(txId);
+  getSagaStatus(txId: string) {
+    return this.lockService.getSagaStatus(txId);
   }
 }
 
@@ -531,7 +531,7 @@ export class MongoSagaSession {
 
   constructor(
     public readonly txId: string,
-    private readonly lockService: MongoTransactionLockService,
+    private readonly lockService: MongoSagaLockService,
     private readonly logService: MongoOperationLogService,
     private readonly mongoService: MongoService,
     private readonly options: Required<ISagaOptions>,
@@ -1244,7 +1244,7 @@ export class SagaPlan {
 
   constructor(
     private readonly txId: string,
-    private readonly lockService: MongoTransactionLockService,
+    private readonly lockService: MongoSagaLockService,
     private readonly logService: MongoOperationLogService,
     private readonly mongoService: MongoService,
     private readonly options: Required<ISagaOptions>,

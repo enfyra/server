@@ -173,18 +173,18 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return this.nativeMultiDocSupported;
   }
 
-  getActiveAppTransactionSession(): MongoSagaSession | undefined {
+  getActiveSagaSession(): MongoSagaSession | undefined {
     return this.appTxSessionAls.getStore();
   }
 
-  isInTransaction(): boolean {
+  isInSaga(): boolean {
     return (
       this.nativeTxBundleAls.getStore() !== undefined ||
       this.appTxSessionAls.getStore() !== undefined
     );
   }
 
-  getCurrentTransactionId(): string | undefined {
+  getCurrentSagaId(): string | undefined {
     const n = this.nativeTxBundleAls.getStore();
     if (n) {
       return n.logicalTxId;
@@ -192,7 +192,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return this.appTxSessionAls.getStore()?.txId;
   }
 
-  async runInTransaction<T>(
+  async runInSaga<T>(
     fn: () => Promise<T>,
     options?: { throwOnFailure?: boolean },
   ): Promise<{
@@ -303,7 +303,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       ) as unknown as Collection<T>;
     }
     if (this.appTxSessionAls.getStore()) {
-      return new TransactionalCollection(name, this) as unknown as Collection<T>;
+      return new SagaCollection(name, this) as unknown as Collection<T>;
     }
     return this.getDb().collection<T>(name);
   }
@@ -1467,16 +1467,16 @@ export class NativeSessionCollection<T extends Document = Document> {
   }
 }
 
-export class TransactionalCollection<T extends Document = Document> {
+export class SagaCollection<T extends Document = Document> {
   constructor(
     private readonly name: string,
     private readonly mongo: MongoService,
   ) {}
 
   private session(): MongoSagaSession {
-    const tx = this.mongo.getActiveAppTransactionSession();
+    const tx = this.mongo.getActiveSagaSession();
     if (!tx) {
-      throw new Error('No active application transaction');
+      throw new Error('No active saga session');
     }
     return tx;
   }

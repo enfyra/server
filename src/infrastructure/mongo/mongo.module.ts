@@ -2,9 +2,10 @@ import { Module, Global } from '@nestjs/common';
 import { MongoService } from './services/mongo.service';
 import { MongoSchemaMigrationService } from './services/mongo-schema-migration.service';
 import { MongoSchemaMigrationLockService } from './services/mongo-schema-migration-lock.service';
-import { MongoTransactionLockService } from './services/mongo-transaction-lock.service';
+import { MongoSagaLockService } from './services/mongo-saga-lock.service';
 import { MongoOperationLogService } from './services/mongo-operation-log.service';
 import { MongoSagaCoordinator } from './services/mongo-saga-coordinator.service';
+import { MongoMigrationJournalService } from './services/mongo-migration-journal.service';
 
 @Global()
 @Module({
@@ -12,17 +13,19 @@ import { MongoSagaCoordinator } from './services/mongo-saga-coordinator.service'
     MongoService,
     MongoSchemaMigrationService,
     MongoSchemaMigrationLockService,
-    MongoTransactionLockService,
+    MongoSagaLockService,
     MongoOperationLogService,
     MongoSagaCoordinator,
+    MongoMigrationJournalService,
   ],
   exports: [
     MongoService,
     MongoSchemaMigrationService,
     MongoSchemaMigrationLockService,
-    MongoTransactionLockService,
+    MongoSagaLockService,
     MongoOperationLogService,
     MongoSagaCoordinator,
+    MongoMigrationJournalService,
   ],
 })
 export class MongoModule {}

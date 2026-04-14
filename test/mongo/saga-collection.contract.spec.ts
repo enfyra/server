@@ -1,10 +1,10 @@
 import { ObjectId } from 'mongodb';
 import {
-  TransactionalCollection,
+  SagaCollection,
   MongoService,
 } from '../../src/infrastructure/mongo/services/mongo.service';
 
-describe('TransactionalCollection (app-level tx)', () => {
+describe('SagaCollection (app-level saga)', () => {
   const rawColl = {
     countDocuments: jest.fn().mockResolvedValue(5),
     aggregate: jest.fn().mockReturnValue({ toArray: async () => [] }),
@@ -48,20 +48,20 @@ describe('TransactionalCollection (app-level tx)', () => {
   });
 
   it('countDocuments delegates to saga session (visibility merge in session impl)', async () => {
-    const c = new TransactionalCollection('items', mongo);
+    const c = new SagaCollection('items', mongo);
     const n = await c.countDocuments({ a: 1 });
     expect(n).toBe(5);
     expect(txApi.countDocuments).toHaveBeenCalledWith('items', { a: 1 });
   });
 
   it('aggregate delegates to saga session', () => {
-    const c = new TransactionalCollection('items', mongo);
+    const c = new SagaCollection('items', mongo);
     c.aggregate([{ $match: {} }]);
     expect(txApi.aggregate).toHaveBeenCalledWith('items', [{ $match: {} }], undefined);
   });
 
   it('bulkWrite asserts duration then uses raw collection', () => {
-    const c = new TransactionalCollection('items', mongo);
+    const c = new SagaCollection('items', mongo);
     c.bulkWrite([]);
     expect(txApi.assertWithinMaxDuration).toHaveBeenCalled();
     expect(mongo.getDb).toHaveBeenCalled();
@@ -70,7 +70,7 @@ describe('TransactionalCollection (app-level tx)', () => {
 
   it('insertOne routes through saga session', async () => {
     txApi.insertOne.mockResolvedValue({ _id: new ObjectId(), id: 'x' });
-    const c = new TransactionalCollection('items', mongo);
+    const c = new SagaCollection('items', mongo);
     await c.insertOne({ name: 'a' });
     expect(txApi.insertOne).toHaveBeenCalledWith(
       'items',
@@ -84,7 +84,7 @@ describe('TransactionalCollection (app-level tx)', () => {
       getDb: jest.fn(() => ({ collection: jest.fn(() => rawColl) })),
       getActiveAppTransactionSession: jest.fn(() => undefined),
     } as unknown as MongoService;
-    const c = new TransactionalCollection('items', m);
+    const c = new SagaCollection('items', m);
     expect(() => c.findOne({})).toThrow('No active application transaction');
   });
 });

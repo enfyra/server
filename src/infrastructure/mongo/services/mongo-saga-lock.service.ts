@@ -49,8 +49,8 @@ export interface IOrphanMarkerRecoveryPlan {
 }
 
 @Injectable()
-export class MongoTransactionLockService {
-  private readonly logger = new Logger(MongoTransactionLockService.name);
+export class MongoSagaLockService {
+  private readonly logger = new Logger(MongoSagaLockService.name);
   private readonly locksCollectionName = 'system_transaction_locks';
   private readonly txMetaCollectionName = 'system_transaction_metadata';
   private readonly lockTimeoutMs = 30000;
@@ -571,13 +571,13 @@ export class MongoTransactionLockService {
     return 0;
   }
 
-  async getTransactionStatus(txId: string): Promise<ITransactionMetadata | null> {
+  async getSagaStatus(txId: string): Promise<ITransactionMetadata | null> {
     return this.getMetaCollection().findOne({ txId });
   }
 
   async getOrphanMarkerRecoveryPlan(txId: string): Promise<IOrphanMarkerRecoveryPlan> {
     await this.ensureCollections();
-    const meta = await this.getTransactionStatus(txId);
+    const meta = await this.getSagaStatus(txId);
     if (!meta) {
       return { shouldUnsetMarkers: true, needsRollbackFirst: false };
     }

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
 import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
-import { MongoTransactionLockService } from '../../src/infrastructure/mongo/services/mongo-transaction-lock.service';
+import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
 import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
 import { CacheService } from '../../src/infrastructure/cache/services/cache.service';
 import { InstanceService } from '../../src/shared/services/instance.service';
@@ -37,7 +37,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
           useValue: { getDb: () => db },
         },
         {
-          provide: MongoTransactionLockService,
+          provide: MongoSagaLockService,
           useValue: {
             cleanupOrphanedLocks,
             getOrphanMarkerRecoveryPlan: jest
@@ -68,7 +68,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     acquire.mockResolvedValue(false);
 
     const before = coordinator.getSagaRecoveryMetrics();
-    const result = await coordinator.recoverOrphanedTransactions('boot');
+    const result = await coordinator.recoverOrphanedSagas('boot');
 
     expect(result).toEqual({ cleaned: 0, recovered: 0 });
     expect(acquire).toHaveBeenCalledWith(
@@ -88,7 +88,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     acquire.mockResolvedValue(true);
 
     const before = coordinator.getSagaRecoveryMetrics();
-    await coordinator.recoverOrphanedTransactions('periodic');
+    await coordinator.recoverOrphanedSagas('periodic');
 
     expect(cleanupOrphanedLocks).toHaveBeenCalled();
     expect(cleanupOldLogs).toHaveBeenCalled();
@@ -106,7 +106,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     acquire.mockResolvedValue(true);
     cleanupOrphanedLocks.mockRejectedValueOnce(new Error('db unavailable'));
 
-    await expect(coordinator.recoverOrphanedTransactions('boot')).rejects.toThrow(
+    await expect(coordinator.recoverOrphanedSagas('boot')).rejects.toThrow(
       'db unavailable',
     );
     expect(release).toHaveBeenCalledWith(
@@ -132,7 +132,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
           useValue: { getDb: () => db },
         },
         {
-          provide: MongoTransactionLockService,
+          provide: MongoSagaLockService,
           useValue: {
             cleanupOrphanedLocks: cleanupOrphanedLocksLocal,
             getOrphanMarkerRecoveryPlan: jest
@@ -152,7 +152,7 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
     }).compile();
 
     const solo = module.get<MongoSagaCoordinator>(MongoSagaCoordinator);
-    await solo.recoverOrphanedTransactions('boot');
+    await solo.recoverOrphanedSagas('boot');
     expect(cleanupOrphanedLocksLocal).toHaveBeenCalled();
     expect(cleanupOldLogsLocal).toHaveBeenCalled();
   });
