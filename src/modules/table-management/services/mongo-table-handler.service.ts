@@ -18,6 +18,7 @@ import {
   ValidationException,
 } from '../../../core/exceptions/custom-exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { generateDefaultRecord } from '../utils/generate-default-record';
@@ -640,6 +641,22 @@ export class MongoTableHandlerService {
               }
             }
           }
+
+          // Auto-create gql_definition for new table
+          const existingGql = await this.queryBuilder.findOne({
+            table: 'gql_definition',
+            where: { table: tableId },
+          });
+          if (!existingGql) {
+            await db.collection('gql_definition').insertOne({
+              table: tableId,
+              isEnabled: body.graphqlEnabled === true,
+              isSystem: false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+
           const fullMetadata = await this.getFullTableMetadata(tableId);
           await this.schemaMigrationService.createCollection(fullMetadata);
 
@@ -1160,8 +1177,32 @@ export class MongoTableHandlerService {
           }
         }
 
+        if (body.graphqlEnabled !== undefined) {
+          const db = this.mongoService.getDb();
+          const pkField = DatabaseConfigService.getPkField();
+          const existingGql = await this.queryBuilder.findOne({
+            table: 'gql_definition',
+            where: { table: exists[pkField] },
+          });
+          if (existingGql) {
+            await db.collection('gql_definition').updateOne(
+              { _id: existingGql._id },
+              { $set: { isEnabled: body.graphqlEnabled === true, updatedAt: new Date() } },
+            );
+          } else {
+            await db.collection('gql_definition').insertOne({
+              table: exists[pkField],
+              isEnabled: body.graphqlEnabled === true,
+              isSystem: exists.isSystem || false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+          stepLog(`STEP 14 gql_definition sync done (+${lap()}ms)`);
+        }
+
         finalMetadata.affectedTables = [...affectedTableNames];
-        stepLog(`STEP 13 isSingleRecord cleanup done (+${lap()}ms)`);
+        stepLog(`STEP 15 isSingleRecord cleanup done (+${lap()}ms)`);
         return finalMetadata;
       } catch (error) {
         this.loggingService.error('Collection update failed', {

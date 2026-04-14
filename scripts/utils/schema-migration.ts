@@ -281,14 +281,12 @@ async function applySqlColumnModifications(
       if (mod.from.type !== undefined && mod.to.type !== undefined && mod.from.type !== mod.to.type) {
         if (mod.to.type === 'enum' && Array.isArray(mod.to.options)) {
           // Check actual current type in database
-          const currentTypeResult = await knex.raw(`
-            SELECT data_type, udt_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = ?
-              AND column_name = ?
-          `, [tableName, targetColumn]);
-          const currentDbType = currentTypeResult.rows[0]?.udt_name || currentTypeResult.rows[0]?.data_type;
+          const isPg = dbType === 'pg' || dbType === 'postgres' || dbType === 'postgresql';
+          const currentTypeResult = isPg
+            ? await knex.raw(`SELECT data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?`, [tableName, targetColumn])
+            : await knex.raw(`SELECT DATA_TYPE as data_type FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [tableName, targetColumn]);
+          const row = isPg ? currentTypeResult.rows?.[0] : currentTypeResult[0]?.[0];
+          const currentDbType = isPg ? (row?.udt_name || row?.data_type) : row?.data_type;
 
           // Skip if already an ENUM type (migration already applied)
           if (currentDbType && currentDbType.endsWith('_enum')) {

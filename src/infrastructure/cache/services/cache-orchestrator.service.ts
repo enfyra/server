@@ -49,7 +49,7 @@ const RELOAD_CHAINS: Record<string, string[]> = {
   guard_definition: ['guard'],
   guard_rule_definition: ['guard'],
 
-  field_permission_definition: ['fieldPermission'],
+  field_permission_definition: ['fieldPermission', 'graphql'],
 
   setting_definition: ['setting', 'settingGraphql'],
   storage_config_definition: ['storage'],
@@ -61,6 +61,7 @@ const RELOAD_CHAINS: Record<string, string[]> = {
   flow_step_definition: ['flow'],
   folder_definition: ['folder'],
   bootstrap_script_definition: ['bootstrap'],
+  gql_definition: ['graphql'],
 };
 
 @Injectable()

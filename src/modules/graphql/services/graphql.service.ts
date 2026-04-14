@@ -12,6 +12,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
+import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import {
   buildTableGraphQLDef,
@@ -42,6 +43,7 @@ export class GraphqlService {
     private metadataCache: MetadataCacheService,
     private routeCacheService: RouteCacheService,
     private settingCacheService: SettingCacheService,
+    private gqlDefinitionCache: GqlDefinitionCacheService,
     private dynamicResolver: DynamicResolver,
     private eventEmitter: EventEmitter2,
     private configService: ConfigService,
@@ -59,18 +61,10 @@ export class GraphqlService {
         return;
       }
 
-      const routes = await this.routeCacheService.getRoutes();
+      const enabledDefs = await this.gqlDefinitionCache.getAllEnabled();
       const newQueryableNames = new Set<string>();
-      for (const route of routes) {
-        const methods = route.availableMethods || [];
-        const methodNames = methods
-          .map((m: any) => m?.method ?? m)
-          .filter(Boolean);
-        const hasQuery = methodNames.includes('GQL_QUERY');
-        const hasMutation = methodNames.includes('GQL_MUTATION');
-        if (hasQuery && hasMutation && route.mainTable?.name) {
-          newQueryableNames.add(route.mainTable.name);
-        }
+      for (const def of enabledDefs) {
+        newQueryableNames.add(def.tableName);
       }
 
       const affectedTables = this.getAffectedTables(payload, newQueryableNames, metadata);

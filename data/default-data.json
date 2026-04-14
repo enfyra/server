@@ -4,77 +4,93 @@
     },
     "setting_definition": {
         "isInit": false,
-        "isSystem":true,
+        "isSystem": true,
         "projectName": "Enfyra CMS",
         "projectDescription": "Description for Enfyra CMS"
     },
     "method_definition": [
         {
-            "method": "GQL_QUERY",
-            "isSystem":true
-        },
-        {
-            "method": "GQL_MUTATION",
-            "isSystem":true
-        },
-        {
             "method": "GET",
-            "isSystem":true
+            "isSystem": true
         },
         {
             "method": "POST",
-            "isSystem":true
+            "isSystem": true
         },
         {
             "method": "PATCH",
-            "isSystem":true
+            "isSystem": true
         },
         {
             "method": "DELETE",
-            "isSystem":true
+            "isSystem": true
         }
-        
     ],
     "route_definition": [
         {
             "path": "/route_definition",
             "mainTable": "route_definition",
             "isEnabled": true,
-            "isSystem":true,
+            "isSystem": true,
             "icon": "lucide:git-branch",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/table_definition",
             "mainTable": "table_definition",
             "isEnabled": true,
-            "isSystem":true,
+            "isSystem": true,
             "icon": "lucide:table",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/relation_definition",
             "mainTable": "relation_definition",
             "isEnabled": true,
-            "isSystem":true,
+            "isSystem": true,
             "icon": "lucide:git-branch",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/user_definition",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
+            "isSystem": true,
             "icon": "lucide:user",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/setting_definition",
             "mainTable": "setting_definition",
             "isEnabled": true,
-            "isSystem":true,
+            "isSystem": true,
             "icon": "lucide:settings",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/cors_origin_definition",
@@ -82,69 +98,104 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:globe",
-            "publishedMethods": ["GET"],
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/role_definition",
             "mainTable": "role_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:shield-check",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "isSystem": true,
+            "icon": "lucide:shield-check",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/auth/login",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "publishedMethods": ["POST"],
-            "availableMethods": ["POST"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "POST"
+            ],
+            "availableMethods": [
+                "POST"
+            ]
         },
-         {
+        {
             "path": "/auth/logout",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "publishedMethods": ["POST"],
-            "availableMethods": ["POST"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "POST"
+            ],
+            "availableMethods": [
+                "POST"
+            ]
         },
-         {
+        {
             "path": "/auth/refresh-token",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "publishedMethods": ["POST"],
-            "availableMethods": ["POST"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "POST"
+            ],
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/auth/:provider",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "publishedMethods": ["GET"],
-            "availableMethods": ["GET"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/auth/:provider/callback",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "publishedMethods": ["GET"],
-            "availableMethods": ["GET"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/me",
             "mainTable": "user_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "availableMethods": ["GET", "PATCH"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "availableMethods": [
+                "GET",
+                "PATCH"
+            ]
         },
         {
             "path": "/me/oauth-accounts",
@@ -152,47 +203,74 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/method_definition",
             "mainTable": "method_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/pre_hook_definition",
             "mainTable": "pre_hook_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/post_hook_definition",
             "mainTable": "post_hook_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/route_handler_definition",
             "mainTable": "route_handler_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/route_permission_definition",
             "mainTable": "route_permission_definition",
             "isEnabled": true,
-            "isSystem":true,
-            "icon":"lucide:route",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "isSystem": true,
+            "icon": "lucide:route",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/field_permission_definition",
@@ -200,7 +278,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:shield",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/menu_definition",
@@ -208,7 +291,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:menu",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/extension_definition",
@@ -216,14 +304,21 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:puzzle",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/extension_definition/preview",
             "mainTable": "extension_definition",
             "isEnabled": true,
             "isSystem": true,
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/folder_definition",
@@ -231,7 +326,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:folder",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE", "GQL_QUERY", "GQL_MUTATION"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/folder_definition/tree",
@@ -239,7 +339,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:folder-tree",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/file_definition",
@@ -247,7 +349,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:file",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/file_permission_definition",
@@ -255,7 +362,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:file",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/assets/:id",
@@ -263,7 +375,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:download",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/package_definition",
@@ -271,7 +385,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:package",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/logs",
@@ -279,7 +398,9 @@
             "isSystem": true,
             "icon": "lucide:file-text",
             "description": "List all log files with stats",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/logs/stats",
@@ -287,7 +408,9 @@
             "isSystem": true,
             "icon": "lucide:bar-chart",
             "description": "Get log files statistics",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/logs/:filename",
@@ -295,7 +418,9 @@
             "isSystem": true,
             "icon": "lucide:file-search",
             "description": "Read log file content with pagination and filtering",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/logs/:filename/tail",
@@ -303,7 +428,9 @@
             "isSystem": true,
             "icon": "lucide:arrow-down",
             "description": "Get last N lines of a log file",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/bootstrap_script_definition",
@@ -311,7 +438,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:play",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/storage_config_definition",
@@ -319,7 +451,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:hard-drive",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/admin/reload",
@@ -327,7 +464,9 @@
             "isSystem": true,
             "icon": "lucide:refresh-cw",
             "description": "Reload all caches and schemas",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/admin/reload/metadata",
@@ -335,7 +474,9 @@
             "isSystem": true,
             "icon": "lucide:database",
             "description": "Reload metadata cache",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/admin/reload/routes",
@@ -343,7 +484,9 @@
             "isSystem": true,
             "icon": "lucide:route",
             "description": "Reload routes cache",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/admin/reload/graphql",
@@ -351,7 +494,9 @@
             "isSystem": true,
             "icon": "lucide:code",
             "description": "Reload GraphQL schema",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/admin/test/run",
@@ -359,7 +504,9 @@
             "isSystem": true,
             "icon": "lucide:flask-conical",
             "description": "Run a safe test execution (flows/websocket)",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/admin/flow/trigger/:id",
@@ -367,7 +514,9 @@
             "isSystem": true,
             "icon": "lucide:play",
             "description": "Trigger a flow execution",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         },
         {
             "path": "/metadata",
@@ -375,7 +524,9 @@
             "isSystem": true,
             "icon": "lucide:database",
             "description": "Get all table metadata from cache",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/metadata/:name",
@@ -383,7 +534,9 @@
             "isSystem": true,
             "icon": "lucide:table",
             "description": "Get single table metadata from cache",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/graphql-schema",
@@ -391,7 +544,9 @@
             "isSystem": true,
             "icon": "lucide:file-code",
             "description": "GraphQL schema SDL (full definition for debugging)",
-            "availableMethods": ["GET"]
+            "availableMethods": [
+                "GET"
+            ]
         },
         {
             "path": "/websocket_definition",
@@ -399,7 +554,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:radio-tower",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/websocket_event_definition",
@@ -407,7 +567,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:zap",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/oauth_config_definition",
@@ -415,7 +580,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/oauth_account_definition",
@@ -423,7 +593,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:link",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/flow_definition",
@@ -431,7 +606,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:workflow",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/flow_step_definition",
@@ -439,7 +619,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:git-branch",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/flow_execution_definition",
@@ -447,7 +632,25 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:play-circle",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "path": "/gql_definition",
+            "mainTable": "gql_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:file-code",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/guard_definition",
@@ -455,7 +658,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:shield",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/guard_rule_definition",
@@ -463,7 +671,12 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:shield-check",
-            "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         },
         {
             "path": "/admin/reload/guards",
@@ -471,7 +684,9 @@
             "isSystem": true,
             "icon": "lucide:shield",
             "description": "Reload guards cache",
-            "availableMethods": ["POST"]
+            "availableMethods": [
+                "POST"
+            ]
         }
     ],
     "pre_hook_definition": [
@@ -480,18 +695,23 @@
             "isGlobal": false,
             "code": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
             "name": "User definition hash password",
-            "isSystem":true,
+            "isSystem": true,
             "route": "/user_definition",
-            "methods": ["POST", "PATCH"]
+            "methods": [
+                "POST",
+                "PATCH"
+            ]
         },
         {
             "isEnabled": true,
             "isGlobal": false,
             "code": "if (@BODY.password) { @BODY.password = await @HELPERS.$bcrypt.hash(@BODY.password); }",
             "name": "Me route hash password",
-            "isSystem":true,
+            "isSystem": true,
             "route": "/me",
-            "methods": ["PATCH"]
+            "methods": [
+                "PATCH"
+            ]
         },
         {
             "isEnabled": true,
@@ -500,7 +720,10 @@
             "name": "Folder definition auto slug",
             "isSystem": true,
             "route": "/folder_definition",
-            "methods": ["POST", "PATCH"]
+            "methods": [
+                "POST",
+                "PATCH"
+            ]
         }
     ],
     "post_hook_definition": [
@@ -509,8 +732,13 @@
             "isGlobal": true,
             "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}",
             "name": "Default response",
-            "isSystem":false,
-            "methods": ["GET", "POST", "PATCH", "DELETE"]
+            "isSystem": false,
+            "methods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
         }
     ],
     "storage_config_definition": [
@@ -562,15 +790,21 @@
                 "or": [
                     {
                         "route": "/table_definition",
-                        "actions": ["create"]
+                        "actions": [
+                            "create"
+                        ]
                     },
                     {
                         "route": "/table_definition",
-                        "actions": ["update"]
+                        "actions": [
+                            "update"
+                        ]
                     },
                     {
                         "route": "/table_definition",
-                        "actions": ["delete"]
+                        "actions": [
+                            "delete"
+                        ]
                     }
                 ]
             }
@@ -599,7 +833,15 @@
             "order": 1,
             "parent": "Settings",
             "permission": {
-                "or": [{ "route": "/setting_definition", "actions": ["read", "update"] }]
+                "or": [
+                    {
+                        "route": "/setting_definition",
+                        "actions": [
+                            "read",
+                            "update"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -614,10 +856,30 @@
             "parent": "Settings",
             "permission": {
                 "or": [
-                    { "route": "/menu_definition", "actions": ["read"] },
-                    { "route": "/menu_definition", "actions": ["create"] },
-                    { "route": "/menu_definition", "actions": ["update"] },
-                    { "route": "/menu_definition", "actions": ["delete"] }
+                    {
+                        "route": "/menu_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
+                    {
+                        "route": "/menu_definition",
+                        "actions": [
+                            "create"
+                        ]
+                    },
+                    {
+                        "route": "/menu_definition",
+                        "actions": [
+                            "update"
+                        ]
+                    },
+                    {
+                        "route": "/menu_definition",
+                        "actions": [
+                            "delete"
+                        ]
+                    }
                 ]
             }
         },
@@ -633,7 +895,12 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/extension_definition", "actions": ["read"] }
+                    {
+                        "route": "/extension_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -649,12 +916,32 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/route_definition", "actions": ["read"] },
+                    {
+                        "route": "/route_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
                     {
                         "or": [
-                            { "route": "/route_definition", "actions": ["create"] },
-                            { "route": "/route_definition", "actions": ["update"] },
-                            { "route": "/route_definition", "actions": ["delete"] }
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            },
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "delete"
+                                ]
+                            }
                         ]
                     }
                 ]
@@ -672,12 +959,32 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/field_permission_definition", "actions": ["read"] },
+                    {
+                        "route": "/field_permission_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
                     {
                         "or": [
-                            { "route": "/field_permission_definition", "actions": ["create"] },
-                            { "route": "/field_permission_definition", "actions": ["update"] },
-                            { "route": "/field_permission_definition", "actions": ["delete"] }
+                            {
+                                "route": "/field_permission_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/field_permission_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            },
+                            {
+                                "route": "/field_permission_definition",
+                                "actions": [
+                                    "delete"
+                                ]
+                            }
                         ]
                     }
                 ]
@@ -695,12 +1002,32 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/guard_definition", "actions": ["read"] },
+                    {
+                        "route": "/guard_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
                     {
                         "or": [
-                            { "route": "/guard_definition", "actions": ["create"] },
-                            { "route": "/guard_definition", "actions": ["update"] },
-                            { "route": "/guard_definition", "actions": ["delete"] }
+                            {
+                                "route": "/guard_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/guard_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            },
+                            {
+                                "route": "/guard_definition",
+                                "actions": [
+                                    "delete"
+                                ]
+                            }
                         ]
                     }
                 ]
@@ -729,12 +1056,32 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/websocket_definition", "actions": ["read"] },
+                    {
+                        "route": "/websocket_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
                     {
                         "or": [
-                            { "route": "/websocket_definition", "actions": ["create"] },
-                            { "route": "/websocket_definition", "actions": ["update"] },
-                            { "route": "/websocket_definition", "actions": ["delete"] }
+                            {
+                                "route": "/websocket_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/websocket_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            },
+                            {
+                                "route": "/websocket_definition",
+                                "actions": [
+                                    "delete"
+                                ]
+                            }
                         ]
                     }
                 ]
@@ -752,12 +1099,32 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/flow_definition", "actions": ["read"] },
+                    {
+                        "route": "/flow_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
                     {
                         "or": [
-                            { "route": "/flow_definition", "actions": ["create"] },
-                            { "route": "/flow_definition", "actions": ["update"] },
-                            { "route": "/flow_definition", "actions": ["delete"] }
+                            {
+                                "route": "/flow_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/flow_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            },
+                            {
+                                "route": "/flow_definition",
+                                "actions": [
+                                    "delete"
+                                ]
+                            }
                         ]
                     }
                 ]
@@ -774,7 +1141,14 @@
             "order": 8,
             "parent": "Settings",
             "permission": {
-                "or": [{ "route": "/bootstrap_script_definition", "actions": ["read"] }]
+                "or": [
+                    {
+                        "route": "/bootstrap_script_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -789,7 +1163,12 @@
             "parent": "Settings",
             "permission": {
                 "or": [
-                    { "route": "/admin/reload", "actions": ["create"] }
+                    {
+                        "route": "/admin/reload",
+                        "actions": [
+                            "create"
+                        ]
+                    }
                 ]
             }
         },
@@ -800,12 +1179,17 @@
             "path": "/settings/admin/logs",
             "isEnabled": true,
             "isSystem": true,
-            "description": "Xem file log của backend",
+            "description": "Xem file log c\u1ee7a backend",
             "order": 13,
             "parent": "Settings",
             "permission": {
                 "or": [
-                    { "route": "/logs", "actions": ["read"] }
+                    {
+                        "route": "/logs",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -820,7 +1204,12 @@
             "order": 8,
             "permission": {
                 "or": [
-                    { "route": "/package_definition", "actions": ["read"] }
+                    {
+                        "route": "/package_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -836,7 +1225,12 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/user_definition", "actions": ["read"] }
+                    {
+                        "route": "/user_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -852,7 +1246,12 @@
             "parent": "Settings",
             "permission": {
                 "and": [
-                    { "route": "/role_definition", "actions": ["read"] }
+                    {
+                        "route": "/role_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -868,8 +1267,18 @@
             "parent": "Settings",
             "permission": {
                 "or": [
-                    { "route": "/oauth_config_definition", "actions": ["read"] },
-                    { "route": "/oauth_account_definition", "actions": ["read"] }
+                    {
+                        "route": "/oauth_config_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
+                    {
+                        "route": "/oauth_account_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -885,7 +1294,12 @@
             "parent": "OAuth",
             "permission": {
                 "and": [
-                    { "route": "/oauth_config_definition", "actions": ["read"] }
+                    {
+                        "route": "/oauth_config_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -901,7 +1315,12 @@
             "parent": "OAuth",
             "permission": {
                 "and": [
-                    { "route": "/oauth_account_definition", "actions": ["read"] }
+                    {
+                        "route": "/oauth_account_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -916,8 +1335,18 @@
             "order": 5,
             "permission": {
                 "or": [
-                    { "route": "/file_definition", "actions": ["read"] },
-                    { "route": "/storage/config", "actions": ["read"] }
+                    {
+                        "route": "/file_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
+                    {
+                        "route": "/storage/config",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -933,7 +1362,12 @@
             "parent": "Storage",
             "permission": {
                 "or": [
-                    { "route": "/storage/config", "actions": ["read"] }
+                    {
+                        "route": "/storage/config",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -949,7 +1383,12 @@
             "parent": "Storage",
             "permission": {
                 "or": [
-                    { "route": "/file_definition", "actions": ["read"] }
+                    {
+                        "route": "/file_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    }
                 ]
             }
         },
@@ -997,6 +1436,32 @@
             "connectionHandlerTimeout": 5000
         }
     ],
-    "websocket_event_definition": []
+    "websocket_event_definition": [],
+    "gql_definition": [
+        {
+            "table": "table_definition",
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "table": "user_definition",
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "table": "role_definition",
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "table": "setting_definition",
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "table": "folder_definition",
+            "isEnabled": true,
+            "isSystem": true
+        }
+    ]
 }
-

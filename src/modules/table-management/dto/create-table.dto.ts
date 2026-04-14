@@ -236,6 +236,10 @@ export class CreateTableDto {
   isSingleRecord?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  graphqlEnabled?: boolean;
+
+  @IsOptional()
   indexes?: CreateIndexDto[];
 
   @IsOptional()

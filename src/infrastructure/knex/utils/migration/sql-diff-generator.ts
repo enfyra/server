@@ -510,6 +510,7 @@ export async function executeBatchSQL(
   knex: Knex,
   batchSQL: string,
   dbType?: 'mysql' | 'postgres' | 'sqlite',
+  trx?: Knex.Transaction,
 ): Promise<void> {
   if (!batchSQL || batchSQL.trim() === '' || batchSQL.trim() === ';') {
     logger.log('No SQL to execute (empty batch)');
@@ -521,9 +522,13 @@ export async function executeBatchSQL(
   if (isPostgres) {
     logger.log(`Executing batch SQL with TRANSACTION (PostgreSQL)...`);
     try {
-      await knex.transaction(async (trx) => {
+      if (trx) {
         await trx.raw(batchSQL);
-      });
+      } else {
+        await knex.transaction(async (pgTrx) => {
+          await pgTrx.raw(batchSQL);
+        });
+      }
       logger.log(`Batch SQL executed successfully (transaction committed)`);
     } catch (error) {
       logger.error(`Batch SQL execution failed (transaction rolled back)`);

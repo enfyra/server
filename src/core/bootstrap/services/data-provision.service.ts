@@ -27,6 +27,7 @@ import { FlowDefinitionProcessor } from '../processors/flow-definition.processor
 import { FlowStepDefinitionProcessor } from '../processors/flow-step-definition.processor';
 import { FlowExecutionDefinitionProcessor } from '../processors/flow-execution-definition.processor';
 import { GenericTableProcessor } from '../processors/generic-table.processor';
+import { GraphQLDefinitionProcessor } from '../processors/graphql-definition.processor';
 
 const initJson = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
@@ -59,6 +60,7 @@ export class DataProvisionService {
     private readonly flowDefinitionProcessor: FlowDefinitionProcessor,
     private readonly flowStepDefinitionProcessor: FlowStepDefinitionProcessor,
     private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor,
+    private readonly graphqlDefinitionProcessor: GraphQLDefinitionProcessor,
   ) {
     this.dbType = this.databaseConfig.getDbType();
     this.initializeProcessors();
@@ -100,6 +102,7 @@ export class DataProvisionService {
       'flow_execution_definition',
       this.flowExecutionDefinitionProcessor,
     );
+    this.processors.set('gql_definition', this.graphqlDefinitionProcessor);
 
     const allTables = Object.keys(initJson);
     const registeredTables = Array.from(this.processors.keys());

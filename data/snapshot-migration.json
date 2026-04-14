@@ -5,8 +5,9 @@
       "columnsToRemove": ["isHidden"],
       "columnsToModify": [
         {
-          "from": { "type": "varchar" },
+          "from": { "name": "type", "type": "varchar" },
           "to": {
+            "name": "type",
             "type": "enum",
             "options": [
               "int",

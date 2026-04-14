@@ -668,5 +668,21 @@
             { "propertyName": "guard", "type": "many-to-one", "targetTable": "guard_definition", "isSystem": true, "inversePropertyName": "rules", "isNullable": false, "onDelete": "CASCADE", "description": "Guard this rule belongs to" },
             { "propertyName": "users", "type": "many-to-many", "targetTable": "user_definition", "isSystem": true, "description": "Specific users this rule applies to (empty = all users)" }
         ]
+    },
+    "gql_definition": {
+        "name": "gql_definition",
+        "description": "GraphQL configuration per table — enables/disables GraphQL API for a specific table",
+        "isSystem": true,
+        "uniques": [["table"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether GraphQL is enabled for this table (REST-first, opt-in)" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "System-managed flag" },
+            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Human-readable description" },
+            { "name": "metadata", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Extended configuration (custom handler, timeout, etc.)" }
+        ],
+        "relations": [
+            { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "table_definition", "isNullable": false, "onDelete": "CASCADE", "inversePropertyName": "gqlConfig", "description": "The table this GraphQL config belongs to" }
+        ]
     }
 }

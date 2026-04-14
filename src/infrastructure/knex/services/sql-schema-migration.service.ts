@@ -608,6 +608,7 @@ export class SqlSchemaMigrationService {
     tableName: string,
     oldMetadata: any,
     newMetadata: any,
+    trx?: any,
   ): Promise<{ pendingMetadataUpdate?: { tableName: string; diff: any } }> {
     const knex = this.knexService.getKnex();
     if (!(await knex.schema.hasTable(tableName))) {
@@ -616,25 +617,27 @@ export class SqlSchemaMigrationService {
       return {};
     }
     const schemaDiff = await this.generateSchemaDiff(oldMetadata, newMetadata);
-    await this.executeSchemaDiff(tableName, schemaDiff);
+    await this.executeSchemaDiff(tableName, schemaDiff, trx);
     await this.compareMetadataWithActualSchema(tableName, newMetadata);
     return { pendingMetadataUpdate: { tableName, diff: schemaDiff } };
   }
 
   async applyPendingMetadataUpdate(
     pending: { tableName: string; diff: any } | undefined,
+    trx?: any,
   ): Promise<void> {
     if (!pending) return;
-    await this.updateMetadataFields(pending.tableName, pending.diff);
+    await this.updateMetadataFields(pending.tableName, pending.diff, trx);
   }
 
   private async updateMetadataFields(
     tableName: string,
     diff: any,
+    trx?: any,
   ): Promise<void> {
     if (!diff.metadataUpdate) return;
 
-    const knex = this.knexService.getKnex();
+    const query = trx || this.knexService.getKnex();
     const updateData: any = {};
 
     if (diff.metadataUpdate.uniques !== undefined) {
@@ -647,7 +650,7 @@ export class SqlSchemaMigrationService {
 
     if (Object.keys(updateData).length > 0) {
       try {
-        await knex('table_definition')
+        await query('table_definition')
           .where('name', tableName)
           .update(updateData);
       } catch (error) {
@@ -971,6 +974,7 @@ export class SqlSchemaMigrationService {
   private async executeSchemaDiff(
     tableName: string,
     diff: any,
+    trx?: any,
   ): Promise<string> {
     const knex = this.knexService.getKnex();
     const dbType = this.queryBuilderService.getDatabaseType() as
@@ -985,7 +989,7 @@ export class SqlSchemaMigrationService {
       this.metadataCacheService,
     );
     const batchSQL = generateBatchSQL(sqlStatements);
-    await executeBatchSQL(knex, batchSQL, dbType);
+    await executeBatchSQL(knex, batchSQL, dbType, trx);
     return batchSQL;
   }
   private hasColumnChanged(oldCol: any, newCol: any): boolean {

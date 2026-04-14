@@ -1385,6 +1385,52 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         );
         if (subquery) {
           chunks.push(`EXISTS (${subquery})`);
+        } else {
+          const relation = tableMeta.relations?.find(
+            (r: any) => r.propertyName === relName,
+          );
+          if (relation && relation.foreignKeyColumn) {
+            const q = (name: string) =>
+              quoteIdentifier(name, this.dbType);
+            const fkRef = `${q(tableName)}.${q(relation.foreignKeyColumn)}`;
+            const filterObj = relFilter as any;
+            const idFilter = filterObj?.id;
+            if (idFilter && typeof idFilter === 'object') {
+              if (idFilter._is_null === true) {
+                chunks.push(`${fkRef} IS NULL`);
+              } else if (idFilter._is_null === false) {
+                chunks.push(`${fkRef} IS NOT NULL`);
+              } else if (idFilter._is_not_null === true) {
+                chunks.push(`${fkRef} IS NOT NULL`);
+              } else if (idFilter._is_not_null === false) {
+                chunks.push(`${fkRef} IS NULL`);
+              } else if (idFilter._eq !== undefined) {
+                chunks.push(
+                  `${fkRef} = ${this.escapeSqlValue(idFilter._eq)}`,
+                );
+              } else if (idFilter._neq !== undefined) {
+                chunks.push(
+                  `${fkRef} != ${this.escapeSqlValue(idFilter._neq)}`,
+                );
+              } else if (idFilter._in !== undefined) {
+                const vals = Array.isArray(idFilter._in)
+                  ? idFilter._in
+                  : [idFilter._in];
+                chunks.push(
+                  `${fkRef} IN (${vals.map((v: any) => this.escapeSqlValue(v)).join(', ')})`,
+                );
+              } else if (
+                idFilter._not_in !== undefined ||
+                idFilter._nin !== undefined
+              ) {
+                const raw = idFilter._not_in ?? idFilter._nin;
+                const vals = Array.isArray(raw) ? raw : [raw];
+                chunks.push(
+                  `${fkRef} NOT IN (${vals.map((v: any) => this.escapeSqlValue(v)).join(', ')})`,
+                );
+              }
+            }
+          }
         }
       } catch (error: any) {
         this.logger.warn(
@@ -1413,5 +1459,13 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       this.dbType,
       (tName: string) => this.metadata?.tables?.get(tName),
     );
+  }
+
+  private escapeSqlValue(value: any): string {
+    if (value === null || value === undefined) return 'NULL';
+    if (typeof value === 'string') return `'${value.replace(/'/g, "''")}'`;
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (typeof value === 'number') return String(value);
+    return `'${String(value).replace(/'/g, "''")}'`;
   }
 }

@@ -25,6 +25,7 @@ import { WebsocketEventDefinitionProcessor } from './processors/websocket-event-
 import { FlowDefinitionProcessor } from './processors/flow-definition.processor';
 import { FlowStepDefinitionProcessor } from './processors/flow-step-definition.processor';
 import { FlowExecutionDefinitionProcessor } from './processors/flow-execution-definition.processor';
+import { GraphQLDefinitionProcessor } from './processors/graphql-definition.processor';
 
 @Global()
 @Module({
@@ -53,6 +54,7 @@ import { FlowExecutionDefinitionProcessor } from './processors/flow-execution-de
     FlowDefinitionProcessor,
     FlowStepDefinitionProcessor,
     FlowExecutionDefinitionProcessor,
+    GraphQLDefinitionProcessor,
     BootstrapScriptService,
   ],
   exports: [

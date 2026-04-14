@@ -16,6 +16,7 @@ import { GuardCacheService } from './services/guard-cache.service';
 import { GuardEvaluatorService } from './services/guard-evaluator.service';
 import { SettingCacheService } from './services/setting-cache.service';
 import { FieldPermissionCacheService } from './services/field-permission-cache.service';
+import { GqlDefinitionCacheService } from './services/gql-definition-cache.service';
 import { CacheOrchestratorService } from './services/cache-orchestrator.service';
 
 @Global()
@@ -37,6 +38,7 @@ import { CacheOrchestratorService } from './services/cache-orchestrator.service'
     GuardEvaluatorService,
     SettingCacheService,
     FieldPermissionCacheService,
+    GqlDefinitionCacheService,
     RepoRegistryService,
     CacheOrchestratorService,
   ],
@@ -57,6 +59,7 @@ import { CacheOrchestratorService } from './services/cache-orchestrator.service'
     GuardEvaluatorService,
     SettingCacheService,
     FieldPermissionCacheService,
+    GqlDefinitionCacheService,
     RepoRegistryService,
     CacheOrchestratorService,
   ],
