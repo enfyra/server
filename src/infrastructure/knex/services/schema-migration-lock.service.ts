@@ -15,7 +15,6 @@ type KnexLike = Knex | Knex.Transaction;
 @Injectable()
 export class SchemaMigrationLockService {
   private readonly logger = new Logger(SchemaMigrationLockService.name);
-  private readonly lockId = 918273645;
   private readonly lockName = 'schema_migration_lock';
   private readonly tableName = 'schema_migration_lock';
   private lockTableReady = false;
@@ -31,23 +30,9 @@ export class SchemaMigrationLockService {
     const token = randomUUID();
     const lockedBy = this.buildInstanceId();
 
-    if (dbType === 'postgres') {
-      const result = await knex.raw(
-        'SELECT pg_try_advisory_lock(?) AS locked',
-        [this.lockId],
-      );
-      const locked = result?.rows?.[0]?.locked;
-      if (!locked) {
-        throw await this.buildLockedError(knex);
-      }
-      await this.setLockRow(knex, lockedBy, context, token);
-      return { token, dbType };
-    }
-
-    // MySQL named locks (GET_LOCK/RELEASE_LOCK) are connection-scoped and
-    // incompatible with Knex connection pooling — acquire and release would
-    // use different connections.  Fall through to table-row lock for all
-    // non-postgres databases.
+    // All databases use table-row lock because connection-scoped locks
+    // (pg_advisory_lock, GET_LOCK) are incompatible with Knex connection
+    // pooling — acquire and release would use different connections.
     return await this.acquireTableRowLock(dbType, lockedBy, context, token);
   }
 
@@ -57,18 +42,10 @@ export class SchemaMigrationLockService {
     }
     const knex = this.knexService.getKnex();
 
-    if (handle.dbType === 'postgres') {
-      try {
-        await knex.raw('SELECT pg_advisory_unlock(?)', [this.lockId]);
-      } catch (error) {
-        this.logger.error(
-          `pg_advisory_unlock failed: ${(error as Error).message}`,
-        );
-      }
-    }
-
     await this.clearLockRow(knex, handle.token);
   }
+
+  private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;
 
   private async acquireTableRowLock(
     dbType: string,
@@ -85,9 +62,25 @@ export class SchemaMigrationLockService {
         builder.forUpdate();
       }
       const row = await builder.first();
+
       if (row?.isLocked) {
-        throw await this.buildLockedError(trx);
+        const staleMs = Date.now() - new Date(row.lockedAt).getTime();
+        if (staleMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS) {
+          this.logger.warn(
+            `Clearing stale schema lock held by ${row.lockedBy} for ${context} (${Math.round(staleMs / 1000)}s old)`,
+          );
+          await trx(this.tableName).where({ id: 1 }).update({
+            isLocked: false,
+            lockedBy: null,
+            lockedContext: null,
+            lockedAt: null,
+            lockToken: null,
+          });
+        } else {
+          throw await this.buildLockedError(trx);
+        }
       }
+
       const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
       const updateData: any = {
         isLocked: true,

@@ -10,7 +10,7 @@ import { resolveDbTypeFromEnv } from './utils/resolve-db-type';
 dotenv.config();
 
 const DB_TYPE = resolveDbTypeFromEnv();
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_DB_URI = DB_TYPE === 'mongodb' ? process.env.DB_URI : null;
 
 const TEST_TABLE = '_migration_test';
 const SNAPSHOT_PATH = path.resolve(process.cwd(), 'data/snapshot.json');
@@ -224,16 +224,16 @@ async function testSqlMigrations(): Promise<{ passed: string[]; failed: string[]
 async function testMongoMigrations(): Promise<{ passed: string[]; failed: string[] }> {
   const results = { passed: [] as string[], failed: [] as string[] };
 
-  if (!MONGO_URI) {
-    console.log('\n⏩ MongoDB: MONGO_URI not set, skipping tests');
+  if (!MONGO_DB_URI) {
+    console.log('\n⏩ MongoDB: DB_URI not set or not mongodb://, skipping tests');
     return results;
   }
 
-  const client = new MongoClient(MONGO_URI);
+  const client = new MongoClient(MONGO_DB_URI);
 
   try {
     await client.connect();
-    const dbName = MONGO_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
+    const dbName = MONGO_DB_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
     const db = client.db(dbName);
 
     console.log('\n📦 MongoDB Migration Tests\n');
@@ -310,7 +310,7 @@ async function main(): Promise<void> {
       sqlResults = await testSqlMigrations();
     }
 
-    if (MONGO_URI || DB_TYPE === 'mongodb') {
+    if (MONGO_DB_URI || DB_TYPE === 'mongodb') {
       mongoResults = await testMongoMigrations();
     }
 

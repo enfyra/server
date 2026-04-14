@@ -10,11 +10,10 @@ export class DatabaseConfigService {
 
   constructor(private readonly configService: ConfigService) {
     const uri =
-      this.configService.get<string>('DB_URI') ||
-      this.configService.get<string>('MONGO_URI');
+      this.configService.get<string>('DB_URI');
     if (!uri) {
       throw new Error(
-        'DB_URI or MONGO_URI environment variable is required but not set.',
+        'DB_URI environment variable is required but not set.',
       );
     }
     this.dbType = DatabaseConfigService.resolveFromUri(uri);

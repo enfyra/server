@@ -221,16 +221,16 @@ async function createCollection(db: Db, tableDef: TableDef, allTables: Record<st
   await createIndexes(db, collectionName, tableDef);
 }
 export async function initializeDatabaseMongo(): Promise<void> {
-  const MONGO_URI = process.env.DB_URI || process.env.MONGO_URI;
-  if (!MONGO_URI) {
-    throw new Error('DB_URI or MONGO_URI is not defined in environment variables');
+  const DB_URI = process.env.DB_URI;
+  if (!DB_URI) {
+    throw new Error('DB_URI is not defined in environment variables');
   }
   console.log('🚀 Initializing MongoDB database...');
-  const client = new MongoClient(MONGO_URI);
+  const client = new MongoClient(DB_URI);
   try {
     await client.connect();
     console.log('✅ Connected to MongoDB');
-    const dbName = MONGO_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
+    const dbName = DB_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
     const db = client.db(dbName);
     const settingCollection = db.collection('setting_definition');
     const existingSettings = await settingCollection.findOne({ isInit: true });

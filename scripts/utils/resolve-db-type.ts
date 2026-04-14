@@ -1,10 +1,10 @@
 export type ScriptDatabaseType = 'mysql' | 'postgres' | 'mongodb';
 
 export function resolveDbTypeFromEnv(): ScriptDatabaseType {
-  const uri = process.env.DB_URI || process.env.MONGO_URI;
+  const uri = process.env.DB_URI;
   if (!uri) {
     throw new Error(
-      'DB_URI or MONGO_URI environment variable is required but not set.',
+      'DB_URI environment variable is required but not set.',
     );
   }
   const protocol = new URL(uri).protocol.replace(':', '');

@@ -124,12 +124,11 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
 
     const uri =
-      this.configService.get<string>('MONGO_URI') ||
       this.configService.get<string>('DB_URI');
 
     if (!uri) {
       throw new Error(
-        'MONGO_URI or DB_URI is not defined in environment variables',
+        'DB_URI is not defined in environment variables',
       );
     }
 
@@ -932,54 +931,82 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     recordData: any,
   ): Promise<void> {
     const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata?.relations) {
-      return;
+
+    if (metadata?.relations) {
+      for (const relation of metadata.relations) {
+        const onDelete = normalizeRelationOnDelete(relation);
+        const fieldName = relation.propertyName;
+        const fieldValue = recordData?.[fieldName];
+        const targetCollection = relation.targetTableName || relation.targetTable;
+
+        if (relation.type === 'many-to-many') {
+          await this.applyManyToManyOnDelete(tableName, relation, recordId, onDelete);
+          continue;
+        }
+
+        if (!relation.mappedBy) {
+          continue;
+        }
+
+        if (relation.type === 'many-to-one') {
+          await this.unlinkManyToOneInverse(
+            relation,
+            recordId,
+            recordData,
+            targetCollection,
+          );
+          continue;
+        }
+
+        if (relation.type === 'one-to-many') {
+          await this.applyOneToManyOnDelete(
+            relation,
+            recordId,
+            targetCollection,
+            fieldValue,
+            onDelete,
+          );
+          continue;
+        }
+
+        if (relation.type === 'one-to-one') {
+          await this.applyOneToOneOnDelete(
+            relation,
+            recordId,
+            targetCollection,
+            fieldValue,
+            onDelete,
+          );
+        }
+      }
     }
 
-    for (const relation of metadata.relations) {
-      const onDelete = normalizeRelationOnDelete(relation);
-      const fieldName = relation.propertyName;
-      const fieldValue = recordData?.[fieldName];
-      const targetCollection = relation.targetTableName || relation.targetTable;
+    await this.cleanupReverseManyToManyOnDelete(tableName, recordId);
+  }
 
-      if (relation.type === 'many-to-many') {
-        await this.applyManyToManyOnDelete(tableName, relation, recordId, onDelete);
-        continue;
-      }
+  private async cleanupReverseManyToManyOnDelete(
+    tableName: string,
+    recordId: ObjectId,
+  ): Promise<void> {
+    const allTables = await this.metadataCache.getAllTablesMetadata();
+    if (!allTables) return;
 
-      if (!relation.mappedBy) {
-        continue;
-      }
+    for (const table of allTables) {
+      if (table.name === tableName) continue;
+      if (!table.relations) continue;
 
-      if (relation.type === 'many-to-one') {
-        await this.unlinkManyToOneInverse(
-          relation,
-          recordId,
-          recordData,
-          targetCollection,
-        );
-        continue;
-      }
+      for (const relation of table.relations) {
+        if (relation.type !== 'many-to-many') continue;
 
-      if (relation.type === 'one-to-many') {
-        await this.applyOneToManyOnDelete(
-          relation,
-          recordId,
-          targetCollection,
-          fieldValue,
-          onDelete,
-        );
-        continue;
-      }
+        const targetTable = relation.targetTableName || relation.targetTable;
+        if (targetTable !== tableName) continue;
 
-      if (relation.type === 'one-to-one') {
-        await this.applyOneToOneOnDelete(
-          relation,
-          recordId,
-          targetCollection,
-          fieldValue,
-          onDelete,
-        );
+        const info = this.resolveJunctionInfo(table.name, relation);
+        if (!info) continue;
+
+        await this.collection(info.junctionName).deleteMany({
+          [info.otherColumn]: recordId,
+        } as any);
       }
     }
   }
@@ -1105,15 +1132,17 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     relation: any,
     recordId: ObjectId,
     onDelete: TRelationOnDeleteAction,
+    matchColumnOverride?: string,
   ): Promise<void> {
     const info = this.resolveJunctionInfo(tableName, relation);
     if (!info) return;
 
     const junctionColl = this.collection(info.junctionName);
+    const matchColumn = matchColumnOverride ?? info.selfColumn;
 
     if (onDelete === 'RESTRICT') {
       const count = await junctionColl.countDocuments({
-        [info.selfColumn]: recordId,
+        [matchColumn]: recordId,
       } as any);
       if (count > 0) {
         const targetCollection =
@@ -1125,7 +1154,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    await junctionColl.deleteMany({ [info.selfColumn]: recordId } as any);
+    await junctionColl.deleteMany({ [matchColumn]: recordId } as any);
   }
 
   private setM2mPending(
