@@ -440,7 +440,11 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       collectionName,
       dataWithRelations,
     );
-    const dataWithTimestamps = this.applyTimestamps(dataWithoutInverse);
+    const dataStripped = await this.stripUnknownColumns(
+      collectionName,
+      dataWithoutInverse,
+    );
+    const dataWithTimestamps = this.applyTimestamps(dataStripped);
 
     await this.checkFieldPermission(collectionName, 'create', dataWithTimestamps);
 
@@ -810,6 +814,37 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return filteredData;
   }
 
+  async stripUnknownColumns(
+    collectionName: string,
+    data: any,
+  ): Promise<any> {
+    const tableMetadata =
+      await this.metadataCache.lookupTableByName(collectionName);
+    if (!tableMetadata) return data;
+
+    const validFields = new Set<string>();
+    if (tableMetadata.columns) {
+      for (const col of tableMetadata.columns) {
+        validFields.add(col.name);
+      }
+    }
+    if (tableMetadata.relations) {
+      for (const rel of tableMetadata.relations) {
+        if (rel.foreignKeyColumn) {
+          validFields.add(rel.foreignKeyColumn);
+        }
+      }
+    }
+
+    const stripped = { ...data };
+    for (const key of Object.keys(stripped)) {
+      if (!validFields.has(key)) {
+        delete stripped[key];
+      }
+    }
+    return stripped;
+  }
+
   applyUpdateTimestamp(data: any): any {
     const { _id, id: idField, createdAt, updatedAt, ...cleanData } = data;
     return {
@@ -833,9 +868,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       collectionName,
       dataWithRelations,
     );
-    const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(
+    const dataStripped = await this.stripUnknownColumns(
       collectionName,
       dataWithoutInverse,
+    );
+    const dataWithoutNonUpdatable = await this.stripNonUpdatableFields(
+      collectionName,
+      dataStripped,
     );
     const dataWithTimestamp = this.applyUpdateTimestamp(
       dataWithoutNonUpdatable,
