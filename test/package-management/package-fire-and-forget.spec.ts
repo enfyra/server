@@ -10,6 +10,12 @@ function createMockQueryBuilder(
   let nextId = 100;
   return {
     records,
+    insert: jest.fn(async (_table: string, data: any) => {
+      const id = nextId++;
+      const record = { id, ...data };
+      records.set(id, record);
+      return record;
+    }),
     insertAndGet: jest.fn(async (_table: string, data: any) => {
       const id = nextId++;
       const record = { id, ...data };
@@ -17,21 +23,51 @@ function createMockQueryBuilder(
       return record;
     }),
     update: jest.fn(
-      async (opts: { table: string; where: any[]; data: any }) => {
-        const idCondition = opts.where.find((w: any) => w.field === 'id');
-        if (idCondition) {
-          const key = idCondition.value;
-          const existing =
-            records.get(key) ||
-            records.get(Number(key)) ||
-            records.get(String(key));
-          if (existing) {
-            Object.assign(existing, opts.data);
+      async (...args: any[]) => {
+        if (args.length === 3 && typeof args[1] === 'object' && !Array.isArray(args[1])) {
+          const [_table, whereOpts, data] = args;
+          const idCondition = whereOpts.where?.find((w: any) => w.field === 'id');
+          if (idCondition) {
+            const key = idCondition.value;
+            const existing =
+              records.get(key) ||
+              records.get(Number(key)) ||
+              records.get(String(key));
+            if (existing) {
+              Object.assign(existing, data);
+            }
           }
+          return [{ id: idCondition?.value, ...data }];
         }
-        return [{ id: idCondition?.value, ...opts.data }];
+        const [_table, id, data] = args;
+        const existing =
+          records.get(id) || records.get(Number(id));
+        if (existing) {
+          Object.assign(existing, data);
+        }
+        return { id, ...data };
       },
     ),
+    find: jest.fn(async (opts: any) => {
+      const all = Array.from(records.values());
+      let filtered = all;
+      if (opts.filter) {
+        filtered = all.filter((r: any) => {
+          for (const [k, v] of Object.entries(opts.filter)) {
+            if (r[k] !== v) return false;
+          }
+          return true;
+        });
+      }
+      if (opts.fields) {
+        filtered = filtered.map((r: any) => {
+          const out: any = {};
+          for (const f of opts.fields) out[f] = r[f];
+          return out;
+        });
+      }
+      return { data: filtered };
+    }),
     select: jest.fn(async (opts: any) => {
       const all = Array.from(records.values());
       let filtered = all;
@@ -52,6 +88,22 @@ function createMockQueryBuilder(
       }
       return { data: filtered };
     }),
+    delete: jest.fn(async (...args: any[]) => {
+      if (args.length === 2 && typeof args[1] === 'object') {
+        const [_table, opts] = args;
+        const idCondition = opts.where?.find((w: any) => w.field === 'id');
+        if (idCondition) {
+          records.delete(Number(idCondition.value));
+          records.delete(idCondition.value);
+        }
+      } else {
+        const [_table, id] = args;
+        records.delete(Number(id));
+        records.delete(id);
+      }
+    }),
+    isMongoDb: jest.fn(() => false),
+    getPkField: jest.fn(() => 'id'),
   };
 }
 
@@ -151,12 +203,14 @@ async function buildController(opts: {
 }) {
   const mod =
     await import('../../src/modules/package-management/controllers/package.controller');
-  return new (mod.PackageController as any)(
-    opts.packageCacheService,
+  const eventEmitter = { emit: jest.fn() };
+  const ctrl = new (mod.PackageController as any)(
     opts.cdnLoader,
     opts.queryBuilder,
     opts.websocketGateway,
+    eventEmitter,
   );
+  return { ctrl, eventEmitter };
 }
 
 function makeReq(body: any, repo: any) {
@@ -218,7 +272,7 @@ describe('PackageController – install', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -254,7 +308,7 @@ describe('PackageController – install', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -285,7 +339,7 @@ describe('PackageController – install', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -316,7 +370,7 @@ describe('PackageController – install', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -334,7 +388,7 @@ describe('PackageController – install', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -368,7 +422,7 @@ describe('PackageController – update', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -404,7 +458,7 @@ describe('PackageController – update', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -420,7 +474,7 @@ describe('PackageController – update', () => {
     expect(qb.records.get(1).version).toBe('2.0.0');
     expect(qb.records.get(1).lastError).toBeNull();
     expect(cdn.invalidatePackage).toHaveBeenCalledWith('test-pkg', '2.0.0');
-    expect(cache.reload).toHaveBeenCalled();
+    expect(eventEmitter.emit).toHaveBeenCalled();
 
     const installedEvents = ws.getEventsFor('installed');
     expect(installedEvents.length).toBe(1);
@@ -442,7 +496,7 @@ describe('PackageController – update', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -474,7 +528,7 @@ describe('PackageController – update', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -485,7 +539,7 @@ describe('PackageController – update', () => {
     const req = makeReq({ version: '2.0.0' }, repo);
     await ctrl.updatePackage('1', req);
 
-    expect(cache.reload).toHaveBeenCalledTimes(1);
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
     expect(cdn.invalidatePackage).not.toHaveBeenCalled();
   });
 
@@ -502,7 +556,7 @@ describe('PackageController – update', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -514,7 +568,7 @@ describe('PackageController – update', () => {
     await ctrl.updatePackage('1', req);
 
     expect(cdn.invalidatePackage).not.toHaveBeenCalled();
-    expect(cache.reload).toHaveBeenCalledTimes(1);
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -532,7 +586,7 @@ describe('PackageController – uninstall', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -545,7 +599,7 @@ describe('PackageController – uninstall', () => {
 
     expect(qb.records.has(1)).toBe(false);
     expect(cdn.invalidatePackage).toHaveBeenCalledWith('test-pkg');
-    expect(cache.reload).toHaveBeenCalled();
+    expect(eventEmitter.emit).toHaveBeenCalled();
 
     const events = ws.getEventsFor('uninstalled');
     expect(events.length).toBe(1);
@@ -564,7 +618,7 @@ describe('PackageController – uninstall', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -590,7 +644,7 @@ describe('PackageController – uninstall', () => {
     const ws = createMockWebSocketGateway();
     const cdn = createMockCdnLoader();
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -602,7 +656,7 @@ describe('PackageController – uninstall', () => {
     await ctrl.uninstallPackage('1', req);
 
     expect(qb.records.has(1)).toBe(false);
-    expect(cache.reload).toHaveBeenCalledTimes(1);
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
     expect(cdn.invalidatePackage).not.toHaveBeenCalled();
   });
 });
@@ -906,7 +960,7 @@ describe('PackageController – error cause chain in lastError', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -945,7 +999,7 @@ describe('PackageController – error cause chain in lastError', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,
@@ -980,7 +1034,7 @@ describe('WS event naming ($system:package:*)', () => {
       }),
     });
     const cache = createMockPackageCacheService();
-    const ctrl = await buildController({
+    const { ctrl, eventEmitter } = await buildController({
       packageCacheService: cache,
       cdnLoader: cdn,
       queryBuilder: qb,

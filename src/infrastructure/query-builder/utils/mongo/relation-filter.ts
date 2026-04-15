@@ -1,4 +1,4 @@
-import { separateFilters } from '../shared/filter-separator.util';
+import { separateFilters, hasAnyRelations } from '../shared/filter-separator.util';
 import { renderRawFilterToMongo } from './render-filter';
 import { resolveMongoJunctionInfo } from '../../../mongo/utils/mongo-junction.util';
 
@@ -277,10 +277,29 @@ export async function applyMixedFilters(
   dbType?: string,
 ): Promise<void> {
   if (filter._and && Array.isArray(filter._and)) {
+    const relationNames = new Set<string>(
+      (tableMeta.relations || []).map((r: any) => r.propertyName as string),
+    );
+    const simpleConditions: any[] = [];
+    const nestedConditions: any[] = [];
+
+    for (const condition of filter._and) {
+      if (
+        condition &&
+        typeof condition === 'object' &&
+        ('_and' in condition || '_or' in condition || '_not' in condition) &&
+        hasAnyRelations(condition, relationNames)
+      ) {
+        nestedConditions.push(condition);
+      } else {
+        simpleConditions.push(condition);
+      }
+    }
+
     const fieldConditions: any[] = [];
     const allRelationFilters: any = {};
 
-    for (const condition of filter._and) {
+    for (const condition of simpleConditions) {
       const separated = separateFilters(condition, tableMeta);
 
       if (Object.keys(separated.fieldFilters).length > 0) {
@@ -316,6 +335,17 @@ export async function applyMixedFilters(
         );
       }
     }
+
+    for (const nested of nestedConditions) {
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        nested,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+    }
     return;
   }
 
@@ -346,6 +376,12 @@ export async function applyMixedFilters(
 
     if (hasRelations) {
       const lookupFields: string[] = [];
+      const relNameCount = new Map<string, number>();
+      for (const rc of relationConditions) {
+        relNameCount.set(rc.relationName, (relNameCount.get(rc.relationName) || 0) + 1);
+      }
+      const relNameIdx = new Map<string, number>();
+
       for (const relCondition of relationConditions) {
         const relation = tableMeta.relations.find(
           (r: any) => r.propertyName === relCondition.relationName,
@@ -356,7 +392,12 @@ export async function applyMixedFilters(
         const targetMeta = metadata.tables?.get(targetTable);
         if (!targetMeta) continue;
 
-        const lookupFieldName = `__lookup_${relCondition.relationName}`;
+        const dupCount = relNameCount.get(relCondition.relationName) || 1;
+        const idx = relNameIdx.get(relCondition.relationName) || 0;
+        relNameIdx.set(relCondition.relationName, idx + 1);
+        const lookupFieldName = dupCount > 1
+          ? `__lookup_${relCondition.relationName}_${idx}`
+          : `__lookup_${relCondition.relationName}`;
         lookupFields.push(lookupFieldName);
 
         const lookupPipeline = await buildRelationLookupPipeline(
@@ -488,6 +529,46 @@ export async function applyMixedFilters(
   }
 
   if (filter._not) {
+    if (filter._not._or) {
+      const transformed = {
+        _and: filter._not._or.map((b: any) => ({ _not: b })),
+      };
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        transformed,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+      return;
+    }
+    if (filter._not._and) {
+      const transformed = {
+        _or: filter._not._and.map((b: any) => ({ _not: b })),
+      };
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        transformed,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+      return;
+    }
+    if (filter._not._not) {
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        filter._not._not,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+      return;
+    }
+
     const separated = separateFilters(filter._not, tableMeta);
 
     if (Object.keys(separated.fieldFilters).length > 0) {

@@ -81,6 +81,13 @@ const META: Record<string, any> = {
 const metadataGetter = async (table: string) => META[table] || null;
 
 beforeAll(async () => {
+  try {
+    const probe = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
+    await probe.connect();
+    await probe.close();
+  } catch {
+    throw new Error('MongoDB not available - skipping integration tests');
+  }
   client = new MongoClient(MONGO_URI);
   await client.connect();
   db = client.db(DB_NAME);

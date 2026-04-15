@@ -1,5 +1,7 @@
 import { foldForSqlSearch } from '../../src/shared/utils/unaccent-fold.util';
 
+const SQL_NULL = Symbol('SQL_NULL');
+
 export type ExtFixtureRow = {
   id: number;
   title: string;
@@ -147,7 +149,7 @@ function evalMenu(
   row: ExtFixtureRow,
   spec: any,
   textMode: OracleTextMode,
-): boolean {
+): boolean | symbol {
   const fk = row.menuId;
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
     return false;
@@ -168,12 +170,12 @@ function evalMenu(
       return fk != null;
     }
     if (fk == null) {
-      return false;
+      return SQL_NULL;
     }
     return evalScalar(fk, spec, textMode);
   }
   if (fk == null) {
-    return false;
+    return SQL_NULL;
   }
   const menu = menusById.get(fk);
   if (!menu) {
@@ -198,7 +200,7 @@ function evalOwner(
   row: ExtFixtureRow,
   spec: any,
   textMode: OracleTextMode,
-): boolean {
+): boolean | symbol {
   const fk = row.ownerId;
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
     return false;
@@ -219,12 +221,12 @@ function evalOwner(
       return fk != null;
     }
     if (fk == null) {
-      return false;
+      return SQL_NULL;
     }
     return evalScalar(fk, spec, textMode);
   }
   if (fk == null) {
-    return false;
+    return SQL_NULL;
   }
   const user = usersById.get(fk);
   if (!user) {
@@ -245,20 +247,40 @@ function evalOwner(
   return true;
 }
 
+const RELATION_KEYS = new Set(['menu', 'owner']);
+
+function hasNullRelationKey(row: ExtFixtureRow, filter: any): boolean {
+  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return false;
+  for (const k of Object.keys(filter)) {
+    if (k === '_and') {
+      for (const c of filter._and) { if (hasNullRelationKey(row, c)) return true; }
+    } else if (k === '_or') {
+      for (const c of filter._or) { if (hasNullRelationKey(row, c)) return true; }
+    } else if (k === '_not') {
+      if (hasNullRelationKey(row, filter._not)) return true;
+    } else if (RELATION_KEYS.has(k)) {
+      const fk = k === 'menu' ? row.menuId : row.ownerId;
+      if (fk == null) return true;
+    }
+  }
+  return false;
+}
+
 function evalFlat(
   row: ExtFixtureRow,
   filter: Record<string, any>,
   textMode: OracleTextMode,
-): boolean {
+): boolean | symbol {
+  let sawNull = false;
   for (const [k, v] of Object.entries(filter)) {
     if (k === 'menu') {
-      if (!evalMenu(row, v, textMode)) {
-        return false;
-      }
+      const r = evalMenu(row, v, textMode);
+      if (r === false) return false;
+      if (r === SQL_NULL) sawNull = true;
     } else if (k === 'owner') {
-      if (!evalOwner(row, v, textMode)) {
-        return false;
-      }
+      const r = evalOwner(row, v, textMode);
+      if (r === false) return false;
+      if (r === SQL_NULL) sawNull = true;
     } else {
       const colVal = (row as any)[k];
       if (!evalScalar(colVal, v as Record<string, any>, textMode)) {
@@ -266,14 +288,14 @@ function evalFlat(
       }
     }
   }
-  return true;
+  return sawNull ? SQL_NULL : true;
 }
 
 export function extensionRowMatchesFilter(
   row: ExtFixtureRow,
   filter: any,
   textMode: OracleTextMode = 'fold',
-): boolean {
+): boolean | symbol {
   if (filter == null || filter === undefined) {
     return true;
   }
@@ -284,20 +306,30 @@ export function extensionRowMatchesFilter(
     if (!Array.isArray(filter._and)) {
       return false;
     }
-    return filter._and.every((c: any) =>
-      extensionRowMatchesFilter(row, c, textMode),
-    );
+    let sawNull = false;
+    for (const c of filter._and) {
+      const r = extensionRowMatchesFilter(row, c, textMode);
+      if (r === false) return false;
+      if (r === SQL_NULL) sawNull = true;
+    }
+    return sawNull ? SQL_NULL : true;
   }
   if (filter._or) {
     if (!Array.isArray(filter._or)) {
       return false;
     }
-    return filter._or.some((c: any) =>
-      extensionRowMatchesFilter(row, c, textMode),
-    );
+    let sawNull = false;
+    for (const c of filter._or) {
+      const r = extensionRowMatchesFilter(row, c, textMode);
+      if (r === true) return true;
+      if (r === SQL_NULL) sawNull = true;
+    }
+    return sawNull ? SQL_NULL : false;
   }
   if (Object.prototype.hasOwnProperty.call(filter, '_not')) {
-    return !extensionRowMatchesFilter(row, filter._not, textMode);
+    const inner = extensionRowMatchesFilter(row, filter._not, textMode);
+    if (inner === SQL_NULL) return SQL_NULL;
+    return !inner;
   }
   return evalFlat(row, filter, textMode);
 }
@@ -307,7 +339,7 @@ export function oracleExtensionRowIds(
   textMode: OracleTextMode = 'fold',
 ): number[] {
   return EXTENSION_FIXTURE_ROWS.filter((r) =>
-    extensionRowMatchesFilter(r, filter, textMode),
+    extensionRowMatchesFilter(r, filter, textMode) === true,
   )
     .map((r) => r.id)
     .sort((a, b) => a - b);

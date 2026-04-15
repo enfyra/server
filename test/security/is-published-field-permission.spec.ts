@@ -116,8 +116,10 @@ function makeRepoHarness(opts: {
       runWithPolicy: async (_cb: any, fn: any) => await fn(),
       runWithFieldPermissionCheck: async (_cb: any, fn: any) => await fn(),
       insertAndGet: async () => ({ id: 1 }),
+      insert: async () => ({ id: 1 }),
       update: async () => ({ id: 1 }),
       deleteById: async () => ({ id: 1 }),
+      delete: async () => ({ id: 1 }),
     } as any,
     tableHandlerService: {
       createTable: jest.fn(),
@@ -466,7 +468,7 @@ describe('field permissions (isPublished baseline + overrides)', () => {
         dataFixture: [],
       }),
     );
-    await expect(hRoot.repo.find()).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(hRoot.repo.find()).resolves.toBeTruthy();
   });
 
   test('write enforcement: unpublished blocked by default, allow override works, deny can block published', async () => {

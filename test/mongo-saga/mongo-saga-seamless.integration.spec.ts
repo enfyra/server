@@ -27,6 +27,14 @@ describe('MongoDB Saga Seamless Integration', () => {
   let mongoService: MongoService;
 
   beforeAll(async () => {
+    try {
+      const probe = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 2000, connectTimeoutMS: 2000 });
+      await probe.connect();
+      await probe.db('admin').command({ ping: 1 });
+      await probe.close();
+    } catch {
+      throw new Error('MongoDB not available - skipping integration tests');
+    }
     mongoClient = new MongoClient(MONGO_URI);
     await mongoClient.connect();
     db = mongoClient.db('enfyra_seamless_test');

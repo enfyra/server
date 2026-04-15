@@ -40,7 +40,7 @@ describe('SagaCollection (app-level saga)', () => {
     getDb: jest.fn(() => ({
       collection: jest.fn(() => rawColl),
     })),
-    getActiveAppTransactionSession: jest.fn(() => txApi),
+    getActiveSagaSession: jest.fn(() => txApi),
   } as unknown as MongoService;
 
   beforeEach(() => {
@@ -82,9 +82,9 @@ describe('SagaCollection (app-level saga)', () => {
   it('throws when no active app transaction', () => {
     const m = {
       getDb: jest.fn(() => ({ collection: jest.fn(() => rawColl) })),
-      getActiveAppTransactionSession: jest.fn(() => undefined),
+      getActiveSagaSession: jest.fn(() => undefined),
     } as unknown as MongoService;
     const c = new SagaCollection('items', m);
-    expect(() => c.findOne({})).toThrow('No active application transaction');
+    expect(() => c.findOne({})).toThrow('No active saga session');
   });
 });

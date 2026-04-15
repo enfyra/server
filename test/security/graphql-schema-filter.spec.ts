@@ -1,4 +1,5 @@
 import { generateGraphQLTypeDefsFromTables } from '../../src/modules/graphql/utils/generate-type-defs';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 function makeTable(name: string, columns: any[], relations: any[] = []): any {
   return { name, columns, relations };
@@ -9,6 +10,14 @@ function makeColumn(name: string, type = 'varchar', opts: any = {}): any {
 }
 
 describe('generateGraphQLTypeDefsFromTables – security filter', () => {
+  beforeAll(() => {
+    DatabaseConfigService.overrideForTesting('mysql');
+  });
+
+  afterAll(() => {
+    DatabaseConfigService.resetForTesting();
+  });
+
   describe('queryableTableNames allowlist', () => {
     it('emits only tables present in queryableTableNames', () => {
       const tables = [

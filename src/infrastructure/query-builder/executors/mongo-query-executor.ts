@@ -6,7 +6,7 @@ import {
   buildNestedLookupPipeline,
   addProjectionStage,
 } from '../utils/mongo/pipeline-builder';
-import { applyMixedFilters } from '../utils/mongo/relation-filter';
+import { resolveMongoFilter } from '../utils/mongo/mongo-filter-resolver';
 import { hasAnyRelations } from '../utils/shared/filter-separator.util';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
 import {
@@ -270,16 +270,15 @@ export class MongoQueryExecutor {
       !options.where;
 
     if (options.mongoRawFilter && this.metadata && hasRelationFilters) {
-      const tableMeta = this.metadata.tables?.get(options.table);
-      if (tableMeta) {
-        await applyMixedFilters(
-          this.metadata,
-          pipeline,
-          options.mongoRawFilter,
-          options.table,
-          tableMeta,
-          this.dbType,
-        );
+      const db = this.mongoService.getDb();
+      const resolved = await resolveMongoFilter(
+        options.mongoRawFilter,
+        options.table,
+        this.metadata,
+        db,
+      );
+      if (resolved && Object.keys(resolved).length > 0) {
+        pipeline.push({ $match: resolved });
       }
     } else if (useFilterTree) {
       const matchDoc = renderFilterToMongo(planForFilter!.filterTree, {

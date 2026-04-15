@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 import {
   GraphQLObjectType,
   GraphQLString,
@@ -1061,6 +1062,14 @@ describe('D. RouteCache partial reload logic', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
+  beforeAll(() => {
+    DatabaseConfigService.overrideForTesting('mysql');
+  });
+
+  afterAll(() => {
+    DatabaseConfigService.resetForTesting();
+  });
+
   function makeGqlTable(name: string, columns: any[], relations: any[] = []): any {
     return { name, columns, relations };
   }

@@ -9,13 +9,13 @@ import { QueryBuilderService } from '../../src/infrastructure/query-builder/quer
 describe('AuthService.refreshToken rotation (SQL session)', () => {
   let auth: AuthService;
   let jwt: JwtService;
-  const sessionStore = {
+  const sessionStore: Record<string, any> = {
     id: 'sess-concurrent',
     userId: 'user-1',
     refreshTokenHash: '',
     expiredAt: new Date(Date.now() + 86400000 * 365),
     remember: false,
-    loginProvider: null as string | null,
+    loginProvider: null,
   };
 
   beforeEach(async () => {
@@ -27,12 +27,39 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
 
     const queryBuilder = {
       isMongoDb: () => false,
-      findOneWhere: jest.fn(async () => ({ ...sessionStore })),
-      update: jest.fn(
-        async (_table: string, _id: string, patch: Record<string, unknown>) => {
-          Object.assign(sessionStore, patch);
-        },
-      ),
+      getPkField: () => 'id',
+      findOne: jest.fn(async (opts: any) => {
+        if (opts.where?.id === sessionStore.id) {
+          return { ...sessionStore };
+        }
+        return null;
+      }),
+      getKnex: jest.fn(() => {
+        const builder: any = {
+          _hashOk: true,
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockImplementation(function (fn: () => void) {
+            const sub: any = {
+              where: jest.fn((col: string, val: string) => {
+                builder._hashOk = sessionStore.refreshTokenHash === val || !sessionStore.refreshTokenHash;
+                return sub;
+              }),
+              orWhereNull: jest.fn(() => {
+                if (!sessionStore.refreshTokenHash) builder._hashOk = true;
+                return sub;
+              }),
+            };
+            fn.call(sub);
+            return builder;
+          }),
+          update: jest.fn(async (patch: Record<string, unknown>) => {
+            if (!builder._hashOk) return 0;
+            Object.assign(sessionStore, patch);
+            return 1;
+          }),
+        };
+        return (_table: string) => builder;
+      }),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({

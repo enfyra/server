@@ -15,11 +15,11 @@ describe('Hook processors junction column naming', () => {
 
   it('PreHookDefinitionProcessor uses junction snake_case column names', async () => {
     const qb = {
-      select: jest.fn().mockResolvedValue({
+      find: jest.fn().mockResolvedValue({
         data: [{ id: 10, method: 'POST' }],
       }),
       delete: jest.fn().mockResolvedValue(1),
-      insert: jest.fn().mockResolvedValue([{ id: 1 }]),
+      insertWithOptions: jest.fn().mockResolvedValue([{ id: 1 }]),
     } as any;
 
     const p = new PreHookDefinitionProcessor(qb);
@@ -31,12 +31,12 @@ describe('Hook processors junction column naming', () => {
       'method_definition',
     );
 
-    expect(qb.delete).toHaveBeenCalledWith({
-      table: 'pre_hook_definition_methods_method_definition',
-      where: [{ field: sourceColumn, operator: '=', value: 5 }],
-    });
+    expect(qb.delete).toHaveBeenCalledWith(
+      'pre_hook_definition_methods_method_definition',
+      { where: [{ field: sourceColumn, operator: '=', value: 5 }] },
+    );
 
-    expect(qb.insert).toHaveBeenCalledWith({
+    expect(qb.insertWithOptions).toHaveBeenCalledWith({
       table: 'pre_hook_definition_methods_method_definition',
       data: [{ [targetColumn]: 10, [sourceColumn]: 5 }],
     });
@@ -44,11 +44,11 @@ describe('Hook processors junction column naming', () => {
 
   it('PostHookDefinitionProcessor uses junction snake_case column names', async () => {
     const qb = {
-      select: jest.fn().mockResolvedValue({
+      find: jest.fn().mockResolvedValue({
         data: [{ id: 11, method: 'GET' }],
       }),
       delete: jest.fn().mockResolvedValue(1),
-      insert: jest.fn().mockResolvedValue([{ id: 1 }]),
+      insertWithOptions: jest.fn().mockResolvedValue([{ id: 1 }]),
     } as any;
 
     const p = new PostHookDefinitionProcessor(qb);
@@ -60,12 +60,12 @@ describe('Hook processors junction column naming', () => {
       'method_definition',
     );
 
-    expect(qb.delete).toHaveBeenCalledWith({
-      table: 'post_hook_definition_methods_method_definition',
-      where: [{ field: sourceColumn, operator: '=', value: 6 }],
-    });
+    expect(qb.delete).toHaveBeenCalledWith(
+      'post_hook_definition_methods_method_definition',
+      { where: [{ field: sourceColumn, operator: '=', value: 6 }] },
+    );
 
-    expect(qb.insert).toHaveBeenCalledWith({
+    expect(qb.insertWithOptions).toHaveBeenCalledWith({
       table: 'post_hook_definition_methods_method_definition',
       data: [{ [targetColumn]: 11, [sourceColumn]: 6 }],
     });
@@ -73,11 +73,11 @@ describe('Hook processors junction column naming', () => {
 
   it('HookDefinitionProcessor uses junction snake_case column names', async () => {
     const qb = {
-      select: jest.fn().mockResolvedValue({
+      find: jest.fn().mockResolvedValue({
         data: [{ id: 12, method: 'PATCH' }],
       }),
       delete: jest.fn().mockResolvedValue(1),
-      insert: jest.fn().mockResolvedValue([{ id: 1 }]),
+      insertWithOptions: jest.fn().mockResolvedValue([{ id: 1 }]),
     } as any;
 
     const p = new HookDefinitionProcessor(qb);
@@ -89,15 +89,14 @@ describe('Hook processors junction column naming', () => {
       'method_definition',
     );
 
-    expect(qb.delete).toHaveBeenCalledWith({
-      table: 'hook_definition_methods_method_definition',
-      where: [{ field: sourceColumn, operator: '=', value: 7 }],
-    });
+    expect(qb.delete).toHaveBeenCalledWith(
+      'hook_definition_methods_method_definition',
+      { where: [{ field: sourceColumn, operator: '=', value: 7 }] },
+    );
 
-    expect(qb.insert).toHaveBeenCalledWith({
+    expect(qb.insertWithOptions).toHaveBeenCalledWith({
       table: 'hook_definition_methods_method_definition',
       data: [{ [targetColumn]: 12, [sourceColumn]: 7 }],
     });
   });
 });
-

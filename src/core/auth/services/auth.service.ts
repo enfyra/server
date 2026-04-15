@@ -232,18 +232,48 @@ export class AuthService {
     );
 
     const newHash = this.hashToken(refreshToken);
-    await this.queryBuilder.update('session_definition', sessionId, {
-      expiredAt: newExpiredAt,
-      refreshTokenHash: newHash,
-    });
 
-    const verifySession = await this.queryBuilder.findOne({
-      table: 'session_definition',
-      where: { [sessionIdField]: sessionId },
-      fields: ['refreshTokenHash'],
-    });
-    if (!verifySession || verifySession.refreshTokenHash !== newHash) {
-      throw new BadRequestException('Failed to rotate refresh token!');
+    if (this.queryBuilder.isMongoDb()) {
+      const { ObjectId } = require('mongodb');
+      const sessionObjId =
+        typeof sessionId === 'string' ? new ObjectId(sessionId) : sessionId;
+      const filter: any = {
+        _id: sessionObjId,
+        $or: [
+          { refreshTokenHash: incomingHash },
+          { refreshTokenHash: null },
+          { refreshTokenHash: { $exists: false } },
+        ],
+      };
+      const result = await this.queryBuilder
+        .getMongoDb()
+        .collection('session_definition')
+        .findOneAndUpdate(filter, {
+          $set: {
+            expiredAt: newExpiredAt,
+            refreshTokenHash: newHash,
+            updatedAt: new Date(),
+          },
+        });
+      if (!result) {
+        throw new BadRequestException(
+          'Refresh token has been revoked or already used!',
+        );
+      }
+    } else {
+      const knex = this.queryBuilder.getKnex();
+      const affected = await knex('session_definition')
+        .where('id', sessionId)
+        .andWhere(function () {
+          this.where('refreshTokenHash', incomingHash)
+            .orWhereNull('refreshTokenHash');
+        })
+        .update({ expiredAt: newExpiredAt, refreshTokenHash: newHash });
+      if (affected === 0) {
+        throw new BadRequestException(
+          'Refresh token has been revoked or already used!',
+        );
+      }
     }
 
     const accessTokenDecoded = await this.jwtService.decode(accessToken);

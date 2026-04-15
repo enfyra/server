@@ -1,8 +1,3 @@
-/**
- * Bootstrap auto processor utilities — snapshot-driven FK transform,
- * unique identifier, and compare fields.
- */
-
 import { ObjectId } from 'mongodb';
 import {
   getManyToOneRelations,
@@ -11,8 +6,6 @@ import {
   getLookupKey,
 } from '../../src/core/bootstrap/utils/snapshot-meta.util';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
-
-// ─── snapshot-meta.util ─────────────────────────────────────────
 
 describe('snapshot-meta.util', () => {
   describe('getManyToOneRelations', () => {
@@ -128,10 +121,7 @@ describe('snapshot-meta.util', () => {
   });
 });
 
-// ─── autoTransformFkFields ──────────────────────────────────────
-
 describe('BaseTableProcessor.autoTransformFkFields', () => {
-  // Import and instantiate a real processor to test the base class method
   const { BaseTableProcessor } = require('../../src/core/bootstrap/processors/base-table-processor');
 
   class TestProcessor extends BaseTableProcessor {
@@ -146,9 +136,9 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     DatabaseConfigService.overrideForTesting('mysql');
 
     const mockQb = {
-      findOneWhere: jest.fn(async (_table: string, where: any) => {
-        if (where.path === '/tasks') return { id: 42, path: '/tasks' };
-        if (where.method === 'GET') return { id: 1, method: 'GET' };
+      findOne: jest.fn(async (opts: any) => {
+        if (opts.where.path === '/tasks') return { id: 42, path: '/tasks' };
+        if (opts.where.method === 'GET') return { id: 1, method: 'GET' };
         return null;
       }),
     };
@@ -174,7 +164,7 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
 
     const oid = new ObjectId();
     const mockQb = {
-      findOneWhere: jest.fn(async () => ({ _id: oid })),
+      findOne: jest.fn(async () => ({ _id: oid })),
     };
 
     const record = { route: '/tasks', method: 'GET', logic: 'return {}' };
@@ -196,7 +186,7 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     DatabaseConfigService.overrideForTesting('mongodb');
 
     const existingOid = new ObjectId();
-    const mockQb = { findOneWhere: jest.fn() };
+    const mockQb = { findOne: jest.fn() };
 
     const record = { route: existingOid, logic: 'x' };
     const result = await processor.autoTransformFkFields(
@@ -206,7 +196,7 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
     );
 
     expect(result.route).toBe(existingOid);
-    expect(mockQb.findOneWhere).not.toHaveBeenCalled();
+    expect(mockQb.findOne).not.toHaveBeenCalled();
 
     DatabaseConfigService.resetForTesting();
   });
@@ -214,7 +204,7 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
   it('warns and skips when target record not found', async () => {
     DatabaseConfigService.overrideForTesting('mysql');
 
-    const mockQb = { findOneWhere: jest.fn(async () => null) };
+    const mockQb = { findOne: jest.fn(async () => null) };
 
     const record = { route: '/nonexistent', logic: 'x' };
     const result = await processor.autoTransformFkFields(
@@ -223,15 +213,12 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
       mockQb,
     );
 
-    // Route was not resolved, original value kept
     expect(result.route).toBe('/nonexistent');
     expect(result.routeId).toBeUndefined();
 
     DatabaseConfigService.resetForTesting();
   });
 });
-
-// ─── autoGetUniqueIdentifier ────────────────────────────────────
 
 describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
   const { BaseTableProcessor } = require('../../src/core/bootstrap/processors/base-table-processor');
@@ -287,8 +274,6 @@ describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
     DatabaseConfigService.resetForTesting();
   });
 });
-
-// ─── autoGetCompareFields ───────────────────────────────────────
 
 describe('BaseTableProcessor.autoGetCompareFields', () => {
   const { BaseTableProcessor } = require('../../src/core/bootstrap/processors/base-table-processor');

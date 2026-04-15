@@ -1,6 +1,7 @@
 import { parseFilter } from '../../src/infrastructure/query-builder/planner/filter-parser';
 import { JoinRegistry } from '../../src/infrastructure/query-builder/planner/join-registry';
 import { FilterNode } from '../../src/infrastructure/query-builder/planner/types/filter-ast';
+import { BadRequestException } from '@nestjs/common';
 
 const META = {
   tables: new Map<string, any>([
@@ -227,9 +228,10 @@ describe('filter-parser', () => {
       expect(node).toBeNull();
     });
 
-    it('treats unknown operators as implicit equality on object', () => {
-      const { node } = parse({ status: { _unknown_op: 'x' } });
-      expect(node).toMatchObject({ op: 'eq' });
+    it('throws BadRequestException for unknown operators', () => {
+      expect(() => parse({ status: { _unknown_op: 'x' } })).toThrow(
+        BadRequestException,
+      );
     });
 
     it('handles deeply nested logical structure', () => {

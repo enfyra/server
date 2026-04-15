@@ -111,14 +111,11 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       { _id: tagIds[0], label: 'x' },
       { _id: tagIds[1], label: 'y' },
     ]);
-    await db.collection('extension').updateOne(
-      { _id: extIds[0] },
-      { $set: { tags: [tagIds[0], tagIds[1]] } },
-    );
-    await db.collection('extension').updateOne(
-      { _id: extIds[2] },
-      { $set: { tags: [tagIds[0]] } },
-    );
+    await db.collection('extension_tags_ext_tag').insertMany([
+      { extensionId: extIds[0], ext_tagId: tagIds[0] },
+      { extensionId: extIds[0], ext_tagId: tagIds[1] },
+      { extensionId: extIds[2], ext_tagId: tagIds[0] },
+    ]);
     await db.collection('category').insertMany([
       { _id: catIds[0], name: 'root', parent: null },
       { _id: catIds[1], name: 'child', parent: catIds[0] },
@@ -534,7 +531,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
   // Skipped: depends on M2M label filter end-to-end through executor, which is
   // a pre-existing parity gap (see "M2M filter tags.label narrows to linked
   // extensions (parity with SQL)" — broken prior to this suite expansion).
-  test.skip('_or across plain field and M2M relation branch', async () => {
+  test('_or across plain field and M2M relation branch', async () => {
     const ids = await idsOf({
       _or: [{ tags: { label: { _eq: 'y' } } }, { title: { _eq: 'delta' } }],
     });
@@ -690,7 +687,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
   // Skipped: depends on M2M field fetch through executor (same pre-existing
   // parity gap as the M2M label filter). batch-relation-fetcher unit tests
   // cover the standalone M2M fetch path.
-  test.skip('M2M with parent having multiple targets returns all targets', async () => {
+  test('M2M with parent having multiple targets returns all targets', async () => {
     const r = await runPlan({
       tableName: 'extension',
       filter: { _id: { _eq: extIds[0] } },

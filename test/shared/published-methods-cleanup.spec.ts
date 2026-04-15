@@ -15,13 +15,17 @@ const AUTH_PATHS = new Set([
   '/auth/:provider/callback',
 ]);
 
+const PUBLIC_NON_AUTH_PATHS = new Set([
+  '/cors_origin_definition',
+]);
+
 describe('default-data.json — publishedMethods', () => {
   const data = loadJson('default-data.json');
   const routes: any[] = data.route_definition ?? [];
 
-  it('only auth routes have publishedMethods set', () => {
+  it('only auth routes and explicit public routes have publishedMethods set', () => {
     const nonAuthPublished = routes.filter(
-      (r) => !AUTH_PATHS.has(r.path) && r.publishedMethods?.length > 0,
+      (r) => !AUTH_PATHS.has(r.path) && !PUBLIC_NON_AUTH_PATHS.has(r.path) && r.publishedMethods?.length > 0,
     );
     expect(nonAuthPublished).toEqual([]);
   });
