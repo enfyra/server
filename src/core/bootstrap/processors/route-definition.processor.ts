@@ -128,7 +128,6 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
       if (handlerCount > 0) continue;
 
-      this.logger.log(`[${route.path}] No handlers found, creating default handlers...`);
       await this.ensureDefaultCrudHandlers(route, isMongoDB);
     }
   }
@@ -162,6 +161,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     }
     if (!tableName || !isCanonicalTableRoutePath(path, tableName)) return;
 
+    this.logger.log(`[${path}] Creating default CRUD handlers for table "${tableName}"...`);
     const routeId = DatabaseConfigService.getRecordId(record);
     if (!routeId) return;
 
