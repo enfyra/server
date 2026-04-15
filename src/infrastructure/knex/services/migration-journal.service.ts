@@ -162,6 +162,9 @@ export class MigrationJournalService {
       );
       try {
         await this.executeRollback(entry.uuid);
+        this.logger.warn(
+          `Recovery completed for ${entry.uuid} — DDL rolled back, metadata was not changed (DDL-first pattern)`,
+        );
       } catch (error: any) {
         this.logger.error(
           `Recovery failed for ${entry.uuid}: ${error.message}`,

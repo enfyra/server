@@ -528,10 +528,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     });
   });
 
-  // Skipped: depends on M2M label filter end-to-end through executor, which is
-  // a pre-existing parity gap (see "M2M filter tags.label narrows to linked
-  // extensions (parity with SQL)" — broken prior to this suite expansion).
-  test('_or across plain field and M2M relation branch', async () => {
+  runOrSkip('_or across plain field and M2M relation branch', async () => {
     const ids = await idsOf({
       _or: [{ tags: { label: { _eq: 'y' } } }, { title: { _eq: 'delta' } }],
     });
@@ -684,10 +681,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     ).resolves.toBeDefined();
   });
 
-  // Skipped: depends on M2M field fetch through executor (same pre-existing
-  // parity gap as the M2M label filter). batch-relation-fetcher unit tests
-  // cover the standalone M2M fetch path.
-  test('M2M with parent having multiple targets returns all targets', async () => {
+  runOrSkip('M2M with parent having multiple targets returns all targets', async () => {
     const r = await runPlan({
       tableName: 'extension',
       filter: { _id: { _eq: extIds[0] } },

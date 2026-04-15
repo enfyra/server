@@ -107,10 +107,17 @@ beforeAll(async () => {
     { _id: tagIds[2], label: 'Rust' },
   ]);
   await db.collection('posts').insertMany([
-    { _id: postIds[0], title: 'Post A', author: userIds[0], category: categoryIds[0], tags: [tagIds[0], tagIds[1]] },
-    { _id: postIds[1], title: 'Post B', author: userIds[0], category: categoryIds[1], tags: [tagIds[1]] },
-    { _id: postIds[2], title: 'Post C', author: userIds[1], category: categoryIds[0], tags: [tagIds[2]] },
-    { _id: postIds[3], title: 'Post D', author: null, category: null, tags: [] },
+    { _id: postIds[0], title: 'Post A', author: userIds[0], category: categoryIds[0] },
+    { _id: postIds[1], title: 'Post B', author: userIds[0], category: categoryIds[1] },
+    { _id: postIds[2], title: 'Post C', author: userIds[1], category: categoryIds[0] },
+    { _id: postIds[3], title: 'Post D', author: null, category: null },
+  ]);
+  // M2M junction collection (posts ↔ tags)
+  await db.collection('posts_tags_tags').insertMany([
+    { postsId: postIds[0], tagsId: tagIds[0] },
+    { postsId: postIds[0], tagsId: tagIds[1] },
+    { postsId: postIds[1], tagsId: tagIds[1] },
+    { postsId: postIds[2], tagsId: tagIds[2] },
   ]);
   await db.collection('profiles').insertMany([
     { _id: profileIds[0], user: userIds[0], bio: 'Software dev' },
@@ -267,7 +274,7 @@ describe('mongo-batch-relation-fetcher', () => {
         isInverse: false,
       }];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'posts');
 
       expect(docs[0].tags).toHaveLength(2);
       expect(docs[0].tags.map((t: any) => t.label).sort()).toEqual(['JavaScript', 'TypeScript']);
@@ -287,7 +294,7 @@ describe('mongo-batch-relation-fetcher', () => {
         isInverse: false,
       }];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'posts');
 
       expect(docs[0].tags).toEqual([]);
     });
@@ -304,7 +311,7 @@ describe('mongo-batch-relation-fetcher', () => {
         isInverse: false,
       }];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'posts');
 
       expect(docs[0].tags).toEqual([{ _id: tagIds[0] }, { _id: tagIds[1] }]);
     });
@@ -325,9 +332,10 @@ describe('mongo-batch-relation-fetcher', () => {
         localField: '_id',
         foreignField: 'tags',
         isInverse: true,
+        mappedBy: 'tags',
       }];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'tags');
 
       expect(docs[0].posts).toHaveLength(1);
       expect(docs[0].posts[0].title).toBe('Post A');
@@ -391,7 +399,7 @@ describe('mongo-batch-relation-fetcher', () => {
         { relationName: 'tags', type: 'many-to-many', targetTable: 'tags', fields: ['label'], localField: 'tags', foreignField: '_id', isInverse: false },
       ];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'posts');
 
       expect(docs[0].author).toEqual(expect.objectContaining({ name: 'Alice' }));
       expect(docs[0].category).toEqual(expect.objectContaining({ name: 'Tech' }));
@@ -428,7 +436,7 @@ describe('mongo-batch-relation-fetcher', () => {
         isInverse: true,
       }];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'users');
 
       const postA = docs[0].posts.find((p: any) => p.title === 'Post A');
       expect(postA.tags).toHaveLength(2);
@@ -712,11 +720,7 @@ describe('mongo-batch-relation-fetcher', () => {
   });
 
   describe('combined relations same parent', () => {
-    // Skipped: M2M through MongoBatchAdapter has a pre-existing bug
-    // ("Missing parentMeta.name for M2M batch fetch") affecting both this
-    // test and the existing M2M owning/inverse suites. Not in scope for
-    // this parity expansion.
-    it.skip('should handle M2O + O2M + M2M all at once on same parent', async () => {
+    it('should handle M2O + O2M + M2M all at once on same parent', async () => {
       const docs = [{
         _id: postIds[0],
         author: userIds[0],
@@ -729,7 +733,7 @@ describe('mongo-batch-relation-fetcher', () => {
         { relationName: 'tags', type: 'many-to-many', targetTable: 'tags', fields: ['label'], localField: 'tags', foreignField: '_id', isInverse: false },
       ];
 
-      await executeMongoBatchFetches(db, docs, descs, metadataGetter);
+      await executeMongoBatchFetches(db, docs, descs, metadataGetter, 3, 0, 'posts');
 
       expect(docs[0].author.name).toBe('Alice');
       expect(docs[0].category.name).toBe('Tech');

@@ -789,6 +789,9 @@ export class MongoTableHandlerService {
           }
           stepLog(`STEP 6 policy checked (+${lap()}ms)`);
         }
+        stepLog(`STEP 6b capturing raw metadata snapshot...`);
+        const rawSnapshot = await this.captureRawMetadataSnapshot(queryId);
+        stepLog(`STEP 6b snapshot captured (+${lap()}ms)`);
         const updateData: any = {};
         if ('name' in body) updateData.name = body.name;
         if ('alias' in body) updateData.alias = body.alias;
@@ -1108,12 +1111,38 @@ export class MongoTableHandlerService {
           finalMetadata
         ) {
           stepLog(`STEP 11 running schemaMigrationService.updateCollection...`);
-          await this.schemaMigrationService.updateCollection(
-            exists.name,
-            oldMetadata,
-            finalMetadata,
-          );
-          stepLog(`STEP 11 updateCollection done (+${lap()}ms)`);
+          try {
+            await this.schemaMigrationService.updateCollection(
+              exists.name,
+              oldMetadata,
+              finalMetadata,
+              rawSnapshot,
+            );
+            stepLog(`STEP 11 updateCollection done (+${lap()}ms)`);
+          } catch (ddlError) {
+            stepLog(`STEP 11 updateCollection FAILED, restoring metadata from snapshot...`);
+            this.loggingService.error(
+              'DDL failed after metadata update, restoring metadata from snapshot',
+              {
+                context: 'updateTable',
+                error: ddlError.message,
+                tableName: exists.name,
+              },
+            );
+            await this.restoreMetadataFromSnapshot(rawSnapshot, queryId).catch(
+              (restoreErr) => {
+                this.loggingService.error(
+                  'Metadata restore ALSO failed — manual intervention required',
+                  {
+                    context: 'updateTable',
+                    error: restoreErr.message,
+                    tableName: exists.name,
+                  },
+                );
+              },
+            );
+            throw ddlError;
+          }
 
           const oldM2mJunctions = new Set<string>(
             (oldMetadata.relations || [])
@@ -1392,5 +1421,122 @@ export class MongoTableHandlerService {
     } finally {
       await this.schemaMigrationLockService.release(lock);
     }
+  }
+
+  private async captureRawMetadataSnapshot(tableId: any): Promise<{
+    table: any;
+    columns: any[];
+    relations: any[];
+    inverseRelations: any[];
+  }> {
+    const { ObjectId } = require('mongodb');
+    const db = this.mongoService.getDb();
+    const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
+    const sourceRelations = await db
+      .collection('relation_definition')
+      .find({ sourceTable: oid })
+      .toArray();
+    const owningRelIds = sourceRelations
+      .filter((r: any) => !r.mappedBy)
+      .map((r: any) => r._id);
+    const inverseRelations =
+      owningRelIds.length > 0
+        ? await db
+            .collection('relation_definition')
+            .find({ mappedBy: { $in: owningRelIds } })
+            .toArray()
+        : [];
+    return {
+      table: await db.collection('table_definition').findOne({ _id: oid }),
+      columns: await db
+        .collection('column_definition')
+        .find({ table: oid })
+        .toArray(),
+      relations: sourceRelations,
+      inverseRelations,
+    };
+  }
+
+  private async restoreMetadataFromSnapshot(
+    snapshot: {
+      table: any;
+      columns: any[];
+      relations: any[];
+      inverseRelations: any[];
+    },
+    tableId: any,
+  ): Promise<void> {
+    const { ObjectId } = require('mongodb');
+    const db = this.mongoService.getDb();
+    const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
+    this.logger.warn(
+      `Restoring metadata from snapshot for table ${snapshot.table?.name} (${oid})`,
+    );
+
+    // 1. Restore table document
+    if (snapshot.table) {
+      await db
+        .collection('table_definition')
+        .replaceOne({ _id: oid }, snapshot.table, { upsert: true });
+    }
+
+    // 2. Restore columns (delete current, insert from snapshot)
+    await db.collection('column_definition').deleteMany({ table: oid });
+    if (snapshot.columns && snapshot.columns.length > 0) {
+      await db.collection('column_definition').insertMany(snapshot.columns);
+    }
+
+    // 3. Restore source relations (delete current, insert from snapshot)
+    await db.collection('relation_definition').deleteMany({ sourceTable: oid });
+    if (snapshot.relations && snapshot.relations.length > 0) {
+      await db
+        .collection('relation_definition')
+        .insertMany(snapshot.relations);
+    }
+
+    // 4. Clean up auto-created inverse relations on other tables
+    const currentSourceRels = await db
+      .collection('relation_definition')
+      .find({ sourceTable: oid })
+      .toArray();
+    const owningRelIds = currentSourceRels
+      .filter((r: any) => !r.mappedBy)
+      .map((r: any) => r._id);
+    if (owningRelIds.length > 0) {
+      const currentInverse = await db
+        .collection('relation_definition')
+        .find({ mappedBy: { $in: owningRelIds } })
+        .toArray();
+      const snapshotInverseIds = new Set<string>(
+        (snapshot.inverseRelations || []).map((r: any) =>
+          String(r._id),
+        ),
+      );
+      for (const inv of currentInverse) {
+        if (!snapshotInverseIds.has(String(inv._id))) {
+          await db
+            .collection('relation_definition')
+            .deleteOne({ _id: inv._id });
+          this.logger.warn(
+            `Cleaned up auto-created inverse relation ${inv.propertyName} (${inv._id})`,
+          );
+        }
+      }
+    }
+
+    // 5. Re-insert snapshot inverse relations (if any were deleted during migration)
+    for (const invRel of snapshot.inverseRelations || []) {
+      const exists = await db
+        .collection('relation_definition')
+        .findOne({ _id: invRel._id });
+      if (!exists) {
+        await db.collection('relation_definition').insertOne(invRel);
+        this.logger.warn(
+          `Restored inverse relation ${invRel.propertyName} (${invRel._id})`,
+        );
+      }
+    }
+
+    this.logger.warn(`Metadata restore completed for table ${snapshot.table?.name}`);
   }
 }

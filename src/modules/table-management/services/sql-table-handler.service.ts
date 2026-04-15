@@ -873,6 +873,11 @@ export class SqlTableHandlerService {
                 pendingUpdate.pendingMetadataUpdate, trx,
               );
             }
+            if (pendingUpdate?.journalUuid) {
+              await this.schemaMigrationService.markJournalCompleted(
+                pendingUpdate.journalUuid,
+              ).catch(() => {});
+            }
           }
 
           stepLog(`STEP 12 PG: committing metadata + DDL transaction...`);
@@ -934,19 +939,43 @@ export class SqlTableHandlerService {
           }
 
           stepLog(`STEP 10 ${dbType}: writing metadata after DDL...`);
-          const trx = await knex.transaction();
-          try {
-            await this.writeTableMetadataUpdates(
-              trx, id, body, exists, affectedTableNames,
-            );
-            await trx.commit();
-            stepLog(`STEP 10 ${dbType}: metadata committed (+${lap()}ms)`);
-          } catch (metadataError) {
-            if (trx && !trx.isCompleted()) {
-              try { await trx.rollback(); } catch (_) {}
+          const journalUuid = pendingUpdate?.journalUuid;
+          let metadataWritten = false;
+          const maxRetries = 3;
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            const trx = await knex.transaction();
+            try {
+              await this.writeTableMetadataUpdates(
+                trx, id, body, exists, affectedTableNames,
+              );
+              await trx.commit();
+              metadataWritten = true;
+              stepLog(`STEP 10 ${dbType}: metadata committed (attempt ${attempt}) (+${lap()}ms)`);
+              break;
+            } catch (metadataError) {
+              if (trx && !trx.isCompleted()) {
+                try { await trx.rollback(); } catch (_) {}
+              }
+              stepLog(`STEP 10 ${dbType}: metadata write FAILED (attempt ${attempt}/${maxRetries})`);
+              if (attempt === maxRetries) {
+                stepLog(`STEP 10 ${dbType}: all retries exhausted, rolling back DDL via journal ${journalUuid}`);
+                if (journalUuid) {
+                  await this.schemaMigrationService.rollbackJournal(journalUuid).catch((rbErr) => {
+                    this.loggingService.error('DDL rollback after metadata failure also failed', {
+                      context: 'updateTable',
+                      journalUuid,
+                      error: rbErr.message,
+                    });
+                  });
+                }
+                throw metadataError;
+              }
+              await new Promise((r) => setTimeout(r, 1000));
             }
-            stepLog(`STEP 10 ${dbType}: metadata write FAILED after DDL succeeded`);
-            throw metadataError;
+          }
+
+          if (metadataWritten && journalUuid) {
+            await this.schemaMigrationService.markJournalCompleted(journalUuid).catch(() => {});
           }
 
           if (pendingUpdate?.pendingMetadataUpdate) {

@@ -613,7 +613,7 @@ export class SqlSchemaMigrationService {
     oldMetadata: any,
     newMetadata: any,
     trx?: any,
-  ): Promise<{ pendingMetadataUpdate?: { tableName: string; diff: any } }> {
+  ): Promise<{ pendingMetadataUpdate?: { tableName: string; diff: any }; journalUuid?: string }> {
     const knex = this.knexService.getKnex();
     if (!(await knex.schema.hasTable(tableName))) {
       this.logger.warn(`Table ${tableName} does not exist, creating...`);
@@ -664,11 +664,10 @@ export class SqlSchemaMigrationService {
       await this.executeSchemaDiff(tableName, schemaDiff, trx, journalContext);
       await this.compareMetadataWithActualSchema(tableName, newMetadata);
 
-      if (journalUuid) {
-        await this.journalService.markCompleted(journalUuid).catch(() => {});
-      }
-
-      return { pendingMetadataUpdate: { tableName, diff: schemaDiff } };
+      return {
+        pendingMetadataUpdate: { tableName, diff: schemaDiff },
+        journalUuid,
+      };
     } catch (error) {
       if (journalUuid) {
         await this.journalService.markFailed(journalUuid, error.message || 'Unknown error').catch(() => {});
@@ -683,6 +682,14 @@ export class SqlSchemaMigrationService {
   ): Promise<void> {
     if (!pending) return;
     await this.updateMetadataFields(pending.tableName, pending.diff, trx);
+  }
+
+  async markJournalCompleted(uuid: string): Promise<void> {
+    await this.journalService.markCompleted(uuid);
+  }
+
+  async rollbackJournal(uuid: string): Promise<void> {
+    await this.journalService.executeRollback(uuid);
   }
 
   private async updateMetadataFields(

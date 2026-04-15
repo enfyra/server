@@ -91,6 +91,7 @@ export class ProvisionService implements OnModuleInit {
           (diff) => this.mongoSchemaMigrationService['executeMongoSchemaDiff'](
             diff.tableName || 'unknown', diff, null, null,
           ),
+          (entry) => this.mongoSchemaMigrationService.restoreMetadataFromRawSnapshot(entry),
         );
       } catch (error) {
         this.logger.warn(`Mongo migration journal recovery failed (non-fatal): ${error.message}`);

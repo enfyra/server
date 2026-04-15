@@ -358,11 +358,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual(idxs([2, 3, 4, 5]));
   });
 
-  // Skipped: known Mongo executor parity gap — relation-keyed filters inside
-  // `_or` / nested logical wrappers are dropped by the Mongo path (SQL handles
-  // them via CTE/JOIN). Tracked separately; the simpler non-nested forms
-  // above already cover the healthy path.
-  test('_not + _or relations: NOT (menu=m88 ∨ menu=m99) → [3]', async () => {
+  runOrSkip('_not + _or relations: NOT (menu=m88 ∨ menu=m99) → [3]', async () => {
     const ids = await rowIds({
       _not: {
         _or: [{ menu: { _eq: menuIds[1] } }, { menu: { _eq: menuIds[2] } }],
@@ -387,8 +383,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual(idxs([0]));
   });
 
-  // Skipped: same parity gap (relation filter inside _or/_and on Mongo).
-  test('_and wraps _or (id=[0] ∨ menu=m99) → [0,2,4]', async () => {
+  runOrSkip('_and wraps _or (id=[0] ∨ menu=m99) → [0,2,4]', async () => {
     const ids = await rowIds({
       _and: [
         {
@@ -402,7 +397,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual(idxs([0, 2, 4]));
   });
 
-  test('_and: (_or id=[1] ∨ menu=m99) ∧ owner=alice → [2]', async () => {
+  runOrSkip('_and: (_or id=[1] ∨ menu=m99) ∧ owner=alice → [2]', async () => {
     const ids = await rowIds({
       _and: [
         {
@@ -482,8 +477,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual([]);
   });
 
-  // Skipped: nested relation filter inside _or wrapper (same parity gap).
-  test('deep _and length 5 (avoid NOT IN on nullable FK)', async () => {
+  runOrSkip('deep _and length 5 (avoid NOT IN on nullable FK)', async () => {
     const ids = await rowIds({
       _and: [
         { prio: { _gte: 0 } },

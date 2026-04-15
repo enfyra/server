@@ -28,6 +28,7 @@ export class MongoMigrationJournalService {
     upDiff: any;
     downDiff: any;
     beforeSnapshot?: any;
+    rawBeforeSnapshot?: any;
   }): Promise<string> {
     const uuid = `mj-${randomUUID()}`;
     const now = new Date();
@@ -40,6 +41,7 @@ export class MongoMigrationJournalService {
       upDiff: params.upDiff,
       downDiff: params.downDiff,
       beforeSnapshot: params.beforeSnapshot || null,
+      rawBeforeSnapshot: params.rawBeforeSnapshot || null,
       errorMessage: null,
       startedAt: null,
       completedAt: null,
@@ -136,6 +138,7 @@ export class MongoMigrationJournalService {
 
   async recoverPending(
     executeDiff: (diff: any) => Promise<void>,
+    restoreMetadataFn?: (entry: any) => Promise<void>,
   ): Promise<void> {
     let pending: any[];
 
@@ -161,6 +164,18 @@ export class MongoMigrationJournalService {
         `Recovering ${entry.uuid} [${entry.operation}] ${entry.tableName}`,
       );
       await this.executeRolldown(entry.uuid, executeDiff);
+      if (restoreMetadataFn && entry.beforeSnapshot) {
+        try {
+          await restoreMetadataFn(entry);
+          this.logger.warn(
+            `Metadata restored for ${entry.uuid} from beforeSnapshot`,
+          );
+        } catch (metaErr: any) {
+          this.logger.error(
+            `Metadata restore failed for ${entry.uuid}: ${metaErr.message}`,
+          );
+        }
+      }
     }
   }
 }
