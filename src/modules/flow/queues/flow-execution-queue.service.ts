@@ -63,9 +63,18 @@ export class FlowExecutionQueueService extends WorkerHost {
       );
     }
 
-    const flow = flowName
-      ? await this.flowCacheService.getFlowByName(flowName)
-      : await this.flowCacheService.getFlowById(flowId);
+    const resolveFlow = async (): Promise<FlowDefinition | null> => {
+      return flowName
+        ? await this.flowCacheService.getFlowByName(flowName)
+        : await this.flowCacheService.getFlowById(flowId);
+    };
+
+    let flow = await resolveFlow();
+
+    if (!flow) {
+      await this.flowCacheService.reload();
+      flow = await resolveFlow();
+    }
 
     if (!flow) {
       throw new Error(`Flow ${flowName || flowId} not found`);
@@ -126,7 +135,7 @@ export class FlowExecutionQueueService extends WorkerHost {
           `Cleanup failed for flow ${flow.name}: ${err.message}`,
         ),
       );
-      throw error;
+      return { success: false, executionId, error: error.message };
     }
   }
 

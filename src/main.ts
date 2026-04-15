@@ -48,6 +48,8 @@ async function bootstrap() {
     logger.warn('GraphQL endpoint not available:', error.message);
   }
   const configService = app.get(ConfigService);
+  app.enableShutdownHooks();
+
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,

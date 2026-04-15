@@ -17,7 +17,8 @@ import { SYSTEM_QUEUES } from '../../shared/utils/constant';
     BullModule.registerQueue({
       name: SYSTEM_QUEUES.FLOW_EXECUTION,
       defaultJobOptions: {
-        attempts: 1,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
         removeOnComplete: { count: 200, age: 3600 * 24 },
         removeOnFail: { count: 500, age: 3600 * 24 * 7 },
       },
