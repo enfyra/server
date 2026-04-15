@@ -3,6 +3,7 @@ import {
   FIELD_OPERATORS,
   ALL_SUPPORTED_OPERATORS,
 } from '../../planner/types/filter-ast';
+import { DatabaseConfigService } from '../../../../shared/services/database-config.service';
 
 export function throwUnsupportedFieldOperator(
   operator: string,
@@ -24,8 +25,10 @@ export function assertFieldOperatorValueIsClean(
   tableName?: string,
 ): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
   for (const k of Object.keys(value)) {
     if (k.startsWith('_') && !FIELD_OPERATORS.has(k)) {
+      if (isMongoDB && k === '_id') continue;
       throwUnsupportedFieldOperator(k, fieldName, tableName);
     }
   }

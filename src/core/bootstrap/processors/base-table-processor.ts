@@ -86,7 +86,12 @@ export abstract class BaseTableProcessor {
         if (rel && !isMongoDB) {
           where[`${field}Id`] = record[`${field}Id`];
         } else {
-          where[field] = record[field];
+          const rawValue = record[field];
+          if (rel && isMongoDB && rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+            where[field] = rawValue._id ?? rawValue.id ?? rawValue;
+          } else {
+            where[field] = rawValue;
+          }
         }
       }
       return where;
