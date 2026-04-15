@@ -1446,32 +1446,5 @@
             "connectionHandlerTimeout": 5000
         }
     ],
-    "websocket_event_definition": [],
-    "gql_definition": [
-        {
-            "table": "table_definition",
-            "isEnabled": true,
-            "isSystem": true
-        },
-        {
-            "table": "user_definition",
-            "isEnabled": true,
-            "isSystem": true
-        },
-        {
-            "table": "role_definition",
-            "isEnabled": true,
-            "isSystem": true
-        },
-        {
-            "table": "setting_definition",
-            "isEnabled": true,
-            "isSystem": true
-        },
-        {
-            "table": "folder_definition",
-            "isEnabled": true,
-            "isSystem": true
-        }
-    ]
+    "websocket_event_definition": []
 }
