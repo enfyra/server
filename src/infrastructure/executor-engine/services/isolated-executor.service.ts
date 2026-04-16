@@ -531,9 +531,9 @@ export class IsolatedExecutorService implements OnModuleDestroy {
 
   private async execDispatchCall(msg: any, ctx: any): Promise<unknown> {
     const args = JSON.parse(msg.argsJson);
-    const fn = ctx?.$dispatch?.[msg.method];
+    const fn = ctx?.$trigger;
     if (typeof fn !== 'function') {
-      throw new Error(`$dispatch.${msg.method} is not available`);
+      throw new Error(`$trigger is not available`);
     }
     return fn(...args);
   }

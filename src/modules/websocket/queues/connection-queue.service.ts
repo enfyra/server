@@ -78,14 +78,12 @@ export class ConnectionQueueService extends WorkerHost {
 
     ctx.$helpers.$fetch = createFetchHelper();
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
-    ctx.$dispatch = {
-      trigger: (flowIdOrName: string | number, payload?: any) =>
-        this.flowService.trigger(
-          flowIdOrName,
-          payload,
-          userId ? { id: userId } : null,
-        ),
-    };
+    ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
+      this.flowService.trigger(
+        flowIdOrName,
+        payload,
+        userId ? { id: userId } : null,
+      );
 
     const result = await this.handlerExecutor.run(script, ctx, timeout);
 

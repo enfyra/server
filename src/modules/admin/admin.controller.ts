@@ -1,4 +1,4 @@
-import { Controller, Post, Param, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Param, Body, Logger, Req } from '@nestjs/common';
 import { CacheOrchestratorService } from '../../infrastructure/cache/services/cache-orchestrator.service';
 import { FlowService } from '../flow/services/flow.service';
 import { ExecutorEngineService } from '../../infrastructure/executor-engine/services/executor-engine.service';
@@ -64,11 +64,15 @@ export class AdminController {
   }
 
   @Post('flow/trigger/:id')
-  async triggerFlow(@Param('id') flowId: string, @Body() body?: any) {
+  async triggerFlow(
+    @Param('id') flowId: string,
+    @Body() body?: any,
+    @Req() req?: any,
+  ) {
     const result = await this.flowService.trigger(
       flowId,
       body?.payload || {},
-      body?.user || null,
+      req?.user || null,
     );
     return {
       success: true,

@@ -124,12 +124,10 @@ export interface TDynamicContext {
     disconnect?: () => void;
   };
   $flow?: Record<string, any>;
-  $dispatch?: {
-    trigger?: (
-      flowIdOrName: string | number,
-      payload?: any,
-    ) => Promise<{ jobId: string; flowId: number | string }>;
-  };
+  $trigger?: (
+    flowIdOrName: string | number,
+    payload?: any,
+  ) => Promise<{ jobId: string; flowId: number | string }>;
 }
 
 export interface RequestWithRouteData extends Request {

@@ -208,10 +208,8 @@ export class RouteDetectMiddleware implements NestMiddleware {
         mainTableName,
       );
 
-      context.$dispatch = {
-        trigger: (flowIdOrName: string | number, payload?: any) =>
-          this.flowService.trigger(flowIdOrName, payload, req.user),
-      };
+      context.$trigger = (flowIdOrName: string | number, payload?: any) =>
+        this.flowService.trigger(flowIdOrName, payload, req.user);
 
       try {
         context.$helpers.$uploadFile =

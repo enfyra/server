@@ -10,6 +10,7 @@ import { ExecutorEngineService } from '../../../infrastructure/executor-engine/s
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
 import { TDynamicContext } from '../../../shared/types';
 import {
   FlowDefinition,
@@ -35,6 +36,7 @@ export class FlowExecutionQueueService extends WorkerHost {
     private readonly repoRegistryService: RepoRegistryService,
     private readonly flowCacheService: FlowCacheService,
     private readonly queryBuilder: QueryBuilderService,
+    private readonly websocketEmit: WebsocketEmitService,
     @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
     private readonly flowQueue: Queue,
   ) {
@@ -90,12 +92,26 @@ export class FlowExecutionQueueService extends WorkerHost {
 
     const executionId = await this.createExecution(flow, payload, triggeredBy);
 
+    this.emitFlowEvent(triggeredBy, {
+      executionId,
+      flowId: flow.id,
+      flowName: flow.name,
+      status: 'pending',
+    });
+
     const startTime = Date.now();
 
     try {
       await this.updateExecution(executionId, {
         status: 'running',
         startedAt: new Date(),
+      });
+
+      this.emitFlowEvent(triggeredBy, {
+        executionId,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'running',
       });
 
       const result = await this.executeFlow(
@@ -116,6 +132,14 @@ export class FlowExecutionQueueService extends WorkerHost {
         completedSteps: result.completedSteps,
       });
 
+      this.emitFlowEvent(triggeredBy, {
+        executionId,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'completed',
+        duration: Date.now() - startTime,
+      });
+
       this.cleanupOldExecutions(flow).catch((err) =>
         this.logger.warn(
           `Cleanup failed for flow ${flow.name}: ${err.message}`,
@@ -130,6 +154,15 @@ export class FlowExecutionQueueService extends WorkerHost {
         error: { message: error.message, stack: error.stack },
       });
 
+      this.emitFlowEvent(triggeredBy, {
+        executionId,
+        flowId: flow.id,
+        flowName: flow.name,
+        status: 'failed',
+        duration: Date.now() - startTime,
+        error: error.message,
+      });
+
       this.cleanupOldExecutions(flow).catch((err) =>
         this.logger.warn(
           `Cleanup failed for flow ${flow.name}: ${err.message}`,
@@ -137,6 +170,11 @@ export class FlowExecutionQueueService extends WorkerHost {
       );
       return { success: false, executionId, error: error.message };
     }
+  }
+
+  private emitFlowEvent(triggeredBy: any, data: any) {
+    if (!triggeredBy?.id) return;
+    this.websocketEmit.emitToUser(triggeredBy.id, 'flow:execution', data);
   }
 
   private async cleanupOldExecutions(flow: FlowDefinition): Promise<void> {
@@ -213,26 +251,24 @@ export class FlowExecutionQueueService extends WorkerHost {
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
-    (ctx as any).$dispatch = {
-      trigger: async (flowIdOrName: string | number, triggerPayload?: any) => {
-        const targetFlow =
-          typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
-            ? await this.flowCacheService.getFlowById(flowIdOrName)
-            : await this.flowCacheService.getFlowByName(String(flowIdOrName));
-        if (!targetFlow) throw new Error(`Flow "${flowIdOrName}" not found`);
-        await this.flowQueue.add(`flow:${targetFlow.name}`, {
-          flowId: targetFlow.id,
-          flowName: targetFlow.name,
-          payload: triggerPayload,
-          depth: depth + 1,
-          visitedFlowIds,
-        });
-        return {
-          triggered: true,
-          flowId: targetFlow.id,
-          flowName: targetFlow.name,
-        };
-      },
+    (ctx as any).$trigger = async (flowIdOrName: string | number, triggerPayload?: any) => {
+      const targetFlow =
+        typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
+          ? await this.flowCacheService.getFlowById(flowIdOrName)
+          : await this.flowCacheService.getFlowByName(String(flowIdOrName));
+      if (!targetFlow) throw new Error(`Flow "${flowIdOrName}" not found`);
+      await this.flowQueue.add(`flow:${targetFlow.name}`, {
+        flowId: targetFlow.id,
+        flowName: targetFlow.name,
+        payload: triggerPayload,
+        depth: depth + 1,
+        visitedFlowIds,
+      });
+      return {
+        triggered: true,
+        flowId: targetFlow.id,
+        flowName: targetFlow.name,
+      };
     };
 
     const completedSteps: any[] = [];

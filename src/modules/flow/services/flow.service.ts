@@ -91,14 +91,12 @@ export class FlowService {
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
-    (ctx as any).$dispatch = {
-      trigger: async (flowIdOrName: string | number, triggerPayload?: any) => ({
-        triggered: true,
-        flowIdOrName,
-        payload: triggerPayload,
-        note: 'test mode',
-      }),
-    };
+    (ctx as any).$trigger = async (flowIdOrName: string | number, triggerPayload?: any) => ({
+      triggered: true,
+      flowIdOrName,
+      payload: triggerPayload,
+      note: 'test mode',
+    });
 
     const MAX_TEST_TIMEOUT = 5000;
     const config = step.config || {};
