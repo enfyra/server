@@ -31,6 +31,24 @@ const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
 const SYNC_CHANNEL = 'enfyra:cache-orchestrator-sync';
 
+const FLOW_PRIORITY = [
+  'metadata',
+  'route',
+  'fieldPermission',
+  'setting',
+  'guard',
+  'flow',
+  'websocket',
+  'storage',
+  'oauth',
+  'folder',
+  'package',
+  'bootstrap',
+  'graphql',
+  'settingGraphql',
+  'repoRegistry',
+];
+
 type ReloadStep = (payload: TCacheInvalidationPayload) => Promise<void>;
 
 const RELOAD_CHAINS: Record<string, string[]> = {
@@ -242,8 +260,10 @@ export class CacheOrchestratorService
       await this.publishSignal(payload);
     }
 
-    if (publish && chain.includes('metadata')) {
-      this.notifyClients('pending');
+    const flow = this.resolveFlowName(chain);
+
+    if (publish) {
+      this.notifyClients('pending', flow, chain);
     }
 
     const start = Date.now();
@@ -283,20 +303,31 @@ export class CacheOrchestratorService
       `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
     );
 
-    if (publish && chain.includes('metadata')) {
+    if (publish) {
       if (elapsed < 500) {
         await new Promise((r) => setTimeout(r, 500 - elapsed));
       }
-      this.notifyClients('done');
+      this.notifyClients('done', flow, chain);
     }
   }
 
-  private notifyClients(status: 'pending' | 'done'): void {
+  private resolveFlowName(chain: string[]): string {
+    for (const step of FLOW_PRIORITY) {
+      if (chain.includes(step)) return step;
+    }
+    return chain[0] ?? 'unknown';
+  }
+
+  private notifyClients(
+    status: 'pending' | 'done',
+    flow: string,
+    steps?: string[],
+  ): void {
     try {
       this.websocketGateway?.emitToNamespace?.(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-        '$system:metadata:reload',
-        { status },
+        '$system:reload',
+        { flow, status, steps },
       );
     } catch {}
   }
@@ -358,14 +389,15 @@ export class CacheOrchestratorService
 
   async reloadMetadataAndDeps(): Promise<void> {
     const start = Date.now();
-    this.notifyClients('pending');
+    const steps = ['metadata', 'repoRegistry', 'route', 'graphql'];
+    this.notifyClients('pending', 'metadata', steps);
     await this.metadataCache.reload();
     await this.reloadRepoRegistry();
     await this.routeCache.reload(false);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
-    this.notifyClients('done');
+    this.notifyClients('done', 'metadata', steps);
     this.logger.log(`Admin reload metadata+deps: ${Date.now() - start}ms`);
     await this.publishSignal({
       table: 'table_definition',
@@ -377,9 +409,10 @@ export class CacheOrchestratorService
 
   async reloadRoutesOnly(): Promise<void> {
     const start = Date.now();
-    this.notifyClients('pending');
+    const steps = ['route'];
+    this.notifyClients('pending', 'route', steps);
     await this.routeCache.reload(false);
-    this.notifyClients('done');
+    this.notifyClients('done', 'route', steps);
     this.logger.log(`Admin reload routes: ${Date.now() - start}ms`);
     await this.publishSignal({
       table: 'route_definition',
@@ -391,15 +424,21 @@ export class CacheOrchestratorService
 
   async reloadGraphqlOnly(): Promise<void> {
     const start = Date.now();
+    const steps = ['graphql'];
+    this.notifyClients('pending', 'graphql', steps);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
+    this.notifyClients('done', 'graphql', steps);
     this.logger.log(`Admin reload graphql: ${Date.now() - start}ms`);
   }
 
   async reloadGuardsOnly(): Promise<void> {
     const start = Date.now();
+    const steps = ['guard'];
+    this.notifyClients('pending', 'guard', steps);
     await this.guardCache.reload(false);
+    this.notifyClients('done', 'guard', steps);
     this.logger.log(`Admin reload guards: ${Date.now() - start}ms`);
     await this.publishSignal({
       table: 'guard_definition',
@@ -421,7 +460,22 @@ export class CacheOrchestratorService
 
   private async reloadAllLocal(notify = false): Promise<void> {
     const start = Date.now();
-    if (notify) this.notifyClients('pending');
+    const steps = [
+      'metadata',
+      'repoRegistry',
+      'route',
+      'guard',
+      'flow',
+      'websocket',
+      'package',
+      'setting',
+      'storage',
+      'oauth',
+      'folder',
+      'fieldPermission',
+      'graphql',
+    ];
+    if (notify) this.notifyClients('pending', 'all', steps);
     await this.metadataCache.reload();
     await Promise.all([
       this.reloadRepoRegistry(),
@@ -444,7 +498,7 @@ export class CacheOrchestratorService
       if (elapsed < 200) {
         await new Promise((r) => setTimeout(r, 200 - elapsed));
       }
-      this.notifyClients('done');
+      this.notifyClients('done', 'all', steps);
     }
     this.logger.log(`Admin reload ALL: ${Date.now() - start}ms`);
   }
