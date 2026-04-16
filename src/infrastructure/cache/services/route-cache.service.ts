@@ -90,7 +90,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       ) &&
       payload.ids?.length
     ) {
-      const routeIds = await this.findRouteIdsForChildRecords(
+      const routeIds = await this.resolveAffectedRouteIds(
         payload.table,
         payload.ids,
       );
@@ -107,7 +107,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     ) {
       await this.reloadGlobalHooksAndMerge();
       if (payload.ids?.length) {
-        const routeIds = await this.findRouteIdsForChildRecords(
+        const routeIds = await this.resolveAffectedRouteIds(
           payload.table,
           payload.ids,
         );
@@ -212,6 +212,60 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       if (routeId) routeIds.add(routeId);
     }
     return [...routeIds];
+  }
+
+  private getChildArrayKeyForTable(tableName: string): string | null {
+    switch (tableName) {
+      case 'pre_hook_definition':
+        return 'preHooks';
+      case 'post_hook_definition':
+        return 'postHooks';
+      case 'route_handler_definition':
+        return 'handlers';
+      case 'route_permission_definition':
+        return 'routePermissions';
+      default:
+        return null;
+    }
+  }
+
+  private findCachedRouteIdsForChildRecords(
+    tableName: string,
+    ids: (string | number)[],
+  ): (string | number)[] {
+    const arrayKey = this.getChildArrayKeyForTable(tableName);
+    if (!arrayKey) return [];
+    const idSet = new Set(ids.map(String));
+    const routeIds = new Map<string, string | number>();
+    for (const route of this.cache.routes) {
+      const children = route?.[arrayKey];
+      if (!Array.isArray(children)) continue;
+      for (const child of children) {
+        const childId = DatabaseConfigService.getRecordId(child);
+        if (childId == null) continue;
+        if (idSet.has(String(childId))) {
+          const rid = DatabaseConfigService.getRecordId(route);
+          if (rid != null) routeIds.set(String(rid), rid);
+          break;
+        }
+      }
+    }
+    return [...routeIds.values()];
+  }
+
+  private async resolveAffectedRouteIds(
+    tableName: string,
+    ids: (string | number)[],
+  ): Promise<(string | number)[]> {
+    const [fresh, cached] = await Promise.all([
+      this.findRouteIdsForChildRecords(tableName, ids),
+      Promise.resolve(this.findCachedRouteIdsForChildRecords(tableName, ids)),
+    ]);
+    const merged = new Map<string, string | number>();
+    for (const rid of [...fresh, ...cached]) {
+      if (rid != null) merged.set(String(rid), rid);
+    }
+    return [...merged.values()];
   }
 
   private async reloadGlobalHooksAndMerge(): Promise<void> {
