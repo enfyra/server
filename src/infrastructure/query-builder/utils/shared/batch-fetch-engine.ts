@@ -193,6 +193,9 @@ export class BatchFetchEngine {
     if (fkValues.length === 0) {
       for (const doc of parentDocs) {
         doc[fkKey] = null;
+        if (desc.fkColumn && desc.fkColumn !== fkKey) {
+          delete doc[desc.fkColumn];
+        }
       }
       return;
     }
@@ -213,6 +216,9 @@ export class BatchFetchEngine {
       for (const doc of parentDocs) {
         const v = doc[fkKey];
         doc[fkKey] = v != null ? this.adapter.buildScalarRef(v, targetPkField) : null;
+        if (desc.fkColumn && desc.fkColumn !== fkKey) {
+          delete doc[desc.fkColumn];
+        }
       }
       return;
     }
@@ -232,6 +238,9 @@ export class BatchFetchEngine {
       const fkVal = parentDoc[fkKey];
       parentDoc[fkKey] =
         fkVal != null ? map.get(this.adapter.keyOf(fkVal)) || null : null;
+      if (desc.fkColumn && desc.fkColumn !== fkKey) {
+        delete parentDoc[desc.fkColumn];
+      }
     }
   }
 

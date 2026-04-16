@@ -299,6 +299,47 @@ describe('batch-relation-fetcher', () => {
       expect(rows[1].author).toEqual({ id: 1, name: 'Alice' });
     });
 
+    it('should delete raw FK column from parent when it leaked into the row', async () => {
+      const rows = [
+        { id: 1, title: 'Post A', author: 1, authorId: 1 },
+        { id: 2, title: 'Post B', author: null, authorId: null },
+        { id: 3, title: 'Post C', author: 999, authorId: 999 },
+      ];
+      const descs: BatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['id', 'name'],
+        fkColumn: 'authorId',
+      }];
+
+      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
+
+      expect(rows[0].author).toEqual({ id: 1, name: 'Alice' });
+      expect('authorId' in rows[0]).toBe(false);
+      expect(rows[1].author).toBeNull();
+      expect('authorId' in rows[1]).toBe(false);
+      expect(rows[2].author).toBeNull();
+      expect('authorId' in rows[2]).toBe(false);
+    });
+
+    it('should delete raw FK column in isPkOnly path', async () => {
+      const rows = [
+        { id: 1, title: 'Post A', author: 1, authorId: 1 },
+      ];
+      const descs: BatchFetchDescriptor[] = [{
+        relationName: 'author',
+        type: 'many-to-one',
+        targetTable: 'users',
+        fields: ['id'],
+        fkColumn: 'authorId',
+      }];
+
+      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
+
+      expect('authorId' in rows[0]).toBe(false);
+    });
+
     it('should set null when all FK values are null', async () => {
       const rows = [{ id: 4, title: 'Post D', author: null }];
       const descs: BatchFetchDescriptor[] = [{
