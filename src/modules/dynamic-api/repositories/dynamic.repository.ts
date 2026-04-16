@@ -518,7 +518,12 @@ export class DynamicRepository {
         throw new BadRequestException(createDecision.message);
       }
       if (this.tableName === 'route_definition') {
-        this.filterPublishedMethodsToAvailable(body, null);
+        this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
+        this.filterMethodsSubsetOfAvailable(
+          body,
+          null,
+          'skipRoleGuardMethods',
+        );
       }
       if (this.tableName === 'extension_definition' && body.code) {
         const { processExtensionDefinition } =
@@ -680,7 +685,14 @@ export class DynamicRepository {
         throw new BadRequestException(updateDecision.message);
       }
       if (this.tableName === 'route_definition' && body.publishedMethods) {
-        this.filterPublishedMethodsToAvailable(body, exists);
+        this.filterMethodsSubsetOfAvailable(body, exists, 'publishedMethods');
+      }
+      if (this.tableName === 'route_definition' && body.skipRoleGuardMethods) {
+        this.filterMethodsSubsetOfAvailable(
+          body,
+          exists,
+          'skipRoleGuardMethods',
+        );
       }
       if (this.tableName === 'extension_definition' && body.code) {
         const { processExtensionDefinition } =
@@ -783,7 +795,11 @@ export class DynamicRepository {
       .filter((id): id is number => id != null && typeof id === 'number');
   }
 
-  private filterPublishedMethodsToAvailable(body: any, existing: any): void {
+  private filterMethodsSubsetOfAvailable(
+    body: any,
+    existing: any,
+    field: 'publishedMethods' | 'skipRoleGuardMethods',
+  ): void {
     const availableIds = new Set<number>(
       body.availableMethods
         ? this.toMethodIds(
@@ -798,18 +814,16 @@ export class DynamicRepository {
           : [],
     );
     if (availableIds.size === 0) {
-      body.publishedMethods = [];
+      body[field] = [];
       return;
     }
-    const published = Array.isArray(body.publishedMethods)
-      ? body.publishedMethods
-      : [];
-    const filtered = published.filter((item: any) => {
+    const current = Array.isArray(body[field]) ? body[field] : [];
+    const filtered = current.filter((item: any) => {
       const id =
         item && typeof item === 'object' && 'id' in item ? item.id : item;
       return id != null && availableIds.has(Number(id));
     });
-    body.publishedMethods = filtered;
+    body[field] = filtered;
   }
 
   private async cascadePolicyCheck(

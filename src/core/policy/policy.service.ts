@@ -33,6 +33,12 @@ export class PolicyService {
       };
     }
 
+    const skipRoleGuard = ctx.routeData?.skipRoleGuardMethods?.some(
+      (m: any) => m.method === ctx.method,
+    );
+
+    if (skipRoleGuard) return { allow: true };
+
     if (ctx.user.isRootAdmin) return { allow: true };
 
     if (!ctx.routeData?.routePermissions) {
@@ -684,6 +690,7 @@ export class PolicyService {
       const allowed = this.getAllowedFields([
         'description',
         'publishedMethods',
+        'skipRoleGuardMethods',
         'availableMethods',
         'icon',
       ]);

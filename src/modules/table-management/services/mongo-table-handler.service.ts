@@ -601,6 +601,7 @@ export class MongoTableHandlerService {
               isSystem: false,
               icon: 'lucide:table',
               publishedMethods: [],
+              skipRoleGuardMethods: [],
               availableMethods: allMethodIds,
               routePermissions: [],
               handlers: [],

@@ -168,6 +168,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         'postHooks.*',
         'postHooks.methods.method',
         'publishedMethods.*',
+        'skipRoleGuardMethods.*',
         'availableMethods.*',
       ],
     });
@@ -307,6 +308,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         'postHooks.*',
         'postHooks.methods.method',
         'publishedMethods.*',
+        'skipRoleGuardMethods.*',
         'availableMethods.*',
       ],
     });

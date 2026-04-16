@@ -339,7 +339,8 @@
         "relations": [
             { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method" },
             { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publishedMethods", "description": "Routes that support this method" },
-            { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" }
+            { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" },
+            { "propertyName": "routesSkipRoleGuard", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "skipRoleGuardMethods", "description": "Routes where this method skips RoleGuard (still requires authentication)" }
         ]
     },
     "menu_definition": {

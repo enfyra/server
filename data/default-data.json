@@ -33,6 +33,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:git-branch",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -85,6 +88,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:settings",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -192,6 +198,10 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:route",
+            "skipRoleGuardMethods": [
+                "GET",
+                "PATCH"
+            ],
             "availableMethods": [
                 "GET",
                 "PATCH"
@@ -203,6 +213,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:key",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET"
             ]
@@ -291,6 +304,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:menu",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -339,6 +355,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:folder-tree",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET"
             ]
@@ -385,6 +404,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:package",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -451,6 +473,9 @@
             "isEnabled": true,
             "isSystem": true,
             "icon": "lucide:hard-drive",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -524,6 +549,9 @@
             "isSystem": true,
             "icon": "lucide:database",
             "description": "Get all table metadata from cache",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET"
             ]
@@ -534,6 +562,9 @@
             "isSystem": true,
             "icon": "lucide:table",
             "description": "Get single table metadata from cache",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET"
             ]
@@ -544,6 +575,9 @@
             "isSystem": true,
             "icon": "lucide:file-code",
             "description": "GraphQL schema SDL (full definition for debugging)",
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET"
             ]
@@ -1052,7 +1086,33 @@
             "isSystem": true,
             "description": "Test API endpoints",
             "order": 6,
-            "parent": "Settings"
+            "parent": "Settings",
+            "permission": {
+                "and": [
+                    {
+                        "route": "/route_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
+                    {
+                        "or": [
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
         },
         {
             "type": "Menu",

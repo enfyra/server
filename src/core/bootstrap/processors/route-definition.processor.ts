@@ -77,6 +77,21 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           const methods = result.data || [];
           transformedRecord.publishedMethods = methods.map((m: any) => m[pkField]);
         }
+        if (
+          record.skipRoleGuardMethods &&
+          Array.isArray(record.skipRoleGuardMethods)
+        ) {
+          const methodNames = record.skipRoleGuardMethods;
+          const result = await this.queryBuilder.find({
+            table: 'method_definition',
+            filter: { method: { _in: methodNames } },
+            fields: [pkField, 'method'],
+          });
+          const methods = result.data || [];
+          transformedRecord.skipRoleGuardMethods = methods.map(
+            (m: any) => m[pkField],
+          );
+        }
         if (record.availableMethods && Array.isArray(record.availableMethods)) {
           const methodNames = record.availableMethods;
           const result = await this.queryBuilder.find({
@@ -287,6 +302,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       'isSystem',
       'mainTable',
       'publishedMethods',
+      'skipRoleGuardMethods',
       'availableMethods',
     ];
   }

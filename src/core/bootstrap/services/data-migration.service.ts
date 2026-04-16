@@ -10,7 +10,11 @@ interface InitOld {
   _deletedRecords?: { table: string; filter: Record<string, any> }[];
 }
 
-const RELATION_FIELD_PREFIXES = ['publishedMethods', 'availableMethods'];
+const RELATION_FIELD_PREFIXES = [
+  'publishedMethods',
+  'skipRoleGuardMethods',
+  'availableMethods',
+];
 
 @Injectable()
 export class DataMigrationService {
@@ -216,7 +220,11 @@ export class DataMigrationService {
   ): Promise<void> {
     if (tableName === 'route_definition') {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
-        if (field === 'publishedMethods' || field === 'availableMethods') {
+        if (
+          field === 'publishedMethods' ||
+          field === 'skipRoleGuardMethods' ||
+          field === 'availableMethods'
+        ) {
           const isMongoDB = this.queryBuilder.isMongoDb();
           const idField = DatabaseConfigService.getPkField();
           const result = await this.queryBuilder.find({

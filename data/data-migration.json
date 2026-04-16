@@ -138,6 +138,39 @@
             },
             "type": "Menu",
             "isSystem": true
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/settings/api-tester"
+                }
+            },
+            "permission": {
+                "and": [
+                    {
+                        "route": "/route_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
+                    {
+                        "or": [
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     ],
     "post_hook_definition": [
@@ -158,6 +191,9 @@
                 }
             },
             "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -201,7 +237,11 @@
                     "_eq": "/me"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET",
+                "PATCH"
+            ]
         },
         {
             "_unique": {
@@ -217,7 +257,10 @@
                     "_eq": "/metadata"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
         },
         {
             "_unique": {
@@ -225,7 +268,10 @@
                     "_eq": "/metadata/:name"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
         },
         {
             "_unique": {
@@ -233,7 +279,10 @@
                     "_eq": "/folder_definition/tree"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
         },
         {
             "_unique": {
@@ -250,6 +299,9 @@
                 }
             },
             "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -271,7 +323,10 @@
                     "_eq": "/setting_definition"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
         },
         {
             "_unique": {
@@ -279,7 +334,10 @@
                     "_eq": "/me/oauth-accounts"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
         },
         {
             "_unique": {
@@ -287,7 +345,10 @@
                     "_eq": "/graphql-schema"
                 }
             },
-            "publishedMethods": []
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
         },
         {
             "_unique": {
@@ -361,6 +422,9 @@
                 }
             },
             "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
@@ -410,6 +474,9 @@
                 }
             },
             "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
             "availableMethods": [
                 "GET",
                 "POST",
