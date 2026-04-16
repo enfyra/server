@@ -106,6 +106,15 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       )
     ) {
       await this.reloadGlobalHooksAndMerge();
+      if (payload.ids?.length) {
+        const routeIds = await this.findRouteIdsForChildRecords(
+          payload.table,
+          payload.ids,
+        );
+        if (routeIds.length > 0) {
+          await this.reloadSpecificRoutes(routeIds);
+        }
+      }
       return;
     }
 
