@@ -1,4 +1,7 @@
-import { separateFilters, hasAnyRelations } from '../shared/filter-separator.util';
+import {
+  separateFilters,
+  hasAnyRelations,
+} from '../shared/filter-separator.util';
 import { renderRawFilterToMongo } from './render-filter';
 import { resolveMongoJunctionInfo } from '../../../mongo/utils/mongo-junction.util';
 
@@ -75,8 +78,7 @@ export async function applyRelationFilters(
     if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
       const nullOnly = classifyRelationNullOnlyFilter(relationFilter);
       if (nullOnly !== null) {
-        const fkField =
-          relation.foreignKeyColumn || `${relationName}Id`;
+        const fkField = relation.foreignKeyColumn || `${relationName}Id`;
         const effectiveNull = invert ? !nullOnly : nullOnly;
         pipeline.push({
           $match: {
@@ -378,7 +380,10 @@ export async function applyMixedFilters(
       const lookupFields: string[] = [];
       const relNameCount = new Map<string, number>();
       for (const rc of relationConditions) {
-        relNameCount.set(rc.relationName, (relNameCount.get(rc.relationName) || 0) + 1);
+        relNameCount.set(
+          rc.relationName,
+          (relNameCount.get(rc.relationName) || 0) + 1,
+        );
       }
       const relNameIdx = new Map<string, number>();
 
@@ -395,9 +400,10 @@ export async function applyMixedFilters(
         const dupCount = relNameCount.get(relCondition.relationName) || 1;
         const idx = relNameIdx.get(relCondition.relationName) || 0;
         relNameIdx.set(relCondition.relationName, idx + 1);
-        const lookupFieldName = dupCount > 1
-          ? `__lookup_${relCondition.relationName}_${idx}`
-          : `__lookup_${relCondition.relationName}`;
+        const lookupFieldName =
+          dupCount > 1
+            ? `__lookup_${relCondition.relationName}_${idx}`
+            : `__lookup_${relCondition.relationName}`;
         lookupFields.push(lookupFieldName);
 
         const lookupPipeline = await buildRelationLookupPipeline(

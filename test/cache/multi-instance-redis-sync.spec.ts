@@ -86,7 +86,9 @@ describe('RedisPubSubService.isChannelForBase (multi-instance cohort)', () => {
     const nodeName = 'peer-shared';
     const svc = createPubSubMatcher(nodeName);
     for (const baseKey of ALL_SYNC_BASE_KEYS) {
-      expect(svc.isChannelForBase(`${baseKey}:${nodeName}`, baseKey)).toBe(true);
+      expect(svc.isChannelForBase(`${baseKey}:${nodeName}`, baseKey)).toBe(
+        true,
+      );
     }
   });
 

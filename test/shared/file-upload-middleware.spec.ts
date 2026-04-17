@@ -52,10 +52,14 @@ describe('FileUploadMiddleware — disk storage', () => {
 
   it('reads buffer from temp file and deletes the temp file', async () => {
     const fileContent = Buffer.from('hello world');
-    const req = makeReq({ __simulateFile: { content: fileContent, originalname: 'test.txt' } });
+    const req = makeReq({
+      __simulateFile: { content: fileContent, originalname: 'test.txt' },
+    });
 
     await new Promise<void>((resolve, reject) => {
-      middleware.use(req, makeRes(), (err?: any) => (err ? reject(err) : resolve()));
+      middleware.use(req, makeRes(), (err?: any) =>
+        err ? reject(err) : resolve(),
+      );
     });
 
     expect(req.file).toBeDefined();
@@ -66,15 +70,21 @@ describe('FileUploadMiddleware — disk storage', () => {
   });
 
   it('sets $uploadedFile on context when routeData is present', async () => {
-    const req = makeReq({ __simulateFile: { content: Buffer.from('data'), originalname: 'img.png' } });
+    const req = makeReq({
+      __simulateFile: { content: Buffer.from('data'), originalname: 'img.png' },
+    });
 
     await new Promise<void>((resolve, reject) => {
-      middleware.use(req, makeRes(), (err?: any) => (err ? reject(err) : resolve()));
+      middleware.use(req, makeRes(), (err?: any) =>
+        err ? reject(err) : resolve(),
+      );
     });
 
     expect(req.routeData.context.$uploadedFile).toBeDefined();
     expect(req.routeData.context.$uploadedFile.originalname).toBe('img.png');
-    expect(Buffer.isBuffer(req.routeData.context.$uploadedFile.buffer)).toBe(true);
+    expect(Buffer.isBuffer(req.routeData.context.$uploadedFile.buffer)).toBe(
+      true,
+    );
   });
 
   it('skips processing for non-multipart requests', async () => {
@@ -111,7 +121,9 @@ describe('FileUploadMiddleware — disk storage', () => {
 
     await expect(
       new Promise<void>((resolve, reject) => {
-        middleware.use(req, makeRes(), (err?: any) => (err ? reject(err) : resolve()));
+        middleware.use(req, makeRes(), (err?: any) =>
+          err ? reject(err) : resolve(),
+        );
       }),
     ).resolves.toBeUndefined();
 

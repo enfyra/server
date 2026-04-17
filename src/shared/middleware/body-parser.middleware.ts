@@ -18,7 +18,11 @@ export class BodyParserMiddleware implements NestMiddleware {
       return express.json({ limit: limitStr })(req, res, next);
     }
     if (contentType.includes('urlencoded')) {
-      return express.urlencoded({ limit: limitStr, extended: true })(req, res, next);
+      return express.urlencoded({ limit: limitStr, extended: true })(
+        req,
+        res,
+        next,
+      );
     }
     next();
   }

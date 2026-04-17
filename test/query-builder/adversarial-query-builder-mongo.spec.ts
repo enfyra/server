@@ -93,13 +93,49 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       { _id: userIds[2], name: 'carol' },
     ]);
     await db.collection('extension').insertMany([
-      { _id: extIds[0], title: 'alpha', prio: 10, menu: menuIds[1], owner: userIds[0] },
-      { _id: extIds[1], title: 'beta', prio: 20, menu: menuIds[1], owner: userIds[1] },
-      { _id: extIds[2], title: 'gamma_chunk', prio: 5, menu: menuIds[2], owner: userIds[0] },
+      {
+        _id: extIds[0],
+        title: 'alpha',
+        prio: 10,
+        menu: menuIds[1],
+        owner: userIds[0],
+      },
+      {
+        _id: extIds[1],
+        title: 'beta',
+        prio: 20,
+        menu: menuIds[1],
+        owner: userIds[1],
+      },
+      {
+        _id: extIds[2],
+        title: 'gamma_chunk',
+        prio: 5,
+        menu: menuIds[2],
+        owner: userIds[0],
+      },
       { _id: extIds[3], title: 'delta', prio: 0, menu: null, owner: null },
-      { _id: extIds[4], title: 'unicode_你好', prio: 7, menu: menuIds[3], owner: userIds[2] },
-      { _id: extIds[5], title: 'Résumé', prio: 8, menu: menuIds[1], owner: userIds[1] },
-      { _id: extIds[6], title: '100%_done_literal', prio: 1, menu: menuIds[1], owner: userIds[0] },
+      {
+        _id: extIds[4],
+        title: 'unicode_你好',
+        prio: 7,
+        menu: menuIds[3],
+        owner: userIds[2],
+      },
+      {
+        _id: extIds[5],
+        title: 'Résumé',
+        prio: 8,
+        menu: menuIds[1],
+        owner: userIds[1],
+      },
+      {
+        _id: extIds[6],
+        title: '100%_done_literal',
+        prio: 1,
+        menu: menuIds[1],
+        owner: userIds[0],
+      },
     ]);
     await db.collection('ext_note').insertMany([
       { extensionId: extIds[0], body: 'spam' },
@@ -196,11 +232,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       ],
     );
 
-    const chunkChildTable = makeTableMeta(
-      'chunk_child',
-      ['_id', 'parent'],
-      [],
-    );
+    const chunkChildTable = makeTableMeta('chunk_child', ['_id', 'parent'], []);
     const chunkParentTable = makeTableMeta(
       'chunk_parent',
       ['_id'],
@@ -295,9 +327,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       sort: '_id',
       ...extra,
     });
-    return (r.data as any[])
-      .map((x) => String(x._id))
-      .sort();
+    return (r.data as any[]).map((x) => String(x._id)).sort();
   }
 
   function idSetOf(indices: number[]): string[] {
@@ -330,22 +360,31 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual(idSetOf([0, 1, 2, 3, 4, 5, 6]));
   });
 
-  runOrSkip('scalar _is_null on plain column (prio) works on Mongo', async () => {
-    const ids = await idsOf({ prio: { _eq: 0 } });
-    expect(ids).toEqual(idSetOf([3]));
-  });
+  runOrSkip(
+    'scalar _is_null on plain column (prio) works on Mongo',
+    async () => {
+      const ids = await idsOf({ prio: { _eq: 0 } });
+      expect(ids).toEqual(idSetOf([3]));
+    },
+  );
 
-  runOrSkip('relation-level _is_null / _eq null now works (parity with SQL)', async () => {
-    const isNull = await idsOf({ menu: { _is_null: true } });
-    const eqNull = await idsOf({ menu: { _eq: null } });
-    expect(isNull).toEqual(idSetOf([3]));
-    expect(eqNull).toEqual(idSetOf([3]));
-  });
+  runOrSkip(
+    'relation-level _is_null / _eq null now works (parity with SQL)',
+    async () => {
+      const isNull = await idsOf({ menu: { _is_null: true } });
+      const eqNull = await idsOf({ menu: { _eq: null } });
+      expect(isNull).toEqual(idSetOf([3]));
+      expect(eqNull).toEqual(idSetOf([3]));
+    },
+  );
 
-  runOrSkip('relation-level _is_not_null excludes rows with null FK', async () => {
-    const ids = await idsOf({ menu: { _is_not_null: true } });
-    expect(ids).toEqual(idSetOf([0, 1, 2, 4, 5, 6]));
-  });
+  runOrSkip(
+    'relation-level _is_not_null excludes rows with null FK',
+    async () => {
+      const ids = await idsOf({ menu: { _is_not_null: true } });
+      expect(ids).toEqual(idSetOf([0, 1, 2, 4, 5, 6]));
+    },
+  );
 
   runOrSkip('_in empty array returns no rows', async () => {
     expect(await idsOf({ _id: { _in: [] } })).toEqual([]);
@@ -364,14 +403,23 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     ).toEqual([]);
   });
 
-  runOrSkip('unknown operator throws BadRequest listing supported operators', async () => {
-    await expect(idsOf({ title: { _weird: 1 } } as any)).rejects.toMatchObject({
-      message: expect.stringContaining('Unsupported filter operator "_weird"'),
-    });
-    await expect(idsOf({ title: { _weird: 1 } } as any)).rejects.toMatchObject({
-      message: expect.stringContaining('_is_null'),
-    });
-  });
+  runOrSkip(
+    'unknown operator throws BadRequest listing supported operators',
+    async () => {
+      await expect(
+        idsOf({ title: { _weird: 1 } } as any),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining(
+          'Unsupported filter operator "_weird"',
+        ),
+      });
+      await expect(
+        idsOf({ title: { _weird: 1 } } as any),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('_is_null'),
+      });
+    },
+  );
 
   runOrSkip('_eq preserves literal % and _ in title', async () => {
     expect(await idsOf({ title: { _eq: '100%_done_literal' } })).toEqual(
@@ -385,12 +433,15 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     );
   });
 
-  runOrSkip('_starts_with with injection payload matches literally or empty', async () => {
-    const ids = await idsOf({
-      title: { _starts_with: "'; DROP TABLE extension;--" },
-    });
-    expect(ids).toEqual([]);
-  });
+  runOrSkip(
+    '_starts_with with injection payload matches literally or empty',
+    async () => {
+      const ids = await idsOf({
+        title: { _starts_with: "'; DROP TABLE extension;--" },
+      });
+      expect(ids).toEqual([]);
+    },
+  );
 
   runOrSkip('empty _contains string matches all non-null titles', async () => {
     const all = await idsOf({});
@@ -415,21 +466,27 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect(ids.sort()).toEqual(idSetOf([0, 1]));
   });
 
-  runOrSkip('M2M filter tags.label narrows to linked extensions (parity with SQL)', async () => {
-    const ids = await idsOf({ tags: { label: { _eq: 'x' } } });
-    expect(ids).toEqual(idSetOf([0, 2]));
-  });
+  runOrSkip(
+    'M2M filter tags.label narrows to linked extensions (parity with SQL)',
+    async () => {
+      const ids = await idsOf({ tags: { label: { _eq: 'x' } } });
+      expect(ids).toEqual(idSetOf([0, 2]));
+    },
+  );
 
-  runOrSkip('_contains NFC equals NFD tolerance or fail deterministically', async () => {
-    const nfc = await idsOf({
-      title: { _contains: 'Résumé'.normalize('NFC') },
-    });
-    const nfd = await idsOf({
-      title: { _contains: 'Résumé'.normalize('NFD') },
-    });
-    expect(nfc).toEqual(idSetOf([5]));
-    expect([[], idSetOf([5])]).toContainEqual(nfd);
-  });
+  runOrSkip(
+    '_contains NFC equals NFD tolerance or fail deterministically',
+    async () => {
+      const nfc = await idsOf({
+        title: { _contains: 'Résumé'.normalize('NFC') },
+      });
+      const nfd = await idsOf({
+        title: { _contains: 'Résumé'.normalize('NFD') },
+      });
+      expect(nfc).toEqual(idSetOf([5]));
+      expect([[], idSetOf([5])]).toContainEqual(nfd);
+    },
+  );
 
   runOrSkip('emoji in _contains never crashes and yields empty', async () => {
     await expect(idsOf({ title: { _contains: '🔥' } })).resolves.toEqual([]);
@@ -446,19 +503,22 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect(String(row.parent?._id)).toBe(String(catIds[1]));
   });
 
-  runOrSkip('owner relation with duplicate FK is fetched once, attached to both parents', async () => {
-    const r = await runPlan({
-      tableName: 'extension',
-      filter: { _id: { _in: [extIds[0], extIds[6]] } },
-      fields: ['_id', 'owner._id', 'owner.name'],
-      sort: '_id',
-    });
-    const rows = r.data as any[];
-    expect(rows.length).toBe(2);
-    expect(String(rows[0].owner?._id)).toBe(String(userIds[0]));
-    expect(String(rows[1].owner?._id)).toBe(String(userIds[0]));
-    expect(rows[0].owner.name).toBe('alice');
-  });
+  runOrSkip(
+    'owner relation with duplicate FK is fetched once, attached to both parents',
+    async () => {
+      const r = await runPlan({
+        tableName: 'extension',
+        filter: { _id: { _in: [extIds[0], extIds[6]] } },
+        fields: ['_id', 'owner._id', 'owner.name'],
+        sort: '_id',
+      });
+      const rows = r.data as any[];
+      expect(rows.length).toBe(2);
+      expect(String(rows[0].owner?._id)).toBe(String(userIds[0]));
+      expect(String(rows[1].owner?._id)).toBe(String(userIds[0]));
+      expect(rows[0].owner.name).toBe('alice');
+    },
+  );
 
   runOrSkip('all-null FK row yields null owner, no crash', async () => {
     const r = await runPlan({
@@ -520,13 +580,16 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual([]);
   });
 
-  runOrSkip('unknown operator _null common mistake lists canonical operators', async () => {
-    await expect(
-      idsOf({ _and: [{ menu: { _null: true } }] } as any),
-    ).rejects.toMatchObject({
-      message: expect.stringContaining('Unsupported filter operator "_null"'),
-    });
-  });
+  runOrSkip(
+    'unknown operator _null common mistake lists canonical operators',
+    async () => {
+      await expect(
+        idsOf({ _and: [{ menu: { _null: true } }] } as any),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Unsupported filter operator "_null"'),
+      });
+    },
+  );
 
   runOrSkip('_or across plain field and M2M relation branch', async () => {
     const ids = await idsOf({
@@ -545,16 +608,19 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect(ids.length).toBe(7);
   });
 
-  runOrSkip('duplicate ids in _in list do not duplicate result rows', async () => {
-    const r = await runPlan({
-      tableName: 'extension',
-      filter: { _id: { _in: [extIds[0], extIds[0], extIds[1]] } },
-      fields: ['_id'],
-      sort: '_id',
-    });
-    const ids = (r.data as any[]).map((x) => String(x._id));
-    expect(ids.sort()).toEqual(idSetOf([0, 1]));
-  });
+  runOrSkip(
+    'duplicate ids in _in list do not duplicate result rows',
+    async () => {
+      const r = await runPlan({
+        tableName: 'extension',
+        filter: { _id: { _in: [extIds[0], extIds[0], extIds[1]] } },
+        fields: ['_id'],
+        sort: '_id',
+      });
+      const ids = (r.data as any[]).map((x) => String(x._id));
+      expect(ids.sort()).toEqual(idSetOf([0, 1]));
+    },
+  );
 
   runOrSkip('large _in array bounded to existing set', async () => {
     const big: any[] = [];
@@ -566,9 +632,7 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
       fields: ['_id'],
       sort: '_id',
     });
-    const ids = (r.data as any[])
-      .map((x) => String(x._id))
-      .sort();
+    const ids = (r.data as any[]).map((x) => String(x._id)).sort();
     expect(ids).toEqual(idSetOf([0, 1, 2, 3, 4, 5, 6]));
   });
 
@@ -590,15 +654,18 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect((r.data as any[])[0].title).toBeDefined();
   });
 
-  runOrSkip('nested object without operator key yields no matching rows', async () => {
-    const r = await runPlan({
-      tableName: 'extension',
-      filter: { title: { nested: 'bad' } } as any,
-      fields: ['_id'],
-      sort: '_id',
-    });
-    expect((r.data as any[]).length).toBe(0);
-  });
+  runOrSkip(
+    'nested object without operator key yields no matching rows',
+    async () => {
+      const r = await runPlan({
+        tableName: 'extension',
+        filter: { title: { nested: 'bad' } } as any,
+        fields: ['_id'],
+        sort: '_id',
+      });
+      expect((r.data as any[]).length).toBe(0);
+    },
+  );
 
   runOrSkip('limit+sort parity with unbounded sort (first N)', async () => {
     const unlimited = await runPlan({
@@ -621,36 +688,45 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     expect(limitedIds).toEqual(topIds);
   });
 
-  runOrSkip('sort with bogus field name does not crash nor mutate data', async () => {
-    await runPlan({
-      tableName: 'extension',
-      fields: ['_id'],
-      sort: '"; db.extension.drop();--',
-    }).catch(() => undefined);
-    const remaining = await db.collection('extension').countDocuments({});
-    expect(remaining).toBe(7);
-  });
+  runOrSkip(
+    'sort with bogus field name does not crash nor mutate data',
+    async () => {
+      await runPlan({
+        tableName: 'extension',
+        fields: ['_id'],
+        sort: '"; db.extension.drop();--',
+      }).catch(() => undefined);
+      const remaining = await db.collection('extension').countDocuments({});
+      expect(remaining).toBe(7);
+    },
+  );
 
-  runOrSkip('filter value containing injection payload is treated as literal', async () => {
-    await runPlan({
-      tableName: 'extension',
-      filter: { title: { _eq: "'; db.extension.drop();--" } },
-      fields: ['_id'],
-    });
-    const remaining = await db.collection('extension').countDocuments({});
-    expect(remaining).toBe(7);
-  });
+  runOrSkip(
+    'filter value containing injection payload is treated as literal',
+    async () => {
+      await runPlan({
+        tableName: 'extension',
+        filter: { title: { _eq: "'; db.extension.drop();--" } },
+        fields: ['_id'],
+      });
+      const remaining = await db.collection('extension').countDocuments({});
+      expect(remaining).toBe(7);
+    },
+  );
 
-  runOrSkip('O2M with duplicate children preserves all rows (no dedupe)', async () => {
-    const r = await runPlan({
-      tableName: 'extension',
-      filter: { _id: { _eq: extIds[0] } },
-      fields: ['_id', 'notes._id', 'notes.body'],
-    });
-    const row = (r.data as any[])[0];
-    expect(Array.isArray(row.notes)).toBe(true);
-    expect(row.notes.length).toBe(3);
-  });
+  runOrSkip(
+    'O2M with duplicate children preserves all rows (no dedupe)',
+    async () => {
+      const r = await runPlan({
+        tableName: 'extension',
+        filter: { _id: { _eq: extIds[0] } },
+        fields: ['_id', 'notes._id', 'notes.body'],
+      });
+      const row = (r.data as any[])[0];
+      expect(Array.isArray(row.notes)).toBe(true);
+      expect(row.notes.length).toBe(3);
+    },
+  );
 
   runOrSkip(
     'batch fetch across >5000 parent ids returns grouped children without loss',
@@ -681,14 +757,17 @@ describe('Adversarial Query Builder (MongoQueryExecutor parity)', () => {
     ).resolves.toBeDefined();
   });
 
-  runOrSkip('M2M with parent having multiple targets returns all targets', async () => {
-    const r = await runPlan({
-      tableName: 'extension',
-      filter: { _id: { _eq: extIds[0] } },
-      fields: ['_id', 'tags._id', 'tags.label'],
-    });
-    const row = (r.data as any[])[0];
-    const labels = row.tags.map((t: any) => t.label).sort();
-    expect(labels).toEqual(['x', 'y']);
-  });
+  runOrSkip(
+    'M2M with parent having multiple targets returns all targets',
+    async () => {
+      const r = await runPlan({
+        tableName: 'extension',
+        filter: { _id: { _eq: extIds[0] } },
+        fields: ['_id', 'tags._id', 'tags.label'],
+      });
+      const row = (r.data as any[])[0];
+      const labels = row.tags.map((t: any) => t.label).sort();
+      expect(labels).toEqual(['x', 'y']);
+    },
+  );
 });

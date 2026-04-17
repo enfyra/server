@@ -269,9 +269,8 @@ export class QueryBuilderService {
         options.table,
         options.data,
       );
-      const dataWithTimestamp = this.mongoService.applyUpdateTimestamp(
-        dataWithRelations,
-      );
+      const dataWithTimestamp =
+        this.mongoService.applyUpdateTimestamp(dataWithRelations);
 
       const filter = this.buildMongoFilter(options.where);
 
@@ -368,7 +367,11 @@ export class QueryBuilderService {
     const conditions: WhereCondition[] = [];
 
     for (const [field, value] of Object.entries(filter)) {
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value)
+      ) {
         const operatorEntry = Object.entries(value)[0];
         if (operatorEntry) {
           const [operator, operand] = operatorEntry;
@@ -419,7 +422,9 @@ export class QueryBuilderService {
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
-    const filter = options.filter || (options.where ? this.whereToFilter(options.where) : undefined);
+    const filter =
+      options.filter ||
+      (options.where ? this.whereToFilter(options.where) : undefined);
     return this.select({
       tableName: options.table,
       filter,
@@ -460,7 +465,11 @@ export class QueryBuilderService {
     return await knex(table).where('id', recordId).first();
   }
 
-  async update(table: string, id: any, data: Record<string, any>): Promise<any> {
+  async update(
+    table: string,
+    id: any,
+    data: Record<string, any>,
+  ): Promise<any> {
     // Bulk update via options object
     if (id && typeof id === 'object' && 'where' in id) {
       return this.updateWithOptions({ table, where: id.where, data });

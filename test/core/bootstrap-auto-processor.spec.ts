@@ -122,7 +122,9 @@ describe('snapshot-meta.util', () => {
 });
 
 describe('BaseTableProcessor.autoTransformFkFields', () => {
-  const { BaseTableProcessor } = require('../../src/core/bootstrap/processors/base-table-processor');
+  const {
+    BaseTableProcessor,
+  } = require('../../src/core/bootstrap/processors/base-table-processor');
 
   class TestProcessor extends BaseTableProcessor {
     getUniqueIdentifier(record: any) {
@@ -221,7 +223,9 @@ describe('BaseTableProcessor.autoTransformFkFields', () => {
 });
 
 describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
-  const { BaseTableProcessor } = require('../../src/core/bootstrap/processors/base-table-processor');
+  const {
+    BaseTableProcessor,
+  } = require('../../src/core/bootstrap/processors/base-table-processor');
 
   class TestProcessor extends BaseTableProcessor {
     getUniqueIdentifier(record: any) {
@@ -256,11 +260,16 @@ describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
   });
 
   it('handles mixed unique keys (relation + scalar)', () => {
-    const { BaseTableProcessor: BP } = require('../../src/core/bootstrap/processors/base-table-processor');
+    const {
+      BaseTableProcessor: BP,
+    } = require('../../src/core/bootstrap/processors/base-table-processor');
 
     class WsProcessor extends BP {
       getUniqueIdentifier(record: any) {
-        return this.autoGetUniqueIdentifier(record, 'websocket_event_definition');
+        return this.autoGetUniqueIdentifier(
+          record,
+          'websocket_event_definition',
+        );
       }
     }
 
@@ -276,7 +285,9 @@ describe('BaseTableProcessor.autoGetUniqueIdentifier', () => {
 });
 
 describe('BaseTableProcessor.autoGetCompareFields', () => {
-  const { BaseTableProcessor } = require('../../src/core/bootstrap/processors/base-table-processor');
+  const {
+    BaseTableProcessor,
+  } = require('../../src/core/bootstrap/processors/base-table-processor');
 
   class TestProcessor extends BaseTableProcessor {
     getUniqueIdentifier() {

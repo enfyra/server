@@ -203,9 +203,12 @@ describe('PolicyService.checkSchemaMigration', () => {
       ['user', owningTable],
       ['post', inverseTable],
     ]);
-    const policyWithMeta = new PolicyService({} as any, {
-      getMetadata: async () => ({ tables }),
-    } as any);
+    const policyWithMeta = new PolicyService(
+      {} as any,
+      {
+        getMetadata: async () => ({ tables }),
+      } as any,
+    );
     const d = await policyWithMeta.checkSchemaMigration({
       operation: 'update',
       tableName: 'user',
@@ -240,9 +243,12 @@ describe('PolicyService.checkSchemaMigration', () => {
       ],
     };
     const tables = new Map<string, any>([['post', postTable]]);
-    const policyWithMeta = new PolicyService({} as any, {
-      getMetadata: async () => ({ tables }),
-    } as any);
+    const policyWithMeta = new PolicyService(
+      {} as any,
+      {
+        getMetadata: async () => ({ tables }),
+      } as any,
+    );
     const d = await policyWithMeta.checkSchemaMigration({
       operation: 'update',
       tableName: 'post',

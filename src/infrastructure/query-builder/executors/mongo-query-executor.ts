@@ -1,23 +1,14 @@
 import { Db, Collection } from 'mongodb';
 import { QueryOptions } from '../../../shared/types/query-builder.types';
-import { whereToMongoFilter } from '../utils/mongo/filter-builder';
 import { expandFieldsMongo } from '../utils/mongo/expand-fields';
-import {
-  buildNestedLookupPipeline,
-  addProjectionStage,
-} from '../utils/mongo/pipeline-builder';
-import { resolveMongoFilter } from '../utils/mongo/mongo-filter-resolver';
-import { hasAnyRelations } from '../utils/shared/filter-separator.util';
-import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
-import {
-  executeMongoBatchFetches,
-  MongoBatchFetchDescriptor,
-} from '../utils/mongo/batch-relation-fetcher';
-import { renderFilterToMongo } from '../utils/mongo/render-filter';
+import { executeAggregationPipeline } from '../utils/mongo/mongo-aggregation-builder';
 import { renderFieldsToMongo } from '../utils/mongo/render-fields';
 import { validateFilterShape } from '../utils/shared/filter-sanitizer.util';
 import { QueryPlanner } from '../planner/query-planner';
+import { QueryPlan } from '../planner/query-plan.types';
 import { normalizeMongoDocument } from '../../mongo/utils/normalize-mongo-document.util';
+import { renderFilterToMongo } from '../utils/mongo/render-filter';
+import { hasAnyRelations } from '../utils/shared/filter-separator.util';
 
 export class MongoQueryExecutor {
   private debugLog: any[] = [];
@@ -242,426 +233,38 @@ export class MongoQueryExecutor {
         });
       }
       const results = await collection.aggregate(options.pipeline).toArray();
-      return this.normalizeMongoResults(results);
+      return results.map(normalizeMongoDocument);
     }
 
-    return this.executeAggregationPipeline(collection, options);
+    const { results, pipeline } = await executeAggregationPipeline(
+      collection,
+      options,
+      {
+        db: this.db,
+        metadata: this.metadata,
+        dbType: this.dbType,
+        debugLog: this.debugLog,
+      },
+    );
+    this.lastBuiltPipeline = pipeline;
+    return results;
   }
 
   private async executeAggregationPipeline(
     collection: Collection,
     options: QueryOptions,
   ): Promise<any[]> {
-    const pipeline: any[] = [];
-
-    const tableMetaForRelCheck = this.metadata?.tables?.get(options.table);
-    const relationNames = new Set<string>(
-      (tableMetaForRelCheck?.relations ?? []).map((r: any) => r.propertyName),
-    );
-    const hasRelationFilters =
-      !!options.mongoRawFilter &&
-      !!this.metadata &&
-      hasAnyRelations(options.mongoRawFilter, relationNames);
-
-    const planForFilter: QueryPlan | undefined = options.plan;
-    const useFilterTree =
-      planForFilter?.filterTree &&
-      !planForFilter.hasRelationFilters &&
-      !options.where;
-
-    if (options.mongoRawFilter && this.metadata && hasRelationFilters) {
-      const db = this.mongoService.getDb();
-      const resolved = await resolveMongoFilter(
-        options.mongoRawFilter,
-        options.table,
-        this.metadata,
-        db,
-      );
-      if (resolved && Object.keys(resolved).length > 0) {
-        pipeline.push({ $match: resolved });
-      }
-    } else if (useFilterTree) {
-      const matchDoc = renderFilterToMongo(planForFilter!.filterTree, {
+    const { results, pipeline } = await executeAggregationPipeline(
+      collection,
+      options,
+      {
+        db: this.db,
         metadata: this.metadata,
-        rootTable: options.table,
-      });
-      if (Object.keys(matchDoc).length > 0) {
-        pipeline.push({ $match: matchDoc });
-      }
-    } else if (options.where) {
-      console.warn(
-        `[mongo-executor:fallback] whereToMongoFilter path hit for table=${options.table} where=${JSON.stringify(options.where)}`,
-      );
-      const filter = whereToMongoFilter(
-        this.metadata,
-        options.where,
-        options.table,
-        this.dbType,
-      );
-      pipeline.push({ $match: filter });
-    }
-
-    const plan: QueryPlan | undefined = options.plan;
-    const hasSortOnRelation = plan
-      ? plan.hasRelationSort
-      : (options.sort?.some((s) => {
-          if (!s.field.includes('.')) return false;
-          const relName = s.field.split('.')[0];
-          return (
-            options.mongoFieldsExpanded?.relations?.some(
-              (r) => r.propertyName === relName,
-            ) ?? false
-          );
-        }) ?? false);
-
-    const sortAfterJoins = hasRelationFilters || hasSortOnRelation;
-
-    const buildSort = () =>
-      plan?.sortItems
-        ? this.buildMongoSortSpecFromPlan(plan.sortItems)
-        : options.sort
-          ? this.buildMongoSortSpec(options.sort)
-          : null;
-
-    if (!options.mongoFieldsExpanded) {
-      const sortSpec = buildSort();
-      if (sortSpec) {
-        pipeline.push({ $sort: sortSpec });
-      }
-
-      if (options.mongoCountOnly) {
-        pipeline.push({ $count: 'count' });
-      } else {
-        if (options.offset) {
-          pipeline.push({ $skip: options.offset });
-        }
-        if (
-          options.limit !== undefined &&
-          options.limit !== null &&
-          options.limit > 0
-        ) {
-          pipeline.push({ $limit: options.limit });
-        }
-      }
-
-      if (options.select) {
-        const projection: any = {};
-        for (const field of options.select) {
-          projection[field] = 1;
-        }
-        pipeline.push({ $project: projection });
-      }
-
-      if (this.debugLog) {
-        this.debugLog.push({
-          type: 'MongoDB Aggregation Pipeline',
-          collection: options.table,
-          pipeline: JSON.parse(JSON.stringify(pipeline)),
-        });
-      }
-
-      const results = await collection.aggregate(pipeline).toArray();
-
-      if (options.mongoCountOnly) {
-        return results;
-      }
-
-      return this.normalizeMongoResults(results);
-    }
-
-    const { scalarFields, relations } = options.mongoFieldsExpanded;
-
-    if (!sortAfterJoins) {
-      const sortSpec = buildSort();
-      if (sortSpec) {
-        pipeline.push({ $sort: sortSpec });
-      }
-
-      if (!options.mongoCountOnly) {
-        if (options.offset) {
-          pipeline.push({ $skip: options.offset });
-        }
-        if (
-          options.limit !== undefined &&
-          options.limit !== null &&
-          options.limit > 0
-        ) {
-          pipeline.push({ $limit: options.limit });
-        }
-      }
-    }
-
-    const batchFetchableRelations: typeof relations = [];
-    for (const rel of relations) {
-      const relationFilter = options.mongoRawFilter?.[rel.propertyName];
-      const isSortedOn = options.sort?.some((s) => s.field.startsWith(`${rel.propertyName}.`));
-
-      if (relationFilter || isSortedOn) {
-        const needsNestedPipeline =
-          rel.nestedFields && rel.nestedFields.length > 0;
-
-        if (needsNestedPipeline) {
-          const nestedPipeline = await buildNestedLookupPipeline(
-            this.metadata,
-            rel.targetTable,
-            rel.nestedFields,
-            relationFilter,
-          );
-
-          if (rel.type === 'one' && nestedPipeline.length > 0) {
-            nestedPipeline.push({ $limit: 1 });
-          }
-
-          pipeline.push({
-            $lookup: {
-              from: rel.targetTable,
-              localField: rel.localField,
-              foreignField: rel.foreignField,
-              as: rel.propertyName,
-              pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
-            },
-          });
-        } else if (relationFilter) {
-          const nestedPipeline = await buildNestedLookupPipeline(
-            this.metadata,
-            rel.targetTable,
-            ['_id'],
-            relationFilter,
-          );
-
-          if (rel.type === 'one' && nestedPipeline.length > 0) {
-            nestedPipeline.push({ $limit: 1 });
-          }
-
-          pipeline.push({
-            $lookup: {
-              from: rel.targetTable,
-              localField: rel.localField,
-              foreignField: rel.foreignField,
-              as: rel.propertyName,
-              pipeline: nestedPipeline.length > 0 ? nestedPipeline : undefined,
-            },
-          });
-        } else {
-          pipeline.push({
-            $lookup: {
-              from: rel.targetTable,
-              localField: rel.localField,
-              foreignField: rel.foreignField,
-              as: rel.propertyName,
-            },
-          });
-        }
-
-        if (rel.type === 'one') {
-          pipeline.push({
-            $unwind: {
-              path: `$${rel.propertyName}`,
-              preserveNullAndEmptyArrays: true,
-            },
-          });
-
-          if (relationFilter) {
-            const hasIsNullFilter =
-              this.checkIfFilterContainsIsNull(relationFilter);
-            if (!hasIsNullFilter) {
-              pipeline.push({
-                $match: {
-                  [rel.propertyName]: { $ne: null },
-                },
-              });
-            }
-          }
-        }
-      } else {
-        batchFetchableRelations.push(rel);
-      }
-    }
-
-    if (sortAfterJoins) {
-      const sortSpec = buildSort();
-      if (sortSpec) {
-        pipeline.push({ $sort: sortSpec });
-      }
-
-      if (!options.mongoCountOnly) {
-        if (options.offset) {
-          pipeline.push({ $skip: options.offset });
-        }
-        if (
-          options.limit !== undefined &&
-          options.limit !== null &&
-          options.limit > 0
-        ) {
-          pipeline.push({ $limit: options.limit });
-        }
-      }
-    }
-
-    await addProjectionStage(
-      this.metadata,
-      pipeline,
-      options.table,
-      scalarFields,
-      [...relations],
+        dbType: this.dbType,
+        debugLog: this.debugLog,
+      },
     );
-
-    if (options.mongoCountOnly) {
-      pipeline.push({ $count: 'count' });
-    }
-
-    if (this.debugLog) {
-      this.debugLog.push({
-        type: 'MongoDB Aggregation Pipeline',
-        collection: options.table,
-        pipeline: JSON.parse(JSON.stringify(pipeline)),
-      });
-    }
-
     this.lastBuiltPipeline = pipeline;
-    const results = await collection.aggregate(pipeline).toArray();
-
-    if (options.mongoCountOnly) {
-      return results;
-    }
-
-    if (batchFetchableRelations.length > 0 && results.length > 0) {
-      const descriptors: MongoBatchFetchDescriptor[] = batchFetchableRelations.map((rel) => {
-        const tableMeta = this.metadata?.tables?.get(options.table);
-        const relMeta = tableMeta?.relations?.find((r: any) => r.propertyName === rel.propertyName);
-        return {
-          relationName: rel.propertyName,
-          type: relMeta?.type as MongoBatchFetchDescriptor['type'],
-          targetTable: rel.targetTable,
-          fields: rel.nestedFields && rel.nestedFields.length > 0 ? rel.nestedFields : ['_id'],
-          isInverse: relMeta?.isInverse,
-          mappedBy: relMeta?.mappedBy,
-          junctionTableName: relMeta?.junctionTableName,
-          localField: rel.localField,
-          foreignField: rel.foreignField,
-        };
-      });
-
-      const metadataGetter = this.getMongoMetadataGetter();
-      if (metadataGetter) {
-        await executeMongoBatchFetches(
-          this.db,
-          results,
-          descriptors,
-          metadataGetter,
-          3,
-          0,
-          options.table,
-        );
-      }
-    }
-
-    return this.normalizeMongoResults(results);
-  }
-
-  private getMongoMetadataGetter() {
-    const allMetadata = this.metadata;
-    if (!allMetadata) return null;
-    return async (tName: string) => {
-      const tableMeta = allMetadata.tables?.get(tName);
-      if (!tableMeta) return null;
-      return {
-        name: tableMeta.name,
-        columns: (tableMeta.columns || []).map((col: any) => ({
-          name: col.name,
-          type: col.type,
-        })),
-        relations: tableMeta.relations || [],
-      };
-    };
-  }
-
-  private buildMongoSortSpec(
-    sort: Array<{ field: string; direction: 'asc' | 'desc' }>,
-  ): Record<string, 1 | -1> {
-    const spec: Record<string, 1 | -1> = {};
-    for (const sortOpt of sort) {
-      let mongoField = sortOpt.field;
-
-      if (mongoField === 'id') mongoField = '_id';
-
-      spec[mongoField] = sortOpt.direction === 'asc' ? 1 : -1;
-    }
-    return spec;
-  }
-
-  private buildMongoSortSpecFromPlan(
-    sortItems: ResolvedSortItem[],
-  ): Record<string, 1 | -1> {
-    const spec: Record<string, 1 | -1> = {};
-    for (const item of sortItems) {
-      let mongoField = item.joinId !== null ? item.fullPath : item.field;
-      if (mongoField === 'id') mongoField = '_id';
-      spec[mongoField] = item.direction === 'asc' ? 1 : -1;
-    }
-    return spec;
-  }
-
-  private checkIfFilterContainsIsNull(filter: any): boolean {
-    if (!filter || typeof filter !== 'object') {
-      return false;
-    }
-
-    if (filter === null) {
-      return true;
-    }
-
-    if (Array.isArray(filter)) {
-      return filter.some((item) => this.checkIfFilterContainsIsNull(item));
-    }
-
-    if ('_or' in filter && Array.isArray(filter._or)) {
-      return filter._or.some((condition: any) =>
-        this.checkIfFilterContainsIsNull(condition),
-      );
-    }
-
-    if ('_and' in filter && Array.isArray(filter._and)) {
-      return filter._and.some((condition: any) =>
-        this.checkIfFilterContainsIsNull(condition),
-      );
-    }
-
-    if ('_not' in filter) {
-      return this.checkIfFilterContainsIsNull(filter._not);
-    }
-
-    for (const [key, value] of Object.entries(filter)) {
-      if (value === null) {
-        if (key === '_eq' || key === '$eq') {
-          return true;
-        }
-        continue;
-      }
-
-      if (typeof value === 'object') {
-        if (
-          '_is_null' in value &&
-          (value._is_null === true || value._is_null === 'true')
-        ) {
-          return true;
-        }
-        if ('_eq' in value && value._eq === null) {
-          return true;
-        }
-        if ('$eq' in value && value.$eq === null) {
-          return true;
-        }
-        if (this.checkIfFilterContainsIsNull(value)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  private normalizeMongoResults(results: any[]): any[] {
-    return results.map(normalizeMongoDocument);
+    return results;
   }
 }

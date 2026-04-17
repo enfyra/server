@@ -108,7 +108,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
         if (col) {
           selectCols.push(col.name);
         } else {
-          const rel = targetMeta.relations?.find((r) => r.propertyName === field);
+          const rel = targetMeta.relations?.find(
+            (r) => r.propertyName === field,
+          );
           if (rel && !subRelations.has(field)) {
             subRelations.set(field, ['id']);
           }
@@ -207,7 +209,11 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     return { docs, groupKeyField: groupKey };
   }
 
-  postProcessInverseChild(child: any, fkField: string, userRequestedFk: boolean): void {
+  postProcessInverseChild(
+    child: any,
+    fkField: string,
+    userRequestedFk: boolean,
+  ): void {
     if (!userRequestedFk) {
       delete child[fkField];
     }
@@ -221,7 +227,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     fetchSpec: { selectCols: string[]; pkCol: string },
   ): Promise<{ grouped: Map<string, any[]>; docs: any[] }> {
     const parentPk = this.resolveParentPk(parentMeta);
-    const parentIds = parentDocs.map((d) => d[parentPk]).filter((v) => v != null);
+    const parentIds = parentDocs
+      .map((d) => d[parentPk])
+      .filter((v) => v != null);
     if (parentIds.length === 0) {
       return { grouped: new Map(), docs: [] };
     }
@@ -230,7 +238,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     const sourceCol = desc.junctionSourceColumn;
     const targetCol = desc.junctionTargetColumn;
     if (!junctionTable || !sourceCol || !targetCol) {
-      throw new Error(`Missing junction table config for relation: ${desc.relationName}`);
+      throw new Error(
+        `Missing junction table config for relation: ${desc.relationName}`,
+      );
     }
 
     const isPkOnly =
@@ -240,7 +250,10 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     if (isPkOnly) {
       const junctionRows = await chunkedFetch(parentIds, (chunk) =>
         this.knex(junctionTable)
-          .select([`${sourceCol} as __sourceId__`, `${targetCol} as __targetId__`])
+          .select([
+            `${sourceCol} as __sourceId__`,
+            `${targetCol} as __targetId__`,
+          ])
           .whereIn(sourceCol, chunk)
           .orderBy(targetCol, 'asc'),
       );
@@ -260,8 +273,15 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
 
     const rows = await chunkedFetch(parentIds, (chunk) =>
       this.knex(junctionTable)
-        .join(`${desc.targetTable} as t`, `${junctionTable}.${targetCol}`, `t.${fetchSpec.pkCol}`)
-        .select([`${junctionTable}.${sourceCol} as __sourceId__`, ...targetSelectCols])
+        .join(
+          `${desc.targetTable} as t`,
+          `${junctionTable}.${targetCol}`,
+          `t.${fetchSpec.pkCol}`,
+        )
+        .select([
+          `${junctionTable}.${sourceCol} as __sourceId__`,
+          ...targetSelectCols,
+        ])
         .whereIn(`${junctionTable}.${sourceCol}`, chunk)
         .orderBy(`t.${fetchSpec.pkCol}`, 'asc'),
     );

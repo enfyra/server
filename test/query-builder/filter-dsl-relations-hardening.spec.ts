@@ -452,10 +452,22 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
       [[88], [1, 2, 6]],
       [[99], [3]],
       [[100], [5]],
-      [[88, 99], [1, 2, 3, 6]],
-      [[88, 100], [1, 2, 5, 6]],
-      [[99, 100], [3, 5]],
-      [[88, 99, 100], [1, 2, 3, 5, 6]],
+      [
+        [88, 99],
+        [1, 2, 3, 6],
+      ],
+      [
+        [88, 100],
+        [1, 2, 5, 6],
+      ],
+      [
+        [99, 100],
+        [3, 5],
+      ],
+      [
+        [88, 99, 100],
+        [1, 2, 3, 5, 6],
+      ],
     ] as const;
     for (const [mids, exp] of cases) {
       expect(await rowIds({ menu: { _in: mids as number[] } })).toEqual(
@@ -803,7 +815,9 @@ describe('SqlQueryExecutor + SQLite (relation + _and / _or / _not)', () => {
   const oracleBulk = buildOracleStressFilters();
   test('oracle stress matches SqlQueryExecutor', async () => {
     for (const filter of oracleBulk) {
-      expect(await rowIds(filter)).toEqual(oracleExtensionRowIds(filter, 'ascii'));
+      expect(await rowIds(filter)).toEqual(
+        oracleExtensionRowIds(filter, 'ascii'),
+      );
     }
   });
 });

@@ -40,9 +40,10 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
           provide: MongoSagaLockService,
           useValue: {
             cleanupOrphanedLocks,
-            getOrphanMarkerRecoveryPlan: jest
-              .fn()
-              .mockResolvedValue({ shouldUnsetMarkers: false, needsRollbackFirst: false }),
+            getOrphanMarkerRecoveryPlan: jest.fn().mockResolvedValue({
+              shouldUnsetMarkers: false,
+              needsRollbackFirst: false,
+            }),
           },
         },
         {
@@ -135,9 +136,10 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
           provide: MongoSagaLockService,
           useValue: {
             cleanupOrphanedLocks: cleanupOrphanedLocksLocal,
-            getOrphanMarkerRecoveryPlan: jest
-              .fn()
-              .mockResolvedValue({ shouldUnsetMarkers: false, needsRollbackFirst: false }),
+            getOrphanMarkerRecoveryPlan: jest.fn().mockResolvedValue({
+              shouldUnsetMarkers: false,
+              needsRollbackFirst: false,
+            }),
           },
         },
         {

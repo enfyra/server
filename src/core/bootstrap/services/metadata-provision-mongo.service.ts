@@ -3,7 +3,10 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { ObjectId } from 'mongodb';
 import { BaseTableProcessor } from '../processors/base-table-processor';
 import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
-import { getJunctionTableName, getJunctionColumnNames } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+import {
+  getJunctionTableName,
+  getJunctionColumnNames,
+} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
@@ -78,12 +81,7 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
     };
   }
   protected getCompareFields(): string[] {
-    return [
-      'type',
-      'isNullable',
-      'isSystem',
-      'description',
-    ];
+    return ['type', 'isNullable', 'isSystem', 'description'];
   }
 }
 @Injectable()
@@ -235,8 +233,16 @@ export class MetadataProvisionMongoService {
         directRelationRecord[sourceTableFieldName] = tableId;
         directRelationRecord[targetTableFieldName] = targetTableId;
         if (rel.type === 'many-to-many' && !rel.mappedBy) {
-          const junctionTableName = getJunctionTableName(tableName, rel.propertyName, rel.targetTable);
-          const { sourceColumn, targetColumn } = getJunctionColumnNames(tableName, rel.propertyName, rel.targetTable);
+          const junctionTableName = getJunctionTableName(
+            tableName,
+            rel.propertyName,
+            rel.targetTable,
+          );
+          const { sourceColumn, targetColumn } = getJunctionColumnNames(
+            tableName,
+            rel.propertyName,
+            rel.targetTable,
+          );
           directRelationRecord.junctionTableName = junctionTableName;
           directRelationRecord.junctionSourceColumn = sourceColumn;
           directRelationRecord.junctionTargetColumn = targetColumn;
@@ -262,8 +268,16 @@ export class MetadataProvisionMongoService {
             if (rel.description !== undefined)
               updatePayload.description = rel.description;
             if (rel.type === 'many-to-many' && !rel.mappedBy) {
-              const jt = getJunctionTableName(tableName, rel.propertyName, rel.targetTable);
-              const jc = getJunctionColumnNames(tableName, rel.propertyName, rel.targetTable);
+              const jt = getJunctionTableName(
+                tableName,
+                rel.propertyName,
+                rel.targetTable,
+              );
+              const jc = getJunctionColumnNames(
+                tableName,
+                rel.propertyName,
+                rel.targetTable,
+              );
               updatePayload.junctionTableName = jt;
               updatePayload.junctionSourceColumn = jc.sourceColumn;
               updatePayload.junctionTargetColumn = jc.targetColumn;
@@ -357,26 +371,38 @@ export class MetadataProvisionMongoService {
         const owningDoc = snapshotRelId
           ? await relationColl.findOne({ _id: snapshotRelId })
           : null;
-        inverseRelationRecord.junctionTableName = owningDoc?.junctionTableName
-          || getJunctionTableName(owningTableName, owningPropertyName, tableName);
-        inverseRelationRecord.junctionSourceColumn = owningDoc?.junctionTargetColumn || null;
-        inverseRelationRecord.junctionTargetColumn = owningDoc?.junctionSourceColumn || null;
+        inverseRelationRecord.junctionTableName =
+          owningDoc?.junctionTableName ||
+          getJunctionTableName(owningTableName, owningPropertyName, tableName);
+        inverseRelationRecord.junctionSourceColumn =
+          owningDoc?.junctionTargetColumn || null;
+        inverseRelationRecord.junctionTargetColumn =
+          owningDoc?.junctionSourceColumn || null;
       }
       const existing = await relationColl.findOne({
         [sourceTableFieldName]: tableId,
         propertyName: rel.inversePropertyName,
       });
       if (existing) {
-        const mappedByValue = isGeneratedManyToOne ? null : snapshotRelId || null;
+        const mappedByValue = isGeneratedManyToOne
+          ? null
+          : snapshotRelId || null;
         const inverseJunctionUpdate: any = {};
         if (inverseType === 'many-to-many') {
           const owningDoc = snapshotRelId
             ? await relationColl.findOne({ _id: snapshotRelId })
             : null;
-          inverseJunctionUpdate.junctionTableName = owningDoc?.junctionTableName
-            || getJunctionTableName(owningTableName, owningPropertyName, tableName);
-          inverseJunctionUpdate.junctionSourceColumn = owningDoc?.junctionTargetColumn || null;
-          inverseJunctionUpdate.junctionTargetColumn = owningDoc?.junctionSourceColumn || null;
+          inverseJunctionUpdate.junctionTableName =
+            owningDoc?.junctionTableName ||
+            getJunctionTableName(
+              owningTableName,
+              owningPropertyName,
+              tableName,
+            );
+          inverseJunctionUpdate.junctionSourceColumn =
+            owningDoc?.junctionTargetColumn || null;
+          inverseJunctionUpdate.junctionTargetColumn =
+            owningDoc?.junctionSourceColumn || null;
         }
         const needsUpdate =
           existing.mappedBy?.toString() !== mappedByValue?.toString() ||

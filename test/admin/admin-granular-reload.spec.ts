@@ -19,7 +19,10 @@ describe('AdminController — granular reload endpoints', () => {
     controller = {
       async reloadAll() {
         await orchestrator.reloadAll();
-        return { success: true, message: 'All caches and schemas reloaded successfully' };
+        return {
+          success: true,
+          message: 'All caches and schemas reloaded successfully',
+        };
       },
       async reloadMetadata() {
         await orchestrator.reloadMetadataAndDeps();

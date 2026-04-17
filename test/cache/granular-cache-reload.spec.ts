@@ -69,7 +69,9 @@ function makePubSub(): MockPubSub {
     publish: jest.fn(async (ch: string, msg: string) => {
       published.push({ channel: ch, payload: JSON.parse(msg) });
     }),
-    isChannelForBase: jest.fn((received: string, base: string) => received === base),
+    isChannelForBase: jest.fn(
+      (received: string, base: string) => received === base,
+    ),
     async simulateMessage(ch: string, msg: string) {
       const list = handlers.get(ch) || [];
       await Promise.all(list.map((h) => h(ch, msg)));
@@ -129,11 +131,14 @@ class TestBaseCacheService {
     private readonly instanceId: string,
     private readonly eventEmitter?: EventEmitter2,
   ) {
-    this.pubsub.subscribeWithHandler(syncKey, async (ch: string, msg: string) => {
-      if (this.pubsub.isChannelForBase(ch, syncKey)) {
-        await this._handleIncoming(msg);
-      }
-    });
+    this.pubsub.subscribeWithHandler(
+      syncKey,
+      async (ch: string, msg: string) => {
+        if (this.pubsub.isChannelForBase(ch, syncKey)) {
+          await this._handleIncoming(msg);
+        }
+      },
+    );
   }
 
   private async _handleIncoming(msg: string): Promise<void> {
@@ -153,7 +158,8 @@ class TestBaseCacheService {
     this.isLoading = true;
     this.loadingPromise = (async () => {
       try {
-        if (this.loadDelay) await new Promise((r) => setTimeout(r, this.loadDelay));
+        if (this.loadDelay)
+          await new Promise((r) => setTimeout(r, this.loadDelay));
         this.fullReloadCount++;
         this.cache = ['full'];
         this.cacheLoaded = true;
@@ -167,7 +173,10 @@ class TestBaseCacheService {
     return this.loadingPromise;
   }
 
-  async partialReload(payload: TCacheInvalidationPayload, publish = true): Promise<void> {
+  async partialReload(
+    payload: TCacheInvalidationPayload,
+    publish = true,
+  ): Promise<void> {
     try {
       await this._applyPartialUpdate(payload);
       this.partialReloadCount++;
@@ -182,7 +191,9 @@ class TestBaseCacheService {
     return this._supportsPartial;
   }
 
-  protected async _applyPartialUpdate(_payload: TCacheInvalidationPayload): Promise<void> {
+  protected async _applyPartialUpdate(
+    _payload: TCacheInvalidationPayload,
+  ): Promise<void> {
     if (this.applyError) throw this.applyError;
     this.applyPartialCount++;
     this.cache = ['partial'];
@@ -234,12 +245,19 @@ describe('A. TCacheInvalidationPayload & mergePayload', () => {
     const merged = mergePayload(a, b);
     expect(merged.scope).toBe('partial');
     expect(new Set(merged.ids)).toEqual(new Set([1, 2, 3]));
-    expect(new Set(merged.affectedTables)).toEqual(new Set(['tableA', 'tableB']));
+    expect(new Set(merged.affectedTables)).toEqual(
+      new Set(['tableA', 'tableB']),
+    );
   });
 
   it('merge partial + full → result is full, ids cleared', () => {
     const a = base();
-    const b: TCacheInvalidationPayload = { ...base(), scope: 'full', ids: undefined, affectedTables: undefined };
+    const b: TCacheInvalidationPayload = {
+      ...base(),
+      scope: 'full',
+      ids: undefined,
+      affectedTables: undefined,
+    };
     const merged = mergePayload(a, b);
     expect(merged.scope).toBe('full');
     expect(merged.ids).toBeUndefined();
@@ -247,7 +265,12 @@ describe('A. TCacheInvalidationPayload & mergePayload', () => {
   });
 
   it('merge full + partial → stays full', () => {
-    const a: TCacheInvalidationPayload = { ...base(), scope: 'full', ids: undefined, affectedTables: undefined };
+    const a: TCacheInvalidationPayload = {
+      ...base(),
+      scope: 'full',
+      ids: undefined,
+      affectedTables: undefined,
+    };
     const b = base();
     const merged = mergePayload(a, b);
     expect(merged.scope).toBe('full');
@@ -281,14 +304,22 @@ describe('A. TCacheInvalidationPayload & mergePayload', () => {
   });
 
   it('partial + partial with no affectedTables → affectedTables undefined', () => {
-    const a: TCacheInvalidationPayload = { ...base(), affectedTables: undefined };
-    const b: TCacheInvalidationPayload = { ...base(), affectedTables: undefined };
+    const a: TCacheInvalidationPayload = {
+      ...base(),
+      affectedTables: undefined,
+    };
+    const b: TCacheInvalidationPayload = {
+      ...base(),
+      affectedTables: undefined,
+    };
     const merged = mergePayload(a, b);
     expect(merged.affectedTables).toBeUndefined();
   });
 
   it('matrix: all scope combinations produce correct output scope', () => {
-    const cases: Array<['full' | 'partial', 'full' | 'partial', 'full' | 'partial']> = [
+    const cases: Array<
+      ['full' | 'partial', 'full' | 'partial', 'full' | 'partial']
+    > = [
       ['partial', 'partial', 'partial'],
       ['partial', 'full', 'full'],
       ['full', 'partial', 'full'],
@@ -310,7 +341,10 @@ describe('A. TCacheInvalidationPayload & mergePayload', () => {
 describe('B. BaseCacheService partial reload', () => {
   const CHANNEL = 'test:sync';
 
-  function makePartialSignal(fromInstance: string, payload: TCacheInvalidationPayload): string {
+  function makePartialSignal(
+    fromInstance: string,
+    payload: TCacheInvalidationPayload,
+  ): string {
     const signal: TCacheReloadSignal = {
       instanceId: fromInstance,
       type: 'RELOAD_SIGNAL',
@@ -495,13 +529,26 @@ describe('C. MetadataCache partial reload logic', () => {
   }
 
   function makeTable(id: number, name: string, extra: Partial<any> = {}): any {
-    return { id, name, columns: [], relations: [], uniques: [], indexes: [], ...extra };
+    return {
+      id,
+      name,
+      columns: [],
+      relations: [],
+      uniques: [],
+      indexes: [],
+      ...extra,
+    };
   }
 
   function makeInitialCache(tables: any[]): MetaCache {
     const map = new Map<string, any>();
     for (const t of tables) map.set(t.name, t);
-    return { tables: map, tablesList: [...tables], version: 1, timestamp: new Date() };
+    return {
+      tables: map,
+      tablesList: [...tables],
+      version: 1,
+      timestamp: new Date(),
+    };
   }
 
   function applyPartialUpdate(
@@ -517,13 +564,20 @@ describe('C. MetadataCache partial reload logic', () => {
     );
 
     const affectedTableNames = new Set(payload.affectedTables || []);
-    const affectedFetched = dbTables.filter((t) => affectedTableNames.has(t.name));
+    const affectedFetched = dbTables.filter((t) =>
+      affectedTableNames.has(t.name),
+    );
     const allFetched = [...fetched];
     for (const t of affectedFetched) {
       if (!allFetched.some((x) => x.id === t.id)) allFetched.push(t);
     }
 
-    if (allFetched.length === 0 && requestedIds.length === 0 && !payload.affectedTables?.length) return;
+    if (
+      allFetched.length === 0 &&
+      requestedIds.length === 0 &&
+      !payload.affectedTables?.length
+    )
+      return;
 
     for (const table of allFetched) {
       const idx = cache.tablesList.findIndex((t) => t.name === table.name);
@@ -542,7 +596,9 @@ describe('C. MetadataCache partial reload logic', () => {
         const existing = cache.tablesList.find((t) => String(t.id) === id);
         if (existing) {
           cache.tables.delete(existing.name);
-          cache.tablesList = cache.tablesList.filter((t) => String(t.id) !== id);
+          cache.tablesList = cache.tablesList.filter(
+            (t) => String(t.id) !== id,
+          );
         }
       }
     }
@@ -552,11 +608,15 @@ describe('C. MetadataCache partial reload logic', () => {
   }
 
   it('partial reload with 1 table ID → only that table updated in Map', () => {
-    const tableA = makeTable(1, 'tableA', { columns: [{ name: 'title', type: 'varchar' }] });
+    const tableA = makeTable(1, 'tableA', {
+      columns: [{ name: 'title', type: 'varchar' }],
+    });
     const tableB = makeTable(2, 'tableB');
     const cache = makeInitialCache([tableA, tableB]);
 
-    const updatedA = makeTable(1, 'tableA', { columns: [{ name: 'title', type: 'text' }] });
+    const updatedA = makeTable(1, 'tableA', {
+      columns: [{ name: 'title', type: 'text' }],
+    });
     const payload: TCacheInvalidationPayload = {
       tableName: 'table_definition',
       action: 'reload',
@@ -577,8 +637,12 @@ describe('C. MetadataCache partial reload logic', () => {
     const tableB = makeTable(2, 'tableB');
     const cache = makeInitialCache([tableA, tableB]);
 
-    const updatedA = makeTable(1, 'tableA', { columns: [{ name: 'x', type: 'int' }] });
-    const updatedB = makeTable(2, 'tableB', { columns: [{ name: 'y', type: 'float' }] });
+    const updatedA = makeTable(1, 'tableA', {
+      columns: [{ name: 'x', type: 'int' }],
+    });
+    const updatedB = makeTable(2, 'tableB', {
+      columns: [{ name: 'y', type: 'float' }],
+    });
 
     const payload: TCacheInvalidationPayload = {
       tableName: 'table_definition',
@@ -625,7 +689,9 @@ describe('C. MetadataCache partial reload logic', () => {
       ids: [1],
     };
 
-    expect(() => applyPartialUpdate(cache, payload, [])).toThrow('Cache not initialized');
+    expect(() => applyPartialUpdate(cache, payload, [])).toThrow(
+      'Cache not initialized',
+    );
   });
 
   it('version and timestamp updated after partial reload', () => {
@@ -652,7 +718,9 @@ describe('C. MetadataCache partial reload logic', () => {
     const tableA = makeTable(1, 'tableA');
     const cache = makeInitialCache([tableA]);
 
-    const tableB = makeTable(2, 'tableB', { columns: [{ name: 'foo', type: 'varchar' }] });
+    const tableB = makeTable(2, 'tableB', {
+      columns: [{ name: 'foo', type: 'varchar' }],
+    });
     const payload: TCacheInvalidationPayload = {
       tableName: 'table_definition',
       action: 'reload',
@@ -751,7 +819,12 @@ describe('D. RouteCache partial reload logic', () => {
     methods: string[];
   }
 
-  function makeRoute(id: number, path: string, mainTableId: number, mainTableName: string): any {
+  function makeRoute(
+    id: number,
+    path: string,
+    mainTableId: number,
+    mainTableName: string,
+  ): any {
     return {
       id,
       path,
@@ -787,7 +860,9 @@ describe('D. RouteCache partial reload logic', () => {
       this.dbChildren[tableName] = records;
     }
 
-    async applyPartialUpdate(payload: TCacheInvalidationPayload): Promise<void> {
+    async applyPartialUpdate(
+      payload: TCacheInvalidationPayload,
+    ): Promise<void> {
       const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
       if (payload.tableName === 'table_definition' && payload.ids?.length) {
@@ -805,26 +880,36 @@ describe('D. RouteCache partial reload logic', () => {
       }
 
       if (
-        ['route_handler_definition', 'route_permission_definition'].includes(payload.tableName) &&
+        ['route_handler_definition', 'route_permission_definition'].includes(
+          payload.tableName,
+        ) &&
         payload.ids?.length
       ) {
         const children = this.dbChildren[payload.tableName] || [];
         const matching = children.filter((c) =>
           payload.ids!.some((id) => String(id) === String(c.id)),
         );
-        const routeIds = [...new Set(matching.map((c) => c.route?.id).filter(Boolean))];
+        const routeIds = [
+          ...new Set(matching.map((c) => c.route?.id).filter(Boolean)),
+        ];
         if (routeIds.length > 0) {
           await this._reloadSpecificRoutes(routeIds);
           return;
         }
       }
 
-      if (['pre_hook_definition', 'post_hook_definition'].includes(payload.tableName)) {
+      if (
+        ['pre_hook_definition', 'post_hook_definition'].includes(
+          payload.tableName,
+        )
+      ) {
         await this._reloadGlobalHooksAndMerge();
         return;
       }
 
-      if (['role_definition', 'method_definition'].includes(payload.tableName)) {
+      if (
+        ['role_definition', 'method_definition'].includes(payload.tableName)
+      ) {
         await this._fullReload();
         return;
       }
@@ -842,7 +927,9 @@ describe('D. RouteCache partial reload logic', () => {
       await this._fullReload();
     }
 
-    private async _reloadSpecificRoutes(ids: (string | number)[]): Promise<void> {
+    private async _reloadSpecificRoutes(
+      ids: (string | number)[],
+    ): Promise<void> {
       const idSet = new Set(ids.map(String));
       const fetched = this.dbRoutes.filter((r) => idSet.has(String(r.id)));
 
@@ -858,7 +945,10 @@ describe('D. RouteCache partial reload logic', () => {
       this.reloadedGlobalHooks = true;
       this.globalPreHooks = [{ id: 99, isGlobal: true }];
       for (const route of this.cache.routes) {
-        route.preHooks = [...this.globalPreHooks, ...(route._localPreHooks || [])];
+        route.preHooks = [
+          ...this.globalPreHooks,
+          ...(route._localPreHooks || []),
+        ];
       }
     }
 
@@ -869,7 +959,10 @@ describe('D. RouteCache partial reload logic', () => {
 
   it('table_definition change → finds routes by mainTable.id', async () => {
     const svc = new TestRouteCachePartial();
-    svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks'), makeRoute(2, '/users', 20, 'users')];
+    svc.cache.routes = [
+      makeRoute(1, '/tasks', 10, 'tasks'),
+      makeRoute(2, '/users', 20, 'users'),
+    ];
     svc.setDbRoutes([makeRoute(1, '/tasks', 10, 'tasks')]);
 
     const payload: TCacheInvalidationPayload = {
@@ -888,7 +981,10 @@ describe('D. RouteCache partial reload logic', () => {
 
   it('route_definition change → reloads specific routes only', async () => {
     const svc = new TestRouteCachePartial();
-    svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks'), makeRoute(2, '/users', 20, 'users')];
+    svc.cache.routes = [
+      makeRoute(1, '/tasks', 10, 'tasks'),
+      makeRoute(2, '/users', 20, 'users'),
+    ];
     svc.setDbRoutes([makeRoute(1, '/tasks', 10, 'tasks')]);
 
     const payload: TCacheInvalidationPayload = {
@@ -942,7 +1038,10 @@ describe('D. RouteCache partial reload logic', () => {
 
     expect(svc.reloadedGlobalHooks).toBe(true);
     expect(svc.fullReloadCount).toBe(0);
-    expect(svc.cache.routes[0].preHooks).toContainEqual({ id: 99, isGlobal: true });
+    expect(svc.cache.routes[0].preHooks).toContainEqual({
+      id: 99,
+      isGlobal: true,
+    });
   });
 
   it('post_hook_definition change → reloads global hooks and re-merges', async () => {
@@ -997,7 +1096,10 @@ describe('D. RouteCache partial reload logic', () => {
 
   it('route deleted (in payload but not in DB) → removed from cache', async () => {
     const svc = new TestRouteCachePartial();
-    svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks'), makeRoute(2, '/users', 20, 'users')];
+    svc.cache.routes = [
+      makeRoute(1, '/tasks', 10, 'tasks'),
+      makeRoute(2, '/users', 20, 'users'),
+    ];
     svc.setDbRoutes([]);
 
     const payload: TCacheInvalidationPayload = {
@@ -1038,7 +1140,10 @@ describe('D. RouteCache partial reload logic', () => {
 
   it('affectedTables in payload → finds and reloads routes for those tables', async () => {
     const svc = new TestRouteCachePartial();
-    svc.cache.routes = [makeRoute(1, '/tasks', 10, 'tasks'), makeRoute(2, '/users', 20, 'users')];
+    svc.cache.routes = [
+      makeRoute(1, '/tasks', 10, 'tasks'),
+      makeRoute(2, '/users', 20, 'users'),
+    ];
     svc.setDbRoutes([makeRoute(2, '/users', 20, 'users')]);
 
     const payload: TCacheInvalidationPayload = {
@@ -1070,14 +1175,36 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
     DatabaseConfigService.resetForTesting();
   });
 
-  function makeGqlTable(name: string, columns: any[], relations: any[] = []): any {
+  function makeGqlTable(
+    name: string,
+    columns: any[],
+    relations: any[] = [],
+  ): any {
     return { name, columns, relations };
   }
 
   const basicColumns = [
-    { name: 'id', type: 'uuid', isPrimary: true, isNullable: false, isPublished: true },
-    { name: 'title', type: 'varchar', isPrimary: false, isNullable: false, isPublished: true },
-    { name: 'body', type: 'text', isPrimary: false, isNullable: true, isPublished: true },
+    {
+      name: 'id',
+      type: 'uuid',
+      isPrimary: true,
+      isNullable: false,
+      isPublished: true,
+    },
+    {
+      name: 'title',
+      type: 'varchar',
+      isPrimary: false,
+      isNullable: false,
+      isPublished: true,
+    },
+    {
+      name: 'body',
+      type: 'text',
+      isPrimary: false,
+      isNullable: true,
+      isPublished: true,
+    },
   ];
 
   it('buildTableGraphQLDef returns null for table not in queryableNames', () => {
@@ -1093,8 +1220,12 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
   });
 
   it('buildTableGraphQLDef returns null for null/undefined table', () => {
-    expect(buildTableGraphQLDef(null, new Set(['tasks']), new Map())).toBeNull();
-    expect(buildTableGraphQLDef(undefined, new Set(['tasks']), new Map())).toBeNull();
+    expect(
+      buildTableGraphQLDef(null, new Set(['tasks']), new Map()),
+    ).toBeNull();
+    expect(
+      buildTableGraphQLDef(undefined, new Set(['tasks']), new Map()),
+    ).toBeNull();
   });
 
   it('buildTableGraphQLDef produces correct field types for all column types', () => {
@@ -1116,8 +1247,20 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
 
     for (const { type, expected } of typeMap) {
       const table = makeGqlTable('tasks', [
-        { name: 'field1', type, isPrimary: false, isNullable: true, isPublished: true },
-        { name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true },
+        {
+          name: 'field1',
+          type,
+          isPrimary: false,
+          isNullable: true,
+          isPublished: true,
+        },
+        {
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isNullable: false,
+          isPublished: true,
+        },
       ]);
       const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
       expect(def).not.toBeNull();
@@ -1129,9 +1272,27 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
 
   it('isPublished=false columns excluded from type', () => {
     const table = makeGqlTable('tasks', [
-      { name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true },
-      { name: 'secret', type: 'varchar', isPrimary: false, isNullable: true, isPublished: false },
-      { name: 'title', type: 'varchar', isPrimary: false, isNullable: false, isPublished: true },
+      {
+        name: 'id',
+        type: 'int',
+        isPrimary: true,
+        isNullable: false,
+        isPublished: true,
+      },
+      {
+        name: 'secret',
+        type: 'varchar',
+        isPrimary: false,
+        isNullable: true,
+        isPublished: false,
+      },
+      {
+        name: 'title',
+        type: 'varchar',
+        isPrimary: false,
+        isNullable: false,
+        isPublished: true,
+      },
     ]);
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     expect(def).not.toBeNull();
@@ -1142,9 +1303,27 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
 
   it('non-nullable column produces GraphQLNonNull wrapper', () => {
     const table = makeGqlTable('tasks', [
-      { name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true },
-      { name: 'required', type: 'varchar', isPrimary: false, isNullable: false, isPublished: true },
-      { name: 'optional', type: 'varchar', isPrimary: false, isNullable: true, isPublished: true },
+      {
+        name: 'id',
+        type: 'int',
+        isPrimary: true,
+        isNullable: false,
+        isPublished: true,
+      },
+      {
+        name: 'required',
+        type: 'varchar',
+        isPrimary: false,
+        isNullable: false,
+        isPublished: true,
+      },
+      {
+        name: 'optional',
+        type: 'varchar',
+        isPrimary: false,
+        isNullable: true,
+        isPublished: true,
+      },
     ]);
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     const fields = (def!.type as any)._fields();
@@ -1154,8 +1333,20 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
 
   it('JSON column type maps to GraphQLJSON scalar', () => {
     const table = makeGqlTable('tasks', [
-      { name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true },
-      { name: 'meta', type: 'json', isPrimary: false, isNullable: true, isPublished: true },
+      {
+        name: 'id',
+        type: 'int',
+        isPrimary: true,
+        isNullable: false,
+        isPublished: true,
+      },
+      {
+        name: 'meta',
+        type: 'json',
+        isPrimary: false,
+        isNullable: true,
+        isPublished: true,
+      },
     ]);
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     const fields = (def!.type as any)._fields();
@@ -1165,12 +1356,37 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
   it('one-to-many relation produces list type', () => {
     const table = makeGqlTable(
       'users',
-      [{ name: 'id', type: 'uuid', isPrimary: true, isNullable: false, isPublished: true }],
-      [{ propertyName: 'tasks', targetTableName: 'tasks', type: 'one-to-many', isPublished: true }],
+      [
+        {
+          name: 'id',
+          type: 'uuid',
+          isPrimary: true,
+          isNullable: false,
+          isPublished: true,
+        },
+      ],
+      [
+        {
+          propertyName: 'tasks',
+          targetTableName: 'tasks',
+          type: 'one-to-many',
+          isPublished: true,
+        },
+      ],
     );
     const typeRegistry = new Map<string, GraphQLObjectType>();
-    typeRegistry.set('tasks', new GraphQLObjectType({ name: 'tasks', fields: { id: { type: GraphQLID } } }));
-    const def = buildTableGraphQLDef(table, new Set(['users', 'tasks']), typeRegistry);
+    typeRegistry.set(
+      'tasks',
+      new GraphQLObjectType({
+        name: 'tasks',
+        fields: { id: { type: GraphQLID } },
+      }),
+    );
+    const def = buildTableGraphQLDef(
+      table,
+      new Set(['users', 'tasks']),
+      typeRegistry,
+    );
     expect(def).not.toBeNull();
     const fields = (def!.type as any)._fields();
     const tasksField = fields['tasks'];
@@ -1181,12 +1397,37 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
   it('many-to-one relation produces object type', () => {
     const table = makeGqlTable(
       'tasks',
-      [{ name: 'id', type: 'uuid', isPrimary: true, isNullable: false, isPublished: true }],
-      [{ propertyName: 'user', targetTableName: 'users', type: 'many-to-one', isPublished: true }],
+      [
+        {
+          name: 'id',
+          type: 'uuid',
+          isPrimary: true,
+          isNullable: false,
+          isPublished: true,
+        },
+      ],
+      [
+        {
+          propertyName: 'user',
+          targetTableName: 'users',
+          type: 'many-to-one',
+          isPublished: true,
+        },
+      ],
     );
     const typeRegistry = new Map<string, GraphQLObjectType>();
-    typeRegistry.set('users', new GraphQLObjectType({ name: 'users', fields: { id: { type: GraphQLID } } }));
-    const def = buildTableGraphQLDef(table, new Set(['tasks', 'users']), typeRegistry);
+    typeRegistry.set(
+      'users',
+      new GraphQLObjectType({
+        name: 'users',
+        fields: { id: { type: GraphQLID } },
+      }),
+    );
+    const def = buildTableGraphQLDef(
+      table,
+      new Set(['tasks', 'users']),
+      typeRegistry,
+    );
     expect(def).not.toBeNull();
     const fields = (def!.type as any)._fields();
     expect(fields['user']).toBeDefined();
@@ -1196,8 +1437,23 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
   it('isPublished=false relation excluded from type', () => {
     const table = makeGqlTable(
       'tasks',
-      [{ name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true }],
-      [{ propertyName: 'hiddenRel', targetTableName: 'others', type: 'many-to-one', isPublished: false }],
+      [
+        {
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isNullable: false,
+          isPublished: true,
+        },
+      ],
+      [
+        {
+          propertyName: 'hiddenRel',
+          targetTableName: 'others',
+          type: 'many-to-one',
+          isPublished: false,
+        },
+      ],
     );
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     const fields = (def!.type as any)._fields();
@@ -1207,8 +1463,23 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
   it('non-queryable referenced table added to referencedStubs', () => {
     const table = makeGqlTable(
       'tasks',
-      [{ name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true }],
-      [{ propertyName: 'category', targetTableName: 'category_definition', type: 'many-to-one', isPublished: true }],
+      [
+        {
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isNullable: false,
+          isPublished: true,
+        },
+      ],
+      [
+        {
+          propertyName: 'category',
+          targetTableName: 'category_definition',
+          type: 'many-to-one',
+          isPublished: true,
+        },
+      ],
     );
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     expect(def).not.toBeNull();
@@ -1226,8 +1497,23 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
   it('self-referencing relation (targetTableName === typeName) excluded', () => {
     const table = makeGqlTable(
       'tasks',
-      [{ name: 'id', type: 'int', isPrimary: true, isNullable: false, isPublished: true }],
-      [{ propertyName: 'parent', targetTableName: 'tasks', type: 'many-to-one', isPublished: true }],
+      [
+        {
+          name: 'id',
+          type: 'int',
+          isPrimary: true,
+          isNullable: false,
+          isPublished: true,
+        },
+      ],
+      [
+        {
+          propertyName: 'parent',
+          targetTableName: 'tasks',
+          type: 'many-to-one',
+          isPublished: true,
+        },
+      ],
     );
     const def = buildTableGraphQLDef(table, new Set(['tasks']), new Map());
     const fields = (def!.type as any)._fields();
@@ -1282,7 +1568,11 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
           continue;
         }
 
-        const def = buildTableGraphQLDef(tableData, newQueryableNames, state.typeRegistry);
+        const def = buildTableGraphQLDef(
+          tableData,
+          newQueryableNames,
+          state.typeRegistry,
+        );
         if (!def) {
           state.tableDefCache.delete(tableName);
           state.typeRegistry.delete(tableName);
@@ -1325,11 +1615,25 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
 
       const updatedTasks = makeGqlTable('tasks', [
         ...basicColumns,
-        { name: 'priority', type: 'int', isPrimary: false, isNullable: true, isPublished: true },
+        {
+          name: 'priority',
+          type: 'int',
+          isPrimary: false,
+          isNullable: true,
+          isPublished: true,
+        },
       ]);
-      const metadata = new Map([['tasks', updatedTasks], ['users', tables[1]]]);
+      const metadata = new Map([
+        ['tasks', updatedTasks],
+        ['users', tables[1]],
+      ]);
 
-      incrementalUpdate(state, metadata, new Set(['tasks', 'users']), new Set(['tasks']));
+      incrementalUpdate(
+        state,
+        metadata,
+        new Set(['tasks', 'users']),
+        new Set(['tasks']),
+      );
 
       expect(state.typeRegistry.get('users')).toBe(originalUsersType);
       const fields = (state.typeRegistry.get('tasks') as any)._fields();
@@ -1341,9 +1645,17 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
       const state = fullBuild(tables, new Set(['tasks']));
 
       const newTable = makeGqlTable('users', basicColumns);
-      const metadata = new Map([['tasks', tables[0]], ['users', newTable]]);
+      const metadata = new Map([
+        ['tasks', tables[0]],
+        ['users', newTable],
+      ]);
 
-      incrementalUpdate(state, metadata, new Set(['tasks', 'users']), new Set(['users']));
+      incrementalUpdate(
+        state,
+        metadata,
+        new Set(['tasks', 'users']),
+        new Set(['users']),
+      );
 
       expect(state.tableDefCache.has('users')).toBe(true);
       expect(state.typeRegistry.has('users')).toBe(true);
@@ -1357,18 +1669,26 @@ describe('E. GraphQL buildTableGraphQLDef and incremental update', () => {
       const state = fullBuild(tables, new Set(['tasks', 'users']));
 
       const metadata = new Map([['tasks', tables[0]]]);
-      incrementalUpdate(state, metadata, new Set(['tasks']), new Set(['users']));
+      incrementalUpdate(
+        state,
+        metadata,
+        new Set(['tasks']),
+        new Set(['users']),
+      );
 
       expect(state.tableDefCache.has('users')).toBe(false);
       expect(state.typeRegistry.has('users')).toBe(false);
     });
 
     it('stub types generated for non-queryable referenced tables', () => {
-      const table = makeGqlTable(
-        'tasks',
-        basicColumns,
-        [{ propertyName: 'category', targetTableName: 'category_definition', type: 'many-to-one', isPublished: true }],
-      );
+      const table = makeGqlTable('tasks', basicColumns, [
+        {
+          propertyName: 'category',
+          targetTableName: 'category_definition',
+          type: 'many-to-one',
+          isPublished: true,
+        },
+      ]);
       const state = fullBuild([table], new Set(['tasks']));
       expect(state.typeRegistry.has('category_definition')).toBe(true);
       const stubType = state.typeRegistry.get('category_definition')!;
@@ -1399,7 +1719,11 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
 
   it('delete relation on table A with inverse on table B → both in affectedTables', () => {
     const affectedTables: string[] = [];
-    const deletedRelation = { sourceTableName: 'tasks', targetTableName: 'users', type: 'many-to-one' };
+    const deletedRelation = {
+      sourceTableName: 'tasks',
+      targetTableName: 'users',
+      type: 'many-to-one',
+    };
 
     affectedTables.push(deletedRelation.sourceTableName);
     affectedTables.push(deletedRelation.targetTableName);
@@ -1421,7 +1745,11 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
   it('delete table with inbound relations → source tables in affectedTables', () => {
     const deletedTable = 'tasks';
     const inboundRelations = ['comments', 'attachments'];
-    const payload = buildPayload('table_definition', [10], [deletedTable, ...inboundRelations]);
+    const payload = buildPayload(
+      'table_definition',
+      [10],
+      [deletedTable, ...inboundRelations],
+    );
     expect(payload.affectedTables).toContain('comments');
     expect(payload.affectedTables).toContain('attachments');
   });
@@ -1439,7 +1767,9 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
 
   it('DynamicRepository.reload builds correct payload scope based on ids', () => {
     const emitted: TCacheInvalidationPayload[] = [];
-    const mockEmitter = { emit: jest.fn((event, payload) => emitted.push(payload)) };
+    const mockEmitter = {
+      emit: jest.fn((event, payload) => emitted.push(payload)),
+    };
 
     function reloadFn(
       tableName: string,
@@ -1456,7 +1786,10 @@ describe('F. Cross-table cascade / affectedTables scenarios', () => {
       mockEmitter.emit('cache:invalidate', payload);
     }
 
-    reloadFn('table_definition', { ids: [1, 2], affectedTables: ['relatedTable'] });
+    reloadFn('table_definition', {
+      ids: [1, 2],
+      affectedTables: ['relatedTable'],
+    });
     expect(emitted[0].scope).toBe('partial');
     expect(emitted[0].ids).toEqual([1, 2]);
     expect(emitted[0].affectedTables).toEqual(['relatedTable']);
@@ -1495,10 +1828,22 @@ describe('G. End-to-end flow simulation', () => {
 
     constructor() {
       this.ee.on('cache:invalidate', (payload: TCacheInvalidationPayload) => {
-        if (['table_definition', 'column_definition', 'relation_definition'].includes(payload.tableName)) {
+        if (
+          [
+            'table_definition',
+            'column_definition',
+            'relation_definition',
+          ].includes(payload.tableName)
+        ) {
           this._handleMetadataInvalidation(payload);
         }
-        if (['route_definition', 'pre_hook_definition', 'post_hook_definition'].includes(payload.tableName)) {
+        if (
+          [
+            'route_definition',
+            'pre_hook_definition',
+            'post_hook_definition',
+          ].includes(payload.tableName)
+        ) {
           this._handleRouteInvalidation(payload);
         }
       });
@@ -1506,8 +1851,14 @@ describe('G. End-to-end flow simulation', () => {
       this.ee.on('routes:loaded', () => this._reloadGraphQL());
     }
 
-    private _handleMetadataInvalidation(payload: TCacheInvalidationPayload): void {
-      if (payload.scope === 'partial' && payload.ids?.length && this.state.metadata.size > 0) {
+    private _handleMetadataInvalidation(
+      payload: TCacheInvalidationPayload,
+    ): void {
+      if (
+        payload.scope === 'partial' &&
+        payload.ids?.length &&
+        this.state.metadata.size > 0
+      ) {
         this._partialMetadataReload(payload);
       } else {
         this._fullMetadataReload();
@@ -1518,7 +1869,9 @@ describe('G. End-to-end flow simulation', () => {
       this.metadataReloads++;
       this.partialApplied++;
       for (const id of payload.ids!) {
-        const existing = [...this.state.metadata.values()].find((t) => String(t.id) === String(id));
+        const existing = [...this.state.metadata.values()].find(
+          (t) => String(t.id) === String(id),
+        );
         if (existing) {
           existing._updated = true;
           this.state.metadata.set(existing.name, existing);
@@ -1594,8 +1947,13 @@ describe('G. End-to-end flow simulation', () => {
     sys.setupInitialState();
 
     sys.tryPartialFallback(
-      () => { throw new Error('DB error during partial'); },
-      () => { sys.metadataReloads++; sys.emit('metadata:loaded', {}); },
+      () => {
+        throw new Error('DB error during partial');
+      },
+      () => {
+        sys.metadataReloads++;
+        sys.emit('metadata:loaded', {});
+      },
     );
 
     expect(sys.fullFallbacks).toBe(1);
@@ -1731,9 +2089,20 @@ describe('G. End-to-end flow simulation', () => {
       setting_definition: ['setting'],
     };
 
-    const expectedMetadataTables = ['table_definition', 'column_definition', 'relation_definition'];
-    const expectedRouteOnlyTables = ['route_definition', 'pre_hook_definition', 'post_hook_definition'];
-    const expectedIsolatedTables = ['field_permission_definition', 'setting_definition'];
+    const expectedMetadataTables = [
+      'table_definition',
+      'column_definition',
+      'relation_definition',
+    ];
+    const expectedRouteOnlyTables = [
+      'route_definition',
+      'pre_hook_definition',
+      'post_hook_definition',
+    ];
+    const expectedIsolatedTables = [
+      'field_permission_definition',
+      'setting_definition',
+    ];
 
     for (const t of expectedMetadataTables) {
       expect(CACHE_INVALIDATION_MAP[t]).toContain('metadata');
@@ -1746,7 +2115,9 @@ describe('G. End-to-end flow simulation', () => {
       expect(CACHE_INVALIDATION_MAP[t]).toContain('route');
     }
 
-    expect(CACHE_INVALIDATION_MAP['field_permission_definition']).toEqual(['field-permission']);
+    expect(CACHE_INVALIDATION_MAP['field_permission_definition']).toEqual([
+      'field-permission',
+    ]);
     expect(CACHE_INVALIDATION_MAP['setting_definition']).toEqual(['setting']);
   });
 });

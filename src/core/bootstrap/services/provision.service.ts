@@ -1,5 +1,11 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  forwardRef,
+} from '@nestjs/common';
 import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { DataProvisionService } from './data-provision.service';
@@ -78,28 +84,43 @@ export class ProvisionService implements OnModuleInit {
       try {
         await this.migrationJournalService.recoverPending();
       } catch (error) {
-        this.logger.warn(`SQL migration journal recovery failed (non-fatal): ${error.message}`);
+        this.logger.warn(
+          `SQL migration journal recovery failed (non-fatal): ${error.message}`,
+        );
       }
       try {
         await this.migrationJournalService.cleanup();
       } catch (error) {
-        this.logger.warn(`SQL journal cleanup failed (non-fatal): ${error.message}`);
+        this.logger.warn(
+          `SQL journal cleanup failed (non-fatal): ${error.message}`,
+        );
       }
     } else {
       try {
         await this.mongoJournalService.recoverPending(
-          (diff) => this.mongoSchemaMigrationService['executeMongoSchemaDiff'](
-            diff.tableName || 'unknown', diff, null, null,
-          ),
-          (entry) => this.mongoSchemaMigrationService.restoreMetadataFromRawSnapshot(entry),
+          (diff) =>
+            this.mongoSchemaMigrationService['executeMongoSchemaDiff'](
+              diff.tableName || 'unknown',
+              diff,
+              null,
+              null,
+            ),
+          (entry) =>
+            this.mongoSchemaMigrationService.restoreMetadataFromRawSnapshot(
+              entry,
+            ),
         );
       } catch (error) {
-        this.logger.warn(`Mongo migration journal recovery failed (non-fatal): ${error.message}`);
+        this.logger.warn(
+          `Mongo migration journal recovery failed (non-fatal): ${error.message}`,
+        );
       }
       try {
         await this.mongoJournalService.cleanup();
       } catch (error) {
-        this.logger.warn(`Mongo journal cleanup failed (non-fatal): ${error.message}`);
+        this.logger.warn(
+          `Mongo journal cleanup failed (non-fatal): ${error.message}`,
+        );
       }
     }
 
@@ -167,7 +188,9 @@ export class ProvisionService implements OnModuleInit {
           try {
             await this.routeDefinitionProcessor.ensureMissingHandlers();
           } catch (error) {
-            this.logger.error(`Error ensuring route handlers: ${error.message}`);
+            this.logger.error(
+              `Error ensuring route handlers: ${error.message}`,
+            );
           }
         }
 
@@ -194,7 +217,11 @@ export class ProvisionService implements OnModuleInit {
 
         const settingId = newSetting._id || newSetting.id;
         const idField = DatabaseConfigService.getPkField();
-        await this.queryBuilder.update('setting_definition', { where: [{ field: idField, operator: '=', value: settingId }] }, { isInit: true });
+        await this.queryBuilder.update(
+          'setting_definition',
+          { where: [{ field: idField, operator: '=', value: settingId }] },
+          { isInit: true },
+        );
 
         this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
       } finally {

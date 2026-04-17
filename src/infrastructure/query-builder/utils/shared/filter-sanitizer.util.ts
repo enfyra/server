@@ -53,7 +53,8 @@ export function validateFilterShape(
   for (const [key, value] of Object.entries(filter)) {
     if (LOGICAL_KEYS.has(key)) {
       if (Array.isArray(value)) {
-        for (const item of value) validateFilterShape(item, tableName, metadata);
+        for (const item of value)
+          validateFilterShape(item, tableName, metadata);
       } else if (value && typeof value === 'object') {
         validateFilterShape(value, tableName, metadata);
       }
@@ -66,7 +67,9 @@ export function validateFilterShape(
         assertFieldOperatorValueIsClean(key, value, tableName);
         const targetTable = relation.targetTableName || relation.targetTable;
         if (targetTable) {
-          const nestedKeys = Object.keys(value).filter((k) => !k.startsWith('_'));
+          const nestedKeys = Object.keys(value).filter(
+            (k) => !k.startsWith('_'),
+          );
           if (nestedKeys.length > 0) {
             const nested: Record<string, any> = {};
             for (const k of nestedKeys) nested[k] = (value as any)[k];

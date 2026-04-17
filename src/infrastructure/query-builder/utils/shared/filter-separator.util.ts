@@ -1,6 +1,9 @@
 import { TableMetadata } from '../../../knex/types/knex-types';
 
-export function hasAnyRelations(filter: any, relationNames: Set<string>): boolean {
+export function hasAnyRelations(
+  filter: any,
+  relationNames: Set<string>,
+): boolean {
   if (!filter || typeof filter !== 'object') {
     return false;
   }

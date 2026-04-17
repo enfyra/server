@@ -1,35 +1,59 @@
-import { validateFilterShape, assertFieldOperatorValueIsClean } from '../../src/infrastructure/query-builder/utils/shared/filter-sanitizer.util';
+import {
+  validateFilterShape,
+  assertFieldOperatorValueIsClean,
+} from '../../src/infrastructure/query-builder/utils/shared/filter-sanitizer.util';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 describe('Filter Sanitizer — MongoDB _id in relation filter', () => {
   const metadata = {
     tables: new Map([
-      ['route_handler_definition', {
-        columns: [
-          { name: '_id', type: 'ObjectId' },
-          { name: 'logic', type: 'string' },
-        ],
-        relations: [
-          { propertyName: 'route', type: 'many-to-one', targetTableName: 'route_definition' },
-          { propertyName: 'method', type: 'many-to-one', targetTableName: 'method_definition' },
-        ],
-      }],
-      ['post_hook_definition', {
-        columns: [
-          { name: '_id', type: 'ObjectId' },
-          { name: 'name', type: 'string' },
-        ],
-        relations: [
-          { propertyName: 'route', type: 'many-to-one', targetTableName: 'route_definition' },
-        ],
-      }],
-      ['route_definition', {
-        columns: [
-          { name: '_id', type: 'ObjectId' },
-          { name: 'path', type: 'string' },
-        ],
-        relations: [],
-      }],
+      [
+        'route_handler_definition',
+        {
+          columns: [
+            { name: '_id', type: 'ObjectId' },
+            { name: 'logic', type: 'string' },
+          ],
+          relations: [
+            {
+              propertyName: 'route',
+              type: 'many-to-one',
+              targetTableName: 'route_definition',
+            },
+            {
+              propertyName: 'method',
+              type: 'many-to-one',
+              targetTableName: 'method_definition',
+            },
+          ],
+        },
+      ],
+      [
+        'post_hook_definition',
+        {
+          columns: [
+            { name: '_id', type: 'ObjectId' },
+            { name: 'name', type: 'string' },
+          ],
+          relations: [
+            {
+              propertyName: 'route',
+              type: 'many-to-one',
+              targetTableName: 'route_definition',
+            },
+          ],
+        },
+      ],
+      [
+        'route_definition',
+        {
+          columns: [
+            { name: '_id', type: 'ObjectId' },
+            { name: 'path', type: 'string' },
+          ],
+          relations: [],
+        },
+      ],
     ]),
   };
 
@@ -45,7 +69,11 @@ describe('Filter Sanitizer — MongoDB _id in relation filter', () => {
 
     it('assertFieldOperatorValueIsClean rejects _id', () => {
       expect(() => {
-        assertFieldOperatorValueIsClean('route', { _id: 'abc123' }, 'route_handler_definition');
+        assertFieldOperatorValueIsClean(
+          'route',
+          { _id: 'abc123' },
+          'route_handler_definition',
+        );
       }).toThrow('Unsupported filter operator "_id"');
     });
   });
@@ -70,13 +98,21 @@ describe('Filter Sanitizer — MongoDB _id in relation filter', () => {
 
     it('assertFieldOperatorValueIsClean allows _id on MongoDB', () => {
       expect(() => {
-        assertFieldOperatorValueIsClean('route', { _id: { _eq: 'abc123' } }, 'route_handler_definition');
+        assertFieldOperatorValueIsClean(
+          'route',
+          { _id: { _eq: 'abc123' } },
+          'route_handler_definition',
+        );
       }).not.toThrow();
     });
 
     it('still rejects unknown _ operators on MongoDB', () => {
       expect(() => {
-        assertFieldOperatorValueIsClean('route', { _invalid: 'abc' }, 'route_handler_definition');
+        assertFieldOperatorValueIsClean(
+          'route',
+          { _invalid: 'abc' },
+          'route_handler_definition',
+        );
       }).toThrow('Unsupported filter operator "_invalid"');
     });
 

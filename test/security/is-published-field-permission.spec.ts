@@ -2,7 +2,6 @@ import { ForbiddenException } from '@nestjs/common';
 import { DynamicRepository } from '../../src/modules/dynamic-api/repositories/dynamic.repository';
 import { matchFieldPermissionCondition } from '../../src/shared/utils/field-permission-condition.util';
 
-
 type TPolicy = {
   unconditionalAllowedColumns: Set<string>;
   unconditionalAllowedRelations: Set<string>;
@@ -64,7 +63,11 @@ function makeRepoHarness(opts: {
       let data = JSON.parse(JSON.stringify(opts.dataFixture ?? []));
       const f = findOpts?.fields;
       if (f && f !== '' && f !== '*') {
-        const allowed = new Set(String(f).split(',').map((s: string) => s.split('.')[0].trim()));
+        const allowed = new Set(
+          String(f)
+            .split(',')
+            .map((s: string) => s.split('.')[0].trim()),
+        );
         data = data.map((row: any) => {
           const out: any = {};
           for (const key of Object.keys(row)) {
@@ -78,11 +81,21 @@ function makeRepoHarness(opts: {
         for (const row of data) {
           for (const relName of Object.keys(deepOpts)) {
             if (!row[relName] || !deepOpts[relName]?.fields) continue;
-            const relFields = new Set(String(deepOpts[relName].fields).split(',').map((s: string) => s.trim()));
+            const relFields = new Set(
+              String(deepOpts[relName].fields)
+                .split(',')
+                .map((s: string) => s.trim()),
+            );
             const nested = row[relName];
-            if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+            if (
+              nested &&
+              typeof nested === 'object' &&
+              !Array.isArray(nested)
+            ) {
               const cleaned: any = {};
-              for (const k of Object.keys(nested)) { if (relFields.has(k)) cleaned[k] = nested[k]; }
+              for (const k of Object.keys(nested)) {
+                if (relFields.has(k)) cleaned[k] = nested[k];
+              }
               row[relName] = cleaned;
             }
           }
@@ -124,8 +137,12 @@ function makeRepoHarness(opts: {
     tableHandlerService: {
       createTable: jest.fn(),
     } as any,
-    policyService: { checkMutationSafety: jest.fn(async () => ({ allow: true })) } as any,
-    tableValidationService: { assertTableValid: jest.fn(async () => {}) } as any,
+    policyService: {
+      checkMutationSafety: jest.fn(async () => ({ allow: true })),
+    } as any,
+    tableValidationService: {
+      assertTableValid: jest.fn(async () => {}),
+    } as any,
     metadataCacheService,
     settingCacheService: { getMaxQueryDepth: () => 7 } as any,
     eventEmitter: { emit: jest.fn() } as any,
@@ -155,7 +172,11 @@ describe('field permissions (isPublished baseline + overrides)', () => {
       { name: 'internalCode', isPublished: true },
     ],
     relations: [
-      { propertyName: 'owner', targetTableName: usersTable, isPublished: false },
+      {
+        propertyName: 'owner',
+        targetTableName: usersTable,
+        isPublished: false,
+      },
     ],
   };
 
@@ -180,7 +201,9 @@ describe('field permissions (isPublished baseline + overrides)', () => {
   function withMetadataMap(h: any) {
     const map = makeMetadataMap();
     h.metadataCacheService.getDirectMetadata = jest.fn(() => map);
-    h.metadataCacheService.lookupTableByName = jest.fn(async (name: string) => map.tables.get(name) || null);
+    h.metadataCacheService.lookupTableByName = jest.fn(
+      async (name: string) => map.tables.get(name) || null,
+    );
     return h;
   }
 
@@ -419,7 +442,9 @@ describe('field permissions (isPublished baseline + overrides)', () => {
           dataFixture: [],
         }),
       );
-      await expect(hCond.repo.find()).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(hCond.repo.find()).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
 
       const hAllow = withMetadataMap(
         makeRepoHarness({
@@ -448,7 +473,10 @@ describe('field permissions (isPublished baseline + overrides)', () => {
     const hFilterPublishedSelectUnpub = withMetadataMap(
       makeRepoHarness({
         enforce: true,
-        query: { filter: { title: { _eq: 't' } }, fields: 'id,secretNote,title' },
+        query: {
+          filter: { title: { _eq: 't' } },
+          fields: 'id,secretNote,title',
+        },
         tableMeta: baseMeta,
         policies: [],
         dataFixture: [{ id: 1, title: 't', secretNote: 'x' }],
@@ -559,16 +587,19 @@ describe('field permissions (isPublished baseline + overrides)', () => {
         dataFixture: [{ id: 1, title: 't' }],
       }),
     );
-    await expect(hDeny.repo.update({ id: 1, data: { title: 'x' } })).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      hDeny.repo.update({ id: 1, data: { title: 'x' } }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   test('enforcement scope: enforce=false bypasses sanitize + 403', async () => {
     const h = withMetadataMap(
       makeRepoHarness({
         enforce: false,
-        query: { fields: 'id,secretNote', filter: { secretNote: { _eq: 'x' } } },
+        query: {
+          fields: 'id,secretNote',
+          filter: { secretNote: { _eq: 'x' } },
+        },
         tableMeta: baseMeta,
         policies: [],
         dataFixture: [{ id: 1, secretNote: 'x' }],
@@ -579,7 +610,8 @@ describe('field permissions (isPublished baseline + overrides)', () => {
   });
 
   test('policy invariants: subject XOR + scope required', async () => {
-    const { PolicyService } = await import('../../src/core/policy/policy.service');
+    const { PolicyService } =
+      await import('../../src/core/policy/policy.service');
     const policy = new PolicyService(
       { assertNoSystemFlagDeep: jest.fn() } as any,
       {
@@ -607,4 +639,3 @@ describe('field permissions (isPublished baseline + overrides)', () => {
     if (bad2.allow === false) expect(bad2.message).toContain('requires scope');
   });
 });
-

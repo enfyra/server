@@ -94,10 +94,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
             );
             delete insertData._plainPassword;
           }
-          const inserted = await queryBuilder.insert(
-            tableName,
-            insertData,
-          );
+          const inserted = await queryBuilder.insert(tableName, insertData);
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {

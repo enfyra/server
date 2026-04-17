@@ -1,5 +1,8 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { GqlDefinitionCacheService, TGqlDefinition } from '../../src/infrastructure/cache/services/gql-definition-cache.service';
+import {
+  GqlDefinitionCacheService,
+  TGqlDefinition,
+} from '../../src/infrastructure/cache/services/gql-definition-cache.service';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 async function createCache(
@@ -169,9 +172,7 @@ describe('GqlDefinitionCacheService', () => {
 
     it('returns undefined for unknown table', async () => {
       DatabaseConfigService.overrideForTesting('mysql');
-      const svc = await createCache([
-        makeRow({ tableName: 'orders' }),
-      ]);
+      const svc = await createCache([makeRow({ tableName: 'orders' })]);
 
       expect(await svc.getForTable('missing')).toBeUndefined();
     });
@@ -238,11 +239,14 @@ describe('GqlDefinitionCacheService', () => {
     it('handles MongoDB _id pk field for manual resolution', async () => {
       DatabaseConfigService.overrideForTesting('mongodb');
       const gqlRows = [
-        { id: 1, isEnabled: true, table: '507f1f77bcf86cd799439011', tableId: undefined },
+        {
+          id: 1,
+          isEnabled: true,
+          table: '507f1f77bcf86cd799439011',
+          tableId: undefined,
+        },
       ];
-      const tableRows = [
-        { _id: '507f1f77bcf86cd799439011', name: 'tasks' },
-      ];
+      const tableRows = [{ _id: '507f1f77bcf86cd799439011', name: 'tasks' }];
 
       const find = jest.fn(async (params: any) => {
         if (params.table === 'gql_definition') return { data: gqlRows };
@@ -259,9 +263,7 @@ describe('GqlDefinitionCacheService', () => {
 
     it('skips rows where table resolution returns no name', async () => {
       DatabaseConfigService.overrideForTesting('mysql');
-      const gqlRows = [
-        { id: 1, isEnabled: true, tableId: 99, table: null },
-      ];
+      const gqlRows = [{ id: 1, isEnabled: true, tableId: 99, table: null }];
       const tableRows: any[] = [];
 
       const find = jest.fn(async (params: any) => {
@@ -288,9 +290,13 @@ describe('GqlDefinitionCacheService', () => {
         if (params.table === 'gql_definition') {
           callCount++;
           if (callCount === 1) {
-            return { data: [makeRow({ id: 1, tableName: 'tasks', isEnabled: true })] };
+            return {
+              data: [makeRow({ id: 1, tableName: 'tasks', isEnabled: true })],
+            };
           }
-          return { data: [makeRow({ id: 1, tableName: 'tasks', isEnabled: false })] };
+          return {
+            data: [makeRow({ id: 1, tableName: 'tasks', isEnabled: false })],
+          };
         }
         return { data: [] };
       });
@@ -320,7 +326,10 @@ describe('GqlDefinitionCacheService', () => {
 
       await Promise.all([svc.reload(false), svc.reload(false)]);
 
-      expect(find.mock.calls.filter((c: any) => c[0].table === 'gql_definition').length).toBe(1);
+      expect(
+        find.mock.calls.filter((c: any) => c[0].table === 'gql_definition')
+          .length,
+      ).toBe(1);
     });
   });
 
@@ -351,7 +360,9 @@ describe('GqlDefinitionCacheService', () => {
     it('handles all isEnabled value types', async () => {
       DatabaseConfigService.overrideForTesting('mysql');
       for (const { isEnabled, expected } of cases) {
-        const rows = [{ id: 1, table: { name: 'test_table' }, isEnabled, isSystem: false }];
+        const rows = [
+          { id: 1, table: { name: 'test_table' }, isEnabled, isSystem: false },
+        ];
         const find = jest.fn(async (params: any) => {
           if (params.table === 'gql_definition') return { data: rows };
           return { data: [] };

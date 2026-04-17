@@ -117,8 +117,13 @@ export function buildTableGraphQLDef(
     if (!columnType || typeof columnType !== 'string') continue;
     if (column.isPublished === false) continue;
 
-    const isMongoId = DatabaseConfigService.instanceIsMongoDb() && column.isPrimary && fieldName === '_id';
-    const baseType = isMongoId ? GraphQLID : mapColumnTypeToGraphQLType(columnType);
+    const isMongoId =
+      DatabaseConfigService.instanceIsMongoDb() &&
+      column.isPrimary &&
+      fieldName === '_id';
+    const baseType = isMongoId
+      ? GraphQLID
+      : mapColumnTypeToGraphQLType(columnType);
     let finalType: GraphQLOutputType;
     if (column.isPrimary && (baseType === GraphQLID || isMongoId)) {
       finalType = new GraphQLNonNull(GraphQLID);
@@ -136,7 +141,12 @@ export function buildTableGraphQLDef(
       if (rel.isPublished === false) continue;
       const relName = rel.propertyName;
       const targetType = rel.targetTableName;
-      if (!targetType || typeof targetType !== 'string' || targetType.trim() === '') continue;
+      if (
+        !targetType ||
+        typeof targetType !== 'string' ||
+        targetType.trim() === ''
+      )
+        continue;
       if (targetType === typeName) continue;
 
       const isArray = rel.type === 'one-to-many' || rel.type === 'many-to-many';
@@ -150,7 +160,10 @@ export function buildTableGraphQLDef(
         extensions: { __lazyTarget: targetType, __isArray: isArray },
       };
 
-      if (!queryableTableNames.has(targetType) && !typeRegistry.has(targetType)) {
+      if (
+        !queryableTableNames.has(targetType) &&
+        !typeRegistry.has(targetType)
+      ) {
         referencedStubs.add(targetType);
       }
     }
@@ -189,9 +202,7 @@ export function buildTableGraphQLDef(
     name: `${typeName}Result`,
     fields: {
       data: {
-        type: new GraphQLNonNull(
-          new GraphQLList(new GraphQLNonNull(type)),
-        ),
+        type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(type))),
       },
       meta: { type: MetaResultType },
     },
@@ -204,7 +215,12 @@ export function buildTableGraphQLDef(
   let hasInputFields = false;
 
   for (const column of table.columns || []) {
-    if (column.isPrimary || column.name === 'createdAt' || column.name === 'updatedAt') continue;
+    if (
+      column.isPrimary ||
+      column.name === 'createdAt' ||
+      column.name === 'updatedAt'
+    )
+      continue;
     const fieldName = column?.name;
     const columnType = column?.type;
     if (!isValidGqlIdentifier(fieldName)) continue;
@@ -222,13 +238,22 @@ export function buildTableGraphQLDef(
     }
 
     inputFields[fieldName] = { type: finalType };
-    const updateType = column.isPrimary && baseType === GraphQLID ? GraphQLID : baseType;
+    const updateType =
+      column.isPrimary && baseType === GraphQLID ? GraphQLID : baseType;
     updateInputFields[fieldName] = { type: updateType };
     hasInputFields = true;
   }
 
   if (!hasInputFields) {
-    return { type, resultType, inputType: null, updateInputType: null, queryField: null, mutationFields: {}, referencedStubs };
+    return {
+      type,
+      resultType,
+      inputType: null,
+      updateInputType: null,
+      queryField: null,
+      mutationFields: {},
+      referencedStubs,
+    };
   }
 
   const inputType = new GraphQLInputObjectType({
@@ -326,8 +351,13 @@ export function generateGraphQLTypeDefsFromTables(
       if (!isValidGqlIdentifier(fieldName)) continue;
       if (!columnType || typeof columnType !== 'string') continue;
       if (column.isPublished === false) continue;
-      const isMongoId = DatabaseConfigService.instanceIsMongoDb() && column.isPrimary && fieldName === '_id';
-      const gqlType = isMongoId ? 'ID' : mapColumnTypeToGraphQLTypeString(columnType);
+      const isMongoId =
+        DatabaseConfigService.instanceIsMongoDb() &&
+        column.isPrimary &&
+        fieldName === '_id';
+      const gqlType = isMongoId
+        ? 'ID'
+        : mapColumnTypeToGraphQLTypeString(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =
         column.isPrimary && (gqlType === 'ID' || isMongoId)
@@ -379,15 +409,21 @@ export function generateGraphQLTypeDefsFromTables(
       if (!isValidGqlIdentifier(fieldName)) continue;
       if (!columnType || typeof columnType !== 'string') continue;
       if (column.isPublished === false) continue;
-      const isMongoId = DatabaseConfigService.instanceIsMongoDb() && column.isPrimary && fieldName === '_id';
-      const gqlType = isMongoId ? 'ID' : mapColumnTypeToGraphQLTypeString(columnType);
+      const isMongoId =
+        DatabaseConfigService.instanceIsMongoDb() &&
+        column.isPrimary &&
+        fieldName === '_id';
+      const gqlType = isMongoId
+        ? 'ID'
+        : mapColumnTypeToGraphQLTypeString(columnType);
       const isRequired = !column.isNullable ? '!' : '';
       const finalType =
         column.isPrimary && (gqlType === 'ID' || isMongoId)
           ? 'ID!'
           : `${gqlType}${isRequired}`;
       inputFields.push(`  ${fieldName}: ${finalType}`);
-      const updateType = column.isPrimary && (gqlType === 'ID' || isMongoId) ? 'ID' : gqlType;
+      const updateType =
+        column.isPrimary && (gqlType === 'ID' || isMongoId) ? 'ID' : gqlType;
       updateInputFields.push(`  ${fieldName}: ${updateType}`);
     }
     if (inputFields.length > 0 && allowQuery(typeName)) {

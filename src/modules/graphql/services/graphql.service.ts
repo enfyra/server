@@ -67,9 +67,17 @@ export class GraphqlService {
         newQueryableNames.add(def.tableName);
       }
 
-      const affectedTables = this.getAffectedTables(payload, newQueryableNames, metadata);
+      const affectedTables = this.getAffectedTables(
+        payload,
+        newQueryableNames,
+        metadata,
+      );
 
-      if (affectedTables !== null && this.schema && this.tableDefCache.size > 0) {
+      if (
+        affectedTables !== null &&
+        this.schema &&
+        this.tableDefCache.size > 0
+      ) {
         if (affectedTables.size === 0) {
           this.logger.log(
             `Schema unchanged (route-only change), skipping rebuild in ${Date.now() - start}ms`,
@@ -107,8 +115,11 @@ export class GraphqlService {
       [...this.queryableTableNames].some((n) => !newQueryableNames.has(n));
     if (queryableChanged) return null;
 
-    const isMetadata = ['table_definition', 'column_definition', 'relation_definition']
-      .includes(payload.table);
+    const isMetadata = [
+      'table_definition',
+      'column_definition',
+      'relation_definition',
+    ].includes(payload.table);
 
     if (!isMetadata) {
       return new Set();
@@ -128,10 +139,7 @@ export class GraphqlService {
     return affected;
   }
 
-  private fullBuild(
-    metadata: any,
-    queryableTableNames: Set<string>,
-  ): void {
+  private fullBuild(metadata: any, queryableTableNames: Set<string>): void {
     this.tableDefCache.clear();
     this.typeRegistry.clear();
     this.queryableTableNames = queryableTableNames;
@@ -140,7 +148,11 @@ export class GraphqlService {
 
     for (const table of allTables) {
       if (!queryableTableNames.has(table.name)) continue;
-      const def = buildTableGraphQLDef(table, queryableTableNames, this.typeRegistry);
+      const def = buildTableGraphQLDef(
+        table,
+        queryableTableNames,
+        this.typeRegistry,
+      );
       if (!def) continue;
       this.tableDefCache.set(table.name, def);
       this.typeRegistry.set(table.name, def.type);
@@ -173,7 +185,11 @@ export class GraphqlService {
         continue;
       }
 
-      const def = buildTableGraphQLDef(tableData, queryableTableNames, this.typeRegistry);
+      const def = buildTableGraphQLDef(
+        tableData,
+        queryableTableNames,
+        this.typeRegistry,
+      );
       if (!def) {
         this.tableDefCache.delete(tableName);
         this.typeRegistry.delete(tableName);
@@ -232,16 +248,18 @@ export class GraphqlService {
 
     const queryType = new GraphQLObjectType({
       name: 'Query',
-      fields: Object.keys(queryFields).length > 0
-        ? queryFields
-        : { _empty: { type: GraphQLJSON } },
+      fields:
+        Object.keys(queryFields).length > 0
+          ? queryFields
+          : { _empty: { type: GraphQLJSON } },
     });
 
     const mutationType = new GraphQLObjectType({
       name: 'Mutation',
-      fields: Object.keys(mutationFields).length > 0
-        ? mutationFields
-        : { _empty: { type: GraphQLJSON } },
+      fields:
+        Object.keys(mutationFields).length > 0
+          ? mutationFields
+          : { _empty: { type: GraphQLJSON } },
     });
 
     const types = [...this.typeRegistry.values(), MetaResultType];

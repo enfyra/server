@@ -250,12 +250,17 @@ function evalOwner(
 const RELATION_KEYS = new Set(['menu', 'owner']);
 
 function hasNullRelationKey(row: ExtFixtureRow, filter: any): boolean {
-  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return false;
+  if (!filter || typeof filter !== 'object' || Array.isArray(filter))
+    return false;
   for (const k of Object.keys(filter)) {
     if (k === '_and') {
-      for (const c of filter._and) { if (hasNullRelationKey(row, c)) return true; }
+      for (const c of filter._and) {
+        if (hasNullRelationKey(row, c)) return true;
+      }
     } else if (k === '_or') {
-      for (const c of filter._or) { if (hasNullRelationKey(row, c)) return true; }
+      for (const c of filter._or) {
+        if (hasNullRelationKey(row, c)) return true;
+      }
     } else if (k === '_not') {
       if (hasNullRelationKey(row, filter._not)) return true;
     } else if (RELATION_KEYS.has(k)) {
@@ -338,8 +343,8 @@ export function oracleExtensionRowIds(
   filter: any,
   textMode: OracleTextMode = 'fold',
 ): number[] {
-  return EXTENSION_FIXTURE_ROWS.filter((r) =>
-    extensionRowMatchesFilter(r, filter, textMode) === true,
+  return EXTENSION_FIXTURE_ROWS.filter(
+    (r) => extensionRowMatchesFilter(r, filter, textMode) === true,
   )
     .map((r) => r.id)
     .sort((a, b) => a - b);

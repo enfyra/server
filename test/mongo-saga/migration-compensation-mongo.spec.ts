@@ -24,8 +24,18 @@ describe('MongoDB Migration Compensation', () => {
             return {
               find: jest.fn().mockReturnValue({
                 toArray: jest.fn().mockResolvedValue([
-                  { _id: new ObjectId(), name: '_id', type: 'ObjectId', table: tableId },
-                  { _id: new ObjectId(), name: 'title', type: 'string', table: tableId },
+                  {
+                    _id: new ObjectId(),
+                    name: '_id',
+                    type: 'ObjectId',
+                    table: tableId,
+                  },
+                  {
+                    _id: new ObjectId(),
+                    name: 'title',
+                    type: 'string',
+                    table: tableId,
+                  },
                 ]),
               }),
             };
@@ -48,7 +58,9 @@ describe('MongoDB Migration Compensation', () => {
               deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
               insertMany: jest.fn().mockResolvedValue({ insertedCount: 0 }),
               deleteOne: jest.fn().mockResolvedValue({ deletedCount: 0 }),
-              insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
+              insertOne: jest
+                .fn()
+                .mockResolvedValue({ insertedId: new ObjectId() }),
               findOne: jest.fn().mockResolvedValue(null),
             };
           }
@@ -94,9 +106,11 @@ describe('MongoDB Migration Compensation', () => {
               operations.push(`${name}:insertMany`);
             }),
             find: jest.fn().mockReturnValue({
-              toArray: jest.fn().mockResolvedValue([
-                { _id: owningRelId, propertyName: 'author', mappedBy: null },
-              ]),
+              toArray: jest
+                .fn()
+                .mockResolvedValue([
+                  { _id: owningRelId, propertyName: 'author', mappedBy: null },
+                ]),
             }),
             deleteOne: jest.fn(async () => {
               operations.push(`${name}:deleteOne`);
@@ -113,21 +127,46 @@ describe('MongoDB Migration Compensation', () => {
       // Simulate the restore logic step by step
       const snapshot = {
         table: { _id: tableId, name: 'posts' },
-        columns: [{ _id: new ObjectId(), name: 'title', type: 'string', table: tableId }],
-        relations: [{ _id: owningRelId, propertyName: 'author', sourceTable: tableId, mappedBy: null }],
-        inverseRelations: [{ _id: snapshotInverseId, propertyName: 'posts', sourceTable: new ObjectId(), mappedBy: owningRelId }],
+        columns: [
+          {
+            _id: new ObjectId(),
+            name: 'title',
+            type: 'string',
+            table: tableId,
+          },
+        ],
+        relations: [
+          {
+            _id: owningRelId,
+            propertyName: 'author',
+            sourceTable: tableId,
+            mappedBy: null,
+          },
+        ],
+        inverseRelations: [
+          {
+            _id: snapshotInverseId,
+            propertyName: 'posts',
+            sourceTable: new ObjectId(),
+            mappedBy: owningRelId,
+          },
+        ],
       };
 
       const db = mockDb;
       const oid = tableId;
 
       // Step 1: Restore table
-      await db.collection('table_definition').replaceOne({ _id: oid }, snapshot.table, { upsert: true });
+      await db
+        .collection('table_definition')
+        .replaceOne({ _id: oid }, snapshot.table, { upsert: true });
       // Step 2: Restore columns
       await db.collection('column_definition').deleteMany({ table: oid });
       await db.collection('column_definition').insertMany(snapshot.columns);
       // Step 3: Restore relations
-      await db.collection('relation_definition').deleteMany({ sourceTable: oid });
+      await db
+        .collection('relation_definition')
+        .deleteMany({ sourceTable: oid });
       await db.collection('relation_definition').insertMany(snapshot.relations);
 
       expect(operations).toContain('table_definition:replaceOne');
@@ -184,7 +223,12 @@ describe('MongoDB Migration Compensation', () => {
         status: 'running',
         downDiff: { columns: { create: [], delete: [], update: [] } },
         beforeSnapshot: { name: 'posts', columns: [], relations: [] },
-        rawBeforeSnapshot: { table: { _id: new ObjectId(), name: 'posts' }, columns: [], relations: [], inverseRelations: [] },
+        rawBeforeSnapshot: {
+          table: { _id: new ObjectId(), name: 'posts' },
+          columns: [],
+          relations: [],
+          inverseRelations: [],
+        },
       };
 
       const mockCollection = {
@@ -223,9 +267,7 @@ describe('MongoDB Migration Compensation', () => {
 
       const service = new MongoMigrationJournalService(mockMongoService as any);
 
-      await expect(
-        service.recoverPending(jest.fn()),
-      ).resolves.toBeUndefined();
+      await expect(service.recoverPending(jest.fn())).resolves.toBeUndefined();
     });
   });
 });

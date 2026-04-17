@@ -18,14 +18,11 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
 
         if (transformed.description === undefined)
           transformed.description = null;
-        if (transformed.isSystem === undefined)
-          transformed.isSystem = false;
-        if (transformed.isEnabled === undefined)
-          transformed.isEnabled = true;
+        if (transformed.isSystem === undefined) transformed.isSystem = false;
+        if (transformed.isEnabled === undefined) transformed.isEnabled = true;
         if (transformed.handlerScript === undefined)
           transformed.handlerScript = null;
-        if (transformed.timeout === undefined)
-          transformed.timeout = 5000;
+        if (transformed.timeout === undefined) transformed.timeout = 5000;
 
         if (isMongoDB) {
           const now = new Date();
@@ -47,10 +44,7 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(
-      record,
-      'websocket_event_definition',
-    );
+    return this.autoGetUniqueIdentifier(record, 'websocket_event_definition');
   }
 
   protected getCompareFields(): string[] {

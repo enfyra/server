@@ -202,8 +202,7 @@ export async function buildNestedLookupPipeline(
     if (hasWildcard) {
       for (const rel of unpopulatedRelations) {
         const isInverse =
-          rel.type === 'one-to-many' ||
-          rel.type === 'many-to-many';
+          rel.type === 'one-to-many' || rel.type === 'many-to-many';
         if (isInverse) continue;
 
         const isArray = rel.type === 'many-to-many';
@@ -266,8 +265,7 @@ export async function addProjectionStage(
 
     for (const rel of unpopulatedRelations) {
       const isInverse =
-        rel.type === 'one-to-many' ||
-        rel.type === 'many-to-many';
+        rel.type === 'one-to-many' || rel.type === 'many-to-many';
 
       if (isInverse) {
         continue; // Inverse/Junction relations not stored, skip mapping

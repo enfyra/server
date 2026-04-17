@@ -13,7 +13,9 @@ export function parseFields(
   const tableMeta = metadata?.tables?.get(tableName);
   if (!tableMeta) return tree;
 
-  const hasMongoId = tableMeta.columns?.some((c: any) => c.name === '_id' && c.isPrimary);
+  const hasMongoId = tableMeta.columns?.some(
+    (c: any) => c.name === '_id' && c.isPrimary,
+  );
   const hasSqlId = tableMeta.columns?.some((c: any) => c.name === 'id');
   const pkAlias = hasMongoId && !hasSqlId ? '_id' : 'id';
 
@@ -41,11 +43,10 @@ export function parseFields(
         (r: any) => r.propertyName === field,
       );
       if (isRelation) {
-        if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, [pkAlias]);
+        if (!fieldsByRelation.has(field))
+          fieldsByRelation.set(field, [pkAlias]);
       } else {
-        const isColumn = tableMeta.columns?.some(
-          (c: any) => c.name === field,
-        );
+        const isColumn = tableMeta.columns?.some((c: any) => c.name === field);
         if (!isColumn) {
           continue;
         }
@@ -110,7 +111,9 @@ function parseFieldsRecursive(
   const tableMeta = metadata?.tables?.get(tableName);
   if (!tableMeta) return [];
 
-  const hasMongoId = tableMeta.columns?.some((c: any) => c.name === '_id' && c.isPrimary);
+  const hasMongoId = tableMeta.columns?.some(
+    (c: any) => c.name === '_id' && c.isPrimary,
+  );
   const hasSqlId = tableMeta.columns?.some((c: any) => c.name === 'id');
   const pkAlias = hasMongoId && !hasSqlId ? '_id' : 'id';
 
@@ -138,11 +141,10 @@ function parseFieldsRecursive(
         (r: any) => r.propertyName === field,
       );
       if (isRelation) {
-        if (!fieldsByRelation.has(field)) fieldsByRelation.set(field, [pkAlias]);
+        if (!fieldsByRelation.has(field))
+          fieldsByRelation.set(field, [pkAlias]);
       } else {
-        const isColumn = tableMeta.columns?.some(
-          (c: any) => c.name === field,
-        );
+        const isColumn = tableMeta.columns?.some((c: any) => c.name === field);
         if (!isColumn) {
           continue;
         }

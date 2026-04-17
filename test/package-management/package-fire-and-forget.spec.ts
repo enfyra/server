@@ -22,32 +22,33 @@ function createMockQueryBuilder(
       records.set(id, record);
       return record;
     }),
-    update: jest.fn(
-      async (...args: any[]) => {
-        if (args.length === 3 && typeof args[1] === 'object' && !Array.isArray(args[1])) {
-          const [_table, whereOpts, data] = args;
-          const idCondition = whereOpts.where?.find((w: any) => w.field === 'id');
-          if (idCondition) {
-            const key = idCondition.value;
-            const existing =
-              records.get(key) ||
-              records.get(Number(key)) ||
-              records.get(String(key));
-            if (existing) {
-              Object.assign(existing, data);
-            }
+    update: jest.fn(async (...args: any[]) => {
+      if (
+        args.length === 3 &&
+        typeof args[1] === 'object' &&
+        !Array.isArray(args[1])
+      ) {
+        const [_table, whereOpts, data] = args;
+        const idCondition = whereOpts.where?.find((w: any) => w.field === 'id');
+        if (idCondition) {
+          const key = idCondition.value;
+          const existing =
+            records.get(key) ||
+            records.get(Number(key)) ||
+            records.get(String(key));
+          if (existing) {
+            Object.assign(existing, data);
           }
-          return [{ id: idCondition?.value, ...data }];
         }
-        const [_table, id, data] = args;
-        const existing =
-          records.get(id) || records.get(Number(id));
-        if (existing) {
-          Object.assign(existing, data);
-        }
-        return { id, ...data };
-      },
-    ),
+        return [{ id: idCondition?.value, ...data }];
+      }
+      const [_table, id, data] = args;
+      const existing = records.get(id) || records.get(Number(id));
+      if (existing) {
+        Object.assign(existing, data);
+      }
+      return { id, ...data };
+    }),
     find: jest.fn(async (opts: any) => {
       const all = Array.from(records.values());
       let filtered = all;

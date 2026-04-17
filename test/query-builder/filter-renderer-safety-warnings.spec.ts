@@ -50,7 +50,11 @@ describe('Renderer safety warnings (regression tracers)', () => {
   });
 
   beforeAll(async () => {
-    db = knex({ client: 'sqlite3', connection: ':memory:', useNullAsDefault: true });
+    db = knex({
+      client: 'sqlite3',
+      connection: ':memory:',
+      useNullAsDefault: true,
+    });
     await db.schema.createTable('user', (t) => {
       t.increments('id').primary();
       t.string('name');
@@ -96,7 +100,9 @@ describe('Renderer safety warnings (regression tracers)', () => {
     sqlExec = new SqlQueryExecutor(db, 'sqlite', undefined, 6);
 
     try {
-      const probe = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
+      const probe = new MongoClient(MONGO_URI, {
+        serverSelectionTimeoutMS: 2000,
+      });
       await probe.connect();
       await probe.close();
       mongoAvailable = true;
@@ -205,9 +211,7 @@ describe('Renderer safety warnings (regression tracers)', () => {
       dbType: 'mongodb',
       plan,
     });
-    const ids = (r.data as any[])
-      .map((x) => String(x._id))
-      .sort();
+    const ids = (r.data as any[]).map((x) => String(x._id)).sort();
     expect(ids).toEqual([String(postId1)]);
     const rendererWarn = warns.filter((w) => w.includes('mongo-render-filter'));
     expect(rendererWarn).toEqual([]);
@@ -232,9 +236,7 @@ describe('Renderer safety warnings (regression tracers)', () => {
       dbType: 'mongodb',
       plan,
     });
-    const ids = (r.data as any[])
-      .map((x) => String(x._id))
-      .sort();
+    const ids = (r.data as any[]).map((x) => String(x._id)).sort();
     expect(ids).toEqual([String(postId1)]);
     const rendererWarn = warns.filter((w) => w.includes('mongo-render-filter'));
     expect(rendererWarn).toEqual([]);

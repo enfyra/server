@@ -6,12 +6,8 @@ import {
   extractErrorMessage,
 } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import {
-  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-} from '../../../shared/utils/constant';
-import {
-  CACHE_IDENTIFIERS,
-} from '../../../shared/utils/cache-events.constants';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 
 const PACKAGE_CONFIG: CacheConfig = {
@@ -79,7 +75,11 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilder.update('package_definition', { where: [{ field: 'id', operator: '=', value: id }] }, { status, ...extra });
+      await this.queryBuilder.update(
+        'package_definition',
+        { where: [{ field: 'id', operator: '=', value: id }] },
+        { status, ...extra },
+      );
     } catch (error) {
       this.logger.error(
         `Failed to update status to ${status} for package ${id}: ${error.message}`,

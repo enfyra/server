@@ -108,9 +108,7 @@ export class DynamicService {
       if (isClientError) {
         const details = (error as any)?.details;
         throw new HttpException(
-          details && typeof details === 'object'
-            ? details
-            : error.message,
+          details && typeof details === 'object' ? details : error.message,
           httpStatus!,
         );
       }

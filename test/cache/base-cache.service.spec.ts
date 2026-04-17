@@ -28,7 +28,9 @@ class TestCache extends BaseCacheService<Map<string, string>> {
     return new Map(Object.entries(raw));
   }
 
-  protected async applyPartialUpdate(payload: { ids?: string[] }): Promise<void> {
+  protected async applyPartialUpdate(payload: {
+    ids?: string[];
+  }): Promise<void> {
     this.partialCalls++;
     this.lastPayload = payload;
     if (this.failPartial) {

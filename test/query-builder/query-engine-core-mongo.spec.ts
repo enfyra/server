@@ -73,10 +73,38 @@ describe('query engine core (MongoQueryExecutor render-filter parity)', () => {
     for (let i = 0; i < 4; i++) userIds.push(new ObjectId());
 
     await db.collection('users').insertMany([
-      { _id: userIds[0], name: 'Alice',   email: 'alice@test.com',   age: 30, isActive: true,  role: 'admin' },
-      { _id: userIds[1], name: 'Bob',     email: 'bob@test.com',     age: 25, isActive: true,  role: 'user'  },
-      { _id: userIds[2], name: 'Charlie', email: 'charlie@test.com', age: 35, isActive: false, role: 'user'  },
-      { _id: userIds[3], name: 'Diana',   email: 'diana@test.com',   age: 28, isActive: true,  role: null    },
+      {
+        _id: userIds[0],
+        name: 'Alice',
+        email: 'alice@test.com',
+        age: 30,
+        isActive: true,
+        role: 'admin',
+      },
+      {
+        _id: userIds[1],
+        name: 'Bob',
+        email: 'bob@test.com',
+        age: 25,
+        isActive: true,
+        role: 'user',
+      },
+      {
+        _id: userIds[2],
+        name: 'Charlie',
+        email: 'charlie@test.com',
+        age: 35,
+        isActive: false,
+        role: 'user',
+      },
+      {
+        _id: userIds[3],
+        name: 'Diana',
+        email: 'diana@test.com',
+        age: 28,
+        isActive: true,
+        role: null,
+      },
     ]);
 
     const usersTable = makeTableMeta('users', [
@@ -341,10 +369,7 @@ describe('query engine core (MongoQueryExecutor render-filter parity)', () => {
     });
 
     runOrSkip('multi-column sort', async () => {
-      const rows = await runFilter(
-        {},
-        { sort: ['role', 'age'] as any },
-      );
+      const rows = await runFilter({}, { sort: ['role', 'age'] as any });
       expect(rows.length).toBe(4);
     });
   });

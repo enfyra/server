@@ -84,7 +84,10 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
       ) &&
       payload.ids?.length
     ) {
-      const routeIds = await resolveAffectedRouteIds(payload.table, payload.ids);
+      const routeIds = await resolveAffectedRouteIds(
+        payload.table,
+        payload.ids,
+      );
       if (routeIds.length > 0) {
         reloadSpecificRoutesCalls.push(routeIds);
         return;
@@ -275,9 +278,7 @@ describe('RouteCacheService — partial reload for hooks/handlers/permissions', 
         { id: 9, routePermissions: [{ id: 500 }] },
         { id: 10, routePermissions: [] },
       ];
-      dbRecords.route_permission_definition = [
-        { id: 500, route: { id: 10 } },
-      ];
+      dbRecords.route_permission_definition = [{ id: 500, route: { id: 10 } }];
 
       await applyPartialUpdate({
         table: 'route_permission_definition',

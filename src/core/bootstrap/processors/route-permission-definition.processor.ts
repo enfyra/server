@@ -14,14 +14,12 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformed = { ...record };
-        if (transformed.isEnabled === undefined)
-          transformed.isEnabled = true;
+        if (transformed.isEnabled === undefined) transformed.isEnabled = true;
         if (isMongoDB) {
           const now = new Date();
           if (!transformed.createdAt) transformed.createdAt = now;
           if (!transformed.updatedAt) transformed.updatedAt = now;
-          if (!transformed.allowedUsers)
-            transformed.allowedUsers = [];
+          if (!transformed.allowedUsers) transformed.allowedUsers = [];
         }
 
         const result = await this.autoTransformFkFields(
@@ -37,10 +35,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(
-      record,
-      'route_permission_definition',
-    );
+    return this.autoGetUniqueIdentifier(record, 'route_permission_definition');
   }
 
   protected getCompareFields(): string[] {

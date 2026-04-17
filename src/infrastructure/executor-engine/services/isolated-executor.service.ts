@@ -468,9 +468,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<void> {
     if (signal?.aborted) return;
     try {
-      const result = await (signal
-        ? ioAbortContext.run(signal, fn)
-        : fn());
+      const result = await (signal ? ioAbortContext.run(signal, fn) : fn());
       if (signal?.aborted) return;
       try {
         worker.postMessage({

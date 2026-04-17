@@ -32,12 +32,10 @@ export function resolveMongoJunctionInfo(
     const owningTable = targetTable;
     const owningProp = relation.mappedBy;
     const inverseTable = currentTable;
-    const junctionName = relation.junctionTableName || getJunctionTableName(
-      owningTable,
-      owningProp,
-      inverseTable,
-    );
-    
+    const junctionName =
+      relation.junctionTableName ||
+      getJunctionTableName(owningTable, owningProp, inverseTable);
+
     if (relation.junctionSourceColumn && relation.junctionTargetColumn) {
       return {
         junctionName,
@@ -47,12 +45,8 @@ export function resolveMongoJunctionInfo(
         inverseTable,
       };
     }
-    
-    const cols = getJunctionColumnNames(
-      owningTable,
-      owningProp,
-      inverseTable,
-    );
+
+    const cols = getJunctionColumnNames(owningTable, owningProp, inverseTable);
     return {
       junctionName,
       selfColumn: cols.targetColumn,
@@ -64,12 +58,10 @@ export function resolveMongoJunctionInfo(
 
   const owningTable = currentTable;
   const inverseTable = targetTable;
-  const junctionName = relation.junctionTableName || getJunctionTableName(
-    owningTable,
-    relation.propertyName,
-    inverseTable,
-  );
-  
+  const junctionName =
+    relation.junctionTableName ||
+    getJunctionTableName(owningTable, relation.propertyName, inverseTable);
+
   if (relation.junctionSourceColumn && relation.junctionTargetColumn) {
     return {
       junctionName,
@@ -79,13 +71,13 @@ export function resolveMongoJunctionInfo(
       inverseTable,
     };
   }
-  
+
   const cols = getJunctionColumnNames(
     owningTable,
     relation.propertyName,
     inverseTable,
   );
-  
+
   return {
     junctionName,
     selfColumn: cols.sourceColumn,

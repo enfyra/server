@@ -2,13 +2,15 @@ import { mongoTopologySupportsNativeTransactions } from '../../src/infrastructur
 
 describe('mongoTopologySupportsNativeTransactions', () => {
   it('returns true when hello has non-empty setName (replica set)', () => {
-    expect(mongoTopologySupportsNativeTransactions({ setName: 'rs0', ok: 1 })).toBe(
-      true,
-    );
+    expect(
+      mongoTopologySupportsNativeTransactions({ setName: 'rs0', ok: 1 }),
+    ).toBe(true);
   });
 
   it('returns false when setName is empty string', () => {
-    expect(mongoTopologySupportsNativeTransactions({ setName: '', ok: 1 })).toBe(false);
+    expect(
+      mongoTopologySupportsNativeTransactions({ setName: '', ok: 1 }),
+    ).toBe(false);
   });
 
   it('returns true when hello.msg is isdbgrid (mongos)', () => {

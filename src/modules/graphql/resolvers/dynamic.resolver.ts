@@ -168,9 +168,13 @@ export class DynamicResolver {
       throwGqlError('400', 'Missing table name');
     }
 
-    const isEnabled = await this.gqlDefinitionCache.isEnabledForTable(mainTableName);
+    const isEnabled =
+      await this.gqlDefinitionCache.isEnabledForTable(mainTableName);
     if (!isEnabled) {
-      throwGqlError('404', `GraphQL is not enabled for table: ${mainTableName}`);
+      throwGqlError(
+        '404',
+        `GraphQL is not enabled for table: ${mainTableName}`,
+      );
     }
 
     const routePath = `/${mainTableName}`;

@@ -39,7 +39,11 @@ export function normalizeMongoDocument(doc: any): any {
       normalized[key] = value.toString();
     } else if (value instanceof Date) {
       normalized[key] = value.toISOString();
-    } else if (value && typeof value === 'object' && !(value instanceof Buffer)) {
+    } else if (
+      value &&
+      typeof value === 'object' &&
+      !(value instanceof Buffer)
+    ) {
       if (
         'buffer' in value &&
         value.buffer &&

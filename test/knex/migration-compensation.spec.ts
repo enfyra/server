@@ -50,9 +50,7 @@ describe('MySQL Migration Compensation', () => {
       });
 
       expect(insertedEntries.length).toBe(1);
-      expect(insertedEntries[0].beforeSnapshot).toBe(
-        JSON.stringify(snapshot),
-      );
+      expect(insertedEntries[0].beforeSnapshot).toBe(JSON.stringify(snapshot));
     });
 
     it('record works without beforeSnapshot', async () => {

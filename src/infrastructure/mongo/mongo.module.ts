@@ -6,6 +6,8 @@ import { MongoSagaLockService } from './services/mongo-saga-lock.service';
 import { MongoOperationLogService } from './services/mongo-operation-log.service';
 import { MongoSagaCoordinator } from './services/mongo-saga-coordinator.service';
 import { MongoMigrationJournalService } from './services/mongo-migration-journal.service';
+import { MongoSchemaDiffService } from './services/mongo-schema-diff.service';
+import { MongoRelationManagerService } from './services/mongo-relation-manager.service';
 
 @Global()
 @Module({
@@ -17,6 +19,8 @@ import { MongoMigrationJournalService } from './services/mongo-migration-journal
     MongoOperationLogService,
     MongoSagaCoordinator,
     MongoMigrationJournalService,
+    MongoSchemaDiffService,
+    MongoRelationManagerService,
   ],
   exports: [
     MongoService,
@@ -26,6 +30,8 @@ import { MongoMigrationJournalService } from './services/mongo-migration-journal
     MongoOperationLogService,
     MongoSagaCoordinator,
     MongoMigrationJournalService,
+    MongoSchemaDiffService,
+    MongoRelationManagerService,
   ],
 })
 export class MongoModule {}

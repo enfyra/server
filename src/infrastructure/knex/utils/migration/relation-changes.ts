@@ -5,59 +5,9 @@ import {
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../sql-schema-naming.util';
+import { getPrimaryKeyTypeForTable } from './pk-type.util';
 
 const logger = new Logger('RelationChanges');
-
-async function getPrimaryKeyTypeForTable(
-  knex: Knex,
-  tableName: string,
-  metadataCacheService?: any,
-): Promise<'uuid' | 'int'> {
-  try {
-    if (metadataCacheService) {
-      const targetMetadata =
-        await metadataCacheService.lookupTableByName(tableName);
-      if (targetMetadata) {
-        const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
-        if (pkColumn) {
-          const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
-            ? 'uuid'
-            : 'int';
-        }
-      }
-    }
-
-    const pkInfo = await knex('column_definition')
-      .join(
-        'table_definition',
-        'column_definition.table',
-        '=',
-        'table_definition.id',
-      )
-      .where('table_definition.name', tableName)
-      .where('column_definition.isPrimary', true)
-      .select('column_definition.type')
-      .first();
-
-    if (pkInfo) {
-      const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
-        ? 'uuid'
-        : 'int';
-    }
-
-    logger.warn(
-      `Could not find primary key for table ${tableName}, defaulting to int`,
-    );
-    return 'int';
-  } catch (error) {
-    logger.warn(
-      `Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`,
-    );
-    return 'int';
-  }
-}
 
 async function validateFkColumnNotConflict(
   fkColumnName: string,
@@ -185,16 +135,23 @@ export async function analyzeRelationChanges(
   });
 
   const oldRelMap = new Map(oldRelations.map((r) => [r.id, r]));
+  const oldRelNames = new Set(oldRelations.map((r) => r.propertyName));
   const newRelMap = new Map(newRelations.map((r) => [r.id, r]));
 
   const deletedRelIds = oldRelations
-    .filter((r) => !newRelMap.has(r.id))
+    .filter((r) => r.id != null && !newRelMap.has(r.id))
     .map((r) => r.id);
 
-  const createdRelIds = newRelations
-    .filter((r) => r.id !== undefined && r.id !== null && !oldRelMap.has(r.id))
+  const createdRels = newRelations.filter((r) => {
+    if (r.id != null) return !oldRelMap.has(r.id);
+    return !oldRelNames.has(r.propertyName);
+  });
+  const createdRelIds = createdRels
+    .filter((r) => r.id != null)
     .map((r) => r.id)
     .filter((id, index, self) => self.indexOf(id) === index);
+
+  const createdRelsWithoutId = createdRels.filter((r) => r.id == null);
 
   await handleDeletedRelations(
     knex,
@@ -211,6 +168,7 @@ export async function analyzeRelationChanges(
     tableName,
     newColumns,
     metadataCacheService,
+    createdRelsWithoutId,
   );
   await handleUpdatedRelations(
     knex,
@@ -285,11 +243,15 @@ async function handleCreatedRelations(
   tableName: string,
   newColumns: any[],
   metadataCacheService?: any,
+  createdRelsWithoutId?: any[],
 ): Promise<void> {
-  for (const relId of createdRelIds) {
-    const rel = newRelations.find((r) => r.id === relId);
-    if (!rel) continue;
-
+  const allCreated: any[] = [
+    ...createdRelIds
+      .map((relId) => newRelations.find((r) => r.id === relId))
+      .filter(Boolean),
+    ...(createdRelsWithoutId || []),
+  ];
+  for (const rel of allCreated) {
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
       const fkColumn = getForeignKeyColumnName(rel.propertyName);
 
@@ -409,8 +371,7 @@ async function handleUpdatedRelations(
 
     const changes: string[] = [];
     const propertyNameChanged = oldRel.propertyName !== newRel.propertyName;
-    const mappedByChanged =
-      oldRel.mappedBy !== newRel.mappedBy;
+    const mappedByChanged = oldRel.mappedBy !== newRel.mappedBy;
     const typeChanged = oldRel.type !== newRel.type;
     const targetTableChanged =
       oldRel.targetTableName !== newRel.targetTableName;
@@ -427,9 +388,7 @@ async function handleUpdatedRelations(
         `target: ${oldRel.targetTableName} → ${newRel.targetTableName}`,
       );
     if (mappedByChanged)
-      changes.push(
-        `mappedBy: ${oldRel.mappedBy} → ${newRel.mappedBy}`,
-      );
+      changes.push(`mappedBy: ${oldRel.mappedBy} → ${newRel.mappedBy}`);
     if (isNullableChanged)
       changes.push(`nullable: ${oldRel.isNullable} → ${newRel.isNullable}`);
     if (onDeleteChanged)
@@ -508,15 +467,12 @@ async function handleRelationPropertyNameChange(
     }
   } else if (relationType === 'one-to-many' && mappedByChanged) {
     if (!oldRel.mappedBy || !newRel.mappedBy) {
-      logger.warn(
-        `  O2M relation missing mappedBy, cannot rename FK column`,
-      );
+      logger.warn(`  O2M relation missing mappedBy, cannot rename FK column`);
       return;
     }
 
     const oldFkColumn =
-      oldRel.foreignKeyColumn ||
-      getForeignKeyColumnName(oldRel.mappedBy);
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
     const newFkColumn = getForeignKeyColumnName(newRel.mappedBy);
 
     if (oldFkColumn !== newFkColumn) {
@@ -663,8 +619,7 @@ async function handleRelationTypeChange(
       );
     }
     const oldFkColumn =
-      oldRel.foreignKeyColumn ||
-      getForeignKeyColumnName(oldRel.mappedBy);
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,
@@ -767,8 +722,7 @@ async function handleRelationTypeChange(
       );
     }
     const oldFkColumn =
-      oldRel.foreignKeyColumn ||
-      getForeignKeyColumnName(oldRel.mappedBy);
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
     diff.crossTableOperations.push({
       operation: 'dropColumn',
       targetTable: oldRel.targetTableName,

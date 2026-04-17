@@ -6,7 +6,9 @@ describe('EnfyraRouteEngine – URI decode safety', () => {
   beforeEach(() => {
     engine = new EnfyraRouteEngine();
     engine.insert('GET', '/items/:id', { name: 'item-route' });
-    engine.insert('GET', '/users/:userId/posts/:postId', { name: 'user-posts' });
+    engine.insert('GET', '/users/:userId/posts/:postId', {
+      name: 'user-posts',
+    });
   });
 
   describe('malformed URI segments', () => {

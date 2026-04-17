@@ -127,7 +127,10 @@ export class MongoSagaLockService {
     }
     if (!lockIndexNames.has('expiresAt_1')) {
       try {
-        await locksCollection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+        await locksCollection.createIndex(
+          { expiresAt: 1 },
+          { expireAfterSeconds: 0 },
+        );
       } catch {}
     }
 
@@ -142,7 +145,10 @@ export class MongoSagaLockService {
     }
     if (!metaIndexNames.has('expiresAt_1')) {
       try {
-        await metaCollection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+        await metaCollection.createIndex(
+          { expiresAt: 1 },
+          { expireAfterSeconds: 0 },
+        );
       } catch {}
     }
     if (!metaIndexNames.has('status_1')) {
@@ -155,11 +161,15 @@ export class MongoSagaLockService {
   }
 
   private getLocksCollection(): Collection<IResourceLock> {
-    return this.mongoService.getDb().collection<IResourceLock>(this.locksCollectionName);
+    return this.mongoService
+      .getDb()
+      .collection<IResourceLock>(this.locksCollectionName);
   }
 
   private getMetaCollection(): Collection<ITransactionMetadata> {
-    return this.mongoService.getDb().collection<ITransactionMetadata>(this.txMetaCollectionName);
+    return this.mongoService
+      .getDb()
+      .collection<ITransactionMetadata>(this.txMetaCollectionName);
   }
 
   async beginTransaction(): Promise<string> {
@@ -236,7 +246,11 @@ export class MongoSagaLockService {
 
         while (!acquired && attempts < maxRetries) {
           try {
-            acquired = await this.tryAcquireSingleLock(txId, resource, resourceKey);
+            acquired = await this.tryAcquireSingleLock(
+              txId,
+              resource,
+              resourceKey,
+            );
             if (acquired) {
               acquiredLocks.push(resourceKey);
             }
@@ -255,7 +269,14 @@ export class MongoSagaLockService {
             success: false,
             txId,
             acquiredLocks: [],
-            failedLocks: [...failedLocks, ...sortedResources.map((r) => `${r.type}:${r.id}`).filter((k) => !acquiredLocks.includes(k) && !failedLocks.includes(k))],
+            failedLocks: [
+              ...failedLocks,
+              ...sortedResources
+                .map((r) => `${r.type}:${r.id}`)
+                .filter(
+                  (k) => !acquiredLocks.includes(k) && !failedLocks.includes(k),
+                ),
+            ],
             error: `Failed to acquire lock for ${resourceKey} after ${maxRetries} attempts`,
           };
         }
@@ -413,7 +434,9 @@ export class MongoSagaLockService {
     }));
 
     try {
-      await this.getLocksCollection().insertMany(lockDocs as any[], { ordered: false });
+      await this.getLocksCollection().insertMany(lockDocs as any[], {
+        ordered: false,
+      });
     } catch (error: any) {
       if (error.code === 11000) {
         return {
@@ -443,7 +466,10 @@ export class MongoSagaLockService {
     };
   }
 
-  async releaseLocks(txId: string, specificResourceKeys?: string[]): Promise<void> {
+  async releaseLocks(
+    txId: string,
+    specificResourceKeys?: string[],
+  ): Promise<void> {
     try {
       const query: any = { txId };
       if (specificResourceKeys && specificResourceKeys.length > 0) {
@@ -483,7 +509,10 @@ export class MongoSagaLockService {
 
       this.logger.debug(`[${txId}] Transaction committed`);
     } catch (error) {
-      throw new DatabaseException(`Failed to commit transaction: ${error.message}`, { txId });
+      throw new DatabaseException(
+        `Failed to commit transaction: ${error.message}`,
+        { txId },
+      );
     }
   }
 
@@ -503,9 +532,13 @@ export class MongoSagaLockService {
 
       await this.releaseLocks(txId);
 
-      this.logger.debug(`[${txId}] Transaction aborted${reason ? `: ${reason}` : ''}`);
+      this.logger.debug(
+        `[${txId}] Transaction aborted${reason ? `: ${reason}` : ''}`,
+      );
     } catch (error) {
-      this.logger.error(`[${txId}] Failed to abort transaction: ${error.message}`);
+      this.logger.error(
+        `[${txId}] Failed to abort transaction: ${error.message}`,
+      );
     }
   }
 
@@ -532,12 +565,18 @@ export class MongoSagaLockService {
             .toArray();
 
           for (const blockingLock of blockingLocks) {
-            if (blockingLock.lockMode === 'write' || lock.lockMode === 'write') {
+            if (
+              blockingLock.lockMode === 'write' ||
+              lock.lockMode === 'write'
+            ) {
               const blockingTx = await this.getMetaCollection().findOne({
                 txId: blockingLock.txId,
               });
 
-              if (blockingTx && blockingTx.lastActivityAt < new Date(Date.now() - 30000)) {
+              if (
+                blockingTx &&
+                blockingTx.lastActivityAt < new Date(Date.now() - 30000)
+              ) {
                 deadlocks.push([tx.txId, blockingTx.txId]);
               }
             }
@@ -575,7 +614,9 @@ export class MongoSagaLockService {
     return this.getMetaCollection().findOne({ txId });
   }
 
-  async getOrphanMarkerRecoveryPlan(txId: string): Promise<IOrphanMarkerRecoveryPlan> {
+  async getOrphanMarkerRecoveryPlan(
+    txId: string,
+  ): Promise<IOrphanMarkerRecoveryPlan> {
     await this.ensureCollections();
     const meta = await this.getSagaStatus(txId);
     if (!meta) {
@@ -595,7 +636,10 @@ export class MongoSagaLockService {
     return { shouldUnsetMarkers: false, needsRollbackFirst: false };
   }
 
-  async isResourceLocked(resourceType: string, resourceId: string): Promise<boolean> {
+  async isResourceLocked(
+    resourceType: string,
+    resourceId: string,
+  ): Promise<boolean> {
     const resourceKey = `${resourceType}:${resourceId}`;
     const lock = await this.getLocksCollection().findOne({
       resourceKey,

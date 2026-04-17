@@ -1,7 +1,4 @@
-import {
-  FilterNode,
-  ComparisonNode,
-} from '../../planner/types/filter-ast';
+import { FilterNode, ComparisonNode } from '../../planner/types/filter-ast';
 import { getMongoFoldTextSearchJs } from '../../../../shared/utils/mongo-fold-text-search';
 import { convertValueByType } from './type-converter';
 import { parseFilter } from '../../planner/filter-parser';
@@ -127,7 +124,11 @@ function applyComparison(
     case 'neq': {
       const conv = v(node.value);
       if (isNullableColumn(ctx, fieldName)) {
-        mergeAnd(container, { [fieldName]: { $ne: null } }, { [fieldName]: { $ne: conv } });
+        mergeAnd(
+          container,
+          { [fieldName]: { $ne: null } },
+          { [fieldName]: { $ne: conv } },
+        );
       } else {
         assignField(container, fieldName, { $ne: conv });
       }
@@ -182,13 +183,28 @@ function applyComparison(
       );
       return;
     case 'contains':
-      appendFoldTextSearchExpr(container, fieldName, String(node.value), 'contains');
+      appendFoldTextSearchExpr(
+        container,
+        fieldName,
+        String(node.value),
+        'contains',
+      );
       return;
     case 'starts_with':
-      appendFoldTextSearchExpr(container, fieldName, String(node.value), 'starts');
+      appendFoldTextSearchExpr(
+        container,
+        fieldName,
+        String(node.value),
+        'starts',
+      );
       return;
     case 'ends_with':
-      appendFoldTextSearchExpr(container, fieldName, String(node.value), 'ends');
+      appendFoldTextSearchExpr(
+        container,
+        fieldName,
+        String(node.value),
+        'ends',
+      );
       return;
   }
 }

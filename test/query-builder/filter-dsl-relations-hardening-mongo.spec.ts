@@ -100,12 +100,42 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
       { _id: userIds[2], name: 'carol' },
     ]);
     await db.collection('extension').insertMany([
-      { _id: extIds[0], title: 'alpha', prio: 10, menu: menuIds[1], owner: userIds[0] },
-      { _id: extIds[1], title: 'beta', prio: 20, menu: menuIds[1], owner: userIds[1] },
-      { _id: extIds[2], title: 'gamma_chunk', prio: 5, menu: menuIds[2], owner: userIds[0] },
+      {
+        _id: extIds[0],
+        title: 'alpha',
+        prio: 10,
+        menu: menuIds[1],
+        owner: userIds[0],
+      },
+      {
+        _id: extIds[1],
+        title: 'beta',
+        prio: 20,
+        menu: menuIds[1],
+        owner: userIds[1],
+      },
+      {
+        _id: extIds[2],
+        title: 'gamma_chunk',
+        prio: 5,
+        menu: menuIds[2],
+        owner: userIds[0],
+      },
       { _id: extIds[3], title: 'delta', prio: 0, menu: null, owner: null },
-      { _id: extIds[4], title: 'unicode_你好', prio: 7, menu: menuIds[2], owner: userIds[2] },
-      { _id: extIds[5], title: 'Résumé', prio: 8, menu: menuIds[1], owner: userIds[1] },
+      {
+        _id: extIds[4],
+        title: 'unicode_你好',
+        prio: 7,
+        menu: menuIds[2],
+        owner: userIds[2],
+      },
+      {
+        _id: extIds[5],
+        title: 'Résumé',
+        prio: 8,
+        menu: menuIds[1],
+        owner: userIds[1],
+      },
     ]);
 
     const menuTable = makeTableMeta('menu', ['_id', 'label'], []);
@@ -167,9 +197,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     };
     const plan = planner.plan(base);
     const r = await executor.execute({ ...base, plan });
-    return (r.data as any[])
-      .map((x) => String(x._id))
-      .sort();
+    return (r.data as any[]).map((x) => String(x._id)).sort();
   }
 
   function runOrSkip(name: string, fn: () => Promise<void>) {
@@ -186,10 +214,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
 
   runOrSkip('_and: menu eq m88 and id neq ext[0]', async () => {
     const ids = await rowIds({
-      _and: [
-        { menu: { label: { _eq: 'm88' } } },
-        { _id: { _neq: extIds[0] } },
-      ],
+      _and: [{ menu: { label: { _eq: 'm88' } } }, { _id: { _neq: extIds[0] } }],
     });
     // rows with menu m88: 0,1,5; minus 0 → 1, 5
     expect(ids).toEqual(idxs([1, 5]));
@@ -251,16 +276,22 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     expect(await rowIds({ menu: { _is_null: true } })).toEqual(idxs([3]));
   });
 
-  runOrSkip('menu _in [m88,m99] returns all non-null-menu rows except ext with m1', async () => {
-    const ids = await rowIds({ menu: { _in: [menuIds[1], menuIds[2]] } });
-    expect(ids).toEqual(idxs([0, 1, 2, 4, 5]));
-  });
+  runOrSkip(
+    'menu _in [m88,m99] returns all non-null-menu rows except ext with m1',
+    async () => {
+      const ids = await rowIds({ menu: { _in: [menuIds[1], menuIds[2]] } });
+      expect(ids).toEqual(idxs([0, 1, 2, 4, 5]));
+    },
+  );
 
-  runOrSkip('menu._not_in [m88]: excludes NULL FK (Mongo parity with SQL NOT IN)', async () => {
-    const ids = await rowIds({ menu: { _not_in: [menuIds[1]] } });
-    // excludes [0,1,5] AND excludes [3] (null FK, same SQL NOT IN semantics)
-    expect(ids).toEqual(idxs([2, 4]));
-  });
+  runOrSkip(
+    'menu._not_in [m88]: excludes NULL FK (Mongo parity with SQL NOT IN)',
+    async () => {
+      const ids = await rowIds({ menu: { _not_in: [menuIds[1]] } });
+      // excludes [0,1,5] AND excludes [3] (null FK, same SQL NOT IN semantics)
+      expect(ids).toEqual(idxs([2, 4]));
+    },
+  );
 
   runOrSkip('owner _is_null → row 3 only', async () => {
     expect(await rowIds({ owner: { _is_null: true } })).toEqual(idxs([3]));
@@ -292,12 +323,15 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     expect(ids).toEqual(idxs([0]));
   });
 
-  runOrSkip('_or relation vs field: menu=m99 or title=delta → [2,3,4]', async () => {
-    const ids = await rowIds({
-      _or: [{ menu: { label: { _eq: 'm99' } } }, { title: { _eq: 'delta' } }],
-    });
-    expect(ids).toEqual(idxs([2, 3, 4]));
-  });
+  runOrSkip(
+    '_or relation vs field: menu=m99 or title=delta → [2,3,4]',
+    async () => {
+      const ids = await rowIds({
+        _or: [{ menu: { label: { _eq: 'm99' } } }, { title: { _eq: 'delta' } }],
+      });
+      expect(ids).toEqual(idxs([2, 3, 4]));
+    },
+  );
 
   // --- field operators ---
 
@@ -311,7 +345,9 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
   });
 
   runOrSkip('title _starts_with beta → [1]', async () => {
-    expect(await rowIds({ title: { _starts_with: 'beta' } })).toEqual(idxs([1]));
+    expect(await rowIds({ title: { _starts_with: 'beta' } })).toEqual(
+      idxs([1]),
+    );
   });
 
   runOrSkip('title _ends_with unicode suffix → [4]', async () => {
@@ -330,42 +366,54 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
 
   // --- _not combinations ---
 
-  runOrSkip('_not on single relation shorthand: not menu=m88 → rows not linked to m88', async () => {
-    const ids = await rowIds({
-      _not: { menu: { label: { _eq: 'm88' } } },
-    });
-    expect(ids).toEqual(idxs([2, 3, 4]));
-  });
+  runOrSkip(
+    '_not on single relation shorthand: not menu=m88 → rows not linked to m88',
+    async () => {
+      const ids = await rowIds({
+        _not: { menu: { label: { _eq: 'm88' } } },
+      });
+      expect(ids).toEqual(idxs([2, 3, 4]));
+    },
+  );
 
-  runOrSkip('_not + _and field + relation: NOT (id=ext[1] ∧ menu=m88) → all but [1]', async () => {
-    const ids = await rowIds({
-      _not: {
-        _and: [
-          { _id: { _eq: extIds[1] } },
-          { menu: { label: { _eq: 'm88' } } },
-        ],
-      },
-    });
-    expect(ids).toEqual(idxs([0, 2, 3, 4, 5]));
-  });
+  runOrSkip(
+    '_not + _and field + relation: NOT (id=ext[1] ∧ menu=m88) → all but [1]',
+    async () => {
+      const ids = await rowIds({
+        _not: {
+          _and: [
+            { _id: { _eq: extIds[1] } },
+            { menu: { label: { _eq: 'm88' } } },
+          ],
+        },
+      });
+      expect(ids).toEqual(idxs([0, 2, 3, 4, 5]));
+    },
+  );
 
-  runOrSkip('_not + _or field only: NOT (id=[0] ∨ id=[1]) → [2,3,4,5]', async () => {
-    const ids = await rowIds({
-      _not: {
-        _or: [{ _id: { _eq: extIds[0] } }, { _id: { _eq: extIds[1] } }],
-      },
-    });
-    expect(ids).toEqual(idxs([2, 3, 4, 5]));
-  });
+  runOrSkip(
+    '_not + _or field only: NOT (id=[0] ∨ id=[1]) → [2,3,4,5]',
+    async () => {
+      const ids = await rowIds({
+        _not: {
+          _or: [{ _id: { _eq: extIds[0] } }, { _id: { _eq: extIds[1] } }],
+        },
+      });
+      expect(ids).toEqual(idxs([2, 3, 4, 5]));
+    },
+  );
 
-  runOrSkip('_not + _or relations: NOT (menu=m88 ∨ menu=m99) → [3]', async () => {
-    const ids = await rowIds({
-      _not: {
-        _or: [{ menu: { _eq: menuIds[1] } }, { menu: { _eq: menuIds[2] } }],
-      },
-    });
-    expect(ids).toEqual(idxs([3]));
-  });
+  runOrSkip(
+    '_not + _or relations: NOT (menu=m88 ∨ menu=m99) → [3]',
+    async () => {
+      const ids = await rowIds({
+        _not: {
+          _or: [{ menu: { _eq: menuIds[1] } }, { menu: { _eq: menuIds[2] } }],
+        },
+      });
+      expect(ids).toEqual(idxs([3]));
+    },
+  );
 
   // --- combined deep _or/_and ---
 
@@ -387,10 +435,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     const ids = await rowIds({
       _and: [
         {
-          _or: [
-            { _id: { _eq: extIds[0] } },
-            { menu: { _eq: menuIds[2] } },
-          ],
+          _or: [{ _id: { _eq: extIds[0] } }, { menu: { _eq: menuIds[2] } }],
         },
       ],
     });
@@ -401,10 +446,7 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
     const ids = await rowIds({
       _and: [
         {
-          _or: [
-            { _id: { _eq: extIds[1] } },
-            { menu: { _eq: menuIds[2] } },
-          ],
+          _or: [{ _id: { _eq: extIds[1] } }, { menu: { _eq: menuIds[2] } }],
         },
         { owner: { _eq: userIds[0] } },
       ],
@@ -452,7 +494,9 @@ describe('filter DSL relations hardening (MongoQueryExecutor parity)', () => {
 
   runOrSkip('id._in huge array still works', async () => {
     const noise = Array.from({ length: 5000 }, () => new ObjectId());
-    const ids = await rowIds({ _id: { _in: [...noise, extIds[0], extIds[2]] } });
+    const ids = await rowIds({
+      _id: { _in: [...noise, extIds[0], extIds[2]] },
+    });
     expect(ids).toEqual(idxs([0, 2]));
   });
 

@@ -106,7 +106,9 @@ export class DynamicRepository {
     if (!this.fieldPermissionCacheService) return;
     if (this.context?.$user?.isRootAdmin) return;
 
-    const meta = await this.metadataCacheService.lookupTableByName(this.tableName);
+    const meta = await this.metadataCacheService.lookupTableByName(
+      this.tableName,
+    );
     if (!meta) return;
 
     const policies = await this.fieldPermissionCacheService.getPoliciesFor(
@@ -122,7 +124,10 @@ export class DynamicRepository {
       for (const r of p.unconditionalAllowedRelations) allowedRelations.add(r);
     }
 
-    const deniedQueryFields: Array<{ type: 'column' | 'relation'; name: string }> = [];
+    const deniedQueryFields: Array<{
+      type: 'column' | 'relation';
+      name: string;
+    }> = [];
 
     const checkColumn = (name: string) => {
       const col = meta.columns?.find((c: any) => c.name === name);
@@ -168,7 +173,10 @@ export class DynamicRepository {
     const sortArr = Array.isArray(sort)
       ? sort
       : typeof sort === 'string'
-        ? sort.split(',').map((s) => s.trim()).filter(Boolean)
+        ? sort
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
         : [];
     for (const s of sortArr) {
       const clean = s.startsWith('-') ? s.slice(1) : s;
@@ -217,8 +225,13 @@ export class DynamicRepository {
       for (const r of p.rules) {
         if (r.condition == null) continue;
         if (r.tableName !== tableName || r.action !== action) continue;
-        if (subjectType === 'column' && r.columnName === subjectName) return true;
-        if (subjectType === 'relation' && r.relationPropertyName === subjectName) return true;
+        if (subjectType === 'column' && r.columnName === subjectName)
+          return true;
+        if (
+          subjectType === 'relation' &&
+          r.relationPropertyName === subjectName
+        )
+          return true;
       }
     }
     return false;
@@ -228,11 +241,14 @@ export class DynamicRepository {
     tableName: string,
     fields: string | string[] | undefined,
     deep: Record<string, any> | undefined,
-  ): Promise<{ fields: string | string[] | undefined; deep: Record<string, any> | undefined; needsPostSql: boolean }> {
+  ): Promise<{
+    fields: string | string[] | undefined;
+    deep: Record<string, any> | undefined;
+    needsPostSql: boolean;
+  }> {
     if (!this.enforceFieldPermission || !this.fieldPermissionCacheService) {
       return { fields, deep, needsPostSql: false };
     }
-
 
     const meta = await this.metadataCacheService.lookupTableByName(tableName);
     if (!meta) return { fields, deep, needsPostSql: false };
@@ -257,7 +273,10 @@ export class DynamicRepository {
     } else {
       fieldsArr =
         typeof fields === 'string'
-          ? fields.split(',').map((s) => s.trim()).filter(Boolean)
+          ? fields
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
           : [...(fields as string[])];
     }
 
@@ -293,7 +312,12 @@ export class DynamicRepository {
         if (defaultAllowed) {
           deniedColumns.add(colName);
         } else {
-          const hasConditional = await this.hasConditionalRulesForField(tableName, 'read', 'column', colName);
+          const hasConditional = await this.hasConditionalRulesForField(
+            tableName,
+            'read',
+            'column',
+            colName,
+          );
           if (!hasConditional) deniedColumns.add(colName);
           else hasConditionalPending = true;
         }
@@ -302,7 +326,9 @@ export class DynamicRepository {
 
     const deniedRelations = new Set<string>();
     for (const relName of relationsToCheck) {
-      const rel = (meta.relations || []).find((r: any) => r.propertyName === relName);
+      const rel = (meta.relations || []).find(
+        (r: any) => r.propertyName === relName,
+      );
       const defaultAllowed = rel?.isPublished !== false;
       const decision = await decideFieldPermission(
         this.fieldPermissionCacheService,
@@ -320,7 +346,12 @@ export class DynamicRepository {
         if (defaultAllowed) {
           deniedRelations.add(relName);
         } else {
-          const hasConditional = await this.hasConditionalRulesForField(tableName, 'read', 'relation', relName);
+          const hasConditional = await this.hasConditionalRulesForField(
+            tableName,
+            'read',
+            'relation',
+            relName,
+          );
           if (!hasConditional) deniedRelations.add(relName);
           else hasConditionalPending = true;
         }
@@ -340,7 +371,9 @@ export class DynamicRepository {
         ? cleanFieldsArr.join(',')
         : cleanFieldsArr;
 
-    let cleanDeep: Record<string, any> | undefined = deep ? { ...deep } : undefined;
+    const cleanDeep: Record<string, any> | undefined = deep
+      ? { ...deep }
+      : undefined;
     if (cleanDeep) {
       for (const rel of deniedRelations) {
         delete cleanDeep[rel];
@@ -362,13 +395,19 @@ export class DynamicRepository {
         if (nested.needsPostSql) hasConditionalPending = true;
         cleanDeep[relName] = {
           ...relEntry,
-          ...(nested.fields !== relEntry.fields ? { fields: nested.fields } : {}),
+          ...(nested.fields !== relEntry.fields
+            ? { fields: nested.fields }
+            : {}),
           ...(nested.deep !== relEntry.deep ? { deep: nested.deep } : {}),
         };
       }
     }
 
-    return { fields: cleanFields, deep: cleanDeep, needsPostSql: hasConditionalPending };
+    return {
+      fields: cleanFields,
+      deep: cleanDeep,
+      needsPostSql: hasConditionalPending,
+    };
   }
 
   async find(
@@ -386,11 +425,11 @@ export class DynamicRepository {
 
     const rawFields = opt?.fields || this.context.$query?.fields;
     const rawDeep: Record<string, any> = this.context.$query?.deep || {};
-    const { fields: cleanFields, deep: cleanDeep, needsPostSql } = await this.stripDeniedFields(
-      this.tableName,
-      rawFields,
-      rawDeep,
-    );
+    const {
+      fields: cleanFields,
+      deep: cleanDeep,
+      needsPostSql,
+    } = await this.stripDeniedFields(this.tableName, rawFields, rawDeep);
 
     const debugMode =
       this.context.$query?.debugMode === 'true' ||
@@ -450,55 +489,62 @@ export class DynamicRepository {
       if (this.enforceFieldPermission && this.fieldPermissionCacheService) {
         if (this.context?.$user?.isRootAdmin) {
         } else {
-        const meta = await this.metadataCacheService.lookupTableByName(this.tableName);
-        if (meta) {
-          const denied: Array<{ type: 'column' | 'relation'; name: string }> = [];
-          for (const key of Object.keys(body)) {
-            const col = meta.columns?.find((c: any) => c.name === key);
-            if (col) {
-              const defaultAllowed = col.isPublished !== false;
-              const decision = await decideFieldPermission(
-                this.fieldPermissionCacheService,
-                {
-                  user: this.context.$user,
-                  tableName: this.tableName,
-                  action: 'create',
-                  subjectType: 'column',
-                  subjectName: key,
-                  record: body,
-                },
-                { defaultAllowed },
+          const meta = await this.metadataCacheService.lookupTableByName(
+            this.tableName,
+          );
+          if (meta) {
+            const denied: Array<{ type: 'column' | 'relation'; name: string }> =
+              [];
+            for (const key of Object.keys(body)) {
+              const col = meta.columns?.find((c: any) => c.name === key);
+              if (col) {
+                const defaultAllowed = col.isPublished !== false;
+                const decision = await decideFieldPermission(
+                  this.fieldPermissionCacheService,
+                  {
+                    user: this.context.$user,
+                    tableName: this.tableName,
+                    action: 'create',
+                    subjectType: 'column',
+                    subjectName: key,
+                    record: body,
+                  },
+                  { defaultAllowed },
+                );
+                if (!decision.allowed)
+                  denied.push({ type: 'column', name: key });
+              }
+              const rel = meta.relations?.find(
+                (r: any) => r.propertyName === key,
               );
-              if (!decision.allowed) denied.push({ type: 'column', name: key });
+              if (rel) {
+                const defaultAllowed = rel.isPublished !== false;
+                const decision = await decideFieldPermission(
+                  this.fieldPermissionCacheService,
+                  {
+                    user: this.context.$user,
+                    tableName: this.tableName,
+                    action: 'create',
+                    subjectType: 'relation',
+                    subjectName: key,
+                    record: body,
+                  },
+                  { defaultAllowed },
+                );
+                if (!decision.allowed)
+                  denied.push({ type: 'relation', name: key });
+              }
             }
-            const rel = meta.relations?.find((r: any) => r.propertyName === key);
-            if (rel) {
-              const defaultAllowed = rel.isPublished !== false;
-              const decision = await decideFieldPermission(
-                this.fieldPermissionCacheService,
-                {
-                  user: this.context.$user,
-                  tableName: this.tableName,
+            if (denied.length > 0) {
+              throw new ForbiddenException(
+                formatFieldPermissionErrorMessage({
                   action: 'create',
-                  subjectType: 'relation',
-                  subjectName: key,
-                  record: body,
-                },
-                { defaultAllowed },
+                  tableName: this.tableName,
+                  fields: denied,
+                }),
               );
-              if (!decision.allowed) denied.push({ type: 'relation', name: key });
             }
           }
-          if (denied.length > 0) {
-            throw new ForbiddenException(
-              formatFieldPermissionErrorMessage({
-                action: 'create',
-                tableName: this.tableName,
-                fields: denied,
-              }),
-            );
-          }
-        }
         }
       }
 
@@ -519,11 +565,7 @@ export class DynamicRepository {
       }
       if (this.tableName === 'route_definition') {
         this.filterMethodsSubsetOfAvailable(body, null, 'publishedMethods');
-        this.filterMethodsSubsetOfAvailable(
-          body,
-          null,
-          'skipRoleGuardMethods',
-        );
+        this.filterMethodsSubsetOfAvailable(body, null, 'skipRoleGuardMethods');
       }
       if (this.tableName === 'extension_definition' && body.code) {
         const { processExtensionDefinition } =
@@ -617,55 +659,62 @@ export class DynamicRepository {
       if (this.enforceFieldPermission && this.fieldPermissionCacheService) {
         if (this.context?.$user?.isRootAdmin) {
         } else {
-        const meta = await this.metadataCacheService.lookupTableByName(this.tableName);
-        if (meta) {
-          const denied: Array<{ type: 'column' | 'relation'; name: string }> = [];
-          for (const key of Object.keys(body || {})) {
-            const col = meta.columns?.find((c: any) => c.name === key);
-            if (col) {
-              const defaultAllowed = col.isPublished !== false;
-              const decision = await decideFieldPermission(
-                this.fieldPermissionCacheService,
-                {
-                  user: this.context.$user,
-                  tableName: this.tableName,
-                  action: 'update',
-                  subjectType: 'column',
-                  subjectName: key,
-                  record: exists,
-                },
-                { defaultAllowed },
+          const meta = await this.metadataCacheService.lookupTableByName(
+            this.tableName,
+          );
+          if (meta) {
+            const denied: Array<{ type: 'column' | 'relation'; name: string }> =
+              [];
+            for (const key of Object.keys(body || {})) {
+              const col = meta.columns?.find((c: any) => c.name === key);
+              if (col) {
+                const defaultAllowed = col.isPublished !== false;
+                const decision = await decideFieldPermission(
+                  this.fieldPermissionCacheService,
+                  {
+                    user: this.context.$user,
+                    tableName: this.tableName,
+                    action: 'update',
+                    subjectType: 'column',
+                    subjectName: key,
+                    record: exists,
+                  },
+                  { defaultAllowed },
+                );
+                if (!decision.allowed)
+                  denied.push({ type: 'column', name: key });
+              }
+              const rel = meta.relations?.find(
+                (r: any) => r.propertyName === key,
               );
-              if (!decision.allowed) denied.push({ type: 'column', name: key });
+              if (rel) {
+                const defaultAllowed = rel.isPublished !== false;
+                const decision = await decideFieldPermission(
+                  this.fieldPermissionCacheService,
+                  {
+                    user: this.context.$user,
+                    tableName: this.tableName,
+                    action: 'update',
+                    subjectType: 'relation',
+                    subjectName: key,
+                    record: exists,
+                  },
+                  { defaultAllowed },
+                );
+                if (!decision.allowed)
+                  denied.push({ type: 'relation', name: key });
+              }
             }
-            const rel = meta.relations?.find((r: any) => r.propertyName === key);
-            if (rel) {
-              const defaultAllowed = rel.isPublished !== false;
-              const decision = await decideFieldPermission(
-                this.fieldPermissionCacheService,
-                {
-                  user: this.context.$user,
-                  tableName: this.tableName,
+            if (denied.length > 0) {
+              throw new ForbiddenException(
+                formatFieldPermissionErrorMessage({
                   action: 'update',
-                  subjectType: 'relation',
-                  subjectName: key,
-                  record: exists,
-                },
-                { defaultAllowed },
+                  tableName: this.tableName,
+                  fields: denied,
+                }),
               );
-              if (!decision.allowed) denied.push({ type: 'relation', name: key });
             }
           }
-          if (denied.length > 0) {
-            throw new ForbiddenException(
-              formatFieldPermissionErrorMessage({
-                action: 'update',
-                tableName: this.tableName,
-                fields: denied,
-              }),
-            );
-          }
-        }
         }
       }
 
@@ -768,7 +817,10 @@ export class DynamicRepository {
         throw new BadRequestException(deleteDecision.message);
       }
       if (this.tableName === 'table_definition') {
-        const deleted: any = await this.tableHandlerService.delete(id, this.context);
+        const deleted: any = await this.tableHandlerService.delete(
+          id,
+          this.context,
+        );
         await this.reload({
           ids: [id],
           affectedTables: deleted?.affectedTables,
@@ -848,7 +900,8 @@ export class DynamicRepository {
     action: 'create' | 'update',
     data: any,
   ): Promise<void> {
-    if (!this.enforceFieldPermission || !this.fieldPermissionCacheService) return;
+    if (!this.enforceFieldPermission || !this.fieldPermissionCacheService)
+      return;
     const meta = await this.metadataCacheService.lookupTableByName(tableName);
     if (!meta) return;
     const denied: Array<{ type: 'column' | 'relation'; name: string }> = [];
@@ -888,7 +941,11 @@ export class DynamicRepository {
     }
     if (denied.length > 0) {
       throw new ForbiddenException(
-        formatFieldPermissionErrorMessage({ action, tableName, fields: denied }),
+        formatFieldPermissionErrorMessage({
+          action,
+          tableName,
+          fields: denied,
+        }),
       );
     }
   }

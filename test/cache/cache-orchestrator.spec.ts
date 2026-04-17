@@ -87,9 +87,11 @@ function makePubSub(): MockPubSub {
 // Mock cache services factory
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeMetadataCache(opts: {
-  loaded?: boolean;
-} = {}) {
+function makeMetadataCache(
+  opts: {
+    loaded?: boolean;
+  } = {},
+) {
   return {
     reload: jest.fn().mockResolvedValue(undefined),
     partialReload: jest.fn().mockResolvedValue(undefined),
@@ -97,15 +99,19 @@ function makeMetadataCache(opts: {
   };
 }
 
-function makeRouteCache(opts: {
-  loaded?: boolean;
-  supportsPartial?: boolean;
-} = {}) {
+function makeRouteCache(
+  opts: {
+    loaded?: boolean;
+    supportsPartial?: boolean;
+  } = {},
+) {
   return {
     reload: jest.fn().mockResolvedValue(undefined),
     partialReload: jest.fn().mockResolvedValue(undefined),
     isLoaded: jest.fn().mockReturnValue(opts.loaded ?? true),
-    supportsPartialReload: jest.fn().mockReturnValue(opts.supportsPartial ?? true),
+    supportsPartialReload: jest
+      .fn()
+      .mockReturnValue(opts.supportsPartial ?? true),
   };
 }
 
@@ -307,7 +313,9 @@ class TestCacheOrchestrator {
     }
   }
 
-  private async reloadMetadata(payload: TCacheInvalidationPayload): Promise<void> {
+  private async reloadMetadata(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
     if (
       payload.scope === 'partial' &&
       payload.ids?.length &&
@@ -335,7 +343,9 @@ class TestCacheOrchestrator {
     }
   }
 
-  private async reloadGraphql(payload: TCacheInvalidationPayload): Promise<void> {
+  private async reloadGraphql(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
     if (!this.graphqlService) return;
     await this.graphqlService.reloadSchema(payload);
   }
@@ -397,12 +407,14 @@ class TestCacheOrchestrator {
 // Factory helper for building an orchestrator with all mocks
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeOrchestrator(opts: {
-  instanceId?: string;
-  pubSub?: MockPubSub;
-  metadataCacheOpts?: Parameters<typeof makeMetadataCache>[0];
-  routeCacheOpts?: Parameters<typeof makeRouteCache>[0];
-} = {}) {
+function makeOrchestrator(
+  opts: {
+    instanceId?: string;
+    pubSub?: MockPubSub;
+    metadataCacheOpts?: Parameters<typeof makeMetadataCache>[0];
+    routeCacheOpts?: Parameters<typeof makeRouteCache>[0];
+  } = {},
+) {
   const pubSub = opts.pubSub ?? makePubSub();
   const ee = new EventEmitter2();
   const metadataCache = makeMetadataCache(opts.metadataCacheOpts);
@@ -545,9 +557,20 @@ describe('A. RELOAD_CHAINS correctness', () => {
 
   it('all chain entries are known step names', () => {
     const knownSteps = new Set([
-      'metadata', 'repoRegistry', 'route', 'graphql', 'guard', 'flow',
-      'websocket', 'package', 'setting', 'storage', 'oauth', 'folder',
-      'fieldPermission', 'bootstrap',
+      'metadata',
+      'repoRegistry',
+      'route',
+      'graphql',
+      'guard',
+      'flow',
+      'websocket',
+      'package',
+      'setting',
+      'storage',
+      'oauth',
+      'folder',
+      'fieldPermission',
+      'bootstrap',
     ]);
     for (const [table, chain] of Object.entries(RELOAD_CHAINS)) {
       for (const step of chain) {
@@ -596,7 +619,9 @@ describe('B. Debounce + merge logic', () => {
     svc.graphqlService = makeGraphqlService();
 
     svc.handleInvalidation(makePayload('table_definition', 'partial', ['1']));
-    const p2 = svc.handleInvalidation(makePayload('route_definition', 'partial', ['2']));
+    const p2 = svc.handleInvalidation(
+      makePayload('route_definition', 'partial', ['2']),
+    );
 
     await jest.advanceTimersByTimeAsync(50);
     await p2;
@@ -629,7 +654,9 @@ describe('B. Debounce + merge logic', () => {
     svc.graphqlService = makeGraphqlService();
 
     svc.handleInvalidation(makePayload('table_definition', 'full'));
-    const p2 = svc.handleInvalidation(makePayload('table_definition', 'partial', ['1']));
+    const p2 = svc.handleInvalidation(
+      makePayload('table_definition', 'partial', ['1']),
+    );
 
     await jest.advanceTimersByTimeAsync(50);
     await p2;
@@ -647,7 +674,9 @@ describe('B. Debounce + merge logic', () => {
     const promises: Promise<void>[] = [];
     for (let i = 0; i < 10; i++) {
       promises.push(
-        svc.handleInvalidation(makePayload('table_definition', 'partial', [String(i)])),
+        svc.handleInvalidation(
+          makePayload('table_definition', 'partial', [String(i)]),
+        ),
       );
     }
 
@@ -712,15 +741,15 @@ describe('B. Debounce + merge logic', () => {
     svc.graphqlService = makeGraphqlService();
 
     const resolved: number[] = [];
-    const p1 = svc.handleInvalidation(makePayload('route_definition', 'full')).then(
-      () => resolved.push(1),
-    );
-    const p2 = svc.handleInvalidation(makePayload('route_definition', 'full')).then(
-      () => resolved.push(2),
-    );
-    const p3 = svc.handleInvalidation(makePayload('route_definition', 'full')).then(
-      () => resolved.push(3),
-    );
+    const p1 = svc
+      .handleInvalidation(makePayload('route_definition', 'full'))
+      .then(() => resolved.push(1));
+    const p2 = svc
+      .handleInvalidation(makePayload('route_definition', 'full'))
+      .then(() => resolved.push(2));
+    const p3 = svc
+      .handleInvalidation(makePayload('route_definition', 'full'))
+      .then(() => resolved.push(3));
 
     expect(resolved).toHaveLength(0);
 
@@ -830,7 +859,9 @@ describe('C. Sequential execution order', () => {
     const { svc } = makeOrchestrator();
     svc.graphqlService = makeGraphqlService();
 
-    svc.metadataCache.reload.mockRejectedValueOnce(new Error('metadata failed'));
+    svc.metadataCache.reload.mockRejectedValueOnce(
+      new Error('metadata failed'),
+    );
     const repoSpy = svc.repoRegistry.rebuildFromMetadata;
     const routeSpy = svc.routeCache.reload;
 
@@ -847,7 +878,12 @@ describe('C. Sequential execution order', () => {
     svc.graphqlService = makeGraphqlService();
 
     await svc.executeChain(makePayload('table_definition', 'full'), false);
-    expect(svc.callOrder).toEqual(['metadata', 'repoRegistry', 'route', 'graphql']);
+    expect(svc.callOrder).toEqual([
+      'metadata',
+      'repoRegistry',
+      'route',
+      'graphql',
+    ]);
   });
 
   it('guard chain: only guard step is invoked', async () => {
@@ -980,7 +1016,10 @@ describe('D. Partial vs full reload decision', () => {
 
     for (const scope of ['full', 'partial'] as const) {
       guardCache.reload.mockClear();
-      await svc.executeChain(makePayload('guard_definition', scope, ['1']), false);
+      await svc.executeChain(
+        makePayload('guard_definition', scope, ['1']),
+        false,
+      );
       expect(guardCache.reload).toHaveBeenCalledWith(false);
     }
   });
@@ -999,7 +1038,9 @@ describe('D. Partial vs full reload decision', () => {
 
     for (const [table, cacheKey] of tableToCache) {
       const mocks = makeOrchestrator();
-      const cache = (mocks as any)[cacheKey] as ReturnType<typeof makeSimpleCache>;
+      const cache = (mocks as any)[cacheKey] as ReturnType<
+        typeof makeSimpleCache
+      >;
       await mocks.svc.executeChain(makePayload(table, 'full'), false);
       expect(cache.reload).toHaveBeenCalledWith(false);
     }
@@ -1096,8 +1137,14 @@ describe('E. Bootstrap sequence', () => {
   });
 
   it('all independent caches run in parallel (Promise.all) after metadata', async () => {
-    const { svc, routeCache, guardCache, flowCache, websocketCache, packageCache } =
-      makeOrchestrator();
+    const {
+      svc,
+      routeCache,
+      guardCache,
+      flowCache,
+      websocketCache,
+      packageCache,
+    } = makeOrchestrator();
 
     const started: string[] = [];
     const resume: Record<string, () => void> = {};
@@ -1155,7 +1202,9 @@ describe('E. Bootstrap sequence', () => {
     const events: string[] = [];
     ee.on(CACHE_EVENTS.SYSTEM_READY, () => events.push('SYSTEM_READY'));
 
-    await expect(svc.onApplicationBootstrap(graphql, null)).resolves.not.toThrow();
+    await expect(
+      svc.onApplicationBootstrap(graphql, null),
+    ).resolves.not.toThrow();
     expect(events).toContain('SYSTEM_READY');
   });
 
@@ -1173,7 +1222,9 @@ describe('E. Bootstrap sequence', () => {
 
     await svc.bootstrap();
 
-    expect(repoRegistry.rebuildFromMetadata).toHaveBeenCalledWith(metadataCache);
+    expect(repoRegistry.rebuildFromMetadata).toHaveBeenCalledWith(
+      metadataCache,
+    );
   });
 });
 
@@ -1269,8 +1320,14 @@ describe('F. Multi-instance Redis sync', () => {
   it('Instance A fires invalidation → Instance B receives and executes same chain', async () => {
     const sharedPubSub = makePubSub();
 
-    const a = makeOrchestrator({ instanceId: 'instance-A', pubSub: sharedPubSub });
-    const b = makeOrchestrator({ instanceId: 'instance-B', pubSub: sharedPubSub });
+    const a = makeOrchestrator({
+      instanceId: 'instance-A',
+      pubSub: sharedPubSub,
+    });
+    const b = makeOrchestrator({
+      instanceId: 'instance-B',
+      pubSub: sharedPubSub,
+    });
     a.svc.graphqlService = makeGraphqlService();
     b.svc.graphqlService = makeGraphqlService();
 
@@ -1363,8 +1420,14 @@ describe('F. Multi-instance Redis sync', () => {
     try {
       const sharedPubSub = makePubSub();
 
-      const a = makeOrchestrator({ instanceId: 'inst-A', pubSub: sharedPubSub });
-      const b = makeOrchestrator({ instanceId: 'inst-B', pubSub: sharedPubSub });
+      const a = makeOrchestrator({
+        instanceId: 'inst-A',
+        pubSub: sharedPubSub,
+      });
+      const b = makeOrchestrator({
+        instanceId: 'inst-B',
+        pubSub: sharedPubSub,
+      });
       a.svc.graphqlService = makeGraphqlService();
       b.svc.graphqlService = makeGraphqlService();
 
@@ -1403,14 +1466,22 @@ describe('G. Admin reloadAll', () => {
 
     const order: string[] = [];
     metadataCache.reload.mockImplementation(async () => order.push('metadata'));
-    repoRegistry.rebuildFromMetadata.mockImplementation(() => order.push('repoRegistry'));
+    repoRegistry.rebuildFromMetadata.mockImplementation(() =>
+      order.push('repoRegistry'),
+    );
     routeCache.reload.mockImplementation(async () => order.push('route'));
     guardCache.reload.mockImplementation(async () => order.push('guard'));
     graphql.reloadSchema.mockImplementation(async () => order.push('graphql'));
 
     await svc.reloadAll();
 
-    expect(order).toEqual(['metadata', 'repoRegistry', 'route', 'guard', 'graphql']);
+    expect(order).toEqual([
+      'metadata',
+      'repoRegistry',
+      'route',
+      'guard',
+      'graphql',
+    ]);
   });
 
   it('does NOT publish to Redis', async () => {
@@ -1490,12 +1561,12 @@ describe('H. Edge cases', () => {
       routeCache.reload.mockRejectedValueOnce(new Error('route failed'));
 
       const resolved: boolean[] = [];
-      const p1 = svc.handleInvalidation(makePayload('route_definition', 'full')).then(
-        () => resolved.push(true),
-      );
-      const p2 = svc.handleInvalidation(makePayload('route_definition', 'full')).then(
-        () => resolved.push(true),
-      );
+      const p1 = svc
+        .handleInvalidation(makePayload('route_definition', 'full'))
+        .then(() => resolved.push(true));
+      const p2 = svc
+        .handleInvalidation(makePayload('route_definition', 'full'))
+        .then(() => resolved.push(true));
 
       await jest.advanceTimersByTimeAsync(50);
       await Promise.all([p1, p2]);
@@ -1511,7 +1582,10 @@ describe('H. Edge cases', () => {
     const bootstrap = makeBootstrapScriptService();
     svc.bootstrapScriptService = bootstrap;
 
-    await svc.executeChain(makePayload('bootstrap_script_definition', 'full'), false);
+    await svc.executeChain(
+      makePayload('bootstrap_script_definition', 'full'),
+      false,
+    );
 
     expect(bootstrap.reloadBootstrapScripts).toHaveBeenCalled();
   });
@@ -1521,7 +1595,10 @@ describe('H. Edge cases', () => {
     svc.bootstrapScriptService = null;
 
     await expect(
-      svc.executeChain(makePayload('bootstrap_script_definition', 'full'), false),
+      svc.executeChain(
+        makePayload('bootstrap_script_definition', 'full'),
+        false,
+      ),
     ).resolves.not.toThrow();
   });
 
@@ -1560,9 +1637,15 @@ describe('H. Edge cases', () => {
       });
       svc.graphqlService = makeGraphqlService();
 
-      const p1 = svc.handleInvalidation(makePayload('route_definition', 'partial', ['a']));
-      const p2 = svc.handleInvalidation(makePayload('route_definition', 'partial', ['b']));
-      const p3 = svc.handleInvalidation(makePayload('route_definition', 'partial', ['c']));
+      const p1 = svc.handleInvalidation(
+        makePayload('route_definition', 'partial', ['a']),
+      );
+      const p2 = svc.handleInvalidation(
+        makePayload('route_definition', 'partial', ['b']),
+      );
+      const p3 = svc.handleInvalidation(
+        makePayload('route_definition', 'partial', ['c']),
+      );
 
       await jest.advanceTimersByTimeAsync(50);
       await Promise.all([p1, p2, p3]);
@@ -1618,7 +1701,9 @@ describe('H. Edge cases', () => {
       const { svc } = makeOrchestrator();
       svc.graphqlService = makeGraphqlService();
 
-      svc.handleInvalidation(makePayload('table_definition', 'partial', ['1', '2']));
+      svc.handleInvalidation(
+        makePayload('table_definition', 'partial', ['1', '2']),
+      );
       const p2 = svc.handleInvalidation(
         makePayload('table_definition', 'partial', ['2', '3']),
       );

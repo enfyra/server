@@ -1,9 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import {
-  CACHE_IDENTIFIERS,
-} from '../../../shared/utils/cache-events.constants';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
 
 export type TFieldPermissionAction = 'read' | 'create' | 'update';
@@ -80,9 +78,7 @@ export class FieldPermissionCacheService extends BaseCacheService<
       const effect = (row?.effect as TFieldPermissionEffect) || 'allow';
 
       const tableName =
-        row?.column?.table?.name ||
-        row?.relation?.sourceTable?.name ||
-        null;
+        row?.column?.table?.name || row?.relation?.sourceTable?.name || null;
       if (!tableName) continue;
 
       const roleId = toIdString(row?.role);
@@ -129,11 +125,13 @@ export class FieldPermissionCacheService extends BaseCacheService<
 
       if (rule.condition != null) continue;
       if (rule.effect === 'allow') {
-        if (rule.columnName) bucket.unconditionalAllowedColumns.add(rule.columnName);
+        if (rule.columnName)
+          bucket.unconditionalAllowedColumns.add(rule.columnName);
         if (rule.relationPropertyName)
           bucket.unconditionalAllowedRelations.add(rule.relationPropertyName);
       } else {
-        if (rule.columnName) bucket.unconditionalDeniedColumns.add(rule.columnName);
+        if (rule.columnName)
+          bucket.unconditionalDeniedColumns.add(rule.columnName);
         if (rule.relationPropertyName)
           bucket.unconditionalDeniedRelations.add(rule.relationPropertyName);
       }
@@ -178,4 +176,3 @@ export class FieldPermissionCacheService extends BaseCacheService<
     return policies;
   }
 }
-

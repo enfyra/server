@@ -242,5 +242,4 @@ export class QueryPlanner {
       joinId,
     );
   }
-
 }

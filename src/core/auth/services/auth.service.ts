@@ -188,10 +188,7 @@ export class AuthService {
     }
 
     const incomingHash = this.hashToken(body.refreshToken);
-    if (
-      session.refreshTokenHash &&
-      session.refreshTokenHash !== incomingHash
-    ) {
+    if (session.refreshTokenHash && session.refreshTokenHash !== incomingHash) {
       throw new BadRequestException('Refresh token has been revoked!');
     }
 
@@ -265,8 +262,9 @@ export class AuthService {
       const affected = await knex('session_definition')
         .where('id', sessionId)
         .andWhere(function () {
-          this.where('refreshTokenHash', incomingHash)
-            .orWhereNull('refreshTokenHash');
+          this.where('refreshTokenHash', incomingHash).orWhereNull(
+            'refreshTokenHash',
+          );
         })
         .update({ expiredAt: newExpiredAt, refreshTokenHash: newHash });
       if (affected === 0) {

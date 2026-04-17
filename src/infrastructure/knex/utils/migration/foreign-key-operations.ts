@@ -101,7 +101,7 @@ export async function dropForeignKeyIfExists(
     const msg = String(error?.message || '').toLowerCase();
     const errno = Number(error?.errno);
     if (
-      msg.includes("check that column/key exists") ||
+      msg.includes('check that column/key exists') ||
       msg.includes('does not exist') ||
       errno === 1091 ||
       errno === 1025

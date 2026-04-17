@@ -243,6 +243,21 @@ function applyFieldCondition(
   }
 }
 
+function isKnownField(
+  key: string,
+  tablePrefix?: string,
+  metadata?: TableMetadata,
+): boolean {
+  if (!metadata || !tablePrefix) return true;
+  if (key.startsWith('_')) return true;
+  const fieldName = key.includes('.') ? key.split('.').pop()! : key;
+  const hasColumn = metadata.columns?.some((c: any) => c.name === fieldName);
+  const hasRelation = metadata.relations?.some(
+    (r: any) => r.propertyName === fieldName,
+  );
+  return hasColumn || hasRelation;
+}
+
 function processFilter(
   query: Knex.QueryBuilder,
   filter: any,
@@ -271,6 +286,8 @@ function processFilter(
   }
 
   for (const [key, value] of Object.entries(filter)) {
+    if (!isKnownField(key, tablePrefix, metadata)) continue;
+
     if (key === '_and') {
       if (Array.isArray(value)) {
         query.where(function () {

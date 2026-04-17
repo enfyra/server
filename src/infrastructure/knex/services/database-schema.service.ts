@@ -226,7 +226,9 @@ export class DatabaseSchemaService {
     } else if (this.databaseConfig.isPostgres()) {
       return await this.getPostgreSQLTableSchema(tableName, knex);
     } else {
-      throw new Error(`Unsupported database type: ${this.databaseConfig.getDbType()}`);
+      throw new Error(
+        `Unsupported database type: ${this.databaseConfig.getDbType()}`,
+      );
     }
   }
 

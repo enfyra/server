@@ -25,18 +25,9 @@ import {
   MongoSagaCoordinator,
   MongoSagaSession,
 } from './mongo-saga-coordinator.service';
+import { MongoRelationManagerService } from './mongo-relation-manager.service';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
-import {
-  normalizeRelationOnDelete,
-  TRelationOnDeleteAction,
-} from '../utils/mongo-relation-on-delete.util';
-import { resolveMongoJunctionInfo } from '../utils/mongo-junction.util';
-
-const M2M_PENDING = Symbol('mongoService.m2mPending');
-import {
-  DatabaseException,
-  ValidationException,
-} from '../../../core/exceptions/custom-exceptions';
+import { DatabaseException } from '../../../core/exceptions/custom-exceptions';
 
 @Injectable()
 export class MongoService implements OnModuleInit, OnModuleDestroy {
@@ -69,6 +60,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     private readonly databaseConfig: DatabaseConfigService,
     @Inject(forwardRef(() => MetadataCacheService))
     private readonly metadataCache: MetadataCacheService,
+    @Inject(forwardRef(() => MongoRelationManagerService))
+    private readonly relationManager: MongoRelationManagerService,
     @Optional()
     @Inject(forwardRef(() => MongoSagaCoordinator))
     private readonly sagaCoordinator?: MongoSagaCoordinator,
@@ -123,13 +116,10 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const uri =
-      this.configService.get<string>('DB_URI');
+    const uri = this.configService.get<string>('DB_URI');
 
     if (!uri) {
-      throw new Error(
-        'DB_URI is not defined in environment variables',
-      );
+      throw new Error('DB_URI is not defined in environment variables');
     }
 
     try {
@@ -210,7 +200,10 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       try {
         let dataOut: T | undefined;
         await session.withTransaction(async () => {
-          dataOut = await this.nativeTxBundleAls.run({ session, logicalTxId }, fn);
+          dataOut = await this.nativeTxBundleAls.run(
+            { session, logicalTxId },
+            fn,
+          );
         });
         return { success: true, data: dataOut as T, txId: logicalTxId };
       } catch (error) {
@@ -401,26 +394,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   async stripInverseRelations(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata?.relations) {
-      return data;
-    }
-
-    const result = { ...data };
-
-    for (const relation of metadata.relations) {
-      if (relation.type === 'many-to-many') continue;
-
-      const isInverse =
-        relation.type === 'one-to-many' ||
-        relation.isInverse;
-
-      if (isInverse && relation.propertyName in result) {
-        delete result[relation.propertyName];
-      }
-    }
-
-    return result;
+    return this.relationManager.stripInverseRelations(tableName, data);
   }
 
   async insertOne(collectionName: string, data: any): Promise<any> {
@@ -445,14 +419,19 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     );
     const dataWithTimestamps = this.applyTimestamps(dataStripped);
 
-    await this.checkFieldPermission(collectionName, 'create', dataWithTimestamps);
+    await this.checkFieldPermission(
+      collectionName,
+      'create',
+      dataWithTimestamps,
+    );
 
     // Clear unique FK holders before insert to prevent unique constraint violations
     // Use a dummy ObjectId since we don't have the real one yet
-    await this.clearUniqueFKHolders(
+    await this.relationManager.clearUniqueFKHolders(
       collectionName,
       new ObjectId(),
       dataWithTimestamps,
+      (name) => this.collection(name),
     );
 
     let result;
@@ -479,17 +458,19 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       throw validationError;
     }
 
-    await this.updateInverseRelationsOnUpdate(
+    await this.relationManager.updateInverseRelationsOnUpdate(
       collectionName,
       insertedId,
       {},
       dataWithRelations,
+      (name) => this.collection(name),
     );
 
-    await this.writeM2mJunctionsForInsert(
+    await this.relationManager.writeM2mJunctionsForInsert(
       collectionName,
       insertedId,
       dataWithRelations,
+      (name) => this.collection(name),
     );
 
     return {
@@ -522,276 +503,15 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  async updateInverseRelationsOnUpdate(
-    tableName: string,
-    recordId: ObjectId,
-    oldData: any,
-    newData: any,
-  ): Promise<void> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata || !metadata.relations) {
-      return;
-    }
-
-    for (const relation of metadata.relations) {
-      if (relation.type === 'many-to-many') {
-        continue;
-      }
-      if (!relation.mappedBy) {
-        continue;
-      }
-
-      const fieldName = relation.propertyName;
-
-      if (!(fieldName in newData)) {
-        continue;
-      }
-
-      const oldValue = oldData?.[fieldName];
-      const newValue = newData?.[fieldName];
-
-      const targetCollection = relation.targetTableName || relation.targetTable;
-
-      if (['many-to-one', 'one-to-one'].includes(relation.type)) {
-        const oldId =
-          oldValue instanceof ObjectId
-            ? oldValue
-            : oldValue
-              ? typeof oldValue === 'object' && oldValue._id
-                ? new ObjectId(oldValue._id)
-                : new ObjectId(oldValue)
-              : null;
-        const newId =
-          newValue instanceof ObjectId
-            ? newValue
-            : newValue
-              ? typeof newValue === 'object' && newValue._id
-                ? new ObjectId(newValue._id)
-                : new ObjectId(newValue)
-              : null;
-
-        if (oldId && (!newId || oldId.toString() !== newId.toString())) {
-          if (relation.type === 'many-to-one') {
-            await this.collection(targetCollection).updateOne(
-              { _id: oldId },
-              {
-                $pull: { [relation.mappedBy]: recordId },
-              } as any,
-            );
-          } else {
-            await this.collection(targetCollection).updateOne(
-              { _id: oldId },
-              {
-                $unset: { [relation.mappedBy]: '' },
-              } as any,
-            );
-          }
-        }
-
-        if (newId && (!oldId || oldId.toString() !== newId.toString())) {
-          if (relation.type === 'many-to-one') {
-            await this.collection(targetCollection).updateOne(
-              { _id: newId },
-              { $addToSet: { [relation.mappedBy]: recordId } },
-            );
-          } else {
-            await this.collection(targetCollection).updateOne(
-              { _id: newId },
-              { $set: { [relation.mappedBy]: recordId } },
-            );
-          }
-        }
-      } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
-        const oldIds = Array.isArray(oldValue)
-          ? oldValue.map((v) => {
-              if (v instanceof ObjectId) return v;
-              if (typeof v === 'object' && v._id) return new ObjectId(v._id);
-              return new ObjectId(v);
-            })
-          : [];
-        const newIds = Array.isArray(newValue)
-          ? newValue.map((v) => {
-              if (v instanceof ObjectId) return v;
-              if (typeof v === 'object' && v._id) return new ObjectId(v._id);
-              return new ObjectId(v);
-            })
-          : [];
-
-        const removed = oldIds.filter(
-          (oldId) =>
-            !newIds.some((newId) => newId.toString() === oldId.toString()),
-        );
-        const added = newIds.filter(
-          (newId) =>
-            !oldIds.some((oldId) => oldId.toString() === newId.toString()),
-        );
-
-        for (const targetId of removed) {
-          if (relation.type === 'one-to-many') {
-            await this.collection(targetCollection).updateOne(
-              { _id: targetId },
-              {
-                $unset: { [relation.mappedBy]: '' },
-              } as any,
-            );
-          } else {
-            await this.collection(targetCollection).updateOne(
-              { _id: targetId },
-              {
-                $pull: { [relation.mappedBy]: recordId },
-              } as any,
-            );
-          }
-        }
-
-        for (const targetId of added) {
-          if (relation.type === 'one-to-many') {
-            await this.collection(targetCollection).updateOne(
-              { _id: targetId },
-              { $set: { [relation.mappedBy]: recordId } },
-            );
-          } else {
-            await this.collection(targetCollection).updateOne(
-              { _id: targetId },
-              { $addToSet: { [relation.mappedBy]: recordId } },
-            );
-          }
-        }
-      }
-    }
-  }
-
   async processNestedRelations(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata || !metadata.relations) {
-      return data;
-    }
-
-    const processed = { ...data };
-
-    for (const relation of metadata.relations) {
-      const fieldName = relation.propertyName;
-
-      if (!(fieldName in processed)) continue;
-
-      const isInverse =
-        relation.type === 'one-to-many' ||
-        (relation.type === 'one-to-one' &&
-          (relation.mappedBy || relation.isInverse));
-
-      if (isInverse) {
-        continue;
-      }
-
-      const fieldValue = processed[fieldName];
-      const targetCollection = relation.targetTableName || relation.targetTable;
-
-      if (fieldValue === null || fieldValue === undefined) {
-        if (relation.type === 'many-to-many') {
-          this.setM2mPending(processed, fieldName, []);
-          delete processed[fieldName];
-        } else {
-          processed[fieldName] = null;
-        }
-        continue;
-      }
-
-      if (['many-to-one', 'one-to-one'].includes(relation.type)) {
-        if (
-          typeof fieldValue !== 'object' ||
-          Array.isArray(fieldValue) ||
-          fieldValue instanceof ObjectId ||
-          fieldValue instanceof Date
-        ) {
-          if (typeof fieldValue === 'string' && fieldValue.length === 24) {
-            try {
-              processed[fieldName] = new ObjectId(fieldValue);
-            } catch (_) {
-              // Not a valid ObjectId, leave as-is
-            }
-          }
-          continue;
-        }
-
-        const { _id: nestedId, id, ...nestedData } = fieldValue;
-        const hasDataToUpdate = Object.keys(nestedData).length > 0;
-
-        if (!nestedId && !id) {
-          if (hasDataToUpdate) {
-            await this.checkPolicy(targetCollection, 'create', nestedData);
-            const inserted = await this.insertOne(targetCollection, nestedData);
-            processed[fieldName] = new ObjectId(inserted._id);
-          } else {
-            processed[fieldName] = null;
-          }
-        } else if (hasDataToUpdate) {
-          const idToUse = nestedId || id;
-          await this.checkPolicy(targetCollection, 'update', nestedData);
-          await this.updateOne(targetCollection, idToUse, nestedData);
-          processed[fieldName] =
-            typeof idToUse === 'string' ? new ObjectId(idToUse) : idToUse;
-        } else {
-          const idToUse = nestedId || id;
-          processed[fieldName] =
-            typeof idToUse === 'string' ? new ObjectId(idToUse) : idToUse;
-        }
-      } else if (['one-to-many', 'many-to-many'].includes(relation.type)) {
-        if (!Array.isArray(fieldValue)) {
-          if (relation.type === 'many-to-many') {
-            this.setM2mPending(processed, fieldName, []);
-            delete processed[fieldName];
-          } else {
-            processed[fieldName] = [];
-          }
-          continue;
-        }
-
-        const processedArray = [];
-        for (const item of fieldValue) {
-          if (
-            typeof item !== 'object' ||
-            item instanceof ObjectId ||
-            item instanceof Date
-          ) {
-            processedArray.push(
-              item instanceof ObjectId ? item : new ObjectId(item),
-            );
-            continue;
-          }
-
-          const { _id: itemId, id: itemIdAlt, ...itemData } = item;
-          const hasDataToUpdate = Object.keys(itemData).length > 0;
-
-          if (!itemId && !itemIdAlt) {
-            if (hasDataToUpdate) {
-              await this.checkPolicy(targetCollection, 'create', itemData);
-              const inserted = await this.insertOne(targetCollection, itemData);
-              processedArray.push(new ObjectId(inserted._id));
-            }
-          } else if (hasDataToUpdate) {
-            const idToUse = itemId || itemIdAlt;
-            await this.checkPolicy(targetCollection, 'update', itemData);
-            await this.updateOne(targetCollection, idToUse, itemData);
-            processedArray.push(
-              typeof idToUse === 'string' ? new ObjectId(idToUse) : idToUse,
-            );
-          } else {
-            const idToUse = itemId || itemIdAlt;
-            processedArray.push(
-              typeof idToUse === 'string' ? new ObjectId(idToUse) : idToUse,
-            );
-          }
-        }
-        if (relation.type === 'many-to-many') {
-          this.setM2mPending(processed, fieldName, processedArray);
-          delete processed[fieldName];
-        } else {
-          processed[fieldName] = processedArray;
-        }
-      }
-    }
-
-    return processed;
+    return this.relationManager.processNestedRelations(
+      tableName,
+      data,
+      (name) => this.collection(name),
+      this.checkPolicy.bind(this),
+      this.insertOne.bind(this),
+      this.updateOne.bind(this),
+    );
   }
 
   async stripNonUpdatableFields(
@@ -813,10 +533,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     return filteredData;
   }
 
-  async stripUnknownColumns(
-    collectionName: string,
-    data: any,
-  ): Promise<any> {
+  async stripUnknownColumns(collectionName: string, data: any): Promise<any> {
     const tableMetadata =
       await this.metadataCache.lookupTableByName(collectionName);
     if (!tableMetadata) return data;
@@ -879,28 +596,35 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       dataWithoutNonUpdatable,
     );
 
-    await this.checkFieldPermission(collectionName, 'update', dataWithTimestamp);
+    await this.checkFieldPermission(
+      collectionName,
+      'update',
+      dataWithTimestamp,
+    );
 
     // Clear unique FK holders before update to prevent unique constraint violations
-    await this.clearUniqueFKHolders(
+    await this.relationManager.clearUniqueFKHolders(
       collectionName,
       objectId,
       dataWithTimestamp,
+      (name) => this.collection(name),
     );
 
     await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
 
-    await this.updateInverseRelationsOnUpdate(
+    await this.relationManager.updateInverseRelationsOnUpdate(
       collectionName,
       objectId,
       oldRecord,
       dataWithRelations,
+      (name) => this.collection(name),
     );
 
-    await this.writeM2mJunctionsForUpdate(
+    await this.relationManager.writeM2mJunctionsForUpdate(
       collectionName,
       objectId,
       dataWithRelations,
+      (name) => this.collection(name),
     );
 
     return this.findOne(collectionName, { _id: objectId });
@@ -915,463 +639,20 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    await this.cleanupInverseRelationsOnDelete(
+    await this.relationManager.cleanupInverseRelationsOnDelete(
       collectionName,
       objectId,
       record,
+      (name) => this.collection(name),
     );
 
     const result = await collection.deleteOne({ _id: objectId });
     return result.deletedCount > 0;
   }
 
-  async cleanupInverseRelationsOnDelete(
-    tableName: string,
-    recordId: ObjectId,
-    recordData: any,
-  ): Promise<void> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
-
-    if (metadata?.relations) {
-      for (const relation of metadata.relations) {
-        const onDelete = normalizeRelationOnDelete(relation);
-        const fieldName = relation.propertyName;
-        const fieldValue = recordData?.[fieldName];
-        const targetCollection = relation.targetTableName || relation.targetTable;
-
-        if (relation.type === 'many-to-many') {
-          await this.applyManyToManyOnDelete(tableName, relation, recordId, onDelete);
-          continue;
-        }
-
-        if (!relation.mappedBy) {
-          continue;
-        }
-
-        if (relation.type === 'many-to-one') {
-          await this.unlinkManyToOneInverse(
-            relation,
-            recordId,
-            recordData,
-            targetCollection,
-          );
-          continue;
-        }
-
-        if (relation.type === 'one-to-many') {
-          await this.applyOneToManyOnDelete(
-            relation,
-            recordId,
-            targetCollection,
-            fieldValue,
-            onDelete,
-          );
-          continue;
-        }
-
-        if (relation.type === 'one-to-one') {
-          await this.applyOneToOneOnDelete(
-            relation,
-            recordId,
-            targetCollection,
-            fieldValue,
-            onDelete,
-          );
-        }
-      }
-    }
-
-    await this.cleanupReverseManyToManyOnDelete(tableName, recordId);
-  }
-
-  private async cleanupReverseManyToManyOnDelete(
-    tableName: string,
-    recordId: ObjectId,
-  ): Promise<void> {
-    const allTables = await this.metadataCache.getAllTablesMetadata();
-    if (!allTables) return;
-
-    for (const table of allTables) {
-      if (table.name === tableName) continue;
-      if (!table.relations) continue;
-
-      for (const relation of table.relations) {
-        if (relation.type !== 'many-to-many') continue;
-
-        const targetTable = relation.targetTableName || relation.targetTable;
-        if (targetTable !== tableName) continue;
-
-        const info = this.resolveJunctionInfo(table.name, relation);
-        if (!info) continue;
-
-        await this.collection(info.junctionName).deleteMany({
-          [info.otherColumn]: recordId,
-        } as any);
-      }
-    }
-  }
-
-  private async isSystemFilterIfApplicable(
-    targetCollection: string,
-  ): Promise<Record<string, unknown>> {
-    const meta = await this.metadataCache.lookupTableByName(targetCollection);
-    const has = !!meta?.columns?.some((c: { name?: string }) => c.name === 'isSystem');
-    return has ? { isSystem: { $ne: true } } : {};
-  }
-
-  private async unlinkManyToOneInverse(
-    relation: any,
-    recordId: ObjectId,
-    recordData: any,
-    targetCollection: string,
-  ): Promise<void> {
-    const fieldName = relation.propertyName;
-    const mappedBy = relation.mappedBy;
-    const raw = recordData?.[fieldName];
-    const coll = this.collection(targetCollection);
-
-    if (raw != null && raw !== undefined) {
-      let parentId: ObjectId;
-      try {
-        parentId =
-          raw instanceof ObjectId ? raw : new ObjectId(String(raw));
-      } catch {
-        return;
-      }
-      const parent = await coll.findOne({ _id: parentId });
-      if (!parent) {
-        return;
-      }
-      if (Array.isArray(parent[mappedBy])) {
-        await coll.updateOne(
-          { _id: parentId },
-          { $pull: { [mappedBy]: recordId } } as any,
-        );
-      } else if (
-        parent[mappedBy] != null &&
-        parent[mappedBy].toString() === recordId.toString()
-      ) {
-        await coll.updateOne(
-          { _id: parentId },
-          { $unset: { [mappedBy]: '' } } as any,
-        );
-      }
-      return;
-    }
-
-    const alt = await coll.findOne({ [mappedBy]: recordId } as any);
-    if (!alt) {
-      return;
-    }
-    if (Array.isArray(alt[mappedBy])) {
-      await coll.updateOne(
-        { _id: alt._id },
-        { $pull: { [mappedBy]: recordId } } as any,
-      );
-    } else if (
-      alt[mappedBy] != null &&
-      alt[mappedBy].toString() === recordId.toString()
-    ) {
-      await coll.updateOne(
-        { _id: alt._id },
-        { $unset: { [mappedBy]: '' } } as any,
-      );
-    }
-  }
-
-  private async applyOneToManyOnDelete(
-    relation: any,
-    recordId: ObjectId,
-    targetCollection: string,
-    fieldValue: any,
-    onDelete: TRelationOnDeleteAction,
-  ): Promise<void> {
-    const mappedBy = relation.mappedBy;
-    let targetIds: ObjectId[] = [];
-    if (Array.isArray(fieldValue) && fieldValue.length > 0) {
-      targetIds = fieldValue.map((v) =>
-        v instanceof ObjectId ? v : new ObjectId(v),
-      );
-    } else {
-      const targets = await this.collection(targetCollection)
-        .find({ [mappedBy]: recordId } as any)
-        .toArray();
-      targetIds = targets.map((t) => t._id);
-    }
-
-    if (targetIds.length === 0) {
-      return;
-    }
-
-    if (onDelete === 'RESTRICT') {
-      throw new ValidationException(
-        `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
-        { relation: relation.propertyName, targetCollection },
-      );
-    }
-
-    const coll = this.collection(targetCollection);
-    const sys = await this.isSystemFilterIfApplicable(targetCollection);
-
-    if (onDelete === 'CASCADE') {
-      await coll.deleteMany({
-        _id: { $in: targetIds },
-        ...sys,
-      } as any);
-      return;
-    }
-
-    await coll.updateMany(
-      { _id: { $in: targetIds }, ...sys } as any,
-      { $set: { [mappedBy]: null } } as any,
-    );
-  }
-
-  private async applyManyToManyOnDelete(
-    tableName: string,
-    relation: any,
-    recordId: ObjectId,
-    onDelete: TRelationOnDeleteAction,
-    matchColumnOverride?: string,
-  ): Promise<void> {
-    const info = this.resolveJunctionInfo(tableName, relation);
-    if (!info) return;
-
-    const junctionColl = this.collection(info.junctionName);
-    const matchColumn = matchColumnOverride ?? info.selfColumn;
-
-    if (onDelete === 'RESTRICT') {
-      const count = await junctionColl.countDocuments({
-        [matchColumn]: recordId,
-      } as any);
-      if (count > 0) {
-        const targetCollection =
-          relation.targetTableName || relation.targetTable;
-        throw new ValidationException(
-          `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
-          { relation: relation.propertyName, targetCollection },
-        );
-      }
-    }
-
-    await junctionColl.deleteMany({ [matchColumn]: recordId } as any);
-  }
-
-  private setM2mPending(
-    carrier: any,
-    propertyName: string,
-    ids: ObjectId[],
-  ): void {
-    if (!carrier[M2M_PENDING]) {
-      carrier[M2M_PENDING] = new Map<string, ObjectId[]>();
-    }
-    (carrier[M2M_PENDING] as Map<string, ObjectId[]>).set(propertyName, ids);
-  }
-
-  private getM2mPending(carrier: any): Map<string, ObjectId[]> | null {
-    return (carrier?.[M2M_PENDING] as Map<string, ObjectId[]>) || null;
-  }
-
-  private resolveJunctionInfo(currentTable: string, relation: any) {
-    return resolveMongoJunctionInfo(currentTable, relation);
-  }
-
-  private async writeM2mJunctionsForInsert(
-    tableName: string,
-    recordId: ObjectId,
-    data: any,
-  ): Promise<void> {
-    const pending = this.getM2mPending(data);
-    if (!pending || pending.size === 0) return;
-
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata?.relations) return;
-
-    for (const [propertyName, targetIds] of pending.entries()) {
-      const relation = metadata.relations.find(
-        (r: any) => r.propertyName === propertyName,
-      );
-      if (!relation) continue;
-      const info = this.resolveJunctionInfo(tableName, relation);
-      if (!info) continue;
-      if (!targetIds.length) continue;
-
-      const rows = targetIds.map((otherId) => ({
-        [info.selfColumn]: recordId,
-        [info.otherColumn]: otherId,
-      }));
-
-      try {
-        await this.collection(info.junctionName).insertMany(rows as any, {
-          ordered: false,
-        });
-      } catch (err: any) {
-        if (err?.code !== 11000) throw err;
-      }
-    }
-  }
-
-  private async writeM2mJunctionsForUpdate(
-    tableName: string,
-    recordId: ObjectId,
-    data: any,
-  ): Promise<void> {
-    const pending = this.getM2mPending(data);
-    if (!pending || pending.size === 0) return;
-
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
-    if (!metadata?.relations) return;
-
-    for (const [propertyName, targetIds] of pending.entries()) {
-      const relation = metadata.relations.find(
-        (r: any) => r.propertyName === propertyName,
-      );
-      if (!relation) continue;
-      const info = this.resolveJunctionInfo(tableName, relation);
-      if (!info) continue;
-
-      const junctionColl = this.collection(info.junctionName);
-
-      await junctionColl.deleteMany({ [info.selfColumn]: recordId } as any);
-
-      if (!targetIds.length) continue;
-
-      const rows = targetIds.map((otherId) => ({
-        [info.selfColumn]: recordId,
-        [info.otherColumn]: otherId,
-      }));
-      try {
-        await junctionColl.insertMany(rows as any, { ordered: false });
-      } catch (err: any) {
-        if (err?.code !== 11000) throw err;
-      }
-    }
-  }
-
-  private async applyOneToOneOnDelete(
-    relation: any,
-    recordId: ObjectId,
-    targetCollection: string,
-    fieldValue: any,
-    onDelete: TRelationOnDeleteAction,
-  ): Promise<void> {
-    const mappedBy = relation.mappedBy;
-    const coll = this.collection(targetCollection);
-
-    const inverseDocs = await coll
-      .find({ [mappedBy]: recordId } as any)
-      .toArray();
-
-    let ownedChildId: ObjectId | null = null;
-    if (fieldValue != null && fieldValue !== undefined) {
-      try {
-        ownedChildId =
-          fieldValue instanceof ObjectId
-            ? fieldValue
-            : new ObjectId(String(fieldValue));
-      } catch {
-        ownedChildId = null;
-      }
-    }
-
-    const hasInverse = inverseDocs.length > 0;
-    const hasOwned = !!ownedChildId;
-
-    if (onDelete === 'RESTRICT' && (hasInverse || hasOwned)) {
-      throw new ValidationException(
-        `Cannot delete: related records exist in "${targetCollection}" (${relation.propertyName}, onDelete: RESTRICT).`,
-        { relation: relation.propertyName, targetCollection },
-      );
-    }
-
-    const sys = await this.isSystemFilterIfApplicable(targetCollection);
-
-    if (onDelete === 'CASCADE') {
-      const byId = new Map<string, ObjectId>();
-      for (const d of inverseDocs) {
-        byId.set(d._id.toString(), d._id);
-      }
-      if (ownedChildId) {
-        byId.set(ownedChildId.toString(), ownedChildId);
-      }
-      for (const id of byId.values()) {
-        await coll.deleteOne({ _id: id, ...sys } as any);
-      }
-      return;
-    }
-
-    for (const d of inverseDocs) {
-      await coll.updateOne(
-        { _id: d._id },
-        { $unset: { [mappedBy]: '' } } as any,
-      );
-    }
-    if (ownedChildId) {
-      await coll.updateOne(
-        { _id: ownedChildId },
-        { $unset: { [mappedBy]: '' } } as any,
-      );
-    }
-  }
-
   async count(collectionName: string, filter: any = {}): Promise<number> {
     const collection = this.collection(collectionName);
     return collection.countDocuments(filter);
-  }
-
-  private async clearUniqueFKHolders(
-    collectionName: string,
-    recordId: ObjectId,
-    data: any,
-  ): Promise<void> {
-    const metadata = await this.metadataCache.lookupTableByName(collectionName);
-    if (!metadata?.relations) {
-      return;
-    }
-
-    for (const relation of metadata.relations) {
-      if (!['one-to-one', 'many-to-one'].includes(relation.type)) continue;
-      if (relation.isInverse || relation.mappedBy) continue;
-
-      const fieldName = relation.propertyName;
-      const hasUnique = this.hasUniqueConstraintOnField(metadata, fieldName);
-
-      if (!hasUnique) continue;
-
-      const newValue = data[fieldName];
-      if (newValue == null) continue;
-
-      const newId =
-        newValue instanceof ObjectId ? newValue : new ObjectId(newValue);
-
-      await this.collection(collectionName).updateMany(
-        {
-          [fieldName]: newId,
-          _id: { $ne: recordId },
-        },
-        { $set: { [fieldName]: null } },
-      );
-    }
-  }
-
-  private hasUniqueConstraintOnField(
-    metadata: any,
-    fieldName: string,
-  ): boolean {
-    if (!metadata?.uniques) return false;
-
-    const uniques = Array.isArray(metadata.uniques)
-      ? metadata.uniques
-      : Object.values(metadata.uniques || {});
-
-    for (const unique of uniques) {
-      const fields = Array.isArray(unique) ? unique : [unique];
-      if (fields.length === 1 && fields[0] === fieldName) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   private extractDbName(uri: string): string {
@@ -1409,7 +690,8 @@ export class NativeSessionCollection<T extends Document = Document> {
         }
         return c.toArray();
       },
-      then: (onFulfilled: any, onRejected: any) => self.toArray().then(onFulfilled, onRejected),
+      then: (onFulfilled: any, onRejected: any) =>
+        self.toArray().then(onFulfilled, onRejected),
     };
     return self;
   }
@@ -1463,7 +745,10 @@ export class NativeSessionCollection<T extends Document = Document> {
   }
 
   bulkWrite(operations: any[], options?: any) {
-    return this.base.bulkWrite(operations, { ...options, session: this.session });
+    return this.base.bulkWrite(operations, {
+      ...options,
+      session: this.session,
+    });
   }
 }
 
@@ -1500,7 +785,8 @@ export class SagaCollection<T extends Document = Document> {
           skip: skipVal || undefined,
           limit: limitVal,
         }),
-      then: (onFulfilled: any, onRejected: any) => self.toArray().then(onFulfilled, onRejected),
+      then: (onFulfilled: any, onRejected: any) =>
+        self.toArray().then(onFulfilled, onRejected),
     };
     return self;
   }
@@ -1542,7 +828,12 @@ export class SagaCollection<T extends Document = Document> {
   }
 
   updateMany(filter: any, update: any, options?: any) {
-    return this.session().updateManyByFilter(this.name, filter, update, options);
+    return this.session().updateManyByFilter(
+      this.name,
+      filter,
+      update,
+      options,
+    );
   }
 
   async deleteOne(filter?: any, options?: any) {
@@ -1588,6 +879,9 @@ export class SagaCollection<T extends Document = Document> {
 
   bulkWrite(operations: any[], options?: any) {
     this.session().assertWithinMaxDuration();
-    return this.mongo.getDb().collection(this.name).bulkWrite(operations, options);
+    return this.mongo
+      .getDb()
+      .collection(this.name)
+      .bulkWrite(operations, options);
   }
 }

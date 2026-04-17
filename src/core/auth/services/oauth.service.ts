@@ -261,10 +261,7 @@ export class OAuthService {
               isSystem: false,
             };
 
-        user = await this.queryBuilder.insert(
-          'user_definition',
-          userData,
-        );
+        user = await this.queryBuilder.insert('user_definition', userData);
         this.logger.log(
           `Created new user via ${provider} OAuth: ${userInfo.email}`,
         );
@@ -284,10 +281,7 @@ export class OAuthService {
       : { provider, providerUserId: userInfo.id, userId };
 
     try {
-      await this.queryBuilder.insert(
-        'oauth_account_definition',
-        accountData,
-      );
+      await this.queryBuilder.insert('oauth_account_definition', accountData);
       this.logger.log(`Linked ${provider} account to user: ${userInfo.email}`);
     } catch {
       this.logger.warn(

@@ -91,7 +91,10 @@ export class FlowService {
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
-    (ctx as any).$trigger = async (flowIdOrName: string | number, triggerPayload?: any) => ({
+    (ctx as any).$trigger = async (
+      flowIdOrName: string | number,
+      triggerPayload?: any,
+    ) => ({
       triggered: true,
       flowIdOrName,
       payload: triggerPayload,

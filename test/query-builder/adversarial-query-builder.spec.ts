@@ -45,7 +45,10 @@ function makeTableMeta(
   };
 }
 
-function makeMetadata(main: ReturnType<typeof makeTableMeta>, extra: Map<string, any>) {
+function makeMetadata(
+  main: ReturnType<typeof makeTableMeta>,
+  extra: Map<string, any>,
+) {
   const m = new Map<string, any>();
   m.set(main.name, main);
   for (const [k, v] of extra) m.set(k, v);
@@ -176,7 +179,11 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
 
     const menuTable = makeTableMeta('menu', ['id', 'label'], []);
     const userTable = makeTableMeta('user', ['id', 'name'], []);
-    const extNoteTable = makeTableMeta('ext_note', ['id', 'extensionId', 'body'], []);
+    const extNoteTable = makeTableMeta(
+      'ext_note',
+      ['id', 'extensionId', 'body'],
+      [],
+    );
     const extTagTable = makeTableMeta('ext_tag', ['id', 'label'], []);
     const extJunctionTable = makeTableMeta(
       'ext_tag_junction',
@@ -355,9 +362,9 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
   });
 
   test('mutually exclusive _and on id returns empty', async () => {
-    expect(await rowIds({ _and: [{ id: { _eq: 1 } }, { id: { _eq: 2 } }] })).toEqual(
-      [],
-    );
+    expect(
+      await rowIds({ _and: [{ id: { _eq: 1 } }, { id: { _eq: 2 } }] }),
+    ).toEqual([]);
   });
 
   test('top-level _and and _or together — both must hold as implicit AND of roots', async () => {
@@ -369,14 +376,10 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
   });
 
   test('unknown operator _weird throws BadRequest listing supported operators', async () => {
-    await expect(
-      rowIds({ title: { _weird: 1 } }),
-    ).rejects.toMatchObject({
+    await expect(rowIds({ title: { _weird: 1 } })).rejects.toMatchObject({
       message: expect.stringContaining('Unsupported filter operator "_weird"'),
     });
-    await expect(
-      rowIds({ title: { _weird: 1 } }),
-    ).rejects.toMatchObject({
+    await expect(rowIds({ title: { _weird: 1 } })).rejects.toMatchObject({
       message: expect.stringContaining('_is_null'),
     });
   });
@@ -390,9 +393,7 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
   });
 
   test('_eq preserves literal percent and underscore in title', async () => {
-    expect(
-      await rowIds({ title: { _eq: '100%_done_literal' } }),
-    ).toEqual([7]);
+    expect(await rowIds({ title: { _eq: '100%_done_literal' } })).toEqual([7]);
   });
 
   test('_contains matches stable substring on row 7', async () => {
@@ -418,9 +419,7 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
 
   test('very long _eq string returns empty without throwing', async () => {
     const long = 'x'.repeat(12000);
-    await expect(
-      rowIds({ title: { _eq: long } }),
-    ).resolves.toEqual([]);
+    await expect(rowIds({ title: { _eq: long } })).resolves.toEqual([]);
   });
 
   test('O2M filter notes.body does not duplicate parent ids', async () => {
@@ -437,9 +436,7 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
   });
 
   test('M2M filter tags.label narrows to extensions linked to tag x', async () => {
-    expect(
-      await rowIds({ tags: { label: { _eq: 'x' } } }),
-    ).toEqual([1, 3]);
+    expect(await rowIds({ tags: { label: { _eq: 'x' } } })).toEqual([1, 3]);
   });
 
   test('_or across field and M2M branch', async () => {
@@ -619,7 +616,9 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
     });
     const rows = r.data as any[];
     expect(rows.length).toBe(6000);
-    const withChild = rows.filter((row) => Array.isArray(row.children) && row.children.length > 0);
+    const withChild = rows.filter(
+      (row) => Array.isArray(row.children) && row.children.length > 0,
+    );
     expect(withChild.length).toBe(6000);
     expect(rows[0].children[0]).toBeDefined();
   });
@@ -647,8 +646,12 @@ describe('Adversarial Query Builder (SqlQueryExecutor + SQLite)', () => {
   });
 
   test('unicode NFC vs NFD _contains on accented title', async () => {
-    const nfc = await rowIds({ title: { _contains: 'Résumé'.normalize('NFC') } });
-    const nfd = await rowIds({ title: { _contains: 'Résumé'.normalize('NFD') } });
+    const nfc = await rowIds({
+      title: { _contains: 'Résumé'.normalize('NFC') },
+    });
+    const nfd = await rowIds({
+      title: { _contains: 'Résumé'.normalize('NFD') },
+    });
     expect(nfc).toEqual([6]);
     expect([[], [6]]).toContainEqual(nfd);
   });

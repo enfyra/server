@@ -1,8 +1,26 @@
 describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
   const RELOAD_CHAINS: Record<string, string[]> = {
-    table_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
-    column_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
-    relation_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+    table_definition: [
+      'metadata',
+      'repoRegistry',
+      'route',
+      'graphql',
+      'fieldPermission',
+    ],
+    column_definition: [
+      'metadata',
+      'repoRegistry',
+      'route',
+      'graphql',
+      'fieldPermission',
+    ],
+    relation_definition: [
+      'metadata',
+      'repoRegistry',
+      'route',
+      'graphql',
+      'fieldPermission',
+    ],
     route_definition: ['route', 'graphql', 'guard'],
     pre_hook_definition: ['route'],
     post_hook_definition: ['route'],
@@ -27,7 +45,11 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
 
   describe('RELOAD_CHAINS — dependency correctness', () => {
     it('table/column/relation changes should invalidate fieldPermission', () => {
-      for (const t of ['table_definition', 'column_definition', 'relation_definition']) {
+      for (const t of [
+        'table_definition',
+        'column_definition',
+        'relation_definition',
+      ]) {
         expect(RELOAD_CHAINS[t]).toContain('fieldPermission');
       }
     });
@@ -37,7 +59,11 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
     });
 
     it('structural metadata changes should reload metadata → route → graphql', () => {
-      for (const t of ['table_definition', 'column_definition', 'relation_definition']) {
+      for (const t of [
+        'table_definition',
+        'column_definition',
+        'relation_definition',
+      ]) {
         const chain = RELOAD_CHAINS[t];
         expect(chain.indexOf('metadata')).toBeLessThan(chain.indexOf('route'));
         expect(chain.indexOf('route')).toBeLessThan(chain.indexOf('graphql'));
@@ -46,8 +72,10 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
 
     it('hook/handler/permission changes should NOT trigger graphql rebuild', () => {
       for (const t of [
-        'pre_hook_definition', 'post_hook_definition',
-        'route_handler_definition', 'route_permission_definition',
+        'pre_hook_definition',
+        'post_hook_definition',
+        'route_handler_definition',
+        'route_permission_definition',
         'role_definition',
       ]) {
         expect(RELOAD_CHAINS[t]).not.toContain('graphql');
@@ -74,11 +102,22 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
     it('should run metadata first, middle steps in parallel, graphql last', async () => {
       const callOrder: string[] = [];
       const stepMap: Record<string, () => Promise<void>> = {
-        metadata: async () => { callOrder.push('metadata'); },
-        repoRegistry: async () => { callOrder.push('repoRegistry'); },
-        route: async () => { await new Promise(r => setTimeout(r, 5)); callOrder.push('route'); },
-        graphql: async () => { callOrder.push('graphql'); },
-        fieldPermission: async () => { callOrder.push('fieldPermission'); },
+        metadata: async () => {
+          callOrder.push('metadata');
+        },
+        repoRegistry: async () => {
+          callOrder.push('repoRegistry');
+        },
+        route: async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          callOrder.push('route');
+        },
+        graphql: async () => {
+          callOrder.push('graphql');
+        },
+        fieldPermission: async () => {
+          callOrder.push('fieldPermission');
+        },
       };
 
       const chain = RELOAD_CHAINS['table_definition'];
@@ -86,28 +125,36 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
       if (chain.includes('metadata')) {
         await stepMap['metadata']();
       }
-      const middleSteps = chain.filter(s => s !== 'metadata' && s !== 'graphql');
-      await Promise.all(middleSteps.map(s => stepMap[s]?.()));
+      const middleSteps = chain.filter(
+        (s) => s !== 'metadata' && s !== 'graphql',
+      );
+      await Promise.all(middleSteps.map((s) => stepMap[s]?.()));
       if (chain.includes('graphql')) {
         await stepMap['graphql']();
       }
 
       expect(callOrder[0]).toBe('metadata');
       expect(callOrder[callOrder.length - 1]).toBe('graphql');
-      expect(callOrder.indexOf('metadata')).toBeLessThan(callOrder.indexOf('repoRegistry'));
-      expect(callOrder.indexOf('metadata')).toBeLessThan(callOrder.indexOf('route'));
+      expect(callOrder.indexOf('metadata')).toBeLessThan(
+        callOrder.indexOf('repoRegistry'),
+      );
+      expect(callOrder.indexOf('metadata')).toBeLessThan(
+        callOrder.indexOf('route'),
+      );
     });
 
     it('chain without metadata/graphql should only run middle steps', async () => {
       const called: string[] = [];
       const stepMap: Record<string, () => Promise<void>> = {
-        route: async () => { called.push('route'); },
+        route: async () => {
+          called.push('route');
+        },
       };
 
       const chain = RELOAD_CHAINS['pre_hook_definition'];
       if (chain.includes('metadata')) await stepMap['metadata']?.();
-      const middle = chain.filter(s => s !== 'metadata' && s !== 'graphql');
-      await Promise.all(middle.map(s => stepMap[s]?.()));
+      const middle = chain.filter((s) => s !== 'metadata' && s !== 'graphql');
+      await Promise.all(middle.map((s) => stepMap[s]?.()));
       if (chain.includes('graphql')) await stepMap['graphql']?.();
 
       expect(called).toEqual(['route']);
@@ -123,13 +170,18 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
         signals.push(JSON.parse(msg));
         expect(localReloaded).toBe(false);
       };
-      const reloadAllLocal = async () => { localReloaded = true; };
+      const reloadAllLocal = async () => {
+        localReloaded = true;
+      };
 
-      await publish('ch', JSON.stringify({
-        instanceId: 'inst-001',
-        type: 'RELOAD_SIGNAL',
-        payload: { tableName: '__admin_reload_all', scope: 'full' },
-      }));
+      await publish(
+        'ch',
+        JSON.stringify({
+          instanceId: 'inst-001',
+          type: 'RELOAD_SIGNAL',
+          payload: { tableName: '__admin_reload_all', scope: 'full' },
+        }),
+      );
       await reloadAllLocal();
 
       expect(signals[0].payload.tableName).toBe('__admin_reload_all');
@@ -196,14 +248,20 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
     it('should pick table_definition over route_definition (4 > 3)', () => {
       const chainA = RELOAD_CHAINS['table_definition'];
       const chainB = RELOAD_CHAINS['route_definition'];
-      const winner = chainA.length >= chainB.length ? 'table_definition' : 'route_definition';
+      const winner =
+        chainA.length >= chainB.length
+          ? 'table_definition'
+          : 'route_definition';
       expect(winner).toBe('table_definition');
     });
 
     it('should pick column_definition over pre_hook_definition (5 > 1)', () => {
       const chainA = RELOAD_CHAINS['column_definition'];
       const chainB = RELOAD_CHAINS['pre_hook_definition'];
-      const winner = chainA.length >= chainB.length ? 'column_definition' : 'pre_hook_definition';
+      const winner =
+        chainA.length >= chainB.length
+          ? 'column_definition'
+          : 'pre_hook_definition';
       expect(winner).toBe('column_definition');
     });
   });

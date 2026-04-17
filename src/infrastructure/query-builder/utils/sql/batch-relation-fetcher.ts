@@ -20,5 +20,11 @@ export async function executeBatchFetches(
 ): Promise<void> {
   const adapter = new SqlBatchAdapter(knex, dbType);
   const engine = new BatchFetchEngine(adapter, metadataGetter);
-  await engine.execute(parentRows, descriptors, maxDepth, currentDepth, parentTableName);
+  await engine.execute(
+    parentRows,
+    descriptors,
+    maxDepth,
+    currentDepth,
+    parentTableName,
+  );
 }

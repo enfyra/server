@@ -165,7 +165,14 @@ function applyComparison(
       applyTextSearch(query, fullField, node.value, 'contains', ctx, combine);
       return;
     case 'starts_with':
-      applyTextSearch(query, fullField, node.value, 'starts_with', ctx, combine);
+      applyTextSearch(
+        query,
+        fullField,
+        node.value,
+        'starts_with',
+        ctx,
+        combine,
+      );
       return;
     case 'ends_with':
       applyTextSearch(query, fullField, node.value, 'ends_with', ctx, combine);

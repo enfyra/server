@@ -1,4 +1,7 @@
-import { BaseTableProcessor, UpsertResult } from '../../src/core/bootstrap/processors/base-table-processor';
+import {
+  BaseTableProcessor,
+  UpsertResult,
+} from '../../src/core/bootstrap/processors/base-table-processor';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 class TestProcessor extends BaseTableProcessor {

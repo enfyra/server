@@ -219,14 +219,17 @@ export async function expandFieldsToJoinsAndSelect(
     if (isOwnerRelation) {
       const fkColumn =
         relation.foreignKeyColumn ||
-        getForeignKeyColumnName(relation.targetTableName || (relation as any).targetTable);
+        getForeignKeyColumnName(
+          relation.targetTableName || (relation as any).targetTable,
+        );
       const quotedTable = quoteIdentifier(tableName, dbType);
       const quotedFk = quoteIdentifier(fkColumn, dbType);
       const quotedAlias = quoteIdentifier(relationName, dbType);
       select.push(`${quotedTable}.${quotedFk} as ${quotedAlias}`);
     }
 
-    const targetTable = relation.targetTableName || (relation as any).targetTable;
+    const targetTable =
+      relation.targetTableName || (relation as any).targetTable;
 
     batchFetchDescriptors.push({
       relationName,

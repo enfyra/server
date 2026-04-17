@@ -102,7 +102,9 @@ export class MigrationJournalService {
 
   async executeRollback(uuid: string): Promise<void> {
     const knex = this.getKnex();
-    const entry = await knex('schema_migration_definition').where({ uuid }).first();
+    const entry = await knex('schema_migration_definition')
+      .where({ uuid })
+      .first();
 
     if (!entry || !entry.downScript) {
       this.logger.warn(

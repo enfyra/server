@@ -57,7 +57,11 @@ describe('SagaCollection (app-level saga)', () => {
   it('aggregate delegates to saga session', () => {
     const c = new SagaCollection('items', mongo);
     c.aggregate([{ $match: {} }]);
-    expect(txApi.aggregate).toHaveBeenCalledWith('items', [{ $match: {} }], undefined);
+    expect(txApi.aggregate).toHaveBeenCalledWith(
+      'items',
+      [{ $match: {} }],
+      undefined,
+    );
   });
 
   it('bulkWrite asserts duration then uses raw collection', () => {

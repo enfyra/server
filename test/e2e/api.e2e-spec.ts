@@ -22,12 +22,10 @@ describe('Enfyra System E2E Tests', () => {
 
   describe('Auth Flow', () => {
     it('POST /auth/login - should fail with 400 or 401 for bad credentials', async () => {
-      const res = await request(BASE_URL)
-        .post('/auth/login')
-        .send({
-          email: 'wrong@enfyra.com',
-          password: 'wrongpassword'
-        });
+      const res = await request(BASE_URL).post('/auth/login').send({
+        email: 'wrong@enfyra.com',
+        password: 'wrongpassword',
+      });
       expect(res.status).toBeGreaterThanOrEqual(400);
     });
   });

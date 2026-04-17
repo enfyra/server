@@ -52,9 +52,27 @@ const FLOW_PRIORITY = [
 type ReloadStep = (payload: TCacheInvalidationPayload) => Promise<void>;
 
 const RELOAD_CHAINS: Record<string, string[]> = {
-  table_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
-  column_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
-  relation_definition: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'],
+  table_definition: [
+    'metadata',
+    'repoRegistry',
+    'route',
+    'graphql',
+    'fieldPermission',
+  ],
+  column_definition: [
+    'metadata',
+    'repoRegistry',
+    'route',
+    'graphql',
+    'fieldPermission',
+  ],
+  relation_definition: [
+    'metadata',
+    'repoRegistry',
+    'route',
+    'graphql',
+    'fieldPermission',
+  ],
 
   route_definition: ['route', 'graphql', 'guard'],
   pre_hook_definition: ['route'],
@@ -350,9 +368,7 @@ export class CacheOrchestratorService
     this.repoRegistry.rebuildFromMetadata(this.metadataCache);
   }
 
-  private async reloadRoute(
-    payload: TCacheInvalidationPayload,
-  ): Promise<void> {
+  private async reloadRoute(payload: TCacheInvalidationPayload): Promise<void> {
     if (
       payload.scope === 'partial' &&
       this.routeCache.isLoaded() &&
@@ -507,9 +523,7 @@ export class CacheOrchestratorService
     if (this.messageHandler) return;
 
     this.messageHandler = async (channel: string, message: string) => {
-      if (
-        this.redisPubSubService.isChannelForBase(channel, SYNC_CHANNEL)
-      ) {
+      if (this.redisPubSubService.isChannelForBase(channel, SYNC_CHANNEL)) {
         try {
           const signal = JSON.parse(message);
           if (signal.instanceId === this.instanceService.getInstanceId()) {

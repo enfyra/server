@@ -136,7 +136,9 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
           'methods',
           'method_definition',
         );
-        await this.queryBuilder.delete(junctionTable, { where: [{ field: sourceColumn, operator: '=', value: record.id }] });
+        await this.queryBuilder.delete(junctionTable, {
+          where: [{ field: sourceColumn, operator: '=', value: record.id }],
+        });
         const junctionData = methodIds.map((methodId) => ({
           [targetColumn]: methodId,
           [sourceColumn]: record.id,

@@ -115,15 +115,39 @@ async function resolveSingleRelation(
   if (!targetTable || !targetMeta) return {};
 
   if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
-    return resolveM2oOrO2o(relFilter, relation, relName, targetTable, targetMeta, metadata, db);
+    return resolveM2oOrO2o(
+      relFilter,
+      relation,
+      relName,
+      targetTable,
+      targetMeta,
+      metadata,
+      db,
+    );
   }
 
   if (relation.type === 'one-to-many') {
-    return resolveO2m(relFilter, relation, tableName, targetTable, targetMeta, metadata, db);
+    return resolveO2m(
+      relFilter,
+      relation,
+      tableName,
+      targetTable,
+      targetMeta,
+      metadata,
+      db,
+    );
   }
 
   if (relation.type === 'many-to-many') {
-    return resolveM2m(relFilter, relation, tableName, targetTable, targetMeta, metadata, db);
+    return resolveM2m(
+      relFilter,
+      relation,
+      tableName,
+      targetTable,
+      targetMeta,
+      metadata,
+      db,
+    );
   }
 
   return {};
@@ -151,7 +175,13 @@ async function resolveM2oOrO2o(
     if (directId.op === 'eq') return { [fkField]: directId.value };
     if (directId.op === 'neq') return { [fkField]: { $ne: directId.value } };
     if (directId.op === 'in') return { [fkField]: { $in: directId.value } };
-    if (directId.op === 'not_in') return { $and: [{ [fkField]: { $nin: directId.value } }, { [fkField]: { $ne: null } }] };
+    if (directId.op === 'not_in')
+      return {
+        $and: [
+          { [fkField]: { $nin: directId.value } },
+          { [fkField]: { $ne: null } },
+        ],
+      };
   }
 
   const targetQuery = renderRawFilterToMongo(metadata, inner, targetTable);
@@ -180,7 +210,12 @@ async function resolveO2m(
 
   const nullOnly = checkNullOnly(inner);
   if (nullOnly !== null) {
-    const parentIds = await collectParentIdsFromFk(db, targetTable, fkField, {});
+    const parentIds = await collectParentIdsFromFk(
+      db,
+      targetTable,
+      fkField,
+      {},
+    );
     if (nullOnly) {
       return parentIds.length === 0 ? {} : { _id: { $nin: parentIds } };
     }
@@ -191,7 +226,12 @@ async function resolveO2m(
 
   const targetQuery = renderRawFilterToMongo(metadata, inner, targetTable);
   if (!targetQuery || Object.keys(targetQuery).length === 0) return {};
-  const parentIds = await collectParentIdsFromFk(db, targetTable, fkField, targetQuery);
+  const parentIds = await collectParentIdsFromFk(
+    db,
+    targetTable,
+    fkField,
+    targetQuery,
+  );
 
   if (parentIds.length === 0) return { __impossible__: true };
   return { _id: { $in: parentIds } };
@@ -213,7 +253,12 @@ async function resolveM2m(
   const nullOnly = checkNullOnly(inner);
 
   if (nullOnly !== null) {
-    const parentIds = await collectParentIdsFromJunction(db, info, targetTable, null);
+    const parentIds = await collectParentIdsFromJunction(
+      db,
+      info,
+      targetTable,
+      null,
+    );
     if (nullOnly) {
       return parentIds.length === 0 ? {} : { _id: { $nin: parentIds } };
     }
@@ -225,7 +270,12 @@ async function resolveM2m(
   const directId = extractDirectIdMatch(inner);
   if (directId !== null) {
     const idArr = Array.isArray(directId) ? directId : [directId];
-    const parentIds = await collectParentIdsFromJunction(db, info, targetTable, { _id: { $in: idArr } });
+    const parentIds = await collectParentIdsFromJunction(
+      db,
+      info,
+      targetTable,
+      { _id: { $in: idArr } },
+    );
     if (parentIds.length === 0) return { __impossible__: true };
     return { _id: { $in: parentIds } };
   }
@@ -240,7 +290,9 @@ async function resolveM2m(
   const targetIds = targetMatches.map((m: any) => m._id).filter(Boolean);
 
   if (targetIds.length === 0) return { __impossible__: true };
-  const parentIds = await collectParentIdsFromJunction(db, info, targetTable, { _id: { $in: targetIds } });
+  const parentIds = await collectParentIdsFromJunction(db, info, targetTable, {
+    _id: { $in: targetIds },
+  });
   if (parentIds.length === 0) return { __impossible__: true };
   return { _id: { $in: parentIds } };
 }
@@ -288,7 +340,10 @@ async function collectParentIdsFromJunction(
     ? { [info!.otherColumn]: { $in: targetIds } }
     : {};
 
-  const allJunction = await db.collection(info!.junctionName).find({}).toArray();
+  const allJunction = await db
+    .collection(info!.junctionName)
+    .find({})
+    .toArray();
   for (const j of allJunction) {
   }
   const junctionRows = await db
@@ -325,7 +380,8 @@ function unwrapIdLayer(relFilter: any): any {
 }
 
 function checkNullOnly(filter: any): boolean | null {
-  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return null;
+  if (!filter || typeof filter !== 'object' || Array.isArray(filter))
+    return null;
   const keys = Object.keys(filter);
   if (keys.length !== 1) return null;
   const k = keys[0];
@@ -338,13 +394,16 @@ function checkNullOnly(filter: any): boolean | null {
 }
 
 function extractDirectIdMatch(filter: any): { op: string; value: any } | null {
-  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return null;
+  if (!filter || typeof filter !== 'object' || Array.isArray(filter))
+    return null;
   const keys = Object.keys(filter);
   if (keys.length !== 1) return null;
   const k = keys[0];
   if (k === '_eq') return { op: 'eq', value: filter._eq };
   if (k === '_neq') return { op: 'neq', value: filter._neq };
-  if (k === '_in' && Array.isArray(filter._in)) return { op: 'in', value: filter._in };
-  if (k === '_not_in' && Array.isArray(filter._not_in)) return { op: 'not_in', value: filter._not_in };
+  if (k === '_in' && Array.isArray(filter._in))
+    return { op: 'in', value: filter._in };
+  if (k === '_not_in' && Array.isArray(filter._not_in))
+    return { op: 'not_in', value: filter._not_in };
   return null;
 }

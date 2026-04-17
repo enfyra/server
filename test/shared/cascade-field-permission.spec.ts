@@ -1,13 +1,19 @@
 import { ForbiddenException } from '@nestjs/common';
 import { CascadeHandler } from '../../src/infrastructure/knex/utils/cascade-handler';
 
-function makeCascadeHandler(opts: {
-  getFieldPermissionContext?: () => { check: (...args: any[]) => Promise<void> } | null;
-  insertWithCascade?: (...args: any[]) => Promise<any>;
-} = {}) {
+function makeCascadeHandler(
+  opts: {
+    getFieldPermissionContext?: () => {
+      check: (...args: any[]) => Promise<void>;
+    } | null;
+    insertWithCascade?: (...args: any[]) => Promise<any>;
+  } = {},
+) {
   const knex = {} as any;
   const metadataCache = {
-    getMetadata: jest.fn().mockResolvedValue({ tables: new Map(), tablesList: [] }),
+    getMetadata: jest
+      .fn()
+      .mockResolvedValue({ tables: new Map(), tablesList: [] }),
   } as any;
   const logger = { warn: jest.fn() } as any;
 
@@ -32,20 +38,30 @@ describe('CascadeHandler — field permission on cascade create', () => {
       insertWithCascade: async (_tbl, data) => ({ id: 42, ...data }),
     });
 
-    await (handler as any).insertRecordAndGetId('child_table', { name: 'test' });
+    await (handler as any).insertRecordAndGetId('child_table', {
+      name: 'test',
+    });
 
-    expect(checker).toHaveBeenCalledWith('child_table', 'create', expect.objectContaining({ name: 'test' }));
+    expect(checker).toHaveBeenCalledWith(
+      'child_table',
+      'create',
+      expect.objectContaining({ name: 'test' }),
+    );
   });
 
   it('throws when field permission check denies access', async () => {
-    const checker = jest.fn().mockRejectedValue(new ForbiddenException('Field denied'));
+    const checker = jest
+      .fn()
+      .mockRejectedValue(new ForbiddenException('Field denied'));
     const handler = makeCascadeHandler({
       getFieldPermissionContext: () => ({ check: checker }),
       insertWithCascade: jest.fn(),
     });
 
     await expect(
-      (handler as any).insertRecordAndGetId('child_table', { secret_field: 'value' }),
+      (handler as any).insertRecordAndGetId('child_table', {
+        secret_field: 'value',
+      }),
     ).rejects.toThrow(ForbiddenException);
 
     expect((handler as any).insertWithCascade).not.toHaveBeenCalled();
@@ -78,7 +94,10 @@ describe('CascadeHandler — field permission on cascade create', () => {
       getFieldPermissionContext: () => ({ check: checker }),
     });
 
-    const result = await (handler as any).insertRecordAndGetId('child_table', null);
+    const result = await (handler as any).insertRecordAndGetId(
+      'child_table',
+      null,
+    );
 
     expect(result).toBeNull();
     expect(checker).not.toHaveBeenCalled();
@@ -92,15 +111,22 @@ describe('DynamicRepository — wrapWithFieldPermissionCheck', () => {
     fieldPermissionCacheService?: any;
     runWithFieldPermissionCheck?: jest.Mock;
   }) {
-    const { DynamicRepository } = require('../../src/modules/dynamic-api/repositories/dynamic.repository');
+    const {
+      DynamicRepository,
+    } = require('../../src/modules/dynamic-api/repositories/dynamic.repository');
     const repo = Object.create(DynamicRepository.prototype);
     repo.enforceFieldPermission = opts.enforceFieldPermission ?? false;
     repo.fieldPermissionCacheService = opts.fieldPermissionCacheService ?? null;
-    repo.context = { $user: opts.isRootAdmin ? { isRootAdmin: true } : { id: 1 } };
-    repo.queryBuilder = {
-      runWithFieldPermissionCheck: opts.runWithFieldPermissionCheck ?? jest.fn((_, cb) => cb()),
+    repo.context = {
+      $user: opts.isRootAdmin ? { isRootAdmin: true } : { id: 1 },
     };
-    repo.metadataCacheService = { lookupTableByName: jest.fn().mockResolvedValue(null) };
+    repo.queryBuilder = {
+      runWithFieldPermissionCheck:
+        opts.runWithFieldPermissionCheck ?? jest.fn((_, cb) => cb()),
+    };
+    repo.metadataCacheService = {
+      lookupTableByName: jest.fn().mockResolvedValue(null),
+    };
     repo.tableName = 'test_table';
     return repo;
   }
@@ -112,7 +138,9 @@ describe('DynamicRepository — wrapWithFieldPermissionCheck', () => {
     const result = await repo.wrapWithFieldPermissionCheck(cb);
 
     expect(result).toBe('result');
-    expect(repo.queryBuilder.runWithFieldPermissionCheck).not.toHaveBeenCalled();
+    expect(
+      repo.queryBuilder.runWithFieldPermissionCheck,
+    ).not.toHaveBeenCalled();
   });
 
   it('calls callback directly for root admin', async () => {
@@ -126,7 +154,9 @@ describe('DynamicRepository — wrapWithFieldPermissionCheck', () => {
     const result = await repo.wrapWithFieldPermissionCheck(cb);
 
     expect(result).toBe('result');
-    expect(repo.queryBuilder.runWithFieldPermissionCheck).not.toHaveBeenCalled();
+    expect(
+      repo.queryBuilder.runWithFieldPermissionCheck,
+    ).not.toHaveBeenCalled();
   });
 
   it('uses runWithFieldPermissionCheck for regular user when enforcing', async () => {
@@ -147,12 +177,18 @@ describe('DynamicRepository — wrapWithFieldPermissionCheck', () => {
   it('cascadeFieldPermissionCheck returns early when no metadata', async () => {
     const repo = makeRepo({
       enforceFieldPermission: true,
-      fieldPermissionCacheService: { getPoliciesFor: jest.fn().mockResolvedValue([]) },
+      fieldPermissionCacheService: {
+        getPoliciesFor: jest.fn().mockResolvedValue([]),
+      },
     });
-    repo.metadataCacheService.lookupTableByName = jest.fn().mockResolvedValue(null);
+    repo.metadataCacheService.lookupTableByName = jest
+      .fn()
+      .mockResolvedValue(null);
 
     await expect(
-      repo.cascadeFieldPermissionCheck('some_table', 'create', { field: 'value' }),
+      repo.cascadeFieldPermissionCheck('some_table', 'create', {
+        field: 'value',
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -166,12 +202,20 @@ describe('DynamicRepository — wrapWithFieldPermissionCheck', () => {
       relations: [],
     });
 
-    const { decideFieldPermission } = require('../../src/shared/utils/field-permission.util');
-    jest.spyOn(require('../../src/shared/utils/field-permission.util'), 'decideFieldPermission')
+    const {
+      decideFieldPermission,
+    } = require('../../src/shared/utils/field-permission.util');
+    jest
+      .spyOn(
+        require('../../src/shared/utils/field-permission.util'),
+        'decideFieldPermission',
+      )
       .mockResolvedValue({ allowed: false, reason: 'Denied' });
 
     await expect(
-      repo.cascadeFieldPermissionCheck('child_table', 'create', { secret: 'value' }),
+      repo.cascadeFieldPermissionCheck('child_table', 'create', {
+        secret: 'value',
+      }),
     ).rejects.toThrow(ForbiddenException);
 
     jest.restoreAllMocks();

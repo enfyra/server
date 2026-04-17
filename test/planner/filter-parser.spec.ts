@@ -39,7 +39,10 @@ const META = {
   ]),
 };
 
-function parse(filter: any, table = 'posts'): { node: FilterNode | null; hasRelationFilters: boolean; joinCount: number } {
+function parse(
+  filter: any,
+  table = 'posts',
+): { node: FilterNode | null; hasRelationFilters: boolean; joinCount: number } {
   const registry = new JoinRegistry();
   const result = parseFilter(filter, table, META, registry);
   return {
@@ -239,10 +242,7 @@ describe('filter-parser', () => {
         _and: [
           { status: { _eq: 'a' } },
           {
-            _or: [
-              { id: { _gt: 1 } },
-              { _not: { title: { _contains: 'x' } } },
-            ],
+            _or: [{ id: { _gt: 1 } }, { _not: { title: { _contains: 'x' } } }],
           },
         ],
       });

@@ -70,10 +70,7 @@ export abstract class BaseTableProcessor {
     return transformed;
   }
 
-  protected autoGetUniqueIdentifier(
-    record: any,
-    tableName: string,
-  ): object {
+  protected autoGetUniqueIdentifier(record: any, tableName: string): object {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const uniques = getUniqueFields(tableName);
 
@@ -87,7 +84,13 @@ export abstract class BaseTableProcessor {
           where[`${field}Id`] = record[`${field}Id`];
         } else {
           const rawValue = record[field];
-          if (rel && isMongoDB && rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+          if (
+            rel &&
+            isMongoDB &&
+            rawValue &&
+            typeof rawValue === 'object' &&
+            !Array.isArray(rawValue)
+          ) {
             where[field] = rawValue._id ?? rawValue.id ?? rawValue;
           } else {
             where[field] = rawValue;
@@ -148,10 +151,14 @@ export abstract class BaseTableProcessor {
             const existingId = existingRecord[idField];
             await queryBuilder.update(tableName, existingId, record);
             skippedCount++;
-            this.logger.debug(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Updated: ${this.getRecordIdentifier(record)}`,
+            );
           } else {
             skippedCount++;
-            this.logger.debug(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Skipped: ${this.getRecordIdentifier(record)}`,
+            );
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -225,10 +232,14 @@ export abstract class BaseTableProcessor {
               tableName,
             );
             skippedCount++;
-            this.logger.debug(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Updated: ${this.getRecordIdentifier(record)}`,
+            );
           } else {
             skippedCount++;
-            this.logger.debug(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Skipped: ${this.getRecordIdentifier(record)}`,
+            );
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -379,10 +390,14 @@ export abstract class BaseTableProcessor {
               collectionName,
             );
             skippedCount++;
-            this.logger.debug(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Updated: ${this.getRecordIdentifier(record)}`,
+            );
           } else {
             skippedCount++;
-            this.logger.debug(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Skipped: ${this.getRecordIdentifier(record)}`,
+            );
           }
           if (this.afterUpsert) {
             await this.afterUpsert(

@@ -43,10 +43,7 @@ export function parseFilter(
   return parseObject(raw, ctx);
 }
 
-function parseObject(
-  obj: any,
-  ctx: FilterParseContext,
-): FilterParseResult {
+function parseObject(obj: any, ctx: FilterParseContext): FilterParseResult {
   if (!obj || typeof obj !== 'object') {
     return { node: null, hasRelationFilters: false };
   }
@@ -78,7 +75,8 @@ function parseEntry(
   }
   if (key === '_not') {
     const inner = parseObject(value, ctx);
-    if (!inner.node) return { node: null, hasRelationFilters: inner.hasRelationFilters };
+    if (!inner.node)
+      return { node: null, hasRelationFilters: inner.hasRelationFilters };
     return {
       node: { kind: 'not', child: inner.node },
       hasRelationFilters: inner.hasRelationFilters,
@@ -86,7 +84,9 @@ function parseEntry(
   }
 
   const tableMeta = ctx.metadata?.tables?.get(ctx.currentTable);
-  const hasMongoId = tableMeta?.columns?.some((c: any) => c.name === '_id' && c.isPrimary);
+  const hasMongoId = tableMeta?.columns?.some(
+    (c: any) => c.name === '_id' && c.isPrimary,
+  );
   const hasSqlId = tableMeta?.columns?.some((c: any) => c.name === 'id');
   const pkAlias = hasMongoId && !hasSqlId ? '_id' : 'id';
   const normalizedKey = key === 'id' ? pkAlias : key;
@@ -100,7 +100,9 @@ function parseEntry(
   }
 
   if (tableMeta) {
-    const column = tableMeta.columns?.find((c: any) => c.name === normalizedKey);
+    const column = tableMeta.columns?.find(
+      (c: any) => c.name === normalizedKey,
+    );
     if (!column) {
       if (key.startsWith('_')) {
         if (key !== '_id') {
@@ -148,9 +150,13 @@ function parseRelationEntry(
   const keys = Object.keys(value);
   const isExplicitNullCheck =
     keys.length === 1 &&
-    (keys[0] === '_is_null' || keys[0] === '_is_not_null' ||
-     keys[0] === '_eq' || keys[0] === '_neq' ||
-     keys[0] === '_in' || keys[0] === '_not_in' || keys[0] === '_nin');
+    (keys[0] === '_is_null' ||
+      keys[0] === '_is_not_null' ||
+      keys[0] === '_eq' ||
+      keys[0] === '_neq' ||
+      keys[0] === '_in' ||
+      keys[0] === '_not_in' ||
+      keys[0] === '_nin');
 
   const joinId = ctx.registry.registerWithParent(
     ctx.currentTable,
@@ -164,19 +170,31 @@ function parseRelationEntry(
   if (isExplicitNullCheck && keys[0] === '_is_null') {
     if (!joinId) return { node: null, hasRelationFilters: true };
     return {
-      node: { kind: 'relation_exists', joinId, negate: value._is_null === true },
+      node: {
+        kind: 'relation_exists',
+        joinId,
+        negate: value._is_null === true,
+      },
       hasRelationFilters: true,
     };
   }
   if (isExplicitNullCheck && keys[0] === '_is_not_null') {
     if (!joinId) return { node: null, hasRelationFilters: true };
     return {
-      node: { kind: 'relation_exists', joinId, negate: value._is_not_null !== true },
+      node: {
+        kind: 'relation_exists',
+        joinId,
+        negate: value._is_not_null !== true,
+      },
       hasRelationFilters: true,
     };
   }
 
-  if (isExplicitNullCheck && (keys[0] === '_eq' || keys[0] === '_neq') && value[keys[0]] === null) {
+  if (
+    isExplicitNullCheck &&
+    (keys[0] === '_eq' || keys[0] === '_neq') &&
+    value[keys[0]] === null
+  ) {
     if (!joinId) return { node: null, hasRelationFilters: true };
     return {
       node: { kind: 'relation_exists', joinId, negate: keys[0] === '_eq' },

@@ -57,7 +57,10 @@ function buildRelationDescriptor(
   let foreignField: string;
   let isInverse = false;
 
-  if (node.relationType === 'many-to-one' || node.relationType === 'one-to-one') {
+  if (
+    node.relationType === 'many-to-one' ||
+    node.relationType === 'one-to-one'
+  ) {
     localField = node.propertyName;
     foreignField = '_id';
     isInverse = false;
@@ -78,8 +81,7 @@ function buildRelationDescriptor(
   }
 
   const isToMany =
-    node.relationType === 'one-to-many' ||
-    node.relationType === 'many-to-many';
+    node.relationType === 'one-to-many' || node.relationType === 'many-to-many';
 
   const nestedFields = flattenChildren(node.children);
 

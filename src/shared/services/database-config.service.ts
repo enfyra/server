@@ -9,12 +9,9 @@ export class DatabaseConfigService {
   private readonly dbType: DatabaseType;
 
   constructor(private readonly configService: ConfigService) {
-    const uri =
-      this.configService.get<string>('DB_URI');
+    const uri = this.configService.get<string>('DB_URI');
     if (!uri) {
-      throw new Error(
-        'DB_URI environment variable is required but not set.',
-      );
+      throw new Error('DB_URI environment variable is required but not set.');
     }
     this.dbType = DatabaseConfigService.resolveFromUri(uri);
     DatabaseConfigService.instance = this;

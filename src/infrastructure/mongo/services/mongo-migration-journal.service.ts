@@ -58,14 +58,26 @@ export class MongoMigrationJournalService {
   async markRunning(uuid: string): Promise<void> {
     await this.getCollection().updateOne(
       { uuid },
-      { $set: { status: 'running', startedAt: new Date(), updatedAt: new Date() } },
+      {
+        $set: {
+          status: 'running',
+          startedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
     );
   }
 
   async markCompleted(uuid: string): Promise<void> {
     await this.getCollection().updateOne(
       { uuid },
-      { $set: { status: 'completed', completedAt: new Date(), updatedAt: new Date() } },
+      {
+        $set: {
+          status: 'completed',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
     );
     this.logger.log(`Journal completed: ${uuid}`);
   }
@@ -88,7 +100,13 @@ export class MongoMigrationJournalService {
   async markRolledBack(uuid: string): Promise<void> {
     await this.getCollection().updateOne(
       { uuid },
-      { $set: { status: 'rolled_back', completedAt: new Date(), updatedAt: new Date() } },
+      {
+        $set: {
+          status: 'rolled_back',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
     );
     this.logger.warn(`Journal rolled back: ${uuid}`);
   }
@@ -129,7 +147,9 @@ export class MongoMigrationJournalService {
         completedAt: { $lt: cutoff },
       });
       if (result.deletedCount > 0) {
-        this.logger.log(`Cleaned up ${result.deletedCount} old journal entries`);
+        this.logger.log(
+          `Cleaned up ${result.deletedCount} old journal entries`,
+        );
       }
     } catch {
       // collection not found — skip silently

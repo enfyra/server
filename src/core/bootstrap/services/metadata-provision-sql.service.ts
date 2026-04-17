@@ -43,7 +43,9 @@ export class MetadataProvisionSqlService {
       this.logger.log('Phase 1: Processing table definitions...');
       const tableEntries = Object.entries(snapshot);
       const existingTables: any[] = await trx('table_definition').select('*');
-      const existingTableMap = new Map<string, any>(existingTables.map((t: any) => [t.name, t]));
+      const existingTableMap = new Map<string, any>(
+        existingTables.map((t: any) => [t.name, t]),
+      );
       for (const [name, defRaw] of tableEntries) {
         const def = defRaw as any;
         const exist = existingTableMap.get(def.name);
@@ -51,36 +53,45 @@ export class MetadataProvisionSqlService {
           tableNameToId[name] = exist.id;
           const { columns, relations, ...rest } = def;
           if (this.detectTableChanges(rest, exist)) {
-            await trx('table_definition').where('id', exist.id).update({
-              isSystem: rest.isSystem,
+            await trx('table_definition')
+              .where('id', exist.id)
+              .update({
+                isSystem: rest.isSystem,
+                isSingleRecord: rest.isSingleRecord || false,
+                alias: rest.alias,
+                description: rest.description,
+                uniques: JSON.stringify(rest.uniques || []),
+                indexes: JSON.stringify(rest.indexes || []),
+              });
+          }
+        } else {
+          const { columns, relations, ...rest } = def;
+          const insertedId = await this.insertAndGetId(
+            trx,
+            'table_definition',
+            {
+              name: rest.name,
+              isSystem: rest.isSystem || false,
               isSingleRecord: rest.isSingleRecord || false,
               alias: rest.alias,
               description: rest.description,
               uniques: JSON.stringify(rest.uniques || []),
               indexes: JSON.stringify(rest.indexes || []),
-            });
-          }
-        } else {
-          const { columns, relations, ...rest } = def;
-          const insertedId = await this.insertAndGetId(trx, 'table_definition', {
-            name: rest.name,
-            isSystem: rest.isSystem || false,
-            isSingleRecord: rest.isSingleRecord || false,
-            alias: rest.alias,
-            description: rest.description,
-            uniques: JSON.stringify(rest.uniques || []),
-            indexes: JSON.stringify(rest.indexes || []),
-          });
+            },
+          );
           tableNameToId[name] = insertedId;
         }
       }
-      this.logger.log(`Phase 1 done: ${Object.keys(tableNameToId).length} tables`);
+      this.logger.log(
+        `Phase 1 done: ${Object.keys(tableNameToId).length} tables`,
+      );
 
       this.logger.log('Phase 2: Processing column definitions...');
       const allColumns = await trx('column_definition').select('*');
       const columnsByTable = new Map<number, Map<string, any>>();
       for (const col of allColumns) {
-        if (!columnsByTable.has(col.tableId)) columnsByTable.set(col.tableId, new Map());
+        if (!columnsByTable.has(col.tableId))
+          columnsByTable.set(col.tableId, new Map());
         columnsByTable.get(col.tableId)!.set(col.name, col);
       }
       for (const [name, defRaw] of tableEntries) {
@@ -107,16 +118,18 @@ export class MetadataProvisionSqlService {
               tableId,
             });
           } else if (this.detectColumnChanges(snapshotCol, existingCol)) {
-            await trx('column_definition').where('id', existingCol.id).update({
-              type: snapshotCol.type,
-              isNullable: snapshotCol.isNullable ?? true,
-              isPrimary: snapshotCol.isPrimary || false,
-              isGenerated: snapshotCol.isGenerated || false,
-              defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
-              options: JSON.stringify(snapshotCol.options || null),
-              isUpdatable: snapshotCol.isUpdatable ?? true,
-              isPublished: snapshotCol.isPublished ?? true,
-            });
+            await trx('column_definition')
+              .where('id', existingCol.id)
+              .update({
+                type: snapshotCol.type,
+                isNullable: snapshotCol.isNullable ?? true,
+                isPrimary: snapshotCol.isPrimary || false,
+                isGenerated: snapshotCol.isGenerated || false,
+                defaultValue: JSON.stringify(snapshotCol.defaultValue ?? null),
+                options: JSON.stringify(snapshotCol.options || null),
+                isUpdatable: snapshotCol.isUpdatable ?? true,
+                isPublished: snapshotCol.isPublished ?? true,
+              });
           }
         }
       }
@@ -126,14 +139,25 @@ export class MetadataProvisionSqlService {
       const allRelations = await trx('relation_definition').select('*');
       const relationsBySourceTable = new Map<number, any[]>();
       for (const rel of allRelations) {
-        if (!relationsBySourceTable.has(rel.sourceTableId)) relationsBySourceTable.set(rel.sourceTableId, []);
+        if (!relationsBySourceTable.has(rel.sourceTableId))
+          relationsBySourceTable.set(rel.sourceTableId, []);
         relationsBySourceTable.get(rel.sourceTableId)!.push(rel);
       }
       const relationRenameMap = loadRelationRenameMap();
       const relationIdMap = new Map<string, number>();
 
-      const owningRelations: Array<{ tableName: string; tableId: number; relation: any }> = [];
-      const inverseRelations: Array<{ tableName: string; tableId: number; relation: any; owningTableName: string; owningPropertyName: string }> = [];
+      const owningRelations: Array<{
+        tableName: string;
+        tableId: number;
+        relation: any;
+      }> = [];
+      const inverseRelations: Array<{
+        tableName: string;
+        tableId: number;
+        relation: any;
+        owningTableName: string;
+        owningPropertyName: string;
+      }> = [];
 
       for (const [name, defRaw] of tableEntries) {
         const def = defRaw as any;
@@ -157,67 +181,129 @@ export class MetadataProvisionSqlService {
               isUpdatable: rel.isUpdatable,
             };
             if (inverseType === 'many-to-many') {
-              inverseRelation.junctionTableName = getJunctionTableName(name, rel.propertyName, rel.targetTable);
+              inverseRelation.junctionTableName = getJunctionTableName(
+                name,
+                rel.propertyName,
+                rel.targetTable,
+              );
             }
-            inverseRelations.push({ tableName: rel.targetTable, tableId: targetId, relation: inverseRelation, owningTableName: name, owningPropertyName: rel.propertyName });
+            inverseRelations.push({
+              tableName: rel.targetTable,
+              tableId: targetId,
+              relation: inverseRelation,
+              owningTableName: name,
+              owningPropertyName: rel.propertyName,
+            });
           }
         }
       }
 
       const upsertRelation = async (
-        tableName: string, tableId: number, rel: any, mappedById: number | null, isInverse: boolean,
+        tableName: string,
+        tableId: number,
+        rel: any,
+        mappedById: number | null,
+        isInverse: boolean,
       ) => {
         const targetId = tableNameToId[rel.targetTable];
         if (!targetId) return;
         const existingRels = relationsBySourceTable.get(tableId) || [];
-        let existingRel = existingRels.find((r: any) => r.propertyName === rel.propertyName);
+        let existingRel = existingRels.find(
+          (r: any) => r.propertyName === rel.propertyName,
+        );
         if (!existingRel && relationRenameMap[tableName]?.[rel.propertyName]) {
           const oldName = relationRenameMap[tableName][rel.propertyName];
-          existingRel = existingRels.find((r: any) => r.propertyName === oldName);
+          existingRel = existingRels.find(
+            (r: any) => r.propertyName === oldName,
+          );
         }
         if (existingRel) {
-          const junctionChanged = rel.type === 'many-to-many' && (
-            (rel.junctionSourceColumn && rel.junctionSourceColumn !== existingRel.junctionSourceColumn) ||
-            (rel.junctionTargetColumn && rel.junctionTargetColumn !== existingRel.junctionTargetColumn)
-          );
+          const junctionChanged =
+            rel.type === 'many-to-many' &&
+            ((rel.junctionSourceColumn &&
+              rel.junctionSourceColumn !== existingRel.junctionSourceColumn) ||
+              (rel.junctionTargetColumn &&
+                rel.junctionTargetColumn !== existingRel.junctionTargetColumn));
           const needsUpdate =
             rel.propertyName !== existingRel.propertyName ||
-            (rel.isNullable !== undefined && rel.isNullable !== existingRel.isNullable) ||
+            (rel.isNullable !== undefined &&
+              rel.isNullable !== existingRel.isNullable) ||
             mappedById !== existingRel.mappedById ||
             (rel.type !== undefined && rel.type !== existingRel.type) ||
-            (targetId !== undefined && targetId !== existingRel.targetTableId) ||
-            (rel.isUpdatable !== undefined && rel.isUpdatable !== existingRel.isUpdatable) ||
+            (targetId !== undefined &&
+              targetId !== existingRel.targetTableId) ||
+            (rel.isUpdatable !== undefined &&
+              rel.isUpdatable !== existingRel.isUpdatable) ||
             junctionChanged;
           if (needsUpdate) {
-            const updateData: any = { propertyName: rel.propertyName, mappedById };
-            if (rel.isNullable !== undefined) updateData.isNullable = rel.isNullable;
+            const updateData: any = {
+              propertyName: rel.propertyName,
+              mappedById,
+            };
+            if (rel.isNullable !== undefined)
+              updateData.isNullable = rel.isNullable;
             if (rel.isSystem !== undefined) updateData.isSystem = rel.isSystem;
-            if (rel.isUpdatable !== undefined) updateData.isUpdatable = rel.isUpdatable;
+            if (rel.isUpdatable !== undefined)
+              updateData.isUpdatable = rel.isUpdatable;
             if (rel.type !== undefined) updateData.type = rel.type;
             if (targetId !== undefined) updateData.targetTableId = targetId;
             if (rel.type === 'many-to-many') {
-              updateData.junctionTableName = rel.junctionTableName || existingRel.junctionTableName || getJunctionTableName(tableName, rel.propertyName, rel.targetTable);
-              updateData.junctionSourceColumn = rel.junctionSourceColumn || existingRel.junctionSourceColumn || getForeignKeyColumnName(tableName);
-              updateData.junctionTargetColumn = rel.junctionTargetColumn || existingRel.junctionTargetColumn || getForeignKeyColumnName(rel.targetTable);
+              updateData.junctionTableName =
+                rel.junctionTableName ||
+                existingRel.junctionTableName ||
+                getJunctionTableName(
+                  tableName,
+                  rel.propertyName,
+                  rel.targetTable,
+                );
+              updateData.junctionSourceColumn =
+                rel.junctionSourceColumn ||
+                existingRel.junctionSourceColumn ||
+                getForeignKeyColumnName(tableName);
+              updateData.junctionTargetColumn =
+                rel.junctionTargetColumn ||
+                existingRel.junctionTargetColumn ||
+                getForeignKeyColumnName(rel.targetTable);
             }
-            await trx('relation_definition').where('id', existingRel.id).update(updateData);
+            await trx('relation_definition')
+              .where('id', existingRel.id)
+              .update(updateData);
           }
           return existingRel.id;
         } else {
           const insertData: any = {
-            propertyName: rel.propertyName, type: rel.type, mappedById,
-            isNullable: rel.isNullable !== false, isSystem: rel.isSystem || false,
-            isUpdatable: rel.isUpdatable !== false, description: rel.description,
-            sourceTableId: tableId, targetTableId: targetId,
+            propertyName: rel.propertyName,
+            type: rel.type,
+            mappedById,
+            isNullable: rel.isNullable !== false,
+            isSystem: rel.isSystem || false,
+            isUpdatable: rel.isUpdatable !== false,
+            description: rel.description,
+            sourceTableId: tableId,
+            targetTableId: targetId,
           };
           if (rel.type === 'many-to-many') {
-            insertData.junctionTableName = rel.junctionTableName || getJunctionTableName(tableName, rel.propertyName, rel.targetTable);
-            insertData.junctionSourceColumn = rel.junctionSourceColumn || getForeignKeyColumnName(tableName);
-            insertData.junctionTargetColumn = rel.junctionTargetColumn || getForeignKeyColumnName(rel.targetTable);
+            insertData.junctionTableName =
+              rel.junctionTableName ||
+              getJunctionTableName(
+                tableName,
+                rel.propertyName,
+                rel.targetTable,
+              );
+            insertData.junctionSourceColumn =
+              rel.junctionSourceColumn || getForeignKeyColumnName(tableName);
+            insertData.junctionTargetColumn =
+              rel.junctionTargetColumn ||
+              getForeignKeyColumnName(rel.targetTable);
           }
-          const id = await this.insertAndGetId(trx, 'relation_definition', insertData);
+          const id = await this.insertAndGetId(
+            trx,
+            'relation_definition',
+            insertData,
+          );
           const newRel = { ...insertData, id };
-          if (!relationsBySourceTable.has(tableId)) relationsBySourceTable.set(tableId, []);
+          if (!relationsBySourceTable.has(tableId))
+            relationsBySourceTable.set(tableId, []);
           relationsBySourceTable.get(tableId)!.push(newRel);
           return id;
         }
@@ -229,22 +315,41 @@ export class MetadataProvisionSqlService {
       }
 
       const processedInverseKeys = new Set<string>();
-      for (const { tableName, tableId, relation: rel, owningTableName, owningPropertyName } of inverseRelations) {
+      for (const {
+        tableName,
+        tableId,
+        relation: rel,
+        owningTableName,
+        owningPropertyName,
+      } of inverseRelations) {
         const inverseKey = `${tableName}.${rel.propertyName}`;
         const reverseKey = `${owningTableName}.${owningPropertyName}`;
         if (processedInverseKeys.has(reverseKey)) continue;
         processedInverseKeys.add(inverseKey);
-        const snapshotRelId = relationIdMap.get(`${owningTableName}.${owningPropertyName}`) || null;
+        const snapshotRelId =
+          relationIdMap.get(`${owningTableName}.${owningPropertyName}`) || null;
         if (rel.type === 'many-to-one') {
-          const generatedId = await upsertRelation(tableName, tableId, rel, null, false);
-          if (generatedId) relationIdMap.set(`${tableName}.${rel.propertyName}`, generatedId);
+          const generatedId = await upsertRelation(
+            tableName,
+            tableId,
+            rel,
+            null,
+            false,
+          );
+          if (generatedId)
+            relationIdMap.set(`${tableName}.${rel.propertyName}`, generatedId);
           if (snapshotRelId && generatedId) {
-            await trx('relation_definition').where('id', snapshotRelId).update({ mappedById: generatedId });
+            await trx('relation_definition')
+              .where('id', snapshotRelId)
+              .update({ mappedById: generatedId });
           }
         } else {
           if (rel.type === 'many-to-many' && snapshotRelId) {
-            const owningRel = allRelations.find((r: any) => r.id === snapshotRelId)
-              || await trx('relation_definition').where('id', snapshotRelId).first();
+            const owningRel =
+              allRelations.find((r: any) => r.id === snapshotRelId) ||
+              (await trx('relation_definition')
+                .where('id', snapshotRelId)
+                .first());
             if (owningRel) {
               rel.junctionSourceColumn = owningRel.junctionTargetColumn;
               rel.junctionTargetColumn = owningRel.junctionSourceColumn;

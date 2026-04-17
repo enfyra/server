@@ -44,7 +44,9 @@ export class GqlDefinitionCacheService extends BaseCacheService<
       const needsResolution = rows.length > 0 && !rows[0]?.table?.name;
       if (needsResolution) {
         const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-        const tableIds = rows.map((r: any) => r.tableId || r.table).filter(Boolean);
+        const tableIds = rows
+          .map((r: any) => r.tableId || r.table)
+          .filter(Boolean);
         if (tableIds.length === 0) return rows;
 
         const pkField = DatabaseConfigService.getPkField();
@@ -102,9 +104,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     return def?.isEnabled === true;
   }
 
-  async getForTable(
-    tableName: string,
-  ): Promise<TGqlDefinition | undefined> {
+  async getForTable(tableName: string): Promise<TGqlDefinition | undefined> {
     await this.ensureLoaded();
     return this.cache?.get(tableName);
   }

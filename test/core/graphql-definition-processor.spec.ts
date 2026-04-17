@@ -52,7 +52,12 @@ describe('GraphQLDefinitionProcessor', () => {
       queryBuilder.findOne.mockResolvedValue({ id: 1, name: 'tasks' });
 
       const result = await processor.transformRecords([
-        { table: 'tasks', isEnabled: false, isSystem: true, description: 'Custom' },
+        {
+          table: 'tasks',
+          isEnabled: false,
+          isSystem: true,
+          description: 'Custom',
+        },
       ]);
 
       expect(result[0].isEnabled).toBe(false);
@@ -148,7 +153,10 @@ describe('GraphQLDefinitionProcessor', () => {
 
     it('resolves table string to ObjectId', async () => {
       const oid = new ObjectId();
-      queryBuilder.findOne.mockResolvedValue({ _id: oid.toString(), name: 'tasks' });
+      queryBuilder.findOne.mockResolvedValue({
+        _id: oid.toString(),
+        name: 'tasks',
+      });
 
       const result = await processor.transformRecords([
         { table: 'tasks', isEnabled: true },
@@ -161,7 +169,10 @@ describe('GraphQLDefinitionProcessor', () => {
 
     it('sets createdAt and updatedAt when missing', async () => {
       const oid = new ObjectId();
-      queryBuilder.findOne.mockResolvedValue({ _id: oid.toString(), name: 'tasks' });
+      queryBuilder.findOne.mockResolvedValue({
+        _id: oid.toString(),
+        name: 'tasks',
+      });
 
       const result = await processor.transformRecords([{ table: 'tasks' }]);
 
@@ -172,7 +183,10 @@ describe('GraphQLDefinitionProcessor', () => {
     it('preserves existing createdAt and updatedAt', async () => {
       const oid = new ObjectId();
       const existingDate = new Date('2025-01-01');
-      queryBuilder.findOne.mockResolvedValue({ _id: oid.toString(), name: 'tasks' });
+      queryBuilder.findOne.mockResolvedValue({
+        _id: oid.toString(),
+        name: 'tasks',
+      });
 
       const result = await processor.transformRecords([
         { table: 'tasks', createdAt: existingDate, updatedAt: existingDate },
@@ -194,14 +208,19 @@ describe('GraphQLDefinitionProcessor', () => {
     it('skips records with missing table reference', async () => {
       queryBuilder.findOne.mockResolvedValue(null);
 
-      const result = await processor.transformRecords([{ table: 'nonexistent' }]);
+      const result = await processor.transformRecords([
+        { table: 'nonexistent' },
+      ]);
 
       expect(result).toHaveLength(0);
     });
 
     it('sets defaults for MongoDB records', async () => {
       const oid = new ObjectId();
-      queryBuilder.findOne.mockResolvedValue({ _id: oid.toString(), name: 'tasks' });
+      queryBuilder.findOne.mockResolvedValue({
+        _id: oid.toString(),
+        name: 'tasks',
+      });
 
       const result = await processor.transformRecords([{ table: 'tasks' }]);
 
@@ -261,7 +280,13 @@ describe('GraphQLDefinitionProcessor', () => {
       DatabaseConfigService.overrideForTesting('mysql');
       queryBuilder.findOne.mockResolvedValue({ id: 10, name: 'tasks' });
 
-      const record = { table: 'tasks', isEnabled: true, isSystem: false, description: 'desc', metadata: null };
+      const record = {
+        table: 'tasks',
+        isEnabled: true,
+        isSystem: false,
+        description: 'desc',
+        metadata: null,
+      };
       const [first] = await processor.transformRecords([record]);
       const [second] = await processor.transformRecords([record]);
 

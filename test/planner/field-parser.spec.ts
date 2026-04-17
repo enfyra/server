@@ -156,7 +156,10 @@ describe('field-parser', () => {
   });
 
   it('correctly identifies relationType', () => {
-    const { tree } = parse(['author.name', 'tags.label', 'posts.title'], 'posts');
+    const { tree } = parse(
+      ['author.name', 'tags.label', 'posts.title'],
+      'posts',
+    );
     const author = tree.nodes.find(
       (n) => n.kind === 'relation' && n.propertyName === 'author',
     );

@@ -84,9 +84,9 @@ function buildCoordinator(
   } as ConfigService;
 
   const dbType = envOverrides.DB_URI
-    ? (new URL(envOverrides.DB_URI).protocol.replace(':', '') === 'postgresql'
-        ? 'postgres'
-        : new URL(envOverrides.DB_URI).protocol.replace(':', ''))
+    ? new URL(envOverrides.DB_URI).protocol.replace(':', '') === 'postgresql'
+      ? 'postgres'
+      : new URL(envOverrides.DB_URI).protocol.replace(':', '')
     : envOverrides.DB_TYPE || 'mysql';
 
   const databaseConfig = {

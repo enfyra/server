@@ -21,18 +21,33 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
   describe('queryableTableNames allowlist', () => {
     it('emits only tables present in queryableTableNames', () => {
       const tables = [
-        makeTable('user_definition', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('email')]),
-        makeTable('secret_config', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('apiKey')]),
+        makeTable('user_definition', [
+          makeColumn('id', 'uuid', { isPrimary: true }),
+          makeColumn('email'),
+        ]),
+        makeTable('secret_config', [
+          makeColumn('id', 'uuid', { isPrimary: true }),
+          makeColumn('apiKey'),
+        ]),
       ];
-      const schema = generateGraphQLTypeDefsFromTables(tables, new Set(['user_definition']));
+      const schema = generateGraphQLTypeDefsFromTables(
+        tables,
+        new Set(['user_definition']),
+      );
       expect(schema).toContain('type user_definition');
       expect(schema).not.toContain('type secret_config');
     });
 
     it('emits all tables when queryableTableNames is undefined', () => {
       const tables = [
-        makeTable('user_definition', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('email')]),
-        makeTable('post', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('title')]),
+        makeTable('user_definition', [
+          makeColumn('id', 'uuid', { isPrimary: true }),
+          makeColumn('email'),
+        ]),
+        makeTable('post', [
+          makeColumn('id', 'uuid', { isPrimary: true }),
+          makeColumn('title'),
+        ]),
       ];
       const schema = generateGraphQLTypeDefsFromTables(tables, undefined);
       expect(schema).toContain('type user_definition');
@@ -41,7 +56,10 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
 
     it('produces empty query/mutation blocks when set is empty', () => {
       const tables = [
-        makeTable('user_definition', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('email')]),
+        makeTable('user_definition', [
+          makeColumn('id', 'uuid', { isPrimary: true }),
+          makeColumn('email'),
+        ]),
       ];
       const schema = generateGraphQLTypeDefsFromTables(tables, new Set([]));
       expect(schema).not.toContain('type user_definition');
@@ -123,14 +141,25 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
 
   describe('unpublished relation exclusion', () => {
     it('excludes unpublished relations from output type', () => {
-      const columns = [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('title')];
+      const columns = [
+        makeColumn('id', 'uuid', { isPrimary: true }),
+        makeColumn('title'),
+      ];
       const relations = [
-        { propertyName: 'author', targetTableName: 'user_definition', type: 'many-to-one', isPublished: false },
+        {
+          propertyName: 'author',
+          targetTableName: 'user_definition',
+          type: 'many-to-one',
+          isPublished: false,
+        },
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [
           makeTable('post', columns, relations),
-          makeTable('user_definition', [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('email')]),
+          makeTable('user_definition', [
+            makeColumn('id', 'uuid', { isPrimary: true }),
+            makeColumn('email'),
+          ]),
         ],
         new Set(['post', 'user_definition']),
       );
@@ -146,7 +175,11 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         makeColumn('title'),
       ];
       const relations = [
-        { propertyName: 'author', targetTableName: 'admin_user', type: 'many-to-one' },
+        {
+          propertyName: 'author',
+          targetTableName: 'admin_user',
+          type: 'many-to-one',
+        },
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('post', columns, relations)],
@@ -163,8 +196,16 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         makeColumn('title'),
       ];
       const relations = [
-        { propertyName: 'author', targetTableName: 'admin_user', type: 'many-to-one' },
-        { propertyName: 'editor', targetTableName: 'admin_user', type: 'many-to-one' },
+        {
+          propertyName: 'author',
+          targetTableName: 'admin_user',
+          type: 'many-to-one',
+        },
+        {
+          propertyName: 'editor',
+          targetTableName: 'admin_user',
+          type: 'many-to-one',
+        },
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('post', columns, relations)],
@@ -175,10 +216,20 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
     });
 
     it('does not create stub when relation target is queryable', () => {
-      const userColumns = [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('name')];
-      const postColumns = [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('title')];
+      const userColumns = [
+        makeColumn('id', 'uuid', { isPrimary: true }),
+        makeColumn('name'),
+      ];
+      const postColumns = [
+        makeColumn('id', 'uuid', { isPrimary: true }),
+        makeColumn('title'),
+      ];
       const relations = [
-        { propertyName: 'author', targetTableName: 'user_definition', type: 'many-to-one' },
+        {
+          propertyName: 'author',
+          targetTableName: 'user_definition',
+          type: 'many-to-one',
+        },
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [
@@ -187,14 +238,22 @@ describe('generateGraphQLTypeDefsFromTables – security filter', () => {
         ],
         new Set(['post', 'user_definition']),
       );
-      const typeMatches = (schema.match(/^type user_definition\s*\{/gm) || []).length;
+      const typeMatches = (schema.match(/^type user_definition\s*\{/gm) || [])
+        .length;
       expect(typeMatches).toBe(1);
     });
 
     it('stub type has only id field', () => {
-      const columns = [makeColumn('id', 'uuid', { isPrimary: true }), makeColumn('body')];
+      const columns = [
+        makeColumn('id', 'uuid', { isPrimary: true }),
+        makeColumn('body'),
+      ];
       const relations = [
-        { propertyName: 'owner', targetTableName: 'hidden_table', type: 'many-to-one' },
+        {
+          propertyName: 'owner',
+          targetTableName: 'hidden_table',
+          type: 'many-to-one',
+        },
       ];
       const schema = generateGraphQLTypeDefsFromTables(
         [makeTable('comment', columns, relations)],

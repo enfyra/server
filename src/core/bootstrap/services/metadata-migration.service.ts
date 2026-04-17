@@ -126,13 +126,17 @@ export class MetadataMigrationService {
           await db
             .collection('column_definition')
             .deleteMany({ table: tableId });
-          await db
-            .collection('table_definition')
-            .deleteOne({ _id: tableId });
+          await db.collection('table_definition').deleteOne({ _id: tableId });
         } else {
-          await this.queryBuilder.delete('relation_definition', { where: [{ field: 'sourceTableId', operator: '=', value: tableId }] });
-          await this.queryBuilder.delete('column_definition', { where: [{ field: 'tableId', operator: '=', value: tableId }] });
-          await this.queryBuilder.delete('table_definition', { where: [{ field: 'id', operator: '=', value: tableId }] });
+          await this.queryBuilder.delete('relation_definition', {
+            where: [{ field: 'sourceTableId', operator: '=', value: tableId }],
+          });
+          await this.queryBuilder.delete('column_definition', {
+            where: [{ field: 'tableId', operator: '=', value: tableId }],
+          });
+          await this.queryBuilder.delete('table_definition', {
+            where: [{ field: 'id', operator: '=', value: tableId }],
+          });
         }
 
         this.logger.log(`  Dropped metadata for table: ${tableName}`);
@@ -272,7 +276,11 @@ export class MetadataMigrationService {
               .collection('column_definition')
               .updateOne({ _id: columnId }, { $set: updateData });
           } else {
-            await this.queryBuilder.update('column_definition', { where: [{ field: 'id', operator: '=', value: columnId }] }, updateData);
+            await this.queryBuilder.update(
+              'column_definition',
+              { where: [{ field: 'id', operator: '=', value: columnId }] },
+              updateData,
+            );
           }
           this.logger.log(
             `  Modified column metadata: ${oldName} → ${mod.to.name}`,
@@ -313,7 +321,9 @@ export class MetadataMigrationService {
           });
           if (columnResult.data?.length > 0) {
             const columnId = columnResult.data[0].id;
-            await this.queryBuilder.delete('column_definition', { where: [{ field: 'id', operator: '=', value: columnId }] });
+            await this.queryBuilder.delete('column_definition', {
+              where: [{ field: 'id', operator: '=', value: columnId }],
+            });
             this.logger.log(`  Removed column metadata: ${colName}`);
           }
         }
@@ -434,7 +444,11 @@ export class MetadataMigrationService {
               .collection('relation_definition')
               .updateOne({ _id: relationId }, { $set: updateData });
           } else {
-            await this.queryBuilder.update('relation_definition', { where: [{ field: 'id', operator: '=', value: relationId }] }, updateData);
+            await this.queryBuilder.update(
+              'relation_definition',
+              { where: [{ field: 'id', operator: '=', value: relationId }] },
+              updateData,
+            );
           }
           this.logger.log(
             `  Modified relation metadata: ${oldName} → ${mod.to.propertyName}`,
@@ -476,7 +490,9 @@ export class MetadataMigrationService {
           });
           if (relationResult.data?.length > 0) {
             const relationId = relationResult.data[0].id;
-            await this.queryBuilder.delete('relation_definition', { where: [{ field: 'id', operator: '=', value: relationId }] });
+            await this.queryBuilder.delete('relation_definition', {
+              where: [{ field: 'id', operator: '=', value: relationId }],
+            });
             this.logger.log(`  Removed relation metadata: ${relName}`);
           }
         }

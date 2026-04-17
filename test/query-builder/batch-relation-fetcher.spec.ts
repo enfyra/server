@@ -265,13 +265,15 @@ describe('batch-relation-fetcher', () => {
         { id: 2, title: 'Post B', author: 1 },
         { id: 3, title: 'Post C', author: 2 },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -285,13 +287,15 @@ describe('batch-relation-fetcher', () => {
         { id: 4, title: 'Post D', author: null },
         { id: 1, title: 'Post A', author: 1 },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -305,13 +309,15 @@ describe('batch-relation-fetcher', () => {
         { id: 2, title: 'Post B', author: null, authorId: null },
         { id: 3, title: 'Post C', author: 999, authorId: 999 },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -324,16 +330,16 @@ describe('batch-relation-fetcher', () => {
     });
 
     it('should delete raw FK column in isPkOnly path', async () => {
-      const rows = [
-        { id: 1, title: 'Post A', author: 1, authorId: 1 },
+      const rows = [{ id: 1, title: 'Post A', author: 1, authorId: 1 }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id'],
+          fkColumn: 'authorId',
+        },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id'],
-        fkColumn: 'authorId',
-      }];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -342,13 +348,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should set null when all FK values are null', async () => {
       const rows = [{ id: 4, title: 'Post D', author: null }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -357,13 +365,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should set null when FK points to non-existent target', async () => {
       const rows = [{ id: 99, title: 'Ghost', author: 999 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -397,13 +407,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should overwrite scalar FK with resolved object (no raw FK leak)', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -419,35 +431,42 @@ describe('batch-relation-fetcher', () => {
         { id: 1, name: 'Alice' },
         { id: 2, name: 'Bob' },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
       expect(rows[0].posts).toHaveLength(2);
-      expect(rows[0].posts.map((p: any) => p.title).sort()).toEqual(['Post A', 'Post B']);
+      expect(rows[0].posts.map((p: any) => p.title).sort()).toEqual([
+        'Post A',
+        'Post B',
+      ]);
       expect(rows[1].posts).toHaveLength(1);
       expect(rows[1].posts[0].title).toBe('Post C');
     });
 
     it('should return empty array for parent with no children', async () => {
       const rows = [{ id: 3, name: 'Charlie' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -456,15 +475,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should order children by PK ascending', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -479,35 +500,42 @@ describe('batch-relation-fetcher', () => {
         { id: 1, title: 'Post A' },
         { id: 2, title: 'Post B' },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'tags',
-        type: 'many-to-many',
-        targetTable: 'tags',
-        fields: ['id', 'label'],
-        junctionTableName: 'posts_tags_tags',
-        junctionSourceColumn: 'postsId',
-        junctionTargetColumn: 'tagsId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'tags',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['id', 'label'],
+          junctionTableName: 'posts_tags_tags',
+          junctionSourceColumn: 'postsId',
+          junctionTargetColumn: 'tagsId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
       expect(rows[0].tags).toHaveLength(2);
-      expect(rows[0].tags.map((t: any) => t.label).sort()).toEqual(['JavaScript', 'TypeScript']);
+      expect(rows[0].tags.map((t: any) => t.label).sort()).toEqual([
+        'JavaScript',
+        'TypeScript',
+      ]);
       expect(rows[1].tags).toHaveLength(1);
       expect(rows[1].tags[0].label).toBe('TypeScript');
     });
 
     it('should return empty array for parent with no M2M entries', async () => {
       const rows = [{ id: 4, title: 'Post D' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'tags',
-        type: 'many-to-many',
-        targetTable: 'tags',
-        fields: ['id', 'label'],
-        junctionTableName: 'posts_tags_tags',
-        junctionSourceColumn: 'postsId',
-        junctionTargetColumn: 'tagsId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'tags',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['id', 'label'],
+          junctionTableName: 'posts_tags_tags',
+          junctionSourceColumn: 'postsId',
+          junctionTargetColumn: 'tagsId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -516,15 +544,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should not leak __sourceId__ into result objects', async () => {
       const rows = [{ id: 1, title: 'Post A' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'tags',
-        type: 'many-to-many',
-        targetTable: 'tags',
-        fields: ['id', 'label'],
-        junctionTableName: 'posts_tags_tags',
-        junctionSourceColumn: 'postsId',
-        junctionTargetColumn: 'tagsId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'tags',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['id', 'label'],
+          junctionTableName: 'posts_tags_tags',
+          junctionSourceColumn: 'postsId',
+          junctionTargetColumn: 'tagsId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -535,12 +565,14 @@ describe('batch-relation-fetcher', () => {
 
     it('should throw when junction config is missing', async () => {
       const rows = [{ id: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'tags',
-        type: 'many-to-many',
-        targetTable: 'tags',
-        fields: ['id'],
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'tags',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['id'],
+        },
+      ];
 
       await expect(
         executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts'),
@@ -553,15 +585,17 @@ describe('batch-relation-fetcher', () => {
         { id: 2, label: 'TypeScript' },
         { id: 3, label: 'Rust' },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'many-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        junctionTableName: 'posts_tags_tags',
-        junctionSourceColumn: 'tagsId',
-        junctionTargetColumn: 'postsId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'many-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          junctionTableName: 'posts_tags_tags',
+          junctionSourceColumn: 'tagsId',
+          junctionTargetColumn: 'postsId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'tags');
 
@@ -576,16 +610,26 @@ describe('batch-relation-fetcher', () => {
   describe('O2O', () => {
     it('should resolve owner O2O (profile → user)', async () => {
       const rows = [{ id: 1, user: 1, bio: 'Software dev' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'user',
-        type: 'one-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'userId',
-        isInverse: false,
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'user',
+          type: 'one-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'userId',
+          isInverse: false,
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'profiles');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'profiles',
+      );
 
       expect(rows[0].user).toEqual({ id: 1, name: 'Alice' });
     });
@@ -595,15 +639,17 @@ describe('batch-relation-fetcher', () => {
         { id: 1, name: 'Alice' },
         { id: 3, name: 'Charlie' },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'profile',
-        type: 'one-to-one',
-        targetTable: 'profiles',
-        fields: ['id', 'bio'],
-        fkColumn: 'userId',
-        isInverse: true,
-        mappedBy: 'user',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'profile',
+          type: 'one-to-one',
+          targetTable: 'profiles',
+          fields: ['id', 'bio'],
+          fkColumn: 'userId',
+          isInverse: true,
+          mappedBy: 'user',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -619,15 +665,25 @@ describe('batch-relation-fetcher', () => {
         { id: 2, name: 'Child 1', parent: 1 },
         { id: 4, name: 'Grandchild', parent: 2 },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'parent',
-        type: 'many-to-one',
-        targetTable: 'tree_nodes',
-        fields: ['id', 'name'],
-        fkColumn: 'parentId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'parent',
+          type: 'many-to-one',
+          targetTable: 'tree_nodes',
+          fields: ['id', 'name'],
+          fkColumn: 'parentId',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'tree_nodes');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'tree_nodes',
+      );
 
       expect(rows[0].parent).toEqual({ id: 1, name: 'Root' });
       expect(rows[1].parent).toEqual({ id: 2, name: 'Child 1' });
@@ -635,35 +691,50 @@ describe('batch-relation-fetcher', () => {
 
     it('should resolve O2M children on self-ref table', async () => {
       const rows = [{ id: 1, name: 'Root', parentId: null }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'children',
-        type: 'one-to-many',
-        targetTable: 'tree_nodes',
-        fields: ['id', 'name'],
-        fkColumn: 'parentId',
-        isInverse: true,
-        mappedBy: 'parent',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'children',
+          type: 'one-to-many',
+          targetTable: 'tree_nodes',
+          fields: ['id', 'name'],
+          fkColumn: 'parentId',
+          isInverse: true,
+          mappedBy: 'parent',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'tree_nodes');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'tree_nodes',
+      );
 
       expect(rows[0].children).toHaveLength(2);
-      expect(rows[0].children.map((c: any) => c.name).sort()).toEqual(['Child 1', 'Child 2']);
+      expect(rows[0].children.map((c: any) => c.name).sort()).toEqual([
+        'Child 1',
+        'Child 2',
+      ]);
     });
   });
 
   describe('nested relations', () => {
     it('should resolve M2O inside O2M (user → posts → category)', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title', 'category.name'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title', 'category.name'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -675,36 +746,51 @@ describe('batch-relation-fetcher', () => {
 
     it('should resolve M2M inside O2M (user → posts → tags)', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title', 'tags.label'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title', 'tags.label'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
       const postA = rows[0].posts.find((p: any) => p.title === 'Post A');
       expect(postA.tags).toHaveLength(2);
-      expect(postA.tags.map((t: any) => t.label).sort()).toEqual(['JavaScript', 'TypeScript']);
+      expect(postA.tags.map((t: any) => t.label).sort()).toEqual([
+        'JavaScript',
+        'TypeScript',
+      ]);
     });
 
     it('should resolve 3 levels deep (tree: root → children → children)', async () => {
       const rows = [{ id: 1, name: 'Root', parentId: null }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'children',
-        type: 'one-to-many',
-        targetTable: 'tree_nodes',
-        fields: ['id', 'name', 'children.id', 'children.name'],
-        fkColumn: 'parentId',
-        isInverse: true,
-        mappedBy: 'parent',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'children',
+          type: 'one-to-many',
+          targetTable: 'tree_nodes',
+          fields: ['id', 'name', 'children.id', 'children.name'],
+          fkColumn: 'parentId',
+          isInverse: true,
+          mappedBy: 'parent',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'tree_nodes');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'tree_nodes',
+      );
 
       expect(rows[0].children).toHaveLength(2);
       const child1 = rows[0].children.find((c: any) => c.name === 'Child 1');
@@ -716,15 +802,17 @@ describe('batch-relation-fetcher', () => {
   describe('depth limiting', () => {
     it('should not fetch anything when maxDepth = 0', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 0, 0, 'users');
 
@@ -733,17 +821,33 @@ describe('batch-relation-fetcher', () => {
 
     it('should stop at maxDepth for nested relations', async () => {
       const rows = [{ id: 1, name: 'Root', parentId: null }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'children',
-        type: 'one-to-many',
-        targetTable: 'tree_nodes',
-        fields: ['id', 'name', 'children.id', 'children.name', 'children.children.id'],
-        fkColumn: 'parentId',
-        isInverse: true,
-        mappedBy: 'parent',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'children',
+          type: 'one-to-many',
+          targetTable: 'tree_nodes',
+          fields: [
+            'id',
+            'name',
+            'children.id',
+            'children.name',
+            'children.children.id',
+          ],
+          fkColumn: 'parentId',
+          isInverse: true,
+          mappedBy: 'parent',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 2, 0, 'tree_nodes');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        2,
+        0,
+        'tree_nodes',
+      );
 
       expect(rows[0].children).toHaveLength(2);
       const child1 = rows[0].children.find((c: any) => c.name === 'Child 1');
@@ -757,13 +861,15 @@ describe('batch-relation-fetcher', () => {
   describe('early returns', () => {
     it('should do nothing with empty parent rows', async () => {
       const rows: any[] = [];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
       expect(rows).toEqual([]);
@@ -779,13 +885,15 @@ describe('batch-relation-fetcher', () => {
   describe('error handling', () => {
     it('should throw when target table metadata is missing', async () => {
       const rows = [{ id: 1, ghost: 10 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'ghost',
-        type: 'many-to-one',
-        targetTable: 'nonexistent_table',
-        fields: ['id'],
-        fkColumn: 'fkCol',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'ghost',
+          type: 'many-to-one',
+          targetTable: 'nonexistent_table',
+          fields: ['id'],
+          fkColumn: 'fkCol',
+        },
+      ];
 
       await expect(
         executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts'),
@@ -796,13 +904,15 @@ describe('batch-relation-fetcher', () => {
   describe('resolveFieldsAndNested (via integration)', () => {
     it('should select only requested fields + PK', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -813,13 +923,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should expand * to all columns of target table', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['*'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['*'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -830,15 +942,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should auto-include FK column for nested M2O when using *', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['*'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['*'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -850,15 +964,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should not leak FK columns when * used at nested level', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['*'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['*'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -873,13 +989,15 @@ describe('batch-relation-fetcher', () => {
   describe('BUG: isPrimary stripped by getMetadataGetter', () => {
     it('should resolve PK correctly when isPrimary is present', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -888,15 +1006,25 @@ describe('batch-relation-fetcher', () => {
 
     it('should still work when isPrimary stripped IF PK is named "id"', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, strippedMetadataGetter, 3, 0, 'posts');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        strippedMetadataGetter,
+        3,
+        0,
+        'posts',
+      );
 
       expect(rows[0].author).toEqual({ id: 1, name: 'Alice' });
     });
@@ -904,7 +1032,10 @@ describe('batch-relation-fetcher', () => {
     it('should CRASH on non-id PK when isPrimary is stripped (SQL column not found)', async () => {
       const uuidMeta = {
         ...META.uuid_table,
-        columns: META.uuid_table.columns.map((c: any) => ({ name: c.name, type: c.type })),
+        columns: META.uuid_table.columns.map((c: any) => ({
+          name: c.name,
+          type: c.type,
+        })),
       };
       const getter = async (table: string) => {
         if (table === 'uuid_table') return uuidMeta;
@@ -912,13 +1043,15 @@ describe('batch-relation-fetcher', () => {
       };
 
       const rows = [{ id: 1, ref: 'aaa-111' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'ref',
-        type: 'many-to-one',
-        targetTable: 'uuid_table',
-        fields: ['uuid', 'data'],
-        fkColumn: 'refCol',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'ref',
+          type: 'many-to-one',
+          targetTable: 'uuid_table',
+          fields: ['uuid', 'data'],
+          fkColumn: 'refCol',
+        },
+      ];
 
       await expect(
         executeBatchFetches(db, rows, descs, getter, 3, 0, 'some_table'),
@@ -927,15 +1060,25 @@ describe('batch-relation-fetcher', () => {
 
     it('should resolve non-id PK when isPrimary is preserved', async () => {
       const rows = [{ id: 1, ref: 'aaa-111' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'ref',
-        type: 'many-to-one',
-        targetTable: 'uuid_table',
-        fields: ['uuid', 'data'],
-        fkColumn: 'refCol',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'ref',
+          type: 'many-to-one',
+          targetTable: 'uuid_table',
+          fields: ['uuid', 'data'],
+          fkColumn: 'refCol',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'some_table');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'some_table',
+      );
 
       expect(rows[0].ref).toEqual({ uuid: 'aaa-111', data: 'first' });
     });
@@ -944,13 +1087,15 @@ describe('batch-relation-fetcher', () => {
   describe('FK aliased as propertyName (no delete needed)', () => {
     it('should overwrite scalar FK with resolved object seamlessly', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -987,15 +1132,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should strip nested FK columns via AS in multi-level batch fetch', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title', 'category.name'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title', 'category.name'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -1008,14 +1155,16 @@ describe('batch-relation-fetcher', () => {
   describe('BUG: fetchInverseRelation fallback uses desc.targetTable', () => {
     it('should resolve O2M via mappedBy when fkColumn is missing', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -1024,13 +1173,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should CRASH when both fkColumn and mappedBy are missing (falls back to postsId which does not exist)', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        isInverse: true,
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          isInverse: true,
+        },
+      ];
 
       await expect(
         executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users'),
@@ -1041,30 +1192,50 @@ describe('batch-relation-fetcher', () => {
   describe('PK type mismatch edge case', () => {
     it('should handle string PK matching correctly', async () => {
       const rows = [{ id: 1, ref: 'aaa-111' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'ref',
-        type: 'many-to-one',
-        targetTable: 'uuid_table',
-        fields: ['uuid', 'data'],
-        fkColumn: 'refCol',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'ref',
+          type: 'many-to-one',
+          targetTable: 'uuid_table',
+          fields: ['uuid', 'data'],
+          fkColumn: 'refCol',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'some_table');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'some_table',
+      );
 
       expect(rows[0].ref).toEqual({ uuid: 'aaa-111', data: 'first' });
     });
 
     it('should fail to match when FK type differs from PK type', async () => {
       const rows = [{ id: 1, ref: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'ref',
-        type: 'many-to-one',
-        targetTable: 'uuid_table',
-        fields: ['uuid', 'data'],
-        fkColumn: 'refCol',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'ref',
+          type: 'many-to-one',
+          targetTable: 'uuid_table',
+          fields: ['uuid', 'data'],
+          fkColumn: 'refCol',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'some_table');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'some_table',
+      );
 
       expect(rows[0].ref).toBeNull();
     });
@@ -1102,13 +1273,15 @@ describe('batch-relation-fetcher', () => {
   describe('adversarial: edge cases that try to break things', () => {
     it('should handle empty fields array without crashing', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: [],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: [],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -1117,13 +1290,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should handle duplicate fields without duplication in result', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['name', 'name', 'id', 'id'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['name', 'name', 'id', 'id'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -1132,13 +1307,15 @@ describe('batch-relation-fetcher', () => {
 
     it('should ignore non-existent field names gracefully', async () => {
       const rows = [{ id: 1, title: 'Post A', author: 1 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['name', 'doesNotExist', 'alsoFake'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['name', 'doesNotExist', 'alsoFake'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -1147,14 +1324,19 @@ describe('batch-relation-fetcher', () => {
     });
 
     it('should handle all parent rows pointing to same FK (dedup)', async () => {
-      const rows = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, author: 1 }));
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const rows = Array.from({ length: 100 }, (_, i) => ({
+        id: i + 1,
+        author: 1,
+      }));
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -1165,22 +1347,35 @@ describe('batch-relation-fetcher', () => {
 
     it('should survive circular self-ref at depth boundary', async () => {
       const rows = [{ id: 1, name: 'Root', parent: null }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'children',
-        type: 'one-to-many',
-        targetTable: 'tree_nodes',
-        fields: [
-          'id', 'name',
-          'children.id', 'children.name',
-          'children.children.id', 'children.children.name',
-          'children.children.children.id',
-        ],
-        fkColumn: 'parentId',
-        isInverse: true,
-        mappedBy: 'parent',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'children',
+          type: 'one-to-many',
+          targetTable: 'tree_nodes',
+          fields: [
+            'id',
+            'name',
+            'children.id',
+            'children.name',
+            'children.children.id',
+            'children.children.name',
+            'children.children.children.id',
+          ],
+          fkColumn: 'parentId',
+          isInverse: true,
+          mappedBy: 'parent',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 4, 0, 'tree_nodes');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        4,
+        0,
+        'tree_nodes',
+      );
 
       const child1 = rows[0].children.find((c: any) => c.name === 'Child 1');
       expect(child1.children[0].name).toBe('Grandchild');
@@ -1226,31 +1421,47 @@ describe('batch-relation-fetcher', () => {
 
     it('should handle nested M2O chain 3 levels deep', async () => {
       const rows = [{ id: 4, name: 'Grandchild', parent: 2 }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'parent',
-        type: 'many-to-one',
-        targetTable: 'tree_nodes',
-        fields: ['id', 'name', 'parent.id', 'parent.name'],
-        fkColumn: 'parentId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'parent',
+          type: 'many-to-one',
+          targetTable: 'tree_nodes',
+          fields: ['id', 'name', 'parent.id', 'parent.name'],
+          fkColumn: 'parentId',
+        },
+      ];
 
-      await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'tree_nodes');
+      await executeBatchFetches(
+        db,
+        rows,
+        descs,
+        metadataGetter,
+        3,
+        0,
+        'tree_nodes',
+      );
 
-      expect(rows[0].parent).toEqual(expect.objectContaining({ id: 2, name: 'Child 1' }));
-      expect(rows[0].parent.parent).toEqual(expect.objectContaining({ id: 1, name: 'Root' }));
+      expect(rows[0].parent).toEqual(
+        expect.objectContaining({ id: 2, name: 'Child 1' }),
+      );
+      expect(rows[0].parent.parent).toEqual(
+        expect.objectContaining({ id: 1, name: 'Root' }),
+      );
     });
 
     it('should handle M2M target with nested M2O (AS alias inside M2M join)', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title', 'tags.id', 'tags.label'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title', 'tags.id', 'tags.label'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -1268,13 +1479,15 @@ describe('batch-relation-fetcher', () => {
         { id: 4, author: null },
         { id: 5, author: 1 },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'author',
-        type: 'many-to-one',
-        targetTable: 'users',
-        fields: ['id', 'name'],
-        fkColumn: 'authorId',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'author',
+          type: 'many-to-one',
+          targetTable: 'users',
+          fields: ['id', 'name'],
+          fkColumn: 'authorId',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -1296,7 +1509,15 @@ describe('batch-relation-fetcher', () => {
       };
       const originalDesc = JSON.parse(JSON.stringify(desc));
 
-      await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts');
+      await executeBatchFetches(
+        db,
+        rows,
+        [desc],
+        metadataGetter,
+        3,
+        0,
+        'posts',
+      );
 
       expect(desc).toEqual(originalDesc);
     });
@@ -1306,15 +1527,17 @@ describe('batch-relation-fetcher', () => {
         { id: 100, name: 'Nobody' },
         { id: 200, name: 'Also Nobody' },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -1323,19 +1546,18 @@ describe('batch-relation-fetcher', () => {
     });
 
     it('should handle M2M where junction table is empty for all parents', async () => {
-      const rows = [
-        { id: 999 },
-        { id: 998 },
+      const rows = [{ id: 999 }, { id: 998 }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'tags',
+          type: 'many-to-many',
+          targetTable: 'tags',
+          fields: ['id', 'label'],
+          junctionTableName: 'posts_tags_tags',
+          junctionSourceColumn: 'postsId',
+          junctionTargetColumn: 'tagsId',
+        },
       ];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'tags',
-        type: 'many-to-many',
-        targetTable: 'tags',
-        fields: ['id', 'label'],
-        junctionTableName: 'posts_tags_tags',
-        junctionSourceColumn: 'postsId',
-        junctionTargetColumn: 'tagsId',
-      }];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'posts');
 
@@ -1345,15 +1567,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should strip raw FK column from O2M children when not aliased', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 3, 0, 'users');
 
@@ -1400,15 +1624,17 @@ describe('batch-relation-fetcher', () => {
 
     it('should survive maxDepth=1 cutting off nested relations silently', async () => {
       const rows = [{ id: 1, name: 'Alice' }];
-      const descs: BatchFetchDescriptor[] = [{
-        relationName: 'posts',
-        type: 'one-to-many',
-        targetTable: 'posts',
-        fields: ['id', 'title', 'tags.label', 'author.name'],
-        fkColumn: 'authorId',
-        isInverse: true,
-        mappedBy: 'author',
-      }];
+      const descs: BatchFetchDescriptor[] = [
+        {
+          relationName: 'posts',
+          type: 'one-to-many',
+          targetTable: 'posts',
+          fields: ['id', 'title', 'tags.label', 'author.name'],
+          fkColumn: 'authorId',
+          isInverse: true,
+          mappedBy: 'author',
+        },
+      ];
 
       await executeBatchFetches(db, rows, descs, metadataGetter, 1, 0, 'users');
 

@@ -115,7 +115,11 @@ export interface BatchFetchAdapter {
   resolveInverseFkField(desc: BatchFetchDescriptor): string;
   resolveParentPk(parentMeta: TableMeta | undefined): string;
 
-  postProcessInverseChild?(child: any, fkField: string, userRequestedFk: boolean): void;
+  postProcessInverseChild?(
+    child: any,
+    fkField: string,
+    userRequestedFk: boolean,
+  ): void;
 }
 
 export class BatchFetchEngine {
@@ -145,7 +149,12 @@ export class BatchFetchEngine {
           desc.type === 'many-to-one' ||
           (desc.type === 'one-to-one' && !desc.isInverse)
         ) {
-          return this.fetchOwnerRelation(parentDocs, desc, maxDepth, currentDepth);
+          return this.fetchOwnerRelation(
+            parentDocs,
+            desc,
+            maxDepth,
+            currentDepth,
+          );
         } else if (
           desc.type === 'one-to-many' ||
           (desc.type === 'one-to-one' && desc.isInverse)
@@ -202,7 +211,9 @@ export class BatchFetchEngine {
 
     const targetMeta = await this.metadataGetter(desc.targetTable);
     if (!targetMeta) {
-      throw new Error(`Metadata not found for target table: ${desc.targetTable}`);
+      throw new Error(
+        `Metadata not found for target table: ${desc.targetTable}`,
+      );
     }
 
     const { isPkOnly, nestedDescs, fetchSpec } = this.adapter.resolveFields(
@@ -215,7 +226,8 @@ export class BatchFetchEngine {
     if (isPkOnly) {
       for (const doc of parentDocs) {
         const v = doc[fkKey];
-        doc[fkKey] = v != null ? this.adapter.buildScalarRef(v, targetPkField) : null;
+        doc[fkKey] =
+          v != null ? this.adapter.buildScalarRef(v, targetPkField) : null;
         if (desc.fkColumn && desc.fkColumn !== fkKey) {
           delete doc[desc.fkColumn];
         }
@@ -223,10 +235,20 @@ export class BatchFetchEngine {
       return;
     }
 
-    const docs = await this.adapter.fetchOwner(desc.targetTable, fkValues, fetchSpec);
+    const docs = await this.adapter.fetchOwner(
+      desc.targetTable,
+      fkValues,
+      fetchSpec,
+    );
 
     if (nestedDescs.length > 0) {
-      await this.execute(docs, nestedDescs, maxDepth, currentDepth + 1, desc.targetTable);
+      await this.execute(
+        docs,
+        nestedDescs,
+        maxDepth,
+        currentDepth + 1,
+        desc.targetTable,
+      );
     }
 
     const map = new Map<string, any>();
@@ -252,14 +274,18 @@ export class BatchFetchEngine {
     parentMeta?: TableMeta,
   ): Promise<void> {
     const parentPk = this.adapter.resolveParentPk(parentMeta);
-    const parentIds = parentDocs.map((d) => d[parentPk]).filter((v) => v != null);
+    const parentIds = parentDocs
+      .map((d) => d[parentPk])
+      .filter((v) => v != null);
     if (parentIds.length === 0) return;
 
     const fkField = this.adapter.resolveInverseFkField(desc);
 
     const targetMeta = await this.metadataGetter(desc.targetTable);
     if (!targetMeta) {
-      throw new Error(`Metadata not found for target table: ${desc.targetTable}`);
+      throw new Error(
+        `Metadata not found for target table: ${desc.targetTable}`,
+      );
     }
 
     const { nestedDescs, fetchSpec } = this.adapter.resolveFields(
@@ -275,7 +301,8 @@ export class BatchFetchEngine {
     );
 
     const grouped = new Map<string, any[]>();
-    const userRequestedFk = desc.fields.includes(fkField) || desc.fields.includes('*');
+    const userRequestedFk =
+      desc.fields.includes(fkField) || desc.fields.includes('*');
 
     for (const doc of docs) {
       const key = doc[groupKeyField];
@@ -291,7 +318,13 @@ export class BatchFetchEngine {
     }
 
     if (nestedDescs.length > 0) {
-      await this.execute(docs, nestedDescs, maxDepth, currentDepth + 1, desc.targetTable);
+      await this.execute(
+        docs,
+        nestedDescs,
+        maxDepth,
+        currentDepth + 1,
+        desc.targetTable,
+      );
     }
 
     const isO2O = desc.type === 'one-to-one';
@@ -310,12 +343,16 @@ export class BatchFetchEngine {
     parentMeta?: TableMeta,
   ): Promise<void> {
     const parentPk = this.adapter.resolveParentPk(parentMeta);
-    const parentIds = parentDocs.map((d) => d[parentPk]).filter((v) => v != null);
+    const parentIds = parentDocs
+      .map((d) => d[parentPk])
+      .filter((v) => v != null);
     if (parentIds.length === 0) return;
 
     const targetMeta = await this.metadataGetter(desc.targetTable);
     if (!targetMeta) {
-      throw new Error(`Metadata not found for target table: ${desc.targetTable}`);
+      throw new Error(
+        `Metadata not found for target table: ${desc.targetTable}`,
+      );
     }
 
     const { nestedDescs, fetchSpec } = this.adapter.resolveFields(
@@ -332,7 +369,13 @@ export class BatchFetchEngine {
     );
 
     if (nestedDescs.length > 0 && docs.length > 0) {
-      await this.execute(docs, nestedDescs, maxDepth, currentDepth + 1, desc.targetTable);
+      await this.execute(
+        docs,
+        nestedDescs,
+        maxDepth,
+        currentDepth + 1,
+        desc.targetTable,
+      );
     }
 
     for (const parentDoc of parentDocs) {

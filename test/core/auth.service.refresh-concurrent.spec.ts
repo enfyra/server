@@ -41,7 +41,9 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
           andWhere: jest.fn().mockImplementation(function (fn: () => void) {
             const sub: any = {
               where: jest.fn((col: string, val: string) => {
-                builder._hashOk = sessionStore.refreshTokenHash === val || !sessionStore.refreshTokenHash;
+                builder._hashOk =
+                  sessionStore.refreshTokenHash === val ||
+                  !sessionStore.refreshTokenHash;
                 return sub;
               }),
               orWhereNull: jest.fn(() => {
@@ -96,9 +98,7 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
     jwt = moduleRef.get(JwtService);
   });
 
-  it(
-    'after refresh, old refresh token is rejected (rotation)',
-    async () => {
+  it('after refresh, old refresh token is rejected (rotation)', async () => {
     const oldRt = jwt.sign(
       { sessionId: sessionStore.id },
       { secret: 'test-secret-concurrent-auth', expiresIn: '7d' },
@@ -117,13 +117,11 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
 
     await new Promise((r) => setTimeout(r, 1100));
 
-    await expect(
-      auth.refreshToken({ refreshToken: oldRt }),
-    ).rejects.toThrow('revoked');
+    await expect(auth.refreshToken({ refreshToken: oldRt })).rejects.toThrow(
+      'revoked',
+    );
 
     const again = await auth.refreshToken({ refreshToken: newRt });
     expect(again.refreshToken).toBeDefined();
-    },
-    25000,
-  );
+  }, 25000);
 });

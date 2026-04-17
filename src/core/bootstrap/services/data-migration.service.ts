@@ -174,7 +174,11 @@ export class DataMigrationService {
           oldRecord,
         );
 
-        await this.queryBuilder.update(tableName, { where: [{ field: idField, operator: '=', value: existingId }] }, newRecord);
+        await this.queryBuilder.update(
+          tableName,
+          { where: [{ field: idField, operator: '=', value: existingId }] },
+          newRecord,
+        );
 
         if (Object.keys(relationUpdates).length > 0) {
           await this.updateRelations(tableName, existingId, relationUpdates);

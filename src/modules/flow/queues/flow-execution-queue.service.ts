@@ -251,7 +251,10 @@ export class FlowExecutionQueueService extends WorkerHost {
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
-    (ctx as any).$trigger = async (flowIdOrName: string | number, triggerPayload?: any) => {
+    (ctx as any).$trigger = async (
+      flowIdOrName: string | number,
+      triggerPayload?: any,
+    ) => {
       const targetFlow =
         typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
           ? await this.flowCacheService.getFlowById(flowIdOrName)
@@ -427,15 +430,12 @@ export class FlowExecutionQueueService extends WorkerHost {
     payload: any,
     triggeredBy: any,
   ): Promise<number | string> {
-    const record = await this.queryBuilder.insert(
-      'flow_execution_definition',
-      {
-        flowId: flow.id,
-        status: 'pending',
-        payload: payload || null,
-        ...(triggeredBy?.id ? { triggeredById: triggeredBy.id } : {}),
-      },
-    );
+    const record = await this.queryBuilder.insert('flow_execution_definition', {
+      flowId: flow.id,
+      status: 'pending',
+      payload: payload || null,
+      ...(triggeredBy?.id ? { triggeredById: triggeredBy.id } : {}),
+    });
     return record.id || record._id;
   }
 

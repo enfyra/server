@@ -60,10 +60,7 @@ export class SqlQueryEngine {
         error.message?.includes('relation') &&
         error.message?.includes('does not exist')
       ) {
-        throw new ResourceNotFoundException(
-          'Table or Relation',
-          options.table,
-        );
+        throw new ResourceNotFoundException('Table or Relation', options.table);
       }
 
       if (

@@ -11,54 +11,9 @@ import {
   generateDropIndexSQL,
   generateDropColumnSQL,
 } from './sql-dialect';
+import { getPrimaryKeyTypeForTable } from './pk-type.util';
+
 const logger = new Logger('SqlDiffGenerator');
-async function getPrimaryKeyTypeForTable(
-  knex: Knex,
-  tableName: string,
-  metadataCacheService?: any,
-): Promise<'uuid' | 'int'> {
-  try {
-    if (metadataCacheService) {
-      const targetMetadata =
-        await metadataCacheService.lookupTableByName(tableName);
-      if (targetMetadata) {
-        const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
-        if (pkColumn) {
-          const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
-            ? 'uuid'
-            : 'int';
-        }
-      }
-    }
-    const pkInfo = await knex('column_definition')
-      .join(
-        'table_definition',
-        'column_definition.table',
-        '=',
-        'table_definition.id',
-      )
-      .where('table_definition.name', tableName)
-      .where('column_definition.isPrimary', true)
-      .select('column_definition.type')
-      .first();
-    if (pkInfo) {
-      const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
-        ? 'uuid'
-        : 'int';
-    }
-    logger.warn(
-      `Could not find primary key for table ${tableName}, defaulting to int`,
-    );
-    return 'int';
-  } catch (error) {
-    logger.warn(
-      `Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`,
-    );
-    return 'int';
-  }
-}
 function isIdempotentDDLError(err: any, dbType: string): boolean {
   const code = err?.code || err?.errno;
   const msg = String(err?.message || '').toLowerCase();
@@ -77,7 +32,7 @@ function isIdempotentDDLError(err: any, dbType: string): boolean {
       msg.includes('duplicate column') ||
       msg.includes('duplicate key name') ||
       msg.includes('already exists') ||
-      msg.includes("check that column/key exists") ||
+      msg.includes('check that column/key exists') ||
       msg.includes('duplicate foreign key')
     ) {
       return true;
@@ -617,9 +572,7 @@ export async function executeBatchSQL(
                   const rbStmt = rollbackStatements[ri];
                   try {
                     await knex.raw(rbStmt);
-                    logger.log(
-                      `  Rollback OK: ${rbStmt.substring(0, 80)}`,
-                    );
+                    logger.log(`  Rollback OK: ${rbStmt.substring(0, 80)}`);
                   } catch (rbErr: any) {
                     logger.warn(
                       `  Rollback FAILED: ${rbStmt.substring(0, 80)} — ${rbErr.message}`,

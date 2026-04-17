@@ -69,7 +69,9 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
         if (col) {
           projection[col.name] = 1;
         } else {
-          const rel = targetMeta.relations?.find((r) => r.propertyName === field);
+          const rel = targetMeta.relations?.find(
+            (r) => r.propertyName === field,
+          );
           if (rel && !subRelations.has(field)) {
             subRelations.set(field, ['_id']);
           }
@@ -189,17 +191,18 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     const docs = await chunkedFetch(objectIds, (chunk) =>
       this.db
         .collection(targetTable)
-        .find(
-          { [fkField]: { $in: chunk } },
-          { projection, sort: { _id: 1 } },
-        )
+        .find({ [fkField]: { $in: chunk } }, { projection, sort: { _id: 1 } })
         .toArray(),
     );
 
     return { docs, groupKeyField: fkField };
   }
 
-  postProcessInverseChild(child: any, fkField: string, userRequestedFk: boolean): void {
+  postProcessInverseChild(
+    child: any,
+    fkField: string,
+    userRequestedFk: boolean,
+  ): void {
     if (!userRequestedFk) {
       delete child[fkField];
     }
@@ -232,9 +235,7 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       );
     }
 
-    const parentIds = parentDocs
-      .map((d) => d._id)
-      .filter((v) => v != null);
+    const parentIds = parentDocs.map((d) => d._id).filter((v) => v != null);
 
     const grouped = new Map<string, any[]>();
     for (const parent of parentDocs) {
@@ -248,16 +249,13 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     const junctionRows = await chunkedFetch(parentIds, (chunk) =>
       this.db
         .collection(info.junctionName)
-        .find(
-          { [info.selfColumn]: { $in: chunk } } as any,
-          {
-            projection: {
-              _id: 0,
-              [info.selfColumn]: 1,
-              [info.otherColumn]: 1,
-            },
+        .find({ [info.selfColumn]: { $in: chunk } } as any, {
+          projection: {
+            _id: 0,
+            [info.selfColumn]: 1,
+            [info.otherColumn]: 1,
           },
-        )
+        })
         .toArray(),
     );
 

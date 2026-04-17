@@ -28,7 +28,10 @@ describe('MongoDB Saga Seamless Integration', () => {
 
   beforeAll(async () => {
     try {
-      const probe = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 2000, connectTimeoutMS: 2000 });
+      const probe = new MongoClient(MONGO_URI, {
+        serverSelectionTimeoutMS: 2000,
+        connectTimeoutMS: 2000,
+      });
       await probe.connect();
       await probe.db('admin').command({ ping: 1 });
       await probe.close();
@@ -96,13 +99,17 @@ describe('MongoDB Saga Seamless Integration', () => {
       expect(result.data).toBeDefined();
       expect(result.txId).toBeDefined();
 
-      const order = await db.collection('seamless_orders').findOne({ customerId: 'seamless-1' });
+      const order = await db
+        .collection('seamless_orders')
+        .findOne({ customerId: 'seamless-1' });
       expect(order).toBeDefined();
       expect(order?.total).toBe(100);
     });
 
     it('should rollback on error automatically', async () => {
-      const startCount = await db.collection('seamless_orders').countDocuments();
+      const startCount = await db
+        .collection('seamless_orders')
+        .countDocuments();
 
       const result = await mongoService.runInSaga(async () => {
         const orders = mongoService.collection('seamless_orders');
@@ -142,7 +149,9 @@ describe('MongoDB Saga Seamless Integration', () => {
 
       expect(result.success).toBe(true);
 
-      const updated = await db.collection('seamless_orders').findOne({ _id: initial.insertedId });
+      const updated = await db
+        .collection('seamless_orders')
+        .findOne({ _id: initial.insertedId });
       expect(updated?.status).toBe('completed');
     });
 
@@ -162,7 +171,9 @@ describe('MongoDB Saga Seamless Integration', () => {
 
       expect(result.success).toBe(true);
 
-      const deleted = await db.collection('seamless_orders').findOne({ _id: initial.insertedId });
+      const deleted = await db
+        .collection('seamless_orders')
+        .findOne({ _id: initial.insertedId });
       expect(deleted).toBeNull();
     });
 
@@ -197,10 +208,14 @@ describe('MongoDB Saga Seamless Integration', () => {
 
       expect(result.success).toBe(true);
 
-      const order = await db.collection('seamless_orders').findOne({ customerId: 'multi-op' });
+      const order = await db
+        .collection('seamless_orders')
+        .findOne({ customerId: 'multi-op' });
       expect(order?.status).toBe('confirmed');
 
-      const inventory = await db.collection('seamless_inventory').findOne({ productId: 'prod-1' });
+      const inventory = await db
+        .collection('seamless_inventory')
+        .findOne({ productId: 'prod-1' });
       expect(inventory?.stock).toBe(99);
     });
 
@@ -229,9 +244,15 @@ describe('MongoDB Saga Seamless Integration', () => {
 
       expect(result.success).toBe(false);
 
-      const order1 = await db.collection('seamless_orders').findOne({ customerId: 'rollback-multi-1' });
-      const order2 = await db.collection('seamless_orders').findOne({ customerId: 'rollback-multi-2' });
-      const inv = await db.collection('seamless_inventory').findOne({ productId: 'rollback-prod' });
+      const order1 = await db
+        .collection('seamless_orders')
+        .findOne({ customerId: 'rollback-multi-1' });
+      const order2 = await db
+        .collection('seamless_orders')
+        .findOne({ customerId: 'rollback-multi-2' });
+      const inv = await db
+        .collection('seamless_inventory')
+        .findOne({ productId: 'rollback-prod' });
 
       expect(order1).toBeNull();
       expect(order2).toBeNull();
@@ -281,7 +302,9 @@ describe('MongoDB Saga Seamless Integration', () => {
       expect(allSuccess).toBe(true);
 
       for (let i = 0; i < 3; i++) {
-        const order = await db.collection('seamless_orders').findOne({ customerId: `concurrent-${i}` });
+        const order = await db
+          .collection('seamless_orders')
+          .findOne({ customerId: `concurrent-${i}` });
         expect(order).toBeDefined();
         expect(order?.total).toBe(i * 100);
       }

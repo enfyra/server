@@ -61,9 +61,17 @@ const metadataGetter = async (t: string) => metaMap[t] ?? null;
 describe('query depth limit – expandFieldsToJoinsAndSelect', () => {
   it('respects maxDepth in field expansion', async () => {
     const { select } = await expandFieldsToJoinsAndSelect(
-      'orders', ['id', 'total', 'customer.id', 'customer.name'],
-      metadataGetter as any, 'mysql',
-      undefined, undefined, undefined, undefined, undefined, undefined, 1,
+      'orders',
+      ['id', 'total', 'customer.id', 'customer.name'],
+      metadataGetter as any,
+      'mysql',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      1,
     );
     expect(select.some((s) => s.includes('orders.id'))).toBe(true);
     expect(select.some((s) => s.includes('customer'))).toBe(true);
@@ -71,8 +79,10 @@ describe('query depth limit – expandFieldsToJoinsAndSelect', () => {
 
   it('no maxDepth allows all nesting', async () => {
     const { select } = await expandFieldsToJoinsAndSelect(
-      'orders', ['id', 'customer.id', 'customer.role.id'],
-      metadataGetter as any, 'mysql',
+      'orders',
+      ['id', 'customer.id', 'customer.role.id'],
+      metadataGetter as any,
+      'mysql',
     );
     expect(select.some((s) => s.includes('orders.id'))).toBe(true);
     expect(select.some((s) => s.includes('customer'))).toBe(true);

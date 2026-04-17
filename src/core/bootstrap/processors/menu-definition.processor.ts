@@ -338,7 +338,10 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         for (const key in cleaned) {
           if (Array.isArray(cleaned[key])) delete cleaned[key];
         }
-        existingRecord = await queryBuilder.findOne({ table: tableName, where: cleaned });
+        existingRecord = await queryBuilder.findOne({
+          table: tableName,
+          where: cleaned,
+        });
         if (existingRecord) break;
       }
       if (existingRecord) {

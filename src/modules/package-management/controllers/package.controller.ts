@@ -59,7 +59,11 @@ export class PackageController {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilder.update('package_definition', { where: [{ field: 'id', operator: '=', value: id }] }, { status, ...extra });
+      await this.queryBuilder.update(
+        'package_definition',
+        { where: [{ field: 'id', operator: '=', value: id }] },
+        { status, ...extra },
+      );
     } catch (error) {
       this.logger.error(
         `Failed to update status to ${status} for package ${id}: ${error.message}`,
@@ -98,18 +102,15 @@ export class PackageController {
     }
 
     const userId = req.routeData?.context?.$user?.id;
-    const savedPackage = await this.queryBuilder.insert(
-      'package_definition',
-      {
-        ...body,
-        version: body.version || 'latest',
-        description: body.description || '',
-        isSystem: body.isSystem || false,
-        status: 'installing',
-        lastError: null,
-        ...(userId ? { installedBy: { id: userId } } : {}),
-      },
-    );
+    const savedPackage = await this.queryBuilder.insert('package_definition', {
+      ...body,
+      version: body.version || 'latest',
+      description: body.description || '',
+      isSystem: body.isSystem || false,
+      status: 'installing',
+      lastError: null,
+      ...(userId ? { installedBy: { id: userId } } : {}),
+    });
 
     const savedPackageId = savedPackage.id || savedPackage._id;
 

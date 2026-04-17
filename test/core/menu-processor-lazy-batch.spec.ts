@@ -10,11 +10,11 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
 
     const queryBuilder = {
       findOneWhere: jest.fn(async (table: string, where: any) => {
-        return db[table]?.find((r) => {
-          return Object.entries(where).every(
-            ([k, v]) => r[k] === v,
-          );
-        }) || null;
+        return (
+          db[table]?.find((r) => {
+            return Object.entries(where).every(([k, v]) => r[k] === v);
+          }) || null
+        );
       }),
       insertAndGet: jest.fn(async (table: string, record: any) => {
         const row = { ...record, id: ++insertId };
@@ -25,9 +25,19 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
     };
 
     const records = [
-      { type: 'Menu', label: 'Users', parent: 'Settings', path: '/settings/users' },
+      {
+        type: 'Menu',
+        label: 'Users',
+        parent: 'Settings',
+        path: '/settings/users',
+      },
       { type: 'Dropdown Menu', label: 'Settings' },
-      { type: 'Menu', label: 'Roles', parent: 'Settings', path: '/settings/roles' },
+      {
+        type: 'Menu',
+        label: 'Roles',
+        parent: 'Settings',
+        path: '/settings/roles',
+      },
     ];
 
     // Simulate the fixed processWithQueryBuilder behavior:
@@ -97,9 +107,11 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
 
     const queryBuilder = {
       findOneWhere: jest.fn(async (table: string, where: any) => {
-        return db[table]?.find((r) =>
-          Object.entries(where).every(([k, v]) => r[k] === v),
-        ) || null;
+        return (
+          db[table]?.find((r) =>
+            Object.entries(where).every(([k, v]) => r[k] === v),
+          ) || null
+        );
       }),
       insertAndGet: jest.fn(async (table: string, record: any) => {
         const row = { ...record, id: ++insertId };
@@ -110,7 +122,12 @@ describe('MenuDefinitionProcessor — lazy batch transform', () => {
     };
 
     const records = [
-      { type: 'Menu', label: 'Users', parent: 'Settings', path: '/settings/users' },
+      {
+        type: 'Menu',
+        label: 'Users',
+        parent: 'Settings',
+        path: '/settings/users',
+      },
       { type: 'Dropdown Menu', label: 'Settings' },
     ];
 

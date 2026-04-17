@@ -82,61 +82,64 @@ describe(
     jest.setTimeout(120000);
 
     it('1 process vs 2 processes — concurrency 10 per process, 5s', async () => {
-    console.log('\n=== Concurrency 10 per process, 5s duration ===\n');
+      console.log('\n=== Concurrency 10 per process, 5s duration ===\n');
 
-    const r1 = await spawnChild(10, 5000);
-    const single = report('1 process', [r1]);
+      const r1 = await spawnChild(10, 5000);
+      const single = report('1 process', [r1]);
 
-    const [r2a, r2b] = await Promise.all([
-      spawnChild(10, 5000),
-      spawnChild(10, 5000),
-    ]);
-    const dual = report('2 processes', [r2a, r2b]);
+      const [r2a, r2b] = await Promise.all([
+        spawnChild(10, 5000),
+        spawnChild(10, 5000),
+      ]);
+      const dual = report('2 processes', [r2a, r2b]);
 
-    const speedup = dual.opsPerSec / single.opsPerSec;
-    console.log(
-      `\n    Speedup: ${fmt(speedup)}x throughput | Latency change: ${fmt(((dual.avgLatency - single.avgLatency) / single.avgLatency) * 100)}%`,
-    );
-  });
+      const speedup = dual.opsPerSec / single.opsPerSec;
+      console.log(
+        `\n    Speedup: ${fmt(speedup)}x throughput | Latency change: ${fmt(((dual.avgLatency - single.avgLatency) / single.avgLatency) * 100)}%`,
+      );
+    });
 
-  it('1 process vs 2 processes — concurrency 25 per process, 5s', async () => {
-    console.log('\n=== Concurrency 25 per process, 5s duration ===\n');
+    it('1 process vs 2 processes — concurrency 25 per process, 5s', async () => {
+      console.log('\n=== Concurrency 25 per process, 5s duration ===\n');
 
-    const r1 = await spawnChild(25, 5000);
-    const single = report('1 process', [r1]);
+      const r1 = await spawnChild(25, 5000);
+      const single = report('1 process', [r1]);
 
-    const [r2a, r2b] = await Promise.all([
-      spawnChild(25, 5000),
-      spawnChild(25, 5000),
-    ]);
-    const dual = report('2 processes', [r2a, r2b]);
+      const [r2a, r2b] = await Promise.all([
+        spawnChild(25, 5000),
+        spawnChild(25, 5000),
+      ]);
+      const dual = report('2 processes', [r2a, r2b]);
 
-    const speedup = dual.opsPerSec / single.opsPerSec;
-    console.log(
-      `\n    Speedup: ${fmt(speedup)}x throughput | Latency change: ${fmt(((dual.avgLatency - single.avgLatency) / single.avgLatency) * 100)}%`,
-    );
-  });
+      const speedup = dual.opsPerSec / single.opsPerSec;
+      console.log(
+        `\n    Speedup: ${fmt(speedup)}x throughput | Latency change: ${fmt(((dual.avgLatency - single.avgLatency) / single.avgLatency) * 100)}%`,
+      );
+    });
 
-  it('1 vs 2 vs 4 processes — concurrency 10, 5s', async () => {
-    console.log('\n=== Scale-out: concurrency 10, 5s duration ===\n');
+    it('1 vs 2 vs 4 processes — concurrency 10, 5s', async () => {
+      console.log('\n=== Scale-out: concurrency 10, 5s duration ===\n');
 
-    const r1 = await spawnChild(10, 5000);
-    const s1 = report('1 process', [r1]);
+      const r1 = await spawnChild(10, 5000);
+      const s1 = report('1 process', [r1]);
 
-    const r2 = await Promise.all([spawnChild(10, 5000), spawnChild(10, 5000)]);
-    const s2 = report('2 processes', r2);
+      const r2 = await Promise.all([
+        spawnChild(10, 5000),
+        spawnChild(10, 5000),
+      ]);
+      const s2 = report('2 processes', r2);
 
-    const r4 = await Promise.all([
-      spawnChild(10, 5000),
-      spawnChild(10, 5000),
-      spawnChild(10, 5000),
-      spawnChild(10, 5000),
-    ]);
-    const s4 = report('4 processes', r4);
+      const r4 = await Promise.all([
+        spawnChild(10, 5000),
+        spawnChild(10, 5000),
+        spawnChild(10, 5000),
+        spawnChild(10, 5000),
+      ]);
+      const s4 = report('4 processes', r4);
 
-    console.log(
-      `\n    Scale: 1→2 = ${fmt(s2.opsPerSec / s1.opsPerSec)}x | 1→4 = ${fmt(s4.opsPerSec / s1.opsPerSec)}x`,
-    );
-  });
+      console.log(
+        `\n    Scale: 1→2 = ${fmt(s2.opsPerSec / s1.opsPerSec)}x | 1→4 = ${fmt(s4.opsPerSec / s1.opsPerSec)}x`,
+      );
+    });
   },
 );

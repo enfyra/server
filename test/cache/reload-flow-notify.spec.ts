@@ -93,7 +93,16 @@ describe('CacheOrchestrator reload notifications', () => {
     });
 
     const cases: Array<{ chain: string[]; expected: string }> = [
-      { chain: ['metadata', 'repoRegistry', 'route', 'graphql', 'fieldPermission'], expected: 'metadata' },
+      {
+        chain: [
+          'metadata',
+          'repoRegistry',
+          'route',
+          'graphql',
+          'fieldPermission',
+        ],
+        expected: 'metadata',
+      },
       { chain: ['route', 'graphql', 'guard'], expected: 'route' },
       { chain: ['route', 'graphql'], expected: 'route' },
       { chain: ['route'], expected: 'route' },
@@ -133,7 +142,9 @@ describe('CacheOrchestrator reload notifications', () => {
       const { svc, gateway } = makeService();
       await (svc as any).executeChain(mkPayload('table_definition'), true);
 
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data).toEqual(
         expect.objectContaining({ flow: 'metadata', status: 'pending' }),
@@ -149,7 +160,9 @@ describe('CacheOrchestrator reload notifications', () => {
       const { svc, gateway } = makeService();
       await (svc as any).executeChain(mkPayload('guard_definition'), true);
 
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('guard');
       expect(events[1].data.flow).toBe('guard');
@@ -157,9 +170,14 @@ describe('CacheOrchestrator reload notifications', () => {
 
     it('storage-only chain notifies', async () => {
       const { svc, gateway } = makeService();
-      await (svc as any).executeChain(mkPayload('storage_config_definition'), true);
+      await (svc as any).executeChain(
+        mkPayload('storage_config_definition'),
+        true,
+      );
 
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('storage');
     });
@@ -168,7 +186,9 @@ describe('CacheOrchestrator reload notifications', () => {
       const { svc, gateway } = makeService();
       await (svc as any).executeChain(mkPayload('route_definition'), true);
 
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events[0].data.flow).toBe('route');
       expect(events[0].data.steps).toEqual(
         expect.arrayContaining(['route', 'graphql', 'guard']),
@@ -179,7 +199,9 @@ describe('CacheOrchestrator reload notifications', () => {
       const { svc, gateway } = makeService();
       await (svc as any).executeChain(mkPayload('table_definition'), false);
 
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(0);
     });
   });
@@ -188,7 +210,9 @@ describe('CacheOrchestrator reload notifications', () => {
     it('reloadMetadataAndDeps emits flow=metadata', async () => {
       const { svc, gateway } = makeService();
       await svc.reloadMetadataAndDeps();
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('metadata');
       expect(events[1].data.flow).toBe('metadata');
@@ -197,7 +221,9 @@ describe('CacheOrchestrator reload notifications', () => {
     it('reloadRoutesOnly emits flow=route', async () => {
       const { svc, gateway } = makeService();
       await svc.reloadRoutesOnly();
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('route');
     });
@@ -205,7 +231,9 @@ describe('CacheOrchestrator reload notifications', () => {
     it('reloadGraphqlOnly now emits (previously silent)', async () => {
       const { svc, gateway } = makeService();
       await svc.reloadGraphqlOnly();
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('graphql');
     });
@@ -213,7 +241,9 @@ describe('CacheOrchestrator reload notifications', () => {
     it('reloadGuardsOnly now emits (previously silent)', async () => {
       const { svc, gateway } = makeService();
       await svc.reloadGuardsOnly();
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('guard');
     });
@@ -221,7 +251,9 @@ describe('CacheOrchestrator reload notifications', () => {
     it('reloadAll emits flow=all', async () => {
       const { svc, gateway } = makeService();
       await svc.reloadAll();
-      const events = gateway.emitted.filter((e) => e.event === '$system:reload');
+      const events = gateway.emitted.filter(
+        (e) => e.event === '$system:reload',
+      );
       expect(events).toHaveLength(2);
       expect(events[0].data.flow).toBe('all');
       expect(events[0].data.steps).toEqual(

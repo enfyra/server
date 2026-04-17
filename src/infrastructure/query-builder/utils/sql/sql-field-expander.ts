@@ -1,0 +1,113 @@
+import { Knex } from 'knex';
+import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
+import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
+import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
+import { buildRelationSubquery } from './relation-filter.util';
+
+export async function expandFieldsToSelect(
+  knex: Knex,
+  tableName: string,
+  fields: string[],
+  metadataGetter: any,
+  dbType: 'postgres' | 'mysql' | 'sqlite',
+  limit?: number,
+  orderByClause?: string,
+  whereClause?: string,
+  offset?: number,
+  limitedCteSortJoin?: any,
+  maxQueryDepth?: number,
+): Promise<{
+  select: string[];
+  cteClauses?: string[];
+  batchFetchDescriptors?: any[];
+}> {
+  if (!metadataGetter) {
+    return { select: fields };
+  }
+
+  try {
+    const { expandFieldsToJoinsAndSelect } =
+      await import('../sql/expand-fields');
+    const expanded = await expandFieldsToJoinsAndSelect(
+      tableName,
+      fields,
+      metadataGetter,
+      dbType,
+      limit,
+      orderByClause,
+      whereClause,
+      offset,
+      limitedCteSortJoin,
+      maxQueryDepth,
+    );
+    return {
+      select: expanded.select,
+      cteClauses: expanded.cteClauses,
+      batchFetchDescriptors: expanded.batchFetchDescriptors,
+    };
+  } catch (error) {
+    return { select: fields };
+  }
+}
+
+export function getMetadataGetter(
+  metadata: any,
+): ((tName: string) => Promise<any>) | null {
+  const allMetadata = metadata;
+  if (!allMetadata) return null;
+  return async (tName: string) => {
+    const tableMeta = allMetadata.tables?.get(tName);
+    if (!tableMeta) return null;
+    return {
+      name: tableMeta.name,
+      columns: (tableMeta.columns || []).map((col: any) => ({
+        name: col.name,
+        type: col.type,
+      })),
+      relations: tableMeta.relations || [],
+    };
+  };
+}
+
+export function buildRelationSortSubquery(
+  relationMeta: any,
+  sortField: string,
+  parentTable: string,
+  metadata: any,
+  dbType: 'postgres' | 'mysql' | 'sqlite',
+): string | null {
+  const targetTable = relationMeta.targetTableName || relationMeta.targetTable;
+  if (!targetTable) return null;
+
+  const fkCol =
+    relationMeta.foreignKeyColumn || getForeignKeyColumnName(targetTable);
+  if (!fkCol) return null;
+
+  const q = (s: string) => quoteIdentifier(s, dbType);
+
+  const targetMeta = metadata?.tables?.get(targetTable);
+  const pkCol = targetMeta ? getPrimaryKeyColumn(targetMeta) : null;
+  const targetPk = pkCol?.name || 'id';
+
+  return `(SELECT ${q(targetTable)}.${q(sortField)} FROM ${q(targetTable)} WHERE ${q(targetTable)}.${q(targetPk)} = ${q(parentTable)}.${q(fkCol)})`;
+}
+
+export async function buildRelationSubqueryForCTE(
+  knex: Knex,
+  tableName: string,
+  relationName: string,
+  relationFilter: any,
+  metadata: any,
+  dbType: 'postgres' | 'mysql' | 'sqlite',
+  metadataGetter: (tName: string) => any,
+): Promise<string | null> {
+  return await buildRelationSubquery(
+    knex,
+    tableName,
+    relationName,
+    relationFilter,
+    metadata,
+    dbType,
+    metadataGetter,
+  );
+}

@@ -29,7 +29,9 @@ export class TableValidationService {
     tableMetadata: any,
   ) {
     const idField = this.queryBuilder.getPkField();
-    const { data: existingResult } = await this.queryBuilder.find({ table: tableName });
+    const { data: existingResult } = await this.queryBuilder.find({
+      table: tableName,
+    });
     const existingRecords = existingResult || [];
     const hasExistingRecord = existingRecords.length > 0;
 

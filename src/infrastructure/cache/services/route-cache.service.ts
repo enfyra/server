@@ -101,9 +101,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     }
 
     if (
-      ['pre_hook_definition', 'post_hook_definition'].includes(
-        payload.table,
-      )
+      ['pre_hook_definition', 'post_hook_definition'].includes(payload.table)
     ) {
       await this.reloadGlobalHooksAndMerge();
       if (payload.ids?.length) {
@@ -127,9 +125,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       const routeIds: (string | number)[] = [];
       for (const route of this.cache.routes) {
         if (affectedTableNames.has(route.mainTable?.name)) {
-          const rid = this.queryBuilder.isMongoDb()
-            ? route._id
-            : route.id;
+          const rid = this.queryBuilder.isMongoDb() ? route._id : route.id;
           routeIds.push(rid);
         }
       }
@@ -151,10 +147,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const result = await this.queryBuilder.find({
       table: 'route_definition',
       filter: {
-        _and: [
-          { isEnabled: { _eq: true } },
-          { [idField]: { _in: routeIds } },
-        ],
+        _and: [{ isEnabled: { _eq: true } }, { [idField]: { _in: routeIds } }],
       },
       fields: [
         '*',
@@ -175,7 +168,12 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
     const updatedRoutes = result.data;
     for (const route of updatedRoutes) {
-      this.mergeHooks(route, this.globalPreHooks, this.globalPostHooks, isMongoDB);
+      this.mergeHooks(
+        route,
+        this.globalPreHooks,
+        this.globalPostHooks,
+        isMongoDB,
+      );
       this.transformRouteCode(route);
     }
 
@@ -281,7 +279,12 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     this.globalPostHooks = newGlobalPostHooks;
 
     for (const route of this.cache.routes) {
-      this.mergeHooks(route, this.globalPreHooks, this.globalPostHooks, isMongoDB);
+      this.mergeHooks(
+        route,
+        this.globalPreHooks,
+        this.globalPostHooks,
+        isMongoDB,
+      );
     }
 
     this.buildRouteEngine(this.cache.routes);

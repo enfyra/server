@@ -181,7 +181,7 @@
         ],
         "relations": [
             { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "onDelete": "CASCADE", "description": "Primary table that this route operates on" },
-            { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP/GraphQL methods this route supports" },
+            { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP methods this route supports" },
             { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Pre-hooks that run before route execution" },
             { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Post-hooks that run after route execution" }
         ]

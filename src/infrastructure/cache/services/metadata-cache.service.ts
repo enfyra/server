@@ -296,7 +296,9 @@ export class MetadataCacheService {
       let indexes = [];
       if (table.uniques) {
         if (typeof table.uniques === 'string') {
-          try { uniques = JSON.parse(table.uniques); } catch (e) {
+          try {
+            uniques = JSON.parse(table.uniques);
+          } catch (e) {
             this.logger.warn(`Failed to parse uniques for table ${table.name}`);
           }
         } else if (Array.isArray(table.uniques)) {
@@ -305,7 +307,9 @@ export class MetadataCacheService {
       }
       if (table.indexes) {
         if (typeof table.indexes === 'string') {
-          try { indexes = JSON.parse(table.indexes); } catch (e) {
+          try {
+            indexes = JSON.parse(table.indexes);
+          } catch (e) {
             this.logger.warn(`Failed to parse indexes for table ${table.name}`);
           }
         } else if (Array.isArray(table.indexes)) {
@@ -319,12 +323,23 @@ export class MetadataCacheService {
       const parsedExplicitColumns = explicitColumns.map((col: any) => {
         const column = { ...col };
         if (col.options && typeof col.options === 'string') {
-          try { column.options = JSON.parse(col.options); } catch (e) {}
+          try {
+            column.options = JSON.parse(col.options);
+          } catch (e) {}
         }
         if (col.defaultValue && typeof col.defaultValue === 'string') {
-          try { column.defaultValue = JSON.parse(col.defaultValue); } catch (e) {}
+          try {
+            column.defaultValue = JSON.parse(col.defaultValue);
+          } catch (e) {}
         }
-        const booleanFields = ['isPrimary', 'isGenerated', 'isNullable', 'isSystem', 'isUpdatable', 'isPublished'];
+        const booleanFields = [
+          'isPrimary',
+          'isGenerated',
+          'isNullable',
+          'isSystem',
+          'isUpdatable',
+          'isPublished',
+        ];
         for (const field of booleanFields) {
           if (column[field] !== undefined && column[field] !== null) {
             column[field] = column[field] === 1 || column[field] === true;
@@ -336,14 +351,21 @@ export class MetadataCacheService {
       const relationsData = relationsBySource.get(tableIdValue) || [];
       const relations: any[] = [];
       for (const rel of relationsData) {
-        const relBooleanFields = ['isNullable', 'isSystem', 'isUpdatable', 'isPublished'];
+        const relBooleanFields = [
+          'isNullable',
+          'isSystem',
+          'isUpdatable',
+          'isPublished',
+        ];
         for (const field of relBooleanFields) {
           if (rel[field] !== undefined && rel[field] !== null) {
             rel[field] = rel[field] === 1 || rel[field] === true;
           }
         }
 
-        const targetTableIdValue = String(isMongoDB ? rel.targetTable : rel.targetTableId);
+        const targetTableIdValue = String(
+          isMongoDB ? rel.targetTable : rel.targetTableId,
+        );
         const targetTableName = tableIdToName.get(targetTableIdValue);
 
         const relationMetadata: any = {
@@ -360,8 +382,12 @@ export class MetadataCacheService {
           if (rel.mappedBy) {
             relationMetadata.isInverse = true;
           } else {
-            const fkColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
-            const hasFkColumn = actualSchema?.columns?.some((col: any) => col.name === fkColumn);
+            const fkColumn = isMongoDB
+              ? rel.propertyName
+              : getForeignKeyColumnName(rel.propertyName);
+            const hasFkColumn = actualSchema?.columns?.some(
+              (col: any) => col.name === fkColumn,
+            );
             relationMetadata.isInverse = !hasFkColumn;
           }
         } else {
@@ -369,27 +395,51 @@ export class MetadataCacheService {
         }
 
         if (rel.type === 'many-to-one') {
-          relationMetadata.foreignKeyColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
+          relationMetadata.foreignKeyColumn = isMongoDB
+            ? rel.propertyName
+            : getForeignKeyColumnName(rel.propertyName);
         }
         if (rel.type === 'one-to-one') {
           if (relationMetadata.isInverse) {
-            relationMetadata.foreignKeyColumn = isMongoDB ? rel.mappedBy : getForeignKeyColumnName(rel.mappedBy);
+            relationMetadata.foreignKeyColumn = isMongoDB
+              ? rel.mappedBy
+              : getForeignKeyColumnName(rel.mappedBy);
           } else {
-            relationMetadata.foreignKeyColumn = isMongoDB ? rel.propertyName : getForeignKeyColumnName(rel.propertyName);
+            relationMetadata.foreignKeyColumn = isMongoDB
+              ? rel.propertyName
+              : getForeignKeyColumnName(rel.propertyName);
           }
         }
         if (rel.type === 'one-to-many') {
           if (!rel.mappedBy) {
-            this.logger.error(`O2M relation '${rel.propertyName}' in table '${table.name}' missing mappedBy`);
-            throw new Error(`One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have mappedBy`);
+            this.logger.error(
+              `O2M relation '${rel.propertyName}' in table '${table.name}' missing mappedBy`,
+            );
+            throw new Error(
+              `One-to-many relation '${rel.propertyName}' in table '${table.name}' MUST have mappedBy`,
+            );
           }
-          relationMetadata.foreignKeyColumn = isMongoDB ? rel.mappedBy : getForeignKeyColumnName(rel.mappedBy);
+          relationMetadata.foreignKeyColumn = isMongoDB
+            ? rel.mappedBy
+            : getForeignKeyColumnName(rel.mappedBy);
         }
         if (rel.type === 'many-to-many') {
-          relationMetadata.junctionTableName = rel.junctionTableName || getJunctionTableName(table.name, rel.propertyName, relationMetadata.targetTableName);
-          const { sourceColumn, targetColumn } = getJunctionColumnNames(table.name, rel.propertyName, relationMetadata.targetTableName);
-          relationMetadata.junctionSourceColumn = rel.junctionSourceColumn || sourceColumn;
-          relationMetadata.junctionTargetColumn = rel.junctionTargetColumn || targetColumn;
+          relationMetadata.junctionTableName =
+            rel.junctionTableName ||
+            getJunctionTableName(
+              table.name,
+              rel.propertyName,
+              relationMetadata.targetTableName,
+            );
+          const { sourceColumn, targetColumn } = getJunctionColumnNames(
+            table.name,
+            rel.propertyName,
+            relationMetadata.targetTableName,
+          );
+          relationMetadata.junctionSourceColumn =
+            rel.junctionSourceColumn || sourceColumn;
+          relationMetadata.junctionTargetColumn =
+            rel.junctionTargetColumn || targetColumn;
         }
 
         relations.push(relationMetadata);
@@ -401,9 +451,13 @@ export class MetadataCacheService {
         for (const rel of relations) {
           if (['many-to-one', 'one-to-one'].includes(rel.type)) {
             const fkColumn = rel.foreignKeyColumn;
-            const existsInExplicit = parsedExplicitColumns.some((col) => col.name === fkColumn);
+            const existsInExplicit = parsedExplicitColumns.some(
+              (col) => col.name === fkColumn,
+            );
             if (!existsInExplicit) {
-              const actualFkColumn = actualSchema.columns.find((col) => col.name === fkColumn);
+              const actualFkColumn = actualSchema.columns.find(
+                (col) => col.name === fkColumn,
+              );
               if (actualFkColumn) {
                 combinedColumns.push({
                   ...actualFkColumn,
@@ -414,7 +468,9 @@ export class MetadataCacheService {
                 });
               }
             } else {
-              const explicitFkColumn = combinedColumns.find((col) => col.name === fkColumn);
+              const explicitFkColumn = combinedColumns.find(
+                (col) => col.name === fkColumn,
+              );
               if (explicitFkColumn && rel.isUpdatable === false) {
                 explicitFkColumn.isUpdatable = false;
               }
@@ -422,29 +478,58 @@ export class MetadataCacheService {
           }
         }
 
-        const hasCreatedAt = combinedColumns.some((col) => col.name === 'createdAt');
-        const hasUpdatedAt = combinedColumns.some((col) => col.name === 'updatedAt');
+        const hasCreatedAt = combinedColumns.some(
+          (col) => col.name === 'createdAt',
+        );
+        const hasUpdatedAt = combinedColumns.some(
+          (col) => col.name === 'updatedAt',
+        );
         if (!hasCreatedAt) {
-          const actualCreatedAt = actualSchema.columns.find((col) => col.name === 'createdAt');
-          if (actualCreatedAt) combinedColumns.push({ ...actualCreatedAt, isSystem: true, isUpdatable: false });
+          const actualCreatedAt = actualSchema.columns.find(
+            (col) => col.name === 'createdAt',
+          );
+          if (actualCreatedAt)
+            combinedColumns.push({
+              ...actualCreatedAt,
+              isSystem: true,
+              isUpdatable: false,
+            });
         }
         if (!hasUpdatedAt) {
-          const actualUpdatedAt = actualSchema.columns.find((col) => col.name === 'updatedAt');
-          if (actualUpdatedAt) combinedColumns.push({ ...actualUpdatedAt, isSystem: true, isUpdatable: false });
+          const actualUpdatedAt = actualSchema.columns.find(
+            (col) => col.name === 'updatedAt',
+          );
+          if (actualUpdatedAt)
+            combinedColumns.push({
+              ...actualUpdatedAt,
+              isSystem: true,
+              isUpdatable: false,
+            });
         }
       }
 
       const tableData: any = { ...table };
       for (const key in tableData) {
         if (tableData[key] !== undefined && tableData[key] !== null) {
-          if (tableData[key] === 1 || tableData[key] === true) tableData[key] = true;
-          else if (tableData[key] === 0 || tableData[key] === false) tableData[key] = false;
+          if (tableData[key] === 1 || tableData[key] === true)
+            tableData[key] = true;
+          else if (tableData[key] === 0 || tableData[key] === false)
+            tableData[key] = false;
         }
       }
 
-      return { ...tableData, uniques, indexes, columns: combinedColumns, relations };
+      return {
+        ...tableData,
+        uniques,
+        indexes,
+        columns: combinedColumns,
+        relations,
+      };
     } catch (error) {
-      this.logger.error(`Failed to load metadata for table ${table.name}:`, error.message);
+      this.logger.error(
+        `Failed to load metadata for table ${table.name}:`,
+        error.message,
+      );
       return null;
     }
   }
@@ -501,13 +586,25 @@ export class MetadataCacheService {
     const tablesMap = new Map<string, any>();
 
     for (const table of tables) {
-      const metadata = this.buildTableMetadata(table, columnsByTable, relationsBySource, tableIdToName, allSchemas, isMongoDB);
+      const metadata = this.buildTableMetadata(
+        table,
+        columnsByTable,
+        relationsBySource,
+        tableIdToName,
+        allSchemas,
+        isMongoDB,
+      );
       if (!metadata) continue;
       tablesList.push(metadata);
       tablesMap.set(table.name, metadata);
     }
 
-    return { tables: tablesMap, tablesList, version: Date.now(), timestamp: new Date() };
+    return {
+      tables: tablesMap,
+      tablesList,
+      version: Date.now(),
+      timestamp: new Date(),
+    };
   }
 
   async getMetadata(): Promise<EnfyraMetadata> {
@@ -547,7 +644,11 @@ export class MetadataCacheService {
 
   async lookupTableById(tableId: number | string): Promise<any | null> {
     const metadata = await this.getMetadata();
-    return metadata.tablesList.find((t) => t.id === tableId || t.id === Number(tableId)) || null;
+    return (
+      metadata.tablesList.find(
+        (t) => t.id === tableId || t.id === Number(tableId),
+      ) || null
+    );
   }
 
   async clearMetadataCache(): Promise<void> {

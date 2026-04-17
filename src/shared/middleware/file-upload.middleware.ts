@@ -27,7 +27,9 @@ export class FileUploadMiddleware implements NestMiddleware {
     }
     const upload = multer({
       storage: diskStorage,
-      limits: { fileSize: this.settingCacheService.getMaxUploadFileSizeBytes() },
+      limits: {
+        fileSize: this.settingCacheService.getMaxUploadFileSizeBytes(),
+      },
       preservePath: true,
     });
     upload.single('file')(req, res, (error: any) => {
@@ -38,10 +40,14 @@ export class FileUploadMiddleware implements NestMiddleware {
         try {
           req.file.buffer = fs.readFileSync(req.file.path);
         } catch (readError) {
-          try { fs.unlinkSync(req.file.path); } catch {}
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch {}
           return next(readError);
         }
-        try { fs.unlinkSync(req.file.path); } catch {}
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {}
       }
       if (req.file && req.file.originalname) {
         try {

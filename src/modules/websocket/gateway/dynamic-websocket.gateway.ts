@@ -31,7 +31,11 @@ interface SocketData extends Socket {
   cors: { origin: '*' },
 })
 export class DynamicWebSocketGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   @WebSocketServer()
   server: Server;

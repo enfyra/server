@@ -48,9 +48,7 @@ export abstract class BaseCacheService<T> {
         this.cacheLoaded = true;
 
         const elapsed = Date.now() - start;
-        this.logger.log(
-          `Loaded ${this.getLogCount()} in ${elapsed}ms`,
-        );
+        this.logger.log(`Loaded ${this.getLogCount()} in ${elapsed}ms`);
 
         this.emitLoadedEvent();
       } catch (error) {
