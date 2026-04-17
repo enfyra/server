@@ -108,7 +108,12 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
 
   async getFlowById(id: number | string): Promise<FlowDefinition | null> {
     await this.ensureLoaded();
-    return this.cache.find((f) => f.id === id || f.id === Number(id)) || null;
+    const idStr = String(id);
+    return (
+      this.cache.find(
+        (f) => f.id === id || f.id === Number(id) || String(f.id) === idStr,
+      ) || null
+    );
   }
 
   async getFlowByName(name: string): Promise<FlowDefinition | null> {

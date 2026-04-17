@@ -1015,6 +1015,19 @@ export class MongoTableHandlerService {
               );
               continue;
             }
+            let resolvedTargetTableName: string | undefined;
+            if (typeof rel.targetTable === 'string') {
+              resolvedTargetTableName = rel.targetTable;
+            } else {
+              resolvedTargetTableName = rel.targetTable?.name;
+              if (!resolvedTargetTableName) {
+                const targetRec = await this.queryBuilder.findOne({
+                  table: 'table_definition',
+                  where: { _id: targetTableObjectId },
+                });
+                resolvedTargetTableName = targetRec?.name;
+              }
+            }
             let updateResolvedMappedBy = null;
             if (rel.mappedBy) {
               const { data: owningRels } = await this.queryBuilder.find({
@@ -1032,10 +1045,7 @@ export class MongoTableHandlerService {
               type: rel.type,
               sourceTable: queryId,
               targetTable: targetTableObjectId,
-              targetTableName:
-                typeof rel.targetTable === 'string'
-                  ? rel.targetTable
-                  : rel.targetTable.name || exists.name,
+              targetTableName: resolvedTargetTableName || exists.name,
               sourceTableName: exists.name,
               mappedBy: updateResolvedMappedBy,
               isNullable: rel.isNullable ?? true,
@@ -1044,10 +1054,7 @@ export class MongoTableHandlerService {
               isPublished: rel.isPublished ?? true,
               description: rel.description,
             };
-            const targetRelName =
-              typeof rel.targetTable === 'string'
-                ? rel.targetTable
-                : rel.targetTable?.name;
+            const targetRelName = resolvedTargetTableName;
             if (rel.type === 'many-to-many' && !rel.mappedBy && targetRelName) {
               const junctionTableName = getJunctionTableName(
                 exists.name,

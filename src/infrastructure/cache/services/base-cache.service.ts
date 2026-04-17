@@ -69,6 +69,7 @@ export abstract class BaseCacheService<T> {
   ): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
+      return;
     }
     try {
       const start = Date.now();

@@ -49,11 +49,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     if (payload.table === 'table_definition' && payload.ids?.length) {
       const isMongoDB = this.queryBuilder.isMongoDb();
       const idField = DatabaseConfigService.getPkField();
-      const mainTableField = isMongoDB ? 'mainTable' : 'mainTableId';
+      const filter = isMongoDB
+        ? { mainTable: { _id: { _in: payload.ids } } }
+        : { mainTableId: { _in: payload.ids } };
 
       const result = await this.queryBuilder.find({
         table: 'route_definition',
-        filter: { [mainTableField]: { _in: payload.ids } },
+        filter,
         fields: [idField],
       });
       const routeIds = result.data.map((r: any) => r[idField]).filter(Boolean);
@@ -70,10 +72,16 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         }
       }
       if (affectedTableNames.size > 0) {
-        this.cache.routes = this.cache.routes.filter((r: any) => {
-          return !affectedTableNames.has(r.mainTable?.name);
-        });
-        this.buildRouteEngine(this.cache.routes);
+        const cachedRouteIds: (string | number)[] = [];
+        for (const route of this.cache.routes) {
+          if (affectedTableNames.has(route.mainTable?.name)) {
+            const rid = DatabaseConfigService.getRecordId(route);
+            if (rid != null) cachedRouteIds.push(rid);
+          }
+        }
+        if (cachedRouteIds.length > 0) {
+          await this.reloadSpecificRoutes(cachedRouteIds);
+        }
         return;
       }
       return;

@@ -108,7 +108,9 @@ export class MetadataCacheService {
     if (tableIds.length > 0) {
       const tablesResult = await this.queryBuilder.find({
         table: 'table_definition',
-        filter: { id: { _in: tableIds } },
+        filter: isMongoDB
+          ? { _id: { _in: tableIds } }
+          : { id: { _in: tableIds } },
       });
       tables = tablesResult.data;
     }
@@ -162,13 +164,13 @@ export class MetadataCacheService {
       this.queryBuilder.find({
         table: 'column_definition',
         filter: isMongoDB
-          ? { table: { _in: uniqueTableIds } }
+          ? { table: { _id: { _in: uniqueTableIds } } }
           : { tableId: { _in: uniqueTableIds } },
       }),
       this.queryBuilder.find({
         table: 'relation_definition',
         filter: isMongoDB
-          ? { sourceTable: { _in: uniqueTableIds } }
+          ? { sourceTable: { _id: { _in: uniqueTableIds } } }
           : { sourceTableId: { _in: uniqueTableIds } },
       }),
     ]);

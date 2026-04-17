@@ -27,10 +27,17 @@ export class FlowService {
     payload?: any,
     triggeredBy?: any,
   ): Promise<{ jobId: string; flowId: number | string }> {
-    const flow =
-      typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
-        ? await this.flowCacheService.getFlowById(flowIdOrName)
-        : await this.flowCacheService.getFlowByName(String(flowIdOrName));
+    const asString = String(flowIdOrName);
+    const looksLikeId =
+      typeof flowIdOrName === 'number' ||
+      /^\d+$/.test(asString) ||
+      /^[a-f0-9]{24}$/i.test(asString);
+    let flow = looksLikeId
+      ? await this.flowCacheService.getFlowById(flowIdOrName)
+      : null;
+    if (!flow) {
+      flow = await this.flowCacheService.getFlowByName(asString);
+    }
 
     if (!flow) {
       throw new Error(`Flow "${flowIdOrName}" not found`);
