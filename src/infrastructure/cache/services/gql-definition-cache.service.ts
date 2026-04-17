@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BaseCacheService } from './base-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_IDENTIFIERS,
+  isMetadataTable,
+} from '../../../shared/utils/cache-events.constants';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export interface TGqlDefinition {
@@ -100,6 +103,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
 
   async isEnabledForTable(tableName: string): Promise<boolean> {
     await this.ensureLoaded();
+    if (isMetadataTable(tableName)) return false;
     const def = this.cache?.get(tableName);
     return def?.isEnabled === true;
   }
@@ -112,6 +116,8 @@ export class GqlDefinitionCacheService extends BaseCacheService<
   async getAllEnabled(): Promise<TGqlDefinition[]> {
     await this.ensureLoaded();
     if (!this.cache) return [];
-    return Array.from(this.cache.values()).filter((d) => d.isEnabled);
+    return Array.from(this.cache.values()).filter(
+      (d) => d.isEnabled && !isMetadataTable(d.tableName),
+    );
   }
 }

@@ -7,6 +7,7 @@ import {
 } from '../utils/mongo-relation-on-delete.util';
 import { resolveMongoJunctionInfo } from '../utils/mongo-junction.util';
 import { ValidationException } from '../../../core/exceptions/custom-exceptions';
+import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
 const M2M_PENDING = Symbol('mongoService.m2mPending');
 
@@ -514,6 +515,12 @@ export class MongoRelationManagerService {
     const sys = await this.isSystemFilterIfApplicable(targetCollection);
 
     if (onDelete === 'CASCADE') {
+      if (isMetadataTable(targetCollection)) {
+        this.logger.warn(
+          `[applyOneToManyOnDelete] Blocked cascade to metadata table "${targetCollection}"`,
+        );
+        return;
+      }
       await coll.deleteMany({
         _id: { $in: targetIds },
         ...sys,
@@ -691,6 +698,12 @@ export class MongoRelationManagerService {
     const sys = await this.isSystemFilterIfApplicable(targetCollection);
 
     if (onDelete === 'CASCADE') {
+      if (isMetadataTable(targetCollection)) {
+        this.logger.warn(
+          `[applyOneToOneOnDelete] Blocked cascade to metadata table "${targetCollection}"`,
+        );
+        return;
+      }
       const byId = new Map<string, ObjectId>();
       for (const d of inverseDocs) {
         byId.set(d._id.toString(), d._id);

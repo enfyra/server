@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
+import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 export type HookEvent =
   | 'beforeInsert'
   | 'afterInsert'
@@ -249,6 +250,7 @@ export class KnexHookRegistry {
           continue;
         }
         if (!isInverse) {
+          if (isMetadataTable(targetTableName)) continue;
           const policyCtx = this.getPolicyContext?.();
           if (policyCtx) {
             await policyCtx.check(targetTableName, 'delete', { ids });
@@ -279,6 +281,7 @@ export class KnexHookRegistry {
             );
           }
         } else {
+          if (isMetadataTable(tableName)) continue;
           const policyCtx = this.getPolicyContext?.();
           if (policyCtx) {
             await policyCtx.check(tableName, 'delete', { ids });

@@ -53,6 +53,8 @@ export class GraphqlService {
     try {
       const start = Date.now();
 
+      await this.gqlDefinitionCache.reload();
+
       const metadata = await this.metadataCache.getMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn(

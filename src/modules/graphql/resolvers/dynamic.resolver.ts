@@ -10,6 +10,7 @@ import { GuardCacheService } from '../../../infrastructure/cache/services/guard-
 import { GuardEvaluatorService } from '../../../infrastructure/cache/services/guard-evaluator.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
+import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
 @Injectable()
 export class DynamicResolver {
@@ -166,6 +167,13 @@ export class DynamicResolver {
   ) {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
+    }
+
+    if (isMetadataTable(mainTableName)) {
+      throwGqlError(
+        '403',
+        `Metadata table "${mainTableName}" is not accessible via GraphQL. Use REST API instead.`,
+      );
     }
 
     const isEnabled =
