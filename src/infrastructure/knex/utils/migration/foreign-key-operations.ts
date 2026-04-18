@@ -205,7 +205,7 @@ function getAllForeignKeyConstraintsReferencingTableQuery(
         INNER JOIN pg_class rel ON rel.oid = con.conrelid
         INNER JOIN pg_class rrel ON rrel.oid = con.confrelid
         INNER JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
-        WHERE rrel.relname = $1
+        WHERE rrel.relname = ?
         AND con.contype = 'f'
       `,
       bindings: [tableName],
