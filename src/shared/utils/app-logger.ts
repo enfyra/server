@@ -1,8 +1,15 @@
-import { LoggerService, Injectable } from '@nestjs/common';
 import { winstonLogger, shouldLog } from './winston-logger';
 
-@Injectable()
-export class AppLogger implements LoggerService {
+export interface ILoggerService {
+  log(message: any, context?: string): void;
+  error(message: any, trace?: string, context?: string): void;
+  warn(message: any, context?: string): void;
+  debug?(message: any, context?: string): void;
+  verbose?(message: any, context?: string): void;
+  fatal?(message: any, trace?: string, context?: string): void;
+}
+
+export class AppLogger implements ILoggerService {
   private extractObjectMessage(
     message: Record<string, any>,
     fallback: string,

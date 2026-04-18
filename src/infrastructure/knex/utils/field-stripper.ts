@@ -1,8 +1,8 @@
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 export class FieldStripper {
-  constructor(private metadataCacheService: MetadataCacheService) {}
+  constructor(private metadataCacheService: MetadataCacheService | null) {}
   async stripUnknownColumns(tableName: string, data: any): Promise<any> {
-    if (!tableName) {
+    if (!tableName || !this.metadataCacheService) {
       return data;
     }
     const metadata = await this.metadataCacheService.getMetadata();
@@ -32,7 +32,7 @@ export class FieldStripper {
     return stripped;
   }
   async stripNonUpdatableFields(tableName: string, data: any): Promise<any> {
-    if (!tableName) {
+    if (!tableName || !this.metadataCacheService) {
       return data;
     }
     const metadata = await this.metadataCacheService.getMetadata();

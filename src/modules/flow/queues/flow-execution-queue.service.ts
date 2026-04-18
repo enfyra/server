@@ -1,10 +1,4 @@
-import { Logger } from '@nestjs/common';
-import {
-  Processor,
-  OnWorkerEvent,
-  WorkerHost,
-  InjectQueue,
-} from '@nestjs/bullmq';
+import { Logger } from '../../../shared/logger';
 import { Job, Queue } from 'bullmq';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
@@ -19,7 +13,6 @@ import {
 } from '../../../shared/types/flow.types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -27,20 +20,29 @@ const MAX_FLOW_DEPTH = 10;
 const MAX_STEP_TIMEOUT = 300000;
 const MAX_PAYLOAD_SIZE = 1024 * 1024;
 
-@Processor(SYSTEM_QUEUES.FLOW_EXECUTION, { concurrency: 20 })
-export class FlowExecutionQueueService extends WorkerHost {
+export class FlowExecutionQueueService {
   private readonly logger = new Logger(FlowExecutionQueueService.name);
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly flowCacheService: FlowCacheService;
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly websocketEmitService: WebsocketEmitService;
+  private readonly flowQueue: Queue;
 
-  constructor(
-    private readonly handlerExecutor: ExecutorEngineService,
-    private readonly repoRegistryService: RepoRegistryService,
-    private readonly flowCacheService: FlowCacheService,
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly websocketEmit: WebsocketEmitService,
-    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
-    private readonly flowQueue: Queue,
-  ) {
-    super();
+  constructor(deps: {
+    executorEngineService: ExecutorEngineService;
+    repoRegistryService: RepoRegistryService;
+    flowCacheService: FlowCacheService;
+    queryBuilderService: QueryBuilderService;
+    websocketEmitService: WebsocketEmitService;
+    flowQueue: Queue;
+  }) {
+    this.executorEngineService = deps.executorEngineService;
+    this.repoRegistryService = deps.repoRegistryService;
+    this.flowCacheService = deps.flowCacheService;
+    this.queryBuilderService = deps.queryBuilderService;
+    this.websocketEmitService = deps.websocketEmitService;
+    this.flowQueue = deps.flowQueue;
   }
 
   async process(job: Job<FlowJobData>): Promise<any> {
@@ -174,13 +176,13 @@ export class FlowExecutionQueueService extends WorkerHost {
 
   private emitFlowEvent(triggeredBy: any, data: any) {
     if (!triggeredBy?.id) return;
-    this.websocketEmit.emitToUser(triggeredBy.id, 'flow:execution', data);
+    this.websocketEmitService.emitToUser(triggeredBy.id, 'flow:execution', data);
   }
 
   private async cleanupOldExecutions(flow: FlowDefinition): Promise<void> {
     const maxExecutions = flow.maxExecutions || 100;
     try {
-      const countResult = await this.queryBuilder.find({
+      const countResult = await this.queryBuilderService.find({
         table: 'flow_execution_definition',
         filter: { flow: { _eq: flow.id } },
         fields: ['id'],
@@ -192,25 +194,44 @@ export class FlowExecutionQueueService extends WorkerHost {
       if (total <= maxExecutions) return;
 
       const deleteCount = Math.min(total - maxExecutions, 200);
-      const oldResult = await this.queryBuilder.find({
+      const oldResult = await this.queryBuilderService.find({
         table: 'flow_execution_definition',
         filter: { flow: { _eq: flow.id } },
         sort: ['startedAt'],
         fields: ['id'],
         limit: deleteCount,
       });
-      const toDelete = oldResult.data || [];
-      for (const row of toDelete) {
-        await this.queryBuilder.delete(
-          'flow_execution_definition',
-          row.id || row._id,
-        );
+
+      for (const record of oldResult.data || []) {
+        await this.queryBuilderService.delete('flow_execution_definition', record.id);
       }
     } catch (err) {
       this.logger.warn(
-        `Failed to cleanup old executions for flow ${flow.name}: ${err.message}`,
+        `Failed to cleanup old executions for flow ${flow.name}: ${(err as Error).message}`,
       );
     }
+  }
+
+  private async createExecution(
+    flow: FlowDefinition,
+    payload: any,
+    triggeredBy: any,
+  ): Promise<string> {
+    const execution = await this.queryBuilderService.insert('flow_execution_definition', {
+      flow: flow.id,
+      status: 'pending',
+      triggeredBy: triggeredBy?.id || null,
+      payload: payload || {},
+      startedAt: new Date(),
+    });
+    return execution.id || execution._id;
+  }
+
+  private async updateExecution(
+    executionId: number | string,
+    updates: any,
+  ): Promise<void> {
+    await this.queryBuilderService.update('flow_execution_definition', executionId as any, updates);
   }
 
   private async executeFlow(
@@ -218,7 +239,7 @@ export class FlowExecutionQueueService extends WorkerHost {
     payload: any,
     triggeredBy: any,
     executionId: number | string,
-    job: Job,
+    job: Job<FlowJobData>,
     depth: number,
     visitedFlowIds: (number | string)[],
   ): Promise<{ context: any; completedSteps: any[] }> {
@@ -247,7 +268,7 @@ export class FlowExecutionQueueService extends WorkerHost {
       $logs: (...args: any[]) => {
         (ctx.$share.$logs as any[]).push(...args);
       },
-    };
+    } as any;
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
@@ -275,15 +296,17 @@ export class FlowExecutionQueueService extends WorkerHost {
     };
 
     const completedSteps: any[] = [];
-    const allSteps = [...flow.steps].sort((a, b) => a.stepOrder - b.stepOrder);
-    const rootSteps = allSteps.filter((s) => !s.parentId);
+    const allSteps = [...(flow.steps || [])].sort(
+      (a, b) => (a as any).stepOrder - (b as any).stepOrder,
+    );
+    const rootSteps = allSteps.filter((s) => !(s as any).parentId);
 
     const getChildren = (parentId: number | string, branch: string) =>
       allSteps.filter(
         (s) =>
-          s.parentId &&
-          String(s.parentId) === String(parentId) &&
-          s.branch === branch,
+          (s as any).parentId &&
+          String((s as any).parentId) === String(parentId) &&
+          (s as any).branch === branch,
       );
 
     const runStep = async (step: FlowStep): Promise<void> => {
@@ -296,7 +319,7 @@ export class FlowExecutionQueueService extends WorkerHost {
         const result = await this.executeStep(
           step,
           ctx,
-          flow.timeout,
+          (flow as any).timeout,
           visitedFlowIds,
         );
         flowContext[step.key] = result;
@@ -313,7 +336,7 @@ export class FlowExecutionQueueService extends WorkerHost {
           entry.branch = branchValue;
           completedSteps.push(entry);
 
-          const branchSteps = getChildren(step.id, branchValue);
+          const branchSteps = getChildren((step as any).id, branchValue);
           for (const child of branchSteps) {
             await runStep(child);
           }
@@ -326,17 +349,18 @@ export class FlowExecutionQueueService extends WorkerHost {
           currentStep: step.key,
           totalSteps: allSteps.length,
         });
-      } catch (error) {
-        if (step.onError === 'retry' && step.retryAttempts > 0) {
+      } catch (error: any) {
+        if (step.onError === 'retry' && (step as any).retryAttempts > 0) {
+          const retryAttempts = (step as any).retryAttempts as number;
           let retrySuccess = false;
-          for (let i = 0; i < step.retryAttempts; i++) {
+          for (let i = 0; i < retryAttempts; i++) {
             try {
               const backoffMs = Math.min(1000 * Math.pow(2, i), 30000);
               await new Promise((r) => setTimeout(r, backoffMs));
               const result = await this.executeStep(
                 step,
                 ctx,
-                flow.timeout,
+                (flow as any).timeout,
                 visitedFlowIds,
               );
               flowContext[step.key] = result;
@@ -349,10 +373,10 @@ export class FlowExecutionQueueService extends WorkerHost {
               });
               retrySuccess = true;
               break;
-            } catch (retryErr) {
-              if (i === step.retryAttempts - 1) {
+            } catch (retryErr: any) {
+              if (i === retryAttempts - 1) {
                 this.logger.warn(
-                  `Step "${step.key}" failed after ${step.retryAttempts} retries: ${retryErr.message}`,
+                  `Step "${step.key}" failed after ${retryAttempts} retries: ${retryErr.message}`,
                 );
               }
             }
@@ -388,19 +412,20 @@ export class FlowExecutionQueueService extends WorkerHost {
     flowTimeout: number,
     visitedFlowIds: (number | string)[] = [],
   ): Promise<any> {
-    const raw = step.timeout || flowTimeout || 5000;
+    const raw = (step as any).timeout || flowTimeout || 5000;
     const timeout = Math.min(Math.max(raw, 1), MAX_STEP_TIMEOUT);
     const config = step.config || {};
 
     if (step.type === 'trigger_flow') {
       const targetFlow =
-        (await this.flowCacheService.getFlowById(config.flowId)) ||
-        (await this.flowCacheService.getFlowByName(config.flowName));
+        (await this.flowCacheService.getFlowById((config as any).flowId)) ||
+        (await this.flowCacheService.getFlowByName((config as any).flowName));
       if (!targetFlow)
         throw new Error(
-          `Target flow ${config.flowId || config.flowName} not found`,
+          `Target flow ${(config as any).flowId || (config as any).flowName} not found`,
         );
-      const childPayload = config.payload || (ctx as any).$flow?.$last || {};
+      const childPayload =
+        (config as any).payload || (ctx as any).$flow?.$last || {};
       const currentDepth = (ctx as any).$flow?.$meta?.depth || 0;
       await this.flowQueue.add(`flow:${targetFlow.name}`, {
         flowId: targetFlow.id,
@@ -421,42 +446,7 @@ export class FlowExecutionQueueService extends WorkerHost {
       config,
       timeout,
       ctx,
-      handlerExecutor: this.handlerExecutor,
+      executorEngineService: this.executorEngineService,
     });
-  }
-
-  private async createExecution(
-    flow: FlowDefinition,
-    payload: any,
-    triggeredBy: any,
-  ): Promise<number | string> {
-    const record = await this.queryBuilder.insert('flow_execution_definition', {
-      flowId: flow.id,
-      status: 'pending',
-      payload: payload || null,
-      ...(triggeredBy?.id ? { triggeredById: triggeredBy.id } : {}),
-    });
-    return record.id || record._id;
-  }
-
-  private async updateExecution(
-    executionId: number | string,
-    data: any,
-  ): Promise<void> {
-    await this.queryBuilder.update(
-      'flow_execution_definition',
-      executionId,
-      data,
-    );
-  }
-
-  @OnWorkerEvent('failed')
-  onFailed(job: Job, error: Error) {
-    this.logger.error(`Flow job ${job.id} failed: ${error.message}`);
-  }
-
-  @OnWorkerEvent('error')
-  onError(error: Error) {
-    this.logger.error(`Flow queue error: ${error.message}`);
   }
 }

@@ -1,13 +1,5 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-  OnModuleDestroy,
-  Optional,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Logger } from '../../../shared/logger';
+import { EventEmitter2 } from 'eventemitter2';
 import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
@@ -24,11 +16,9 @@ import {
   SQL_COORD_RESERVE_MIN,
   SQL_COORD_RESERVE_RATIO,
 } from '../../../shared/utils/auto-scaling.constants';
+import { BaseService } from '../../../shared/lifecycle';
 
-@Injectable()
-export class SqlPoolClusterCoordinatorService
-  implements OnApplicationBootstrap, OnModuleDestroy
-{
+export class SqlPoolClusterCoordinatorService extends BaseService {
   private readonly logger = new Logger(SqlPoolClusterCoordinatorService.name);
   private redis: Redis | null = null;
   private readonly zsetKey: string;
@@ -36,22 +26,34 @@ export class SqlPoolClusterCoordinatorService
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private reconcileTimer?: ReturnType<typeof setInterval>;
   private lastAppliedTarget = -1;
+  private readonly _redis: Redis;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly instanceService: InstanceService;
+  private readonly knexService: KnexService;
+  private readonly eventEmitter: EventEmitter2;
+  private readonly replicationManager?: ReplicationManager;
 
-  constructor(
-    private readonly redisService: RedisService,
-    private readonly configService: ConfigService,
-    private readonly databaseConfig: DatabaseConfigService,
-    private readonly instanceService: InstanceService,
-    private readonly knexService: KnexService,
-    private readonly eventEmitter: EventEmitter2,
-    @Optional() private readonly replicationManager?: ReplicationManager,
-  ) {
+  constructor(deps: {
+    redis: Redis;
+    databaseConfigService: DatabaseConfigService;
+    instanceService: InstanceService;
+    knexService: KnexService;
+    eventEmitter: EventEmitter2;
+    replicationManager?: ReplicationManager;
+  }) {
+    super();
+    this._redis = deps.redis;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.instanceService = deps.instanceService;
+    this.knexService = deps.knexService;
+    this.eventEmitter = deps.eventEmitter;
+    this.replicationManager = deps.replicationManager;
     this.zsetKey = `enfyra:coord:sql:pool:${this.resolveDbServerHash()}:instances`;
     this.instanceId = this.instanceService.getInstanceId();
   }
 
   private resolveDbServerHash(): string {
-    const dbUri = this.configService.get<string>('DB_URI');
+    const dbUri = (this as any).configService?.get?.('DB_URI') || (global as any).__env?.DB_URI;
     let host: string;
     let port: number;
     if (dbUri) {
@@ -59,10 +61,8 @@ export class SqlPoolClusterCoordinatorService
       host = parsed.host;
       port = parsed.port;
     } else {
-      host = this.configService.get<string>('DB_HOST') || 'localhost';
-      port =
-        this.configService.get<number>('DB_PORT') ||
-        (this.databaseConfig.isPostgres() ? 5432 : 3306);
+      host = 'localhost';
+      port = this.databaseConfigService.isPostgres() ? 5432 : 3306;
     }
     return createHash('sha256')
       .update(`${host}:${port}`)
@@ -70,11 +70,11 @@ export class SqlPoolClusterCoordinatorService
       .slice(0, 12);
   }
 
-  onApplicationBootstrap(): void {
-    if (this.databaseConfig.isMongoDb()) {
+  async onInit(): Promise<void> {
+    if (this.databaseConfigService.isMongoDb()) {
       return;
     }
-    this.redis = this.redisService.getOrNil();
+    this.redis = this._redis;
     if (!this.redis) {
       this.logger.warn(
         'Redis unavailable; SQL pool cluster coordination skipped',
@@ -95,7 +95,7 @@ export class SqlPoolClusterCoordinatorService
     });
   }
 
-  onModuleDestroy(): void {
+  async onDestroy(): Promise<void> {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
@@ -136,7 +136,7 @@ export class SqlPoolClusterCoordinatorService
 
   private async fetchServerMaxConnections(): Promise<number | null> {
     try {
-      if (this.databaseConfig.isPostgres()) {
+      if (this.databaseConfigService.isPostgres()) {
         const r = await this.knexService.raw(
           `SELECT setting::int AS v FROM pg_settings WHERE name = 'max_connections'`,
         );
@@ -145,7 +145,7 @@ export class SqlPoolClusterCoordinatorService
         const n = typeof v === 'number' ? v : parseInt(String(v), 10);
         return Number.isFinite(n) ? n : null;
       }
-      if (this.databaseConfig.isMySql()) {
+      if (this.databaseConfigService.isMySql()) {
         const r = await this.knexService.raw(
           `SHOW VARIABLES LIKE 'max_connections'`,
         );
@@ -167,7 +167,7 @@ export class SqlPoolClusterCoordinatorService
     if (!this.redis) {
       return;
     }
-    if (this.databaseConfig.isMongoDb()) {
+    if (this.databaseConfigService.isMongoDb()) {
       return;
     }
     try {

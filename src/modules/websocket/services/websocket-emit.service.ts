@@ -1,23 +1,25 @@
-import { Injectable } from '@nestjs/common';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 
-@Injectable()
 export class WebsocketEmitService {
-  constructor(private readonly websocketGateway: DynamicWebSocketGateway) {}
+  private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
+
+  constructor(deps: { dynamicWebSocketGateway: DynamicWebSocketGateway }) {
+    this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
+  }
 
   emitToUser(userId: number | string, event: string, data: any) {
-    this.websocketGateway.emitToUser(userId, event, data);
+    this.dynamicWebSocketGateway.emitToUser(userId, event, data);
   }
 
   emitToRoom(room: string, event: string, data: any) {
-    this.websocketGateway.emitToRoom(room, event, data);
+    this.dynamicWebSocketGateway.emitToRoom(room, event, data);
   }
 
   emitToGateway(path: string, event: string, data: any) {
-    this.websocketGateway.emitToNamespace(path, event, data);
+    this.dynamicWebSocketGateway.emitToNamespace(path, event, data);
   }
 
   broadcast(event: string, data: any) {
-    this.websocketGateway.emitToAll(event, data);
+    this.dynamicWebSocketGateway.emitToAll(event, data);
   }
 }

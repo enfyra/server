@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { ObjectId, AggregationCursor } from 'mongodb';
 import {
   MongoSagaLockService,
@@ -11,7 +11,7 @@ import {
 } from './mongo-operation-log.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../core/exceptions/custom-exceptions';
-import { ISagaOptions, ISagaContext } from './mongo-saga-coordinator.service';
+import { ISagaOptions, ISagaContext } from './mongo-saga.types';
 import { SagaPlan } from './mongo-saga-plan';
 
 const TX_INTERNAL_FIELDS = ['__txId'];

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { AsyncLocalStorage } from 'async_hooks';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
@@ -203,9 +203,10 @@ export function encodeMainThreadToIsolate(value: unknown): string {
   }
 }
 
-@Injectable()
-export class IsolatedExecutorService implements OnModuleDestroy {
+export class IsolatedExecutorService {
   private readonly logger = new Logger(IsolatedExecutorService.name);
+  private readonly packageCacheService: PackageCacheService;
+  private readonly packageCdnLoaderService: PackageCdnLoaderService;
   private readonly effectiveMemory = getEffectiveMemoryBytes();
   private readonly isolationTuning = getEngineTuning();
   private readonly pool = new WorkerPool(
@@ -224,10 +225,12 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   private recoveryTicks = 0;
   private taskCounter = 0;
 
-  constructor(
-    private readonly packageCacheService: PackageCacheService,
-    private readonly cdnLoader: PackageCdnLoaderService,
-  ) {
+  constructor(deps: {
+    packageCacheService: PackageCacheService;
+    packageCdnLoaderService: PackageCdnLoaderService;
+  }) {
+    this.packageCacheService = deps.packageCacheService;
+    this.packageCdnLoaderService = deps.packageCdnLoaderService;
     this.logger.log(
       `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate, ${this.isolationTuning.tasksPerWorkerCap} tasks/worker cap`,
     );
@@ -237,7 +240,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     );
   }
 
-  onModuleDestroy(): void {
+  onDestroy(): void {
     if (this.tuneTimer) {
       clearInterval(this.tuneTimer);
     }
@@ -543,7 +546,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<any> {
     const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 30000));
     const packages = await this.packageCacheService.getPackages();
-    const pkgSources = this.cdnLoader.getPackageSources(packages);
+    const pkgSources = this.packageCdnLoaderService.getPackageSources(packages);
     const snapshot = this.createSnapshot(ctx);
 
     appendIsolatedExecutorRuntimeLog({
@@ -597,7 +600,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<any> {
     const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 30000));
     const packages = await this.packageCacheService.getPackages();
-    const pkgSources = this.cdnLoader.getPackageSources(packages);
+    const pkgSources = this.packageCdnLoaderService.getPackageSources(packages);
     const snapshot = this.createSnapshot(ctx);
 
     appendIsolatedExecutorRuntimeLog({

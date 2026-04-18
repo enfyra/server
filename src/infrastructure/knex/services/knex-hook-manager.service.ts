@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  Optional,
-  Inject,
-  forwardRef,
-} from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
@@ -15,7 +9,6 @@ import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
 import { getForeignKeyColumnName } from '../utils/sql-schema-naming.util';
 
-@Injectable()
 export class KnexHookManagerService {
   private readonly logger = new Logger(KnexHookManagerService.name);
   private dbType: string;
@@ -45,14 +38,16 @@ export class KnexHookManagerService {
   private cascadeHandler: CascadeHandler;
   private fieldStripper: FieldStripper;
   private relationTransformer: RelationTransformer;
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly replicationManager?: ReplicationManager;
 
-  constructor(
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCacheService: MetadataCacheService,
-    @Optional()
-    @Inject(forwardRef(() => ReplicationManager))
-    private readonly replicationManager?: ReplicationManager,
-  ) {}
+  constructor(deps: {
+    metadataCacheService: MetadataCacheService;
+    replicationManager?: ReplicationManager;
+  }) {
+    this.metadataCacheService = deps.metadataCacheService;
+    this.replicationManager = deps.replicationManager;
+  }
 
   initialize(
     dbType: string,
@@ -224,6 +219,14 @@ export class KnexHookManagerService {
     this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
 
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return data;
+
+      const hasCreatedAt = tableMetadata.columns.some((c: any) => c.name === 'createdAt');
+      const hasUpdatedAt = tableMetadata.columns.some((c: any) => c.name === 'updatedAt');
+
+      if (!hasCreatedAt && !hasUpdatedAt) return data;
+
       const now = getActiveKnex().raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
         return data.map((record) => {
@@ -236,7 +239,10 @@ export class KnexHookManagerService {
             UpdatedAt,
             ...cleanRecord
           } = record;
-          return { ...cleanRecord, createdAt: now, updatedAt: now };
+          const result: any = { ...cleanRecord };
+          if (hasCreatedAt) result.createdAt = now;
+          if (hasUpdatedAt) result.updatedAt = now;
+          return result;
         });
       }
       const {
@@ -248,7 +254,10 @@ export class KnexHookManagerService {
         UpdatedAt,
         ...cleanData
       } = data;
-      return { ...cleanData, createdAt: now, updatedAt: now };
+      const result: any = { ...cleanData };
+      if (hasCreatedAt) result.createdAt = now;
+      if (hasUpdatedAt) result.updatedAt = now;
+      return result;
     });
 
     this.addHook('afterInsert', async (tableName, result) => {
@@ -374,6 +383,12 @@ export class KnexHookManagerService {
 
     this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata?.columns) return data;
+
+      const hasUpdatedAt = tableMetadata.columns.some((c: any) => c.name === 'updatedAt');
+      if (!hasUpdatedAt) return data;
+
       return {
         ...data,
         updatedAt: getActiveKnex().raw('CURRENT_TIMESTAMP'),

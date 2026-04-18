@@ -1,4 +1,5 @@
-import { Injectable, Logger, HttpException } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
+import { HttpException } from '../../../core/exceptions/custom-exceptions';
 import {
   ScriptExecutionException,
   BusinessLogicException,
@@ -7,13 +8,20 @@ import {
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RequestWithRouteData } from '../../../shared/types';
-@Injectable()
+
 export class DynamicService {
-  private logger = new Logger(DynamicService.name);
-  constructor(
-    private handlerExecutorService: ExecutorEngineService,
-    private loggingService: LoggingService,
-  ) {}
+  private readonly logger = new Logger(DynamicService.name);
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly loggingService: LoggingService;
+
+  constructor(deps: {
+    executorEngineService: ExecutorEngineService;
+    loggingService: LoggingService;
+  }) {
+    this.executorEngineService = deps.executorEngineService;
+    this.loggingService = deps.loggingService;
+  }
+
   async runHandler(req: RequestWithRouteData) {
     const isTableDefinitionOperation =
       req.routeData.mainTable?.name === 'table_definition';
@@ -31,7 +39,7 @@ export class DynamicService {
         req.routeData.context.$res = res;
       }
 
-      this.handlerExecutorService.register(req, {
+      this.executorEngineService.register(req, {
         code: handler,
         type: 'handler',
       });
@@ -40,7 +48,7 @@ export class DynamicService {
       if (postHooks?.length) {
         for (const hook of postHooks) {
           if (!hook.code) continue;
-          this.handlerExecutorService.register(req, {
+          this.executorEngineService.register(req, {
             code: hook.code,
             type: 'postHook',
           });
@@ -55,7 +63,7 @@ export class DynamicService {
       let value: any;
       let shortCircuit = false;
       try {
-        const result = await this.handlerExecutorService.runBatch(
+        const result = await this.executorEngineService.runBatch(
           req,
           timeoutMs,
         );

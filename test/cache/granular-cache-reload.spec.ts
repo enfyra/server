@@ -7,7 +7,7 @@
  * All infrastructure is inlined / mocked — no NestJS DI pulled in.
  */
 
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 import {
   GraphQLObjectType,

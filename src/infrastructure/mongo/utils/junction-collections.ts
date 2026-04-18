@@ -3,8 +3,8 @@ import {
   getForeignKeyColumnName,
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../../src/infrastructure/knex/utils/sql-schema-naming.util';
-import { TableDef } from '../../../src/shared/types/database-init.types';
+} from '../../knex/utils/sql-schema-naming.util';
+import { TableDef } from '../../../shared/types/database-init.types';
 
 export interface JunctionCollectionDef {
   name: string;

@@ -1,7 +1,5 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 
-@Injectable()
 export class FlowDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
     return records.map((record) => {

@@ -1,14 +1,14 @@
-import { Logger } from '@nestjs/common';
-import { Processor, OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Logger } from '../../../shared/logger';
+import { Job, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { TDynamicContext } from '../../../shared/types';
 import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { EnvService } from '../../../shared/services/env.service';
 
 export interface EventJobData {
   requestId: string;
@@ -23,17 +23,64 @@ export interface EventJobData {
   timeout: number;
 }
 
-@Processor(SYSTEM_QUEUES.WS_EVENT, { concurrency: 100 })
-export class EventQueueService extends WorkerHost {
+export class EventQueueService {
   private readonly logger = new Logger(EventQueueService.name);
 
-  constructor(
-    private readonly handlerExecutor: ExecutorEngineService,
-    private readonly websocketGateway: DynamicWebSocketGateway,
-    private readonly repoRegistryService: RepoRegistryService,
-    private readonly flowService: FlowService,
-  ) {
-    super();
+  private readonly executorEngineService: ExecutorEngineService;
+  private _dynamicWebSocketGateway?: DynamicWebSocketGateway;
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly flowService: FlowService;
+  private readonly envService: EnvService;
+  private _container?: any;
+  private worker?: Worker;
+
+  constructor(deps: {
+    executorEngineService: ExecutorEngineService;
+    repoRegistryService: RepoRegistryService;
+    flowService: FlowService;
+    envService: EnvService;
+    _container?: any;
+  }) {
+    this.executorEngineService = deps.executorEngineService;
+    this._container = deps._container;
+    this.repoRegistryService = deps.repoRegistryService;
+    this.flowService = deps.flowService;
+    this.envService = deps.envService;
+  }
+
+  async onInit() {
+    const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
+    this.worker = new Worker(
+      SYSTEM_QUEUES.WS_EVENT,
+      async (job: Job<EventJobData>) => {
+        return await this.process(job);
+      },
+      {
+        prefix: `${nodeName}:`,
+        connection: { url: this.envService.get('REDIS_URI'), maxRetriesPerRequest: null },
+        concurrency: 5,
+      },
+    );
+    this.worker.on('failed', (job, err) => {
+      this.logger.error(`Event job ${job?.id} failed: ${err.message}`);
+    });
+    this.worker.on('completed', (job) => {
+      this.logger.debug(`Event job ${job?.id} completed`);
+    });
+    this.logger.log(`Event queue worker started on ${SYSTEM_QUEUES.WS_EVENT}`);
+  }
+
+  async onDestroy() {
+    if (this.worker) {
+      await this.worker.close();
+    }
+  }
+
+  private get dynamicWebSocketGateway(): DynamicWebSocketGateway | undefined {
+    if (!this._dynamicWebSocketGateway && this._container) {
+      this._dynamicWebSocketGateway = this._container.cradle?.dynamicWebSocketGateway;
+    }
+    return this._dynamicWebSocketGateway;
   }
 
   async process(job: Job<EventJobData>): Promise<any> {
@@ -96,7 +143,7 @@ export class EventQueueService extends WorkerHost {
       );
 
     try {
-      const result = await this.handlerExecutor.run(script, ctx, timeout);
+      const result = await this.executorEngineService.run(script, ctx, timeout);
       socketProxy.reply('ws:result', {
         requestId,
         eventName,
@@ -119,17 +166,14 @@ export class EventQueueService extends WorkerHost {
     }
   }
 
-  @OnWorkerEvent('completed')
   onCompleted(job: Job) {
     this.logger.debug(`Event job ${job.id} completed`);
   }
 
-  @OnWorkerEvent('failed')
-  onFailed(job: Job, error: Error) {
-    this.logger.error(`Event job ${job.id} failed:`, error);
+  onFailed(job: Job | undefined, error: Error) {
+    this.logger.error(`Event job ${job?.id} failed:`, error);
   }
 
-  @OnWorkerEvent('error')
   onError(error: Error) {
     this.logger.error(`Event queue error:`, error);
   }
@@ -138,28 +182,25 @@ export class EventQueueService extends WorkerHost {
     const self = this;
     return {
       join: (room: string) => {
-        self.websocketGateway.joinRoom(gatewayPath, socketId, room);
+        self.dynamicWebSocketGateway?.joinRoom(gatewayPath, socketId, room);
       },
       leave: (room: string) => {
-        self.websocketGateway.leaveRoom(gatewayPath, socketId, room);
+        self.dynamicWebSocketGateway?.leaveRoom(gatewayPath, socketId, room);
       },
       reply: (event: string, data: any) => {
-        self.websocketGateway.emitToSocket(gatewayPath, socketId, event, data);
+        self.dynamicWebSocketGateway?.emitToSocket(gatewayPath, socketId, event, data);
       },
       emitToUser: (userId: number | string, event: string, data: any) => {
-        self.websocketGateway.emitToUser(userId, event, data);
+        self.dynamicWebSocketGateway?.emitToUser(userId, event, data);
       },
       emitToRoom: (room: string, event: string, data: any) => {
-        self.websocketGateway.emitToRoom(room, event, data);
+        self.dynamicWebSocketGateway?.emitToRoom(room, event, data);
       },
       emitToGateway: (path: string, event: string, data: any) => {
-        self.websocketGateway.emitToNamespace(path, event, data);
+        self.dynamicWebSocketGateway?.emitToNamespace(path, event, data);
       },
       broadcast: (event: string, data: any) => {
-        self.websocketGateway.emitToAll(event, data);
-      },
-      disconnect: () => {
-        self.websocketGateway.disconnectSocket(gatewayPath, socketId);
+        self.dynamicWebSocketGateway?.emitToAll(event, data);
       },
     };
   }

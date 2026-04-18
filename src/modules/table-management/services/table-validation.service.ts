@@ -1,8 +1,6 @@
-import { Injectable } from '@nestjs/common';
 import { ValidationException } from '../../../core/exceptions/custom-exceptions';
 
-@Injectable()
-export class TableValidationService {
+export class TableManagementValidationService {
   validateRelations(relations: any[]) {
     for (const relation of relations || []) {
       if (relation.type === 'one-to-many' && !relation.mappedBy) {

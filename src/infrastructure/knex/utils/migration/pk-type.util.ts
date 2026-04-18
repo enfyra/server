@@ -1,6 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
-
+import { Logger } from '../../../../shared/logger';
 const logger = new Logger('PkTypeUtil');
 
 export async function getPrimaryKeyTypeForTable(

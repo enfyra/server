@@ -1,24 +1,16 @@
-import {
-  WebSocketGateway,
-  WebSocketServer,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  OnGatewayInit,
-} from '@nestjs/websockets';
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
-import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { Logger } from '../../../shared/logger';
 import { Server, Socket } from 'socket.io';
-import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import * as jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { BaseService } from '../../../shared/lifecycle';
+import { EnvService } from '../../../shared/services/env.service';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+
 interface SocketData extends Socket {
   data: {
     user?: { id: number | string };
@@ -26,46 +18,52 @@ interface SocketData extends Socket {
     gateway?: any;
   };
 }
-@Injectable()
-@WebSocketGateway({
-  cors: { origin: '*' },
-})
-export class DynamicWebSocketGateway
-  implements
-    OnGatewayInit,
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnModuleDestroy
-{
-  @WebSocketServer()
+
+export class DynamicWebSocketGateway extends BaseService {
   server: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
   private registeredGateways = new Set<string>();
   private gatewayConfigsByPath = new Map<string, any>();
   private redisPubClient: Redis | null = null;
   private redisSubClient: Redis | null = null;
-  constructor(
-    private readonly configService: ConfigService,
-    @InjectQueue(SYSTEM_QUEUES.WS_CONNECTION)
-    private readonly connectionQueue: Queue,
-    @InjectQueue(SYSTEM_QUEUES.WS_EVENT)
-    private readonly eventQueue: Queue,
-    private readonly websocketCache: WebsocketCacheService,
-    private readonly builtInRegistry: BuiltInSocketRegistry,
-  ) {
-    this.jwtService = new JwtService({
-      secret: this.configService.get('SECRET_KEY'),
+  private readonly connectionQueue: Queue;
+  private readonly eventQueue: Queue;
+  private readonly websocketCacheService: WebsocketCacheService;
+  private readonly builtInRegistry: BuiltInSocketRegistry;
+  private readonly envService: EnvService;
+  private eventEmitter: any;
+
+  constructor(deps: {
+    wsConnectionQueue: Queue;
+    wsEventQueue: Queue;
+    websocketCacheService: WebsocketCacheService;
+    builtInSocketRegistry: BuiltInSocketRegistry;
+    eventEmitter: any;
+    envService: EnvService;
+  }) {
+    super();
+    this.connectionQueue = deps.wsConnectionQueue;
+    this.eventQueue = deps.wsEventQueue;
+    this.websocketCacheService = deps.websocketCacheService;
+    this.builtInRegistry = deps.builtInSocketRegistry;
+    this.envService = deps.envService;
+    this.eventEmitter = deps.eventEmitter;
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners() {
+    this.eventEmitter.on(`${CACHE_IDENTIFIERS.WEBSOCKET}_LOADED`, () => {
+      this.registerGateways();
     });
   }
-  private readonly jwtService: JwtService;
 
   private setupRedisAdapter(server: Server) {
-    const redisUri = this.configService.get('REDIS_URI');
-    const redisHost = this.configService.get('REDIS_HOST') || 'localhost';
-    const redisPort = this.configService.get<number>('REDIS_PORT') || 6379;
-    const redisDb = this.configService.get<number>('REDIS_DB') || 0;
-    const redisPassword = this.configService.get('REDIS_PASSWORD');
-    const nodeName = this.configService.get('NODE_NAME') || '';
+    const redisUri = this.envService.get('REDIS_URI');
+    const redisHost = this.envService.get('REDIS_HOST') || 'localhost';
+    const redisPort = 6379;
+    const redisDb = 0;
+    const redisPassword = this.envService.get('REDIS_PASSWORD');
+    const nodeName = this.envService.get('NODE_NAME') || '';
     const keyPrefix = nodeName ? `${nodeName}:socket.io:` : 'socket.io:';
 
     const redisOptions = redisUri
@@ -82,6 +80,9 @@ export class DynamicWebSocketGateway
       ? new Redis(redisUri, redisOptions)
       : new Redis(redisOptions);
     const subClient = pubClient.duplicate();
+
+    pubClient.setMaxListeners(50);
+    subClient.setMaxListeners(50);
 
     this.redisPubClient = pubClient;
     this.redisSubClient = subClient;
@@ -102,22 +103,23 @@ export class DynamicWebSocketGateway
   }
 
   afterInit(server: Server) {
+    this.server = server;
     this.setupRedisAdapter(server);
+    this.registerGateways();
     this.logger.log('WebSocket Gateway initialized');
   }
-  @OnEvent(CACHE_EVENTS.WEBSOCKET_LOADED)
-  async onWebsocketCacheLoaded() {
-    await this.registerGateways();
-  }
+
   private updateGatewayConfigs(gateways: any[]) {
     this.gatewayConfigsByPath.clear();
     for (const g of gateways) {
       this.gatewayConfigsByPath.set(g.path, g);
     }
   }
+
   async registerGateways() {
+    if (!this.server) return;
     try {
-      const gateways = await this.websocketCache.getGateways();
+      const gateways = await this.websocketCacheService.getGateways();
       const newPaths = new Set(gateways.map((g: any) => g.path));
       for (const path of this.registeredGateways) {
         if (!newPaths.has(path)) {
@@ -171,7 +173,7 @@ export class DynamicWebSocketGateway
           return next(err);
         }
         try {
-          const user = this.jwtService.verify(token);
+          const user = jwt.verify(token, this.envService.get('SECRET_KEY'));
           socket.data.user = user;
           socket.data.userId = user.id || user.userId;
           socket.data.gateway = gateway;
@@ -273,7 +275,7 @@ export class DynamicWebSocketGateway
             let script = builtInScript;
             let freshEvent: any = event;
             if (!script) {
-              const freshGateway = await this.websocketCache.getGatewayByPath(
+              const freshGateway = await this.websocketCacheService.getGatewayByPath(
                 gatewayData.path,
               );
               freshEvent =
@@ -350,10 +352,11 @@ export class DynamicWebSocketGateway
       }
     });
   }
+
   async handleConnection(_client: Socket) {}
   async handleDisconnect(_client: Socket) {}
 
-  async onModuleDestroy() {
+  async onDestroy() {
     try {
       this.redisPubClient?.disconnect();
     } catch {}
@@ -361,6 +364,7 @@ export class DynamicWebSocketGateway
       this.redisSubClient?.disconnect();
     } catch {}
   }
+
   async reloadGateways() {
     this.logger.log('Reloading websocket gateways...');
     for (const path of this.registeredGateways) {
@@ -374,6 +378,7 @@ export class DynamicWebSocketGateway
       `Gateways reloaded. Total registered: ${this.registeredGateways.size}`,
     );
   }
+
   joinRoom(path: string, socketId: string, room: string) {
     const socket = this.server.of(path).sockets.get(socketId);
     if (socket) socket.join(room);

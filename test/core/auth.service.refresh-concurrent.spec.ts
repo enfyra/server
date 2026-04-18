@@ -1,14 +1,12 @@
 import { createHash } from 'crypto';
-import { Test, TestingModule } from '@nestjs/testing';
-import { JwtModule, JwtService } from '@nestjs/jwt';
-import { ConfigModule } from '@nestjs/config';
+import * as jwt from 'jsonwebtoken';
 import { AuthService } from '../../src/core/auth/services/auth.service';
 import { BcryptService } from '../../src/core/auth/services/bcrypt.service';
 import { QueryBuilderService } from '../../src/infrastructure/query-builder/query-builder.service';
+import { EnvService } from '../../src/shared/services/env.service';
 
 describe('AuthService.refreshToken rotation (SQL session)', () => {
   let auth: AuthService;
-  let jwt: JwtService;
   const sessionStore: Record<string, any> = {
     id: 'sess-concurrent',
     userId: 'user-1',
@@ -18,7 +16,7 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
     loginProvider: null,
   };
 
-  beforeEach(async () => {
+  beforeEach(() => {
     sessionStore.id = 'sess-concurrent';
     sessionStore.userId = 'user-1';
     sessionStore.expiredAt = new Date(Date.now() + 86400000 * 365);
@@ -62,46 +60,34 @@ describe('AuthService.refreshToken rotation (SQL session)', () => {
         };
         return (_table: string) => builder;
       }),
-    };
+    } as unknown as QueryBuilderService;
 
-    const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [
-        ConfigModule.forRoot({
-          isGlobal: true,
-          load: [
-            () => ({
-              ACCESS_TOKEN_EXP: '15m',
-              REFRESH_TOKEN_NO_REMEMBER_EXP: '7d',
-              REFRESH_TOKEN_REMEMBER_EXP: '30d',
-            }),
-          ],
-        }),
-        JwtModule.register({
-          secret: 'test-secret-concurrent-auth',
-          signOptions: { expiresIn: '7d' },
-        }),
-      ],
-      providers: [
-        AuthService,
-        {
-          provide: BcryptService,
-          useValue: {},
-        },
-        {
-          provide: QueryBuilderService,
-          useValue: queryBuilder,
-        },
-      ],
-    }).compile();
+    const mockEnvService = {
+      get: jest.fn((key: string) => {
+        const envVars: Record<string, string> = {
+          SECRET_KEY: 'test-secret-concurrent-auth',
+          ACCESS_TOKEN_EXP: '15m',
+          REFRESH_TOKEN_NO_REMEMBER_EXP: '7d',
+          REFRESH_TOKEN_REMEMBER_EXP: '30d',
+        };
+        return envVars[key];
+      }),
+    } as unknown as EnvService;
 
-    auth = moduleRef.get(AuthService);
-    jwt = moduleRef.get(JwtService);
+    const mockBcryptService = {} as BcryptService;
+
+    auth = new AuthService({
+      bcryptService: mockBcryptService,
+      queryBuilderService: queryBuilder,
+      envService: mockEnvService,
+    });
   });
 
   it('after refresh, old refresh token is rejected (rotation)', async () => {
     const oldRt = jwt.sign(
       { sessionId: sessionStore.id },
-      { secret: 'test-secret-concurrent-auth', expiresIn: '7d' },
+      'test-secret-concurrent-auth',
+      { expiresIn: '7d' },
     );
     sessionStore.refreshTokenHash = createHash('sha256')
       .update(oldRt)

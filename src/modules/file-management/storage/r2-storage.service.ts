@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import {
   S3Client,
   PutObjectCommand,
@@ -13,7 +14,6 @@ import {
   UploadResult,
 } from './storage.interface';
 
-@Injectable()
 export class R2StorageService implements IStorageService {
   private readonly logger = new Logger(R2StorageService.name);
 

@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 
-@Injectable()
 export class MongoQueryEngine {
-  constructor(private queryBuilder: QueryBuilderService) {}
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
+  }
 
   async find(options: {
     table: string;
@@ -30,7 +32,7 @@ export class MongoQueryEngine {
 
     const normalizedFields = fields || '*';
 
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: tableName,
       fields: normalizedFields,
       filter,

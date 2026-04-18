@@ -1,11 +1,8 @@
-import { Injectable } from '@nestjs/common';
-
 export interface BuiltInGatewayConfig {
   connectionScript?: string;
   events: Map<string, string>;
 }
 
-@Injectable()
 export class BuiltInSocketRegistry {
   private readonly handlers = new Map<string, BuiltInGatewayConfig>();
 

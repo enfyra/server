@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
@@ -7,9 +7,8 @@ import {
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { ValidationException } from '../../../core/exceptions/custom-exceptions';
 
-@Injectable()
 export class SqlTableMetadataWriterService {
-  private logger = new Logger(SqlTableMetadataWriterService.name);
+  private readonly logger = new Logger(SqlTableMetadataWriterService.name);
 
   async writeTableMetadataUpdates(
     queryRunner: any,

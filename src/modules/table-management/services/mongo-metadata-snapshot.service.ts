@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { MongoService } from '../../../infrastructure/mongo/services/mongo.service';
 
-@Injectable()
 export class MongoMetadataSnapshotService {
-  private logger = new Logger(MongoMetadataSnapshotService.name);
-  constructor(private mongoService: MongoService) {}
+  private readonly logger = new Logger(MongoMetadataSnapshotService.name);
+  private readonly mongoService: MongoService;
+
+  constructor(deps: { mongoService: MongoService }) {
+    this.mongoService = deps.mongoService;
+  }
 
   async getFullTableMetadata(tableId: any): Promise<any> {
     const { ObjectId } = require('mongodb');

@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 import {
@@ -7,7 +8,6 @@ import {
   UploadResult,
 } from './storage.interface';
 
-@Injectable()
 export class GCSStorageService implements IStorageService {
   private readonly logger = new Logger(GCSStorageService.name);
 

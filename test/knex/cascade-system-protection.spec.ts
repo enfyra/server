@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../src/shared/logger';
 import { KnexHookRegistry } from '../../src/infrastructure/knex/hooks/hook-registry';
 
 describe('afterDelete cascade – system record protection', () => {

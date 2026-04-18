@@ -1,7 +1,6 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-@Injectable()
+
 export class MethodDefinitionProcessor extends BaseTableProcessor {
   constructor() {
     super();

@@ -1,4 +1,3 @@
-import { Injectable, LoggerService } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { winstonLogger } from '../../../shared/utils/winston-logger';
 
@@ -20,8 +19,7 @@ export interface LogLevel {
   VERBOSE: 'verbose';
 }
 
-@Injectable()
-export class LoggingService implements LoggerService {
+export class LoggingService {
   private readonly als = new AsyncLocalStorage<{
     correlationId: string | null;
     context: LogContext;

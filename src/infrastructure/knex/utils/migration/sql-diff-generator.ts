@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../../shared/logger';
 import { generateColumnDefinition } from './sql-generator';
 import { dropForeignKeyIfExists } from './foreign-key-operations';
 import {

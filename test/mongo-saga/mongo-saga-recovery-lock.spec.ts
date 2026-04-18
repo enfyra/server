@@ -1,9 +1,7 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
 import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
 import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
 import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
-import { CacheService } from '../../src/infrastructure/cache/services/cache.service';
 import { InstanceService } from '../../src/shared/services/instance.service';
 import {
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,
@@ -29,39 +27,40 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
       }),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        MongoSagaCoordinator,
-        {
-          provide: MongoService,
-          useValue: { getDb: () => db },
-        },
-        {
-          provide: MongoSagaLockService,
-          useValue: {
-            cleanupOrphanedLocks,
-            getOrphanMarkerRecoveryPlan: jest.fn().mockResolvedValue({
-              shouldUnsetMarkers: false,
-              needsRollbackFirst: false,
-            }),
-          },
-        },
-        {
-          provide: MongoOperationLogService,
-          useValue: { cleanupOldLogs },
-        },
-        {
-          provide: InstanceService,
-          useValue: { getInstanceId: () => 'instance-test-abc' },
-        },
-        {
-          provide: CacheService,
-          useValue: { acquire, release },
-        },
-      ],
-    }).compile();
+    // Manual dependency injection
+    const envService = {
+      get: (key: string) => process.env[key],
+    } as any;
 
-    coordinator = module.get<MongoSagaCoordinator>(MongoSagaCoordinator);
+    const mongoService = new MongoService({ envService });
+    Object.defineProperty(mongoService, 'db', { value: db });
+
+    const lockService = new MongoSagaLockService({ mongoService });
+    (lockService as any).cleanupOrphanedLocks = cleanupOrphanedLocks;
+    (lockService as any).getOrphanMarkerRecoveryPlan = jest
+      .fn()
+      .mockResolvedValue({
+        shouldUnsetMarkers: false,
+        needsRollbackFirst: false,
+      });
+
+    const logService = new MongoOperationLogService({ mongoService });
+    (logService as any).cleanupOldLogs = cleanupOldLogs;
+
+    const instanceService = new InstanceService();
+    Object.defineProperty(instanceService, 'instanceId', {
+      value: 'instance-test-abc',
+    });
+
+    const cacheService = { acquire, release } as any;
+
+    coordinator = new MongoSagaCoordinator({
+      mongoService,
+      lockService,
+      logService,
+      instanceService,
+      cacheService,
+    });
   }
 
   it('skips recovery when Redis lock not acquired', async () => {
@@ -125,35 +124,36 @@ describe('MongoSagaCoordinator orphan recovery Redis lock', () => {
       }),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        MongoSagaCoordinator,
-        {
-          provide: MongoService,
-          useValue: { getDb: () => db },
-        },
-        {
-          provide: MongoSagaLockService,
-          useValue: {
-            cleanupOrphanedLocks: cleanupOrphanedLocksLocal,
-            getOrphanMarkerRecoveryPlan: jest.fn().mockResolvedValue({
-              shouldUnsetMarkers: false,
-              needsRollbackFirst: false,
-            }),
-          },
-        },
-        {
-          provide: MongoOperationLogService,
-          useValue: { cleanupOldLogs: cleanupOldLogsLocal },
-        },
-        {
-          provide: InstanceService,
-          useValue: { getInstanceId: () => 'solo' },
-        },
-      ],
-    }).compile();
+    // Manual dependency injection without CacheService
+    const envService = {
+      get: (key: string) => process.env[key],
+    } as any;
 
-    const solo = module.get<MongoSagaCoordinator>(MongoSagaCoordinator);
+    const mongoService = new MongoService({ envService });
+    Object.defineProperty(mongoService, 'db', { value: db });
+
+    const lockService = new MongoSagaLockService({ mongoService });
+    (lockService as any).cleanupOrphanedLocks = cleanupOrphanedLocksLocal;
+    (lockService as any).getOrphanMarkerRecoveryPlan = jest
+      .fn()
+      .mockResolvedValue({
+        shouldUnsetMarkers: false,
+        needsRollbackFirst: false,
+      });
+
+    const logService = new MongoOperationLogService({ mongoService });
+    (logService as any).cleanupOldLogs = cleanupOldLogsLocal;
+
+    const instanceService = new InstanceService();
+    Object.defineProperty(instanceService, 'instanceId', { value: 'solo' });
+
+    const solo = new MongoSagaCoordinator({
+      mongoService,
+      lockService,
+      logService,
+      instanceService,
+      cacheService: undefined,
+    });
     await solo.recoverOrphanedSagas('boot');
     expect(cleanupOrphanedLocksLocal).toHaveBeenCalled();
     expect(cleanupOldLogsLocal).toHaveBeenCalled();

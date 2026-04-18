@@ -1,10 +1,10 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../src/infrastructure/knex/utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../sql-schema-naming.util';
 import {
   ColumnDef,
   RelationDef,
   KnexTableSchema,
-} from '../../../src/shared/types/database-init.types';
+} from '../../../../shared/types/database-init.types';
 import { getKnexColumnType } from './schema-parser';
 function parsePgArray(val: any): string[] {
   if (Array.isArray(val)) return val;

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpException } from '../../../core/exceptions/custom-exceptions';
 import {
   ScriptTimeoutException,
   ScriptExecutionException,
@@ -69,7 +69,7 @@ export class ErrorHandler {
         case '$throw.rateLimit':
           return new HttpException(
             message || 'Rate limit exceeded',
-            HttpStatus.TOO_MANY_REQUESTS,
+            429,
           );
         case '$throw.scriptError':
           return new ScriptExecutionException(
@@ -122,7 +122,7 @@ export class ErrorHandler {
         case '$throw.429':
           return new HttpException(
             message || 'Rate limit exceeded',
-            HttpStatus.TOO_MANY_REQUESTS,
+            429,
           );
         case '$throw.500':
           return new DatabaseException(
@@ -161,7 +161,7 @@ export class ErrorHandler {
         case 429:
           return new HttpException(
             message || 'Rate limit exceeded',
-            HttpStatus.TOO_MANY_REQUESTS,
+            429,
           );
         case 500:
           return new DatabaseException(

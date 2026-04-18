@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import * as dotenv from 'dotenv';
-import { resolveDbTypeFromEnv } from './utils/resolve-db-type';
+import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
 

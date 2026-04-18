@@ -1,13 +1,4 @@
 import {
-  Injectable,
-  OnModuleInit,
-  OnModuleDestroy,
-  Logger,
-  Inject,
-  forwardRef,
-  Optional,
-} from '@nestjs/common';
-import {
   MongoClient,
   Db,
   Collection,
@@ -18,22 +9,27 @@ import {
 } from 'mongodb';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
-import { ConfigService } from '@nestjs/config';
-import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import type { AwilixContainer } from 'awilix';
+import { Logger } from '../../../shared/logger';
+import { EnvService } from '../../../shared/services/env.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import {
-  MongoSagaCoordinator,
-  MongoSagaSession,
-} from './mongo-saga-coordinator.service';
+import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { MongoRelationManagerService } from './mongo-relation-manager.service';
+import type { MongoSagaCoordinator } from './mongo-saga-coordinator.service';
+import type { MongoSagaSession } from './mongo-saga-session';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
 import { DatabaseException } from '../../../core/exceptions/custom-exceptions';
 
-@Injectable()
-export class MongoService implements OnModuleInit, OnModuleDestroy {
-  private client: MongoClient;
-  private db: Db;
+export class MongoService {
+  private client!: MongoClient;
+  private db!: Db;
   private readonly logger = new Logger(MongoService.name);
+  private readonly envService: EnvService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly mongoRelationManagerService: MongoRelationManagerService;
+  private readonly _container: AwilixContainer<any>;
+
   private readonly policyContext = new AsyncLocalStorage<{
     check: (
       tableName: string,
@@ -55,17 +51,27 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }>();
   private readonly appTxSessionAls = new AsyncLocalStorage<MongoSagaSession>();
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly databaseConfig: DatabaseConfigService,
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCache: MetadataCacheService,
-    @Inject(forwardRef(() => MongoRelationManagerService))
-    private readonly relationManager: MongoRelationManagerService,
-    @Optional()
-    @Inject(forwardRef(() => MongoSagaCoordinator))
-    private readonly sagaCoordinator?: MongoSagaCoordinator,
-  ) {}
+  constructor(deps: {
+    envService: EnvService;
+    databaseConfigService: DatabaseConfigService;
+    metadataCacheService: MetadataCacheService;
+    mongoRelationManagerService: MongoRelationManagerService;
+    _container: AwilixContainer<any>;
+  }) {
+    this.envService = deps.envService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.metadataCacheService = deps.metadataCacheService;
+    this.mongoRelationManagerService = deps.mongoRelationManagerService;
+    this._container = deps._container;
+  }
+
+  private getSagaCoordinator(): MongoSagaCoordinator | undefined {
+    try {
+      return this._container.cradle.mongoSagaCoordinator;
+    } catch {
+      return undefined;
+    }
+  }
 
   async runWithPolicy<T>(
     policyCheck: (
@@ -111,12 +117,12 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleInit() {
-    if (!this.databaseConfig.isMongoDb()) {
+  async onInit(): Promise<void> {
+    if (!this.databaseConfigService.isMongoDb()) {
       return;
     }
 
-    const uri = this.configService.get<string>('DB_URI');
+    const uri = this.envService.get('DB_URI');
 
     if (!uri) {
       throw new Error('DB_URI is not defined in environment variables');
@@ -138,7 +144,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy() {
+  async onDestroy(): Promise<void> {
     if (this.client) {
       await this.client.close();
       this.logger.log('MongoDB connection closed');
@@ -215,12 +221,13 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         await session.endSession();
       }
     }
-    if (!this.sagaCoordinator) {
+    const sagaCoordinator = this.getSagaCoordinator();
+    if (!sagaCoordinator) {
       throw new Error(
         'MongoSagaCoordinator is required when native multi-document transactions are not available',
       );
     }
-    const execResult = await this.sagaCoordinator.execute((tx) =>
+    const execResult = await sagaCoordinator.execute((tx) =>
       this.appTxSessionAls.run(tx, fn),
     );
     if (throwOnFailure && !execResult.success) {
@@ -302,7 +309,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   async applyDefaultValues(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
       return data;
     }
@@ -331,7 +339,8 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   async parseJsonFields(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata || !metadata.columns) {
       return data;
     }
@@ -355,7 +364,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
         if (typeof fieldValue === 'string') {
           try {
             result[fieldName] = JSON.parse(fieldValue);
-          } catch (error) {
+          } catch (error: any) {
             this.logger.warn(
               `Failed to parse JSON field '${fieldName}': ${error.message}`,
             );
@@ -394,7 +403,10 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   async stripInverseRelations(tableName: string, data: any): Promise<any> {
-    return this.relationManager.stripInverseRelations(tableName, data);
+    return this.mongoRelationManagerService.stripInverseRelations(
+      tableName,
+      data,
+    );
   }
 
   async insertOne(collectionName: string, data: any): Promise<any> {
@@ -425,9 +437,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       dataWithTimestamps,
     );
 
-    // Clear unique FK holders before insert to prevent unique constraint violations
-    // Use a dummy ObjectId since we don't have the real one yet
-    await this.relationManager.clearUniqueFKHolders(
+    await this.mongoRelationManagerService.clearUniqueFKHolders(
       collectionName,
       new ObjectId(),
       dataWithTimestamps,
@@ -458,7 +468,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       throw validationError;
     }
 
-    await this.relationManager.updateInverseRelationsOnUpdate(
+    await this.mongoRelationManagerService.updateInverseRelationsOnUpdate(
       collectionName,
       insertedId,
       {},
@@ -466,7 +476,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       (name) => this.collection(name),
     );
 
-    await this.relationManager.writeM2mJunctionsForInsert(
+    await this.mongoRelationManagerService.writeM2mJunctionsForInsert(
       collectionName,
       insertedId,
       dataWithRelations,
@@ -504,7 +514,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
   }
 
   async processNestedRelations(tableName: string, data: any): Promise<any> {
-    return this.relationManager.processNestedRelations(
+    return this.mongoRelationManagerService.processNestedRelations(
       tableName,
       data,
       (name) => this.collection(name),
@@ -519,7 +529,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     data: any,
   ): Promise<any> {
     const tableMetadata =
-      await this.metadataCache.getTableMetadata(collectionName);
+      await this.metadataCacheService.getTableMetadata(collectionName);
     if (!tableMetadata || !tableMetadata.columns) return data;
 
     const filteredData = { ...data };
@@ -535,7 +545,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
   async stripUnknownColumns(collectionName: string, data: any): Promise<any> {
     const tableMetadata =
-      await this.metadataCache.lookupTableByName(collectionName);
+      await this.metadataCacheService.lookupTableByName(collectionName);
     if (!tableMetadata) return data;
 
     const validFields = new Set<string>();
@@ -569,7 +579,11 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async updateOne(collectionName: string, id: string, data: any): Promise<any> {
+  async updateOne(
+    collectionName: string,
+    id: string,
+    data: any,
+  ): Promise<any> {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
 
@@ -602,8 +616,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       dataWithTimestamp,
     );
 
-    // Clear unique FK holders before update to prevent unique constraint violations
-    await this.relationManager.clearUniqueFKHolders(
+    await this.mongoRelationManagerService.clearUniqueFKHolders(
       collectionName,
       objectId,
       dataWithTimestamp,
@@ -612,7 +625,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
 
     await collection.updateOne({ _id: objectId }, { $set: dataWithTimestamp });
 
-    await this.relationManager.updateInverseRelationsOnUpdate(
+    await this.mongoRelationManagerService.updateInverseRelationsOnUpdate(
       collectionName,
       objectId,
       oldRecord,
@@ -620,7 +633,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       (name) => this.collection(name),
     );
 
-    await this.relationManager.writeM2mJunctionsForUpdate(
+    await this.mongoRelationManagerService.writeM2mJunctionsForUpdate(
       collectionName,
       objectId,
       dataWithRelations,
@@ -639,7 +652,7 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    await this.relationManager.cleanupInverseRelationsOnDelete(
+    await this.mongoRelationManagerService.cleanupInverseRelationsOnDelete(
       collectionName,
       objectId,
       record,
@@ -741,7 +754,10 @@ export class NativeSessionCollection<T extends Document = Document> {
   }
 
   aggregate(pipeline: any[], options?: any) {
-    return this.base.aggregate(pipeline, { ...options, session: this.session });
+    return this.base.aggregate(pipeline, {
+      ...options,
+      session: this.session,
+    });
   }
 
   bulkWrite(operations: any[], options?: any) {

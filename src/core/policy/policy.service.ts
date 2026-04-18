@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import {
   TPolicyDecision,
   TPolicyMutationContext,
@@ -8,12 +7,17 @@ import {
 import { SystemSafetyAuditorService } from './services/system-safety-auditor.service';
 import { SchemaMigrationValidatorService } from './services/schema-migration-validator.service';
 
-@Injectable()
 export class PolicyService {
-  constructor(
-    private readonly systemSafetyAuditor: SystemSafetyAuditorService,
-    private readonly schemaValidator: SchemaMigrationValidatorService,
-  ) {}
+  private readonly systemSafetyAuditorService: SystemSafetyAuditorService;
+  private readonly schemaMigrationValidatorService: SchemaMigrationValidatorService;
+
+  constructor(deps: {
+    systemSafetyAuditorService: SystemSafetyAuditorService;
+    schemaMigrationValidatorService: SchemaMigrationValidatorService;
+  }) {
+    this.systemSafetyAuditorService = deps.systemSafetyAuditorService;
+    this.schemaMigrationValidatorService = deps.schemaMigrationValidatorService;
+  }
 
   checkRequestAccess(ctx: TPolicyRequestContext): TPolicyDecision {
     const isPublished = ctx.routeData?.publishedMethods?.some(
@@ -84,7 +88,7 @@ export class PolicyService {
     ctx: TPolicyMutationContext,
   ): Promise<TPolicyDecision> {
     try {
-      await this.systemSafetyAuditor.assertSystemSafe(ctx);
+      await this.systemSafetyAuditorService.assertSystemSafe(ctx);
       return { allow: true };
     } catch (error: any) {
       return {
@@ -99,6 +103,6 @@ export class PolicyService {
   async checkSchemaMigration(
     ctx: TPolicySchemaMigrationContext,
   ): Promise<TPolicyDecision> {
-    return this.schemaValidator.checkSchemaMigration(ctx);
+    return this.schemaMigrationValidatorService.checkSchemaMigration(ctx);
   }
 }

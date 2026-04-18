@@ -1,22 +1,30 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { MetadataProvisionSqlService } from './metadata-provision-sql.service';
 import { MetadataProvisionMongoService } from './metadata-provision-mongo.service';
+import * as fs from 'fs';
 import * as path from 'path';
 
-@Injectable()
 export class MetadataProvisionService {
   private readonly logger = new Logger(MetadataProvisionService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly metadataProvisionSqlService: MetadataProvisionSqlService;
+  private readonly metadataProvisionMongoService: MetadataProvisionMongoService;
   private readonly dbType: string;
 
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly databaseConfig: DatabaseConfigService,
-    private readonly metadataProvisionSqlService: MetadataProvisionSqlService,
-    private readonly metadataProvisionMongoService: MetadataProvisionMongoService,
-  ) {
-    this.dbType = this.databaseConfig.getDbType();
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    databaseConfigService: DatabaseConfigService;
+    metadataProvisionSqlService: MetadataProvisionSqlService;
+    metadataProvisionMongoService: MetadataProvisionMongoService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.metadataProvisionSqlService = deps.metadataProvisionSqlService;
+    this.metadataProvisionMongoService = deps.metadataProvisionMongoService;
+    this.dbType = this.databaseConfigService.getDbType();
   }
 
   async waitForDatabaseConnection(
@@ -25,7 +33,7 @@ export class MetadataProvisionService {
   ): Promise<void> {
     for (let i = 0; i < maxRetries; i++) {
       try {
-        await this.queryBuilder.raw('SELECT 1');
+        await this.queryBuilderService.raw('SELECT 1');
         this.logger.log('Database connection successful.');
         return;
       } catch (error) {
@@ -40,9 +48,11 @@ export class MetadataProvisionService {
   }
 
   async createInitMetadata(): Promise<void> {
-    const snapshot = await import(path.resolve('data/snapshot.json'));
+    const snapshotPath = path.resolve('data/snapshot.json');
+    const snapshotContent = fs.readFileSync(snapshotPath, 'utf-8');
+    const snapshot = JSON.parse(snapshotContent);
 
-    if (this.queryBuilder.isMongoDb()) {
+    if (this.queryBuilderService.isMongoDb()) {
       return this.metadataProvisionMongoService.createInitMetadata(snapshot);
     }
 

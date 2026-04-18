@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
@@ -8,10 +7,13 @@ import {
   REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-@Injectable()
+
 export class RouteDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
   async transformRecords(records: any[], context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
@@ -34,7 +36,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
         if (record.mainTable) {
           if (isMongoDB) {
-            const mainTable = await this.queryBuilder.findOne({
+            const mainTable = await this.queryBuilderService.findOne({
               table: 'table_definition',
               where: {
                 name: record.mainTable,
@@ -51,7 +53,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
                 ? new ObjectId(mainTable._id)
                 : mainTable._id;
           } else {
-            const mainTable = await this.queryBuilder.findOne({
+            const mainTable = await this.queryBuilderService.findOne({
               table: 'table_definition',
               where: {
                 name: record.mainTable,
@@ -69,7 +71,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
           const methodNames = record.publishedMethods;
-          const result = await this.queryBuilder.find({
+          const result = await this.queryBuilderService.find({
             table: 'method_definition',
             filter: { method: { _in: methodNames } },
             fields: [pkField, 'method'],
@@ -84,7 +86,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           Array.isArray(record.skipRoleGuardMethods)
         ) {
           const methodNames = record.skipRoleGuardMethods;
-          const result = await this.queryBuilder.find({
+          const result = await this.queryBuilderService.find({
             table: 'method_definition',
             filter: { method: { _in: methodNames } },
             fields: [pkField, 'method'],
@@ -96,7 +98,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
         if (record.availableMethods && Array.isArray(record.availableMethods)) {
           const methodNames = record.availableMethods;
-          const result = await this.queryBuilder.find({
+          const result = await this.queryBuilderService.find({
             table: 'method_definition',
             filter: { method: { _in: methodNames } },
             fields: [pkField, 'method'],
@@ -123,7 +125,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
     this.logger.log('[ensureMissingHandlers] Starting handler check...');
 
-    const { data: routes } = await this.queryBuilder.find({
+    const { data: routes } = await this.queryBuilderService.find({
       table: 'route_definition',
       filter: { isEnabled: { _eq: true } },
     });
@@ -141,7 +143,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         ? { route: { _eq: routeId } }
         : { routeId: { _eq: routeId } };
 
-      const handlerCount = await this.queryBuilder.countRecords(
+      const handlerCount = await this.queryBuilderService.countRecords(
         'route_handler_definition',
         filter,
       );
@@ -174,11 +176,11 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         mainTableFk = new ObjectId(mainTableFk);
       }
       const tableRow = isMongoDB
-        ? await this.queryBuilder
+        ? await this.queryBuilderService
             .getMongoDb()
             .collection('table_definition')
             .findOne({ _id: mainTableFk })
-        : await this.queryBuilder.findOne({
+        : await this.queryBuilderService.findOne({
             table: 'table_definition',
             where: { id: mainTableFk },
           });
@@ -203,7 +205,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const junctionName =
         'route_definition_availableMethods_method_definition';
       if (isMongoDB) {
-        const mongoService = this.queryBuilder.getMongoDb();
+        const mongoService = this.queryBuilderService.getMongoDb();
         const routeIdObj =
           typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
         const rows = await mongoService
@@ -212,7 +214,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           .toArray();
         methodIds = rows.map((r: any) => r.method_definitionId);
       } else {
-        const knex = this.queryBuilder.getKnex();
+        const knex = this.queryBuilderService.getKnex();
         const rows = await knex(junctionName)
           .select('method_definitionId')
           .where({ route_definitionId: routeId });
@@ -223,7 +225,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     if (methodIds.length === 0) return;
 
     const idStrings = methodIds.map((id: any) => id.toString());
-    const methodResult = await this.queryBuilder.find({
+    const methodResult = await this.queryBuilderService.find({
       table: 'method_definition',
       filter: { id: { _in: idStrings } },
       fields: ['method'],
@@ -245,7 +247,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         continue;
       }
 
-      const methodRow = await this.queryBuilder.findOne({
+      const methodRow = await this.queryBuilderService.findOne({
         table: 'method_definition',
         where: { method: methodName },
       });
@@ -261,7 +263,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       let existing;
       if (isMongoDB) {
         const { ObjectId } = require('mongodb');
-        const mongoService = this.queryBuilder.getMongoDb();
+        const mongoService = this.queryBuilderService.getMongoDb();
         const routeIdObj =
           typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
         const methodIdObj =
@@ -275,7 +277,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             method: methodIdObj,
           });
       } else {
-        existing = await this.queryBuilder.findOne({
+        existing = await this.queryBuilderService.findOne({
           table: 'route_handler_definition',
           where: {
             routeId,
@@ -305,12 +307,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       }
 
       if (isMongoDB) {
-        const mongoService = this.queryBuilder.getMongoDb();
+        const mongoService = this.queryBuilderService.getMongoDb();
         await mongoService
           .collection('route_handler_definition')
           .insertOne(data);
       } else {
-        await this.queryBuilder.insertWithOptions({
+        await this.queryBuilderService.insertWithOptions({
           table: 'route_handler_definition',
           data,
         });

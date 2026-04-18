@@ -1,26 +1,31 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Logger } from '../../../shared/logger';
 import { parseExpression } from 'cron-parser';
+import { Queue } from 'bullmq';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
-@Injectable()
 export class FlowSchedulerService {
   private readonly logger = new Logger(FlowSchedulerService.name);
   private registeredSchedulers = new Set<string>();
+  private readonly flowQueue: Queue;
+  private readonly flowCacheService: FlowCacheService;
+  private eventEmitter: any;
 
-  constructor(
-    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
-    private readonly flowQueue: Queue,
-    private readonly flowCacheService: FlowCacheService,
-  ) {}
+  constructor(deps: {
+    flowQueue: Queue;
+    flowCacheService: FlowCacheService;
+    eventEmitter: any;
+  }) {
+    this.flowQueue = deps.flowQueue;
+    this.flowCacheService = deps.flowCacheService;
+    this.eventEmitter = deps.eventEmitter;
+    this.setupEventListeners();
+  }
 
-  @OnEvent(CACHE_EVENTS.FLOW_LOADED)
-  async onFlowsLoaded() {
-    await this.rebuildSchedules();
+  private setupEventListeners() {
+    this.eventEmitter.on(CACHE_EVENTS.FLOW_LOADED, () => {
+      this.rebuildSchedules();
+    });
   }
 
   private async rebuildSchedules(): Promise<void> {

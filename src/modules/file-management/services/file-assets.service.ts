@@ -1,35 +1,40 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Response } from 'express';
+import * as path from 'path';
+import { Logger } from '../../../shared/logger';
+import { NotFoundException } from '../../../core/exceptions/custom-exceptions';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { FileManagementService } from './file-management.service';
-import { Response } from 'express';
-import { RequestWithRouteData } from '../../../shared/types';
-import * as path from 'path';
+import { StorageFactoryService } from '../storage/storage-factory.service';
 import { ImageProcessorHelper } from '../utils/image-processor.helper';
 import { StreamHelper } from '../utils/stream.helper';
 import { FileValidationHelper } from '../utils/file-validation.helper';
 import { ImageFormatHelper } from '../utils/image-format.helper';
-import { StorageFactoryService } from '../storage/storage-factory.service';
 
-@Injectable()
 export class FileAssetsService {
   private readonly logger = new Logger(FileAssetsService.name);
   private readonly streamHelper: StreamHelper;
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly fileManagementService: FileManagementService;
+  private readonly storageFactoryService: StorageFactoryService;
 
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private fileManagementService: FileManagementService,
-    private storageFactory: StorageFactoryService,
-  ) {
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    fileManagementService: FileManagementService;
+    storageFactoryService: StorageFactoryService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.fileManagementService = deps.fileManagementService;
+    this.storageFactoryService = deps.storageFactoryService;
     this.streamHelper = new StreamHelper();
     ImageProcessorHelper.configureSharp();
   }
 
-  async streamFile(req: RequestWithRouteData, res: Response): Promise<void> {
+  async streamFile(req: any, res: Response): Promise<void> {
     const fileId = req.routeData?.params?.id || req.params.id;
     if (!fileId)
       return void res.status(400).json({ error: 'File ID is required' });
 
-    const fileResult = await this.queryBuilder.find({
+    const fileResult = await this.queryBuilderService.find({
       table: 'file_definition',
       filter: { id: { _eq: fileId } },
       fields: ['*', 'storageConfig.*'],
@@ -38,8 +43,8 @@ export class FileAssetsService {
     const file = fileResult.data?.[0];
     if (!file) throw new NotFoundException(`File not found: ${fileId}`);
 
-    if (file.isPublished !== true) {
-      const permissionsResult = await this.queryBuilder.find({
+    if (!file.isPublished) {
+      const permissionsResult = await this.queryBuilderService.find({
         table: 'file_permission_definition',
         filter: {
           fileId: { _eq: fileId },
@@ -54,7 +59,7 @@ export class FileAssetsService {
 
       for (const perm of permissions) {
         if (perm.roleId && !perm.role) {
-          perm.role = await this.queryBuilder.findOne({
+          perm.role = await this.queryBuilderService.findOne({
             table: 'role_definition',
             where: { id: perm.roleId },
           });
@@ -75,10 +80,6 @@ export class FileAssetsService {
     } = file as any;
     const storageType = storageConfig?.type || 'Local Storage';
     const storageConfigId = storageConfig?._id || storageConfig?.id || null;
-
-    this.logger.debug(
-      `File asset request - storageType: ${storageType}, storageConfigId: ${storageConfigId}, hasStorageConfig: ${!!storageConfig}`,
-    );
 
     if (
       storageType === 'Google Cloud Storage' ||
@@ -135,16 +136,15 @@ export class FileAssetsService {
       }
 
       const storageService =
-        this.storageFactory.getStorageService('Local Storage');
-      let storageConfig;
+        this.storageFactoryService.getStorageService('Local Storage');
+      let sc: any;
 
       if (storageConfigId) {
-        storageConfig =
-          await this.fileManagementService.getStorageConfigById(
-            storageConfigId,
-          );
+        sc = await this.fileManagementService.getStorageConfigById(
+          storageConfigId,
+        );
       } else {
-        storageConfig = {
+        sc = {
           type: 'Local Storage',
           name: 'Local',
           isEnabled: true,
@@ -154,7 +154,7 @@ export class FileAssetsService {
       const query = req.routeData?.context?.$query || req.query;
       const shouldDownload =
         query.download === 'true' || query.download === true;
-      const stream = await storageService.getStream(location, storageConfig);
+      const stream = await storageService.getStream(location, sc);
       return void (await this.streamHelper.streamCloudFile(
         stream,
         res,
@@ -163,6 +163,7 @@ export class FileAssetsService {
         shouldDownload,
       ));
     }
+
     const filePath = this.fileManagementService.getFilePath(
       path.basename(location),
     );
@@ -185,7 +186,8 @@ export class FileAssetsService {
     }
 
     const query = req.routeData?.context?.$query || req.query;
-    const shouldDownload = query.download === 'true' || query.download === true;
+    const shouldDownload =
+      query.download === 'true' || query.download === true;
     await this.streamHelper.streamRegularFile(
       filePath,
       res,
@@ -197,7 +199,7 @@ export class FileAssetsService {
 
   private async processImageWithQuery(
     filePath: string,
-    req: RequestWithRouteData,
+    req: any,
     res: Response,
     filename: string,
     storageConfigId?: number | string,
@@ -214,10 +216,6 @@ export class FileAssetsService {
       const quality = query.quality
         ? parseInt(query.quality as string, 10)
         : undefined;
-
-      this.logger.debug(
-        `Image processing params: format=${format}, quality=${quality}, width=${width}, height=${height}`,
-      );
       const cache = query.cache
         ? parseInt(query.cache as string, 10)
         : undefined;
@@ -278,10 +276,9 @@ export class FileAssetsService {
 
       let shouldStream = false;
       if (storageConfigId) {
-        const config =
-          await this.fileManagementService.getStorageConfigById(
-            storageConfigId,
-          );
+        const config = await this.fileManagementService.getStorageConfigById(
+          storageConfigId,
+        );
         shouldStream =
           config.type === 'Google Cloud Storage' ||
           config.type === 'Cloudflare R2' ||
@@ -292,9 +289,9 @@ export class FileAssetsService {
         const finalFormat =
           format || ImageFormatHelper.getOriginalFormat(filePath);
         const finalMimeType = ImageFormatHelper.getMimeType(finalFormat);
-        return void (await this.streamImageFromGCS(
+        return void (await this.streamImageFromCloud(
           filePath,
-          storageConfigId,
+          storageConfigId!,
           req,
           res,
           filename,
@@ -344,6 +341,8 @@ export class FileAssetsService {
         grayscale,
       );
 
+      let outFilename = filename;
+
       if (format) {
         const formatValidation = ImageProcessorHelper.validateFormat(format);
         if (!formatValidation.valid) {
@@ -363,7 +362,10 @@ export class FileAssetsService {
             quality,
           );
         }
-        filename = ImageFormatHelper.updateFilenameWithFormat(filename, format);
+        outFilename = ImageFormatHelper.updateFilenameWithFormat(
+          outFilename,
+          format,
+        );
       } else if (quality) {
         const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
         if (originalFormat === 'avif') {
@@ -389,8 +391,8 @@ export class FileAssetsService {
       res.setHeader(
         'Content-Disposition',
         shouldDownload
-          ? `attachment; filename="${filename}"`
-          : `inline; filename="${filename}"`,
+          ? `attachment; filename="${outFilename}"`
+          : `inline; filename="${outFilename}"`,
       );
 
       if (cache && cache > 0)
@@ -400,7 +402,7 @@ export class FileAssetsService {
 
       const sharpStream = fileStream.pipe(imageProcessor);
 
-      sharpStream.on('error', (error) => {
+      sharpStream.on('error', (error: any) => {
         this.logger.error('Sharp processing error:', error);
         if (!res.headersSent)
           res.status(500).json({ error: 'Image processing failed' });
@@ -415,10 +417,6 @@ export class FileAssetsService {
       );
     } catch (error) {
       this.logger.error('Image processing error:', error);
-      this.logger.error(
-        'Error stack:',
-        error instanceof Error ? error.stack : String(error),
-      );
       if (!res.headersSent)
         res.status(500).json({
           error: 'Image processing failed',
@@ -427,10 +425,10 @@ export class FileAssetsService {
     }
   }
 
-  private async streamImageFromGCS(
+  private async streamImageFromCloud(
     filePath: string,
     storageConfigId: number | string,
-    req: RequestWithRouteData,
+    req: any,
     res: Response,
     filename: string,
     format?: string,
@@ -452,7 +450,7 @@ export class FileAssetsService {
     grayscale?: boolean,
   ): Promise<void> {
     try {
-      const gcsStream = await this.fileManagementService.getStreamFromStorage(
+      const cloudStream = await this.fileManagementService.getStreamFromStorage(
         filePath,
         storageConfigId,
       );
@@ -481,6 +479,8 @@ export class FileAssetsService {
         grayscale,
       );
 
+      let outFilename = filename;
+
       if (format) {
         const formatValidation = ImageProcessorHelper.validateFormat(format);
         if (!formatValidation.valid) {
@@ -500,7 +500,10 @@ export class FileAssetsService {
             quality,
           );
         }
-        filename = ImageFormatHelper.updateFilenameWithFormat(filename, format);
+        outFilename = ImageFormatHelper.updateFilenameWithFormat(
+          outFilename,
+          format,
+        );
       } else if (quality) {
         const originalFormat = ImageFormatHelper.getOriginalFormat(filePath);
         if (originalFormat === 'avif') {
@@ -526,8 +529,8 @@ export class FileAssetsService {
       res.setHeader(
         'Content-Disposition',
         shouldDownload
-          ? `attachment; filename="${filename}"`
-          : `inline; filename="${filename}"`,
+          ? `attachment; filename="${outFilename}"`
+          : `inline; filename="${outFilename}"`,
       );
 
       if (cache && cache > 0)
@@ -535,9 +538,9 @@ export class FileAssetsService {
       else if (format) res.setHeader('Cache-Control', 'public, max-age=86400');
       else res.setHeader('Cache-Control', 'public, max-age=31536000');
 
-      const sharpStream = gcsStream.pipe(imageProcessor);
+      const sharpStream = cloudStream.pipe(imageProcessor);
 
-      sharpStream.on('error', (error) => {
+      sharpStream.on('error', (error: any) => {
         this.logger.error('Sharp processing error:', error);
         if (!res.headersSent)
           res.status(500).json({ error: 'Image processing failed' });
@@ -546,12 +549,12 @@ export class FileAssetsService {
       this.streamHelper.setupImageStream(sharpStream, res, false);
 
       this.streamHelper.handleStreamError(
-        gcsStream,
+        cloudStream,
         res,
-        'Failed to stream from GCS',
+        'Failed to stream from cloud storage',
       );
     } catch (error) {
-      this.logger.error('Stream image from GCS error:', error);
+      this.logger.error('Stream image from cloud error:', error);
       if (!res.headersSent)
         res.status(500).json({ error: 'Image streaming failed' });
     }

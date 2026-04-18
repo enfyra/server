@@ -8,7 +8,7 @@ import {
   readdirSync,
 } from 'fs';
 import { join, resolve, dirname } from 'path';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { build } from 'vite';
 import vue from '@vitejs/plugin-vue';
 // @ts-ignore

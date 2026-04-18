@@ -1,12 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  Inject,
-  Optional,
-  forwardRef,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { Db, ObjectId } from 'mongodb';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MongoService } from './mongo.service';
@@ -23,62 +15,13 @@ import {
   REDIS_TTL,
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,
 } from '../../../shared/utils/constant';
-import { MongoSagaSession } from './mongo-saga-session';
-import { SagaPlan } from './mongo-saga-plan';
-
-export interface ISagaContext {
-  txId: string;
-  status:
-    | 'active'
-    | 'committing'
-    | 'rolling_back'
-    | 'completed'
-    | 'aborted'
-    | 'failed';
-  lockedResources: Set<string>;
-  operations: IOperationLog[];
-  modifiedDocuments: Array<{ collection: string; id: string }>;
-  metadata: {
-    startedAt: Date;
-    lastActivityAt: Date;
-    maxDurationMs: number;
-  };
-}
-
-export interface ISagaOptions {
-  maxDurationMs?: number;
-  lockTimeoutMs?: number;
-  maxRetries?: number;
-  waitTimeout?: number;
-  autoRollbackOnError?: boolean;
-}
-
-export interface ISagaResult<T> {
-  success: boolean;
-  data?: T;
-  error?: Error;
-  txId: string;
-  rollbackResult?: IRollbackResult;
-  stats?: {
-    durationMs: number;
-    operationsCount: number;
-    locksAcquired: number;
-  };
-}
-
-export interface ISagaRecoveryMetrics {
-  totalRuns: number;
-  bootRuns: number;
-  periodicRuns: number;
-  skippedDueToRedisLock: number;
-  lastRunAt: Date | null;
-  lastCleaned: number;
-  lastRecovered: number;
-  lastError: string | null;
-}
-
-@Injectable()
-export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
+import type {
+  ISagaContext,
+  ISagaOptions,
+  ISagaResult,
+  ISagaRecoveryMetrics,
+} from './mongo-saga.types';
+export class MongoSagaCoordinator {
   private readonly logger = new Logger(MongoSagaCoordinator.name);
   private readonly sagaContext = new AsyncLocalStorage<ISagaContext>();
   private readonly defaultOptions: Required<ISagaOptions> = {
@@ -102,17 +45,27 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
     lastRecovered: 0,
     lastError: null,
   };
+  private readonly mongoService: MongoService;
+  private readonly lockService: MongoSagaLockService;
+  private readonly logService: MongoOperationLogService;
+  private readonly instanceService: InstanceService;
+  private readonly cacheService?: CacheService;
 
-  constructor(
-    @Inject(forwardRef(() => MongoService))
-    private readonly mongoService: MongoService,
-    private readonly lockService: MongoSagaLockService,
-    private readonly logService: MongoOperationLogService,
-    private readonly instanceService: InstanceService,
-    @Optional() private readonly cacheService?: CacheService,
-  ) {}
+  constructor(deps: {
+    mongoService: MongoService;
+    lockService: MongoSagaLockService;
+    logService: MongoOperationLogService;
+    instanceService: InstanceService;
+    cacheService?: CacheService;
+  }) {
+    this.mongoService = deps.mongoService;
+    this.lockService = deps.lockService;
+    this.logService = deps.logService;
+    this.instanceService = deps.instanceService;
+    this.cacheService = deps.cacheService;
+  }
 
-  async onModuleInit(): Promise<void> {
+  async onInit(): Promise<void> {
     try {
       this.mongoService.getDb();
     } catch {
@@ -128,7 +81,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
     this.startPeriodicCleanup(60_000);
   }
 
-  onModuleDestroy(): void {
+  onDestroy(): void {
     this.stopPeriodicCleanup();
   }
 
@@ -333,7 +286,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
   }
 
   async execute<T>(
-    callback: (tx: MongoSagaSession) => Promise<T>,
+    callback: (tx: any) => Promise<T>,
     options?: ISagaOptions,
   ): Promise<ISagaResult<T>> {
     const existingContext = this.getCurrentContext();
@@ -365,6 +318,7 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
         },
       };
 
+      const { MongoSagaSession } = require('./mongo-saga-session') as any;
       const session = new MongoSagaSession(
         txId,
         this.lockService,
@@ -552,6 +506,4 @@ export class MongoSagaCoordinator implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-export { MongoSagaSession } from './mongo-saga-session';
-export { SagaPlan } from './mongo-saga-plan';
-export type { IPlanExecuteResult } from './mongo-saga-plan';
+export type { ISagaContext, ISagaOptions, ISagaResult, ISagaRecoveryMetrics } from './mongo-saga.types';

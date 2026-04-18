@@ -1,11 +1,14 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  BadRequestException,
+  ForbiddenException,
+} from '../../../core/exceptions/custom-exceptions';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
 import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
 import { PolicyService } from '../../../core/policy/policy.service';
 import { isPolicyDeny } from '../../../core/policy/policy.types';
-import { TableValidationService } from '../services/table-validation.service';
+import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
@@ -25,10 +28,10 @@ export class DynamicRepository {
   public context: TDynamicContext;
   private tableName: string;
   private queryEngine: QueryEngine;
-  private queryBuilder: QueryBuilderService;
+  private queryBuilderService: QueryBuilderService;
   private tableHandlerService: TableHandlerService;
   private policyService: PolicyService;
-  private tableValidationService: TableValidationService;
+  private tableValidationService: DynamicApiTableValidationService;
   private metadataCacheService: MetadataCacheService;
   private settingCacheService: SettingCacheService;
   private eventEmitter: EventEmitter2;
@@ -40,7 +43,7 @@ export class DynamicRepository {
     context,
     tableName,
     queryEngine,
-    queryBuilder,
+    queryBuilderService,
     tableHandlerService,
     policyService,
     tableValidationService,
@@ -53,10 +56,10 @@ export class DynamicRepository {
     context: TDynamicContext;
     tableName: string;
     queryEngine: QueryEngine;
-    queryBuilder: QueryBuilderService;
+    queryBuilderService: QueryBuilderService;
     tableHandlerService: TableHandlerService;
     policyService: PolicyService;
-    tableValidationService: TableValidationService;
+    tableValidationService: DynamicApiTableValidationService;
     metadataCacheService: MetadataCacheService;
     settingCacheService: SettingCacheService;
     eventEmitter: EventEmitter2;
@@ -66,7 +69,7 @@ export class DynamicRepository {
     this.context = context;
     this.tableName = tableName;
     this.queryEngine = queryEngine;
-    this.queryBuilder = queryBuilder;
+    this.queryBuilderService = queryBuilderService;
     this.tableHandlerService = tableHandlerService;
     this.policyService = policyService;
     this.tableValidationService = tableValidationService;
@@ -92,7 +95,7 @@ export class DynamicRepository {
   }
 
   private getIdField(): string {
-    return this.queryBuilder.getPkField();
+    return this.queryBuilderService.getPkField();
   }
 
   private getItemId(item: any): any {
@@ -599,9 +602,9 @@ export class DynamicRepository {
         delete body._id;
       }
       const inserted = await this.wrapWithFieldPermissionCheck(() =>
-        this.queryBuilder.runWithPolicy(
+        this.queryBuilderService.runWithPolicy(
           (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-          () => this.queryBuilder.insert(this.tableName, body),
+          () => this.queryBuilderService.insert(this.tableName, body),
         ),
       );
       const createdId = inserted.id || inserted._id || body.id;
@@ -772,9 +775,9 @@ export class DynamicRepository {
         });
       }
       await this.wrapWithFieldPermissionCheck(() =>
-        this.queryBuilder.runWithPolicy(
+        this.queryBuilderService.runWithPolicy(
           (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-          () => this.queryBuilder.update(this.tableName, id, body),
+          () => this.queryBuilderService.update(this.tableName, id, body),
         ),
       );
       const result = await this.find({
@@ -827,9 +830,95 @@ export class DynamicRepository {
         });
         return { message: 'Success', statusCode: 200 };
       }
-      await this.queryBuilder.runWithPolicy(
+      if (this.tableName === 'relation_definition') {
+        const relRow: any = await this.queryBuilderService.findOne({
+          table: 'relation_definition',
+          where: { id },
+          fields: [
+            '*',
+            'sourceTable.id',
+            'sourceTable.name',
+          ],
+        });
+        const sourceTableId = relRow?.sourceTable?.id;
+        if (!sourceTableId) {
+          throw new BadRequestException(
+            `relation_definition ${id}: sourceTable not found`,
+          );
+        }
+        const tableRow: any = await this.queryBuilderService.findOne({
+          table: 'table_definition',
+          where: { id: sourceTableId },
+          fields: [
+            '*',
+            'columns.*',
+            'relations.*',
+            'relations.sourceTable.id',
+            'relations.sourceTable.name',
+            'relations.targetTable.id',
+            'relations.targetTable.name',
+          ],
+        });
+        if (!tableRow) {
+          throw new BadRequestException(
+            `relation_definition ${id}: source table_definition ${sourceTableId} not found`,
+          );
+        }
+        const remainingRelations = (tableRow.relations || []).filter(
+          (r: any) => String(r.id) !== String(id),
+        );
+        const updateBody: any = {
+          name: tableRow.name,
+          columns: (tableRow.columns || []).map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            isPrimary: !!c.isPrimary,
+            isGenerated: !!c.isGenerated,
+            isNullable: !!c.isNullable,
+            isSystem: !!c.isSystem,
+            isUpdatable: c.isUpdatable ?? true,
+            isPublished: c.isPublished ?? true,
+            defaultValue: c.defaultValue,
+          })),
+          relations: remainingRelations.map((r: any) => ({
+            id: r.id,
+            propertyName: r.propertyName,
+            type: r.type,
+            isNullable: !!r.isNullable,
+            onDelete: r.onDelete,
+            mappedBy: r.mappedBy,
+            targetTable: r.targetTable?.id,
+          })),
+        };
+        const innerContext: any = {
+          ...this.context,
+          $query: { ...(this.context?.$query || {}) },
+        };
+        const previewResult: any = await this.tableHandlerService.updateTable(
+          sourceTableId,
+          updateBody,
+          innerContext,
+        );
+        if (previewResult?._preview) {
+          const confirmHash =
+            previewResult.requiredConfirmHash ||
+            previewResult.schemaConfirmHash;
+          if (confirmHash) {
+            innerContext.$query.schemaConfirmHash = confirmHash;
+            await this.tableHandlerService.updateTable(
+              sourceTableId,
+              updateBody,
+              innerContext,
+            );
+          }
+        }
+        await this.reload({ ids: [sourceTableId] });
+        return { message: 'Success', statusCode: 200 };
+      }
+      await this.queryBuilderService.runWithPolicy(
         (tbl, op, d) => this.cascadePolicyCheck(tbl, op, d),
-        () => this.queryBuilder.delete(this.tableName, id),
+        () => this.queryBuilderService.delete(this.tableName, id),
       );
       await this.reload({ ids: [id] });
       return { message: 'Delete successfully!', statusCode: 200 };
@@ -960,7 +1049,7 @@ export class DynamicRepository {
     ) {
       return callback();
     }
-    return this.queryBuilder.runWithFieldPermissionCheck(
+    return this.queryBuilderService.runWithFieldPermissionCheck(
       (tbl, action, d) => this.cascadeFieldPermissionCheck(tbl, action, d),
       callback,
     );

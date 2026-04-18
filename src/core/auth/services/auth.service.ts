@@ -1,28 +1,27 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Request } from 'express';
 import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
-
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-
+import { BadRequestException } from '../../../shared/errors';
+import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-
-import { LoginAuthDto } from '../dto/login-auth.dto';
-import { LogoutAuthDto } from '../dto/logout-auth.dto';
-import { RefreshTokenAuthDto } from '../dto/refresh-token-auth.dto';
 import { BcryptService } from './bcrypt.service';
+import { EnvService } from '../../../shared/services/env.service';
 
-@Injectable()
 export class AuthService {
-  constructor(
-    private bcryptService: BcryptService,
-    private configService: ConfigService,
-    private jwtService: JwtService,
-    private queryBuilder: QueryBuilderService,
-  ) {}
+  private bcryptService: BcryptService;
+  private queryBuilder: QueryBuilderService;
+  private envService: EnvService;
+
+  constructor(deps: {
+    bcryptService: BcryptService;
+    queryBuilderService: QueryBuilderService;
+    envService: EnvService;
+  }) {
+    this.bcryptService = deps.bcryptService;
+    this.queryBuilder = deps.queryBuilderService;
+    this.envService = deps.envService;
+  }
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
@@ -30,13 +29,13 @@ export class AuthService {
 
   private calculateExpiredAt(remember: boolean): Date {
     const expiryConfig = remember
-      ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
-      : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP');
+      ? this.envService.get('REFRESH_TOKEN_REMEMBER_EXP')
+      : this.envService.get('REFRESH_TOKEN_NO_REMEMBER_EXP');
     const expiryMs = ms(expiryConfig as StringValue);
     return new Date(Date.now() + expiryMs);
   }
 
-  async login(body: LoginAuthDto) {
+  async login(body: any) {
     const { email, password } = body;
 
     const user = await this.queryBuilder.findOne({
@@ -86,28 +85,26 @@ export class AuthService {
       ? insertedSession._id?.toString() || insertedSession.id
       : insertedSession.id || sessionData.id;
 
-    const accessToken = this.jwtService.sign(
+    const accessToken = jwt.sign(
       {
         id: DatabaseConfigService.getRecordId(user),
         loginProvider: null,
       },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          'ACCESS_TOKEN_EXP',
-        ) as StringValue,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
-    const refreshToken = this.jwtService.sign(
+    const refreshToken = jwt.sign(
       {
         sessionId: sessionId,
         jti: randomUUID(),
       },
+      this.envService.get('SECRET_KEY'),
       {
         expiresIn: (body.remember
-          ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
-          : this.configService.get<string>(
-              'REFRESH_TOKEN_NO_REMEMBER_EXP',
-            )) as StringValue,
+          ? this.envService.get('REFRESH_TOKEN_REMEMBER_EXP')
+          : this.envService.get('REFRESH_TOKEN_NO_REMEMBER_EXP')) as StringValue,
       },
     );
 
@@ -115,7 +112,7 @@ export class AuthService {
       refreshTokenHash: this.hashToken(refreshToken),
     });
 
-    const decoded: any = this.jwtService.decode(accessToken);
+    const decoded: any = jwt.decode(accessToken);
     return {
       accessToken,
       refreshToken,
@@ -124,10 +121,10 @@ export class AuthService {
     };
   }
 
-  async logout(body: LogoutAuthDto, req: Request & { user: any }) {
+  async logout(body: any, req: any) {
     let decoded: any;
     try {
-      decoded = this.jwtService.verify(body.refreshToken);
+      decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
@@ -162,10 +159,10 @@ export class AuthService {
     return 'Logout successfully!';
   }
 
-  async refreshToken(body: RefreshTokenAuthDto) {
+  async refreshToken(body: any) {
     let decoded: any;
     try {
-      decoded = this.jwtService.verify(body.refreshToken);
+      decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
@@ -204,27 +201,25 @@ export class AuthService {
 
     const loginProvider = session.loginProvider ?? null;
 
-    const accessToken = this.jwtService.sign(
+    const accessToken = jwt.sign(
       {
         id: userId,
         loginProvider,
       },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          'ACCESS_TOKEN_EXP',
-        ) as StringValue,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
 
     const refreshTokenExp = remember
       ? 'REFRESH_TOKEN_REMEMBER_EXP'
       : 'REFRESH_TOKEN_NO_REMEMBER_EXP';
-    const refreshToken = this.jwtService.sign(
+    const refreshToken = jwt.sign(
       { sessionId: sessionId, jti: randomUUID() },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          refreshTokenExp,
-        ) as StringValue,
+        expiresIn: this.envService.get(refreshTokenExp as any) as StringValue,
       },
     );
 
@@ -274,7 +269,7 @@ export class AuthService {
       }
     }
 
-    const accessTokenDecoded = await this.jwtService.decode(accessToken);
+    const accessTokenDecoded = jwt.decode(accessToken);
     return {
       accessToken,
       refreshToken,

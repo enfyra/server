@@ -1,21 +1,17 @@
-import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class MenuDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
-  /**
-   * Process menu definitions for SQL databases.
-   * Only creates new records, skips existing ones without updating.
-   * This preserves user modifications to menus.
-   */
   async processSql(
     records: any[],
     knex: Knex,
@@ -28,7 +24,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     const dropdownMenus = records.filter((r) => r.type === 'Dropdown Menu');
     const menuItems = records.filter((r) => r.type === 'Menu');
 
-    // Phase 1: Process Dropdown Menus in order (no parent first, then with parent)
     const dropdownsWithoutParent = dropdownMenus.filter((r) => !r.parent);
     const dropdownsWithParent = dropdownMenus.filter((r) => r.parent);
 
@@ -76,7 +71,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       }
     }
 
-    // Phase 2: Transform and insert Menu items (now parent Dropdown Menus exist in DB)
     const transformedMenuItems = await this.transformRecords(menuItems, {
       ...context,
       knex,
@@ -126,7 +120,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
 
     if (existingRecord) {
-      // Skip existing record - do NOT update to preserve user modifications
       this.logger.log(
         `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
       );
@@ -140,7 +133,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       return { created: false, skipped: true };
     }
 
-    // Create new record
     const cleanedRecord = this.cleanRecordForKnex(record);
     const dbType = context?.dbType;
     let insertedId: any;
@@ -158,11 +150,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return { created: true, skipped: false };
   }
 
-  /**
-   * Process menu definitions for MongoDB.
-   * Only creates new records, skips existing ones without updating.
-   * This preserves user modifications to menus.
-   */
   async processMongo(
     records: any[],
     db: any,
@@ -179,7 +166,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     const dropdownMenus = records.filter((r) => r.type === 'Dropdown Menu');
     const menuItems = records.filter((r) => r.type === 'Menu');
 
-    // Phase 1: Process Dropdown Menus in order (no parent first, then with parent)
     const dropdownsWithoutParent = dropdownMenus.filter((r) => !r.parent);
     const dropdownsWithParent = dropdownMenus.filter((r) => r.parent);
 
@@ -227,7 +213,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       }
     }
 
-    // Phase 2: Transform and insert Menu items (now parent Dropdown Menus exist in DB)
     const transformedMenuItems = await this.transformRecords(
       menuItems,
       context,
@@ -279,7 +264,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     }
 
     if (existingRecord) {
-      // Skip existing record - do NOT update to preserve user modifications
       this.logger.log(
         `   Skipped (existing): ${this.getRecordIdentifier(record)}`,
       );
@@ -293,7 +277,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       return { created: false, skipped: true };
     }
 
-    // Create new record
     const cleanedRecord = this.cleanRecordForMongo(record);
     const result = await db.collection(collectionName).insertOne(cleanedRecord);
     this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
@@ -405,7 +388,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
       }
       if (transformed.parent && typeof transformed.parent === 'string') {
         const parentLabel = transformed.parent;
-        const parent = await this.queryBuilder.findOne({
+        const parent = await this.queryBuilderService.findOne({
           table: 'menu_definition',
           where: { type: 'Dropdown Menu', label: parentLabel },
         });

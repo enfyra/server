@@ -1,13 +1,13 @@
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
-} from '../../../src/infrastructure/knex/utils/sql-schema-naming.util';
+} from '../sql-schema-naming.util';
 import {
   ColumnDef,
   TableDef,
   JunctionTableDef,
   KnexTableSchema,
-} from '../../../src/shared/types/database-init.types';
+} from '../../../../shared/types/database-init.types';
 
 export function parseSnapshotToSchema(snapshot: Record<string, any>): KnexTableSchema[] {
   const schemas: KnexTableSchema[] = [];

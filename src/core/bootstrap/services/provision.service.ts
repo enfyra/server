@@ -1,60 +1,42 @@
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnModuleInit,
-  forwardRef,
-} from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { RouteDefinitionProcessor } from '../processors/route-definition.processor';
 import { CommonService } from '../../../shared/common/services/common.service';
-import { DataProvisionService } from './data-provision.service';
-import { MetadataProvisionService } from './metadata-provision.service';
-import { DataMigrationService } from './data-migration.service';
-import { MetadataMigrationService } from './metadata-migration.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { CacheService } from '../../../infrastructure/cache/services/cache.service';
-import { InstanceService } from '../../../shared/services/instance.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { MigrationJournalService } from '../../../infrastructure/knex/services/migration-journal.service';
 import { MongoMigrationJournalService } from '../../../infrastructure/mongo/services/mongo-migration-journal.service';
 import { MongoSchemaMigrationService } from '../../../infrastructure/mongo/services/mongo-schema-migration.service';
-import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 
-@Injectable()
-export class ProvisionService implements OnModuleInit {
+export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);
+  private readonly commonService: CommonService;
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
+  private readonly migrationJournalService: MigrationJournalService;
+  private readonly mongoMigrationJournalService: MongoMigrationJournalService;
+  private readonly mongoSchemaMigrationService: MongoSchemaMigrationService;
 
-  constructor(
-    private readonly commonService: CommonService,
-    private readonly dataProvisionService: DataProvisionService,
-    private readonly metadataProvisionService: MetadataProvisionService,
-    private readonly dataMigrationService: DataMigrationService,
-    private readonly metadataMigrationService: MetadataMigrationService,
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly cacheService: CacheService,
-    private readonly instanceService: InstanceService,
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCacheService: MetadataCacheService,
-    @Inject(forwardRef(() => RouteDefinitionProcessor))
-    private readonly routeDefinitionProcessor: RouteDefinitionProcessor,
-    @Inject(forwardRef(() => MigrationJournalService))
-    private readonly migrationJournalService: MigrationJournalService,
-    @Inject(forwardRef(() => MongoMigrationJournalService))
-    private readonly mongoJournalService: MongoMigrationJournalService,
-    @Inject(forwardRef(() => MongoSchemaMigrationService))
-    private readonly mongoSchemaMigrationService: MongoSchemaMigrationService,
-  ) {}
+  constructor(deps: {
+    commonService: CommonService;
+    queryBuilderService: QueryBuilderService;
+    routeDefinitionProcessor: RouteDefinitionProcessor;
+    migrationJournalService: MigrationJournalService;
+    mongoMigrationJournalService: MongoMigrationJournalService;
+    mongoSchemaMigrationService: MongoSchemaMigrationService;
+  }) {
+    this.commonService = deps.commonService;
+    this.queryBuilderService = deps.queryBuilderService;
+    this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
+    this.migrationJournalService = deps.migrationJournalService;
+    this.mongoMigrationJournalService = deps.mongoMigrationJournalService;
+    this.mongoSchemaMigrationService = deps.mongoSchemaMigrationService;
+  }
 
-  private async waitForDatabaseConnection(
-    maxRetries = 10,
-    delayMs = 1000,
-  ): Promise<void> {
+  async waitForDatabase(maxRetries = 10, delayMs = 1000): Promise<void> {
     for (let i = 0; i < maxRetries; i++) {
       try {
-        await this.queryBuilder.raw('SELECT 1');
+        await this.queryBuilderService.raw('SELECT 1');
         return;
-      } catch (error) {
+      } catch {
         this.logger.warn(
           `Unable to connect to DB, retrying after ${delayMs}ms...`,
         );
@@ -64,193 +46,60 @@ export class ProvisionService implements OnModuleInit {
     throw new Error(`Unable to connect to DB after ${maxRetries} attempts.`);
   }
 
-  async onModuleInit() {
-    const start = Date.now();
-    try {
-      await this.waitForDatabaseConnection();
-    } catch (err) {
-      this.logger.error('Error during application provision:', err);
-      return;
-    }
-
-    try {
-      await this.routeDefinitionProcessor.ensureMissingHandlers();
-    } catch (error) {
-      this.logger.error(`Error ensuring route handlers: ${error.message}`);
-    }
-
-    // Recover any pending/running migrations from previous crash
-    if (!this.queryBuilder.isMongoDb()) {
+  async recoverJournals(): Promise<void> {
+    if (!this.queryBuilderService.isMongoDb()) {
       try {
         await this.migrationJournalService.recoverPending();
       } catch (error) {
         this.logger.warn(
-          `SQL migration journal recovery failed (non-fatal): ${error.message}`,
+          `SQL migration journal recovery failed (non-fatal): ${(error as Error).message}`,
         );
       }
       try {
         await this.migrationJournalService.cleanup();
       } catch (error) {
         this.logger.warn(
-          `SQL journal cleanup failed (non-fatal): ${error.message}`,
+          `SQL journal cleanup failed (non-fatal): ${(error as Error).message}`,
         );
       }
-    } else {
-      try {
-        await this.mongoJournalService.recoverPending(
-          (diff) =>
-            this.mongoSchemaMigrationService['executeMongoSchemaDiff'](
-              diff.tableName || 'unknown',
-              diff,
-              null,
-              null,
-            ),
-          (entry) =>
-            this.mongoSchemaMigrationService.restoreMetadataFromRawSnapshot(
-              entry,
-            ),
-        );
-      } catch (error) {
-        this.logger.warn(
-          `Mongo migration journal recovery failed (non-fatal): ${error.message}`,
-        );
-      }
-      try {
-        await this.mongoJournalService.cleanup();
-      } catch (error) {
-        this.logger.warn(
-          `Mongo journal cleanup failed (non-fatal): ${error.message}`,
-        );
-      }
+      return;
     }
 
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const sortField = DatabaseConfigService.getPkField();
-    const settingsResult = await this.queryBuilder.find({
-      table: 'setting_definition',
-      sort: [sortField],
-      limit: 1,
-    });
-    const setting = settingsResult.data[0] || null;
-
-    if (!setting || !setting.isInit) {
-      const lockValue = this.instanceService.getInstanceId();
-      const lockAcquired = await this.cacheService.acquire(
-        PROVISION_LOCK_KEY,
-        lockValue,
-        REDIS_TTL.PROVISION_LOCK_TTL,
+    try {
+      await this.mongoMigrationJournalService.recoverPending(
+        (diff) =>
+          (this.mongoSchemaMigrationService as any)['executeMongoSchemaDiff'](
+            diff.tableName || 'unknown',
+            diff,
+            null,
+            null,
+          ),
+        (entry) =>
+          this.mongoSchemaMigrationService.restoreMetadataFromRawSnapshot(
+            entry,
+          ),
       );
-
-      if (!lockAcquired) {
-        this.logger.log('Another instance is initializing, waiting...');
-        await this.waitForInitComplete(sortField);
-        this.logger.log(`Waited for init, ready in ${Date.now() - start}ms`);
-        return;
-      }
-
-      try {
-        const recheckResult = await this.queryBuilder.find({
-          table: 'setting_definition',
-          sort: [sortField],
-          limit: 1,
-        });
-        const recheckSetting = recheckResult.data[0] || null;
-        if (recheckSetting?.isInit) {
-          this.logger.log(
-            `Already initialized, ready in ${Date.now() - start}ms`,
-          );
-          return;
-        }
-
-        this.logger.log('First time initialization...');
-
-        const t1 = Date.now();
-        await this.metadataProvisionService.createInitMetadata();
-        this.logger.log(`createInitMetadata: ${Date.now() - t1}ms`);
-
-        if (this.metadataMigrationService.hasMigrations()) {
-          const t2 = Date.now();
-          this.logger.log('Running metadata migrations...');
-          await this.metadataMigrationService.runMigrations();
-          this.logger.log(`Metadata migrations: ${Date.now() - t2}ms`);
-        }
-
-        const t3 = Date.now();
-        await this.metadataCacheService.getMetadata();
-        this.logger.log(`Metadata cache warmed: ${Date.now() - t3}ms`);
-
-        const t4 = Date.now();
-        await this.dataProvisionService.insertAllDefaultRecords();
-        this.logger.log(`Default records: ${Date.now() - t4}ms`);
-
-        if (this.routeDefinitionProcessor) {
-          this.logger.log('Ensuring missing route handlers after init...');
-          try {
-            await this.routeDefinitionProcessor.ensureMissingHandlers();
-          } catch (error) {
-            this.logger.error(
-              `Error ensuring route handlers: ${error.message}`,
-            );
-          }
-        }
-
-        if (this.dataMigrationService.hasMigrations()) {
-          const t5 = Date.now();
-          this.logger.log('Running data migrations...');
-          await this.dataMigrationService.runMigrations();
-          this.logger.log(`Data migrations: ${Date.now() - t5}ms`);
-        }
-
-        const settings2Result = await this.queryBuilder.find({
-          table: 'setting_definition',
-          sort: [sortField],
-          limit: 1,
-        });
-        const newSetting = settings2Result.data[0] || null;
-
-        if (!newSetting) {
-          this.logger.error('Setting record not found after initialization');
-          throw new Error(
-            'Setting record not found. DataProvisionService may have failed.',
-          );
-        }
-
-        const settingId = newSetting._id || newSetting.id;
-        const idField = DatabaseConfigService.getPkField();
-        await this.queryBuilder.update(
-          'setting_definition',
-          { where: [{ field: idField, operator: '=', value: settingId }] },
-          { isInit: true },
-        );
-
-        this.logger.log(`Initialization completed in ${Date.now() - start}ms`);
-      } finally {
-        await this.cacheService.release(PROVISION_LOCK_KEY, lockValue);
-      }
-    } else {
-      this.logger.log(`System ready in ${Date.now() - start}ms`);
+    } catch (error) {
+      this.logger.warn(
+        `Mongo migration journal recovery failed (non-fatal): ${(error as Error).message}`,
+      );
+    }
+    try {
+      await this.mongoMigrationJournalService.cleanup();
+    } catch (error) {
+      this.logger.warn(
+        `Mongo journal cleanup failed (non-fatal): ${(error as Error).message}`,
+      );
     }
   }
 
-  private async waitForInitComplete(
-    sortField: string,
-    maxWaitMs = 120000,
-  ): Promise<void> {
-    const interval = 2000;
-    const maxAttempts = Math.ceil(maxWaitMs / interval);
-    for (let i = 0; i < maxAttempts; i++) {
-      await this.commonService.delay(interval);
-      try {
-        const result = await this.queryBuilder.find({
-          table: 'setting_definition',
-          sort: [sortField],
-          limit: 1,
-        });
-        if (result.data[0]?.isInit) return;
-      } catch {}
+  async ensureRouteHandlers(): Promise<void> {
+    try {
+      await this.routeDefinitionProcessor.ensureMissingHandlers();
+    } catch (error) {
+      this.logger.error(
+        `Error ensuring route handlers: ${(error as Error).message}`,
+      );
     }
-    this.logger.warn(
-      'Timed out waiting for init by another instance, proceeding...',
-    );
   }
 }

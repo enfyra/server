@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
@@ -26,17 +25,19 @@ interface FolderTreeCache {
   tree: FolderNode[];
 }
 
-@Injectable()
 export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(FOLDER_TREE_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter?: EventEmitter2;
+  }) {
+    super(FOLDER_TREE_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   protected async loadFromDb(): Promise<FolderNode[]> {
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'folder_definition',
       fields: ['id', 'name', 'slug', 'order', 'icon', 'description', 'parent'],
       sort: ['order'],
@@ -102,8 +103,6 @@ export class FolderTreeCacheService extends BaseCacheService<FolderTreeCache> {
   protected getLogCount(): string {
     return `${this.cache.folders.size} folders`;
   }
-
-  // --- Public methods ---
 
   async getTree(): Promise<FolderNode[]> {
     await this.ensureLoaded();

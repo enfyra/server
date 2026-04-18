@@ -1,15 +1,20 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 
-@Injectable()
 export class MongoSchemaDiffService {
   private readonly logger = new Logger(MongoSchemaDiffService.name);
 
-  constructor(
-    private readonly mongoService: MongoService,
-    private readonly queryBuilderService: QueryBuilderService,
-  ) {}
+  private readonly mongoService: MongoService;
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    mongoService: MongoService;
+    queryBuilderService: QueryBuilderService;
+  }) {
+    this.mongoService = deps.mongoService;
+    this.queryBuilderService = deps.queryBuilderService;
+  }
 
   private sqlTypeToBsonType(type: string): any {
     const typeMap: Record<string, any> = {

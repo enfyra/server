@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -6,12 +5,17 @@ import {
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 
-@Injectable()
 export class SqlQueryEngine {
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private loggingService: LoggingService,
-  ) {}
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly loggingService: LoggingService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    loggingService: LoggingService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.loggingService = deps.loggingService;
+  }
 
   async find(options: {
     table: string;
@@ -28,7 +32,7 @@ export class SqlQueryEngine {
     try {
       const fields = options.fields || '*';
 
-      const result = await this.queryBuilder.find({
+      const result = await this.queryBuilderService.find({
         table: options.table,
         fields: fields,
         filter: options.filter,

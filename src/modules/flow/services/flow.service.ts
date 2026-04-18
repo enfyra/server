@@ -1,5 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
+import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { FlowJobData } from '../../../shared/types/flow.types';
@@ -8,19 +7,25 @@ import { RepoRegistryService } from '../../../infrastructure/cache/services/repo
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
-@Injectable()
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
+  private readonly flowQueue: Queue;
+  private readonly flowCacheService: FlowCacheService;
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly repoRegistryService: RepoRegistryService;
 
-  constructor(
-    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
-    private readonly flowQueue: Queue,
-    private readonly flowCacheService: FlowCacheService,
-    private readonly handlerExecutor: ExecutorEngineService,
-    private readonly repoRegistryService: RepoRegistryService,
-  ) {}
+  constructor(deps: {
+    flowQueue: Queue;
+    flowCacheService: FlowCacheService;
+    executorEngineService: ExecutorEngineService;
+    repoRegistryService: RepoRegistryService;
+  }) {
+    this.flowQueue = deps.flowQueue;
+    this.flowCacheService = deps.flowCacheService;
+    this.executorEngineService = deps.executorEngineService;
+    this.repoRegistryService = deps.repoRegistryService;
+  }
 
   async trigger(
     flowIdOrName: string | number,
@@ -137,7 +142,7 @@ export class FlowService {
           config,
           timeout,
           ctx,
-          handlerExecutor: this.handlerExecutor,
+          executorEngineService: this.executorEngineService,
           shouldTransformCode: true,
         });
       }

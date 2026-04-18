@@ -1,76 +1,61 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { transformCode } from '../../executor-engine/code-transformer';
-import {
-  CACHE_EVENTS,
-  CACHE_IDENTIFIERS,
-} from '../../../shared/utils/cache-events.constants';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const WEBSOCKET_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.WEBSOCKET,
-  colorCode: '\x1b[32m',
+  colorCode: '\x1b[34m',
   cacheName: 'WebsocketCache',
 };
 
-interface WebSocketEvent {
-  id: number | string;
-  eventName: string;
+export interface WebSocketEvent {
+  id: number;
+  name: string;
+  logic: string;
+  gatewayId: number;
   isEnabled: boolean;
-  isSystem: boolean;
-  description: string | null;
-  handlerScript: string | null;
-  timeout: number;
-  gatewayId: number | string;
 }
 
-interface WebSocketGateway {
-  id: number | string;
+export interface WebSocketGateway {
+  id: number;
   path: string;
   isEnabled: boolean;
-  isSystem: boolean;
-  description: string | null;
-  requireAuth: boolean;
-  connectionHandlerScript: string | null;
-  connectionHandlerTimeout: number;
   events: WebSocketEvent[];
 }
 
-@Injectable()
-export class WebsocketCacheService extends BaseCacheService<
-  WebSocketGateway[]
-> {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(WEBSOCKET_CONFIG, eventEmitter);
+export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter?: EventEmitter2;
+  }) {
+    super(WEBSOCKET_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   protected async loadFromDb(): Promise<WebSocketGateway[]> {
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'websocket_definition',
-      filter: { isEnabled: { _eq: true } },
       fields: ['*', 'events.*'],
+      filter: { isEnabled: { _eq: true } },
     });
 
-    return result.data.map((gateway: any) => {
-      if (gateway.connectionHandlerScript) {
-        gateway.connectionHandlerScript = transformCode(
-          gateway.connectionHandlerScript,
-        );
-      }
+    const gateways = result.data || [];
 
-      gateway.events = (gateway.events || []).filter((e: any) => e.isEnabled);
-      for (const event of gateway.events) {
-        if (event.handlerScript) {
-          event.handlerScript = transformCode(event.handlerScript);
+    for (const gateway of gateways) {
+      if (gateway.events) {
+        for (const event of gateway.events) {
+          if (event.logic && typeof event.logic === 'string') {
+            event.logic = transformCode(event.logic);
+          }
         }
       }
+    }
 
-      return gateway;
-    });
+    return gateways;
   }
 
   protected transformData(gateways: WebSocketGateway[]): WebSocketGateway[] {
@@ -82,7 +67,9 @@ export class WebsocketCacheService extends BaseCacheService<
   }
 
   protected emitLoadedEvent(): void {
-    this.eventEmitter.emit(CACHE_EVENTS.WEBSOCKET_LOADED);
+    if (this.eventEmitter) {
+      this.eventEmitter.emit(`${this.config.cacheIdentifier}_LOADED`);
+    }
   }
 
   async getGateways(): Promise<WebSocketGateway[]> {
@@ -91,21 +78,15 @@ export class WebsocketCacheService extends BaseCacheService<
   }
 
   async getGatewayByPath(path: string): Promise<WebSocketGateway | null> {
-    const gateways = await this.getGateways();
-    return gateways.find((g) => g.path === path) || null;
+    await this.ensureLoaded();
+    return this.cache.find((g) => g.path === path) || null;
   }
 
   async getEventsByGatewayId(
     gatewayId: number | string,
   ): Promise<WebSocketEvent[]> {
-    const gateways = await this.getGateways();
-    const gateway = gateways.find(
-      (g) =>
-        g.path === String(gatewayId) ||
-        String(g.id) === String(gatewayId) ||
-        String((g as any)._id) === String(gatewayId),
-    );
-    if (!gateway) return [];
-    return gateway.events || [];
+    await this.ensureLoaded();
+    const gateway = this.cache.find((g) => g.id === gatewayId);
+    return gateway?.events || [];
   }
 }

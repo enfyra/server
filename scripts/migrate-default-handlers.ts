@@ -1,7 +1,7 @@
 import * as knex from 'knex';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
-import { resolveDbTypeFromEnv } from './utils/resolve-db-type';
+import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 

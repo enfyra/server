@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '../../../../core/exceptions/custom-exceptions';
 import {
   FIELD_OPERATORS,
   ALL_SUPPORTED_OPERATORS,

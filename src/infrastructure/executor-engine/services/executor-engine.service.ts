@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import { TDynamicContext } from '../../../shared/types';
 import {
   IsolatedExecutorService,
@@ -9,11 +8,12 @@ export type { CodeBlock } from './isolated-executor.service';
 
 export const DEFAULT_TIMEOUT_MS = 30000;
 
-@Injectable()
 export class ExecutorEngineService {
-  constructor(
-    private readonly isolatedExecutorService: IsolatedExecutorService,
-  ) {}
+  private readonly isolatedExecutorService: IsolatedExecutorService;
+
+  constructor(deps: { isolatedExecutorService: IsolatedExecutorService }) {
+    this.isolatedExecutorService = deps.isolatedExecutorService;
+  }
 
   register(req: any, block: CodeBlock): void {
     if (!req.routeData.__codeBlocks) {

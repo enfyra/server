@@ -1,13 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-  forwardRef,
-  Inject,
-  Optional,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger } from '../../shared/logger';
 import { Knex, knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MetadataCacheService } from '../cache/services/metadata-cache.service';
@@ -18,14 +9,15 @@ import { parseDatabaseUri } from './utils/uri-parser';
 import { DatabaseConfigService } from '../../shared/services/database-config.service';
 import { ReplicationManager } from './services/replication-manager.service';
 import { KnexHookManagerService } from './services/knex-hook-manager.service';
+import { LifecycleAware } from '../../shared/interfaces/lifecycle-aware.interface';
 import {
   SQL_ACQUIRE_TIMEOUT_MS,
   SQL_BOOTSTRAP_POOL_MAX_TOTAL,
   SQL_BOOTSTRAP_POOL_MIN,
 } from '../../shared/utils/auto-scaling.constants';
+import { EnvService } from '../../shared/services/env.service';
 
-@Injectable()
-export class KnexService implements OnModuleInit, OnModuleDestroy {
+export class KnexService implements LifecycleAware {
   private knexInstance: Knex;
   private readonly logger = new Logger(KnexService.name);
   private columnTypesMap: Map<string, Map<string, string>> = new Map();
@@ -34,7 +26,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     Knex | Knex.Transaction
   >();
   private readonly cascadeContext = new AsyncLocalStorage<Map<string, any>>();
-  private readonly policyContext = new AsyncLocalStorage<{
+  private readonly policyServiceContext = new AsyncLocalStorage<{
     check: (
       tableName: string,
       operation: 'create' | 'update' | 'delete',
@@ -52,23 +44,40 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   private fieldStripper: FieldStripper;
   private hookManager: KnexHookManagerService;
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly databaseConfig: DatabaseConfigService,
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCacheService: MetadataCacheService,
-    private readonly hookManagerService: KnexHookManagerService,
-    @Optional()
-    @Inject(forwardRef(() => ReplicationManager))
-    private readonly replicationManager?: ReplicationManager,
-  ) {}
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly envService: EnvService;
+  private _metadataCacheService?: MetadataCacheService;
+  private readonly knexHookManagerService: KnexHookManagerService;
+  private readonly replicationManager?: ReplicationManager;
+  private _container?: any;
 
-  async onModuleInit() {
+  constructor(deps: {
+    databaseConfigService: DatabaseConfigService;
+    knexHookManagerService: KnexHookManagerService;
+    replicationManager?: ReplicationManager;
+    _container?: any;
+    envService: EnvService;
+  }) {
+    this.databaseConfigService = deps.databaseConfigService;
+    this.knexHookManagerService = deps.knexHookManagerService;
+    this.replicationManager = deps.replicationManager;
+    this._container = deps._container;
+    this.envService = deps.envService;
+  }
+
+  private get metadataCacheService(): MetadataCacheService | undefined {
+    if (!this._metadataCacheService && this._container) {
+      this._metadataCacheService = this._container.cradle?.metadataCacheService;
+    }
+    return this._metadataCacheService;
+  }
+
+  async onInit(): Promise<void> {
     const start = Date.now();
-    const DB_TYPE = this.databaseConfig.getDbType();
+    const DB_TYPE = this.databaseConfigService.getDbType();
     this.dbType = DB_TYPE;
 
-    if (this.databaseConfig.isMongoDb()) {
+    if (this.databaseConfigService.isMongoDb()) {
       return;
     }
 
@@ -94,7 +103,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!this.knexInstance) {
-      const DB_URI = this.configService.get<string>('DB_URI');
+      const DB_URI = this.envService.get('DB_URI');
       let connectionConfig: {
         host: string;
         port: number;
@@ -114,18 +123,16 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
         };
       } else {
         connectionConfig = {
-          host: this.configService.get<string>('DB_HOST') || 'localhost',
-          port:
-            this.configService.get<number>('DB_PORT') ||
-            (this.databaseConfig.isPostgres() ? 5432 : 3306),
-          user: this.configService.get<string>('DB_USERNAME') || 'root',
-          password: this.configService.get<string>('DB_PASSWORD') || '',
-          database: this.configService.get<string>('DB_NAME') || 'enfyra',
+          host: 'localhost',
+          port: this.databaseConfigService.isPostgres() ? 5432 : 3306,
+          user: 'root',
+          password: '',
+          database: 'enfyra',
         };
       }
 
       this.knexInstance = knex({
-        client: this.databaseConfig.isPostgres() ? 'pg' : 'mysql2',
+        client: this.databaseConfigService.isPostgres() ? 'pg' : 'mysql2',
         connection: {
           host: connectionConfig.host,
           port: connectionConfig.port,
@@ -140,6 +147,10 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
             ) {
               return field.string();
             }
+            if (field.type === 'TINY' && field.length === 1) {
+              const val = field.string();
+              return val === null ? null : val === '1';
+            }
             return next();
           },
         },
@@ -152,15 +163,17 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    this.fieldStripper = new FieldStripper(this.metadataCacheService);
-    this.hookManager = this.hookManagerService;
+    this.fieldStripper = new FieldStripper(
+      this.metadataCacheService || (null as any),
+    );
+    this.hookManager = this.knexHookManagerService;
 
     this.hookManager.initialize(
       this.dbType,
       this.knexInstance,
       this.knexContext,
       this.cascadeContext,
-      this.policyContext,
+      this.policyServiceContext,
       this.fieldPermissionContext,
       () => this.getActiveKnex(),
       (tableName, data) => this.stripUnknownColumns(tableName, data),
@@ -179,6 +192,14 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async onDestroy(): Promise<void> {
+    this.logger.log('Destroying Knex connection...');
+    if (this.knexInstance) {
+      await this.knexInstance.destroy();
+      this.logger.log('Knex connection destroyed');
+    }
+  }
+
   private getActiveKnex(): Knex | Knex.Transaction {
     return this.knexContext.getStore() || this.knexInstance;
   }
@@ -188,7 +209,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
-    const metadata = await this.metadataCacheService.getMetadata();
+    const metadata = await this.metadataCacheService?.getMetadata();
     if (!metadata) return false;
 
     const tables =
@@ -271,14 +292,6 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     return this.fieldStripper.stripNonUpdatableFields(tableName, data);
   }
 
-  async onModuleDestroy() {
-    this.logger.log('🔌 Destroying Knex connection...');
-    if (this.knexInstance) {
-      await this.knexInstance.destroy();
-      this.logger.log('Knex connection destroyed');
-    }
-  }
-
   coordinatesPoolViaReplication(): boolean {
     return (
       !!this.replicationManager &&
@@ -318,7 +331,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   getKnex(): ExtendedKnex {
     if (!this.knexInstance) {
       throw new Error(
-        'Knex instance not initialized. Call onModuleInit first.',
+        'Knex instance not initialized. Call onInit first.',
       );
     }
 
@@ -394,17 +407,17 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getTableNames(): Promise<string[]> {
-    if (this.databaseConfig.isPostgres()) {
+    if (this.databaseConfigService.isPostgres()) {
       const result = await this.knexInstance.raw(`
-        SELECT tablename 
-        FROM pg_tables 
+        SELECT tablename
+        FROM pg_tables
         WHERE schemaname = 'public'
       `);
       return result.rows.map((row: any) => row.tablename);
     } else {
       const result = await this.knexInstance.raw(`
-        SELECT TABLE_NAME 
-        FROM information_schema.TABLES 
+        SELECT TABLE_NAME
+        FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = DATABASE()
       `);
       return result[0].map((row: any) => row.TABLE_NAME);
@@ -729,7 +742,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
     ) => Promise<void>,
     callback: () => Promise<T>,
   ): Promise<T> {
-    return this.policyContext.run({ check: policyCheck }, callback);
+    return this.policyServiceContext.run({ check: policyCheck }, callback);
   }
 
   async runWithFieldPermissionCheck<T>(
@@ -750,7 +763,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   ): Promise<any> {
     const connection = trx || this.knexContext.getStore() || this.knexInstance;
     const cascadeMap = this.cascadeContext.getStore() || new Map<string, any>();
-    const existingPolicy = this.policyContext.getStore() || null;
+    const existingPolicy = this.policyServiceContext.getStore() || null;
     const manager = new KnexEntityManager(
       connection,
       this.hookManager.getHooks(),
@@ -765,7 +778,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       );
 
     if (existingPolicy) {
-      return await this.policyContext.run(existingPolicy, run);
+      return await this.policyServiceContext.run(existingPolicy, run);
     }
     return await run();
   }
@@ -778,7 +791,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const connection = trx || this.knexContext.getStore() || this.knexInstance;
     const cascadeMap = this.cascadeContext.getStore() || new Map<string, any>();
-    const existingPolicy = this.policyContext.getStore() || null;
+    const existingPolicy = this.policyServiceContext.getStore() || null;
     const manager = new KnexEntityManager(
       connection,
       this.hookManager.getHooks(),
@@ -793,7 +806,7 @@ export class KnexService implements OnModuleInit, OnModuleDestroy {
       );
 
     if (existingPolicy) {
-      return await this.policyContext.run(existingPolicy, run);
+      return await this.policyServiceContext.run(existingPolicy, run);
     }
     return await run();
   }

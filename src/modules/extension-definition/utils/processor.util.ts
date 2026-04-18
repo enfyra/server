@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { autoAssignExtensionName } from './naming.util';
 import {
   isProbablyVueSFC,

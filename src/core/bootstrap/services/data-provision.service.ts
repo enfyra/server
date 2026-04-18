@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { BcryptService } from '../../auth/services/bcrypt.service';
@@ -33,57 +33,98 @@ const initJson = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),
 );
 
-@Injectable()
 export class DataProvisionService {
   private readonly logger = new Logger(DataProvisionService.name);
   private readonly processors = new Map<string, BaseTableProcessor>();
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly bcryptService: BcryptService;
+  private readonly userDefinitionProcessor: UserDefinitionProcessor;
+  private readonly menuDefinitionProcessor: MenuDefinitionProcessor;
+  private readonly routeDefinitionProcessor: RouteDefinitionProcessor;
+  private readonly routeHandlerDefinitionProcessor: RouteHandlerDefinitionProcessor;
+  private readonly methodDefinitionProcessor: MethodDefinitionProcessor;
+  private readonly preHookDefinitionProcessor: PreHookDefinitionProcessor;
+  private readonly postHookDefinitionProcessor: PostHookDefinitionProcessor;
+  private readonly settingDefinitionProcessor: SettingDefinitionProcessor;
+  private readonly extensionDefinitionProcessor: ExtensionDefinitionProcessor;
+  private readonly folderDefinitionProcessor: FolderDefinitionProcessor;
+  private readonly bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
+  private readonly routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
+  private readonly websocketDefinitionProcessor: WebsocketDefinitionProcessor;
+  private readonly websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;
+  private readonly flowDefinitionProcessor: FlowDefinitionProcessor;
+  private readonly flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
+  private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
+  private readonly graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
   private readonly dbType: string;
 
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly databaseConfig: DatabaseConfigService,
-    private readonly bcryptService: BcryptService,
-    private readonly userProcessor: UserDefinitionProcessor,
-    private readonly menuProcessor: MenuDefinitionProcessor,
-    private readonly routeProcessor: RouteDefinitionProcessor,
-    private readonly routeHandlerProcessor: RouteHandlerDefinitionProcessor,
-    private readonly methodProcessor: MethodDefinitionProcessor,
-    private readonly preHookProcessor: PreHookDefinitionProcessor,
-    private readonly postHookProcessor: PostHookDefinitionProcessor,
-    private readonly settingProcessor: SettingDefinitionProcessor,
-    private readonly extensionProcessor: ExtensionDefinitionProcessor,
-    private readonly folderProcessor: FolderDefinitionProcessor,
-    private readonly bootstrapScriptProcessor: BootstrapScriptDefinitionProcessor,
-    private readonly routePermissionProcessor: RoutePermissionDefinitionProcessor,
-    private readonly websocketDefinitionProcessor: WebsocketDefinitionProcessor,
-    private readonly websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor,
-    private readonly flowDefinitionProcessor: FlowDefinitionProcessor,
-    private readonly flowStepDefinitionProcessor: FlowStepDefinitionProcessor,
-    private readonly flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor,
-    private readonly graphqlDefinitionProcessor: GraphQLDefinitionProcessor,
-  ) {
-    this.dbType = this.databaseConfig.getDbType();
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    databaseConfigService: DatabaseConfigService;
+    bcryptService: BcryptService;
+    userDefinitionProcessor: UserDefinitionProcessor;
+    menuDefinitionProcessor: MenuDefinitionProcessor;
+    routeDefinitionProcessor: RouteDefinitionProcessor;
+    routeHandlerDefinitionProcessor: RouteHandlerDefinitionProcessor;
+    methodDefinitionProcessor: MethodDefinitionProcessor;
+    preHookDefinitionProcessor: PreHookDefinitionProcessor;
+    postHookDefinitionProcessor: PostHookDefinitionProcessor;
+    settingDefinitionProcessor: SettingDefinitionProcessor;
+    extensionDefinitionProcessor: ExtensionDefinitionProcessor;
+    folderDefinitionProcessor: FolderDefinitionProcessor;
+    bootstrapScriptDefinitionProcessor: BootstrapScriptDefinitionProcessor;
+    routePermissionDefinitionProcessor: RoutePermissionDefinitionProcessor;
+    websocketDefinitionProcessor: WebsocketDefinitionProcessor;
+    websocketEventDefinitionProcessor: WebsocketEventDefinitionProcessor;
+    flowDefinitionProcessor: FlowDefinitionProcessor;
+    flowStepDefinitionProcessor: FlowStepDefinitionProcessor;
+    flowExecutionDefinitionProcessor: FlowExecutionDefinitionProcessor;
+    graphqlDefinitionProcessor: GraphQLDefinitionProcessor;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.bcryptService = deps.bcryptService;
+    this.userDefinitionProcessor = deps.userDefinitionProcessor;
+    this.menuDefinitionProcessor = deps.menuDefinitionProcessor;
+    this.routeDefinitionProcessor = deps.routeDefinitionProcessor;
+    this.routeHandlerDefinitionProcessor = deps.routeHandlerDefinitionProcessor;
+    this.methodDefinitionProcessor = deps.methodDefinitionProcessor;
+    this.preHookDefinitionProcessor = deps.preHookDefinitionProcessor;
+    this.postHookDefinitionProcessor = deps.postHookDefinitionProcessor;
+    this.settingDefinitionProcessor = deps.settingDefinitionProcessor;
+    this.extensionDefinitionProcessor = deps.extensionDefinitionProcessor;
+    this.folderDefinitionProcessor = deps.folderDefinitionProcessor;
+    this.bootstrapScriptDefinitionProcessor = deps.bootstrapScriptDefinitionProcessor;
+    this.routePermissionDefinitionProcessor = deps.routePermissionDefinitionProcessor;
+    this.websocketDefinitionProcessor = deps.websocketDefinitionProcessor;
+    this.websocketEventDefinitionProcessor = deps.websocketEventDefinitionProcessor;
+    this.flowDefinitionProcessor = deps.flowDefinitionProcessor;
+    this.flowStepDefinitionProcessor = deps.flowStepDefinitionProcessor;
+    this.flowExecutionDefinitionProcessor = deps.flowExecutionDefinitionProcessor;
+    this.graphqlDefinitionProcessor = deps.graphqlDefinitionProcessor;
+    this.dbType = this.databaseConfigService.getDbType();
     this.initializeProcessors();
   }
 
   private initializeProcessors(): void {
-    this.processors.set('user_definition', this.userProcessor);
-    this.processors.set('menu_definition', this.menuProcessor);
-    this.processors.set('route_definition', this.routeProcessor);
-    this.processors.set('route_handler_definition', this.routeHandlerProcessor);
-    this.processors.set('method_definition', this.methodProcessor);
-    this.processors.set('pre_hook_definition', this.preHookProcessor);
-    this.processors.set('post_hook_definition', this.postHookProcessor);
-    this.processors.set('setting_definition', this.settingProcessor);
-    this.processors.set('extension_definition', this.extensionProcessor);
-    this.processors.set('folder_definition', this.folderProcessor);
+    this.processors.set('user_definition', this.userDefinitionProcessor);
+    this.processors.set('menu_definition', this.menuDefinitionProcessor);
+    this.processors.set('route_definition', this.routeDefinitionProcessor);
+    this.processors.set('route_handler_definition', this.routeHandlerDefinitionProcessor);
+    this.processors.set('method_definition', this.methodDefinitionProcessor);
+    this.processors.set('pre_hook_definition', this.preHookDefinitionProcessor);
+    this.processors.set('post_hook_definition', this.postHookDefinitionProcessor);
+    this.processors.set('setting_definition', this.settingDefinitionProcessor);
+    this.processors.set('extension_definition', this.extensionDefinitionProcessor);
+    this.processors.set('folder_definition', this.folderDefinitionProcessor);
     this.processors.set(
       'bootstrap_script_definition',
-      this.bootstrapScriptProcessor,
+      this.bootstrapScriptDefinitionProcessor,
     );
     this.processors.set(
       'route_permission_definition',
-      this.routePermissionProcessor,
+      this.routePermissionDefinitionProcessor,
     );
     this.processors.set(
       'websocket_definition',
@@ -109,7 +150,7 @@ export class DataProvisionService {
 
     for (const tableName of allTables) {
       if (!registeredTables.includes(tableName)) {
-        this.processors.set(tableName, new GenericTableProcessor(tableName));
+        this.processors.set(tableName, new GenericTableProcessor({ tableName }));
       }
     }
   }
@@ -128,7 +169,7 @@ export class DataProvisionService {
         );
         const result = await userProcessor.processWithQueryBuilder(
           [],
-          this.queryBuilder,
+          this.queryBuilderService,
           'user_definition',
           {},
         );
@@ -163,7 +204,7 @@ export class DataProvisionService {
 
         const result = await processor.processWithQueryBuilder(
           records,
-          this.queryBuilder,
+          this.queryBuilderService,
           tableName,
           {},
         );
@@ -184,10 +225,10 @@ export class DataProvisionService {
       `Default data upsert completed! Total: ${totalCreated} created, ${totalSkipped} skipped`,
     );
 
-    if (this.routeProcessor) {
+    if (this.routeDefinitionProcessor) {
       this.logger.log('Ensuring missing route handlers...');
       try {
-        await this.routeProcessor.ensureMissingHandlers();
+        await this.routeDefinitionProcessor.ensureMissingHandlers();
       } catch (error) {
         this.logger.error(`Error ensuring route handlers: ${error.message}`);
         this.logger.debug(error);
@@ -212,7 +253,7 @@ export class DataProvisionService {
 
     return await processor.processWithQueryBuilder(
       records,
-      this.queryBuilder,
+      this.queryBuilderService,
       tableName,
       {},
     );

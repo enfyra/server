@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../src/shared/logger';
 import { CascadeHandler } from '../../src/infrastructure/knex/utils/cascade-handler';
 
 function makeLogger(): Logger {

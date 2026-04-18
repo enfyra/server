@@ -1,9 +1,8 @@
+import { Logger } from '../../../shared/logger';
 import {
-  Injectable,
-  Logger,
   BadRequestException,
   NotFoundException,
-} from '@nestjs/common';
+} from '../../../core/exceptions/custom-exceptions';
 import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
@@ -39,7 +38,6 @@ export interface LogContent {
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 1000;
 
-@Injectable()
 export class LogReaderService {
   private readonly logger = new Logger(LogReaderService.name);
   private readonly logDir: string;
@@ -48,15 +46,9 @@ export class LogReaderService {
     this.logDir = path.resolve(process.cwd(), 'logs');
   }
 
-  /**
-   * Validate that the requested file path is within the log directory.
-   * Prevents path traversal attacks (e.g., "../../../etc/passwd").
-   */
   private validateFilePath(filename: string): string {
-    // Resolve the absolute path
     const resolvedPath = path.resolve(this.logDir, filename);
 
-    // Check that the resolved path is within the log directory
     if (
       !resolvedPath.startsWith(this.logDir + path.sep) &&
       resolvedPath !== this.logDir
@@ -65,7 +57,6 @@ export class LogReaderService {
       throw new BadRequestException('Invalid file path');
     }
 
-    // Additional validation: reject path separators in filename
     if (filename.includes('..') || path.isAbsolute(filename)) {
       throw new BadRequestException('Invalid file path');
     }
@@ -144,7 +135,6 @@ export class LogReaderService {
     const logFiles: LogFile[] = [];
 
     for (const file of files) {
-      // Skip hidden files, non-log files, compressed files, and PM2 logs
       if (
         file.startsWith('.') ||
         !file.endsWith('.log') ||
@@ -189,18 +179,15 @@ export class LogReaderService {
       throw new NotFoundException(`Log file not found: ${filename}`);
     }
 
-    // Smart detection: if id starts with "req_", treat it as correlationId
     if (id && id.startsWith('req_')) {
       correlationId = id;
       id = undefined;
     }
 
-    // Clamp pageSize
     pageSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
 
-    // Use streaming to read file efficiently
     const matchingLines: string[] = [];
-    const fetchCount = page * pageSize + 1; // Fetch one extra to determine hasMore
+    const fetchCount = page * pageSize + 1;
 
     await new Promise<void>((resolve, reject) => {
       const fileStream = fs.createReadStream(filePath, { encoding: 'utf-8' });
@@ -213,7 +200,6 @@ export class LogReaderService {
         if (!line.trim()) return;
         if (this.matchesFilter(line, filter, level, id, correlationId)) {
           matchingLines.push(line);
-          // Stop reading if we have enough
           if (matchingLines.length >= fetchCount) {
             rl.close();
             fileStream.destroy();
@@ -225,7 +211,6 @@ export class LogReaderService {
       rl.on('error', (err) => reject(err));
     });
 
-    // Reverse to show newest first
     matchingLines.reverse();
 
     const startIndex = (page - 1) * pageSize;

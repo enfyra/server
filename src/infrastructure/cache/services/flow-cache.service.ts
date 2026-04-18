@@ -1,6 +1,5 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
@@ -21,21 +20,23 @@ const FLOW_CONFIG: CacheConfig = {
   cacheName: 'FlowCache',
 };
 
-@Injectable()
 export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(FLOW_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+  }) {
+    super(FLOW_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
     this.cache = [];
   }
 
   protected async loadFromDb(): Promise<any> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
-    const flowsResult = await this.queryBuilder.find({
+    const flowsResult = await this.queryBuilderService.find({
       table: 'flow_definition',
       filter: { isEnabled: { _eq: true } },
       fields: ['*', 'steps.*'],

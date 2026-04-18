@@ -3,12 +3,12 @@ import {
   GraphQLObjectType,
   GraphQLFieldConfigMap,
   GraphQLNonNull,
+  printSchema,
 } from 'graphql';
 import { createYoga } from 'graphql-yoga';
 import { useDepthLimit } from '@envelop/depth-limit';
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Logger } from '../../../shared/logger';
+import { EventEmitter2 } from 'eventemitter2';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
@@ -23,11 +23,11 @@ import {
 } from '../utils/generate-type-defs';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
+import { EnvService } from '../../../shared/services/env.service';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
 
-@Injectable()
 export class GraphqlService {
   private readonly logger = new Logger(`${COLOR}GraphQL${RESET}`);
   private yogaApp: ReturnType<typeof createYoga>;
@@ -39,23 +39,39 @@ export class GraphqlService {
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
 
-  constructor(
-    private metadataCache: MetadataCacheService,
-    private routeCacheService: RouteCacheService,
-    private settingCacheService: SettingCacheService,
-    private gqlDefinitionCache: GqlDefinitionCacheService,
-    private dynamicResolver: DynamicResolver,
-    private eventEmitter: EventEmitter2,
-    private configService: ConfigService,
-  ) {}
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly routeCacheService: RouteCacheService;
+  private readonly settingCacheService: SettingCacheService;
+  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
+  private readonly dynamicResolver: DynamicResolver;
+  private readonly eventEmitter: EventEmitter2;
+  private readonly envService: EnvService;
+
+  constructor(deps: {
+    metadataCacheService: MetadataCacheService;
+    routeCacheService: RouteCacheService;
+    settingCacheService: SettingCacheService;
+    gqlDefinitionCacheService: GqlDefinitionCacheService;
+    dynamicResolver: DynamicResolver;
+    eventEmitter: EventEmitter2;
+    envService: EnvService;
+  }) {
+    this.metadataCacheService = deps.metadataCacheService;
+    this.routeCacheService = deps.routeCacheService;
+    this.settingCacheService = deps.settingCacheService;
+    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
+    this.dynamicResolver = deps.dynamicResolver;
+    this.eventEmitter = deps.eventEmitter;
+    this.envService = deps.envService;
+  }
 
   async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
     try {
       const start = Date.now();
 
-      await this.gqlDefinitionCache.reload();
+      await this.gqlDefinitionCacheService.reload();
 
-      const metadata = await this.metadataCache.getMetadata();
+      const metadata = await this.metadataCacheService.getMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn(
           'Metadata not available, skipping GraphQL schema generation',
@@ -63,7 +79,7 @@ export class GraphqlService {
         return;
       }
 
-      const enabledDefs = await this.gqlDefinitionCache.getAllEnabled();
+      const enabledDefs = await this.gqlDefinitionCacheService.getAllEnabled();
       const newQueryableNames = new Set<string>();
       for (const def of enabledDefs) {
         newQueryableNames.add(def.tableName);
@@ -272,7 +288,7 @@ export class GraphqlService {
       types,
     });
 
-    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const isProduction = this.envService.isProd;
     const maxDepth = this.settingCacheService.getMaxQueryDepth();
 
     this.yogaApp = createYoga({
@@ -285,7 +301,7 @@ export class GraphqlService {
 
   onSettingChanged() {
     if (!this.schema) return;
-    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const isProduction = this.envService.isProd;
     const maxDepth = this.settingCacheService.getMaxQueryDepth();
     this.yogaApp = createYoga({
       schema: this.schema,
@@ -297,20 +313,16 @@ export class GraphqlService {
 
   getSchemaSdl(): string {
     if (!this.schema) {
-      throw new Error(
-        'GraphQL schema not initialized. Call reloadSchema() first.',
-      );
+      throw new Error('Schema not built yet');
     }
-    const { printSchema } = require('graphql');
     return printSchema(this.schema);
   }
 
-  getYogaInstance() {
-    if (!this.yogaApp) {
-      throw new Error(
-        'GraphQL Yoga instance not initialized. Call reloadSchema() first.',
-      );
-    }
+  getYogaApp() {
     return this.yogaApp;
+  }
+
+  getSchema() {
+    return this.schema;
   }
 }

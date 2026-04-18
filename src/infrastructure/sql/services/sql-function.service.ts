@@ -1,23 +1,29 @@
-import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { installMysqlUnaccent } from '../mysql-unaccent.bootstrap';
+import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
 
-@Injectable()
-export class SqlFunctionService implements OnApplicationBootstrap {
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private databaseConfig: DatabaseConfigService,
-  ) {}
-  async onApplicationBootstrap() {
-    if (this.databaseConfig.isMongoDb()) {
+export class SqlFunctionService implements LifecycleAware {
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly databaseConfigService: DatabaseConfigService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    databaseConfigService: DatabaseConfigService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.databaseConfigService = deps.databaseConfigService;
+  }
+
+  async onBootstrap(): Promise<void> {
+    if (this.databaseConfigService.isMongoDb()) {
       return;
     }
-    if (this.databaseConfig.isMySql()) {
-      const knex = this.queryBuilder.getKnex();
+    if (this.databaseConfigService.isMySql()) {
+      const knex = this.queryBuilderService.getKnex();
       await installMysqlUnaccent(knex);
-    } else if (this.databaseConfig.isPostgres()) {
-      await this.queryBuilder.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
+    } else if (this.databaseConfigService.isPostgres()) {
+      await this.queryBuilderService.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
     }
   }
 }

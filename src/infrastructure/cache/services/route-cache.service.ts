@@ -1,6 +1,5 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
@@ -10,6 +9,7 @@ import {
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
+
 const ROUTE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.ROUTE,
   colorCode: '\x1b[31m',
@@ -21,18 +21,19 @@ interface RouteData {
   methods: string[];
 }
 
-@Injectable()
 export class RouteCacheService extends BaseCacheService<RouteData> {
+  private readonly queryBuilderService: QueryBuilderService;
   private routeEngine: EnfyraRouteEngine;
   private allMethods: string[] = [];
   private globalPreHooks: any[] = [];
   private globalPostHooks: any[] = [];
 
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(ROUTE_CONFIG, eventEmitter);
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+  }) {
+    super(ROUTE_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
     this.routeEngine = new EnfyraRouteEngine(false);
     this.cache = { routes: [], methods: [] };
   }
@@ -47,13 +48,13 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     const affectedTableNames = new Set<string>(payload.affectedTables || []);
 
     if (payload.table === 'table_definition' && payload.ids?.length) {
-      const isMongoDB = this.queryBuilder.isMongoDb();
+      const isMongoDB = this.queryBuilderService.isMongoDb();
       const idField = DatabaseConfigService.getPkField();
       const filter = isMongoDB
         ? { mainTable: { _id: { _in: payload.ids } } }
         : { mainTableId: { _in: payload.ids } };
 
-      const result = await this.queryBuilder.find({
+      const result = await this.queryBuilderService.find({
         table: 'route_definition',
         filter,
         fields: [idField],
@@ -133,7 +134,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       const routeIds: (string | number)[] = [];
       for (const route of this.cache.routes) {
         if (affectedTableNames.has(route.mainTable?.name)) {
-          const rid = this.queryBuilder.isMongoDb() ? route._id : route.id;
+          const rid = this.queryBuilderService.isMongoDb() ? route._id : route.id;
           routeIds.push(rid);
         }
       }
@@ -149,10 +150,10 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   private async reloadSpecificRoutes(
     routeIds: (string | number)[],
   ): Promise<void> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'route_definition',
       filter: {
         _and: [{ isEnabled: { _eq: true } }, { [idField]: { _in: routeIds } }],
@@ -201,11 +202,11 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     tableName: string,
     ids: (string | number)[],
   ): Promise<(string | number)[]> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
     const routeField = 'route';
 
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: tableName,
       filter: { [idField]: { _in: ids } },
       fields: [`${routeField}.*`],
@@ -276,7 +277,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private async reloadGlobalHooksAndMerge(): Promise<void> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
 
     const [newGlobalPreHooks, newGlobalPostHooks] = await Promise.all([
       this.loadGlobalHooks('pre_hook_definition'),
@@ -299,12 +300,12 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   protected async loadFromDb(): Promise<any> {
-    const methodsResult = await this.queryBuilder.find({
+    const methodsResult = await this.queryBuilderService.find({
       table: 'method_definition',
     });
     this.allMethods = methodsResult.data.map((m: any) => m.method);
 
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'route_definition',
       filter: { isEnabled: { _eq: true } },
       fields: [
@@ -325,7 +326,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     });
 
     const routes = result.data;
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
 
     const [globalPreHooks, globalPostHooks] = await Promise.all([
       this.loadGlobalHooks('pre_hook_definition'),
@@ -345,7 +346,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
   }
 
   private async loadGlobalHooks(tableName: string): Promise<any[]> {
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: tableName,
       filter: {
         _and: [{ isEnabled: { _eq: true } }, { isGlobal: { _eq: true } }],
@@ -457,8 +458,6 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
 
   private insertRouteToEngine(route: any): void {
     if (!route.path) {
-      this.logger.warn(`Route has no path, skipping:`);
-      this.logger.warn(JSON.stringify(route, null, 2));
       return;
     }
 
@@ -468,6 +467,8 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       Array.isArray(raw) && raw.length > 0
         ? raw.map((m: any) => m?.method ?? m).filter(Boolean)
         : [];
+
+    if (methods.length === 0) return;
 
     if (methods.length === 0) return;
 

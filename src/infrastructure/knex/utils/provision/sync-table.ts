@@ -1,6 +1,6 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../src/infrastructure/knex/utils/sql-schema-naming.util';
-import { KnexTableSchema } from '../../../src/shared/types/database-init.types';
+import { getForeignKeyColumnName } from '../sql-schema-naming.util';
+import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
 export async function applyColumnMigrations(
@@ -659,9 +659,10 @@ async function syncRelationOnDeleteChanges(
           fk.onDelete(snapshotOnDelete).onUpdate('CASCADE');
         });
         console.log(`    Recreated FK constraint with onDelete: ${snapshotOnDelete}`);
-        await knex('relation_definition')
-          .where('id', dbRel.id)
-          .update({ onDelete: snapshotOnDelete });
+        await knex.raw(
+          `UPDATE ?? SET ?? = ? WHERE ?? = ?`,
+          ['relation_definition', 'onDelete', snapshotOnDelete, 'id', dbRel.id],
+        );
         console.log(`    Updated relation_definition.onDelete to: ${snapshotOnDelete}`);
       }
     }

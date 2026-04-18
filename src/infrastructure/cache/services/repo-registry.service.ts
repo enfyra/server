@@ -1,34 +1,26 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { QueryEngine } from '../../query-engine/services/query-engine.service';
-import { MetadataCacheService } from './metadata-cache.service';
-import { TableHandlerService } from '../../../modules/table-management/services/table-handler.service';
-import { PolicyService } from '../../../core/policy/policy.service';
-import { TableValidationService } from '../../../modules/dynamic-api/services/table-validation.service';
 import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
-import { SettingCacheService } from './setting-cache.service';
+import { MetadataCacheService } from './metadata-cache.service';
 import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
-import { FieldPermissionCacheService } from './field-permission-cache.service';
+import { EventEmitter2 } from 'eventemitter2';
 
-@Injectable()
+type RepoFactory = (tableName: string, context: any, enforceFieldPermission?: boolean) => DynamicRepository;
+
 export class RepoRegistryService {
-  private readonly logger = new Logger(RepoRegistryService.name);
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly repoFactory: RepoFactory;
   private aliasToName = new Map<string, string>();
   private initialized = false;
 
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly queryEngine: QueryEngine,
-    private readonly metadataCacheService: MetadataCacheService,
-    private readonly tableHandlerService: TableHandlerService,
-    private readonly policyService: PolicyService,
-    private readonly tableValidationService: TableValidationService,
-    private readonly settingCacheService: SettingCacheService,
-    private readonly fieldPermissionCacheService: FieldPermissionCacheService,
-    private readonly eventEmitter: EventEmitter2,
-  ) {}
+  constructor(deps: {
+    metadataCacheService: MetadataCacheService;
+    dynamicRepository: RepoFactory;
+    eventEmitter: EventEmitter2;
+  }) {
+    this.metadataCacheService = deps.metadataCacheService;
+    this.repoFactory = deps.dynamicRepository;
+    deps.eventEmitter.on(CACHE_EVENTS.INVALIDATE, this.handleCacheInvalidation.bind(this));
+  }
 
   async rebuildFromMetadata(
     metadataCache?: MetadataCacheService,
@@ -62,7 +54,6 @@ export class RepoRegistryService {
     this.initialized = true;
   }
 
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
   private handleCacheInvalidation() {
     this.initialized = false;
   }
@@ -96,20 +87,7 @@ export class RepoRegistryService {
         return existing;
       }
 
-      const repo = new DynamicRepository({
-        context,
-        tableName: resolvedName,
-        tableHandlerService: self.tableHandlerService,
-        queryBuilder: self.queryBuilder,
-        queryEngine: self.queryEngine,
-        metadataCacheService: self.metadataCacheService,
-        policyService: self.policyService,
-        tableValidationService: self.tableValidationService,
-        settingCacheService: self.settingCacheService,
-        fieldPermissionCacheService: self.fieldPermissionCacheService,
-        enforceFieldPermission,
-        eventEmitter: self.eventEmitter,
-      });
+      const repo = self.repoFactory(resolvedName, context, enforceFieldPermission);
 
       repoCache.set(resolvedKey, repo);
       repoCache.set(cacheKey, repo);

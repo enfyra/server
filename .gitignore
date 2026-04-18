@@ -2,6 +2,7 @@
 /dist
 /node_modules
 /build
+*.tsbuildinfo
 
 /src/migrations/*.ts
 schema-from-db.json
@@ -70,3 +71,4 @@ CLAUDE.md
 docs/
 .agent
 .internal/
+/src_bak

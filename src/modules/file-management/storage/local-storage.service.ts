@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Readable } from 'stream';
@@ -7,13 +7,15 @@ import {
   StorageConfig,
   UploadResult,
 } from './storage.interface';
-@Injectable()
+
 export class LocalStorageService implements IStorageService {
   private readonly logger = new Logger(LocalStorageService.name);
   private readonly basePath = path.join(process.cwd(), 'public');
+
   constructor() {
     this.ensurePublicDirExists();
   }
+
   private async ensurePublicDirExists(): Promise<void> {
     try {
       await fs.promises.mkdir(this.basePath, { recursive: true });
@@ -21,6 +23,7 @@ export class LocalStorageService implements IStorageService {
       this.logger.error('Failed to create public directory', error);
     }
   }
+
   async upload(
     buffer: Buffer,
     relativePath: string,
@@ -34,6 +37,7 @@ export class LocalStorageService implements IStorageService {
       location: `/${relativePath}`,
     };
   }
+
   async delete(location: string, config: StorageConfig): Promise<void> {
     const relativePath = location.startsWith('/')
       ? location.slice(1)
@@ -43,6 +47,7 @@ export class LocalStorageService implements IStorageService {
       await fs.promises.unlink(absolutePath);
     }
   }
+
   async getStream(location: string, config: StorageConfig): Promise<Readable> {
     const relativePath = location.startsWith('/')
       ? location.slice(1)
@@ -58,6 +63,7 @@ export class LocalStorageService implements IStorageService {
     } catch (error) {}
     return stream;
   }
+
   async getBuffer(location: string, config: StorageConfig): Promise<Buffer> {
     const relativePath = location.startsWith('/')
       ? location.slice(1)
@@ -69,6 +75,7 @@ export class LocalStorageService implements IStorageService {
     const buffer = await fs.promises.readFile(absolutePath);
     return buffer;
   }
+
   async replaceFile(
     location: string,
     buffer: Buffer,
@@ -81,6 +88,7 @@ export class LocalStorageService implements IStorageService {
     const absolutePath = path.join(this.basePath, relativePath);
     await fs.promises.writeFile(absolutePath, buffer);
   }
+
   async exists(location: string, config: StorageConfig): Promise<boolean> {
     try {
       const relativePath = location.startsWith('/')

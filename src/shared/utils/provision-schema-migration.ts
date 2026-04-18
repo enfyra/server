@@ -1,11 +1,11 @@
 import { Knex } from 'knex';
 import { Db } from 'mongodb';
-import { SchemaMigrationDef, TableMigrationDef, ColumnModifyDef, RelationModifyDef } from '../../src/shared/types/schema-migration.types';
+import { SchemaMigrationDef, TableMigrationDef, ColumnModifyDef, RelationModifyDef } from '../types/schema-migration.types';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/infrastructure/knex/utils/sql-schema-naming.util';
+} from '../../infrastructure/knex/utils/sql-schema-naming.util';
 import * as fs from 'fs';
 import * as path from 'path';
 

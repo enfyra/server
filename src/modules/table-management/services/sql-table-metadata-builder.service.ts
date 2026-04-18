@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { CreateTableDto } from '../dto/create-table.dto';
@@ -8,14 +8,18 @@ import {
   getJunctionColumnNames,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 
-@Injectable()
 export class SqlTableMetadataBuilderService {
-  private logger = new Logger(SqlTableMetadataBuilderService.name);
+  private readonly logger = new Logger(SqlTableMetadataBuilderService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly metadataCacheService: MetadataCacheService;
 
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private metadataCacheService: MetadataCacheService,
-  ) {}
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    metadataCacheService: MetadataCacheService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.metadataCacheService = deps.metadataCacheService;
+  }
 
   async getFullTableMetadataInTransaction(
     trx: any,

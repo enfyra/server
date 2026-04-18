@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { BaseTableProcessor } from '../processors/base-table-processor';
@@ -84,10 +84,12 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
     return ['type', 'isNullable', 'isSystem', 'description'];
   }
 }
-@Injectable()
 export class MetadataProvisionMongoService {
   private readonly logger = new Logger(MetadataProvisionMongoService.name);
-  constructor(private readonly queryBuilder: QueryBuilderService) {}
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
+  }
   private buildRecordFromColumns(data: any, columns: any[]): any {
     const record: any = {};
     for (const col of columns) {
@@ -117,7 +119,7 @@ export class MetadataProvisionMongoService {
   }
   async createInitMetadata(snapshot: any): Promise<void> {
     this.logger.log('MongoDB: Creating metadata from snapshot...');
-    const db = this.queryBuilder.getMongoDb();
+    const db = this.queryBuilderService.getMongoDb();
     const tableNameToId: Record<string, ObjectId> = {};
     const columnDef = snapshot['column_definition'];
     const tableRelation = columnDef?.relations?.find(

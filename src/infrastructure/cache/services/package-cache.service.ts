@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import {
   PackageCdnLoaderService,
@@ -18,19 +17,33 @@ const PACKAGE_CONFIG: CacheConfig = {
 
 const SYSTEM_EVENT_PREFIX = '$system:package';
 
-@Injectable()
 export class PackageCacheService extends BaseCacheService<string[]> {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-    private readonly websocketGateway: DynamicWebSocketGateway,
-    private readonly cdnLoader: PackageCdnLoaderService,
-  ) {
-    super(PACKAGE_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+  private _dynamicWebSocketGateway?: DynamicWebSocketGateway;
+  private readonly packageCdnLoaderService: PackageCdnLoaderService;
+  private _container?: any;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+    packageCdnLoaderService: PackageCdnLoaderService;
+    _container?: any;
+  }) {
+    super(PACKAGE_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
+    this._container = deps._container;
+    this.packageCdnLoaderService = deps.packageCdnLoaderService;
+  }
+
+  private get dynamicWebSocketGateway(): DynamicWebSocketGateway | undefined {
+    if (!this._dynamicWebSocketGateway && this._container) {
+      this._dynamicWebSocketGateway = this._container.cradle?.dynamicWebSocketGateway;
+    }
+    return this._dynamicWebSocketGateway;
   }
 
   protected async loadFromDb(): Promise<string[]> {
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'package_definition',
       fields: ['name'],
       filter: {
@@ -59,7 +72,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
   private emitEvent(event: string, data: any) {
     try {
-      this.websocketGateway.emitToNamespace(
+      this.dynamicWebSocketGateway?.emitToNamespace(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         `${SYSTEM_EVENT_PREFIX}:${event}`,
         data,
@@ -75,7 +88,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilder.update(
+      await this.queryBuilderService.update(
         'package_definition',
         { where: [{ field: 'id', operator: '=', value: id }] },
         { status, ...extra },
@@ -91,7 +104,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     const packagesWithMeta = await this.loadPackagesForSync();
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
-        !this.cdnLoader.isLoaded(pkg.name) &&
+        !this.packageCdnLoaderService.isLoaded(pkg.name) &&
         (pkg.status === 'installed' || pkg.status === 'failed'),
     );
 
@@ -111,7 +124,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
     for (const pkg of toPreload) {
       try {
-        await this.cdnLoader.loadPackage(pkg.name, pkg.version);
+        await this.packageCdnLoaderService.loadPackage(pkg.name, pkg.version);
         await this.updatePackageStatus(pkg.id, 'installed', {
           lastError: null,
         });
@@ -146,7 +159,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       status: string;
     }>
   > {
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'package_definition',
       fields: ['id', 'name', 'version', 'status'],
       filter: {
@@ -164,7 +177,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   getCdnLoader(): PackageCdnLoaderService {
-    return this.cdnLoader;
+    return this.packageCdnLoaderService;
   }
 
   async getPackages(): Promise<string[]> {

@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
-import { JwtService } from '@nestjs/jwt';
+import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { EnvService } from '../../../shared/services/env.service';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
@@ -12,17 +13,32 @@ import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
-@Injectable()
 export class DynamicResolver {
-  constructor(
-    private jwtService: JwtService,
-    private queryBuilder: QueryBuilderService,
-    private handlerExecutorService: ExecutorEngineService,
-    private gqlDefinitionCache: GqlDefinitionCacheService,
-    private repoRegistryService: RepoRegistryService,
-    private guardCacheService: GuardCacheService,
-    private guardEvaluatorService: GuardEvaluatorService,
-  ) {}
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly guardCacheService: GuardCacheService;
+  private readonly guardEvaluatorService: GuardEvaluatorService;
+  private readonly envService: EnvService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    executorEngineService: ExecutorEngineService;
+    gqlDefinitionCacheService: GqlDefinitionCacheService;
+    repoRegistryService: RepoRegistryService;
+    guardCacheService: GuardCacheService;
+    guardEvaluatorService: GuardEvaluatorService;
+    envService: EnvService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.executorEngineService = deps.executorEngineService;
+    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
+    this.repoRegistryService = deps.repoRegistryService;
+    this.guardCacheService = deps.guardCacheService;
+    this.guardEvaluatorService = deps.guardEvaluatorService;
+    this.envService = deps.envService;
+  }
 
   async dynamicResolver(
     tableName: string,
@@ -54,7 +70,7 @@ export class DynamicResolver {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: {
         jwt: (payload: any, ext: string) =>
-          this.jwtService.sign(payload, {
+          jwt.sign(payload, this.envService.get('SECRET_KEY'), {
             expiresIn: ext as import('ms').StringValue,
           }),
       },
@@ -90,7 +106,7 @@ export class DynamicResolver {
     );
     try {
       const defaultHandler = `return await $ctx.$repos.main.find();`;
-      const result = await this.handlerExecutorService.run(
+      const result = await this.executorEngineService.run(
         defaultHandler,
         handlerCtx,
         30000,
@@ -146,7 +162,7 @@ export class DynamicResolver {
         default:
           throw new BadRequestException(`Unsupported operation: ${operation}`);
       }
-      const result = await this.handlerExecutorService.run(
+      const result = await this.executorEngineService.run(
         defaultHandler,
         handlerCtx,
         30000,
@@ -177,7 +193,7 @@ export class DynamicResolver {
     }
 
     const isEnabled =
-      await this.gqlDefinitionCache.isEnabledForTable(mainTableName);
+      await this.gqlDefinitionCacheService.isEnabledForTable(mainTableName);
     if (!isEnabled) {
       throwGqlError(
         '404',
@@ -214,11 +230,11 @@ export class DynamicResolver {
     }
     let decoded;
     try {
-      decoded = this.jwtService.verify(accessToken);
+      decoded = jwt.verify(accessToken, this.envService.get('SECRET_KEY'));
     } catch {
       throwGqlError('401', 'Unauthorized');
     }
-    const user = await this.queryBuilder.findOne({
+    const user = await this.queryBuilderService.findOne({
       table: 'user_definition',
       where: { id: decoded.id },
     });
@@ -226,7 +242,7 @@ export class DynamicResolver {
       throwGqlError('401', 'Invalid user');
     }
     if (user.roleId) {
-      user.role = await this.queryBuilder.findOne({
+      user.role = await this.queryBuilderService.findOne({
         table: 'role_definition',
         where: { id: user.roleId },
       });

@@ -1,11 +1,13 @@
-import { Injectable } from '@nestjs/common';
 import { isEqual } from 'lodash';
 import { createHash } from 'node:crypto';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 
-@Injectable()
 export class SchemaMigrationValidatorService {
-  constructor(private readonly metadataCache: MetadataCacheService) {}
+  private readonly metadataCacheService: MetadataCacheService;
+
+  constructor(deps: { metadataCacheService: MetadataCacheService }) {
+    this.metadataCacheService = deps.metadataCacheService;
+  }
 
   async checkSchemaMigration(ctx: any): Promise<any> {
     const tableName = (ctx.tableName || '').trim();
@@ -354,12 +356,12 @@ export class SchemaMigrationValidatorService {
     if (!beforeMetadata || removedRelationKeys.length === 0) {
       return [];
     }
-    if (!this.metadataCache) {
+    if (!this.metadataCacheService) {
       return [];
     }
     let meta: { tables: Map<string, any> };
     try {
-      meta = await this.metadataCache.getMetadata();
+      meta = await this.metadataCacheService.getMetadata();
     } catch {
       return [];
     }
@@ -410,7 +412,7 @@ export class SchemaMigrationValidatorService {
 
   async getAllRelationFieldsWithInverse(tableName: string): Promise<string[]> {
     try {
-      const metadata = await this.metadataCache.getMetadata();
+      const metadata = await this.metadataCacheService.getMetadata();
       const tableMeta = metadata.tables.get(tableName);
       if (!tableMeta) return [];
       const relations = (tableMeta.relations || []).map(
@@ -467,7 +469,7 @@ export class SchemaMigrationValidatorService {
 
   async enrichTableDefinitionData(existing: any): Promise<any> {
     if (!existing?.name) return existing;
-    const metadata = await this.metadataCache.getMetadata();
+    const metadata = await this.metadataCacheService.getMetadata();
     const tableMeta = metadata.tables.get(existing.name);
     if (!tableMeta) return existing;
     const enriched = { ...existing };
@@ -482,7 +484,7 @@ export class SchemaMigrationValidatorService {
 
   async getJsonFields(tableName: string): Promise<string[]> {
     try {
-      const metadata = await this.metadataCache.getMetadata();
+      const metadata = await this.metadataCacheService.getMetadata();
       const tableMeta = metadata.tables.get(tableName);
       if (!tableMeta) return [];
       return (tableMeta.columns || [])

@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class WebsocketDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {

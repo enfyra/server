@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
@@ -12,28 +12,20 @@ export interface SchemaMigrationLockHandle {
 
 type KnexLike = Knex | Knex.Transaction;
 
-@Injectable()
 export class SchemaMigrationLockService {
   private readonly logger = new Logger(SchemaMigrationLockService.name);
   private readonly lockName = 'schema_migration_lock';
   private readonly tableName = 'schema_migration_lock';
   private lockTableReady = false;
+  private readonly knexService: KnexService;
+  private readonly queryBuilderService: QueryBuilderService;
 
-  constructor(
-    private readonly knexService: KnexService,
-    private readonly queryBuilderService: QueryBuilderService,
-  ) {}
-
-  async acquire(context: string): Promise<SchemaMigrationLockHandle> {
-    const knex = this.knexService.getKnex();
-    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
-    const token = randomUUID();
-    const lockedBy = this.buildInstanceId();
-
-    // All databases use table-row lock because connection-scoped locks
-    // (pg_advisory_lock, GET_LOCK) are incompatible with Knex connection
-    // pooling — acquire and release would use different connections.
-    return await this.acquireTableRowLock(dbType, lockedBy, context, token);
+  constructor(deps: {
+    knexService: KnexService;
+    queryBuilderService: QueryBuilderService;
+  }) {
+    this.knexService = deps.knexService;
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async release(handle?: SchemaMigrationLockHandle | null): Promise<void> {
@@ -46,6 +38,42 @@ export class SchemaMigrationLockService {
   }
 
   private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;
+  private static readonly STALE_HEARTBEAT_THRESHOLD_MS = 30_000;
+
+  async acquire(context: string): Promise<SchemaMigrationLockHandle> {
+    const knex = this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
+    const token = randomUUID();
+    const lockedBy = this.buildInstanceId();
+
+    return await this.acquireTableRowLock(dbType, lockedBy, context, token);
+  }
+
+  async refreshHeartbeat(handle: SchemaMigrationLockHandle): Promise<boolean> {
+    if (!handle) {
+      return false;
+    }
+    const knex = this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
+
+    try {
+      const updateData: any = {};
+      if (dbType === 'postgres') {
+        updateData.heartbeatAt = new Date().toISOString();
+      } else {
+        updateData.heartbeatAt = knex.raw('NOW()');
+      }
+
+      const updated = await knex(this.tableName)
+        .where({ id: 1, lockToken: handle.token })
+        .update(updateData);
+
+      return updated > 0;
+    } catch (error) {
+      this.logger.warn(`Failed to refresh heartbeat: ${error.message}`);
+      return false;
+    }
+  }
 
   private async acquireTableRowLock(
     dbType: string,
@@ -64,18 +92,35 @@ export class SchemaMigrationLockService {
       const row = await builder.first();
 
       if (row?.isLocked) {
-        const staleMs = Date.now() - new Date(row.lockedAt).getTime();
-        if (staleMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS) {
+        const now = Date.now();
+        const lockedAtMs = row.lockedAt ? new Date(row.lockedAt).getTime() : 0;
+        const heartbeatMs = row.heartbeatAt ? new Date(row.heartbeatAt).getTime() : 0;
+
+        const staleByHeartbeat = heartbeatMs > 0 && (now - heartbeatMs > SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS);
+        const staleByDuration = !heartbeatMs && (now - lockedAtMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS);
+
+        if (staleByHeartbeat || staleByDuration) {
+          const staleReason = staleByHeartbeat
+            ? `heartbeat stale (${Math.round((now - heartbeatMs) / 1000)}s old)`
+            : `duration stale (${Math.round((now - lockedAtMs) / 1000)}s old)`;
+
           this.logger.warn(
-            `Clearing stale schema lock held by ${row.lockedBy} for ${context} (${Math.round(staleMs / 1000)}s old)`,
+            `Clearing stale schema lock held by ${row.lockedBy} for ${context} (${staleReason})`,
           );
-          await trx(this.tableName).where({ id: 1 }).update({
-            isLocked: false,
-            lockedBy: null,
-            lockedContext: null,
-            lockedAt: null,
-            lockToken: null,
-          });
+          const cleared = await trx(this.tableName)
+            .where({ id: 1 })
+            .whereRaw('lockToken = ?', [row.lockToken])
+            .update({
+              isLocked: false,
+              lockedBy: null,
+              lockedContext: null,
+              lockedAt: null,
+              heartbeatAt: null,
+              lockToken: null,
+            });
+          if (cleared === 0) {
+            throw await this.buildLockedError(trx);
+          }
         } else {
           throw await this.buildLockedError(trx);
         }
@@ -116,6 +161,7 @@ export class SchemaMigrationLockService {
         table.string('lockedBy', 255).nullable();
         table.string('lockedContext', 255).nullable();
         table.dateTime('lockedAt').nullable();
+        table.dateTime('heartbeatAt').nullable();
         table.string('lockToken', 64).nullable();
         table.timestamp('createdAt').defaultTo(baseKnex.fn.now());
         table.timestamp('updatedAt').defaultTo(baseKnex.fn.now());
@@ -133,6 +179,12 @@ export class SchemaMigrationLockService {
       if (!columnInfo.updatedAt) {
         await baseKnex.schema.alterTable(this.tableName, (table) => {
           table.timestamp('updatedAt').defaultTo(baseKnex.fn.now());
+        });
+      }
+
+      if (!columnInfo.heartbeatAt) {
+        await baseKnex.schema.alterTable(this.tableName, (table) => {
+          table.dateTime('heartbeatAt').nullable();
         });
       }
 
@@ -162,8 +214,10 @@ export class SchemaMigrationLockService {
 
     if (dbType === 'postgres') {
       updateData.lockedAt = new Date().toISOString();
+      updateData.heartbeatAt = new Date().toISOString();
     } else {
       updateData.lockedAt = knex.raw('NOW()');
+      updateData.heartbeatAt = knex.raw('NOW()');
     }
 
     await knex(this.tableName).where({ id: 1 }).update(updateData);
@@ -176,6 +230,7 @@ export class SchemaMigrationLockService {
       lockedBy: null,
       lockedContext: null,
       lockedAt: null,
+      heartbeatAt: null,
       lockToken: null,
     };
 

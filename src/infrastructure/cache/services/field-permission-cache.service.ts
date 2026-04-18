@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
@@ -33,26 +32,28 @@ function toIdString(v: any): string | null {
   return String(v?._id ?? v?.id ?? v);
 }
 
-@Injectable()
 export class FieldPermissionCacheService extends BaseCacheService<
   Map<string, TCompiledFieldPolicy>
 > {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+  }) {
     super(
       {
         cacheIdentifier: CACHE_IDENTIFIERS.FIELD_PERMISSION,
         colorCode: '\x1b[38;5;215m',
         cacheName: 'FieldPermissionCache',
       },
-      eventEmitter,
+      deps.eventEmitter,
     );
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   protected async loadFromDb(): Promise<any> {
-    const result = await this.queryBuilder.find({
+    const result = await this.queryBuilderService.find({
       table: 'field_permission_definition',
       fields: [
         '*',

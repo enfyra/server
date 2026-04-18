@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../../shared/logger';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
@@ -203,7 +203,11 @@ async function handleDeletedRelations(
     } else if (rel.type === 'one-to-many') {
       continue;
     } else if (rel.type === 'many-to-many') {
-      const junctionTableName = rel.junctionTableName;
+      const junctionTableName = rel.junctionTableName || getJunctionTableName(
+        tableName,
+        rel.propertyName,
+        rel.targetTableName,
+      );
 
       if (!diff.junctionTables) {
         diff.junctionTables = { create: [], drop: [], update: [] };
@@ -405,6 +409,40 @@ async function handleUpdatedRelations(
           newColumns,
           metadataCacheService,
         );
+      } else if (targetTableChanged) {
+        if (propertyNameChanged) {
+          await handleRelationTargetAndPropertyChange(
+            knex,
+            oldRel,
+            newRel,
+            diff,
+            tableName,
+            oldColumns,
+            metadataCacheService,
+          );
+        } else {
+          await handleRelationTargetChange(
+            knex,
+            oldRel,
+            newRel,
+            diff,
+            tableName,
+            oldColumns,
+            metadataCacheService,
+          );
+          if (mappedByChanged) {
+            await handleRelationPropertyNameChange(
+              knex,
+              oldRel,
+              newRel,
+              diff,
+              tableName,
+              propertyNameChanged,
+              mappedByChanged,
+              metadataCacheService,
+            );
+          }
+        }
       } else if (propertyNameChanged || mappedByChanged) {
         await handleRelationPropertyNameChange(
           knex,
@@ -420,6 +458,93 @@ async function handleUpdatedRelations(
         await handleOnDeleteChange(knex, oldRel, newRel, diff, tableName);
       }
     }
+  }
+}
+
+async function handleRelationTargetAndPropertyChange(
+  knex: Knex,
+  oldRel: any,
+  newRel: any,
+  diff: any,
+  tableName: string,
+  oldColumns: any[],
+  metadataCacheService?: any,
+): Promise<void> {
+  const relationType = newRel.type;
+  const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+  const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
+
+  if (relationType === 'many-to-one' || relationType === 'one-to-one') {
+    const oldPkType = await getPrimaryKeyTypeForTable(
+      knex,
+      oldRel.targetTableName,
+      metadataCacheService,
+    );
+    const newPkType = await getPrimaryKeyTypeForTable(
+      knex,
+      newRel.targetTableName,
+      metadataCacheService,
+    );
+
+    const existingColumn = oldColumns.find((c: any) => c.name === oldFkColumn);
+    const hasNonNullData = existingColumn && !existingColumn.isNullable;
+
+    if (hasNonNullData) {
+      throw new Error(
+        `Cannot change target table from '${oldRel.targetTableName}' (${oldPkType}) to ` +
+        `'${newRel.targetTableName}' (${newPkType}) and property name from '${oldRel.propertyName}' to '${newRel.propertyName}'. ` +
+        `Foreign key column '${oldFkColumn}' contains data and changing both requires data migration. Please:\n` +
+        `1. Back up your data\n` +
+        `2. Set '${oldFkColumn}' to NULL for all records\n` +
+        `3. Retry the relation update`,
+      );
+    }
+
+    if (oldPkType !== newPkType) {
+      if (!diff.columns.delete) diff.columns.delete = [];
+      diff.columns.delete.push({
+        name: oldFkColumn,
+        isForeignKey: true,
+        reason: `Target table PK type changed from ${oldPkType} to ${newPkType} and property renamed`,
+      });
+
+      if (!diff.columns.create) diff.columns.create = [];
+      diff.columns.create.push({
+        name: newFkColumn,
+        type: newPkType,
+        isNullable: newRel.isNullable ?? true,
+        isForeignKey: true,
+        foreignKey: {
+          targetTable: newRel.targetTableName,
+          targetColumn: 'id',
+          onDelete: newRel.onDelete || 'SET NULL',
+        },
+      });
+    } else {
+      if (!diff.columns.delete) diff.columns.delete = [];
+      diff.columns.delete.push({
+        name: oldFkColumn,
+        isForeignKey: true,
+        reason: `Property renamed from ${oldRel.propertyName} to ${newRel.propertyName}`,
+      });
+
+      if (!diff.columns.create) diff.columns.create = [];
+      diff.columns.create.push({
+        name: newFkColumn,
+        type: newPkType,
+        isNullable: newRel.isNullable ?? true,
+        isForeignKey: true,
+        foreignKey: {
+          targetTable: newRel.targetTableName,
+          targetColumn: 'id',
+          onDelete: newRel.onDelete || 'SET NULL',
+        },
+      });
+    }
+  } else if (relationType === 'one-to-many') {
+    logger.warn(
+      `  O2M relation target+property change not fully supported for '${newRel.propertyName}'`,
+    );
   }
 }
 
@@ -771,6 +896,147 @@ async function handleRelationTypeChange(
     }
   } else {
     logger.warn(`  Unhandled relation type change: ${oldType} → ${newType}`);
+  }
+}
+
+async function handleRelationTargetChange(
+  knex: Knex,
+  oldRel: any,
+  newRel: any,
+  diff: any,
+  tableName: string,
+  oldColumns: any[],
+  metadataCacheService?: any,
+): Promise<void> {
+  const relationType = newRel.type;
+
+  if (relationType === 'many-to-one' || relationType === 'one-to-one') {
+    const fkColumn =
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+
+    const oldPkType = await getPrimaryKeyTypeForTable(
+      knex,
+      oldRel.targetTableName,
+      metadataCacheService,
+    );
+    const newPkType = await getPrimaryKeyTypeForTable(
+      knex,
+      newRel.targetTableName,
+      metadataCacheService,
+    );
+
+    if (oldPkType !== newPkType) {
+      const existingColumn = oldColumns.find((c: any) => c.name === fkColumn);
+      const hasNonNullData = existingColumn && !existingColumn.isNullable;
+
+      if (hasNonNullData) {
+        throw new Error(
+          `Cannot change target table from '${oldRel.targetTableName}' (${oldPkType}) to ` +
+          `'${newRel.targetTableName}' (${newPkType}) for relation '${newRel.propertyName}'. ` +
+          `Foreign key column '${fkColumn}' contains data and changing the target type requires ` +
+          `data migration. Please:\n` +
+          `1. Back up your data\n` +
+          `2. Set '${fkColumn}' to NULL for all records\n` +
+          `3. Retry the relation target change`,
+        );
+      }
+
+      if (!diff.columns.delete) diff.columns.delete = [];
+      diff.columns.delete.push({
+        name: fkColumn,
+        isForeignKey: true,
+        reason: `Target table PK type changed from ${oldPkType} to ${newPkType}`,
+      });
+
+      if (!diff.columns.create) diff.columns.create = [];
+      diff.columns.create.push({
+        name: fkColumn,
+        type: newPkType,
+        isNullable: newRel.isNullable ?? true,
+        isForeignKey: true,
+        foreignKey: {
+          targetTable: newRel.targetTableName,
+          targetColumn: 'id',
+          onDelete: newRel.onDelete || 'SET NULL',
+        },
+      });
+    } else {
+      if (!diff.foreignKeys) diff.foreignKeys = { recreate: [] };
+      diff.foreignKeys.recreate.push({
+        tableName: tableName,
+        columnName: fkColumn,
+        targetTable: newRel.targetTableName,
+        targetColumn: 'id',
+        onDelete: newRel.onDelete || 'SET NULL',
+      });
+    }
+  } else if (relationType === 'one-to-many') {
+    if (!newRel.mappedBy || !oldRel.mappedBy) {
+      logger.warn(
+        `  O2M target change without mappedBy, cannot migrate FK for '${newRel.propertyName}'`,
+      );
+      return;
+    }
+    const fkColumn =
+      oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.mappedBy);
+    if (!diff.crossTableOperations) diff.crossTableOperations = [];
+
+    diff.crossTableOperations.push({
+      operation: 'dropColumn',
+      targetTable: oldRel.targetTableName,
+      columnName: fkColumn,
+    });
+
+    const sourcePkType = await getPrimaryKeyTypeForTable(
+      knex,
+      tableName,
+      metadataCacheService,
+    );
+    diff.crossTableOperations.push({
+      operation: 'addColumn',
+      targetTable: newRel.targetTableName,
+      columnName: fkColumn,
+      columnDef: {
+        type: sourcePkType,
+        isNullable: true,
+        isForeignKey: true,
+        foreignKey: {
+          targetTable: tableName,
+          targetColumn: 'id',
+          onDelete: newRel.onDelete || 'SET NULL',
+        },
+      },
+    });
+  } else if (relationType === 'many-to-many') {
+    if (!diff.junctionTables) {
+      diff.junctionTables = { create: [], drop: [], update: [], rename: [] };
+    }
+
+    const oldJunctionTableName = oldRel.junctionTableName;
+    if (oldJunctionTableName) {
+      diff.junctionTables.drop.push({
+        tableName: oldJunctionTableName,
+        reason: 'Target table changed on M2M',
+      });
+    }
+
+    const newJunctionTableName = getJunctionTableName(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
+    const { sourceColumn, targetColumn } = getJunctionColumnNames(
+      tableName,
+      newRel.propertyName,
+      newRel.targetTableName,
+    );
+    diff.junctionTables.create.push({
+      tableName: newJunctionTableName,
+      sourceTable: tableName,
+      targetTable: newRel.targetTableName,
+      sourceColumn: sourceColumn,
+      targetColumn: targetColumn,
+    });
   }
 }
 

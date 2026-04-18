@@ -8,25 +8,25 @@ import {
 } from '../src/shared/types/database-init.types';
 import {
   parseSnapshotToSchema,
-} from './utils/sql/schema-parser';
-import { ensureDatabaseExists } from './utils/sql/database-setup';
+} from '../src/infrastructure/knex/utils/provision/schema-parser';
+import { ensureDatabaseExists } from '../src/infrastructure/knex/utils/provision/database-setup';
 import {
   createTable,
   createAllTables,
-} from './utils/sql/table-builder';
-import { addForeignKeys } from './utils/sql/foreign-keys';
+} from '../src/infrastructure/knex/utils/provision/table-builder';
+import { addForeignKeys } from '../src/infrastructure/knex/utils/provision/foreign-keys';
 import {
   createJunctionTables,
   syncJunctionTables,
-} from './utils/sql/junction-tables';
-import { syncTable } from './utils/sql/migrations';
+} from '../src/infrastructure/knex/utils/provision/junction-tables';
+import { syncTable } from '../src/infrastructure/knex/utils/provision/sync-table';
 import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
 import {
   loadSchemaMigration,
   hasSchemaMigrations,
   applySqlSchemaMigrations,
-} from './utils/schema-migration';
-import { resolveDbTypeFromEnv } from './utils/resolve-db-type';
+} from '../src/shared/utils/provision-schema-migration';
+import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
 

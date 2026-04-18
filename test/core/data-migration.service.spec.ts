@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import { DataMigrationService } from '../../src/core/bootstrap/services/data-migration.service';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
@@ -20,7 +19,7 @@ function makeQueryBuilder(
 }
 
 function makeService(qb: any): DataMigrationService {
-  const svc = new DataMigrationService(qb);
+  const svc = new DataMigrationService({ queryBuilderService: qb });
   (svc as any).initOld = null;
   return svc;
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
@@ -11,17 +11,21 @@ import {
   JournalContext,
 } from '../utils/migration/sql-diff-generator';
 
-@Injectable()
 export class SqlSchemaDiffService {
   private readonly logger = new Logger(SqlSchemaDiffService.name);
+  private readonly knexService: KnexService;
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly queryBuilderService: QueryBuilderService;
 
-  constructor(
-    private readonly knexService: KnexService,
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCacheService: MetadataCacheService,
-    @Inject(forwardRef(() => QueryBuilderService))
-    private readonly queryBuilderService: QueryBuilderService,
-  ) {}
+  constructor(deps: {
+    knexService: KnexService;
+    metadataCacheService: MetadataCacheService;
+    queryBuilderService: QueryBuilderService;
+  }) {
+    this.knexService = deps.knexService;
+    this.metadataCacheService = deps.metadataCacheService;
+    this.queryBuilderService = deps.queryBuilderService;
+  }
 
   async generateSchemaDiff(oldMetadata: any, newMetadata: any): Promise<any> {
     const diff = {

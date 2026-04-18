@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
 import { MongoSagaLockService } from './mongo-saga-lock.service';
 import {
@@ -7,7 +7,7 @@ import {
 } from './mongo-operation-log.service';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../core/exceptions/custom-exceptions';
-import { ISagaOptions, ISagaContext } from './mongo-saga-coordinator.service';
+import { ISagaOptions, ISagaContext } from './mongo-saga.types';
 
 interface IPlanInsert {
   type: 'insert';

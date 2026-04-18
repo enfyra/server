@@ -15,7 +15,7 @@ import {
   shouldLog,
 } from '../../src/shared/utils/winston-logger';
 import { GlobalExceptionFilter } from '../../src/core/exceptions/filters/global-exception.filter';
-import { HttpException, HttpStatus, ArgumentsHost } from '@nestjs/common';
+import { HttpException } from '../../src/core/exceptions/custom-exceptions';
 import {
   BusinessLogicException,
   ScriptExecutionException,
@@ -23,6 +23,34 @@ import {
   ResourceNotFoundException,
   AuthorizationException,
 } from '../../src/core/exceptions/custom-exceptions';
+
+// Mock HttpStatus enum
+enum HttpStatus {
+  OK = 200,
+  CREATED = 201,
+  BAD_REQUEST = 400,
+  UNAUTHORIZED = 401,
+  FORBIDDEN = 403,
+  NOT_FOUND = 404,
+  CONFLICT = 409,
+  UNPROCESSABLE_ENTITY = 422,
+  INTERNAL_SERVER_ERROR = 500,
+  BAD_GATEWAY = 502,
+  SERVICE_UNAVAILABLE = 503,
+}
+
+// Mock ArgumentsHost interface
+interface ArgumentsHost {
+  switchToHttp(): {
+    getRequest(): any;
+    getResponse(): any;
+  };
+  getType(): string;
+  getArgs(): any[];
+  getArgByIndex(i: number): any;
+  switchToRpc(): any;
+  switchToWs(): any;
+}
 
 const mockedWinston = winstonLogger as jest.Mocked<typeof winstonLogger>;
 const mockedShouldLog = shouldLog as jest.MockedFunction<typeof shouldLog>;

@@ -1,15 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DatabaseType } from '../types/query-builder.types';
+import { env } from '../../env';
 
-@Injectable()
 export class DatabaseConfigService {
   private static instance: DatabaseConfigService;
 
   private readonly dbType: DatabaseType;
 
-  constructor(private readonly configService: ConfigService) {
-    const uri = this.configService.get<string>('DB_URI');
+  constructor() {
+    const uri = env.DB_URI;
     if (!uri) {
       throw new Error('DB_URI environment variable is required but not set.');
     }

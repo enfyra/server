@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { Collection, ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
 
@@ -46,16 +46,16 @@ export interface IOperationContext {
   sequence: number;
 }
 
-@Injectable()
 export class MongoOperationLogService {
   private readonly logger = new Logger(MongoOperationLogService.name);
   private readonly logCollectionName = 'system_operation_logs';
   private collectionReady = false;
 
-  constructor(
-    @Inject(forwardRef(() => MongoService))
-    private readonly mongoService: MongoService,
-  ) {}
+  private readonly mongoService: MongoService;
+
+  constructor(deps: { mongoService: MongoService }) {
+    this.mongoService = deps.mongoService;
+  }
 
   private async ensureCollection(): Promise<void> {
     if (this.collectionReady) {

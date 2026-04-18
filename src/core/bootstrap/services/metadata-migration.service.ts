@@ -1,5 +1,5 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId, Db } from 'mongodb';
 import {
@@ -11,12 +11,13 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 
-@Injectable()
 export class MetadataMigrationService {
   private readonly logger = new Logger(MetadataMigrationService.name);
+  private readonly queryBuilderService: QueryBuilderService;
   private migrations: SchemaMigrationDef | null = null;
 
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
     this.loadMigrations();
   }
 
@@ -53,8 +54,8 @@ export class MetadataMigrationService {
   }
 
   private getMongoDb(): Db | null {
-    if (!this.queryBuilder.isMongoDb()) return null;
-    return this.queryBuilder.getMongoDb();
+    if (!this.queryBuilderService.isMongoDb()) return null;
+    return this.queryBuilderService.getMongoDb();
   }
 
   async runMigrations(): Promise<void> {
@@ -67,14 +68,12 @@ export class MetadataMigrationService {
       'Running metadata migrations from snapshot-migration.json...',
     );
 
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
 
-    // Drop table metadata
     if (this.migrations!.tablesToDrop?.length > 0) {
       await this.dropTableMetadata(this.migrations!.tablesToDrop, isMongoDB);
     }
 
-    // Apply table migrations
     for (const tableMigration of this.migrations!.tables || []) {
       await this.migrateTableMetadata(tableMigration, isMongoDB);
     }
@@ -95,7 +94,7 @@ export class MetadataMigrationService {
       return { tableId: table._id, tableIdField: 'table' };
     }
 
-    const tableResult = await this.queryBuilder.find({
+    const tableResult = await this.queryBuilderService.find({
       table: 'table_definition',
       filter: { name: { _eq: tableName } },
       limit: 1,
@@ -128,13 +127,13 @@ export class MetadataMigrationService {
             .deleteMany({ table: tableId });
           await db.collection('table_definition').deleteOne({ _id: tableId });
         } else {
-          await this.queryBuilder.delete('relation_definition', {
+          await this.queryBuilderService.delete('relation_definition', {
             where: [{ field: 'sourceTableId', operator: '=', value: tableId }],
           });
-          await this.queryBuilder.delete('column_definition', {
+          await this.queryBuilderService.delete('column_definition', {
             where: [{ field: 'tableId', operator: '=', value: tableId }],
           });
-          await this.queryBuilder.delete('table_definition', {
+          await this.queryBuilderService.delete('table_definition', {
             where: [{ field: 'id', operator: '=', value: tableId }],
           });
         }
@@ -163,7 +162,6 @@ export class MetadataMigrationService {
 
     const { tableId, tableIdField } = found;
 
-    // Handle column modifications
     if (migration.columnsToModify?.length > 0) {
       await this.modifyColumnMetadata(
         tableId,
@@ -173,7 +171,6 @@ export class MetadataMigrationService {
       );
     }
 
-    // Handle column removals
     if (migration.columnsToRemove?.length > 0) {
       await this.removeColumnMetadata(
         tableId,
@@ -183,7 +180,6 @@ export class MetadataMigrationService {
       );
     }
 
-    // Handle relation modifications
     if (migration.relationsToModify?.length > 0) {
       await this.modifyRelationMetadata(
         tableId,
@@ -192,7 +188,6 @@ export class MetadataMigrationService {
       );
     }
 
-    // Handle relation removals
     if (migration.relationsToRemove?.length > 0) {
       await this.removeRelationMetadata(
         tableId,
@@ -235,7 +230,7 @@ export class MetadataMigrationService {
           if (!column) continue;
           columnId = column._id;
         } else {
-          const columnResult = await this.queryBuilder.find({
+          const columnResult = await this.queryBuilderService.find({
             table: 'column_definition',
             filter: {
               [tableIdField]: { _eq: tableId },
@@ -276,7 +271,7 @@ export class MetadataMigrationService {
               .collection('column_definition')
               .updateOne({ _id: columnId }, { $set: updateData });
           } else {
-            await this.queryBuilder.update(
+            await this.queryBuilderService.update(
               'column_definition',
               { where: [{ field: 'id', operator: '=', value: columnId }] },
               updateData,
@@ -311,7 +306,7 @@ export class MetadataMigrationService {
             this.logger.log(`  Removed column metadata: ${colName}`);
           }
         } else {
-          const columnResult = await this.queryBuilder.find({
+          const columnResult = await this.queryBuilderService.find({
             table: 'column_definition',
             filter: {
               [tableIdField]: { _eq: tableId },
@@ -321,7 +316,7 @@ export class MetadataMigrationService {
           });
           if (columnResult.data?.length > 0) {
             const columnId = columnResult.data[0].id;
-            await this.queryBuilder.delete('column_definition', {
+            await this.queryBuilderService.delete('column_definition', {
               where: [{ field: 'id', operator: '=', value: columnId }],
             });
             this.logger.log(`  Removed column metadata: ${colName}`);
@@ -369,7 +364,7 @@ export class MetadataMigrationService {
             propertyName: oldName,
           });
         } else {
-          const relationResult = await this.queryBuilder.find({
+          const relationResult = await this.queryBuilderService.find({
             table: 'relation_definition',
             filter: {
               [sourceTableField]: { _eq: tableId },
@@ -406,7 +401,7 @@ export class MetadataMigrationService {
             updateData.mappedBy = owningRel?._id || null;
           } else if (mod.to.mappedBy && !isMongoDB) {
             const targetTableId = relation.targetTableId;
-            const owningRels = await this.queryBuilder.find({
+            const owningRels = await this.queryBuilderService.find({
               table: 'relation_definition',
               filter: {
                 sourceTableId: { _eq: targetTableId },
@@ -444,7 +439,7 @@ export class MetadataMigrationService {
               .collection('relation_definition')
               .updateOne({ _id: relationId }, { $set: updateData });
           } else {
-            await this.queryBuilder.update(
+            await this.queryBuilderService.update(
               'relation_definition',
               { where: [{ field: 'id', operator: '=', value: relationId }] },
               updateData,
@@ -480,7 +475,7 @@ export class MetadataMigrationService {
             this.logger.log(`  Removed relation metadata: ${relName}`);
           }
         } else {
-          const relationResult = await this.queryBuilder.find({
+          const relationResult = await this.queryBuilderService.find({
             table: 'relation_definition',
             filter: {
               [sourceTableField]: { _eq: tableId },
@@ -490,7 +485,7 @@ export class MetadataMigrationService {
           });
           if (relationResult.data?.length > 0) {
             const relationId = relationResult.data[0].id;
-            await this.queryBuilder.delete('relation_definition', {
+            await this.queryBuilderService.delete('relation_definition', {
               where: [{ field: 'id', operator: '=', value: relationId }],
             });
             this.logger.log(`  Removed relation metadata: ${relName}`);

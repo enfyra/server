@@ -1,19 +1,14 @@
-import {
-  ExceptionFilter,
-  Catch,
-  ArgumentsHost,
-  HttpException,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
+import { HttpException } from '../custom-exceptions';
 import { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
+import { Logger } from '../../../shared/logger';
 import {
   isCustomException,
   getErrorCode,
   ScriptExecutionException,
   ScriptTimeoutException,
 } from '../custom-exceptions';
+
 export interface ErrorResponse {
   success: false;
   message: string;
@@ -28,9 +23,17 @@ export interface ErrorResponse {
     correlationId?: string;
   };
 }
-@Catch()
-export class GlobalExceptionFilter implements ExceptionFilter {
+
+interface ArgumentsHost {
+  switchToHttp(): {
+    getResponse<T = Response>(): T;
+    getRequest<T = Request>(): T;
+  };
+}
+
+export class GlobalExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -65,20 +68,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
     response.status(statusCode).json(errorResponse);
   }
+
   private getErrorDetails(exception: unknown): {
     statusCode: number;
     errorCode: string;
     message: string;
     details?: any;
   } {
-    if (isCustomException(exception)) {
-      return {
-        statusCode: exception.getStatus(),
-        errorCode: exception.errorCode,
-        message: exception.message,
-        details: exception.details,
-      };
-    }
+    // Check HttpException first because it extends CustomException
+    // and has special handling for response objects
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const response = exception.getResponse() as any;
@@ -89,9 +87,17 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         details: response?.details || null,
       };
     }
+    if (isCustomException(exception)) {
+      return {
+        statusCode: exception.statusCode,
+        errorCode: exception.errorCode,
+        message: exception.message,
+        details: exception.details,
+      };
+    }
     if (exception instanceof GraphQLError) {
       return {
-        statusCode: HttpStatus.BAD_REQUEST,
+        statusCode: 400,
         errorCode: 'GRAPHQL_ERROR',
         message: exception.message,
         details: exception.extensions,
@@ -99,7 +105,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
     if (exception instanceof Error) {
       return {
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        statusCode: 500,
         errorCode: 'INTERNAL_SERVER_ERROR',
         message: exception.message || 'An unexpected error occurred',
         details:
@@ -107,12 +113,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     }
     return {
-      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+      statusCode: 500,
       errorCode: 'UNKNOWN_ERROR',
       message: 'An unknown error occurred',
       details: exception,
     };
   }
+
   private getErrorCodeFromStatus(status: number): string {
     const errorCodeMap: Record<number, string> = {
       400: 'BAD_REQUEST',
@@ -128,6 +135,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     };
     return errorCodeMap[status] || 'UNKNOWN_ERROR';
   }
+
   private logError(
     exception: unknown,
     request: Request,
@@ -142,8 +150,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    const errorMessage =
-      exception instanceof Error ? exception.message : String(exception);
+    // Extract message from exception, handling HttpException's response object
+    let errorMessage: string;
+    if (exception instanceof HttpException) {
+      const response = exception.getResponse() as any;
+      const responseMessage = response?.message;
+      errorMessage = typeof responseMessage === 'string' ? responseMessage : exception.message;
+    } else {
+      errorMessage = exception instanceof Error ? exception.message : String(exception);
+    }
+
     const errorName =
       exception instanceof Error ? exception.name : 'UnknownError';
     const logData = {
@@ -172,16 +188,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       });
     }
   }
+
   private isGraphQLContext(host: ArgumentsHost): boolean {
     const request = host.switchToHttp().getRequest();
     return request?.url?.includes('/graphql') === true;
   }
+
   private handleGraphQLError(
     exception: unknown,
     host: ArgumentsHost,
     correlationId: string,
   ): void {
-    this.logger.error('GraphQL Error', { exception, correlationId });
+    this.logger.error('GraphQL Error', exception instanceof Error ? exception.stack : String(exception));
     const response = host.switchToHttp().getResponse();
     const { statusCode, errorCode, message, details } =
       this.getErrorDetails(exception);
@@ -193,6 +211,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       });
     }
   }
+
   private generateCorrelationId(): string {
     return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }

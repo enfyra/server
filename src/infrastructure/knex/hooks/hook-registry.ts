@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
@@ -109,6 +109,14 @@ export class KnexHookRegistry {
     });
     this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata || !tableMetadata.columns) return data;
+
+      const hasCreatedAt = tableMetadata.columns.some((c: any) => c.name === 'createdAt');
+      const hasUpdatedAt = tableMetadata.columns.some((c: any) => c.name === 'updatedAt');
+
+      if (!hasCreatedAt && !hasUpdatedAt) return data;
+
       const now = this.knexInstance.raw('CURRENT_TIMESTAMP');
       if (Array.isArray(data)) {
         return data.map((record) => {
@@ -121,7 +129,10 @@ export class KnexHookRegistry {
             UpdatedAt,
             ...cleanRecord
           } = record;
-          return { ...cleanRecord, createdAt: now, updatedAt: now };
+          const result: any = { ...cleanRecord };
+          if (hasCreatedAt) result.createdAt = now;
+          if (hasUpdatedAt) result.updatedAt = now;
+          return result;
         });
       }
       const {
@@ -133,7 +144,10 @@ export class KnexHookRegistry {
         UpdatedAt,
         ...cleanData
       } = data;
-      return { ...cleanData, createdAt: now, updatedAt: now };
+      const result: any = { ...cleanData };
+      if (hasCreatedAt) result.createdAt = now;
+      if (hasUpdatedAt) result.updatedAt = now;
+      return result;
     });
     this.addHook('afterInsert', async (tableName, result) => {
       await this.handleCascadeRelations(tableName, result, cascadeContextMap);
@@ -195,6 +209,12 @@ export class KnexHookRegistry {
     });
     this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
+      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      if (!tableMetadata || !tableMetadata.columns) return data;
+
+      const hasUpdatedAt = tableMetadata.columns.some((c: any) => c.name === 'updatedAt');
+      if (!hasUpdatedAt) return data;
+
       return { ...data, updatedAt: this.knexInstance.raw('CURRENT_TIMESTAMP') };
     });
     this.addHook('afterUpdate', async (tableName: string, result: any) => {

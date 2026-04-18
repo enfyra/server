@@ -5,7 +5,7 @@
  * Multi-instance tests simulate two orchestrator instances sharing a mock pub/sub bus.
  */
 
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../src/shared/types/cache.types';
 

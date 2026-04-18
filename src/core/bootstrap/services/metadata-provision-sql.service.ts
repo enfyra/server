@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
@@ -7,21 +7,26 @@ import {
   getForeignKeyColumnName,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
-import { parseSnapshotToSchema } from '../../../../scripts/utils/sql/schema-parser';
-import { syncTable } from '../../../../scripts/utils/sql/migrations';
-import { syncJunctionTables } from '../../../../scripts/utils/sql/junction-tables';
+import { parseSnapshotToSchema } from '../../../infrastructure/knex/utils/provision/schema-parser';
+import { syncTable } from '../../../infrastructure/knex/utils/provision/sync-table';
+import { syncJunctionTables } from '../../../infrastructure/knex/utils/provision/junction-tables';
+import { createAllTables } from '../../../infrastructure/knex/utils/provision/table-builder';
 
-@Injectable()
 export class MetadataProvisionSqlService {
   private readonly logger = new Logger(MetadataProvisionSqlService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly schemaMigrationService: SqlSchemaMigrationService;
   private readonly dbType: string;
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly databaseConfig: DatabaseConfigService,
-    @Inject(forwardRef(() => SqlSchemaMigrationService))
-    private readonly schemaMigrationService: SqlSchemaMigrationService,
-  ) {
-    this.dbType = this.databaseConfig.getDbType();
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    databaseConfigService: DatabaseConfigService;
+    sqlSchemaMigrationService: SqlSchemaMigrationService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this.schemaMigrationService = deps.sqlSchemaMigrationService;
+    this.dbType = this.databaseConfigService.getDbType();
   }
   private async insertAndGetId(
     trx: any,
@@ -36,18 +41,100 @@ export class MetadataProvisionSqlService {
       return id;
     }
   }
+  private async ensureCoreTables(): Promise<void> {
+    const qb = this.queryBuilderService.getConnection();
+    const coreTables = ['table_definition', 'column_definition', 'relation_definition'];
+
+    for (const tableName of coreTables) {
+      const exists = await qb.schema.hasTable(tableName);
+      if (!exists) {
+        this.logger.log(`Creating core table: ${tableName}`);
+        if (tableName === 'table_definition') {
+          await qb.schema.createTable(tableName, (table) => {
+            table.increments('id').primary();
+            table.string('name').notNullable().unique();
+            table.boolean('isSystem').notNullable().defaultTo(false);
+            table.boolean('isSingleRecord').notNullable().defaultTo(false);
+            table.json('uniques').nullable();
+            table.json('indexes').nullable();
+            table.string('alias').nullable().unique();
+            table.text('description').nullable();
+            table.json('metadata').nullable();
+            table.timestamp('createdAt').defaultTo(qb.fn.now());
+            table.timestamp('updatedAt').defaultTo(qb.fn.now());
+          });
+        } else if (tableName === 'column_definition') {
+          await qb.schema.createTable(tableName, (table) => {
+            table.increments('id').primary();
+            table.integer('tableId').notNullable().unsigned().references('id').inTable('table_definition').onDelete('CASCADE');
+            table.string('name').notNullable();
+            table.string('type').notNullable();
+            table.boolean('isPrimary').notNullable().defaultTo(false);
+            table.boolean('isGenerated').notNullable().defaultTo(false);
+            table.boolean('isNullable').notNullable().defaultTo(true);
+            table.boolean('isSystem').notNullable().defaultTo(false);
+            table.boolean('isUpdatable').notNullable().defaultTo(true);
+            table.boolean('isPublished').notNullable().defaultTo(true);
+            table.text('defaultValue').nullable();
+            table.text('options').nullable();
+            table.text('description').nullable();
+            table.text('placeholder').nullable();
+            table.unique(['tableId', 'name']);
+            table.timestamp('createdAt').defaultTo(qb.fn.now());
+            table.timestamp('updatedAt').defaultTo(qb.fn.now());
+          });
+        } else if (tableName === 'relation_definition') {
+          await qb.schema.createTable(tableName, (table) => {
+            table.increments('id').primary();
+            table.integer('sourceTableId').notNullable().unsigned().references('id').inTable('table_definition').onDelete('CASCADE');
+            table.integer('targetTableId').nullable().unsigned().references('id').inTable('table_definition').onDelete('SET NULL');
+            table.integer('mappedById').nullable().unsigned().references('id').inTable('relation_definition').onDelete('CASCADE');
+            table.string('type').notNullable();
+            table.string('propertyName').notNullable();
+            table.boolean('isNullable').notNullable().defaultTo(true);
+            table.string('onDelete').notNullable().defaultTo('SET NULL');
+            table.boolean('isSystem').notNullable().defaultTo(false);
+            table.boolean('isPublished').notNullable().defaultTo(true);
+            table.text('description').nullable();
+            table.string('junctionTableName').nullable();
+            table.string('junctionSourceColumn').nullable();
+            table.string('junctionTargetColumn').nullable();
+            table.json('metadata').nullable();
+            table.boolean('isUpdatable').notNullable().defaultTo(true);
+            table.unique(['sourceTableId', 'propertyName']);
+            table.unique(['mappedById']);
+            table.timestamp('createdAt').defaultTo(qb.fn.now());
+            table.timestamp('updatedAt').defaultTo(qb.fn.now());
+          });
+        }
+      }
+    }
+  }
+
   async createInitMetadata(snapshot: any): Promise<void> {
-    const qb = this.queryBuilder.getConnection();
+    const qb = this.queryBuilderService.getConnection();
+    await this.ensureCoreTables();
     await qb.transaction(async (trx) => {
       const tableNameToId: Record<string, number> = {};
       this.logger.log('Phase 1: Processing table definitions...');
       const tableEntries = Object.entries(snapshot);
-      const existingTables: any[] = await trx('table_definition').select('*');
+      let existingTables: any[] = [];
+      try {
+        existingTables = await trx('table_definition').select('*');
+      } catch (error: any) {
+        if (error.code !== 'ER_NO_SUCH_TABLE') {
+          throw error;
+        }
+      }
       const existingTableMap = new Map<string, any>(
         existingTables.map((t: any) => [t.name, t]),
       );
       for (const [name, defRaw] of tableEntries) {
         const def = defRaw as any;
+        if (!def.name) {
+          this.logger.error(`Table definition has no 'name' property: ${JSON.stringify(Object.keys(def))}`);
+          continue;
+        }
         const exist = existingTableMap.get(def.name);
         if (exist) {
           tableNameToId[name] = exist.id;
@@ -66,6 +153,10 @@ export class MetadataProvisionSqlService {
           }
         } else {
           const { columns, relations, ...rest } = def;
+          if (!rest.name) {
+            this.logger.error(`Table definition missing 'name' field: ${JSON.stringify(rest)}`);
+            continue;
+          }
           const insertedId = await this.insertAndGetId(
             trx,
             'table_definition',
@@ -87,7 +178,14 @@ export class MetadataProvisionSqlService {
       );
 
       this.logger.log('Phase 2: Processing column definitions...');
-      const allColumns = await trx('column_definition').select('*');
+      let allColumns: any[] = [];
+      try {
+        allColumns = await trx('column_definition').select('*');
+      } catch (error: any) {
+        if (error.code !== 'ER_NO_SUCH_TABLE') {
+          throw error;
+        }
+      }
       const columnsByTable = new Map<number, Map<string, any>>();
       for (const col of allColumns) {
         if (!columnsByTable.has(col.tableId))
@@ -136,7 +234,14 @@ export class MetadataProvisionSqlService {
       this.logger.log('Phase 2 done');
 
       this.logger.log('Phase 3: Processing relation definitions...');
-      const allRelations = await trx('relation_definition').select('*');
+      let allRelations: any[] = [];
+      try {
+        allRelations = await trx('relation_definition').select('*');
+      } catch (error: any) {
+        if (error.code !== 'ER_NO_SUCH_TABLE') {
+          throw error;
+        }
+      }
       const relationsBySourceTable = new Map<number, any[]>();
       for (const rel of allRelations) {
         if (!relationsBySourceTable.has(rel.sourceTableId))
@@ -167,8 +272,10 @@ export class MetadataProvisionSqlService {
           if (!rel.propertyName || !rel.targetTable || !rel.type) continue;
           const targetId = tableNameToId[rel.targetTable];
           if (!targetId) continue;
-          owningRelations.push({ tableName: name, tableId, relation: rel });
           if (rel.inversePropertyName) {
+            if (rel.type !== 'one-to-many') {
+              owningRelations.push({ tableName: name, tableId, relation: rel });
+            }
             let inverseType = rel.type;
             if (rel.type === 'many-to-one') inverseType = 'one-to-many';
             else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
@@ -194,6 +301,8 @@ export class MetadataProvisionSqlService {
               owningTableName: name,
               owningPropertyName: rel.propertyName,
             });
+          } else {
+            owningRelations.push({ tableName: name, tableId, relation: rel });
           }
         }
       }
@@ -342,6 +451,27 @@ export class MetadataProvisionSqlService {
             await trx('relation_definition')
               .where('id', snapshotRelId)
               .update({ mappedById: generatedId });
+          } else if (!snapshotRelId && generatedId) {
+            const reverseRelType = 'one-to-many';
+            const originalRel = allRelations.find(
+              (r: any) =>
+                r.sourceTableId === tableNameToId[owningTableName] &&
+                r.propertyName === owningPropertyName &&
+                r.targetTableId === tableId,
+            );
+            if (!originalRel) {
+              await upsertRelation(
+                owningTableName,
+                tableNameToId[owningTableName]!,
+                {
+                  propertyName: owningPropertyName,
+                  type: reverseRelType,
+                  targetTable: tableName,
+                },
+                generatedId,
+                true,
+              );
+            }
           }
         } else {
           if (rel.type === 'many-to-many' && snapshotRelId) {
@@ -365,15 +495,105 @@ export class MetadataProvisionSqlService {
     this.logger.log('Physical schema sync completed');
   }
   private async syncPhysicalSchemaFromMetadata(snapshot: any): Promise<void> {
-    const qb = this.queryBuilder.getConnection();
+    const qb = this.queryBuilderService.getConnection();
     const schemas = parseSnapshotToSchema(snapshot);
+
+    await createAllTables(qb, schemas, this.dbType);
+
     for (const schema of schemas) {
-      const exists = await qb.schema.hasTable(schema.tableName);
-      if (exists) {
-        await syncTable(qb, schema, schemas);
+      await syncTable(qb, schema, schemas);
+    }
+
+    await syncJunctionTables(qb, schemas);
+  }
+
+  private addColumnToTable(tableBuilder: any, col: any): void {
+    let column: any;
+    const knexType = this.getKnexColumnType(col);
+    switch (knexType) {
+      case 'integer':
+        column = tableBuilder.integer(col.name);
+        break;
+      case 'bigint':
+        column = tableBuilder.bigInteger(col.name);
+        break;
+      case 'string':
+        column = tableBuilder.string(col.name, 255);
+        break;
+      case 'text':
+        column = tableBuilder.text(col.name);
+        break;
+      case 'boolean':
+        column = tableBuilder.boolean(col.name);
+        break;
+      case 'uuid':
+        column = tableBuilder.uuid(col.name);
+        if (col.isGenerated && col.isPrimary) {
+          column = column.defaultTo(this.queryBuilderService.getConnection().raw('(UUID())'));
+        }
+        break;
+      case 'timestamp':
+      case 'datetime':
+        column = tableBuilder.timestamp(col.name);
+        break;
+      case 'simple-json':
+        column = tableBuilder.text(col.name, 'longtext');
+        break;
+      case 'enum':
+        column = tableBuilder.enum(col.name, col.options || []);
+        break;
+      case 'decimal':
+        column = tableBuilder.decimal(col.name, col.precision || 10, col.scale || 2);
+        break;
+      case 'float':
+        column = tableBuilder.float(col.name);
+        break;
+      default:
+        column = tableBuilder.specificType(col.name, col.type);
+    }
+
+    if (col.isPrimary) {
+      column = column.primary();
+    }
+    if (col.isNullable === false && !col.isGenerated) {
+      column = column.notNullable();
+    }
+    if (col.defaultValue !== null && col.defaultValue !== undefined) {
+      if (col.defaultValue === 'now') {
+        if (col.type === 'timestamp' || col.type === 'datetime') {
+          column = column.defaultTo(this.queryBuilderService.getConnection().raw('CURRENT_TIMESTAMP'));
+        } else if (col.type === 'date') {
+          column = column.defaultTo('2099-12-31');
+        }
+      } else {
+        column = column.defaultTo(col.defaultValue);
       }
     }
-    await syncJunctionTables(qb, schemas);
+    if (col.isUnique) {
+      column = column.unique();
+    }
+  }
+
+  private getKnexColumnType(col: any): string {
+    const typeMap: Record<string, string> = {
+      varchar: 'string',
+      int: 'integer',
+      bigint: 'bigint',
+      text: 'text',
+      boolean: 'boolean',
+      uuid: 'uuid',
+      timestamp: 'timestamp',
+      datetime: 'datetime',
+      'simple-json': 'simple-json',
+      enum: 'enum',
+      'array-select': 'simple-json',
+      decimal: 'decimal',
+      float: 'float',
+      date: 'date',
+      code: 'text',
+      richtext: 'text',
+    };
+    return typeMap[col.type] || col.type;
   }
   private detectTableChanges(snapshotTable: any, existingTable: any): boolean {
     const parseJson = (val: any) => {

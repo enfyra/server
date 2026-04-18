@@ -1,92 +1,83 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { GraphqlService } from './modules/graphql/services/graphql.service';
-import { AppModule } from './app.module';
-import { initializeDatabase } from '../scripts/init-db';
-import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
-import { AppLogger } from './shared/utils/app-logger';
+import 'reflect-metadata';
+import { buildContainer } from './container';
+import { bootstrap, shutdown } from './bootstrap';
+import { buildExpressApp } from './express-app';
+import { env } from './env';
+import { Logger } from './shared/logger';
 
-async function bootstrap() {
+async function main() {
+  process.stdout.write('\x1Bc');
   const startTime = Date.now();
-  const logger = new Logger('Main');
+  const logger = new Logger('Server');
+
   logger.log('Starting Cold Start');
-  try {
-    const initStart = Date.now();
-    await initializeDatabase();
-    logger.log(`DB Init: ${Date.now() - initStart}ms`);
-  } catch (err) {
-    logger.error('Error during initialization:', err);
+
+  const containerStart = Date.now();
+  const container = buildContainer();
+  logger.log(`Container built: ${Date.now() - containerStart}ms`);
+
+  const bootstrapStart = Date.now();
+  await bootstrap(container);
+  logger.log(`Bootstrap completed: ${Date.now() - bootstrapStart}ms`);
+
+  const appStart = Date.now();
+  const app = buildExpressApp(container);
+
+  const server = app.listen(env.PORT, '0.0.0.0', () => {
+    logger.log(`HTTP Listen: ${Date.now() - appStart}ms`);
+    logger.log(`Cold Start completed! Total: ${Date.now() - startTime}ms`);
+  });
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error(`Port ${env.PORT} is already in use. Another server instance may be running.`);
+      process.exit(1);
+    }
+    logger.error('HTTP server error', err);
     process.exit(1);
+  });
+
+  const gateway = container.cradle.dynamicWebSocketGateway;
+  if (gateway) {
+    const { Server } = require('socket.io');
+    const io = new Server(server, {
+      cors: { origin: true, credentials: true },
+    });
+    gateway.server = io;
+    gateway.afterInit(io);
   }
-  const nestStart = Date.now();
-  const app = await NestFactory.create(AppModule, {
-    bodyParser: false,
-    logger: new AppLogger(),
-  });
-  const expressApp = app.getHttpAdapter().getInstance();
-  const qs = require('qs');
-  expressApp.set('query parser', (str: string) => {
-    return qs.parse(str, {
-      allowPrototypes: false,
-      depth: 10,
-      parameterLimit: 1000,
-      strictNullHandling: false,
-      arrayLimit: 200,
+
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, async () => {
+      logger.log(`Received ${sig}, shutting down gracefully...`);
+
+      let shutdownHandled = false;
+      const handleShutdown = (force = false) => {
+        if (shutdownHandled) return;
+        shutdownHandled = true;
+        if (force) {
+          logger.warn('Forcing shutdown after timeout');
+        }
+        shutdown(container).then(() => {
+          logger.log('Shutdown complete');
+          process.exit(0);
+        }).catch((error) => {
+          logger.error('Shutdown error:', error);
+          process.exit(1);
+        });
+      };
+
+      server.close(() => {
+        logger.log('HTTP server closed');
+        handleShutdown(false);
+      });
+
+      setTimeout(() => handleShutdown(true), 5000);
     });
-  });
-  logger.log(`NestJS Create: ${Date.now() - nestStart}ms`);
-  try {
-    const graphqlService = app.get(GraphqlService);
-    const expressApp = app.getHttpAdapter().getInstance();
-    expressApp.use('/graphql', (req, res, next) => {
-      return graphqlService.getYogaInstance()(req, res, next);
-    });
-    logger.log('GraphQL endpoint mounted at /graphql');
-  } catch (error) {
-    logger.warn('GraphQL endpoint not available:', error.message);
   }
-  const configService = app.get(ConfigService);
-  app.enableShutdownHooks();
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
-  const eventEmitter = app.get(EventEmitter2);
-
-  const systemReadyPromise = new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      logger.warn('Boot timeout after 60s. SYSTEM_READY not received.');
-      resolve();
-    }, 60000);
-
-    eventEmitter.once(CACHE_EVENTS.SYSTEM_READY, () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-  });
-
-  const appInitStart = Date.now();
-  await app.init();
-  logger.log(`App Init (Bootstrap): ${Date.now() - appInitStart}ms`);
-
-  const readyStart = Date.now();
-  await systemReadyPromise;
-  logger.log(`System caches ready: ${Date.now() - readyStart}ms`);
-
-  const listenStart = Date.now();
-  await app.listen(configService.get('PORT') || 1105);
-  logger.log(`HTTP Listen: ${Date.now() - listenStart}ms`);
-
-  const totalTime = Date.now() - startTime;
-  logger.log(`Cold Start completed! Total time: ${totalTime}ms`);
 }
-bootstrap();
+
+main().catch((err) => {
+  console.error('Fatal:', err);
+  process.exit(1);
+});

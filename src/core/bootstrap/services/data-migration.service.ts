@@ -1,5 +1,5 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -16,12 +16,13 @@ const RELATION_FIELD_PREFIXES = [
   'availableMethods',
 ];
 
-@Injectable()
 export class DataMigrationService {
   private readonly logger = new Logger(DataMigrationService.name);
+  private readonly queryBuilderService: QueryBuilderService;
   private initOld: InitOld | null = null;
 
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
     this.loadInitOld();
   }
 
@@ -94,7 +95,7 @@ export class DataMigrationService {
     this.logger.log(`Deleting data from ${tableNames.length} table(s)...`);
     for (const tableName of tableNames) {
       try {
-        await this.queryBuilder.delete(tableName, { where: [] });
+        await this.queryBuilderService.delete(tableName, { where: [] });
         this.logger.log(`Deleted all data from ${tableName}`);
       } catch (error) {
         this.logger.warn(
@@ -107,12 +108,12 @@ export class DataMigrationService {
   private async deleteRecords(
     records: { table: string; filter: Record<string, any> }[],
   ): Promise<void> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
     for (const { table, filter } of records) {
       try {
-        const existing = await this.queryBuilder.find({
+        const existing = await this.queryBuilderService.find({
           table: table,
           filter,
           limit: -1,
@@ -120,7 +121,7 @@ export class DataMigrationService {
         });
 
         for (const row of existing.data || []) {
-          await this.queryBuilder.delete(table, row[idField]);
+          await this.queryBuilderService.delete(table, row[idField]);
         }
 
         const count = existing.data?.length || 0;
@@ -141,7 +142,7 @@ export class DataMigrationService {
   ): Promise<number> {
     const recordsArray = Array.isArray(records) ? records : [records];
     let migratedCount = 0;
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
     for (const oldRecord of recordsArray) {
@@ -154,7 +155,7 @@ export class DataMigrationService {
           continue;
         }
 
-        const existing = await this.queryBuilder.find({
+        const existing = await this.queryBuilderService.find({
           table: tableName,
           filter: uniqueFilter,
           limit: 1,
@@ -174,7 +175,7 @@ export class DataMigrationService {
           oldRecord,
         );
 
-        await this.queryBuilder.update(
+        await this.queryBuilderService.update(
           tableName,
           { where: [{ field: idField, operator: '=', value: existingId }] },
           newRecord,
@@ -229,9 +230,9 @@ export class DataMigrationService {
           field === 'skipRoleGuardMethods' ||
           field === 'availableMethods'
         ) {
-          const isMongoDB = this.queryBuilder.isMongoDb();
+          const isMongoDB = this.queryBuilderService.isMongoDb();
           const idField = DatabaseConfigService.getPkField();
-          const result = await this.queryBuilder.find({
+          const result = await this.queryBuilderService.find({
             table: 'method_definition',
             filter: { method: { _in: methodNames as string[] } },
             fields: [idField],
@@ -239,7 +240,7 @@ export class DataMigrationService {
           const methodIds = result.data
             .map((m: any) => m._id || m.id)
             .filter(Boolean);
-          await this.queryBuilder.update('route_definition', recordId, {
+          await this.queryBuilderService.update('route_definition', recordId, {
             [field]: methodIds,
           });
           if (methodIds.length > 0) {

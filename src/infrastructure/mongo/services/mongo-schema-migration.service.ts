@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
@@ -14,19 +14,26 @@ type BsonType =
   | 'objectId'
   | 'object'
   | 'array';
-@Injectable()
 export class MongoSchemaMigrationService {
   private readonly logger = new Logger(MongoSchemaMigrationService.name);
-  constructor(
-    private readonly mongoService: MongoService,
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCacheService: MetadataCacheService,
-    @Inject(forwardRef(() => QueryBuilderService))
-    private readonly queryBuilderService: QueryBuilderService,
-    @Inject(forwardRef(() => MongoMigrationJournalService))
-    private readonly journalService: MongoMigrationJournalService,
-    private readonly schemaDiffService: MongoSchemaDiffService,
-  ) {}
+  private readonly mongoService: MongoService;
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly migrationJournalService: MongoMigrationJournalService;
+  private readonly schemaDiffService: MongoSchemaDiffService;
+  constructor(deps: {
+    mongoService: MongoService;
+    metadataCacheService: MetadataCacheService;
+    queryBuilderService: QueryBuilderService;
+    mongoMigrationJournalService: MongoMigrationJournalService;
+    mongoSchemaDiffService: MongoSchemaDiffService;
+  }) {
+    this.mongoService = deps.mongoService;
+    this.metadataCacheService = deps.metadataCacheService;
+    this.queryBuilderService = deps.queryBuilderService;
+    this.migrationJournalService = deps.mongoMigrationJournalService;
+    this.schemaDiffService = deps.mongoSchemaDiffService;
+  }
   private sqlTypeToBsonType(type: string): BsonType {
     const typeMap: Record<string, BsonType> = {
       string: 'string',
@@ -155,11 +162,9 @@ export class MongoSchemaMigrationService {
           `indexes(+${diff.indexes.create.length}/-${diff.indexes.delete.length}/=${diff.indexes.unchanged.length}), ` +
           `junctions(+${diff.junctionCollections.create.length}/-${diff.junctionCollections.drop.length}/ren:${diff.junctionCollections.rename.length})`,
       );
-
-      // Record in journal
       let journalUuid: string | undefined;
       try {
-        journalUuid = await this.journalService.record({
+        journalUuid = await this.migrationJournalService.record({
           tableName: collectionName,
           operation: 'update',
           upDiff: diff,
@@ -167,13 +172,12 @@ export class MongoSchemaMigrationService {
           beforeSnapshot: oldMetadata,
           rawBeforeSnapshot: rawBeforeSnapshot || null,
         });
-        await this.journalService.markRunning(journalUuid);
+        await this.migrationJournalService.markRunning(journalUuid);
       } catch (journalErr: any) {
         this.logger.warn(
           `Journal record failed (non-fatal): ${journalErr.message}`,
         );
       }
-
       try {
         await this.schemaDiffService.executeMongoSchemaDiff(
           collectionName,
@@ -182,14 +186,14 @@ export class MongoSchemaMigrationService {
           newMetadata,
         );
         if (journalUuid) {
-          await this.journalService.markCompleted(journalUuid).catch(() => {});
+          await this.migrationJournalService.markCompleted(journalUuid).catch(() => {});
         }
       } catch (execError) {
         if (journalUuid) {
           this.logger.warn(
             `Migration failed, executing rollback for ${journalUuid}`,
           );
-          await this.journalService
+          await this.migrationJournalService
             .executeRolldown(journalUuid, (downDiffInner) =>
               this.schemaDiffService.executeMongoSchemaDiff(
                 collectionName,
@@ -209,7 +213,6 @@ export class MongoSchemaMigrationService {
       throw error;
     }
   }
-
   private async handleMetadataUpdates(
     collectionName: string,
     oldMetadata: any,
@@ -217,38 +220,30 @@ export class MongoSchemaMigrationService {
   ): Promise<void> {
     const columnRenames: Map<string, string> = new Map();
     const propertyNameRenames: Map<string, string> = new Map();
-
-    // Detect column renames
     const oldColMap = new Map<number, any>(
       (oldMetadata.columns || []).map((c: any) => [c.id, c]),
     );
     const newColMap = new Map<number, any>(
       (newMetadata.columns || []).map((c: any) => [c.id, c]),
     );
-
     for (const [colId, newCol] of newColMap) {
       const oldCol = oldColMap.get(colId as number);
       if (oldCol && oldCol.name !== newCol.name) {
         columnRenames.set(oldCol.name, newCol.name);
       }
     }
-
-    // Detect relation propertyName renames
     const oldRelMap = new Map<number, any>(
       (oldMetadata.relations || []).map((r: any) => [r.id, r]),
     );
     const newRelMap = new Map<number, any>(
       (newMetadata.relations || []).map((r: any) => [r.id, r]),
     );
-
     for (const [relId, newRel] of newRelMap) {
       const oldRel = oldRelMap.get(relId as number);
       if (oldRel && oldRel.propertyName !== newRel.propertyName) {
         propertyNameRenames.set(oldRel.propertyName, newRel.propertyName);
       }
     }
-
-    // Update uniques and indexes if there are renames
     if (columnRenames.size > 0 || propertyNameRenames.size > 0) {
       let updatedUniques = this.schemaDiffService.updateConstraintColumns(
         oldMetadata.uniques || [],
@@ -258,7 +253,6 @@ export class MongoSchemaMigrationService {
         updatedUniques,
         propertyNameRenames,
       );
-
       let updatedIndexes = this.schemaDiffService.updateConstraintColumns(
         oldMetadata.indexes || [],
         columnRenames,
@@ -267,7 +261,6 @@ export class MongoSchemaMigrationService {
         updatedIndexes,
         propertyNameRenames,
       );
-
       const metadataUpdate: any = {};
       if (
         JSON.stringify(updatedUniques) !==
@@ -281,13 +274,11 @@ export class MongoSchemaMigrationService {
       ) {
         metadataUpdate.indexes = updatedIndexes;
       }
-
       if (Object.keys(metadataUpdate).length > 0) {
         await this.persistMetadataUpdates(collectionName, metadataUpdate);
       }
     }
   }
-
   private async persistMetadataUpdates(
     collectionName: string,
     updates: any,
@@ -300,9 +291,7 @@ export class MongoSchemaMigrationService {
       if (updates.indexes !== undefined) {
         updateData.indexes = updates.indexes;
       }
-
       if (Object.keys(updateData).length === 0) return;
-
       await this.queryBuilderService.update(
         'table_definition',
         { where: [{ field: 'name', operator: '=', value: collectionName }] },
@@ -314,7 +303,6 @@ export class MongoSchemaMigrationService {
       );
     }
   }
-
   async dropCollection(collectionName: string): Promise<void> {
     const db = this.mongoService.getDb();
     try {
@@ -335,7 +323,6 @@ export class MongoSchemaMigrationService {
       throw error;
     }
   }
-
   async ensureJunctionCollection(
     junctionName: string,
     sourceColumn: string,
@@ -347,18 +334,15 @@ export class MongoSchemaMigrationService {
       targetColumn,
     );
   }
-
   async dropJunctionCollection(junctionName: string): Promise<void> {
     return this.schemaDiffService.dropJunctionCollection(junctionName);
   }
-
   async renameJunctionCollection(
     oldName: string,
     newName: string,
   ): Promise<void> {
     return this.schemaDiffService.renameJunctionCollection(oldName, newName);
   }
-
   private async createIndexes(
     collectionName: string,
     columns: any[],
@@ -370,13 +354,11 @@ export class MongoSchemaMigrationService {
     const collection = db.collection(collectionName);
     const autoGeneratedIndexes: string[][] = [];
     const indexedFields = new Set<string>();
-
     for (const index of indexes) {
       for (const field of index) {
         indexedFields.add(field);
       }
     }
-
     try {
       for (const col of columns) {
         if (col.name === '_id') {
@@ -465,10 +447,8 @@ export class MongoSchemaMigrationService {
         `Failed to create some indexes for ${collectionName}: ${error.message}`,
       );
     }
-
     return autoGeneratedIndexes;
   }
-
   async restoreMetadataFromRawSnapshot(entry: any): Promise<void> {
     const snapshot = entry.rawBeforeSnapshot;
     if (!snapshot || !snapshot.table) {
@@ -477,34 +457,24 @@ export class MongoSchemaMigrationService {
       );
       return;
     }
-
     const { ObjectId } = require('mongodb');
     const db = this.mongoService.getDb();
     const tableId = snapshot.table._id;
     const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
-
     this.logger.warn(
       `Restoring metadata from raw snapshot for table ${snapshot.table.name} (${oid})`,
     );
-
-    // 1. Restore table document
     await db
       .collection('table_definition')
       .replaceOne({ _id: oid }, snapshot.table, { upsert: true });
-
-    // 2. Restore columns (delete current, insert from snapshot)
     await db.collection('column_definition').deleteMany({ table: oid });
     if (snapshot.columns && snapshot.columns.length > 0) {
       await db.collection('column_definition').insertMany(snapshot.columns);
     }
-
-    // 3. Restore source relations (delete current, insert from snapshot)
     await db.collection('relation_definition').deleteMany({ sourceTable: oid });
     if (snapshot.relations && snapshot.relations.length > 0) {
       await db.collection('relation_definition').insertMany(snapshot.relations);
     }
-
-    // 4. Clean up auto-created inverse relations on other tables
     const currentSourceRels = await db
       .collection('relation_definition')
       .find({ sourceTable: oid })
@@ -528,8 +498,6 @@ export class MongoSchemaMigrationService {
         }
       }
     }
-
-    // 5. Re-insert snapshot inverse relations (if any were deleted during migration)
     for (const invRel of snapshot.inverseRelations || []) {
       const exists = await db
         .collection('relation_definition')
@@ -538,7 +506,6 @@ export class MongoSchemaMigrationService {
         await db.collection('relation_definition').insertOne(invRel);
       }
     }
-
     this.logger.warn(
       `Metadata restore completed for table ${snapshot.table.name}`,
     );

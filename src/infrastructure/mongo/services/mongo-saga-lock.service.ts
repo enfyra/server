@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Collection, Db, ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
@@ -48,7 +48,6 @@ export interface IOrphanMarkerRecoveryPlan {
   needsRollbackFirst: boolean;
 }
 
-@Injectable()
 export class MongoSagaLockService {
   private readonly logger = new Logger(MongoSagaLockService.name);
   private readonly locksCollectionName = 'system_transaction_locks';
@@ -59,11 +58,10 @@ export class MongoSagaLockService {
   private readonly retryDelayMs = 100;
   private collectionReady = false;
   private readonly instanceId: string;
+  private readonly mongoService: MongoService;
 
-  constructor(
-    @Inject(forwardRef(() => MongoService))
-    private readonly mongoService: MongoService,
-  ) {
+  constructor(deps: { mongoService: MongoService }) {
+    this.mongoService = deps.mongoService;
     this.instanceId = this.buildInstanceId();
   }
 

@@ -1,11 +1,5 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-  OnModuleInit,
-} from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { Logger } from '../../../shared/logger';
+import { EventEmitter2 } from 'eventemitter2';
 import { RedisPubSubService } from './redis-pubsub.service';
 import { InstanceService } from '../../../shared/services/instance.service';
 import { MetadataCacheService } from './metadata-cache.service';
@@ -26,6 +20,7 @@ import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 import { GraphqlService } from '../../../modules/graphql/services/graphql.service';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
+import { LifecycleAware } from '../../../shared/lifecycle';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -100,98 +95,119 @@ const RELOAD_CHAINS: Record<string, string[]> = {
   gql_definition: ['graphql'],
 };
 
-@Injectable()
-export class CacheOrchestratorService
-  implements OnModuleInit, OnApplicationBootstrap
-{
+export class CacheOrchestratorService implements LifecycleAware {
   private readonly logger = new Logger(`${COLOR}CacheOrchestrator${RESET}`);
+  private readonly redisPubSubService: RedisPubSubService;
+  private readonly instanceService: InstanceService;
+  private readonly eventEmitter: EventEmitter2;
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly routeCacheService: RouteCacheService;
+  private readonly guardCacheService: GuardCacheService;
+  private readonly flowCacheService: FlowCacheService;
+  private readonly websocketCacheService: WebsocketCacheService;
+  private readonly packageCacheService: PackageCacheService;
+  private readonly settingCacheService: SettingCacheService;
+  private readonly storageConfigCacheService: StorageConfigCacheService;
+  private readonly oauthConfigCacheService: OAuthConfigCacheService;
+  private readonly folderTreeCacheService: FolderTreeCacheService;
+  private readonly fieldPermissionCacheService: FieldPermissionCacheService;
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly graphqlService: GraphqlService;
+  private readonly bootstrapScriptService: BootstrapScriptService;
+  private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
   private stepMap: Record<string, ReloadStep>;
-  private graphqlService: any;
-  private bootstrapScriptService: any;
-  private websocketGateway: any;
   private messageHandler: ((channel: string, message: string) => void) | null =
     null;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceResolvers: Array<() => void> = [];
   private pendingPayload: TCacheInvalidationPayload | null = null;
+  private reloadLock: Promise<void> | null = null;
+  private processedVersions: Set<string> = new Set();
 
-  constructor(
-    private readonly moduleRef: ModuleRef,
-    private readonly redisPubSubService: RedisPubSubService,
-    private readonly instanceService: InstanceService,
-    private readonly eventEmitter: EventEmitter2,
-    private readonly metadataCache: MetadataCacheService,
-    private readonly routeCache: RouteCacheService,
-    private readonly guardCache: GuardCacheService,
-    private readonly flowCache: FlowCacheService,
-    private readonly websocketCache: WebsocketCacheService,
-    private readonly packageCache: PackageCacheService,
-    private readonly settingCache: SettingCacheService,
-    private readonly storageCache: StorageConfigCacheService,
-    private readonly oauthCache: OAuthConfigCacheService,
-    private readonly folderCache: FolderTreeCacheService,
-    private readonly fieldPermissionCache: FieldPermissionCacheService,
-    private readonly repoRegistry: RepoRegistryService,
-  ) {
+  constructor(deps: {
+    redisPubSubService: RedisPubSubService;
+    instanceService: InstanceService;
+    eventEmitter: EventEmitter2;
+    metadataCacheService: MetadataCacheService;
+    routeCacheService: RouteCacheService;
+    guardCacheService: GuardCacheService;
+    flowCacheService: FlowCacheService;
+    websocketCacheService: WebsocketCacheService;
+    packageCacheService: PackageCacheService;
+    settingCacheService: SettingCacheService;
+    storageConfigCacheService: StorageConfigCacheService;
+    oauthConfigCacheService: OAuthConfigCacheService;
+    folderTreeCacheService: FolderTreeCacheService;
+    fieldPermissionCacheService: FieldPermissionCacheService;
+    repoRegistryService: RepoRegistryService;
+    graphqlService: GraphqlService;
+    bootstrapScriptService: BootstrapScriptService;
+    dynamicWebSocketGateway: DynamicWebSocketGateway;
+  }) {
+    this.redisPubSubService = deps.redisPubSubService;
+    this.instanceService = deps.instanceService;
+    this.eventEmitter = deps.eventEmitter;
+    this.metadataCacheService = deps.metadataCacheService;
+    this.routeCacheService = deps.routeCacheService;
+    this.guardCacheService = deps.guardCacheService;
+    this.flowCacheService = deps.flowCacheService;
+    this.websocketCacheService = deps.websocketCacheService;
+    this.packageCacheService = deps.packageCacheService;
+    this.settingCacheService = deps.settingCacheService;
+    this.storageConfigCacheService = deps.storageConfigCacheService;
+    this.oauthConfigCacheService = deps.oauthConfigCacheService;
+    this.folderTreeCacheService = deps.folderTreeCacheService;
+    this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
+    this.repoRegistryService = deps.repoRegistryService;
+    this.graphqlService = deps.graphqlService;
+    this.bootstrapScriptService = deps.bootstrapScriptService;
+    this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
+
     this.stepMap = {
       metadata: (p) => this.reloadMetadata(p),
       repoRegistry: () => this.reloadRepoRegistry(),
       route: (p) => this.reloadRoute(p),
       graphql: (p) => this.reloadGraphql(p),
-      guard: (p) => this.reloadSimple(this.guardCache, p),
-      flow: (p) => this.reloadSimple(this.flowCache, p),
-      websocket: (p) => this.reloadSimple(this.websocketCache, p),
-      package: (p) => this.reloadSimple(this.packageCache, p),
-      setting: (p) => this.reloadSimple(this.settingCache, p),
-      storage: (p) => this.reloadSimple(this.storageCache, p),
-      oauth: (p) => this.reloadSimple(this.oauthCache, p),
-      folder: (p) => this.reloadSimple(this.folderCache, p),
-      fieldPermission: (p) => this.reloadSimple(this.fieldPermissionCache, p),
+      guard: (p) => this.reloadSimple(this.guardCacheService, p),
+      flow: (p) => this.reloadSimple(this.flowCacheService, p),
+      websocket: (p) => this.reloadSimple(this.websocketCacheService, p),
+      package: (p) => this.reloadSimple(this.packageCacheService, p),
+      setting: (p) => this.reloadSimple(this.settingCacheService, p),
+      storage: (p) => this.reloadSimple(this.storageConfigCacheService, p),
+      oauth: (p) => this.reloadSimple(this.oauthConfigCacheService, p),
+      folder: (p) => this.reloadSimple(this.folderTreeCacheService, p),
+      fieldPermission: (p) => this.reloadSimple(this.fieldPermissionCacheService, p),
       settingGraphql: () => this.reloadSettingGraphql(),
       bootstrap: () => this.reloadBootstrapScripts(),
     };
+
+    deps.eventEmitter.on(CACHE_EVENTS.INVALIDATE, this.handleInvalidation.bind(this));
   }
 
-  async onModuleInit() {
+  async onInit() {
     this.subscribeToRedis();
   }
 
-  async onApplicationBootstrap() {
-    try {
-      this.graphqlService = this.moduleRef.get(GraphqlService, {
-        strict: false,
-      });
-    } catch {}
-    try {
-      this.bootstrapScriptService = this.moduleRef.get(BootstrapScriptService, {
-        strict: false,
-      });
-    } catch {}
-    try {
-      this.websocketGateway = this.moduleRef.get(DynamicWebSocketGateway, {
-        strict: false,
-      });
-    } catch {}
-
+  async onBootstrap() {
     await this.bootstrap();
   }
 
   private async bootstrap(): Promise<void> {
     const start = Date.now();
-    await this.metadataCache.reload();
+    await this.metadataCacheService.reload();
     this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
 
     await Promise.all([
-      this.routeCache.reload(false),
-      this.guardCache.reload(false),
-      this.flowCache.reload(false),
-      this.websocketCache.reload(false),
-      this.packageCache.reload(false),
-      this.settingCache.reload(false),
-      this.storageCache.reload(false),
-      this.oauthCache.reload(false),
-      this.folderCache.reload(false),
+      this.routeCacheService.reload(false),
+      this.guardCacheService.reload(false),
+      this.flowCacheService.reload(false),
+      this.websocketCacheService.reload(false),
+      this.packageCacheService.reload(false),
+      this.settingCacheService.reload(false),
+      this.storageConfigCacheService.reload(false),
+      this.oauthConfigCacheService.reload(false),
+      this.folderTreeCacheService.reload(false),
       this.reloadRepoRegistry(),
       this.bootstrapScriptService?.onMetadataLoaded?.(),
     ]);
@@ -205,8 +221,7 @@ export class CacheOrchestratorService
     this.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
   }
 
-  @OnEvent(CACHE_EVENTS.INVALIDATE)
-  handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {
+  private handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {
     return new Promise<void>((resolve) => {
       this.debounceResolvers.push(resolve);
       this.mergePayload(payload);
@@ -284,49 +299,55 @@ export class CacheOrchestratorService
       this.notifyClients('pending', flow, chain);
     }
 
-    const start = Date.now();
-    const stepTimings: string[] = [];
-
-    // Phase 1: metadata must run first (others depend on it)
-    if (chain.includes('metadata')) {
-      const s = Date.now();
-      await this.stepMap['metadata'](payload);
-      stepTimings.push(`metadata:${Date.now() - s}ms`);
+    if (this.reloadLock) {
+      await this.reloadLock;
     }
 
-    // Phase 2: middle steps run in parallel (all depend on metadata, not each other)
-    const middleSteps = chain.filter(
-      (s) => s !== 'metadata' && s !== 'graphql',
-    );
-    if (middleSteps.length > 0) {
-      const s = Date.now();
-      await Promise.all(
-        middleSteps.map(async (step) => {
-          const fn = this.stepMap[step];
-          if (fn) await fn(payload);
-        }),
-      );
-      stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
-    }
+    this.reloadLock = (async () => {
+      const start = Date.now();
+      const stepTimings: string[] = [];
 
-    // Phase 3: graphql must run last (depends on metadata + route)
-    if (chain.includes('graphql')) {
-      const s = Date.now();
-      await this.stepMap['graphql'](payload);
-      stepTimings.push(`graphql:${Date.now() - s}ms`);
-    }
-
-    const elapsed = Date.now() - start;
-    this.logger.log(
-      `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
-    );
-
-    if (publish) {
-      if (elapsed < 500) {
-        await new Promise((r) => setTimeout(r, 500 - elapsed));
+      if (chain.includes('metadata')) {
+        const s = Date.now();
+        await this.stepMap['metadata'](payload);
+        stepTimings.push(`metadata:${Date.now() - s}ms`);
       }
-      this.notifyClients('done', flow, chain);
-    }
+
+      const middleSteps = chain.filter(
+        (s) => s !== 'metadata' && s !== 'graphql',
+      );
+      if (middleSteps.length > 0) {
+        const s = Date.now();
+        await Promise.all(
+          middleSteps.map(async (step) => {
+            const fn = this.stepMap[step];
+            if (fn) await fn(payload);
+          }),
+        );
+        stepTimings.push(`[${middleSteps.join('+')}]:${Date.now() - s}ms`);
+      }
+
+      if (chain.includes('graphql')) {
+        const s = Date.now();
+        await this.stepMap['graphql'](payload);
+        stepTimings.push(`graphql:${Date.now() - s}ms`);
+      }
+
+      const elapsed = Date.now() - start;
+      this.logger.log(
+        `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
+      );
+
+      if (publish) {
+        if (elapsed < 500) {
+          await new Promise((r) => setTimeout(r, 500 - elapsed));
+        }
+        this.notifyClients('done', flow, chain);
+      }
+    })();
+
+    await this.reloadLock;
+    this.reloadLock = null;
   }
 
   private resolveFlowName(chain: string[]): string {
@@ -342,7 +363,7 @@ export class CacheOrchestratorService
     steps?: string[],
   ): void {
     try {
-      this.websocketGateway?.emitToNamespace?.(
+      this.dynamicWebSocketGateway?.emitToNamespace?.(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         '$system:reload',
         { flow, status, steps },
@@ -356,27 +377,27 @@ export class CacheOrchestratorService
     if (
       payload.scope === 'partial' &&
       payload.ids?.length &&
-      this.metadataCache.isLoaded()
+      this.metadataCacheService.isLoaded()
     ) {
-      await this.metadataCache.partialReload(payload);
+      await this.metadataCacheService.partialReload(payload);
     } else {
-      await this.metadataCache.reload();
+      await this.metadataCacheService.reload();
     }
   }
 
   private async reloadRepoRegistry(): Promise<void> {
-    this.repoRegistry.rebuildFromMetadata(this.metadataCache);
+    this.repoRegistryService.rebuildFromMetadata(this.metadataCacheService);
   }
 
   private async reloadRoute(payload: TCacheInvalidationPayload): Promise<void> {
     if (
       payload.scope === 'partial' &&
-      this.routeCache.isLoaded() &&
-      this.routeCache.supportsPartialReload()
+      this.routeCacheService.isLoaded() &&
+      this.routeCacheService.supportsPartialReload()
     ) {
-      await this.routeCache.partialReload(payload, false);
+      await this.routeCacheService.partialReload(payload, false);
     } else {
-      await this.routeCache.reload(false);
+      await this.routeCacheService.reload(false);
     }
   }
 
@@ -407,9 +428,9 @@ export class CacheOrchestratorService
     const start = Date.now();
     const steps = ['metadata', 'repoRegistry', 'route', 'graphql'];
     this.notifyClients('pending', 'metadata', steps);
-    await this.metadataCache.reload();
+    await this.metadataCacheService.reload();
     await this.reloadRepoRegistry();
-    await this.routeCache.reload(false);
+    await this.routeCacheService.reload(false);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
     }
@@ -427,7 +448,7 @@ export class CacheOrchestratorService
     const start = Date.now();
     const steps = ['route'];
     this.notifyClients('pending', 'route', steps);
-    await this.routeCache.reload(false);
+    await this.routeCacheService.reload(false);
     this.notifyClients('done', 'route', steps);
     this.logger.log(`Admin reload routes: ${Date.now() - start}ms`);
     await this.publishSignal({
@@ -453,7 +474,7 @@ export class CacheOrchestratorService
     const start = Date.now();
     const steps = ['guard'];
     this.notifyClients('pending', 'guard', steps);
-    await this.guardCache.reload(false);
+    await this.guardCacheService.reload(false);
     this.notifyClients('done', 'guard', steps);
     this.logger.log(`Admin reload guards: ${Date.now() - start}ms`);
     await this.publishSignal({
@@ -492,19 +513,19 @@ export class CacheOrchestratorService
       'graphql',
     ];
     if (notify) this.notifyClients('pending', 'all', steps);
-    await this.metadataCache.reload();
+    await this.metadataCacheService.reload();
     await Promise.all([
       this.reloadRepoRegistry(),
-      this.routeCache.reload(false),
-      this.guardCache.reload(false),
-      this.flowCache.reload(false),
-      this.websocketCache.reload(false),
-      this.packageCache.reload(false),
-      this.settingCache.reload(false),
-      this.storageCache.reload(false),
-      this.oauthCache.reload(false),
-      this.folderCache.reload(false),
-      this.fieldPermissionCache.reload(false),
+      this.routeCacheService.reload(false),
+      this.guardCacheService.reload(false),
+      this.flowCacheService.reload(false),
+      this.websocketCacheService.reload(false),
+      this.packageCacheService.reload(false),
+      this.settingCacheService.reload(false),
+      this.storageConfigCacheService.reload(false),
+      this.oauthConfigCacheService.reload(false),
+      this.folderTreeCacheService.reload(false),
+      this.fieldPermissionCacheService.reload(false),
     ]);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();
@@ -528,6 +549,16 @@ export class CacheOrchestratorService
           const signal = JSON.parse(message);
           if (signal.instanceId === this.instanceService.getInstanceId()) {
             return;
+          }
+          const version = `${signal.instanceId}:${signal.timestamp}:${signal.payload?.table}:${signal.payload?.scope || 'full'}:${signal.payload?.ids?.join(',') || 'all'}`;
+          if (this.processedVersions.has(version)) {
+            this.logger.debug(`Skipping duplicate/out-of-order signal: ${version.slice(0, 40)}...`);
+            return;
+          }
+          this.processedVersions.add(version);
+          if (this.processedVersions.size > 1000) {
+            const first = this.processedVersions.values().next().value;
+            this.processedVersions.delete(first);
           }
           this.logger.log(
             `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.tableName} (${signal.payload?.scope || 'full'})`,
@@ -553,12 +584,19 @@ export class CacheOrchestratorService
     payload: TCacheInvalidationPayload,
   ): Promise<void> {
     try {
+      const timestamp = Date.now();
+      const version = `${this.instanceService.getInstanceId()}:${timestamp}:${payload.table}:${payload.scope || 'full'}:${payload.ids?.join(',') || 'all'}`;
+      this.processedVersions.add(version);
+      if (this.processedVersions.size > 1000) {
+        const first = this.processedVersions.values().next().value;
+        this.processedVersions.delete(first);
+      }
       await this.redisPubSubService.publish(
         SYNC_CHANNEL,
         JSON.stringify({
           instanceId: this.instanceService.getInstanceId(),
           type: 'RELOAD_SIGNAL',
-          timestamp: Date.now(),
+          timestamp,
           payload,
         }),
       );

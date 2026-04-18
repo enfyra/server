@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { getIoAbortSignal } from '../../../infrastructure/executor-engine/services/isolated-executor.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
@@ -26,23 +26,41 @@ import {
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../core/bootstrap/utils/canonical-table-route.util';
-import { TableValidationService } from './table-validation.service';
+import { TableManagementValidationService } from './table-validation.service';
 import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
 import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
-@Injectable()
 export class SqlTableHandlerService {
   private logger = new Logger(SqlTableHandlerService.name);
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private schemaMigrationService: SqlSchemaMigrationService,
-    private metadataCacheService: MetadataCacheService,
-    private loggingService: LoggingService,
-    private schemaMigrationLockService: SchemaMigrationLockService,
-    private policyService: PolicyService,
-    private tableValidationService: TableValidationService,
-    private metadataBuilder: SqlTableMetadataBuilderService,
-    private metadataWriter: SqlTableMetadataWriterService,
-  ) {}
+  private queryBuilderService: QueryBuilderService;
+  private schemaMigrationService: SqlSchemaMigrationService;
+  private metadataCacheService: MetadataCacheService;
+  private loggingService: LoggingService;
+  private schemaMigrationLockService: SchemaMigrationLockService;
+  private policyService: PolicyService;
+  private tableValidationService: TableManagementValidationService;
+  private sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
+  private sqlTableMetadataWriterService: SqlTableMetadataWriterService;
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    sqlSchemaMigrationService: SqlSchemaMigrationService;
+    metadataCacheService: MetadataCacheService;
+    loggingService: LoggingService;
+    schemaMigrationLockService: SchemaMigrationLockService;
+    policyService: PolicyService;
+    tableManagementValidationService: TableManagementValidationService;
+    sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
+    sqlTableMetadataWriterService: SqlTableMetadataWriterService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.schemaMigrationService = deps.sqlSchemaMigrationService;
+    this.metadataCacheService = deps.metadataCacheService;
+    this.loggingService = deps.loggingService;
+    this.schemaMigrationLockService = deps.schemaMigrationLockService;
+    this.policyService = deps.policyService;
+    this.tableValidationService = deps.tableManagementValidationService;
+    this.sqlTableMetadataBuilderService = deps.sqlTableMetadataBuilderService;
+    this.sqlTableMetadataWriterService = deps.sqlTableMetadataWriterService;
+  }
   private async validateNoDuplicateInverseRelation(
     trx: any,
     sourceTableId: number,
@@ -243,7 +261,7 @@ export class SqlTableHandlerService {
       });
     }
     this.tableValidationService.validateRelations(body.relations);
-    const knex = this.queryBuilder.getKnex();
+    const knex = this.queryBuilderService.getKnex();
     let trx;
     let schemaCreated = false;
     let createdMetadataSnapshot: any = null;
@@ -355,7 +373,7 @@ export class SqlTableHandlerService {
         throw error;
       }
       body.isSystem = false;
-      const dbType = this.queryBuilder.getDatabaseType();
+      const dbType = this.queryBuilderService.getDatabaseType();
       const insertResult = await trx('table_definition').insert(
         {
           name: body.name,
@@ -587,7 +605,7 @@ export class SqlTableHandlerService {
         );
       }
       const fullMetadata =
-        await this.metadataBuilder.getFullTableMetadataInTransaction(
+        await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
           trx,
           tableId,
         );
@@ -618,7 +636,7 @@ export class SqlTableHandlerService {
       );
 
       if (body.isSingleRecord) {
-        const knex = this.queryBuilder.getKnex();
+        const knex = this.queryBuilderService.getKnex();
         const existingRecord = await knex(body.name).first();
         if (!existingRecord) {
           const defaultRecord = generateDefaultRecord(
@@ -710,8 +728,8 @@ export class SqlTableHandlerService {
       t = Date.now();
       return e;
     };
-    const knex = this.queryBuilder.getKnex();
-    const dbType = this.queryBuilder.getDatabaseType();
+    const knex = this.queryBuilderService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType();
     const isPostgres = dbType === 'postgres';
     const affectedTableNames = new Set<string>();
 
@@ -774,7 +792,7 @@ export class SqlTableHandlerService {
       stepLog(`STEP 4 validators done (+${lap()}ms)`);
 
       const oldMetadata =
-        await this.metadataBuilder.getFullTableMetadataInTransaction(
+        await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
           knex,
           exists.id,
         );
@@ -816,7 +834,7 @@ export class SqlTableHandlerService {
         }
         try {
           stepLog(`STEP 7 PG: writing metadata in trx...`);
-          await this.metadataWriter.writeTableMetadataUpdates(
+          await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
             trx,
             id,
             body,
@@ -826,7 +844,7 @@ export class SqlTableHandlerService {
           stepLog(`STEP 8 PG: metadata written (+${lap()}ms)`);
 
           const updatedFullMetadata =
-            await this.metadataBuilder.getFullTableMetadataInTransaction(
+            await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
               trx,
               exists.id,
             );
@@ -902,7 +920,7 @@ export class SqlTableHandlerService {
       } else {
         // === MYSQL PATH: DDL first, then metadata writes ===
         stepLog(`STEP 6 ${dbType}: constructing afterMetadata from body...`);
-        const afterMetadata = this.metadataBuilder.constructAfterMetadata(
+        const afterMetadata = this.sqlTableMetadataBuilderService.constructAfterMetadata(
           exists,
           body,
           oldMetadata,
@@ -961,7 +979,7 @@ export class SqlTableHandlerService {
           for (let attempt = 1; attempt <= maxRetries; attempt++) {
             const trx = await knex.transaction();
             try {
-              await this.metadataWriter.writeTableMetadataUpdates(
+              await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
                 trx,
                 id,
                 body,
@@ -1027,7 +1045,7 @@ export class SqlTableHandlerService {
           );
           const trx = await knex.transaction();
           try {
-            await this.metadataWriter.writeTableMetadataUpdates(
+            await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
               trx,
               id,
               body,
@@ -1053,7 +1071,7 @@ export class SqlTableHandlerService {
         const count = Number(recordCount?.count || 0);
         if (count === 0) {
           const fullMetadata =
-            await this.metadataBuilder.getFullTableMetadataInTransaction(
+            await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
               knex,
               exists.id,
             );
@@ -1115,7 +1133,7 @@ export class SqlTableHandlerService {
     id: string | number,
     context?: TDynamicContext,
   ) {
-    const knex = this.queryBuilder.getKnex();
+    const knex = this.queryBuilderService.getKnex();
     const affectedTableNames = new Set<string>();
     return await knex.transaction(async (trx) => {
       const abortSignal = getIoAbortSignal();
@@ -1169,7 +1187,7 @@ export class SqlTableHandlerService {
               );
               if (columnExists) {
                 try {
-                  const dbType = this.queryBuilder.getDatabaseType();
+                  const dbType = this.queryBuilderService.getDatabaseType();
                   let constraintName: string | null = null;
                   if (dbType === 'postgres') {
                     const result = await trx.raw(
@@ -1222,7 +1240,7 @@ export class SqlTableHandlerService {
           }
         }
         try {
-          const dbType = this.queryBuilder.getDatabaseType();
+          const dbType = this.queryBuilderService.getDatabaseType();
           let allFkConstraints;
           if (dbType === 'postgres') {
             const result = await trx.raw(

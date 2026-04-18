@@ -1,12 +1,10 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { BaseCacheService } from './base-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import {
   CACHE_IDENTIFIERS,
   isMetadataTable,
 } from '../../../shared/utils/cache-events.constants';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export interface TGqlDefinition {
   id: number;
@@ -17,60 +15,34 @@ export interface TGqlDefinition {
   tableName: string;
 }
 
-@Injectable()
 export class GqlDefinitionCacheService extends BaseCacheService<
   Map<string, TGqlDefinition>
 > {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+  }) {
     super(
       {
         cacheIdentifier: CACHE_IDENTIFIERS.GRAPHQL,
         colorCode: '\x1b[38;5;183m',
         cacheName: 'GqlDefinitionCache',
       },
-      eventEmitter,
+      deps.eventEmitter,
     );
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   protected async loadFromDb(): Promise<any> {
     try {
-      const result = await this.queryBuilder.find({
+      const result = await this.queryBuilderService.find({
         table: 'gql_definition',
+        fields: ['*', 'table.id', 'table.name'],
         limit: 10000,
       });
-      const rows = result?.data ?? [];
-
-      // If rows exist but have no tableName from relation join, resolve manually
-      const needsResolution = rows.length > 0 && !rows[0]?.table?.name;
-      if (needsResolution) {
-        const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
-        const tableIds = rows
-          .map((r: any) => r.tableId || r.table)
-          .filter(Boolean);
-        if (tableIds.length === 0) return rows;
-
-        const pkField = DatabaseConfigService.getPkField();
-        const tables = await this.queryBuilder.find({
-          table: 'table_definition',
-          filter: { [pkField]: { _in: tableIds } },
-          fields: [pkField, 'name'],
-        });
-        const tableMap = new Map(
-          (tables.data || []).map((t: any) => [String(t[pkField]), t.name]),
-        );
-
-        return rows.map((row: any) => ({
-          ...row,
-          table: {
-            name: tableMap.get(String(row.tableId || row.table)) || null,
-          },
-        }));
-      }
-
-      return rows;
+      return result?.data ?? [];
     } catch {
       return [];
     }
@@ -86,8 +58,8 @@ export class GqlDefinitionCacheService extends BaseCacheService<
 
       map.set(tableName, {
         id: row.id,
-        isEnabled: row.isEnabled !== false,
-        isSystem: row.isSystem === true,
+        isEnabled: !!row.isEnabled,
+        isSystem: !!row.isSystem,
         description: row.description ?? null,
         metadata: row.metadata ?? null,
         tableName,
@@ -105,7 +77,7 @@ export class GqlDefinitionCacheService extends BaseCacheService<
     await this.ensureLoaded();
     if (isMetadataTable(tableName)) return false;
     const def = this.cache?.get(tableName);
-    return def?.isEnabled === true;
+    return !!def?.isEnabled;
   }
 
   async getForTable(tableName: string): Promise<TGqlDefinition | undefined> {

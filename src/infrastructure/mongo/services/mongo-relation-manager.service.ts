@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { ObjectId, Collection, Document } from 'mongodb';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import {
@@ -11,17 +11,17 @@ import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
 const M2M_PENDING = Symbol('mongoService.m2mPending');
 
-@Injectable()
 export class MongoRelationManagerService {
   private readonly logger = new Logger(MongoRelationManagerService.name);
 
-  constructor(
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCache: MetadataCacheService,
-  ) {}
+  private readonly metadataCacheService: MetadataCacheService;
+
+  constructor(deps: { metadataCacheService: MetadataCacheService }) {
+    this.metadataCacheService = deps.metadataCacheService;
+  }
 
   async stripInverseRelations(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata?.relations) {
       return data;
     }
@@ -48,7 +48,7 @@ export class MongoRelationManagerService {
     newData: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return;
     }
@@ -181,7 +181,7 @@ export class MongoRelationManagerService {
     insertOne: (collectionName: string, data: any) => Promise<any>,
     updateOne: (collectionName: string, id: string, data: any) => Promise<any>,
   ): Promise<any> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return data;
     }
@@ -317,7 +317,7 @@ export class MongoRelationManagerService {
     recordData: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
 
     if (metadata?.relations) {
       for (const relation of metadata.relations) {
@@ -390,7 +390,7 @@ export class MongoRelationManagerService {
     recordId: ObjectId,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const allTables = await this.metadataCache.getAllTablesMetadata();
+    const allTables = await this.metadataCacheService.getAllTablesMetadata();
     if (!allTables) return;
 
     for (const table of allTables) {
@@ -416,7 +416,7 @@ export class MongoRelationManagerService {
   private async isSystemFilterIfApplicable(
     targetCollection: string,
   ): Promise<Record<string, unknown>> {
-    const meta = await this.metadataCache.lookupTableByName(targetCollection);
+    const meta = await this.metadataCacheService.lookupTableByName(targetCollection);
     const has = !!meta?.columns?.some(
       (c: { name?: string }) => c.name === 'isSystem',
     );
@@ -593,7 +593,7 @@ export class MongoRelationManagerService {
     const pending = this.getM2mPending(data);
     if (!pending || pending.size === 0) return;
 
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const [propertyName, targetIds] of pending.entries()) {
@@ -629,7 +629,7 @@ export class MongoRelationManagerService {
     const pending = this.getM2mPending(data);
     if (!pending || pending.size === 0) return;
 
-    const metadata = await this.metadataCache.lookupTableByName(tableName);
+    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const [propertyName, targetIds] of pending.entries()) {
@@ -735,7 +735,7 @@ export class MongoRelationManagerService {
     data: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata = await this.metadataCache.lookupTableByName(collectionName);
+    const metadata = await this.metadataCacheService.lookupTableByName(collectionName);
     if (!metadata?.relations) {
       return;
     }

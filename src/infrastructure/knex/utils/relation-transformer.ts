@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { getForeignKeyColumnName } from './sql-schema-naming.util';
 export class RelationTransformer {

@@ -1,9 +1,7 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { EnvService } from '../../../shared/services/env.service';
 
-@Injectable()
-export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
+export class RedisPubSubService {
   public pub: Redis;
   public sub: Redis;
   private subscribedChannels = new Map<
@@ -11,16 +9,16 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     Array<(channel: string, message: string) => void>
   >();
   private nodeName: string | null = null;
-  private redisUri: string;
+  private readonly envService: EnvService;
 
-  constructor(private configService: ConfigService) {
-    this.redisUri = this.configService.get<string>('REDIS_URI');
+  constructor(deps: { envService: EnvService }) {
+    this.envService = deps.envService;
   }
 
-  async onModuleInit() {
+  async onInit() {
     try {
-      this.pub = new Redis(this.redisUri);
-      this.sub = new Redis(this.redisUri, {
+      this.pub = new Redis(this.envService.get('REDIS_URI'));
+      this.sub = new Redis(this.envService.get('REDIS_URI'), {
         enableReadyCheck: false,
       });
 
@@ -143,11 +141,10 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     if (this.nodeName !== null) {
       return this.nodeName;
     }
-    this.nodeName = this.configService.get<string>('NODE_NAME') || null;
-    return this.nodeName;
+    return null;
   }
 
-  onModuleDestroy() {
+  onDestroy() {
     try {
       this.sub?.disconnect();
       this.pub?.disconnect();

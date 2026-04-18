@@ -82,7 +82,7 @@ describe('GuardEvaluatorService', () => {
 
   beforeEach(() => {
     rateLimitService = new MockRateLimitService();
-    evaluator = new GuardEvaluatorService(rateLimitService as any);
+    evaluator = new GuardEvaluatorService({ rateLimitService: rateLimitService as any });
   });
 
   describe('rate limiting', () => {

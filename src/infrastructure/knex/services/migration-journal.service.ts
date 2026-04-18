@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { KnexService } from '../knex.service';
 import { randomUUID } from 'crypto';
 
@@ -26,11 +26,13 @@ export interface MigrationJournalEntry {
   createdAt?: Date;
 }
 
-@Injectable()
 export class MigrationJournalService {
   private readonly logger = new Logger(MigrationJournalService.name);
+  private readonly knexService: KnexService;
 
-  constructor(private readonly knexService: KnexService) {}
+  constructor(deps: { knexService: KnexService }) {
+    this.knexService = deps.knexService;
+  }
 
   private getKnex() {
     return this.knexService.getKnex();
@@ -173,6 +175,43 @@ export class MigrationJournalService {
         );
       }
     }
+
+    await this.cleanupStalePending();
+  }
+
+  async cleanupStalePending(): Promise<void> {
+    const knex = this.getKnex();
+    const staleThresholdMs = 3600000;
+    const staleCutoff = new Date(Date.now() - staleThresholdMs);
+
+    try {
+      const stale = await knex('schema_migration_definition')
+        .whereIn('status', ['pending', 'running'])
+        .where('startedAt', '<', staleCutoff)
+        .select('uuid', 'tableName', 'createdAt', 'startedAt');
+
+      if (stale.length === 0) return;
+
+      this.logger.warn(
+        `Found ${stale.length} stale pending journal(s) (>1h old), marking as failed...`,
+      );
+
+      for (const entry of stale) {
+        const ageMs = Date.now() - new Date(entry.createdAt).getTime();
+        this.logger.warn(
+          `Marking stale journal ${entry.uuid} as failed (age: ${Math.round(ageMs / 1000)}s)`,
+        );
+        await knex('schema_migration_definition')
+          .where({ uuid: entry.uuid })
+          .update({
+            status: 'failed',
+            errorMessage: 'Stale migration - automatically marked as failed during recovery',
+            completedAt: new Date(),
+          });
+      }
+    } catch (error: any) {
+      this.logger.error(`Failed to cleanup stale pending journals: ${error.message}`);
+    }
   }
 
   async cleanup(maxAgeDays = 7): Promise<void> {
@@ -187,7 +226,6 @@ export class MigrationJournalService {
         this.logger.log(`Cleaned up ${deleted} old journal entries`);
       }
     } catch {
-      // table not found — skip silently
     }
   }
 }

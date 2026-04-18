@@ -1,4 +1,3 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
 import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
@@ -6,6 +5,7 @@ import { MongoOperationLogService } from '../../src/infrastructure/mongo/service
 import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
 import { MetadataCacheService } from '../../src/infrastructure/cache/services/metadata-cache.service';
 import { InstanceService } from '../../src/shared/services/instance.service';
+import { EnvService } from '../../src/shared/services/env.service';
 
 const MONGO_URI =
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';
@@ -62,27 +62,30 @@ describe('MongoDB Saga System - Integration Tests', () => {
     await mongoClient.connect();
     db = mongoClient.db('enfyra_test');
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        MongoService,
-        MongoSagaLockService,
-        MongoOperationLogService,
-        InstanceService,
-        MongoSagaCoordinator,
-        {
-          provide: MetadataCacheService,
-          useClass: MockMetadataCacheService,
-        },
-      ],
-    }).compile();
+    // Manual dependency injection
+    const envService = {
+      get: (key: string) => {
+        if (key === 'DB_URI') return MONGO_URI;
+        return process.env[key];
+      },
+    } as any;
 
-    mongoService = module.get<MongoService>(MongoService);
-    lockService = module.get<MongoSagaLockService>(MongoSagaLockService);
-    logService = module.get<MongoOperationLogService>(MongoOperationLogService);
-    coordinator = module.get<MongoSagaCoordinator>(MongoSagaCoordinator);
-
+    const instanceService = new InstanceService();
+    mongoService = new MongoService({ envService });
     Object.defineProperty(mongoService, 'db', { value: db });
     Object.defineProperty(mongoService, 'client', { value: mongoClient });
+
+    lockService = new MongoSagaLockService({ mongoService });
+    logService = new MongoOperationLogService({ mongoService });
+    const mockMetadataCacheService = new MockMetadataCacheService() as any;
+
+    coordinator = new MongoSagaCoordinator({
+      mongoService,
+      lockService,
+      logService,
+      instanceService,
+      cacheService: undefined,
+    });
 
     await cleanupAllCollections();
   });

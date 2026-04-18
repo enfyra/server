@@ -1,6 +1,6 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../src/infrastructure/knex/utils/sql-schema-naming.util';
-import { KnexTableSchema } from '../../../src/shared/types/database-init.types';
+import { getForeignKeyColumnName } from '../sql-schema-naming.util';
+import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 
 export async function addForeignKeys(
   knex: Knex,

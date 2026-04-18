@@ -1,13 +1,13 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class GraphQLDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
@@ -32,7 +32,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
 
         if (record.table) {
           if (isMongoDB) {
-            const table = await this.queryBuilder.findOne({
+            const table = await this.queryBuilderService.findOne({
               table: 'table_definition',
               where: { name: record.table },
             });
@@ -47,7 +47,7 @@ export class GraphQLDefinitionProcessor extends BaseTableProcessor {
                 ? new ObjectId(table._id)
                 : table._id;
           } else {
-            const table = await this.queryBuilder.findOne({
+            const table = await this.queryBuilderService.findOne({
               table: 'table_definition',
               where: { name: record.table },
             });

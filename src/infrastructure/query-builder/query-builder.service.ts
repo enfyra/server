@@ -1,7 +1,5 @@
-import { Injectable, Optional, Inject, forwardRef } from '@nestjs/common';
 import { KnexService } from '../knex/knex.service';
 import { MongoService } from '../mongo/services/mongo.service';
-import { MetadataCacheService } from '../cache/services/metadata-cache.service';
 import {
   DatabaseType,
   WhereCondition,
@@ -21,24 +19,36 @@ try {
   ObjectId = require('mongodb').ObjectId;
 } catch (err) {}
 
-@Injectable()
 export class QueryBuilderService {
+  private readonly knexService?: KnexService;
+  private readonly mongoService?: any;
+  private readonly databaseConfigService: DatabaseConfigService;
+  private _metadataCacheService?: any;
+  private _container?: any;
   private dbType: DatabaseType;
   private debugLog: any[] = [];
 
-  constructor(
-    @Optional()
-    @Inject(forwardRef(() => KnexService))
-    private readonly knexService: KnexService,
-    @Optional()
-    @Inject(forwardRef(() => MongoService))
-    private readonly mongoService: MongoService,
-    @Optional()
-    @Inject(forwardRef(() => MetadataCacheService))
-    private readonly metadataCache: MetadataCacheService,
-    private readonly databaseConfig: DatabaseConfigService,
-  ) {
-    this.dbType = this.databaseConfig.getDbType();
+  constructor(deps: {
+    knexService?: KnexService;
+    mongoService?: MongoService;
+    databaseConfigService: DatabaseConfigService;
+    metadataCacheService?: any;
+    _container?: any;
+  }) {
+    this.knexService = deps.knexService;
+    this.mongoService = deps.mongoService;
+    this.databaseConfigService = deps.databaseConfigService;
+    this._metadataCacheService = deps.metadataCacheService;
+    this._container = deps._container;
+    this.dbType = this.databaseConfigService.getDbType();
+  }
+
+  private get metadataCache(): any {
+    if (this._metadataCacheService) return this._metadataCacheService;
+    if (this._container) {
+      this._metadataCacheService = this._container.cradle?.metadataCacheService;
+    }
+    return this._metadataCacheService;
   }
 
   async runWithPolicy<T>(
@@ -229,7 +239,7 @@ export class QueryBuilderService {
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
-    const metadata = this.metadataCache.getDirectMetadata();
+    const metadata = this.metadataCache?.getDirectMetadata?.() ?? { tables: new Map(), tablesList: [] };
 
     const planner = new QueryPlanner();
     const plan = planner.plan({
@@ -344,11 +354,9 @@ export class QueryBuilderService {
     return Number(result?.count || 0);
   }
 
-  // ─── New Unified CRUD API ─────────────────────────────────────
-
   private whereToFilter(where: Record<string, any>): any {
     const filter: any = {};
-    const isMongo = this.databaseConfig.isMongoDb();
+    const isMongo = this.databaseConfigService.isMongoDb();
     for (const [key, value] of Object.entries(where)) {
       if (key === 'id' || key === '_id') {
         if (isMongo) {
@@ -470,12 +478,10 @@ export class QueryBuilderService {
     id: any,
     data: Record<string, any>,
   ): Promise<any> {
-    // Bulk update via options object
     if (id && typeof id === 'object' && 'where' in id) {
       return this.updateWithOptions({ table, where: id.where, data });
     }
 
-    // Single record update by ID
     if (this.dbType === 'mongodb') {
       const result = await this.mongoService.updateOne(table, id, data);
       return normalizeMongoDocument(result);
@@ -486,13 +492,11 @@ export class QueryBuilderService {
   }
 
   async delete(table: string, id: any): Promise<boolean> {
-    // Bulk delete via options object
     if (id && typeof id === 'object' && 'where' in id) {
       const count = await this.deleteWithOptions({ table, where: id.where });
       return count > 0;
     }
 
-    // Single record delete by ID
     if (this.dbType === 'mongodb') {
       return this.mongoService.deleteOne(table, id);
     }
@@ -595,7 +599,6 @@ export class QueryBuilderService {
 
     const knex = this.knexService.getKnex();
     const recordId = insertedId || data.id;
-
     return await knex(table).where('id', recordId).first();
   }
 

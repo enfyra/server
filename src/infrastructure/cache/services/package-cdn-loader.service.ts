@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -17,7 +17,6 @@ export function extractErrorMessage(error: any): string {
   return parts.join(' → ') || 'Unknown error';
 }
 
-@Injectable()
 export class PackageCdnLoaderService {
   private readonly logger = new Logger(PackageCdnLoaderService.name);
   private readonly moduleCache = new Map<string, any>();

@@ -1,2 +1,2 @@
 export * from './knex.service';
-export * from './knex.module';
+export * from './entity-manager';

@@ -1,6 +1,6 @@
 import { knex } from 'knex';
-import { parseDatabaseUri } from '../../../src/infrastructure/knex/utils/uri-parser';
-import { resolveDbTypeFromEnv } from '../resolve-db-type';
+import { parseDatabaseUri } from '../uri-parser';
+import { resolveDbTypeFromEnv } from '../../../../shared/utils/resolve-db-type';
 
 export async function ensureDatabaseExists(): Promise<void> {
   const dbType = resolveDbTypeFromEnv();

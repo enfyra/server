@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { FileUploadDto, ProcessedFileInfo } from '../../../shared/types';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -9,18 +10,24 @@ import { StorageConfigCacheService } from '../../../infrastructure/cache/service
 import { StorageFactoryService } from '../storage/storage-factory.service';
 import { Readable } from 'stream';
 
-@Injectable()
 export class FileManagementService {
   private readonly logger = new Logger(FileManagementService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly storageConfigCacheService: StorageConfigCacheService;
+  private readonly storageFactoryService: StorageFactoryService;
 
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private storageConfigCache: StorageConfigCacheService,
-    private storageFactory: StorageFactoryService,
-  ) {}
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    storageConfigCacheService: StorageConfigCacheService;
+    storageFactoryService: StorageFactoryService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.storageConfigCacheService = deps.storageConfigCacheService;
+    this.storageFactoryService = deps.storageFactoryService;
+  }
 
   private getIdField(): string {
-    return this.queryBuilder.getPkField();
+    return this.queryBuilderService.getPkField();
   }
 
   public createIdReference(id: number | string | null | undefined): any {
@@ -35,7 +42,7 @@ export class FileManagementService {
     const idField = this.getIdField();
 
     let normalizedId: string | number = id;
-    if (this.queryBuilder.isMongoDb()) {
+    if (this.queryBuilderService.isMongoDb()) {
       if (
         typeof id === 'object' &&
         id !== null &&
@@ -104,7 +111,7 @@ export class FileManagementService {
     try {
       const storageConfig = await this.getStorageConfig(storageConfigId);
 
-      const idField = this.queryBuilder.getPkField();
+      const idField = this.queryBuilderService.getPkField();
       const storageConfigIdValue = storageConfig?.[idField];
 
       if (!storageConfig || !storageConfigIdValue) {
@@ -112,10 +119,10 @@ export class FileManagementService {
       }
 
       const storageService =
-        this.storageFactory.getStorageServiceByConfig(storageConfig);
+        this.storageFactoryService.getStorageServiceByConfig(storageConfig);
 
       let normalizedStorageConfigId: string | number = storageConfigIdValue;
-      if (this.queryBuilder.isMongoDb() && normalizedStorageConfigId) {
+      if (this.queryBuilderService.isMongoDb() && normalizedStorageConfigId) {
         if (
           typeof normalizedStorageConfigId === 'object' &&
           normalizedStorageConfigId !== null &&
@@ -265,7 +272,7 @@ export class FileManagementService {
     try {
       const config = await this.getStorageConfig(storageConfigId);
       const storageService =
-        this.storageFactory.getStorageServiceByConfig(config);
+        this.storageFactoryService.getStorageServiceByConfig(config);
 
       await storageService.delete(location, config);
     } catch (error: any) {
@@ -283,7 +290,7 @@ export class FileManagementService {
     try {
       const config = await this.getStorageConfig(storageConfigId);
       const storageService =
-        this.storageFactory.getStorageServiceByConfig(config);
+        this.storageFactoryService.getStorageServiceByConfig(config);
 
       await storageService.delete(location, config);
     } catch (error: any) {
@@ -381,7 +388,7 @@ export class FileManagementService {
 
   async getStorageConfigById(storageConfigId: number | string): Promise<any> {
     const config =
-      await this.storageConfigCache.getStorageConfigById(storageConfigId);
+      await this.storageConfigCacheService.getStorageConfigById(storageConfigId);
 
     if (!config) {
       throw new BadRequestException(
@@ -401,7 +408,7 @@ export class FileManagementService {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
       config =
-        await this.storageConfigCache.getStorageConfigByType('Local Storage');
+        await this.storageConfigCacheService.getStorageConfigByType('Local Storage');
 
       if (!config) {
         throw new BadRequestException('No local storage configured');
@@ -417,7 +424,7 @@ export class FileManagementService {
   ): Promise<Readable> {
     const config = await this.getStorageConfig(storageConfigId);
     const storageService =
-      this.storageFactory.getStorageServiceByConfig(config);
+      this.storageFactoryService.getStorageServiceByConfig(config);
     return storageService.getStream(location, config);
   }
 
@@ -427,7 +434,7 @@ export class FileManagementService {
   ): Promise<Buffer> {
     const config = await this.getStorageConfig(storageConfigId);
     const storageService =
-      this.storageFactory.getStorageServiceByConfig(config);
+      this.storageFactoryService.getStorageServiceByConfig(config);
     return storageService.getBuffer(location, config);
   }
 
@@ -439,7 +446,7 @@ export class FileManagementService {
   ): Promise<void> {
     const config = await this.getStorageConfig(storageConfigId);
     const storageService =
-      this.storageFactory.getStorageServiceByConfig(config);
+      this.storageFactoryService.getStorageServiceByConfig(config);
     await storageService.replaceFile(location, buffer, mimetype, config);
   }
 }

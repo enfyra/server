@@ -1,6 +1,7 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { Logger } from '../../../shared/logger';
+import { KnexService } from '../../knex/knex.service';
+import { MongoService } from '../../mongo/services/mongo.service';
 import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
 import {
   getJunctionTableName,
@@ -8,6 +9,11 @@ import {
   getJunctionColumnNames,
 } from '../../knex/utils/sql-schema-naming.util';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
+
+let ObjectId: any;
+try {
+  ObjectId = require('mongodb').ObjectId;
+} catch (err) {}
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -19,18 +25,40 @@ export interface EnfyraMetadata {
   timestamp: Date;
 }
 
-@Injectable()
 export class MetadataCacheService {
   private readonly logger = new Logger(`${COLOR}MetadataCache${RESET}`);
   private inMemoryCache: EnfyraMetadata | null = null;
   private isLoading: boolean = false;
   private loadingPromise: Promise<void> | null = null;
+  private _knexService?: KnexService;
+  private _mongoService?: MongoService;
+  private readonly databaseSchemaService: DatabaseSchemaService;
+  private readonly dbType: string;
+  private _container?: any;
 
-  constructor(
-    @Inject(forwardRef(() => QueryBuilderService))
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly databaseSchemaService: DatabaseSchemaService,
-  ) {}
+  constructor(deps: {
+    databaseSchemaService: DatabaseSchemaService;
+    databaseConfigService: DatabaseConfigService;
+    _container?: any;
+  }) {
+    this.databaseSchemaService = deps.databaseSchemaService;
+    this.dbType = deps.databaseConfigService.getDbType();
+    this._container = deps._container;
+  }
+
+  private get knexService(): KnexService | undefined {
+    if (!this._knexService && this._container) {
+      this._knexService = this._container.cradle?.knexService;
+    }
+    return this._knexService;
+  }
+
+  private get mongoService(): MongoService | undefined {
+    if (!this._mongoService && this._container) {
+      this._mongoService = this._container.cradle?.mongoService;
+    }
+    return this._mongoService;
+  }
 
   async reload(): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
@@ -101,18 +129,12 @@ export class MetadataCacheService {
       throw new Error('Cache not initialized, cannot partial reload');
     }
 
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.dbType === 'mongodb';
     const tableIds = payload.ids || [];
 
     let tables: any[] = [];
     if (tableIds.length > 0) {
-      const tablesResult = await this.queryBuilder.find({
-        table: 'table_definition',
-        filter: isMongoDB
-          ? { _id: { _in: tableIds } }
-          : { id: { _in: tableIds } },
-      });
-      tables = tablesResult.data;
+      tables = await this.loadTablesByIds(tableIds, isMongoDB);
     }
 
     if (tables.length === 0 && !payload.affectedTables?.length) {
@@ -147,11 +169,8 @@ export class MetadataCacheService {
     const affectedTableNames = new Set(payload.affectedTables || []);
 
     if (affectedTableNames.size > 0) {
-      const affectedResult = await this.queryBuilder.find({
-        table: 'table_definition',
-        filter: { name: { _in: [...affectedTableNames] } },
-      });
-      for (const t of affectedResult.data) {
+      const affectedTables = await this.loadTablesByNames([...affectedTableNames]);
+      for (const t of affectedTables) {
         tables.push(t);
         const tid = String(DatabaseConfigService.getRecordId(t));
         allTableIds.push(tid);
@@ -161,18 +180,8 @@ export class MetadataCacheService {
     const uniqueTableIds = [...new Set(allTableIds.map(String))];
 
     const [columnsResult, relationsResult] = await Promise.all([
-      this.queryBuilder.find({
-        table: 'column_definition',
-        filter: isMongoDB
-          ? { table: { _id: { _in: uniqueTableIds } } }
-          : { tableId: { _in: uniqueTableIds } },
-      }),
-      this.queryBuilder.find({
-        table: 'relation_definition',
-        filter: isMongoDB
-          ? { sourceTable: { _id: { _in: uniqueTableIds } } }
-          : { sourceTableId: { _in: uniqueTableIds } },
-      }),
+      this.loadColumnsByTableIds(uniqueTableIds, isMongoDB),
+      this.loadRelationsBySourceTableIds(uniqueTableIds, isMongoDB),
     ]);
 
     let schemasForTables: Map<string, any> | null = null;
@@ -182,7 +191,7 @@ export class MetadataCacheService {
         await this.databaseSchemaService.getTableSchemas(tableNames);
     }
 
-    const allRelations = relationsResult.data;
+    const allRelations = relationsResult;
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
       const relId = String(DatabaseConfigService.getRecordId(rel));
@@ -206,7 +215,7 @@ export class MetadataCacheService {
     );
 
     const columnsByTable = new Map<string, any[]>();
-    for (const col of columnsResult.data) {
+    for (const col of columnsResult) {
       const key = String(isMongoDB ? col.table : col.tableId);
       if (!columnsByTable.has(key)) columnsByTable.set(key, []);
       columnsByTable.get(key)!.push(col);
@@ -537,22 +546,19 @@ export class MetadataCacheService {
   }
 
   private async loadMetadataFromDb(): Promise<EnfyraMetadata> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.dbType === 'mongodb';
 
-    const [tablesResult, allColumnsResult, allRelationsResult] =
-      await Promise.all([
-        this.queryBuilder.find({ table: 'table_definition' }),
-        this.queryBuilder.find({ table: 'column_definition' }),
-        this.queryBuilder.find({ table: 'relation_definition' }),
-      ]);
-    const tables = tablesResult.data;
+    const [tables, allColumns, allRelations] = await Promise.all([
+      this.loadAllTables(),
+      this.loadAllColumns(isMongoDB),
+      this.loadAllRelations(isMongoDB),
+    ]);
 
     let allSchemas: Map<string, any> | null = null;
     if (!isMongoDB) {
       allSchemas = await this.databaseSchemaService.getAllTableSchemas();
     }
 
-    const allRelations = allRelationsResult.data;
     const relationIdMap = new Map<string, any>();
     for (const rel of allRelations) {
       const relId = String(DatabaseConfigService.getRecordId(rel));
@@ -565,7 +571,7 @@ export class MetadataCacheService {
     );
 
     const columnsByTable = new Map<string, any[]>();
-    for (const col of allColumnsResult.data) {
+    for (const col of allColumns) {
       const key = String(isMongoDB ? col.table : col.tableId);
       if (!columnsByTable.has(key)) columnsByTable.set(key, []);
       columnsByTable.get(key)!.push(col);
@@ -663,5 +669,111 @@ export class MetadataCacheService {
 
   isLoaded(): boolean {
     return this.inMemoryCache !== null;
+  }
+
+  private async loadTablesByIds(
+    ids: (string | number)[],
+    isMongoDB: boolean,
+  ): Promise<any[]> {
+    if (isMongoDB && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('table_definition');
+      const docs = await collection
+        .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } })
+        .toArray();
+      return docs;
+    } else if (this.knexService) {
+      const pkField = DatabaseConfigService.getPkField();
+      const rows = await this.knexService
+        .getKnex()
+        .table('table_definition')
+        .whereIn(pkField, ids);
+      return rows;
+    }
+    return [];
+  }
+
+  private async loadTablesByNames(names: string[]): Promise<any[]> {
+    if (this.dbType === 'mongodb' && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('table_definition');
+      const docs = await collection.find({ name: { $in: names } }).toArray();
+      return docs;
+    } else if (this.knexService) {
+      const rows = await this.knexService
+        .getKnex()
+        .table('table_definition')
+        .whereIn('name', names);
+      return rows;
+    }
+    return [];
+  }
+
+  private async loadColumnsByTableIds(
+    tableIds: string[],
+    isMongoDB: boolean,
+  ): Promise<any[]> {
+    if (isMongoDB && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('column_definition');
+      const docs = await collection
+        .find({ table: { $in: tableIds.map((id) => new ObjectId(id)) } })
+        .toArray();
+      return docs;
+    } else if (this.knexService) {
+      const rows = await this.knexService
+        .getKnex()
+        .table('column_definition')
+        .whereIn('tableId', tableIds);
+      return rows;
+    }
+    return [];
+  }
+
+  private async loadRelationsBySourceTableIds(
+    tableIds: string[],
+    isMongoDB: boolean,
+  ): Promise<any[]> {
+    if (isMongoDB && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('relation_definition');
+      const docs = await collection
+        .find({ sourceTable: { $in: tableIds.map((id) => new ObjectId(id)) } })
+        .toArray();
+      return docs;
+    } else if (this.knexService) {
+      const rows = await this.knexService
+        .getKnex()
+        .table('relation_definition')
+        .whereIn('sourceTableId', tableIds);
+      return rows;
+    }
+    return [];
+  }
+
+  private async loadAllTables(): Promise<any[]> {
+    if (this.dbType === 'mongodb' && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('table_definition');
+      return await collection.find({}).toArray();
+    } else if (this.knexService) {
+      return await this.knexService.getKnex().table('table_definition').select();
+    }
+    return [];
+  }
+
+  private async loadAllColumns(isMongoDB: boolean): Promise<any[]> {
+    if (isMongoDB && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('column_definition');
+      return await collection.find({}).toArray();
+    } else if (this.knexService) {
+      return await this.knexService.getKnex().table('column_definition').select();
+    }
+    return [];
+  }
+
+  private async loadAllRelations(isMongoDB: boolean): Promise<any[]> {
+    if (isMongoDB && this.mongoService) {
+      const collection = this.mongoService.getDb().collection('relation_definition');
+      return await collection.find({}).toArray();
+    } else if (this.knexService) {
+      return await this.knexService.getKnex().table('relation_definition').select();
+    }
+    return [];
   }
 }

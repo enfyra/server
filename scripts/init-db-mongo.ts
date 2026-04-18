@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { MongoClient, Db } from 'mongodb';
-import { MongoService } from '../src/infrastructure/mongo/services/mongo.service';
 import {
   ColumnDef,
   RelationDef,
@@ -13,11 +12,11 @@ import {
   loadSchemaMigration,
   hasSchemaMigrations,
   applyMongoSchemaMigrations,
-} from './utils/schema-migration';
+} from '../src/shared/utils/provision-schema-migration';
 import {
   buildJunctionDefs,
   createJunctionCollections,
-} from './utils/mongo/junction-collections';
+} from '../src/infrastructure/mongo/utils/junction-collections';
 dotenv.config();
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {

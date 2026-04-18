@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { RateLimitService, RateLimitResult } from './rate-limit.service';
 import { GuardNode, GuardRuleNode } from './guard-cache.service';
 
@@ -16,11 +16,13 @@ export interface GuardRejectInfo {
   headers?: Record<string, string>;
 }
 
-@Injectable()
 export class GuardEvaluatorService {
   private readonly logger = new Logger(GuardEvaluatorService.name);
+  private readonly rateLimitService: RateLimitService;
 
-  constructor(private readonly rateLimitService: RateLimitService) {}
+  constructor(deps: { rateLimitService: RateLimitService }) {
+    this.rateLimitService = deps.rateLimitService;
+  }
 
   async evaluateGuard(
     guard: GuardNode,

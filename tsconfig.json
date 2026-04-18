@@ -6,6 +6,7 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
     "target": "ES2022",
     "sourceMap": false,
     "outDir": "./dist",
@@ -19,8 +20,9 @@
     "noFallthroughCasesInSwitch": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "useDefineForClassFields": false
+    "useDefineForClassFields": false,
+    "allowJs": true
   },
-  "include": ["src/**/*", "scripts/init-db.ts"],
-  "exclude": ["node_modules", "dist", "build-entities.ts"] // Luôn loại trừ các thư mục này
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "build-entities.ts", "src_bak", "scripts"]
 }

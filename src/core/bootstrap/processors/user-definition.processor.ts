@@ -1,16 +1,19 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class UserDefinitionProcessor extends BaseTableProcessor {
-  constructor(
-    private readonly bcryptService: BcryptService,
-    private readonly queryBuilder: QueryBuilderService,
-  ) {
+  private readonly bcryptService: BcryptService;
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    bcryptService: BcryptService;
+    queryBuilderService: QueryBuilderService;
+  }) {
     super();
+    this.bcryptService = deps.bcryptService;
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
@@ -33,7 +36,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
         const result = await this.autoTransformFkFields(
           transformed,
           'user_definition',
-          this.queryBuilder,
+          this.queryBuilderService,
         );
         return result;
       }),

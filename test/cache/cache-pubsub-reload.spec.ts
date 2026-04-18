@@ -3,7 +3,7 @@
  * Uses inline implementation to avoid importing the full module graph (isolated-vm crashes Jest).
  */
 
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 
 // ─── Inline BaseCacheService (mirrors production logic) ──────────
 

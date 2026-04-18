@@ -4,8 +4,8 @@ import {
   getShortIndexName,
   getShortPkName,
   getShortFkConstraintName,
-} from '../../../src/infrastructure/knex/utils/sql-schema-naming.util';
-import { JunctionTableDef, KnexTableSchema } from '../../../src/shared/types/database-init.types';
+} from '../sql-schema-naming.util';
+import { JunctionTableDef, KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getPrimaryKeyType } from './schema-parser';
 
 export async function createJunctionTables(

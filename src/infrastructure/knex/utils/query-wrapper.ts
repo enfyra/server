@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import type { HookEvent } from '../hooks/hook-registry';
 

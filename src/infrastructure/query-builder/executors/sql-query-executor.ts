@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import {
   QueryOptions,
   WhereCondition,
@@ -642,8 +642,8 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
             rootTable: queryOptions.table,
           });
         } else {
-          console.warn(
-            `[sql-executor:fallback] buildWhereClause path hit for table=${queryOptions.table} filter=${JSON.stringify(originalFilter)}`,
+          this.logger.debug(
+            `buildWhereClause fallback for table=${queryOptions.table}`,
           );
           query = buildWhereClause(
             query,
@@ -780,10 +780,13 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       if (this.dbType === 'postgres') {
         filterCount = Number((filterCountResult as any).rows?.[0]?.cnt || 0);
       } else {
-        const row = Array.isArray(filterCountResult)
-          ? filterCountResult[0]
-          : filterCountResult;
-        filterCount = Number(row?.cnt || row?.count || 0);
+        const rowsArray = Array.isArray(filterCountResult)
+          ? Array.isArray(filterCountResult[0])
+            ? filterCountResult[0]
+            : filterCountResult
+          : null;
+        const row = rowsArray?.[0];
+        filterCount = Number(row?.cnt ?? row?.count ?? 0);
       }
     } else if (needsFilterCount && results.length > 0) {
       filterCount = Number(results[0].__filter_count__ || 0);

@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../../shared/logger';
 import {
   quoteIdentifier,
   getForeignKeyConstraintsQuery,
