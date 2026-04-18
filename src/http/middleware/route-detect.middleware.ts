@@ -28,9 +28,6 @@ export function routeDetectMiddleware(
     const method = req.method;
     const routeEngine = routeCacheService.getRouteEngine();
     const path = req.path || req.url?.split('?')[0] || '/';
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[RouteDetect] ${method} ${path}`);
-    }
     const matchedRoute = routeEngine.find(method, path);
 
     const isMethodAvailable = (route: any) => {

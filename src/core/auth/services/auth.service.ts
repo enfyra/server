@@ -7,20 +7,40 @@ import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { BcryptService } from './bcrypt.service';
 import { EnvService } from '../../../shared/services/env.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
+import {
+  loadUserWithRole,
+  userCacheKey,
+  USER_CACHE_TTL_MS,
+} from '../../../shared/utils/load-user-with-role.util';
 
 export class AuthService {
   private bcryptService: BcryptService;
   private queryBuilder: QueryBuilderService;
   private envService: EnvService;
+  private cacheService: CacheService;
 
   constructor(deps: {
     bcryptService: BcryptService;
     queryBuilderService: QueryBuilderService;
     envService: EnvService;
+    cacheService: CacheService;
   }) {
     this.bcryptService = deps.bcryptService;
     this.queryBuilder = deps.queryBuilderService;
     this.envService = deps.envService;
+    this.cacheService = deps.cacheService;
+  }
+
+  private async seedUserCache(userIdForJwt: unknown): Promise<void> {
+    const user = await loadUserWithRole(this.queryBuilder, userIdForJwt);
+    if (user) {
+      await this.cacheService.set(
+        userCacheKey(userIdForJwt),
+        user,
+        USER_CACHE_TTL_MS,
+      );
+    }
   }
 
   private hashToken(token: string): string {
@@ -85,9 +105,10 @@ export class AuthService {
       ? insertedSession._id?.toString() || insertedSession.id
       : insertedSession.id || sessionData.id;
 
+    const jwtUserId = DatabaseConfigService.getRecordId(user);
     const accessToken = jwt.sign(
       {
-        id: DatabaseConfigService.getRecordId(user),
+        id: jwtUserId,
         loginProvider: null,
       },
       this.envService.get('SECRET_KEY'),
@@ -95,6 +116,7 @@ export class AuthService {
         expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
+    await this.seedUserCache(jwtUserId);
     const refreshToken = jwt.sign(
       {
         sessionId: sessionId,
@@ -268,6 +290,8 @@ export class AuthService {
         );
       }
     }
+
+    await this.seedUserCache(userId);
 
     const accessTokenDecoded = jwt.decode(accessToken);
     return {

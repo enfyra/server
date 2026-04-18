@@ -16,6 +16,7 @@ import { BcryptService } from './core/auth/services/bcrypt.service';
 import { AuthService } from './core/auth/services/auth.service';
 import { OAuthService } from './core/auth/services/oauth.service';
 import { SessionCleanupService } from './core/auth/services/session-cleanup.service';
+import { UserRevocationService } from './core/auth/services/user-revocation.service';
 
 import { BootstrapScriptDefinitionProcessor } from './core/bootstrap/processors/bootstrap-script-definition.processor';
 import { ExtensionDefinitionProcessor } from './core/bootstrap/processors/extension-definition.processor';
@@ -149,6 +150,7 @@ import { UploadFileHelper } from './shared/helpers/upload-file.helper';
 import { EnvService } from './shared/services/env.service';
 import { InstanceService } from './shared/services/instance.service';
 
+
 export interface Cradle {
   envService: EnvService;
   eventEmitter: EventEmitter2;
@@ -161,10 +163,12 @@ export interface Cradle {
   authService: AuthService;
   oauthService: OAuthService;
   sessionCleanupService: SessionCleanupService;
+  userRevocationService: UserRevocationService;
   loggingService: LoggingService;
   policyService: PolicyService;
   schemaMigrationValidatorService: SchemaMigrationValidatorService;
   systemSafetyAuditorService: SystemSafetyAuditorService;
+
 
   mongoService: MongoService;
   mongoSchemaMigrationService: MongoSchemaMigrationService;
@@ -325,6 +329,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     authService: asClass(AuthService).singleton(),
     oauthService: asClass(OAuthService).singleton(),
     sessionCleanupService: asClass(SessionCleanupService).singleton(),
+    userRevocationService: asClass(UserRevocationService).singleton(),
     loggingService: asClass(LoggingService).singleton(),
     policyService: asClass(PolicyService).singleton(),
     schemaMigrationValidatorService: asClass(SchemaMigrationValidatorService).singleton(),
@@ -397,6 +402,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
           tableValidationService: cradle.tableValidationService,
           settingCacheService: cradle.settingCacheService,
           fieldPermissionCacheService: cradle.fieldPermissionCacheService,
+          userRevocationService: cradle.userRevocationService,
           eventEmitter: cradle.eventEmitter,
         });
       };

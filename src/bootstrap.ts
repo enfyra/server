@@ -51,6 +51,7 @@ export async function bootstrap(
   await c.graphqlService?.reloadSchema?.();
 
   await c.sessionCleanupService?.onInit?.();
+  await c.userRevocationService?.onInit?.();
   await c.eventQueueService?.onInit?.();
   await c.connectionQueueService?.onInit?.();
 

@@ -1,11 +1,19 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
-import { AuthenticationException, TokenExpiredException, InvalidTokenException } from '../../core/exceptions/custom-exceptions';
+import { TokenExpiredException, InvalidTokenException } from '../../core/exceptions/custom-exceptions';
 import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
-import { DatabaseConfigService } from '../../shared/services/database-config.service';
-import { ObjectId } from 'mongodb';
+import { CacheService } from '../../infrastructure/cache/services/cache.service';
+import {
+  loadUserWithRole,
+  userCacheKey,
+  USER_CACHE_TTL_MS,
+} from '../../shared/utils/load-user-with-role.util';
 
-export function jwtAuthMiddleware(queryBuilderService: QueryBuilderService, secretKey: string) {
+export function jwtAuthMiddleware(
+  queryBuilderService: QueryBuilderService,
+  cacheService: CacheService,
+  secretKey: string,
+) {
   return async (req: any, res: Response, next: NextFunction) => {
     try {
       const authHeader = req.headers.authorization;
@@ -38,18 +46,16 @@ export function jwtAuthMiddleware(queryBuilderService: QueryBuilderService, secr
       }
 
       const { id, loginProvider } = payload;
-      const isMongoDB = queryBuilderService.isMongoDb();
-      const idField = DatabaseConfigService.getPkField();
-      const idValue = isMongoDB
-        ? typeof id === 'string'
-          ? new ObjectId(id)
-          : id
-        : id;
+      const cacheKey = userCacheKey(id);
 
-      const user = await queryBuilderService.findOne({
-        table: 'user_definition',
-        where: { [idField]: idValue },
-      });
+      let user = await cacheService.get<any>(cacheKey);
+
+      if (!user) {
+        user = await loadUserWithRole(queryBuilderService, id);
+        if (user) {
+          await cacheService.set(cacheKey, user, USER_CACHE_TTL_MS);
+        }
+      }
 
       if (!user) {
         req.user = null;
@@ -57,15 +63,6 @@ export function jwtAuthMiddleware(queryBuilderService: QueryBuilderService, secr
           req.routeData.context.$user = null;
         }
         return next();
-      }
-
-      const roleField = isMongoDB ? 'role' : 'roleId';
-      const roleId = user[roleField];
-      if (roleId) {
-        user.role = await queryBuilderService.findOne({
-          table: 'role_definition',
-          where: { [idField]: roleId },
-        });
       }
 
       Object.assign(user, {

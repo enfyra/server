@@ -6,6 +6,12 @@ import { BadRequestException } from '../../../shared/errors';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
 import { EnvService } from '../../../shared/services/env.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
+import {
+  loadUserWithRole,
+  userCacheKey,
+  USER_CACHE_TTL_MS,
+} from '../../../shared/utils/load-user-with-role.util';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';
 
@@ -20,6 +26,7 @@ export class OAuthService {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly oauthConfigCacheService: OAuthConfigCacheService;
   private readonly envService: EnvService;
+  private readonly cacheService: CacheService;
 
   private readonly providerUrls: Record<
     OAuthProvider,
@@ -50,10 +57,12 @@ export class OAuthService {
     queryBuilderService: QueryBuilderService;
     oauthConfigCacheService: OAuthConfigCacheService;
     envService: EnvService;
+    cacheService: CacheService;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.oauthConfigCacheService = deps.oauthConfigCacheService;
     this.envService = deps.envService;
+    this.cacheService = deps.cacheService;
   }
 
   getAuthorizationUrl(provider: OAuthProvider, state: string): string {
@@ -363,6 +372,15 @@ export class OAuthService {
       sessionId?.toString(),
       { refreshTokenHash },
     );
+
+    const userForCache = await loadUserWithRole(this.queryBuilderService, userId);
+    if (userForCache) {
+      await this.cacheService.set(
+        userCacheKey(userId),
+        userForCache,
+        USER_CACHE_TTL_MS,
+      );
+    }
 
     const decoded: any = jwt.decode(accessToken);
 

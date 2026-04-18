@@ -23,6 +23,7 @@ import {
   decideFieldPermission,
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
+import { UserRevocationService } from '../../../core/auth/services/user-revocation.service';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -36,6 +37,7 @@ export class DynamicRepository {
   private settingCacheService: SettingCacheService;
   private eventEmitter: EventEmitter2;
   private fieldPermissionCacheService?: FieldPermissionCacheService;
+  private userRevocationService?: UserRevocationService;
   private enforceFieldPermission: boolean;
   private tableMetadata: any;
 
@@ -51,6 +53,7 @@ export class DynamicRepository {
     settingCacheService,
     eventEmitter,
     fieldPermissionCacheService,
+    userRevocationService,
     enforceFieldPermission,
   }: {
     context: TDynamicContext;
@@ -64,6 +67,7 @@ export class DynamicRepository {
     settingCacheService: SettingCacheService;
     eventEmitter: EventEmitter2;
     fieldPermissionCacheService?: FieldPermissionCacheService;
+    userRevocationService?: UserRevocationService;
     enforceFieldPermission?: boolean;
   }) {
     this.context = context;
@@ -77,6 +81,7 @@ export class DynamicRepository {
     this.settingCacheService = settingCacheService;
     this.eventEmitter = eventEmitter;
     this.fieldPermissionCacheService = fieldPermissionCacheService;
+    this.userRevocationService = userRevocationService;
     this.enforceFieldPermission = enforceFieldPermission === true;
   }
 
@@ -785,6 +790,14 @@ export class DynamicRepository {
         fields,
       });
       await this.reload({ ids: [id] });
+      if (
+        this.tableName === 'user_definition' &&
+        body &&
+        Object.prototype.hasOwnProperty.call(body, 'password') &&
+        this.userRevocationService
+      ) {
+        await this.userRevocationService.publish(id);
+      }
       return result;
     } catch (error: any) {
       if (error instanceof ForbiddenException) {
@@ -921,6 +934,9 @@ export class DynamicRepository {
         () => this.queryBuilderService.delete(this.tableName, id),
       );
       await this.reload({ ids: [id] });
+      if (this.tableName === 'user_definition' && this.userRevocationService) {
+        await this.userRevocationService.publish(id);
+      }
       return { message: 'Delete successfully!', statusCode: 200 };
     } catch (error) {
       throw new BadRequestException(error.message);

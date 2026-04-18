@@ -83,7 +83,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   );
   app.use(notFoundDetectMiddleware);
   app.use(preAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
-  app.use(jwtAuthMiddleware(c.queryBuilderService, c.envService.get('SECRET_KEY')));
+  app.use(jwtAuthMiddleware(c.queryBuilderService, c.cacheService, c.envService.get('SECRET_KEY')));
   app.use(roleGuardMiddleware(c.policyService));
   app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
   app.use(requestLoggingBegin);

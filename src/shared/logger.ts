@@ -132,9 +132,13 @@ export class Logger {
 
     const timeStr = `${BRACKET}[${time}]${RESET}`;
     const iconStr = iconColor + icon + RESET;
-    const ctxStr = shortCtx ? `${SERVICE}${shortCtx.padEnd(12)}${RESET} ` : '';
-    const arrowStr = `${ARROW} `;
 
-    console.log(`${timeStr} ${iconStr} ${ctxStr}${arrowStr}${msgStr}`);
+    const emphasize = level === 'error' || level === 'warn';
+    const ctxColor = emphasize ? iconColor : SERVICE;
+    const ctxStr = shortCtx ? `${ctxColor}${shortCtx.padEnd(12)}${RESET} ` : '';
+    const arrowStr = `${ARROW} `;
+    const msgColored = emphasize ? `${iconColor}${msgStr}${RESET}` : msgStr;
+
+    console.log(`${timeStr} ${iconStr} ${ctxStr}${arrowStr}${msgColored}`);
   }
 }
