@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
-@Injectable()
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+
 export class FolderDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     const rootFolders = records.filter((r) => !r.parent);
     const childFolders = records.filter((r) => r.parent);

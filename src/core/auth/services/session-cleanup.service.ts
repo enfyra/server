@@ -1,25 +1,42 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { Job, Queue, Worker } from 'bullmq';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
+import { EnvService } from '../../../shared/services/env.service';
+import { Logger } from '../../../shared/logger';
 
 const BATCH_SIZE = 20;
 
-@Injectable()
-@Processor(SYSTEM_QUEUES.SESSION_CLEANUP, { concurrency: 1 })
-export class SessionCleanupService extends WorkerHost implements OnModuleInit {
+export class SessionCleanupService {
   private readonly logger = new Logger(SessionCleanupService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly cleanupQueue: Queue;
+  private readonly envService: EnvService;
+  private worker?: Worker;
 
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    @InjectQueue(SYSTEM_QUEUES.SESSION_CLEANUP)
-    private readonly cleanupQueue: Queue,
-  ) {
-    super();
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    cleanupQueue: Queue;
+    envService: EnvService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.cleanupQueue = deps.cleanupQueue;
+    this.envService = deps.envService;
   }
 
-  async onModuleInit() {
+  async init() {
+    const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
+    this.worker = new Worker(
+      SYSTEM_QUEUES.SESSION_CLEANUP,
+      async (job: Job) => {
+        return await this.process(job);
+      },
+      {
+        prefix: `${nodeName}:`,
+        connection: { url: this.envService.get('REDIS_URI'), maxRetriesPerRequest: null },
+        concurrency: 1,
+      },
+    );
+
     await this.cleanupQueue.upsertJobScheduler(
       'session-cleanup-daily',
       { pattern: '0 2 * * *' },
@@ -30,7 +47,7 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
   async process(job: Job): Promise<any> {
     const startTime = Date.now();
     const now = new Date().toISOString();
-    const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
+    const idField = this.queryBuilderService.getPkField();
     let totalDeleted = 0;
     let hasMore = true;
 
@@ -39,8 +56,8 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
 
     while (hasMore && iterations < MAX_ITERATIONS) {
       iterations++;
-      const result = await this.queryBuilder.select({
-        tableName: 'session_definition',
+      const result = await this.queryBuilderService.find({
+        table: 'session_definition',
         filter: { expiredAt: { _lt: now } },
         fields: [idField],
         limit: BATCH_SIZE,
@@ -52,7 +69,7 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
       let batchDeleted = 0;
       for (const session of expired) {
         try {
-          await this.queryBuilder.deleteById(
+          await this.queryBuilderService.delete(
             'session_definition',
             session[idField],
           );
@@ -73,5 +90,11 @@ export class SessionCleanupService extends WorkerHost implements OnModuleInit {
       `Cleaned up ${totalDeleted} expired sessions in ${Date.now() - startTime}ms`,
     );
     return { deleted: totalDeleted };
+  }
+
+  async onDestroy() {
+    if (this.worker) {
+      await this.worker.close();
+    }
   }
 }

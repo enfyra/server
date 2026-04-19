@@ -1,27 +1,47 @@
-import { Request } from 'express';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
-
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-
+import { BadRequestException } from '../../../shared/errors';
+import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-
-import { LoginAuthDto } from '../dto/login-auth.dto';
-import { LogoutAuthDto } from '../dto/logout-auth.dto';
-import { RefreshTokenAuthDto } from '../dto/refresh-token-auth.dto';
 import { BcryptService } from './bcrypt.service';
+import { EnvService } from '../../../shared/services/env.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
+import {
+  loadUserWithRole,
+  userCacheKey,
+  USER_CACHE_TTL_MS,
+} from '../../../shared/utils/load-user-with-role.util';
 
-@Injectable()
 export class AuthService {
-  constructor(
-    private bcryptService: BcryptService,
-    private configService: ConfigService,
-    private jwtService: JwtService,
-    private queryBuilder: QueryBuilderService,
-  ) {}
+  private bcryptService: BcryptService;
+  private queryBuilder: QueryBuilderService;
+  private envService: EnvService;
+  private cacheService: CacheService;
+
+  constructor(deps: {
+    bcryptService: BcryptService;
+    queryBuilderService: QueryBuilderService;
+    envService: EnvService;
+    cacheService: CacheService;
+  }) {
+    this.bcryptService = deps.bcryptService;
+    this.queryBuilder = deps.queryBuilderService;
+    this.envService = deps.envService;
+    this.cacheService = deps.cacheService;
+  }
+
+  private async seedUserCache(userIdForJwt: unknown): Promise<void> {
+    const user = await loadUserWithRole(this.queryBuilder, userIdForJwt);
+    if (user) {
+      await this.cacheService.set(
+        userCacheKey(userIdForJwt),
+        user,
+        USER_CACHE_TTL_MS,
+      );
+    }
+  }
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
@@ -29,17 +49,18 @@ export class AuthService {
 
   private calculateExpiredAt(remember: boolean): Date {
     const expiryConfig = remember
-      ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
-      : this.configService.get<string>('REFRESH_TOKEN_NO_REMEMBER_EXP');
+      ? this.envService.get('REFRESH_TOKEN_REMEMBER_EXP')
+      : this.envService.get('REFRESH_TOKEN_NO_REMEMBER_EXP');
     const expiryMs = ms(expiryConfig as StringValue);
     return new Date(Date.now() + expiryMs);
   }
 
-  async login(body: LoginAuthDto) {
+  async login(body: any) {
     const { email, password } = body;
 
-    const user = await this.queryBuilder.findOneWhere('user_definition', {
-      email,
+    const user = await this.queryBuilder.findOne({
+      table: 'user_definition',
+      where: { email },
     });
 
     if (
@@ -75,7 +96,7 @@ export class AuthService {
           loginProvider: null,
         };
 
-    const insertedSession = await this.queryBuilder.insertAndGet(
+    const insertedSession = await this.queryBuilder.insert(
       'session_definition',
       sessionData,
     );
@@ -84,35 +105,36 @@ export class AuthService {
       ? insertedSession._id?.toString() || insertedSession.id
       : insertedSession.id || sessionData.id;
 
-    const accessToken = this.jwtService.sign(
+    const jwtUserId = DatabaseConfigService.getRecordId(user);
+    const accessToken = jwt.sign(
       {
-        id: isMongoDB ? user._id : user.id,
+        id: jwtUserId,
         loginProvider: null,
       },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          'ACCESS_TOKEN_EXP',
-        ) as StringValue,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
-    const refreshToken = this.jwtService.sign(
+    await this.seedUserCache(jwtUserId);
+    const refreshToken = jwt.sign(
       {
         sessionId: sessionId,
+        jti: randomUUID(),
       },
+      this.envService.get('SECRET_KEY'),
       {
         expiresIn: (body.remember
-          ? this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP')
-          : this.configService.get<string>(
-              'REFRESH_TOKEN_NO_REMEMBER_EXP',
-            )) as StringValue,
+          ? this.envService.get('REFRESH_TOKEN_REMEMBER_EXP')
+          : this.envService.get('REFRESH_TOKEN_NO_REMEMBER_EXP')) as StringValue,
       },
     );
 
-    await this.queryBuilder.updateById('session_definition', sessionId, {
+    await this.queryBuilder.update('session_definition', sessionId, {
       refreshTokenHash: this.hashToken(refreshToken),
     });
 
-    const decoded: any = this.jwtService.decode(accessToken);
+    const decoded: any = jwt.decode(accessToken);
     return {
       accessToken,
       refreshToken,
@@ -121,19 +143,20 @@ export class AuthService {
     };
   }
 
-  async logout(body: LogoutAuthDto, req: Request & { user: any }) {
+  async logout(body: any, req: any) {
     let decoded: any;
     try {
-      decoded = this.jwtService.verify(body.refreshToken);
+      decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
 
     const { sessionId } = decoded;
 
-    const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const session = await this.queryBuilder.findOneWhere('session_definition', {
-      [sessionIdField]: sessionId,
+    const sessionIdField = this.queryBuilder.getPkField();
+    const session = await this.queryBuilder.findOne({
+      table: 'session_definition',
+      where: { [sessionIdField]: sessionId },
     });
 
     if (!req.user) {
@@ -151,24 +174,25 @@ export class AuthService {
       throw new BadRequestException(`Logout failed!`);
     }
 
-    await this.queryBuilder.deleteById(
+    await this.queryBuilder.delete(
       'session_definition',
       session._id || session.id,
     );
     return 'Logout successfully!';
   }
 
-  async refreshToken(body: RefreshTokenAuthDto) {
+  async refreshToken(body: any) {
     let decoded: any;
     try {
-      decoded = this.jwtService.verify(body.refreshToken);
+      decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
 
-    const sessionIdField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const session = await this.queryBuilder.findOneWhere('session_definition', {
-      [sessionIdField]: decoded.sessionId,
+    const sessionIdField = this.queryBuilder.getPkField();
+    const session = await this.queryBuilder.findOne({
+      table: 'session_definition',
+      where: { [sessionIdField]: decoded.sessionId },
     });
 
     if (!session) {
@@ -182,16 +206,14 @@ export class AuthService {
       throw new BadRequestException('Session has expired!');
     }
 
-    if (
-      session.refreshTokenHash &&
-      session.refreshTokenHash !== this.hashToken(body.refreshToken)
-    ) {
+    const incomingHash = this.hashToken(body.refreshToken);
+    if (session.refreshTokenHash && session.refreshTokenHash !== incomingHash) {
       throw new BadRequestException('Refresh token has been revoked!');
     }
 
     const userId = this.queryBuilder.isMongoDb()
       ? session.user?._id || session.user
-      : session.userId;
+      : session.userId || session.user?.id || session.user;
 
     const remember = session.remember || false;
     const newExpiredAt = this.calculateExpiredAt(remember);
@@ -201,36 +223,77 @@ export class AuthService {
 
     const loginProvider = session.loginProvider ?? null;
 
-    const accessToken = this.jwtService.sign(
+    const accessToken = jwt.sign(
       {
         id: userId,
         loginProvider,
       },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          'ACCESS_TOKEN_EXP',
-        ) as StringValue,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
 
     const refreshTokenExp = remember
       ? 'REFRESH_TOKEN_REMEMBER_EXP'
       : 'REFRESH_TOKEN_NO_REMEMBER_EXP';
-    const refreshToken = this.jwtService.sign(
-      { sessionId: sessionId },
+    const refreshToken = jwt.sign(
+      { sessionId: sessionId, jti: randomUUID() },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          refreshTokenExp,
-        ) as StringValue,
+        expiresIn: this.envService.get(refreshTokenExp as any) as StringValue,
       },
     );
 
-    await this.queryBuilder.updateById('session_definition', sessionId, {
-      expiredAt: newExpiredAt,
-      refreshTokenHash: this.hashToken(refreshToken),
-    });
+    const newHash = this.hashToken(refreshToken);
 
-    const accessTokenDecoded = await this.jwtService.decode(accessToken);
+    if (this.queryBuilder.isMongoDb()) {
+      const { ObjectId } = require('mongodb');
+      const sessionObjId =
+        typeof sessionId === 'string' ? new ObjectId(sessionId) : sessionId;
+      const filter: any = {
+        _id: sessionObjId,
+        $or: [
+          { refreshTokenHash: incomingHash },
+          { refreshTokenHash: null },
+          { refreshTokenHash: { $exists: false } },
+        ],
+      };
+      const result = await this.queryBuilder
+        .getMongoDb()
+        .collection('session_definition')
+        .findOneAndUpdate(filter, {
+          $set: {
+            expiredAt: newExpiredAt,
+            refreshTokenHash: newHash,
+            updatedAt: new Date(),
+          },
+        });
+      if (!result) {
+        throw new BadRequestException(
+          'Refresh token has been revoked or already used!',
+        );
+      }
+    } else {
+      const knex = this.queryBuilder.getKnex();
+      const affected = await knex('session_definition')
+        .where('id', sessionId)
+        .andWhere(function () {
+          this.where('refreshTokenHash', incomingHash).orWhereNull(
+            'refreshTokenHash',
+          );
+        })
+        .update({ expiredAt: newExpiredAt, refreshTokenHash: newHash });
+      if (affected === 0) {
+        throw new BadRequestException(
+          'Refresh token has been revoked or already used!',
+        );
+      }
+    }
+
+    await this.seedUserCache(userId);
+
+    const accessTokenDecoded = jwt.decode(accessToken);
     return {
       accessToken,
       refreshToken,

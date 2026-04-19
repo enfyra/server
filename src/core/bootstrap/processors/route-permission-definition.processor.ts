@@ -1,32 +1,31 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformed = { ...record };
-        if (transformed.isEnabled === undefined)
-          transformed.isEnabled = true;
+        if (transformed.isEnabled === undefined) transformed.isEnabled = true;
         if (isMongoDB) {
           const now = new Date();
           if (!transformed.createdAt) transformed.createdAt = now;
           if (!transformed.updatedAt) transformed.updatedAt = now;
-          if (!transformed.allowedUsers)
-            transformed.allowedUsers = [];
+          if (!transformed.allowedUsers) transformed.allowedUsers = [];
         }
 
         const result = await this.autoTransformFkFields(
           transformed,
           'route_permission_definition',
-          this.queryBuilder,
+          this.queryBuilderService,
         );
         if (!result.route && !result.routeId) return null;
         return result;
@@ -36,10 +35,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
   }
 
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(
-      record,
-      'route_permission_definition',
-    );
+    return this.autoGetUniqueIdentifier(record, 'route_permission_definition');
   }
 
   protected getCompareFields(): string[] {

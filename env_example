@@ -1,14 +1,12 @@
 ############################################
 # Database - required
 ############################################
-# One of: mysql | postgres | mongodb
-DB_TYPE=mysql
-
 # Database connection URI (master/write connection)
+# Database type is auto-detected from the URI protocol.
 # For MySQL: mysql://user:password@host:port/database
 # For PostgreSQL: postgresql://user:password@host:port/database
 # For MongoDB: mongodb://user:password@host:port/database?authSource=admin
-# 
+#
 # Note: If password contains special characters (@, :, /, etc.), URL-encode them:
 #   Example: password "p@ssw0rd" → "p%40ssw0rd"
 #   Common encodings: @ = %40, : = %3A, / = %2F, % = %25, # = %23, ? = %3F, & = %26
@@ -21,9 +19,6 @@ DB_URI=mysql://root:1234@localhost:3306/enfyra
 # If true, master is included in round-robin pool for reads (master + replicas)
 # If false, read queries only use replicas via round-robin (master is only used for writes)
 # DB_READ_FROM_MASTER=false
-
-# MongoDB URI (only if DB_TYPE=mongodb)
-# MONGO_URI=mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra?authSource=admin
 ############################################
 # Redis Cache - required
 ############################################

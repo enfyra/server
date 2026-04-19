@@ -51,7 +51,7 @@
         ],
         "relations": [
             { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table where this relation is defined" },
-            { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": false, "description": "The table that this relation points to" },
+            { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": true, "description": "The table that this relation points to" },
             { "propertyName": "mappedBy", "type": "many-to-one", "targetTable": "relation_definition", "isSystem": true, "isNullable": true, "onDelete": "CASCADE", "description": "Owning-side relation that this inverse maps to (self-referencing FK)" }
         ]
     },
@@ -143,10 +143,24 @@
             { "name": "projectName", "type": "varchar", "isSystem": true, "description": "Name of the project/application" },
             { "name": "projectDescription", "type": "text", "isSystem": true, "description": "Description of the project/application" },
             { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" },
-            { "name": "corsAllowedOrigins", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Allowed CORS origins (array of domain URLs)" },
             { "name": "maxQueryDepth", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 7, "description": "Maximum nesting depth for REST deep-fetch and GraphQL queries (default: 7)" },
             { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 10, "description": "Maximum upload file size in MB (default: 10)" },
             { "name": "maxRequestBodySize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 1, "description": "Maximum JSON/urlencoded request body size in MB (default: 1)" }
+        ],
+        "relations": []
+    },
+    "cors_origin_definition": {
+        "name": "cors_origin_definition",
+        "description": "Allowed CORS origins served by the public /cors_origin_definition endpoint",
+        "isSystem": true,
+        "uniques": [
+            ["value"]
+        ],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "value", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Allowed origin URL (e.g., https://app.example.com)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this origin is currently active" },
+            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Optional note for this origin entry" }
         ],
         "relations": []
     },
@@ -167,7 +181,7 @@
         ],
         "relations": [
             { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "onDelete": "CASCADE", "description": "Primary table that this route operates on" },
-            { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP/GraphQL methods this route supports" },
+            { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP methods this route supports" },
             { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Pre-hooks that run before route execution" },
             { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Post-hooks that run after route execution" }
         ]
@@ -294,16 +308,24 @@
             { "propertyName": "user", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "onDelete": "CASCADE", "description": "User who owns this session" }
         ]
     },
-    "schema_history": {
-        "name": "schema_history",
-        "description": "Tracks database schema changes and migrations",
+    "schema_migration_definition": {
+        "name": "schema_migration_definition",
+        "description": "Tracks schema migration operations with up/down scripts for automatic recovery",
         "isSystem": true,
         "columns": [
-            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "schema", "type": "simple-json", "isNullable": false, "isSystem": true, "description": "Full schema snapshot at this point in time" },
-            { "name": "description", "type": "text", "isSystem": true, "description": "Description of changes made in this version" },
-            { "name": "hash", "type": "text", "isSystem": true, "description": "Hash of the schema for comparison and integrity checking" }
-        ]
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key" },
+            { "name": "uuid", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Unique migration version identifier" },
+            { "name": "tableName", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Affected table name" },
+            { "name": "operation", "type": "varchar", "isNullable": false, "isSystem": true, "description": "Operation type: create, update, or delete" },
+            { "name": "status", "type": "varchar", "isNullable": false, "isSystem": true, "defaultValue": "pending", "description": "Status: pending, running, completed, failed, rolled_back" },
+            { "name": "upScript", "type": "text", "isSystem": true, "description": "DDL statements to apply the migration" },
+            { "name": "downScript", "type": "text", "isSystem": true, "description": "DDL statements to revert the migration" },
+            { "name": "beforeSnapshot", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Table metadata before migration" },
+            { "name": "errorMessage", "type": "text", "isNullable": true, "isSystem": true, "description": "Error details if migration failed" },
+            { "name": "startedAt", "type": "date", "isSystem": true, "description": "When migration started executing" },
+            { "name": "completedAt", "type": "date", "isNullable": true, "isSystem": true, "description": "When migration completed or was rolled back" }
+        ],
+        "uniques": [["uuid"]]
     },
     "method_definition": {
         "name": "method_definition",
@@ -317,7 +339,8 @@
         "relations": [
             { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method" },
             { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publishedMethods", "description": "Routes that support this method" },
-            { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" }
+            { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" },
+            { "propertyName": "routesSkipRoleGuard", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "skipRoleGuardMethods", "description": "Routes where this method skips RoleGuard (still requires authentication)" }
         ]
     },
     "menu_definition": {
@@ -463,7 +486,7 @@
             { "name": "lastError", "type": "text", "isNullable": true, "isSystem": true, "description": "Last error message from install/update/uninstall operation" }
         ],
         "relations": [
-            { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": false, "description": "User who installed this package" }
+            { "propertyName": "installedBy", "type": "many-to-one", "targetTable": "user_definition", "isSystem": true, "isNullable": true, "description": "User who installed this package" }
         ]
     },
     "bootstrap_script_definition": {
@@ -653,6 +676,22 @@
         "relations": [
             { "propertyName": "guard", "type": "many-to-one", "targetTable": "guard_definition", "isSystem": true, "inversePropertyName": "rules", "isNullable": false, "onDelete": "CASCADE", "description": "Guard this rule belongs to" },
             { "propertyName": "users", "type": "many-to-many", "targetTable": "user_definition", "isSystem": true, "description": "Specific users this rule applies to (empty = all users)" }
+        ]
+    },
+    "gql_definition": {
+        "name": "gql_definition",
+        "description": "GraphQL configuration per table — enables/disables GraphQL API for a specific table",
+        "isSystem": true,
+        "uniques": [["table"]],
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether GraphQL is enabled for this table (REST-first, opt-in)" },
+            { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "System-managed flag" },
+            { "name": "description", "type": "text", "isNullable": true, "isSystem": true, "description": "Human-readable description" },
+            { "name": "metadata", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Extended configuration (custom handler, timeout, etc.)" }
+        ],
+        "relations": [
+            { "propertyName": "table", "type": "many-to-one", "isSystem": true, "targetTable": "table_definition", "isNullable": false, "onDelete": "CASCADE", "inversePropertyName": "gqlConfig", "description": "The table this GraphQL config belongs to" }
         ]
     }
 }

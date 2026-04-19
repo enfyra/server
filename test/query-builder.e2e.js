@@ -2,16 +2,18 @@ const knex = require('knex');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const DB_TYPE = process.env.DB_TYPE || 'postgres';
 const DB_URI = process.env.DB_URI;
-
-console.log(`Database Type: ${DB_TYPE}`);
-console.log('');
 
 if (!DB_URI) {
   console.error('DB_URI not set in environment');
   process.exit(1);
 }
+
+const protocol = new URL(DB_URI).protocol.replace(':', '');
+const DB_TYPE = protocol === 'postgresql' || protocol === 'postgres' ? 'postgres' : protocol === 'mysql' || protocol === 'mariadb' ? 'mysql' : protocol;
+
+console.log(`Database Type: ${DB_TYPE}`);
+console.log('');
 
 const parseDatabaseUri = (uri) => {
   const regex = /^(?:([^:]+):\/\/)?(?:([^:]+):([^@]*)@)?([^:\/]+)(?::(\d+))?\/(.+)$/;

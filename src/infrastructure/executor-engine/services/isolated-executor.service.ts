@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
+import { AsyncLocalStorage } from 'async_hooks';
 import * as path from 'path';
 import { Worker } from 'worker_threads';
 import { TDynamicContext } from '../../../shared/types';
@@ -24,9 +25,16 @@ import {
 
 const WORKER_SCRIPT = path.join(__dirname, '../workers/executor.worker.js');
 
+const ioAbortContext = new AsyncLocalStorage<AbortSignal>();
+
+export function getIoAbortSignal(): AbortSignal | undefined {
+  return ioAbortContext.getStore();
+}
+
 interface TaskReg {
   onResult: (msg: any) => void;
   onIoCall: (msg: any) => void;
+  abortController: AbortController;
 }
 
 interface PoolEntry {
@@ -76,6 +84,7 @@ class WorkerPool {
 
     worker.on('exit', () => {
       for (const [, reg] of entry.tasks) {
+        reg.abortController.abort();
         reg.onResult({
           type: 'result',
           success: false,
@@ -194,9 +203,10 @@ export function encodeMainThreadToIsolate(value: unknown): string {
   }
 }
 
-@Injectable()
-export class IsolatedExecutorService implements OnModuleDestroy {
+export class IsolatedExecutorService {
   private readonly logger = new Logger(IsolatedExecutorService.name);
+  private readonly packageCacheService: PackageCacheService;
+  private readonly packageCdnLoaderService: PackageCdnLoaderService;
   private readonly effectiveMemory = getEffectiveMemoryBytes();
   private readonly isolationTuning = getEngineTuning();
   private readonly pool = new WorkerPool(
@@ -215,10 +225,12 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   private recoveryTicks = 0;
   private taskCounter = 0;
 
-  constructor(
-    private readonly packageCacheService: PackageCacheService,
-    private readonly cdnLoader: PackageCdnLoaderService,
-  ) {
+  constructor(deps: {
+    packageCacheService: PackageCacheService;
+    packageCdnLoaderService: PackageCdnLoaderService;
+  }) {
+    this.packageCacheService = deps.packageCacheService;
+    this.packageCdnLoaderService = deps.packageCdnLoaderService;
     this.logger.log(
       `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate, ${this.isolationTuning.tasksPerWorkerCap} tasks/worker cap`,
     );
@@ -228,7 +240,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     );
   }
 
-  onModuleDestroy(): void {
+  onDestroy(): void {
     if (this.tuneTimer) {
       clearInterval(this.tuneTimer);
     }
@@ -349,10 +361,12 @@ export class IsolatedExecutorService implements OnModuleDestroy {
 
       return new Promise<any>((resolve, reject) => {
         let settled = false;
+        const abortController = new AbortController();
 
         const timer = setTimeout(() => {
           if (settled) return;
           settled = true;
+          abortController.abort();
           this.pool.unregisterTask(entry, taskId);
           appendIsolatedExecutorRuntimeLog({
             event: 'task_timeout',
@@ -369,6 +383,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
         }, timeoutMs + 5000);
 
         this.pool.registerTask(entry, taskId, {
+          abortController,
           onResult: (msg) => {
             if (settled) return;
             settled = true;
@@ -408,17 +423,20 @@ export class IsolatedExecutorService implements OnModuleDestroy {
           },
           onIoCall: (msg) => {
             if (settled) return;
+            const signal = abortController.signal;
             if (msg.type === 'repoCall') {
               this.handleIoCall(
                 () => this.execRepoCall(msg, ctx),
                 entry.worker,
                 msg.callId,
+                signal,
               );
             } else if (msg.type === 'helpersCall') {
               this.handleIoCall(
                 () => this.execHelpersCall(msg, ctx),
                 entry.worker,
                 msg.callId,
+                signal,
               );
             } else if (msg.type === 'socketCall') {
               this.handleSocketCall(msg, ctx);
@@ -427,12 +445,14 @@ export class IsolatedExecutorService implements OnModuleDestroy {
                 () => this.execCacheCall(msg, ctx),
                 entry.worker,
                 msg.callId,
+                signal,
               );
             } else if (msg.type === 'dispatchCall') {
               this.handleIoCall(
                 () => this.execDispatchCall(msg, ctx),
                 entry.worker,
                 msg.callId,
+                signal,
               );
             }
           },
@@ -447,9 +467,12 @@ export class IsolatedExecutorService implements OnModuleDestroy {
     fn: () => Promise<unknown>,
     worker: Worker,
     callId: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (signal?.aborted) return;
     try {
-      const result = await fn();
+      const result = await (signal ? ioAbortContext.run(signal, fn) : fn());
+      if (signal?.aborted) return;
       try {
         worker.postMessage({
           type: 'callResult',
@@ -458,6 +481,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
         });
       } catch {}
     } catch (error) {
+      if (signal?.aborted) return;
       try {
         worker.postMessage({
           type: 'callError',
@@ -508,9 +532,9 @@ export class IsolatedExecutorService implements OnModuleDestroy {
 
   private async execDispatchCall(msg: any, ctx: any): Promise<unknown> {
     const args = JSON.parse(msg.argsJson);
-    const fn = ctx?.$dispatch?.[msg.method];
+    const fn = ctx?.$trigger;
     if (typeof fn !== 'function') {
-      throw new Error(`$dispatch.${msg.method} is not available`);
+      throw new Error(`$trigger is not available`);
     }
     return fn(...args);
   }
@@ -522,7 +546,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<any> {
     const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 30000));
     const packages = await this.packageCacheService.getPackages();
-    const pkgSources = this.cdnLoader.getPackageSources(packages);
+    const pkgSources = this.packageCdnLoaderService.getPackageSources(packages);
     const snapshot = this.createSnapshot(ctx);
 
     appendIsolatedExecutorRuntimeLog({
@@ -576,7 +600,7 @@ export class IsolatedExecutorService implements OnModuleDestroy {
   ): Promise<any> {
     const safeTimeoutMs = Math.max(1, Math.trunc(Number(timeoutMs) || 30000));
     const packages = await this.packageCacheService.getPackages();
-    const pkgSources = this.cdnLoader.getPackageSources(packages);
+    const pkgSources = this.packageCdnLoaderService.getPackageSources(packages);
     const snapshot = this.createSnapshot(ctx);
 
     appendIsolatedExecutorRuntimeLog({

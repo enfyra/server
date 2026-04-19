@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
+import { getIoAbortSignal } from '../../../infrastructure/executor-engine/services/isolated-executor.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
 import { SchemaMigrationLockService } from '../../../infrastructure/knex/services/schema-migration-lock.service';
@@ -17,7 +18,6 @@ import {
   ValidationException,
 } from '../../../core/exceptions/custom-exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { getDeletedIds } from '../utils/get-deleted-ids';
 import { CreateTableDto } from '../dto/create-table.dto';
 import {
   getForeignKeyColumnName,
@@ -26,30 +26,40 @@ import {
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../core/bootstrap/utils/canonical-table-route.util';
-@Injectable()
+import { TableManagementValidationService } from './table-validation.service';
+import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
+import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
 export class SqlTableHandlerService {
   private logger = new Logger(SqlTableHandlerService.name);
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private schemaMigrationService: SqlSchemaMigrationService,
-    private metadataCacheService: MetadataCacheService,
-    private loggingService: LoggingService,
-    private schemaMigrationLockService: SchemaMigrationLockService,
-    private policyService: PolicyService,
-  ) {}
-  private validateRelations(relations: any[]) {
-    for (const relation of relations || []) {
-      if (relation.type === 'one-to-many' && !relation.mappedBy) {
-        throw new ValidationException(
-          `One-to-many relation '${relation.propertyName}' must have mappedBy`,
-          {
-            relationName: relation.propertyName,
-            relationType: relation.type,
-            missingField: 'mappedBy',
-          },
-        );
-      }
-    }
+  private queryBuilderService: QueryBuilderService;
+  private schemaMigrationService: SqlSchemaMigrationService;
+  private metadataCacheService: MetadataCacheService;
+  private loggingService: LoggingService;
+  private schemaMigrationLockService: SchemaMigrationLockService;
+  private policyService: PolicyService;
+  private tableValidationService: TableManagementValidationService;
+  private sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
+  private sqlTableMetadataWriterService: SqlTableMetadataWriterService;
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    sqlSchemaMigrationService: SqlSchemaMigrationService;
+    metadataCacheService: MetadataCacheService;
+    loggingService: LoggingService;
+    schemaMigrationLockService: SchemaMigrationLockService;
+    policyService: PolicyService;
+    tableManagementValidationService: TableManagementValidationService;
+    sqlTableMetadataBuilderService: SqlTableMetadataBuilderService;
+    sqlTableMetadataWriterService: SqlTableMetadataWriterService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.schemaMigrationService = deps.sqlSchemaMigrationService;
+    this.metadataCacheService = deps.metadataCacheService;
+    this.loggingService = deps.loggingService;
+    this.schemaMigrationLockService = deps.schemaMigrationLockService;
+    this.policyService = deps.policyService;
+    this.tableValidationService = deps.tableManagementValidationService;
+    this.sqlTableMetadataBuilderService = deps.sqlTableMetadataBuilderService;
+    this.sqlTableMetadataWriterService = deps.sqlTableMetadataWriterService;
   }
   private async validateNoDuplicateInverseRelation(
     trx: any,
@@ -78,12 +88,10 @@ export class SqlTableHandlerService {
             }
             builder.orWhereIn(
               'mappedById',
-              trx('relation_definition')
-                .select('id')
-                .where({
-                  sourceTableId: sourceTableId,
-                  propertyName: rel.propertyName,
-                }),
+              trx('relation_definition').select('id').where({
+                sourceTableId: sourceTableId,
+                propertyName: rel.propertyName,
+              }),
             );
           })
           .select('*');
@@ -252,13 +260,26 @@ export class SqlTableHandlerService {
         tableName: body?.name,
       });
     }
-    this.validateRelations(body.relations);
-    const knex = this.queryBuilder.getKnex();
+    this.tableValidationService.validateRelations(body.relations);
+    const knex = this.queryBuilderService.getKnex();
     let trx;
     let schemaCreated = false;
     let createdMetadataSnapshot: any = null;
     try {
       trx = await knex.transaction();
+      const abortSignal = getIoAbortSignal();
+      if (abortSignal) {
+        const onAbort = () => {
+          if (trx && !trx.isCompleted()) {
+            trx.rollback().catch(() => {});
+          }
+        };
+        if (abortSignal.aborted) {
+          await trx.rollback();
+          throw new Error('Operation aborted');
+        }
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+      }
       const hasTable = await knex.schema.hasTable(body.name);
       const existing = await trx('table_definition')
         .where({ name: body.name })
@@ -352,7 +373,7 @@ export class SqlTableHandlerService {
         throw error;
       }
       body.isSystem = false;
-      const dbType = this.queryBuilder.getDatabaseType();
+      const dbType = this.queryBuilderService.getDatabaseType();
       const insertResult = await trx('table_definition').insert(
         {
           name: body.name,
@@ -417,7 +438,10 @@ export class SqlTableHandlerService {
           let mappedById: number | null = null;
           if (rel.mappedBy) {
             const owningRel = await trx('relation_definition')
-              .where({ sourceTableId: targetTableId, propertyName: rel.mappedBy })
+              .where({
+                sourceTableId: targetTableId,
+                propertyName: rel.mappedBy,
+              })
               .select('id')
               .first();
             mappedById = owningRel?.id || null;
@@ -483,7 +507,10 @@ export class SqlTableHandlerService {
           if (existingOnTarget) {
             throw new ValidationException(
               `Cannot create inverse '${rel.inversePropertyName}' on '${targetTableName}': property name already exists`,
-              { relationName: rel.inversePropertyName, targetTable: targetTableName },
+              {
+                relationName: rel.inversePropertyName,
+                targetTable: targetTableName,
+              },
             );
           }
           const owningRel = await trx('relation_definition')
@@ -577,10 +604,11 @@ export class SqlTableHandlerService {
           `Route /${body.name} already exists, skipping route creation`,
         );
       }
-      const fullMetadata = await this.getFullTableMetadataInTransaction(
-        trx,
-        tableId,
-      );
+      const fullMetadata =
+        await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
+          trx,
+          tableId,
+        );
       if (!fullMetadata) {
         throw new Error(`Failed to fetch metadata for table ${body.name}`);
       }
@@ -595,13 +623,20 @@ export class SqlTableHandlerService {
           }
         }
       }
-      await this.schemaMigrationService.createTable(fullMetadata);
+      const { autoGeneratedIndexes } =
+        await this.schemaMigrationService.createTable(fullMetadata);
       schemaCreated = true;
       createdMetadataSnapshot = fullMetadata;
       await trx.commit();
 
+      await this.schemaMigrationService.updateMetadataIndexesForTable(
+        body.name,
+        fullMetadata.indexes || [],
+        autoGeneratedIndexes,
+      );
+
       if (body.isSingleRecord) {
-        const knex = this.queryBuilder.getKnex();
+        const knex = this.queryBuilderService.getKnex();
         const existingRecord = await knex(body.name).first();
         if (!existingRecord) {
           const defaultRecord = generateDefaultRecord(
@@ -669,16 +704,35 @@ export class SqlTableHandlerService {
     body: CreateTableDto,
     context?: TDynamicContext,
   ) {
-    return await this.runWithSchemaLock(`table:update:${id}`, () =>
-      this.updateTableInternal(id, body, context),
-    );
+    const t0 = Date.now();
+    this.logger.log(`[updateTable:${id}] STEP 0 acquiring schema lock`);
+    const result = await this.runWithSchemaLock(`table:update:${id}`, () => {
+      this.logger.log(
+        `[updateTable:${id}] STEP 1 lock acquired (+${Date.now() - t0}ms) → calling updateTableInternal`,
+      );
+      return this.updateTableInternal(id, body, context);
+    });
+    this.logger.log(`[updateTable:${id}] STEP DONE total=${Date.now() - t0}ms`);
+    return result;
   }
   private async updateTableInternal(
     id: string | number,
     body: CreateTableDto,
     context?: TDynamicContext,
   ) {
-    const knex = this.queryBuilder.getKnex();
+    const tag = `[updateTable:${id}]`;
+    const stepLog = (msg: string) => this.logger.log(`${tag} ${msg}`);
+    let t = Date.now();
+    const lap = () => {
+      const e = Date.now() - t;
+      t = Date.now();
+      return e;
+    };
+    const knex = this.queryBuilderService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType();
+    const isPostgres = dbType === 'postgres';
+    const affectedTableNames = new Set<string>();
+
     if (body.name && /[A-Z]/.test(body.name)) {
       throw new ValidationException('Table name must be lowercase.', {
         tableName: body.name,
@@ -689,353 +743,118 @@ export class SqlTableHandlerService {
         tableName: body.name,
       });
     }
-    this.validateRelations(body.relations);
-    const affectedTableNames = new Set<string>();
+    this.tableValidationService.validateRelations(body.relations);
+    stepLog(`STEP 2 name+relation validate done (+${lap()}ms)`);
+
     try {
-      const trx = await knex.transaction();
-      try {
-        const exists = await trx('table_definition').where({ id }).first();
-        if (!exists) {
-          throw new ResourceNotFoundException('table_definition', String(id));
+      // === VALIDATION PHASE (read-only, no transaction) ===
+      const exists = await knex('table_definition').where({ id }).first();
+      stepLog(`STEP 3 fetched table_definition row (+${lap()}ms)`);
+      if (!exists) {
+        throw new ResourceNotFoundException('table_definition', String(id));
+      }
+      validateUniquePropertyNames(body.columns || [], body.relations || []);
+
+      const m2mTargetTableIds =
+        body.relations
+          ?.filter((rel: any) => rel.type === 'many-to-many')
+          ?.map((rel: any) =>
+            typeof rel.targetTable === 'object'
+              ? rel.targetTable.id
+              : rel.targetTable,
+          )
+          ?.filter((tid: any) => tid != null) || [];
+      const m2mTargetTablesMap = new Map<number, string>();
+      if (m2mTargetTableIds.length > 0) {
+        const targetTables = await knex('table_definition')
+          .select('id', 'name')
+          .whereIn('id', m2mTargetTableIds);
+        for (const table of targetTables) {
+          m2mTargetTablesMap.set(table.id, table.name);
         }
-        validateUniquePropertyNames(body.columns || [], body.relations || []);
-        const m2mTargetTableIds =
-          body.relations
-            ?.filter((rel: any) => rel.type === 'many-to-many')
-            ?.map((rel: any) =>
-              typeof rel.targetTable === 'object'
-                ? rel.targetTable.id
-                : rel.targetTable,
-            )
-            ?.filter((tid: any) => tid != null) || [];
-        const m2mTargetTablesMap = new Map<number, string>();
-        if (m2mTargetTableIds.length > 0) {
-          const targetTables = await trx('table_definition')
-            .select('id', 'name')
-            .whereIn('id', m2mTargetTableIds);
-          for (const table of targetTables) {
-            m2mTargetTablesMap.set(table.id, table.name);
-          }
-        }
-        this.validateAllColumnsUnique(
-          body.columns || [],
-          body.relations || [],
+      }
+      this.validateAllColumnsUnique(
+        body.columns || [],
+        body.relations || [],
+        exists.name,
+        m2mTargetTablesMap,
+      );
+      const newRelations = body.relations?.filter((rel: any) => !rel.id) || [];
+      if (newRelations.length > 0) {
+        await this.validateNoDuplicateInverseRelation(
+          knex,
+          Number(id),
           exists.name,
+          newRelations,
           m2mTargetTablesMap,
         );
-        const newRelations =
-          body.relations?.filter((rel: any) => !rel.id) || [];
-        if (newRelations.length > 0) {
-          await this.validateNoDuplicateInverseRelation(
-            trx,
-            Number(id),
-            exists.name,
-            newRelations,
-            m2mTargetTablesMap,
-          );
-        }
-        const oldMetadata = await this.getFullTableMetadataInTransaction(
-          trx,
+      }
+      stepLog(`STEP 4 validators done (+${lap()}ms)`);
+
+      const oldMetadata =
+        await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
+          knex,
           exists.id,
         );
-        await trx('table_definition')
-          .where({ id })
-          .update({
-            name: body.name,
-            alias: body.alias,
-            description: body.description,
-            uniques: body.uniques
-              ? JSON.stringify(body.uniques)
-              : exists.uniques,
-            indexes: body.indexes
-              ? JSON.stringify(body.indexes)
-              : exists.indexes,
-            ...(body.isSingleRecord !== undefined && {
-              isSingleRecord: body.isSingleRecord,
-            }),
-          });
-        if (body.columns) {
-          const existingColumns = await trx('column_definition')
-            .where({ tableId: id })
-            .select('id');
-          const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
-          if (deletedColumnIds.length > 0) {
-            await trx('column_definition')
-              .whereIn('id', deletedColumnIds)
-              .delete();
-          }
-          for (const col of body.columns) {
-            if (
-              col.name === 'id' ||
-              col.name === 'createdAt' ||
-              col.name === 'updatedAt'
-            ) {
-              continue;
-            }
-            const columnData = {
-              name: col.name,
-              type: col.type,
-              isPrimary: col.isPrimary || false,
-              isGenerated: col.isGenerated || false,
-              isNullable: col.isNullable ?? true,
-              isSystem: col.isSystem || false,
-              isUpdatable: col.isUpdatable ?? true,
-              isPublished: col.isPublished ?? true,
-              defaultValue:
-                col.defaultValue !== undefined
-                  ? JSON.stringify(col.defaultValue)
-                  : null,
-              options:
-                col.options !== undefined ? JSON.stringify(col.options) : null,
-              description: col.description,
-              placeholder: col.placeholder,
-              metadata:
-                col.metadata !== undefined
-                  ? JSON.stringify(col.metadata)
-                  : null,
-              tableId: id,
-            };
-            if (col.id) {
-              await trx('column_definition')
-                .where({ id: col.id })
-                .update(columnData);
-            } else {
-              await trx('column_definition').insert(columnData);
-            }
-          }
+      stepLog(`STEP 5 loaded oldMetadata (+${lap()}ms)`);
+
+      // Compute full target tables map (all relation targets)
+      const allTargetTableIds =
+        body.relations
+          ?.map((rel: any) =>
+            typeof rel.targetTable === 'object'
+              ? rel.targetTable.id
+              : rel.targetTable,
+          )
+          ?.filter((tid: any) => tid != null) || [];
+      const allTargetTablesMap = new Map<number, string>();
+      if (allTargetTableIds.length > 0) {
+        const targetTables = await knex('table_definition')
+          .select('id', 'name')
+          .whereIn('id', allTargetTableIds);
+        for (const table of targetTables) {
+          allTargetTablesMap.set(table.id, table.name);
         }
-        if (body.relations) {
-          const existingRelations = await trx('relation_definition')
-            .where({ sourceTableId: id })
-            .select('id');
-          const deletedRelationIds = getDeletedIds(
-            existingRelations,
-            body.relations,
+      }
+
+      if (isPostgres) {
+        // === PG PATH: metadata writes + DDL in same transaction ===
+        stepLog(`STEP 6 PG: opening transaction...`);
+        const trx = await knex.transaction();
+        const abortSignal = getIoAbortSignal();
+        if (abortSignal) {
+          const onAbort = () => {
+            if (trx && !trx.isCompleted()) trx.rollback().catch(() => {});
+          };
+          if (abortSignal.aborted) {
+            await trx.rollback();
+            throw new Error('Operation aborted');
+          }
+          abortSignal.addEventListener('abort', onAbort, { once: true });
+        }
+        try {
+          stepLog(`STEP 7 PG: writing metadata in trx...`);
+          await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
+            trx,
+            id,
+            body,
+            exists,
+            affectedTableNames,
           );
-          if (deletedRelationIds.length > 0) {
-            const inverseRelations = await trx('relation_definition')
-              .whereIn('mappedById', deletedRelationIds)
-              .select('sourceTableId');
-            for (const inv of inverseRelations) {
-              const invTable = await trx('table_definition')
-                .where({ id: inv.sourceTableId })
-                .select('name')
-                .first();
-              if (invTable?.name) affectedTableNames.add(invTable.name);
-            }
-            await trx('relation_definition')
-              .whereIn('mappedById', deletedRelationIds)
-              .delete();
-            await trx('relation_definition')
-              .whereIn('id', deletedRelationIds)
-              .delete();
-          }
-          for (const rel of body.relations) {
-            if (!rel.id) continue;
-            const existingRel = await trx('relation_definition')
-              .where({ id: rel.id })
-              .first();
-            if (existingRel?.mappedById) {
-              const changed =
-                (rel.type !== undefined && rel.type !== existingRel.type) ||
-                (rel.targetTable !== undefined &&
-                  (typeof rel.targetTable === 'object'
-                    ? rel.targetTable.id
-                    : rel.targetTable) !== existingRel.targetTableId) ||
-                (rel.mappedBy !== undefined && rel.mappedBy !== null) ||
-                (rel.isNullable !== undefined &&
-                  rel.isNullable !== existingRel.isNullable);
-              if (changed) {
-                throw new ValidationException(
-                  `Inverse relation '${existingRel.propertyName}' can only have its propertyName modified`,
-                  { relationName: existingRel.propertyName },
-                );
-              }
-            }
-          }
-          const targetTableIds = body.relations
-            .map((rel: any) =>
-              typeof rel.targetTable === 'object'
-                ? rel.targetTable.id
-                : rel.targetTable,
-            )
-            .filter((tid: any) => tid != null);
-          const targetTablesMap = new Map<number, string>();
-          if (targetTableIds.length > 0) {
-            const targetTables = await trx('table_definition')
-              .select('id', 'name')
-              .whereIn('id', targetTableIds);
-            for (const table of targetTables) {
-              targetTablesMap.set(table.id, table.name);
-            }
-          }
-          for (const rel of body.relations) {
-            const targetTableId =
-              typeof rel.targetTable === 'object'
-                ? rel.targetTable.id
-                : rel.targetTable;
-            if (rel.id) {
-              const existingRel = await trx('relation_definition')
-                .where({ id: rel.id })
-                .first();
-              if (existingRel && existingRel.type !== rel.type) {
-                throw new Error(
-                  `Cannot change relation type from '${existingRel.type}' to '${rel.type}' for property '${rel.propertyName}'. ` +
-                    `Please delete the old relation and create a new one.`,
-                );
-              }
-            }
-            let updateMappedById: number | null = null;
-            if (rel.mappedBy) {
-              const owningRel = await trx('relation_definition')
-                .where({ sourceTableId: targetTableId, propertyName: rel.mappedBy })
-                .select('id')
-                .first();
-              updateMappedById = owningRel?.id || null;
-            }
-            const relationData: any = {
-              propertyName: rel.propertyName,
-              type: rel.type,
-              targetTableId,
-              mappedById: updateMappedById,
-              isNullable: rel.isNullable ?? true,
-              isSystem: rel.isSystem || false,
-              isUpdatable: rel.isUpdatable ?? true,
-              isPublished: rel.isPublished ?? true,
-              description: rel.description,
-              sourceTableId: id,
-            };
-            if (rel.type === 'many-to-many') {
-              const targetTableName = targetTablesMap.get(targetTableId);
-              if (!targetTableName) {
-                throw new Error(
-                  `Target table with ID ${targetTableId} not found`,
-                );
-              }
-              if (rel.id) {
-                const existingRel = await trx('relation_definition')
-                  .where({ id: rel.id })
-                  .first();
-                if (existingRel && existingRel.junctionTableName) {
-                  relationData.junctionTableName =
-                    existingRel.junctionTableName;
-                  relationData.junctionSourceColumn =
-                    existingRel.junctionSourceColumn;
-                  relationData.junctionTargetColumn =
-                    existingRel.junctionTargetColumn;
-                } else {
-                  const junctionTableName = getJunctionTableName(
-                    exists.name,
-                    rel.propertyName,
-                    targetTableName,
-                  );
-                  const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                    exists.name,
-                    rel.propertyName,
-                    targetTableName,
-                  );
-                  relationData.junctionTableName = junctionTableName;
-                  relationData.junctionSourceColumn = sourceColumn;
-                  relationData.junctionTargetColumn = targetColumn;
-                }
-              } else {
-                const junctionTableName = getJunctionTableName(
-                  exists.name,
-                  rel.propertyName,
-                  targetTableName,
-                );
-                const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                  exists.name,
-                  rel.propertyName,
-                  targetTableName,
-                );
-                relationData.junctionTableName = junctionTableName;
-                relationData.junctionSourceColumn = sourceColumn;
-                relationData.junctionTargetColumn = targetColumn;
-              }
-            } else {
-              relationData.junctionTableName = null;
-              relationData.junctionSourceColumn = null;
-              relationData.junctionTargetColumn = null;
-            }
-            if (rel.id) {
-              await trx('relation_definition')
-                .where({ id: rel.id })
-                .update(relationData);
-            } else {
-              await trx('relation_definition').insert(relationData);
-            }
-            if (rel.inversePropertyName && !rel.id) {
-              if (rel.mappedBy) {
-                throw new ValidationException(
-                  `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
-                  { relationName: rel.propertyName },
-                );
-              }
-              const existingOnTarget = await trx('relation_definition')
-                .where({
-                  sourceTableId: targetTableId,
-                  propertyName: rel.inversePropertyName,
-                })
-                .first();
-              if (existingOnTarget) {
-                throw new ValidationException(
-                  `Cannot create inverse '${rel.inversePropertyName}' on target table: property name already exists`,
-                  { relationName: rel.inversePropertyName },
-                );
-              }
-              const insertedRel = await trx('relation_definition')
-                .where({ sourceTableId: id, propertyName: rel.propertyName })
-                .first();
-              if (insertedRel) {
-                const existingInverse = await trx('relation_definition')
-                  .where({ mappedById: insertedRel.id })
-                  .first();
-                if (existingInverse) {
-                  throw new ValidationException(
-                    `Relation '${rel.propertyName}' already has an inverse '${existingInverse.propertyName}'`,
-                    { relationName: rel.propertyName },
-                  );
-                }
-                let inverseType = rel.type;
-                if (rel.type === 'many-to-one') inverseType = 'one-to-many';
-                else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
-                const inverseData: any = {
-                  propertyName: rel.inversePropertyName,
-                  type: inverseType,
-                  sourceTableId: targetTableId,
-                  targetTableId: id,
-                  mappedById: insertedRel.id,
-                  isNullable: rel.isNullable ?? true,
-                  isSystem: false,
-                  isUpdatable: rel.isUpdatable ?? true,
-                  isPublished: rel.isPublished ?? true,
-                };
-                if (inverseType === 'many-to-many') {
-                  inverseData.junctionTableName = relationData.junctionTableName;
-                  inverseData.junctionSourceColumn =
-                    relationData.junctionTargetColumn;
-                  inverseData.junctionTargetColumn =
-                    relationData.junctionSourceColumn;
-                }
-                await trx('relation_definition').insert(inverseData);
-                const targetName = targetTablesMap.get(targetTableId);
-                if (targetName) affectedTableNames.add(targetName);
-                this.logger.log(
-                  `Auto-created inverse relation '${rel.inversePropertyName}'`,
-                );
-              }
-            }
-          }
-        }
-        if (oldMetadata) {
+          stepLog(`STEP 8 PG: metadata written (+${lap()}ms)`);
+
           const updatedFullMetadata =
-            await this.getFullTableMetadataInTransaction(trx, exists.id);
+            await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
+              trx,
+              exists.id,
+            );
+          stepLog(`STEP 9 PG: reloaded metadata in trx (+${lap()}ms)`);
           if (!updatedFullMetadata) {
             throw new Error(
-              `Failed to reload metadata after transaction for table ${exists.name}`,
+              `Failed to reload metadata for table ${exists.name}`,
             );
           }
+
           const decision = await this.policyService.checkSchemaMigration({
             operation: 'update',
             tableName: exists.name,
@@ -1045,6 +864,7 @@ export class SqlTableHandlerService {
             afterMetadata: updatedFullMetadata,
             requestContext: context,
           });
+          stepLog(`STEP 10 PG: policy checked (+${lap()}ms)`);
           if (isPolicyPreview(decision)) {
             await trx.rollback();
             return { _preview: true, ...decision.details };
@@ -1053,53 +873,243 @@ export class SqlTableHandlerService {
             throw new ValidationException(decision.message, decision.details);
           }
 
-          if (decision.details?.schemaChanged === true) {
-            await this.schemaMigrationService.updateTable(
-              exists.name,
-              oldMetadata,
-              updatedFullMetadata,
+          const schemaChanged = decision.details?.schemaChanged === true;
+          if (schemaChanged) {
+            stepLog(`STEP 11 PG: running DDL inside metadata transaction...`);
+            const ddlTimeoutMs = 90 * 1000;
+            const pendingUpdate: any = await Promise.race([
+              this.schemaMigrationService.updateTable(
+                exists.name,
+                oldMetadata,
+                updatedFullMetadata,
+                trx,
+              ),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(new Error(`DDL timed out after ${ddlTimeoutMs}ms`)),
+                  ddlTimeoutMs,
+                ),
+              ),
+            ]);
+            stepLog(`STEP 11 PG: DDL done (+${lap()}ms)`);
+            if (pendingUpdate?.pendingMetadataUpdate) {
+              await this.schemaMigrationService.applyPendingMetadataUpdate(
+                pendingUpdate.pendingMetadataUpdate,
+                trx,
+              );
+            }
+            if (pendingUpdate?.journalUuid) {
+              await this.schemaMigrationService
+                .markJournalCompleted(pendingUpdate.journalUuid)
+                .catch(() => {});
+            }
+          }
+
+          stepLog(`STEP 12 PG: committing metadata + DDL transaction...`);
+          await trx.commit();
+          stepLog(`STEP 12 PG: committed (+${lap()}ms)`);
+        } catch (innerError) {
+          if (trx && !trx.isCompleted()) {
+            try {
+              await trx.rollback();
+            } catch (_) {}
+          }
+          throw innerError;
+        }
+      } else {
+        // === MYSQL PATH: DDL first, then metadata writes ===
+        stepLog(`STEP 6 ${dbType}: constructing afterMetadata from body...`);
+        const afterMetadata = this.sqlTableMetadataBuilderService.constructAfterMetadata(
+          exists,
+          body,
+          oldMetadata,
+          allTargetTablesMap,
+        );
+        stepLog(`STEP 7 ${dbType}: afterMetadata constructed (+${lap()}ms)`);
+
+        const decision = await this.policyService.checkSchemaMigration({
+          operation: 'update',
+          tableName: exists.name,
+          data: body,
+          currentUser: context?.$user,
+          beforeMetadata: oldMetadata,
+          afterMetadata,
+          requestContext: context,
+        });
+        stepLog(`STEP 8 ${dbType}: policy checked (+${lap()}ms)`);
+        if (isPolicyPreview(decision)) {
+          return { _preview: true, ...decision.details };
+        }
+        if (isPolicyDeny(decision)) {
+          throw new ValidationException(decision.message, decision.details);
+        }
+
+        const schemaChanged = decision.details?.schemaChanged === true;
+
+        if (schemaChanged) {
+          stepLog(`STEP 9 ${dbType}: running DDL before metadata...`);
+          const ddlTimeoutMs = 90 * 1000;
+          let pendingUpdate: any;
+          try {
+            pendingUpdate = await Promise.race([
+              this.schemaMigrationService.updateTable(
+                exists.name,
+                oldMetadata,
+                afterMetadata,
+              ),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(new Error(`DDL timed out after ${ddlTimeoutMs}ms`)),
+                  ddlTimeoutMs,
+                ),
+              ),
+            ]);
+            stepLog(`STEP 9 ${dbType}: DDL done (+${lap()}ms)`);
+          } catch (ddlError) {
+            stepLog(`STEP 9 ${dbType}: DDL FAILED, metadata not saved`);
+            throw ddlError;
+          }
+
+          stepLog(`STEP 10 ${dbType}: writing metadata after DDL...`);
+          const journalUuid = pendingUpdate?.journalUuid;
+          let metadataWritten = false;
+          const maxRetries = 3;
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            const trx = await knex.transaction();
+            try {
+              await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
+                trx,
+                id,
+                body,
+                exists,
+                affectedTableNames,
+              );
+              await trx.commit();
+              metadataWritten = true;
+              stepLog(
+                `STEP 10 ${dbType}: metadata committed (attempt ${attempt}) (+${lap()}ms)`,
+              );
+              break;
+            } catch (metadataError) {
+              if (trx && !trx.isCompleted()) {
+                try {
+                  await trx.rollback();
+                } catch (_) {}
+              }
+              stepLog(
+                `STEP 10 ${dbType}: metadata write FAILED (attempt ${attempt}/${maxRetries})`,
+              );
+              if (attempt === maxRetries) {
+                stepLog(
+                  `STEP 10 ${dbType}: all retries exhausted, rolling back DDL via journal ${journalUuid}`,
+                );
+                if (journalUuid) {
+                  await this.schemaMigrationService
+                    .rollbackJournal(journalUuid)
+                    .catch((rbErr) => {
+                      this.loggingService.error(
+                        'DDL rollback after metadata failure also failed',
+                        {
+                          context: 'updateTable',
+                          journalUuid,
+                          error: rbErr.message,
+                        },
+                      );
+                    });
+                }
+                throw metadataError;
+              }
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+
+          if (metadataWritten && journalUuid) {
+            await this.schemaMigrationService
+              .markJournalCompleted(journalUuid)
+              .catch(() => {});
+          }
+
+          if (pendingUpdate?.pendingMetadataUpdate) {
+            await this.schemaMigrationService.applyPendingMetadataUpdate(
+              pendingUpdate.pendingMetadataUpdate,
+            );
+            stepLog(
+              `STEP 11 ${dbType}: applied pending metadata update (+${lap()}ms)`,
             );
           }
+        } else {
+          stepLog(
+            `STEP 9 ${dbType}: no schema change, writing metadata only...`,
+          );
+          const trx = await knex.transaction();
+          try {
+            await this.sqlTableMetadataWriterService.writeTableMetadataUpdates(
+              trx,
+              id,
+              body,
+              exists,
+              affectedTableNames,
+            );
+            await trx.commit();
+            stepLog(`STEP 9 ${dbType}: metadata committed (+${lap()}ms)`);
+          } catch (metadataError) {
+            if (trx && !trx.isCompleted()) {
+              try {
+                await trx.rollback();
+              } catch (_) {}
+            }
+            throw metadataError;
+          }
         }
-        await trx.commit();
+      }
 
-        if (body.isSingleRecord === true && !exists.isSingleRecord) {
-          const knex = this.queryBuilder.getKnex();
-          const recordCount = await knex(exists.name)
-            .count('* as count')
-            .first();
-          const count = Number(recordCount?.count || 0);
-
-          if (count === 0) {
-            const fullMetadata = await this.getFullTableMetadataInTransaction(
-              await knex.transaction(),
+      // === POST-MIGRATION (common) ===
+      if (body.isSingleRecord === true && !exists.isSingleRecord) {
+        const recordCount = await knex(exists.name).count('* as count').first();
+        const count = Number(recordCount?.count || 0);
+        if (count === 0) {
+          const fullMetadata =
+            await this.sqlTableMetadataBuilderService.getFullTableMetadataInTransaction(
+              knex,
               exists.id,
             );
-            const defaultRecord = generateDefaultRecord(
-              fullMetadata?.columns || [],
-            );
-            await knex(exists.name).insert(defaultRecord);
-          } else if (count > 1) {
-            const firstRecord = await knex(exists.name)
-              .orderBy('id', 'asc')
-              .first('id');
-            await knex(exists.name).where('id', '!=', firstRecord.id).delete();
-          }
+          const defaultRecord = generateDefaultRecord(
+            fullMetadata?.columns || [],
+          );
+          await knex(exists.name).insert(defaultRecord);
+        } else if (count > 1) {
+          const firstRecord = await knex(exists.name)
+            .orderBy('id', 'asc')
+            .first('id');
+          await knex(exists.name).where('id', '!=', firstRecord.id).delete();
         }
-
-        return { id: exists.id, name: exists.name, affectedTables: [...affectedTableNames] };
-      } catch (innerError) {
-        if (trx && !trx.isCompleted()) {
-          try {
-            await trx.rollback();
-          } catch (rollbackError) {
-            this.logger.error(
-              `Failed to rollback transaction for updateTable: ${rollbackError.message}`,
-            );
-          }
-        }
-        throw innerError;
       }
+
+      if (body.graphqlEnabled !== undefined) {
+        const existingGql = await knex('gql_definition')
+          .where({ tableId: exists.id })
+          .first();
+        if (existingGql) {
+          await knex('gql_definition')
+            .where({ id: existingGql.id })
+            .update({ isEnabled: body.graphqlEnabled === true });
+        } else {
+          await knex('gql_definition').insert({
+            tableId: exists.id,
+            isEnabled: body.graphqlEnabled === true,
+            isSystem: exists.isSystem || false,
+          });
+        }
+        stepLog(`gql_definition sync done (+${lap()}ms)`);
+      }
+
+      return {
+        id: exists.id,
+        name: exists.name,
+        affectedTables: [...affectedTableNames],
+      };
     } catch (error) {
       this.loggingService.error('Table update failed', {
         context: 'updateTable',
@@ -1123,9 +1133,17 @@ export class SqlTableHandlerService {
     id: string | number,
     context?: TDynamicContext,
   ) {
-    const knex = this.queryBuilder.getKnex();
+    const knex = this.queryBuilderService.getKnex();
     const affectedTableNames = new Set<string>();
     return await knex.transaction(async (trx) => {
+      const abortSignal = getIoAbortSignal();
+      if (abortSignal) {
+        const onAbort = () => {
+          if (!trx.isCompleted()) trx.rollback().catch(() => {});
+        };
+        if (abortSignal.aborted) throw new Error('Operation aborted');
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+      }
       try {
         const exists = await trx('table_definition').where({ id }).first();
         if (!exists) {
@@ -1169,7 +1187,7 @@ export class SqlTableHandlerService {
               );
               if (columnExists) {
                 try {
-                  const dbType = this.queryBuilder.getDatabaseType();
+                  const dbType = this.queryBuilderService.getDatabaseType();
                   let constraintName: string | null = null;
                   if (dbType === 'postgres') {
                     const result = await trx.raw(
@@ -1222,7 +1240,7 @@ export class SqlTableHandlerService {
           }
         }
         try {
-          const dbType = this.queryBuilder.getDatabaseType();
+          const dbType = this.queryBuilderService.getDatabaseType();
           let allFkConstraints;
           if (dbType === 'postgres') {
             const result = await trx.raw(
@@ -1338,77 +1356,5 @@ export class SqlTableHandlerService {
     } finally {
       await this.schemaMigrationLockService.release(lock);
     }
-  }
-  private async getFullTableMetadataInTransaction(
-    trx: any,
-    tableId: string | number,
-  ): Promise<any> {
-    const table = await trx('table_definition').where({ id: tableId }).first();
-    if (!table) return null;
-    if (table.uniques && typeof table.uniques === 'string') {
-      try {
-        table.uniques = JSON.parse(table.uniques);
-      } catch (e) {
-        table.uniques = [];
-      }
-    }
-    if (table.indexes && typeof table.indexes === 'string') {
-      try {
-        table.indexes = JSON.parse(table.indexes);
-      } catch (e) {
-        table.indexes = [];
-      }
-    }
-    table.columns = await trx('column_definition')
-      .where({ tableId })
-      .select('*');
-    for (const col of table.columns) {
-      if (col.defaultValue && typeof col.defaultValue === 'string') {
-        try {
-          col.defaultValue = JSON.parse(col.defaultValue);
-        } catch (e) {}
-      }
-      if (col.options && typeof col.options === 'string') {
-        try {
-          col.options = JSON.parse(col.options);
-        } catch (e) {}
-      }
-    }
-    const relations = await trx('relation_definition')
-      .where({ 'relation_definition.sourceTableId': tableId })
-      .leftJoin(
-        'table_definition',
-        'relation_definition.targetTableId',
-        'table_definition.id',
-      )
-      .select(
-        'relation_definition.*',
-        'table_definition.name as targetTableName',
-      );
-    for (const rel of relations) {
-      rel.sourceTableName = table.name;
-      if (!rel.targetTableName && rel.targetTableId) {
-        const targetTable = await trx('table_definition')
-          .where({ id: rel.targetTableId })
-          .first();
-        if (targetTable) {
-          rel.targetTableName = targetTable.name;
-        } else {
-          this.logger.error(
-            `Relation ${rel.propertyName} (${rel.type}) has invalid targetTableId: ${rel.targetTableId} - table not found`,
-          );
-        }
-      }
-      if (['many-to-one', 'one-to-one'].includes(rel.type)) {
-        if (!rel.targetTableName) {
-          throw new Error(
-            `Relation '${rel.propertyName}' (${rel.type}) from table '${table.name}' has invalid targetTableId: ${rel.targetTableId}. Target table not found.`,
-          );
-        }
-        rel.foreignKeyColumn = getForeignKeyColumnName(rel.propertyName);
-      }
-    }
-    table.relations = relations;
-    return table;
   }
 }

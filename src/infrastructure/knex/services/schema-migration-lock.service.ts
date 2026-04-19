@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
@@ -12,56 +12,20 @@ export interface SchemaMigrationLockHandle {
 
 type KnexLike = Knex | Knex.Transaction;
 
-@Injectable()
 export class SchemaMigrationLockService {
   private readonly logger = new Logger(SchemaMigrationLockService.name);
-  private readonly lockId = 918273645;
   private readonly lockName = 'schema_migration_lock';
   private readonly tableName = 'schema_migration_lock';
   private lockTableReady = false;
+  private readonly knexService: KnexService;
+  private readonly queryBuilderService: QueryBuilderService;
 
-  constructor(
-    private readonly knexService: KnexService,
-    private readonly queryBuilderService: QueryBuilderService,
-  ) {}
-
-  async acquire(context: string): Promise<SchemaMigrationLockHandle> {
-    const knex = this.knexService.getKnex();
-    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
-    const token = randomUUID();
-    const lockedBy = this.buildInstanceId();
-
-    if (dbType === 'postgres') {
-      const result = await knex.raw(
-        'SELECT pg_try_advisory_lock(?) AS locked',
-        [this.lockId],
-      );
-      const locked = result?.rows?.[0]?.locked;
-      if (!locked) {
-        throw await this.buildLockedError(knex);
-      }
-      await this.setLockRow(knex, lockedBy, context, token);
-      return { token, dbType };
-    }
-
-    if (dbType === 'mysql') {
-      const result = await knex.raw('SELECT GET_LOCK(?, 0) AS locked', [
-        this.lockName,
-      ]);
-      const rawLocked =
-        result?.[0]?.[0]?.locked ??
-        result?.[0]?.[0]?.LOCKED ??
-        Object.values(result?.[0]?.[0] || {})[0];
-      const lockedValue =
-        typeof rawLocked === 'number' ? rawLocked : Number(rawLocked);
-      if (lockedValue !== 1) {
-        throw await this.buildLockedError(knex);
-      }
-      await this.setLockRow(knex, lockedBy, context, token);
-      return { token, dbType };
-    }
-
-    return await this.acquireTableRowLock(dbType, lockedBy, context, token);
+  constructor(deps: {
+    knexService: KnexService;
+    queryBuilderService: QueryBuilderService;
+  }) {
+    this.knexService = deps.knexService;
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async release(handle?: SchemaMigrationLockHandle | null): Promise<void> {
@@ -70,23 +34,45 @@ export class SchemaMigrationLockService {
     }
     const knex = this.knexService.getKnex();
 
-    if (handle.dbType === 'postgres') {
-      try {
-        await knex.raw('SELECT pg_advisory_unlock(?)', [this.lockId]);
-      } catch (error) {
-        this.logger.error(
-          `pg_advisory_unlock failed: ${(error as Error).message}`,
-        );
-      }
-    } else if (handle.dbType === 'mysql') {
-      try {
-        await knex.raw('SELECT RELEASE_LOCK(?)', [this.lockName]);
-      } catch (error) {
-        this.logger.error(`RELEASE_LOCK failed: ${(error as Error).message}`);
-      }
-    }
-
     await this.clearLockRow(knex, handle.token);
+  }
+
+  private static readonly STALE_LOCK_THRESHOLD_MS = 120_000;
+  private static readonly STALE_HEARTBEAT_THRESHOLD_MS = 30_000;
+
+  async acquire(context: string): Promise<SchemaMigrationLockHandle> {
+    const knex = this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
+    const token = randomUUID();
+    const lockedBy = this.buildInstanceId();
+
+    return await this.acquireTableRowLock(dbType, lockedBy, context, token);
+  }
+
+  async refreshHeartbeat(handle: SchemaMigrationLockHandle): Promise<boolean> {
+    if (!handle) {
+      return false;
+    }
+    const knex = this.knexService.getKnex();
+    const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
+
+    try {
+      const updateData: any = {};
+      if (dbType === 'postgres') {
+        updateData.heartbeatAt = new Date().toISOString();
+      } else {
+        updateData.heartbeatAt = knex.raw('NOW()');
+      }
+
+      const updated = await knex(this.tableName)
+        .where({ id: 1, lockToken: handle.token })
+        .update(updateData);
+
+      return updated > 0;
+    } catch (error) {
+      this.logger.warn(`Failed to refresh heartbeat: ${error.message}`);
+      return false;
+    }
   }
 
   private async acquireTableRowLock(
@@ -104,9 +90,42 @@ export class SchemaMigrationLockService {
         builder.forUpdate();
       }
       const row = await builder.first();
+
       if (row?.isLocked) {
-        throw await this.buildLockedError(trx);
+        const now = Date.now();
+        const lockedAtMs = row.lockedAt ? new Date(row.lockedAt).getTime() : 0;
+        const heartbeatMs = row.heartbeatAt ? new Date(row.heartbeatAt).getTime() : 0;
+
+        const staleByHeartbeat = heartbeatMs > 0 && (now - heartbeatMs > SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS);
+        const staleByDuration = !heartbeatMs && (now - lockedAtMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS);
+
+        if (staleByHeartbeat || staleByDuration) {
+          const staleReason = staleByHeartbeat
+            ? `heartbeat stale (${Math.round((now - heartbeatMs) / 1000)}s old)`
+            : `duration stale (${Math.round((now - lockedAtMs) / 1000)}s old)`;
+
+          this.logger.warn(
+            `Clearing stale schema lock held by ${row.lockedBy} for ${context} (${staleReason})`,
+          );
+          const cleared = await trx(this.tableName)
+            .where({ id: 1 })
+            .whereRaw('lockToken = ?', [row.lockToken])
+            .update({
+              isLocked: false,
+              lockedBy: null,
+              lockedContext: null,
+              lockedAt: null,
+              heartbeatAt: null,
+              lockToken: null,
+            });
+          if (cleared === 0) {
+            throw await this.buildLockedError(trx);
+          }
+        } else {
+          throw await this.buildLockedError(trx);
+        }
       }
+
       const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
       const updateData: any = {
         isLocked: true,
@@ -142,6 +161,7 @@ export class SchemaMigrationLockService {
         table.string('lockedBy', 255).nullable();
         table.string('lockedContext', 255).nullable();
         table.dateTime('lockedAt').nullable();
+        table.dateTime('heartbeatAt').nullable();
         table.string('lockToken', 64).nullable();
         table.timestamp('createdAt').defaultTo(baseKnex.fn.now());
         table.timestamp('updatedAt').defaultTo(baseKnex.fn.now());
@@ -159,6 +179,12 @@ export class SchemaMigrationLockService {
       if (!columnInfo.updatedAt) {
         await baseKnex.schema.alterTable(this.tableName, (table) => {
           table.timestamp('updatedAt').defaultTo(baseKnex.fn.now());
+        });
+      }
+
+      if (!columnInfo.heartbeatAt) {
+        await baseKnex.schema.alterTable(this.tableName, (table) => {
+          table.dateTime('heartbeatAt').nullable();
         });
       }
 
@@ -188,8 +214,10 @@ export class SchemaMigrationLockService {
 
     if (dbType === 'postgres') {
       updateData.lockedAt = new Date().toISOString();
+      updateData.heartbeatAt = new Date().toISOString();
     } else {
       updateData.lockedAt = knex.raw('NOW()');
+      updateData.heartbeatAt = knex.raw('NOW()');
     }
 
     await knex(this.tableName).where({ id: 1 }).update(updateData);
@@ -202,6 +230,7 @@ export class SchemaMigrationLockService {
       lockedBy: null,
       lockedContext: null,
       lockedAt: null,
+      heartbeatAt: null,
       lockToken: null,
     };
 

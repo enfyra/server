@@ -138,7 +138,10 @@ describe('QueryBuilderService.runWithFieldPermissionCheck routing', () => {
     if (knexService) {
       result = await knexService.runWithFieldPermissionCheck(checker, callback);
     } else if (mongoService) {
-      result = await mongoService.runWithFieldPermissionCheck(checker, callback);
+      result = await mongoService.runWithFieldPermissionCheck(
+        checker,
+        callback,
+      );
     } else {
       result = await callback();
     }
@@ -162,7 +165,10 @@ describe('QueryBuilderService.runWithFieldPermissionCheck routing', () => {
     if (knexService) {
       result = await knexService.runWithFieldPermissionCheck(checker, callback);
     } else if (mongoService) {
-      result = await mongoService.runWithFieldPermissionCheck(checker, callback);
+      result = await mongoService.runWithFieldPermissionCheck(
+        checker,
+        callback,
+      );
     } else {
       result = await callback();
     }

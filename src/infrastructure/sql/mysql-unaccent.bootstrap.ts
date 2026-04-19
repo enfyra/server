@@ -77,6 +77,23 @@ END`;
 }
 
 export async function installMysqlUnaccent(knex: Knex): Promise<void> {
-  await knex.raw(getMysqlUnaccentDropSql());
-  await knex.raw(getMysqlUnaccentCreateSql());
+  const existing = await knex.raw(
+    `SELECT 1 FROM information_schema.ROUTINES
+     WHERE ROUTINE_SCHEMA = DATABASE()
+       AND ROUTINE_TYPE = 'FUNCTION'
+       AND ROUTINE_NAME = 'unaccent'
+     LIMIT 1`,
+  );
+  const rows = Array.isArray(existing) ? existing[0] : existing?.rows;
+  if (Array.isArray(rows) && rows.length > 0) {
+    return;
+  }
+  try {
+    await knex.raw(getMysqlUnaccentCreateSql());
+  } catch (err: any) {
+    if (err?.errno === 1304 || err?.code === 'ER_SP_ALREADY_EXISTS') {
+      return;
+    }
+    throw err;
+  }
 }

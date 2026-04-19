@@ -1,22 +1,19 @@
-import { Injectable } from '@nestjs/common';
-import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Redis } from 'ioredis';
-import { ConfigService } from '@nestjs/config';
-@Injectable()
+import { EnvService } from '../../../shared/services/env.service';
+
 export class CacheService {
   private readonly redis: Redis;
   private readonly nodeName: string | null;
-  constructor(
-    private readonly redisService: RedisService,
-    private readonly configService: ConfigService,
-  ) {
-    this.redis = this.redisService.getOrNil();
+  private readonly envService: EnvService;
+  constructor(deps: { redis: Redis; envService: EnvService }) {
+    this.redis = deps.redis;
+    this.envService = deps.envService;
     if (!this.redis) {
       throw new Error(
         'Redis connection not available - CacheService cannot initialize',
       );
     }
-    this.nodeName = this.configService.get<string>('NODE_NAME') || null;
+    this.nodeName = this.envService.get('NODE_NAME') || null;
   }
   private decorateKey(key: string): string {
     if (!this.nodeName) {
@@ -102,11 +99,9 @@ export class CacheService {
   }
   async clearAll(): Promise<void> {
     if (!this.nodeName) {
-      // Fallback to flushdb if no NODE_NAME (only clear current database)
       await this.redis.flushdb();
       return;
     }
-    // Only delete keys with this app's prefix
     const pattern = `${this.nodeName}:*`;
     let cursor = '0';
     do {

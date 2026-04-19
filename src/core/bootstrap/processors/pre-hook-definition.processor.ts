@@ -1,15 +1,17 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { getJunctionColumnNames } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
-@Injectable()
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+
 export class PreHookDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (hook) => {
         const transformedHook = { ...hook };
@@ -48,8 +50,11 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
           ];
           let route = null;
           for (const path of pathsToTry) {
-            route = await this.queryBuilder.findOneWhere('route_definition', {
-              path,
+            route = await this.queryBuilderService.findOne({
+              table: 'route_definition',
+              where: {
+                path,
+              },
             });
             if (route) break;
           }
@@ -82,8 +87,8 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
           hook.methods.length > 0
         ) {
           if (isMongoDB) {
-            const result = await this.queryBuilder.select({
-              tableName: 'method_definition',
+            const result = await this.queryBuilderService.find({
+              table: 'method_definition',
               filter: { method: { _in: hook.methods } },
               fields: ['_id', 'method'],
             });
@@ -109,11 +114,11 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     return transformedRecords.filter(Boolean);
   }
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;
-      const result = await this.queryBuilder.select({
-        tableName: 'method_definition',
+      const result = await this.queryBuilderService.find({
+        table: 'method_definition',
         filter: { method: { _in: methodNames } },
         fields: ['id', 'method'],
       });
@@ -126,17 +131,14 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
           'methods',
           'method_definition',
         );
-        await this.queryBuilder.delete({
-          table: junctionTable,
-          where: [
-            { field: sourceColumn, operator: '=', value: record.id },
-          ],
+        await this.queryBuilderService.delete(junctionTable, {
+          where: [{ field: sourceColumn, operator: '=', value: record.id }],
         });
         const junctionData = methodIds.map((methodId) => ({
           [targetColumn]: methodId,
           [sourceColumn]: record.id,
         }));
-        await this.queryBuilder.insert({
+        await this.queryBuilderService.insertWithOptions({
           table: junctionTable,
           data: junctionData,
         });

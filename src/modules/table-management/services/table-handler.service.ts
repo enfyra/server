@@ -1,28 +1,32 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { SqlTableHandlerService } from './sql-table-handler.service';
 import { MongoTableHandlerService } from './mongo-table-handler.service';
 import { CreateTableDto } from '../dto/create-table.dto';
 import { TDynamicContext } from '../../../shared/types';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class TableHandlerService {
   private logger = new Logger(TableHandlerService.name);
+  private sqlTableHandlerService: SqlTableHandlerService;
+  private mongoTableHandlerService: MongoTableHandlerService;
+  private databaseConfigService: DatabaseConfigService;
 
-  constructor(
-    @Inject(forwardRef(() => SqlTableHandlerService))
-    private sqlTableHandler: SqlTableHandlerService,
-    @Inject(forwardRef(() => MongoTableHandlerService))
-    private mongoTableHandler: MongoTableHandlerService,
-  ) {}
+  constructor(deps: {
+    sqlTableHandlerService: SqlTableHandlerService;
+    mongoTableHandlerService: MongoTableHandlerService;
+    databaseConfigService: DatabaseConfigService;
+  }) {
+    this.sqlTableHandlerService = deps.sqlTableHandlerService;
+    this.mongoTableHandlerService = deps.mongoTableHandlerService;
+    this.databaseConfigService = deps.databaseConfigService;
+  }
 
   private getHandler() {
-    const dbType = process.env.DB_TYPE || 'mysql';
-
-    if (dbType === 'mongodb') {
-      return this.mongoTableHandler;
+    if (this.databaseConfigService.isMongoDb()) {
+      return this.mongoTableHandlerService;
     }
 
-    return this.sqlTableHandler;
+    return this.sqlTableHandlerService;
   }
 
   async createTable(body: CreateTableDto, context?: TDynamicContext) {

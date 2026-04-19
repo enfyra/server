@@ -125,4 +125,51 @@ describe('PolicyService.checkRequestAccess', () => {
     expect(d.allow).toBe(false);
     expect(d.statusCode).toBe(403);
   });
+
+  it('allows skipRoleGuardMethods when user authenticated but no routePermissions match', () => {
+    const d = policy.checkRequestAccess({
+      method: 'GET',
+      user: { id: 1, role: { id: 5 } },
+      routeData: {
+        skipRoleGuardMethods: [{ method: 'GET' }],
+        routePermissions: [],
+      },
+    });
+    expect(d.allow).toBe(true);
+  });
+
+  it('allows skipRoleGuardMethods when user has no role at all', () => {
+    const d = policy.checkRequestAccess({
+      method: 'PATCH',
+      user: { id: 1 },
+      routeData: {
+        skipRoleGuardMethods: [{ method: 'PATCH' }],
+      },
+    });
+    expect(d.allow).toBe(true);
+  });
+
+  it('still returns 401 when route is in skipRoleGuardMethods but no user', () => {
+    const d = policy.checkRequestAccess({
+      method: 'GET',
+      routeData: {
+        skipRoleGuardMethods: [{ method: 'GET' }],
+      },
+    });
+    expect(d.allow).toBe(false);
+    expect(d.statusCode).toBe(401);
+  });
+
+  it('does not bypass role check when method is not in skipRoleGuardMethods', () => {
+    const d = policy.checkRequestAccess({
+      method: 'DELETE',
+      user: { id: 1, role: { id: 5 } },
+      routeData: {
+        skipRoleGuardMethods: [{ method: 'GET' }],
+        routePermissions: [{ methods: [{ method: 'GET' }], role: { id: 5 } }],
+      },
+    });
+    expect(d.allow).toBe(false);
+    expect(d.statusCode).toBe(403);
+  });
 });

@@ -7,13 +7,21 @@ describe('normalizeRelationOnDelete', () => {
   });
 
   it('maps NO ACTION to RESTRICT', () => {
-    expect(normalizeRelationOnDelete({ onDelete: 'NO ACTION' })).toBe('RESTRICT');
-    expect(normalizeRelationOnDelete({ onDelete: 'NO_ACTION' })).toBe('RESTRICT');
+    expect(normalizeRelationOnDelete({ onDelete: 'NO ACTION' })).toBe(
+      'RESTRICT',
+    );
+    expect(normalizeRelationOnDelete({ onDelete: 'NO_ACTION' })).toBe(
+      'RESTRICT',
+    );
   });
 
   it('preserves CASCADE, SET NULL, RESTRICT', () => {
     expect(normalizeRelationOnDelete({ onDelete: 'CASCADE' })).toBe('CASCADE');
-    expect(normalizeRelationOnDelete({ onDelete: 'SET NULL' })).toBe('SET NULL');
-    expect(normalizeRelationOnDelete({ onDelete: 'RESTRICT' })).toBe('RESTRICT');
+    expect(normalizeRelationOnDelete({ onDelete: 'SET NULL' })).toBe(
+      'SET NULL',
+    );
+    expect(normalizeRelationOnDelete({ onDelete: 'RESTRICT' })).toBe(
+      'RESTRICT',
+    );
   });
 });

@@ -1,8 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { BaseTableProcessor } from '../processors/base-table-processor';
 import { loadRelationRenameMap } from '../utils/load-relation-rename-map';
+import {
+  getJunctionTableName,
+  getJunctionColumnNames,
+} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
@@ -77,22 +81,19 @@ class RelationDefinitionProcessor extends BaseTableProcessor {
     };
   }
   protected getCompareFields(): string[] {
-    return [
-      'type',
-      'isNullable',
-      'isSystem',
-      'description',
-    ];
+    return ['type', 'isNullable', 'isSystem', 'description'];
   }
 }
-@Injectable()
 export class MetadataProvisionMongoService {
   private readonly logger = new Logger(MetadataProvisionMongoService.name);
-  constructor(private readonly queryBuilder: QueryBuilderService) {}
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
+  }
   private buildRecordFromColumns(data: any, columns: any[]): any {
     const record: any = {};
     for (const col of columns) {
-      if (col.name === 'id') {
+      if (col.name === 'id' || col.name === '_id') {
         continue;
       }
       const columnName = col.name;
@@ -118,7 +119,7 @@ export class MetadataProvisionMongoService {
   }
   async createInitMetadata(snapshot: any): Promise<void> {
     this.logger.log('MongoDB: Creating metadata from snapshot...');
-    const db = this.queryBuilder.getMongoDb();
+    const db = this.queryBuilderService.getMongoDb();
     const tableNameToId: Record<string, ObjectId> = {};
     const columnDef = snapshot['column_definition'];
     const tableRelation = columnDef?.relations?.find(
@@ -184,8 +185,11 @@ export class MetadataProvisionMongoService {
       const columnRecords = (def.columns || []).map((col: any) => {
         const record = this.buildRecordFromColumns(col, columnDef.columns);
         record[tableFieldName] = tableId;
+        if (record.name === 'id' && record.isPrimary) {
+          record.name = '_id';
+        }
         if (tableName === 'table_definition' && col.name === 'name') {
-          this.logger.log(
+          this.logger.debug(
             `Sample column record: ${JSON.stringify(record, null, 2)}`,
           );
         }
@@ -197,7 +201,7 @@ export class MetadataProvisionMongoService {
           db,
           'column_definition',
         );
-        this.logger.log(
+        this.logger.debug(
           `${tableName} columns: ${columnResult.created} created, ${columnResult.skipped} skipped`,
         );
       }
@@ -230,6 +234,21 @@ export class MetadataProvisionMongoService {
         );
         directRelationRecord[sourceTableFieldName] = tableId;
         directRelationRecord[targetTableFieldName] = targetTableId;
+        if (rel.type === 'many-to-many' && !rel.mappedBy) {
+          const junctionTableName = getJunctionTableName(
+            tableName,
+            rel.propertyName,
+            rel.targetTable,
+          );
+          const { sourceColumn, targetColumn } = getJunctionColumnNames(
+            tableName,
+            rel.propertyName,
+            rel.targetTable,
+          );
+          directRelationRecord.junctionTableName = junctionTableName;
+          directRelationRecord.junctionSourceColumn = sourceColumn;
+          directRelationRecord.junctionTargetColumn = targetColumn;
+        }
         const oldPropertyName =
           relationRenameMap[tableName]?.[rel.propertyName];
         if (oldPropertyName) {
@@ -250,12 +269,27 @@ export class MetadataProvisionMongoService {
               updatePayload.isUpdatable = rel.isUpdatable;
             if (rel.description !== undefined)
               updatePayload.description = rel.description;
+            if (rel.type === 'many-to-many' && !rel.mappedBy) {
+              const jt = getJunctionTableName(
+                tableName,
+                rel.propertyName,
+                rel.targetTable,
+              );
+              const jc = getJunctionColumnNames(
+                tableName,
+                rel.propertyName,
+                rel.targetTable,
+              );
+              updatePayload.junctionTableName = jt;
+              updatePayload.junctionSourceColumn = jc.sourceColumn;
+              updatePayload.junctionTargetColumn = jc.targetColumn;
+            }
             updatePayload.updatedAt = new Date();
             await relationColl.updateOne(
               { _id: existing._id },
               { $set: updatePayload },
             );
-            this.logger.log(
+            this.logger.debug(
               `Relation rename (Mongo): ${tableName}.${oldPropertyName} → ${rel.propertyName}`,
             );
             owningIdMap.set(`${tableName}.${rel.propertyName}`, existing._id);
@@ -339,20 +373,43 @@ export class MetadataProvisionMongoService {
         const owningDoc = snapshotRelId
           ? await relationColl.findOne({ _id: snapshotRelId })
           : null;
-        inverseRelationRecord.junctionTableName = owningDoc?.junctionTableName
-          || getJunctionTableName(owningTableName, owningPropertyName, tableName);
-        inverseRelationRecord.junctionSourceColumn = owningDoc?.junctionTargetColumn || null;
-        inverseRelationRecord.junctionTargetColumn = owningDoc?.junctionSourceColumn || null;
+        inverseRelationRecord.junctionTableName =
+          owningDoc?.junctionTableName ||
+          getJunctionTableName(owningTableName, owningPropertyName, tableName);
+        inverseRelationRecord.junctionSourceColumn =
+          owningDoc?.junctionTargetColumn || null;
+        inverseRelationRecord.junctionTargetColumn =
+          owningDoc?.junctionSourceColumn || null;
       }
       const existing = await relationColl.findOne({
         [sourceTableFieldName]: tableId,
         propertyName: rel.inversePropertyName,
       });
       if (existing) {
-        const mappedByValue = isGeneratedManyToOne ? null : snapshotRelId || null;
+        const mappedByValue = isGeneratedManyToOne
+          ? null
+          : snapshotRelId || null;
+        const inverseJunctionUpdate: any = {};
+        if (inverseType === 'many-to-many') {
+          const owningDoc = snapshotRelId
+            ? await relationColl.findOne({ _id: snapshotRelId })
+            : null;
+          inverseJunctionUpdate.junctionTableName =
+            owningDoc?.junctionTableName ||
+            getJunctionTableName(
+              owningTableName,
+              owningPropertyName,
+              tableName,
+            );
+          inverseJunctionUpdate.junctionSourceColumn =
+            owningDoc?.junctionTargetColumn || null;
+          inverseJunctionUpdate.junctionTargetColumn =
+            owningDoc?.junctionSourceColumn || null;
+        }
         const needsUpdate =
           existing.mappedBy?.toString() !== mappedByValue?.toString() ||
-          existing.type !== inverseType;
+          existing.type !== inverseType ||
+          (inverseType === 'many-to-many' && !existing.junctionSourceColumn);
         if (needsUpdate) {
           await relationColl.updateOne(
             { _id: existing._id },
@@ -360,11 +417,12 @@ export class MetadataProvisionMongoService {
               $set: {
                 mappedBy: mappedByValue,
                 type: inverseType,
+                ...inverseJunctionUpdate,
                 updatedAt: new Date(),
               },
             },
           );
-          this.logger.log(
+          this.logger.debug(
             `Updated inverse relation ${rel.inversePropertyName} for ${tableName}`,
           );
         }
@@ -392,7 +450,7 @@ export class MetadataProvisionMongoService {
             );
           }
         }
-        this.logger.log(
+        this.logger.debug(
           `Added inverse relation ${rel.inversePropertyName} for ${tableName}`,
         );
       }

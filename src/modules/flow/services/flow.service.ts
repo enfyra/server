@@ -1,5 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
+import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { FlowJobData } from '../../../shared/types/flow.types';
@@ -8,29 +7,42 @@ import { RepoRegistryService } from '../../../infrastructure/cache/services/repo
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
-import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
-@Injectable()
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
+  private readonly flowQueue: Queue;
+  private readonly flowCacheService: FlowCacheService;
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly repoRegistryService: RepoRegistryService;
 
-  constructor(
-    @InjectQueue(SYSTEM_QUEUES.FLOW_EXECUTION)
-    private readonly flowQueue: Queue,
-    private readonly flowCacheService: FlowCacheService,
-    private readonly handlerExecutor: ExecutorEngineService,
-    private readonly repoRegistryService: RepoRegistryService,
-  ) {}
+  constructor(deps: {
+    flowQueue: Queue;
+    flowCacheService: FlowCacheService;
+    executorEngineService: ExecutorEngineService;
+    repoRegistryService: RepoRegistryService;
+  }) {
+    this.flowQueue = deps.flowQueue;
+    this.flowCacheService = deps.flowCacheService;
+    this.executorEngineService = deps.executorEngineService;
+    this.repoRegistryService = deps.repoRegistryService;
+  }
 
   async trigger(
     flowIdOrName: string | number,
     payload?: any,
     triggeredBy?: any,
   ): Promise<{ jobId: string; flowId: number | string }> {
-    const flow =
-      typeof flowIdOrName === 'number' || /^\d+$/.test(String(flowIdOrName))
-        ? await this.flowCacheService.getFlowById(flowIdOrName)
-        : await this.flowCacheService.getFlowByName(String(flowIdOrName));
+    const asString = String(flowIdOrName);
+    const looksLikeId =
+      typeof flowIdOrName === 'number' ||
+      /^\d+$/.test(asString) ||
+      /^[a-f0-9]{24}$/i.test(asString);
+    let flow = looksLikeId
+      ? await this.flowCacheService.getFlowById(flowIdOrName)
+      : null;
+    if (!flow) {
+      flow = await this.flowCacheService.getFlowByName(asString);
+    }
 
     if (!flow) {
       throw new Error(`Flow "${flowIdOrName}" not found`);
@@ -91,14 +103,15 @@ export class FlowService {
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
-    (ctx as any).$dispatch = {
-      trigger: async (flowIdOrName: string | number, triggerPayload?: any) => ({
-        triggered: true,
-        flowIdOrName,
-        payload: triggerPayload,
-        note: 'test mode',
-      }),
-    };
+    (ctx as any).$trigger = async (
+      flowIdOrName: string | number,
+      triggerPayload?: any,
+    ) => ({
+      triggered: true,
+      flowIdOrName,
+      payload: triggerPayload,
+      note: 'test mode',
+    });
 
     const MAX_TEST_TIMEOUT = 5000;
     const config = step.config || {};
@@ -129,7 +142,7 @@ export class FlowService {
           config,
           timeout,
           ctx,
-          handlerExecutor: this.handlerExecutor,
+          executorEngineService: this.executorEngineService,
           shouldTransformCode: true,
         });
       }

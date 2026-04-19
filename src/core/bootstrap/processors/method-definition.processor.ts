@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
-@Injectable()
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+
 export class MethodDefinitionProcessor extends BaseTableProcessor {
   constructor() {
     super();
   }
   async transformRecords(records: any[]): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     return records.map((record) => {
       const transformed = {
         ...record,

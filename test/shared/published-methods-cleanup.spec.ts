@@ -15,13 +15,18 @@ const AUTH_PATHS = new Set([
   '/auth/:provider/callback',
 ]);
 
+const PUBLIC_NON_AUTH_PATHS = new Set(['/cors_origin_definition']);
+
 describe('default-data.json — publishedMethods', () => {
   const data = loadJson('default-data.json');
   const routes: any[] = data.route_definition ?? [];
 
-  it('only auth routes have publishedMethods set', () => {
+  it('only auth routes and explicit public routes have publishedMethods set', () => {
     const nonAuthPublished = routes.filter(
-      (r) => !AUTH_PATHS.has(r.path) && r.publishedMethods?.length > 0,
+      (r) =>
+        !AUTH_PATHS.has(r.path) &&
+        !PUBLIC_NON_AUTH_PATHS.has(r.path) &&
+        r.publishedMethods?.length > 0,
     );
     expect(nonAuthPublished).toEqual([]);
   });
@@ -58,16 +63,16 @@ describe('data-migration.json — publishedMethods cleanup', () => {
   ];
 
   it.each(SHOULD_BE_EMPTY)('%s has publishedMethods: []', (routePath) => {
-    const entry = routes.find(
-      (r) => r._unique?.path?._eq === routePath,
-    );
+    const entry = routes.find((r) => r._unique?.path?._eq === routePath);
     expect(entry).toBeDefined();
     expect(entry.publishedMethods).toEqual([]);
   });
 
   it('auth routes in migration retain their publishedMethods', () => {
     const authEntries = routes.filter(
-      (r) => AUTH_PATHS.has(r._unique?.path?._eq ?? '') && r.publishedMethods?.length > 0,
+      (r) =>
+        AUTH_PATHS.has(r._unique?.path?._eq ?? '') &&
+        r.publishedMethods?.length > 0,
     );
     expect(authEntries.length).toBeGreaterThan(0);
   });

@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
-@Injectable()
 export class FlowStepDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
@@ -26,7 +26,7 @@ export class FlowStepDefinitionProcessor extends BaseTableProcessor {
         return this.autoTransformFkFields(
           transformed,
           'flow_step_definition',
-          this.queryBuilder,
+          this.queryBuilderService,
         );
       }),
     );

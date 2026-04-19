@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../src/shared/logger';
 import { CascadeHandler } from '../../src/infrastructure/knex/utils/cascade-handler';
 
 function makeLogger(): Logger {
@@ -11,7 +11,9 @@ function makeLogger(): Logger {
   } as any;
 }
 
-function makeMetadataCacheService(tableRelations: Record<string, any[]> = {}): any {
+function makeMetadataCacheService(
+  tableRelations: Record<string, any[]> = {},
+): any {
   return {
     getMetadata: async () => ({
       tables: {
@@ -78,7 +80,12 @@ describe('CascadeHandler – getPolicyContext callback', () => {
       },
     });
 
-    await cascadeHandler.handleCascadeRelations('post', 1, cascadeContextMap, mockKnex);
+    await cascadeHandler.handleCascadeRelations(
+      'post',
+      1,
+      cascadeContextMap,
+      mockKnex,
+    );
 
     expect(policyCheck).toHaveBeenCalledWith(
       'user_definition',
@@ -120,7 +127,12 @@ describe('CascadeHandler – getPolicyContext callback', () => {
       },
     });
 
-    await cascadeHandler.handleCascadeRelations('post', 1, cascadeContextMap, mockKnex);
+    await cascadeHandler.handleCascadeRelations(
+      'post',
+      1,
+      cascadeContextMap,
+      mockKnex,
+    );
 
     expect(policyCheck).not.toHaveBeenCalled();
     expect(insertWithCascade).toHaveBeenCalled();
@@ -158,14 +170,21 @@ describe('CascadeHandler – getPolicyContext callback', () => {
       },
     });
 
-    await cascadeHandler.handleCascadeRelations('post', 1, cascadeContextMap, mockKnex);
+    await cascadeHandler.handleCascadeRelations(
+      'post',
+      1,
+      cascadeContextMap,
+      mockKnex,
+    );
 
     expect(policyCheck).not.toHaveBeenCalled();
     expect(insertWithCascade).toHaveBeenCalled();
   });
 
   it('propagates policy rejection — blocks insertion when policy throws', async () => {
-    const policyCheck = jest.fn().mockRejectedValue(new Error('Forbidden by policy'));
+    const policyCheck = jest
+      .fn()
+      .mockRejectedValue(new Error('Forbidden by policy'));
     const insertWithCascade = jest.fn(async () => ({ id: 1 }));
 
     const cascadeHandler = new CascadeHandler(
@@ -197,7 +216,12 @@ describe('CascadeHandler – getPolicyContext callback', () => {
     });
 
     await expect(
-      cascadeHandler.handleCascadeRelations('post', 1, cascadeContextMap, mockKnex),
+      cascadeHandler.handleCascadeRelations(
+        'post',
+        1,
+        cascadeContextMap,
+        mockKnex,
+      ),
     ).rejects.toThrow('Forbidden by policy');
 
     expect(insertWithCascade).not.toHaveBeenCalled();
@@ -205,7 +229,9 @@ describe('CascadeHandler – getPolicyContext callback', () => {
 
   it('calls checkPolicy for each new record in many-to-many relation', async () => {
     const policyCheck = jest.fn().mockResolvedValue(undefined);
-    const insertWithCascade = jest.fn(async () => ({ id: Math.floor(Math.random() * 1000) }));
+    const insertWithCascade = jest.fn(async () => ({
+      id: Math.floor(Math.random() * 1000),
+    }));
 
     const junctionQb = {
       where: jest.fn().mockReturnThis(),
@@ -240,18 +266,28 @@ describe('CascadeHandler – getPolicyContext callback', () => {
     const cascadeContextMap = new Map<string, any>();
     cascadeContextMap.set('post', {
       relationData: {
-        tags: [
-          { name: 'new-tag-1' },
-          { name: 'new-tag-2' },
-        ],
+        tags: [{ name: 'new-tag-1' }, { name: 'new-tag-2' }],
       },
     });
 
-    await cascadeHandler.handleCascadeRelations('post', 1, cascadeContextMap, knexCallable);
+    await cascadeHandler.handleCascadeRelations(
+      'post',
+      1,
+      cascadeContextMap,
+      knexCallable,
+    );
 
     expect(policyCheck).toHaveBeenCalledTimes(2);
-    expect(policyCheck).toHaveBeenCalledWith('tag', 'create', expect.objectContaining({ name: 'new-tag-1' }));
-    expect(policyCheck).toHaveBeenCalledWith('tag', 'create', expect.objectContaining({ name: 'new-tag-2' }));
+    expect(policyCheck).toHaveBeenCalledWith(
+      'tag',
+      'create',
+      expect.objectContaining({ name: 'new-tag-1' }),
+    );
+    expect(policyCheck).toHaveBeenCalledWith(
+      'tag',
+      'create',
+      expect.objectContaining({ name: 'new-tag-2' }),
+    );
   });
 
   it('skips insertion (and policy) when related record already has an id', async () => {
@@ -292,7 +328,12 @@ describe('CascadeHandler – getPolicyContext callback', () => {
       },
     });
 
-    await cascadeHandler.handleCascadeRelations('post', 1, cascadeContextMap, mockKnex);
+    await cascadeHandler.handleCascadeRelations(
+      'post',
+      1,
+      cascadeContextMap,
+      mockKnex,
+    );
 
     expect(policyCheck).not.toHaveBeenCalled();
     expect(insertWithCascade).not.toHaveBeenCalled();

@@ -95,13 +95,10 @@ export async function buildNestedLookupPipeline(
           localField = '_id';
           foreignField = relMeta.mappedBy || relMeta.propertyName;
         } else if (relMeta.type === 'many-to-many') {
-          if (relMeta.mappedBy) {
-            localField = '_id';
-            foreignField = relMeta.mappedBy;
-          } else {
-            localField = relMeta.propertyName;
-            foreignField = '_id';
-          }
+          // Inner pipeline lookup would be complex for unpopulated M2M, so we would use junction pipelines.
+          // However, additionalRelations only injects extra lookups. We should probably use junction logic here if needed.
+          // But actually, buildNestedLookupPipeline only builds relations explicitly requested by filter or population.
+          continue; // M2M relation filter handled separately or will need junction logic.
         }
 
         const isToMany =
@@ -205,8 +202,7 @@ export async function buildNestedLookupPipeline(
     if (hasWildcard) {
       for (const rel of unpopulatedRelations) {
         const isInverse =
-          rel.type === 'one-to-many' ||
-          (rel.type === 'many-to-many' && rel.mappedBy);
+          rel.type === 'one-to-many' || rel.type === 'many-to-many';
         if (isInverse) continue;
 
         const isArray = rel.type === 'many-to-many';
@@ -269,11 +265,10 @@ export async function addProjectionStage(
 
     for (const rel of unpopulatedRelations) {
       const isInverse =
-        rel.type === 'one-to-many' ||
-        (rel.type === 'many-to-many' && rel.mappedBy);
+        rel.type === 'one-to-many' || rel.type === 'many-to-many';
 
       if (isInverse) {
-        continue; // Inverse relations not stored, skip mapping
+        continue; // Inverse/Junction relations not stored, skip mapping
       }
 
       const isArray = rel.type === 'many-to-many';

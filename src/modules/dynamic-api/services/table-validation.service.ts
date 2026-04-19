@@ -1,9 +1,12 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 
-@Injectable()
-export class TableValidationService {
-  constructor(private readonly queryBuilder: QueryBuilderService) {}
+export class DynamicApiTableValidationService {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
+  }
 
   async assertTableValid({
     operation,
@@ -28,8 +31,10 @@ export class TableValidationService {
     tableName: string,
     tableMetadata: any,
   ) {
-    const idField = this.queryBuilder.isMongoDb() ? '_id' : 'id';
-    const existingResult = await this.queryBuilder.findWhere(tableName, {});
+    const idField = this.queryBuilderService.getPkField();
+    const { data: existingResult } = await this.queryBuilderService.find({
+      table: tableName,
+    });
     const existingRecords = existingResult || [];
     const hasExistingRecord = existingRecords.length > 0;
 

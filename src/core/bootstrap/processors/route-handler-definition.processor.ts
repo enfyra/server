@@ -1,48 +1,78 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
-
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
-      records.map(async (record) => {
-        const transformed = { ...record };
+      records.map(async (handler) => {
+        if (handler.route && typeof handler.route === 'string') {
+          const route = await this.queryBuilderService.findOne({
+            table: 'route_definition',
+            where: {
+              path: handler.route,
+            },
+          });
+          if (!route) {
+            this.logger.warn(
+              `Route '${handler.route}' not found for handler ${handler.name}, skipping.`,
+            );
+            return null;
+          }
+          if (isMongoDB) {
+            handler.route = route._id;
+          } else {
+            handler.routeId = route.id;
+            delete handler.route;
+          }
+        }
+        if (handler.method && typeof handler.method === 'string') {
+          const method = await this.queryBuilderService.findOne({
+            table: 'method_definition',
+            where: {
+              method: handler.method,
+            },
+          });
+          if (!method) {
+            this.logger.warn(
+              `Method '${handler.method}' not found for handler ${handler.name}, skipping.`,
+            );
+            return null;
+          }
+          if (isMongoDB) {
+            handler.method = method._id;
+          } else {
+            handler.methodId = method.id;
+            delete handler.method;
+          }
+        }
+        if (handler.isEnabled === undefined) handler.isEnabled = true;
         if (isMongoDB) {
           const now = new Date();
-          if (!transformed.createdAt) transformed.createdAt = now;
-          if (!transformed.updatedAt) transformed.updatedAt = now;
+          if (!handler.createdAt) handler.createdAt = now;
+          if (!handler.updatedAt) handler.updatedAt = now;
         }
-
-        const result = await this.autoTransformFkFields(
-          transformed,
-          'route_handler_definition',
-          this.queryBuilder,
-        );
-        if (!result.route && !result.routeId) return null;
-        if (!result.method && !result.methodId) return null;
-        return result;
+        return handler;
       }),
     );
     return transformedRecords.filter(Boolean);
   }
-
   getUniqueIdentifier(record: any): object {
-    return this.autoGetUniqueIdentifier(record, 'route_handler_definition');
+    return {
+      route: record.route || record.routeId,
+      method: record.method || record.methodId,
+    };
   }
-
   protected getCompareFields(): string[] {
-    return ['logic', 'description'];
+    return ['name', 'logic', 'timeout', 'isEnabled'];
   }
-
   protected getRecordIdentifier(record: any): string {
-    const routePath = record.route?.path || record._route || 'unknown';
-    const methodName = record.method?.method || record._method || 'unknown';
-    return `[Handler] ${routePath} (${methodName})`;
+    return `[RouteHandler] ${record.name}`;
   }
 }

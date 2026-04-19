@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { Db, ObjectId } from 'mongodb';
 import {
   getManyToOneRelations,
@@ -7,6 +7,7 @@ import {
   getUniqueFields,
   FkRelationInfo,
 } from '../utils/snapshot-meta.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 export interface UpsertResult {
   created: number;
   skipped: number;
@@ -32,7 +33,7 @@ export abstract class BaseTableProcessor {
     tableName: string,
     queryBuilder: any,
   ): Promise<any> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const relations = getManyToOneRelations(tableName);
     const transformed = { ...record };
 
@@ -41,8 +42,11 @@ export abstract class BaseTableProcessor {
       if (rawValue === undefined || rawValue === null) continue;
       if (typeof rawValue !== 'string') continue;
 
-      const target = await queryBuilder.findOneWhere(rel.targetTable, {
-        [rel.lookupKey]: rawValue,
+      const target = await queryBuilder.findOne({
+        table: rel.targetTable,
+        where: {
+          [rel.lookupKey]: rawValue,
+        },
       });
 
       if (!target) {
@@ -66,11 +70,8 @@ export abstract class BaseTableProcessor {
     return transformed;
   }
 
-  protected autoGetUniqueIdentifier(
-    record: any,
-    tableName: string,
-  ): object {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+  protected autoGetUniqueIdentifier(record: any, tableName: string): object {
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const uniques = getUniqueFields(tableName);
 
     if (uniques.length > 0) {
@@ -82,7 +83,18 @@ export abstract class BaseTableProcessor {
         if (rel && !isMongoDB) {
           where[`${field}Id`] = record[`${field}Id`];
         } else {
-          where[field] = record[field];
+          const rawValue = record[field];
+          if (
+            rel &&
+            isMongoDB &&
+            rawValue &&
+            typeof rawValue === 'object' &&
+            !Array.isArray(rawValue)
+          ) {
+            where[field] = rawValue._id ?? rawValue.id ?? rawValue;
+          } else {
+            where[field] = rawValue;
+          }
         }
       }
       return where;
@@ -108,8 +120,8 @@ export abstract class BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    const idField = isMongoDB ? '_id' : 'id';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+    const idField = DatabaseConfigService.getPkField();
     const transformedRecords = await this.transformRecords(records, context);
     let createdCount = 0;
     let skippedCount = 0;
@@ -127,22 +139,26 @@ export abstract class BaseTableProcessor {
               delete cleanedCondition[key];
             }
           }
-          existingRecord = await queryBuilder.findOneWhere(
-            tableName,
-            cleanedCondition,
-          );
+          existingRecord = await queryBuilder.findOne({
+            table: tableName,
+            where: cleanedCondition,
+          });
           if (existingRecord) break;
         }
         if (existingRecord) {
           const hasChanges = this.detectRecordChanges(record, existingRecord);
           if (hasChanges) {
             const existingId = existingRecord[idField];
-            await queryBuilder.updateById(tableName, existingId, record);
+            await queryBuilder.update(tableName, existingId, record);
             skippedCount++;
-            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Updated: ${this.getRecordIdentifier(record)}`,
+            );
           } else {
             skippedCount++;
-            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Skipped: ${this.getRecordIdentifier(record)}`,
+            );
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -152,10 +168,10 @@ export abstract class BaseTableProcessor {
             );
           }
         } else {
-          const inserted = await queryBuilder.insertAndGet(tableName, record);
+          const inserted = await queryBuilder.insert(tableName, record);
           const insertedId = inserted[idField];
           createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
             await this.afterUpsert(
               { ...record, [idField]: insertedId },
@@ -216,10 +232,14 @@ export abstract class BaseTableProcessor {
               tableName,
             );
             skippedCount++;
-            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Updated: ${this.getRecordIdentifier(record)}`,
+            );
           } else {
             skippedCount++;
-            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Skipped: ${this.getRecordIdentifier(record)}`,
+            );
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -247,7 +267,7 @@ export abstract class BaseTableProcessor {
             this.logger.debug(`Inserted ID: ${insertedId}`);
           }
           createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
             await this.afterUpsert(
               { ...record, id: insertedId },
@@ -370,10 +390,14 @@ export abstract class BaseTableProcessor {
               collectionName,
             );
             skippedCount++;
-            this.logger.log(`   Updated: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Updated: ${this.getRecordIdentifier(record)}`,
+            );
           } else {
             skippedCount++;
-            this.logger.log(`   Skipped: ${this.getRecordIdentifier(record)}`);
+            this.logger.debug(
+              `   Skipped: ${this.getRecordIdentifier(record)}`,
+            );
           }
           if (this.afterUpsert) {
             await this.afterUpsert(
@@ -389,7 +413,7 @@ export abstract class BaseTableProcessor {
             .insertOne(cleanedRecord);
           const insertedId = result.insertedId;
           createdCount++;
-          this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
+          this.logger.debug(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
             await this.afterUpsert(
               { ...record, _id: insertedId },

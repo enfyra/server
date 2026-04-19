@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
@@ -56,13 +55,15 @@ export interface GuardCache {
   postAuthByRoute: Map<string, GuardNode[]>;
 }
 
-@Injectable()
 export class GuardCacheService extends BaseCacheService<GuardCache> {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(GUARD_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+  }) {
+    super(GUARD_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
     this.cache = {
       preAuthGlobal: [],
       postAuthGlobal: [],
@@ -73,14 +74,14 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
 
   protected async loadFromDb(): Promise<any> {
     const [guardsResult, rulesResult] = await Promise.all([
-      this.queryBuilder.select({
-        tableName: 'guard_definition',
+      this.queryBuilderService.find({
+        table: 'guard_definition',
         filter: { isEnabled: { _eq: true } },
         fields: ['*', 'parent', 'route.id', 'route.path', 'methods.method'],
         sort: ['priority'],
       }),
-      this.queryBuilder.select({
-        tableName: 'guard_rule_definition',
+      this.queryBuilderService.find({
+        table: 'guard_rule_definition',
         filter: { isEnabled: { _eq: true } },
         fields: ['*', 'guard', 'users.id'],
         sort: ['priority'],
@@ -95,7 +96,7 @@ export class GuardCacheService extends BaseCacheService<GuardCache> {
     rules: any[];
   }): GuardCache {
     const { guards, rules } = rawData;
-    const isMongo = this.queryBuilder.isMongoDb();
+    const isMongo = this.queryBuilderService.isMongoDb();
 
     const getId = (obj: any): number | null => {
       if (!obj) return null;

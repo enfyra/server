@@ -1,22 +1,19 @@
-import { Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
+import { Logger } from '../../src/shared/logger';
 import { GuardCacheService } from '../../src/infrastructure/cache/services/guard-cache.service';
 
 async function loadGuardCache(
   guards: any[],
   rules: any[],
 ): Promise<GuardCacheService> {
-  const select = jest.fn(async (params: any) => {
-    if (params.tableName === 'guard_definition') return { data: guards };
-    if (params.tableName === 'guard_rule_definition') return { data: rules };
+  const find = jest.fn(async (params: any) => {
+    if (params.table === 'guard_definition') return { data: guards };
+    if (params.table === 'guard_rule_definition') return { data: rules };
     return { data: [] };
   });
-  const qb = { select, isMongoDb: () => false };
+  const qb = { find, isMongoDb: () => false };
   const ee = new EventEmitter2();
-  const svc = new GuardCacheService(
-    qb as any,
-    ee,
-  );
+  const svc = new GuardCacheService({ queryBuilderService: qb as any, eventEmitter: ee });
   await svc.reload(false);
   return svc;
 }

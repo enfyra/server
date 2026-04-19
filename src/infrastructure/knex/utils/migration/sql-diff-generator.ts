@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../../shared/logger';
 import { generateColumnDefinition } from './sql-generator';
 import { dropForeignKeyIfExists } from './foreign-key-operations';
 import {
@@ -11,53 +11,43 @@ import {
   generateDropIndexSQL,
   generateDropColumnSQL,
 } from './sql-dialect';
+import { getPrimaryKeyTypeForTable } from './pk-type.util';
+
 const logger = new Logger('SqlDiffGenerator');
-async function getPrimaryKeyTypeForTable(
-  knex: Knex,
-  tableName: string,
-  metadataCacheService?: any,
-): Promise<'uuid' | 'int'> {
-  try {
-    if (metadataCacheService) {
-      const targetMetadata =
-        await metadataCacheService.lookupTableByName(tableName);
-      if (targetMetadata) {
-        const pkColumn = targetMetadata.columns.find((c: any) => c.isPrimary);
-        if (pkColumn) {
-          const type = pkColumn.type?.toLowerCase() || '';
-          return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
-            ? 'uuid'
-            : 'int';
-        }
-      }
+function isIdempotentDDLError(err: any, dbType: string): boolean {
+  const code = err?.code || err?.errno;
+  const msg = String(err?.message || '').toLowerCase();
+  if (dbType.includes('mysql') || dbType.includes('mariadb')) {
+    const idempotentErrnos = new Set([
+      1060, // Duplicate column name
+      1061, // Duplicate key name
+      1050, // Table already exists
+      1091, // Can't DROP; doesn't exist
+      1826, // Duplicate foreign key constraint
+      3822, // Duplicate check constraint
+      1068, // Multiple primary keys defined (already has one)
+    ]);
+    if (idempotentErrnos.has(Number(code))) return true;
+    if (
+      msg.includes('duplicate column') ||
+      msg.includes('duplicate key name') ||
+      msg.includes('already exists') ||
+      msg.includes('check that column/key exists') ||
+      msg.includes('duplicate foreign key')
+    ) {
+      return true;
     }
-    const pkInfo = await knex('column_definition')
-      .join(
-        'table_definition',
-        'column_definition.table',
-        '=',
-        'table_definition.id',
-      )
-      .where('table_definition.name', tableName)
-      .where('column_definition.isPrimary', true)
-      .select('column_definition.type')
-      .first();
-    if (pkInfo) {
-      const type = pkInfo.type?.toLowerCase() || '';
-      return type === 'uuid' || type === 'uuidv4' || type.includes('uuid')
-        ? 'uuid'
-        : 'int';
-    }
-    logger.warn(
-      `Could not find primary key for table ${tableName}, defaulting to int`,
-    );
-    return 'int';
-  } catch (error) {
-    logger.warn(
-      `Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`,
-    );
-    return 'int';
   }
+  if (dbType.includes('pg') || dbType.includes('postgres')) {
+    const pgCodes = new Set([
+      '42701', // duplicate_column
+      '42P07', // duplicate_table
+      '42710', // duplicate_object (constraint/index)
+      '42P16', // invalid_table_definition (PK already)
+    ]);
+    if (pgCodes.has(String(code))) return true;
+  }
+  return false;
 }
 function generateRollbackSQL(statement: string, dbType: string): string | null {
   const stmt = statement.trim().toUpperCase();
@@ -471,10 +461,18 @@ export function generateBatchSQL(sqlStatements: string[]): string {
   });
   return batchSQL;
 }
+export interface JournalContext {
+  uuid: string;
+  markFailed: (error: string) => Promise<void>;
+  executeRollback: (uuid: string) => Promise<void>;
+}
+
 export async function executeBatchSQL(
   knex: Knex,
   batchSQL: string,
   dbType?: 'mysql' | 'postgres' | 'sqlite',
+  trx?: Knex.Transaction,
+  journal?: JournalContext,
 ): Promise<void> {
   if (!batchSQL || batchSQL.trim() === '' || batchSQL.trim() === ';') {
     logger.log('No SQL to execute (empty batch)');
@@ -486,9 +484,13 @@ export async function executeBatchSQL(
   if (isPostgres) {
     logger.log(`Executing batch SQL with TRANSACTION (PostgreSQL)...`);
     try {
-      await knex.transaction(async (trx) => {
+      if (trx) {
         await trx.raw(batchSQL);
-      });
+      } else {
+        await knex.transaction(async (pgTrx) => {
+          await pgTrx.raw(batchSQL);
+        });
+      }
       logger.log(`Batch SQL executed successfully (transaction committed)`);
     } catch (error) {
       logger.error(`Batch SQL execution failed (transaction rolled back)`);
@@ -510,27 +512,47 @@ export async function executeBatchSQL(
     logger.log(`Executing ${statements.length} statement(s) individually...`);
     const executedStatements: string[] = [];
     const rollbackStatements: string[] = [];
+    const ddlTimeoutSec = 30;
     try {
       for (let i = 0; i < statements.length; i++) {
         const statement = statements[i];
         logger.log(
           `  [${i + 1}/${statements.length}] Executing: ${statement.substring(0, 80)}${statement.length > 80 ? '...' : ''}`,
         );
+        const isMysqlLike =
+          detectedDbType.includes('mysql') ||
+          detectedDbType.includes('mariadb');
         try {
-          await knex.raw(statement);
+          await knex.transaction(async (conn) => {
+            if (isMysqlLike) {
+              await conn.raw(
+                `SET SESSION lock_wait_timeout = ${ddlTimeoutSec}`,
+              );
+              await conn.raw(
+                `SET SESSION innodb_lock_wait_timeout = ${ddlTimeoutSec}`,
+              );
+            }
+            await conn.raw(statement);
+          });
           executedStatements.push(statement);
           const rollbackSQL = generateRollbackSQL(statement, detectedDbType);
           if (rollbackSQL) {
             rollbackStatements.push(rollbackSQL);
           }
         } catch (statementError: any) {
+          if (isIdempotentDDLError(statementError, detectedDbType)) {
+            logger.warn(
+              `  [${i + 1}/${statements.length}] Skipping idempotent error: ${statementError.message}`,
+            );
+            continue;
+          }
           logger.error(
             `Failed at statement [${i + 1}/${statements.length}]: ${statement.substring(0, 100)}`,
           );
           logger.error(`Error: ${statementError.message}`);
           if (executedStatements.length > 0) {
             logger.error(`\n${'='.repeat(80)}`);
-            logger.error(`⚠️  PARTIAL MIGRATION DETECTED`);
+            logger.error(`PARTIAL MIGRATION DETECTED`);
             logger.error(`${'='.repeat(80)}`);
             logger.error(
               `Successfully executed ${executedStatements.length} statement(s) before failure:`,
@@ -540,14 +562,39 @@ export async function executeBatchSQL(
                 `  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`,
               );
             });
-            logger.error(
-              `\nTo rollback, execute these statements in reverse order:`,
-            );
-            rollbackStatements.reverse().forEach((stmt, idx) => {
-              logger.error(
-                `  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`,
+
+            if (journal && rollbackStatements.length > 0) {
+              logger.warn(
+                `Auto-rolling back ${rollbackStatements.length} statement(s) via journal ${journal.uuid}...`,
               );
-            });
+              try {
+                for (let ri = rollbackStatements.length - 1; ri >= 0; ri--) {
+                  const rbStmt = rollbackStatements[ri];
+                  try {
+                    await knex.raw(rbStmt);
+                    logger.log(`  Rollback OK: ${rbStmt.substring(0, 80)}`);
+                  } catch (rbErr: any) {
+                    logger.warn(
+                      `  Rollback FAILED: ${rbStmt.substring(0, 80)} — ${rbErr.message}`,
+                    );
+                  }
+                }
+                logger.warn(`Auto-rollback completed for ${journal.uuid}`);
+              } catch (rbUnexpected: any) {
+                logger.error(
+                  `Auto-rollback unexpected error: ${rbUnexpected.message}`,
+                );
+              }
+            } else {
+              logger.error(
+                `\nTo rollback, execute these statements in reverse order:`,
+              );
+              rollbackStatements.reverse().forEach((stmt, idx) => {
+                logger.error(
+                  `  [${idx + 1}] ${stmt.substring(0, 100)}${stmt.length > 100 ? '...' : ''}`,
+                );
+              });
+            }
             logger.error(`${'='.repeat(80)}\n`);
           }
           throw statementError;
@@ -555,17 +602,27 @@ export async function executeBatchSQL(
       }
       logger.log(`All ${statements.length} statement(s) executed successfully`);
     } catch (error: any) {
+      if (journal) {
+        try {
+          await journal.markFailed(error.message || 'Unknown error');
+        } catch (journalErr: any) {
+          logger.warn(`Failed to update journal status: ${journalErr.message}`);
+        }
+      }
       logger.error(`\n${'='.repeat(80)}`);
-      logger.error(`❌ MIGRATION FAILED`);
+      logger.error(`MIGRATION FAILED`);
       logger.error(`${'='.repeat(80)}`);
       logger.error(`Error: ${error.message}`);
       if (executedStatements.length > 0) {
-        logger.error(
-          `\n⚠️  ${executedStatements.length} statement(s) were executed before failure.`,
-        );
-        logger.error(
-          `Manual rollback may be required. See rollback statements above.`,
-        );
+        if (journal) {
+          logger.warn(
+            `${executedStatements.length} statement(s) executed before failure. Auto-rollback attempted via journal.`,
+          );
+        } else {
+          logger.error(
+            `${executedStatements.length} statement(s) were executed before failure. Manual rollback may be required.`,
+          );
+        }
       }
       logger.error(`${'='.repeat(80)}\n`);
       throw error;

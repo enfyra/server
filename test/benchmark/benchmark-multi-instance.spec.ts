@@ -83,88 +83,92 @@ describe(
       it('skipped (set RUN_BENCHMARK_TESTS=1)', () => undefined);
       return;
     }
-  jest.setTimeout(180000);
-  const D = 5000;
-  const C = 20; // total concurrent per test
+    jest.setTimeout(180000);
+    const D = 5000;
+    const C = 20; // total concurrent per test
 
-  it('DB 0ms (instant) — baseline', async () => {
-    console.log('\n=== DB latency: 0ms (instant mock) ===\n');
-    const s1 = report('1×20', [await spawnChild(C, D, 0)]);
-    const s2 = report(
-      '2×10',
-      await Promise.all([spawnChild(C / 2, D, 0), spawnChild(C / 2, D, 0)]),
-    );
-    diff('', s1, s2);
-  });
+    it('DB 0ms (instant) — baseline', async () => {
+      console.log('\n=== DB latency: 0ms (instant mock) ===\n');
+      const s1 = report('1×20', [await spawnChild(C, D, 0)]);
+      const s2 = report(
+        '2×10',
+        await Promise.all([spawnChild(C / 2, D, 0), spawnChild(C / 2, D, 0)]),
+      );
+      diff('', s1, s2);
+    });
 
-  it('DB 5ms — fast cache / in-memory', async () => {
-    console.log('\n=== DB latency: 5ms ===\n');
-    const s1 = report('1×20', [await spawnChild(C, D, 5)]);
-    const s2 = report(
-      '2×10',
-      await Promise.all([spawnChild(C / 2, D, 5), spawnChild(C / 2, D, 5)]),
-    );
-    diff('', s1, s2);
-  });
+    it('DB 5ms — fast cache / in-memory', async () => {
+      console.log('\n=== DB latency: 5ms ===\n');
+      const s1 = report('1×20', [await spawnChild(C, D, 5)]);
+      const s2 = report(
+        '2×10',
+        await Promise.all([spawnChild(C / 2, D, 5), spawnChild(C / 2, D, 5)]),
+      );
+      diff('', s1, s2);
+    });
 
-  it('DB 10ms — local DB / Redis', async () => {
-    console.log('\n=== DB latency: 10ms ===\n');
-    const s1 = report('1×20', [await spawnChild(C, D, 10)]);
-    const s2 = report(
-      '2×10',
-      await Promise.all([spawnChild(C / 2, D, 10), spawnChild(C / 2, D, 10)]),
-    );
-    diff('', s1, s2);
-  });
+    it('DB 10ms — local DB / Redis', async () => {
+      console.log('\n=== DB latency: 10ms ===\n');
+      const s1 = report('1×20', [await spawnChild(C, D, 10)]);
+      const s2 = report(
+        '2×10',
+        await Promise.all([spawnChild(C / 2, D, 10), spawnChild(C / 2, D, 10)]),
+      );
+      diff('', s1, s2);
+    });
 
-  it('DB 30ms — typical SQL query', async () => {
-    console.log('\n=== DB latency: 30ms ===\n');
-    const s1 = report('1×20', [await spawnChild(C, D, 30)]);
-    const s2 = report(
-      '2×10',
-      await Promise.all([spawnChild(C / 2, D, 30), spawnChild(C / 2, D, 30)]),
-    );
-    diff('', s1, s2);
-  });
+    it('DB 30ms — typical SQL query', async () => {
+      console.log('\n=== DB latency: 30ms ===\n');
+      const s1 = report('1×20', [await spawnChild(C, D, 30)]);
+      const s2 = report(
+        '2×10',
+        await Promise.all([spawnChild(C / 2, D, 30), spawnChild(C / 2, D, 30)]),
+      );
+      diff('', s1, s2);
+    });
 
-  it('DB 50ms — moderate query', async () => {
-    console.log('\n=== DB latency: 50ms ===\n');
-    const s1 = report('1×20', [await spawnChild(C, D, 50)]);
-    const s2 = report(
-      '2×10',
-      await Promise.all([spawnChild(C / 2, D, 50), spawnChild(C / 2, D, 50)]),
-    );
-    diff('', s1, s2);
-  });
+    it('DB 50ms — moderate query', async () => {
+      console.log('\n=== DB latency: 50ms ===\n');
+      const s1 = report('1×20', [await spawnChild(C, D, 50)]);
+      const s2 = report(
+        '2×10',
+        await Promise.all([spawnChild(C / 2, D, 50), spawnChild(C / 2, D, 50)]),
+      );
+      diff('', s1, s2);
+    });
 
-  it('DB 100ms — heavy query / remote DB', async () => {
-    console.log('\n=== DB latency: 100ms ===\n');
-    const s1 = report('1×20', [await spawnChild(C, D, 100)]);
-    const s2 = report(
-      '2×10',
-      await Promise.all([spawnChild(C / 2, D, 100), spawnChild(C / 2, D, 100)]),
-    );
-    diff('', s1, s2);
-  });
+    it('DB 100ms — heavy query / remote DB', async () => {
+      console.log('\n=== DB latency: 100ms ===\n');
+      const s1 = report('1×20', [await spawnChild(C, D, 100)]);
+      const s2 = report(
+        '2×10',
+        await Promise.all([
+          spawnChild(C / 2, D, 100),
+          spawnChild(C / 2, D, 100),
+        ]),
+      );
+      diff('', s1, s2);
+    });
 
-  it('Summary table', async () => {
-    console.log('\n=== High concurrency: 40 total, DB 20ms ===\n');
-    const s1 = report('1×40', [await spawnChild(40, D, 20)]);
-    const s2 = report(
-      '2×20',
-      await Promise.all([spawnChild(20, D, 20), spawnChild(20, D, 20)]),
-    );
-    const s4 = report(
-      '4×10',
-      await Promise.all([
-        spawnChild(10, D, 20),
-        spawnChild(10, D, 20),
-        spawnChild(10, D, 20),
-        spawnChild(10, D, 20),
-      ]),
-    );
-    console.log('');
-    diff('1→2', s1, s2);
-    diff('1→4', s1, s4);
-  });
-});
+    it('Summary table', async () => {
+      console.log('\n=== High concurrency: 40 total, DB 20ms ===\n');
+      const s1 = report('1×40', [await spawnChild(40, D, 20)]);
+      const s2 = report(
+        '2×20',
+        await Promise.all([spawnChild(20, D, 20), spawnChild(20, D, 20)]),
+      );
+      const s4 = report(
+        '4×10',
+        await Promise.all([
+          spawnChild(10, D, 20),
+          spawnChild(10, D, 20),
+          spawnChild(10, D, 20),
+          spawnChild(10, D, 20),
+        ]),
+      );
+      console.log('');
+      diff('1→2', s1, s2);
+      diff('1→4', s1, s4);
+    });
+  },
+);

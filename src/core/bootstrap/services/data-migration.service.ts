@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -9,14 +10,19 @@ interface InitOld {
   _deletedRecords?: { table: string; filter: Record<string, any> }[];
 }
 
-const RELATION_FIELD_PREFIXES = ['publishedMethods', 'availableMethods'];
+const RELATION_FIELD_PREFIXES = [
+  'publishedMethods',
+  'skipRoleGuardMethods',
+  'availableMethods',
+];
 
-@Injectable()
 export class DataMigrationService {
   private readonly logger = new Logger(DataMigrationService.name);
+  private readonly queryBuilderService: QueryBuilderService;
   private initOld: InitOld | null = null;
 
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+    this.queryBuilderService = deps.queryBuilderService;
     this.loadInitOld();
   }
 
@@ -89,10 +95,7 @@ export class DataMigrationService {
     this.logger.log(`Deleting data from ${tableNames.length} table(s)...`);
     for (const tableName of tableNames) {
       try {
-        await this.queryBuilder.delete({
-          table: tableName,
-          where: [],
-        });
+        await this.queryBuilderService.delete(tableName, { where: [] });
         this.logger.log(`Deleted all data from ${tableName}`);
       } catch (error) {
         this.logger.warn(
@@ -105,20 +108,20 @@ export class DataMigrationService {
   private async deleteRecords(
     records: { table: string; filter: Record<string, any> }[],
   ): Promise<void> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const isMongoDB = this.queryBuilderService.isMongoDb();
+    const idField = DatabaseConfigService.getPkField();
 
     for (const { table, filter } of records) {
       try {
-        const existing = await this.queryBuilder.select({
-          tableName: table,
+        const existing = await this.queryBuilderService.find({
+          table: table,
           filter,
           limit: -1,
           fields: [idField],
         });
 
         for (const row of existing.data || []) {
-          await this.queryBuilder.deleteById(table, row[idField]);
+          await this.queryBuilderService.delete(table, row[idField]);
         }
 
         const count = existing.data?.length || 0;
@@ -139,8 +142,8 @@ export class DataMigrationService {
   ): Promise<number> {
     const recordsArray = Array.isArray(records) ? records : [records];
     let migratedCount = 0;
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const idField = isMongoDB ? '_id' : 'id';
+    const isMongoDB = this.queryBuilderService.isMongoDb();
+    const idField = DatabaseConfigService.getPkField();
 
     for (const oldRecord of recordsArray) {
       try {
@@ -152,8 +155,8 @@ export class DataMigrationService {
           continue;
         }
 
-        const existing = await this.queryBuilder.select({
-          tableName,
+        const existing = await this.queryBuilderService.find({
+          table: tableName,
           filter: uniqueFilter,
           limit: 1,
           fields: [idField],
@@ -172,11 +175,11 @@ export class DataMigrationService {
           oldRecord,
         );
 
-        await this.queryBuilder.update({
-          table: tableName,
-          where: [{ field: idField, operator: '=', value: existingId }],
-          data: newRecord,
-        });
+        await this.queryBuilderService.update(
+          tableName,
+          { where: [{ field: idField, operator: '=', value: existingId }] },
+          newRecord,
+        );
 
         if (Object.keys(relationUpdates).length > 0) {
           await this.updateRelations(tableName, existingId, relationUpdates);
@@ -222,18 +225,22 @@ export class DataMigrationService {
   ): Promise<void> {
     if (tableName === 'route_definition') {
       for (const [field, methodNames] of Object.entries(relationUpdates)) {
-        if (field === 'publishedMethods' || field === 'availableMethods') {
-          const isMongoDB = this.queryBuilder.isMongoDb();
-          const idField = isMongoDB ? '_id' : 'id';
-          const result = await this.queryBuilder.select({
-            tableName: 'method_definition',
+        if (
+          field === 'publishedMethods' ||
+          field === 'skipRoleGuardMethods' ||
+          field === 'availableMethods'
+        ) {
+          const isMongoDB = this.queryBuilderService.isMongoDb();
+          const idField = DatabaseConfigService.getPkField();
+          const result = await this.queryBuilderService.find({
+            table: 'method_definition',
             filter: { method: { _in: methodNames as string[] } },
             fields: [idField],
           });
           const methodIds = result.data
             .map((m: any) => m._id || m.id)
             .filter(Boolean);
-          await this.queryBuilder.updateById('route_definition', recordId, {
+          await this.queryBuilderService.update('route_definition', recordId, {
             [field]: methodIds,
           });
           if (methodIds.length > 0) {

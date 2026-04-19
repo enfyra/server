@@ -1,4 +1,4 @@
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import Redis from 'ioredis';
 import { CACHE_EVENTS } from '../../src/shared/utils/cache-events.constants';
 

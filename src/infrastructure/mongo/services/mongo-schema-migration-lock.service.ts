@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Collection, Db } from 'mongodb';
 import { MongoService } from './mongo.service';
@@ -20,15 +20,17 @@ export interface MongoSchemaMigrationLockHandle {
   token: string;
 }
 
-@Injectable()
 export class MongoSchemaMigrationLockService {
   private readonly logger = new Logger(MongoSchemaMigrationLockService.name);
   private readonly collectionName = 'schema_migration_lock';
   private readonly documentId = 'global';
   private readonly lockDurationMs = 5 * 60 * 1000;
   private collectionReady = false;
+  private readonly mongoService: MongoService;
 
-  constructor(private readonly mongoService: MongoService) {}
+  constructor(deps: { mongoService: MongoService }) {
+    this.mongoService = deps.mongoService;
+  }
 
   async acquire(context: string): Promise<MongoSchemaMigrationLockHandle> {
     const collection = await this.getCollection();

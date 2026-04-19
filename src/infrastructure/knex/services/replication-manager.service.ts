@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger } from '../../../shared/logger';
 import { Knex, knex } from 'knex';
 import { parseDatabaseUri } from '../../knex/utils/uri-parser';
 import {
@@ -13,6 +7,10 @@ import {
   SQL_BOOTSTRAP_POOL_MIN,
 } from '../../../shared/utils/auto-scaling.constants';
 import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
+import { EnvService } from '../../../shared/services/env.service';
+
 export interface ReplicaNode {
   knex: Knex;
   uri: string;
@@ -21,23 +19,36 @@ export interface ReplicaNode {
   lastErrorTime?: number;
   connectionCount: number;
 }
-@Injectable()
-export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
+
+export class ReplicationManager implements LifecycleAware {
   private masterKnex: Knex;
   private replicaNodes: ReplicaNode[] = [];
   private currentReplicaIndex = 0;
   private readonly logger = new Logger(ReplicationManager.name);
   private readonly dbType: string;
   private healthCheckInterval?: NodeJS.Timeout;
-  constructor(private readonly configService: ConfigService) {
-    this.dbType = this.configService.get<string>('DB_TYPE') || 'mysql';
+
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly envService: EnvService;
+
+  constructor(deps: {
+    databaseConfigService: DatabaseConfigService;
+    envService: EnvService;
+  }) {
+    this.databaseConfigService = deps.databaseConfigService;
+    this.envService = deps.envService;
+    this.dbType = this.databaseConfigService.getDbType();
   }
-  async onModuleInit() {
-    const DB_URI = this.configService.get<string>('DB_URI');
+
+  async init(): Promise<void> {
+    if (this.databaseConfigService.isMongoDb()) {
+      return;
+    }
+    const DB_URI = this.envService.get('DB_URI');
     if (!DB_URI) {
       throw new Error('DB_URI is required');
     }
-    const replicaUris = this.configService.get<string>('DB_REPLICA_URIS');
+    const replicaUris = this.envService.get('DB_REPLICA_URIS');
     const replicaCount = replicaUris
       ? replicaUris
           .split(',')
@@ -93,6 +104,23 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       }
     }
   }
+
+  onDestroy(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+    for (const node of this.replicaNodes) {
+      try {
+        void node.knex.destroy();
+      } catch (error) {
+        this.logger.error(`Error destroying replica: ${node.uri}`, error);
+      }
+    }
+    if (this.masterKnex) {
+      void this.masterKnex.destroy();
+    }
+  }
+
   private createKnexInstance(
     config: {
       host: string;
@@ -120,6 +148,10 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
           ) {
             return field.string();
           }
+          if (field.type === 'TINY' && field.length === 1) {
+            const val = field.string();
+            return val === null ? null : val === '1';
+          }
           return next();
         },
       },
@@ -131,6 +163,7 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       debug: false,
     });
   }
+
   applyCoordinatedTotalPoolMax(totalMax: number): void {
     const replicaCount = this.replicaNodes.length;
     const minTotal = replicaCount === 0 ? 1 : 1 + replicaCount;
@@ -178,9 +211,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
   getMasterKnex(): Knex {
     return this.masterKnex;
   }
+
   getReplicaKnex(): Knex {
-    const readFromMaster =
-      this.configService.get<string>('DB_READ_FROM_MASTER') === 'true';
+    const readFromMaster = this.envService.get('DB_READ_FROM_MASTER') === true;
     const healthyReplicas = this.replicaNodes.filter((node) => node.isHealthy);
     if (healthyReplicas.length === 0) {
       return this.masterKnex;
@@ -207,11 +240,9 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
     selectedNode.connectionCount++;
     return selectedNode.knex;
   }
-  private startHealthCheck() {
-    const interval = parseInt(
-      this.configService.get<string>('DB_REPLICA_HEALTH_CHECK_INTERVAL') ||
-        '30000',
-    );
+
+  private startHealthCheck(): void {
+    const interval = this.envService.get('DB_REPLICA_HEALTH_CHECK_INTERVAL') ?? 30000;
     this.healthCheckInterval = setInterval(async () => {
       for (const node of this.replicaNodes) {
         try {
@@ -230,21 +261,7 @@ export class ReplicationManager implements OnModuleInit, OnModuleDestroy {
       }
     }, interval);
   }
-  async onModuleDestroy() {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-    }
-    for (const node of this.replicaNodes) {
-      try {
-        await node.knex.destroy();
-      } catch (error) {
-        this.logger.error(`Error destroying replica: ${node.uri}`, error);
-      }
-    }
-    if (this.masterKnex) {
-      await this.masterKnex.destroy();
-    }
-  }
+
   getReplicaStats() {
     return {
       total: this.replicaNodes.length,

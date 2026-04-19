@@ -3,15 +3,16 @@ import {
   GraphQLObjectType,
   GraphQLFieldConfigMap,
   GraphQLNonNull,
+  printSchema,
 } from 'graphql';
 import { createYoga } from 'graphql-yoga';
 import { useDepthLimit } from '@envelop/depth-limit';
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Logger } from '../../../shared/logger';
+import { EventEmitter2 } from 'eventemitter2';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
+import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import {
   buildTableGraphQLDef,
@@ -22,11 +23,11 @@ import {
 } from '../utils/generate-type-defs';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
+import { EnvService } from '../../../shared/services/env.service';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';
 
-@Injectable()
 export class GraphqlService {
   private readonly logger = new Logger(`${COLOR}GraphQL${RESET}`);
   private yogaApp: ReturnType<typeof createYoga>;
@@ -38,20 +39,39 @@ export class GraphqlService {
 
   private pendingPayload: TCacheInvalidationPayload | null = null;
 
-  constructor(
-    private metadataCache: MetadataCacheService,
-    private routeCacheService: RouteCacheService,
-    private settingCacheService: SettingCacheService,
-    private dynamicResolver: DynamicResolver,
-    private eventEmitter: EventEmitter2,
-    private configService: ConfigService,
-  ) {}
+  private readonly metadataCacheService: MetadataCacheService;
+  private readonly routeCacheService: RouteCacheService;
+  private readonly settingCacheService: SettingCacheService;
+  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
+  private readonly dynamicResolver: DynamicResolver;
+  private readonly eventEmitter: EventEmitter2;
+  private readonly envService: EnvService;
+
+  constructor(deps: {
+    metadataCacheService: MetadataCacheService;
+    routeCacheService: RouteCacheService;
+    settingCacheService: SettingCacheService;
+    gqlDefinitionCacheService: GqlDefinitionCacheService;
+    dynamicResolver: DynamicResolver;
+    eventEmitter: EventEmitter2;
+    envService: EnvService;
+  }) {
+    this.metadataCacheService = deps.metadataCacheService;
+    this.routeCacheService = deps.routeCacheService;
+    this.settingCacheService = deps.settingCacheService;
+    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
+    this.dynamicResolver = deps.dynamicResolver;
+    this.eventEmitter = deps.eventEmitter;
+    this.envService = deps.envService;
+  }
 
   async reloadSchema(payload?: TCacheInvalidationPayload): Promise<void> {
     try {
       const start = Date.now();
 
-      const metadata = await this.metadataCache.getMetadata();
+      await this.gqlDefinitionCacheService.reload();
+
+      const metadata = await this.metadataCacheService.getMetadata();
       if (!metadata || metadata.tables.size === 0) {
         this.logger.warn(
           'Metadata not available, skipping GraphQL schema generation',
@@ -59,23 +79,23 @@ export class GraphqlService {
         return;
       }
 
-      const routes = await this.routeCacheService.getRoutes();
+      const enabledDefs = await this.gqlDefinitionCacheService.getAllEnabled();
       const newQueryableNames = new Set<string>();
-      for (const route of routes) {
-        const methods = route.availableMethods || [];
-        const methodNames = methods
-          .map((m: any) => m?.method ?? m)
-          .filter(Boolean);
-        const hasQuery = methodNames.includes('GQL_QUERY');
-        const hasMutation = methodNames.includes('GQL_MUTATION');
-        if (hasQuery && hasMutation && route.mainTable?.name) {
-          newQueryableNames.add(route.mainTable.name);
-        }
+      for (const def of enabledDefs) {
+        newQueryableNames.add(def.tableName);
       }
 
-      const affectedTables = this.getAffectedTables(payload, newQueryableNames, metadata);
+      const affectedTables = this.getAffectedTables(
+        payload,
+        newQueryableNames,
+        metadata,
+      );
 
-      if (affectedTables !== null && this.schema && this.tableDefCache.size > 0) {
+      if (
+        affectedTables !== null &&
+        this.schema &&
+        this.tableDefCache.size > 0
+      ) {
         if (affectedTables.size === 0) {
           this.logger.log(
             `Schema unchanged (route-only change), skipping rebuild in ${Date.now() - start}ms`,
@@ -113,8 +133,11 @@ export class GraphqlService {
       [...this.queryableTableNames].some((n) => !newQueryableNames.has(n));
     if (queryableChanged) return null;
 
-    const isMetadata = ['table_definition', 'column_definition', 'relation_definition']
-      .includes(payload.tableName);
+    const isMetadata = [
+      'table_definition',
+      'column_definition',
+      'relation_definition',
+    ].includes(payload.table);
 
     if (!isMetadata) {
       return new Set();
@@ -134,10 +157,7 @@ export class GraphqlService {
     return affected;
   }
 
-  private fullBuild(
-    metadata: any,
-    queryableTableNames: Set<string>,
-  ): void {
+  private fullBuild(metadata: any, queryableTableNames: Set<string>): void {
     this.tableDefCache.clear();
     this.typeRegistry.clear();
     this.queryableTableNames = queryableTableNames;
@@ -146,7 +166,11 @@ export class GraphqlService {
 
     for (const table of allTables) {
       if (!queryableTableNames.has(table.name)) continue;
-      const def = buildTableGraphQLDef(table, queryableTableNames, this.typeRegistry);
+      const def = buildTableGraphQLDef(
+        table,
+        queryableTableNames,
+        this.typeRegistry,
+      );
       if (!def) continue;
       this.tableDefCache.set(table.name, def);
       this.typeRegistry.set(table.name, def.type);
@@ -179,7 +203,11 @@ export class GraphqlService {
         continue;
       }
 
-      const def = buildTableGraphQLDef(tableData, queryableTableNames, this.typeRegistry);
+      const def = buildTableGraphQLDef(
+        tableData,
+        queryableTableNames,
+        this.typeRegistry,
+      );
       if (!def) {
         this.tableDefCache.delete(tableName);
         this.typeRegistry.delete(tableName);
@@ -238,16 +266,18 @@ export class GraphqlService {
 
     const queryType = new GraphQLObjectType({
       name: 'Query',
-      fields: Object.keys(queryFields).length > 0
-        ? queryFields
-        : { _empty: { type: GraphQLJSON } },
+      fields:
+        Object.keys(queryFields).length > 0
+          ? queryFields
+          : { _empty: { type: GraphQLJSON } },
     });
 
     const mutationType = new GraphQLObjectType({
       name: 'Mutation',
-      fields: Object.keys(mutationFields).length > 0
-        ? mutationFields
-        : { _empty: { type: GraphQLJSON } },
+      fields:
+        Object.keys(mutationFields).length > 0
+          ? mutationFields
+          : { _empty: { type: GraphQLJSON } },
     });
 
     const types = [...this.typeRegistry.values(), MetaResultType];
@@ -258,7 +288,7 @@ export class GraphqlService {
       types,
     });
 
-    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const isProduction = this.envService.isProd;
     const maxDepth = this.settingCacheService.getMaxQueryDepth();
 
     this.yogaApp = createYoga({
@@ -271,7 +301,7 @@ export class GraphqlService {
 
   onSettingChanged() {
     if (!this.schema) return;
-    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const isProduction = this.envService.isProd;
     const maxDepth = this.settingCacheService.getMaxQueryDepth();
     this.yogaApp = createYoga({
       schema: this.schema,
@@ -283,20 +313,16 @@ export class GraphqlService {
 
   getSchemaSdl(): string {
     if (!this.schema) {
-      throw new Error(
-        'GraphQL schema not initialized. Call reloadSchema() first.',
-      );
+      throw new Error('Schema not built yet');
     }
-    const { printSchema } = require('graphql');
     return printSchema(this.schema);
   }
 
-  getYogaInstance() {
-    if (!this.yogaApp) {
-      throw new Error(
-        'GraphQL Yoga instance not initialized. Call reloadSchema() first.',
-      );
-    }
+  getYogaApp() {
     return this.yogaApp;
+  }
+
+  getSchema() {
+    return this.schema;
   }
 }

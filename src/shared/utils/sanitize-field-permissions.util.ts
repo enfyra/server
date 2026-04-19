@@ -8,7 +8,10 @@ type TRequestedShape = {
   relations?: Set<string>;
 };
 
-function parseRequestedFields(fields: any): { includeAll: boolean; set: Set<string> } {
+function parseRequestedFields(fields: any): {
+  includeAll: boolean;
+  set: Set<string>;
+} {
   if (!fields) return { includeAll: false, set: new Set() };
   const arr = Array.isArray(fields)
     ? fields
@@ -54,9 +57,15 @@ export async function sanitizeFieldPermissionsResult(params: {
   ): Promise<any> => {
     if (node == null) return node;
     if (Array.isArray(node)) {
-      return Promise.all(node.map((item) => walk(item, currentTable, currentRequested)));
+      return Promise.all(
+        node.map((item) => walk(item, currentTable, currentRequested)),
+      );
     }
-    if (typeof node !== 'object' || node instanceof Date || Buffer.isBuffer(node)) {
+    if (
+      typeof node !== 'object' ||
+      node instanceof Date ||
+      Buffer.isBuffer(node)
+    ) {
       return node;
     }
 
@@ -78,14 +87,18 @@ export async function sanitizeFieldPermissionsResult(params: {
       const published = col?.isPublished !== false;
       const decision = published
         ? { allowed: true }
-        : await decideFieldPermission(fieldPermissionCacheService, {
-            user,
-            tableName: currentTable,
-            action,
-            subjectType: 'column',
-            subjectName: colName,
-            record: out,
-          }, { defaultAllowed: false });
+        : await decideFieldPermission(
+            fieldPermissionCacheService,
+            {
+              user,
+              tableName: currentTable,
+              action,
+              subjectType: 'column',
+              subjectName: colName,
+              record: out,
+            },
+            { defaultAllowed: false },
+          );
 
       if (!decision.allowed) {
         delete out[colName];
@@ -105,14 +118,18 @@ export async function sanitizeFieldPermissionsResult(params: {
       const published = rel?.isPublished !== false;
       const decision = published
         ? { allowed: true }
-        : await decideFieldPermission(fieldPermissionCacheService, {
-            user,
-            tableName: currentTable,
-            action,
-            subjectType: 'relation',
-            subjectName: relName,
-            record: out,
-          }, { defaultAllowed: false });
+        : await decideFieldPermission(
+            fieldPermissionCacheService,
+            {
+              user,
+              tableName: currentTable,
+              action,
+              subjectType: 'relation',
+              subjectName: relName,
+              record: out,
+            },
+            { defaultAllowed: false },
+          );
 
       if (!decision.allowed) {
         delete out[relName];
@@ -150,4 +167,3 @@ export function buildRequestedShapeFromQuery(opts: {
     relations,
   };
 }
-

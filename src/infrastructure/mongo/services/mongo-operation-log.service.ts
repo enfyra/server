@@ -1,8 +1,15 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { Collection, ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
 
-export type TOperationType = 'insert' | 'update' | 'delete' | 'update_inverse' | 'nested_insert' | 'nested_update' | 'checkpoint';
+export type TOperationType =
+  | 'insert'
+  | 'update'
+  | 'delete'
+  | 'update_inverse'
+  | 'nested_insert'
+  | 'nested_update'
+  | 'checkpoint';
 
 export interface IOperationLog {
   _id?: ObjectId;
@@ -39,16 +46,16 @@ export interface IOperationContext {
   sequence: number;
 }
 
-@Injectable()
 export class MongoOperationLogService {
   private readonly logger = new Logger(MongoOperationLogService.name);
   private readonly logCollectionName = 'system_operation_logs';
   private collectionReady = false;
 
-  constructor(
-    @Inject(forwardRef(() => MongoService))
-    private readonly mongoService: MongoService,
-  ) {}
+  private readonly mongoService: MongoService;
+
+  constructor(deps: { mongoService: MongoService }) {
+    this.mongoService = deps.mongoService;
+  }
 
   private async ensureCollection(): Promise<void> {
     if (this.collectionReady) {
@@ -95,7 +102,10 @@ export class MongoOperationLogService {
     }
     if (!indexNames.has('createdAt_1')) {
       try {
-        await collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 * 7 });
+        await collection.createIndex(
+          { createdAt: 1 },
+          { expireAfterSeconds: 86400 * 7 },
+        );
       } catch {}
     }
 
@@ -103,7 +113,9 @@ export class MongoOperationLogService {
   }
 
   getLogCollection(): Collection<IOperationLog> {
-    return this.mongoService.getDb().collection<IOperationLog>(this.logCollectionName);
+    return this.mongoService
+      .getDb()
+      .collection<IOperationLog>(this.logCollectionName);
   }
 
   async logOperation(
@@ -178,7 +190,9 @@ export class MongoOperationLogService {
 
     if (entries.length === 0) return [];
 
-    const counterCollection = this.mongoService.getDb().collection('system_operation_counters');
+    const counterCollection = this.mongoService
+      .getDb()
+      .collection('system_operation_counters');
     const counterResult = await counterCollection.findOneAndUpdate(
       { _id: txId as any },
       { $inc: { seq: entries.length } },
@@ -217,11 +231,19 @@ export class MongoOperationLogService {
     if (operationIds.length === 0) return;
     await this.getLogCollection().updateMany(
       { operationId: { $in: operationIds } },
-      { $set: { status: 'completed', 'metadata.timestamps.completed': new Date() } },
+      {
+        $set: {
+          status: 'completed',
+          'metadata.timestamps.completed': new Date(),
+        },
+      },
     );
   }
 
-  async markOperationsBatchFailed(operationIds: string[], error: string): Promise<void> {
+  async markOperationsBatchFailed(
+    operationIds: string[],
+    error: string,
+  ): Promise<void> {
     if (operationIds.length === 0) return;
     await this.getLogCollection().updateMany(
       { operationId: { $in: operationIds } },
@@ -238,23 +260,34 @@ export class MongoOperationLogService {
       .toArray();
 
     if (operations.length === 0) {
-      return { success: true, rolledBackOperations: [], failedOperations: [], txId };
+      return {
+        success: true,
+        rolledBackOperations: [],
+        failedOperations: [],
+        txId,
+      };
     }
 
     return this.rollbackBatch(txId, operations);
   }
 
-  private async rollbackBatch(txId: string, operations: IOperationLog[]): Promise<IRollbackResult> {
+  private async rollbackBatch(
+    txId: string,
+    operations: IOperationLog[],
+  ): Promise<IRollbackResult> {
     const rolledBackOperations: string[] = [];
     const failedOperations: Array<{ operationId: string; error: string }> = [];
 
     const opsByDocKey = new Map<string, IOperationLog[]>();
     const sequentialOps: IOperationLog[] = [];
-    const batchableByCollection = new Map<string, {
-      inserts: IOperationLog[];
-      updates: IOperationLog[];
-      deletes: IOperationLog[];
-    }>();
+    const batchableByCollection = new Map<
+      string,
+      {
+        inserts: IOperationLog[];
+        updates: IOperationLog[];
+        deletes: IOperationLog[];
+      }
+    >();
 
     for (const op of operations) {
       if (op.operationType === 'checkpoint') {
@@ -278,12 +311,22 @@ export class MongoOperationLogService {
         const op = ops[0];
         const key = op.collection;
         if (!batchableByCollection.has(key)) {
-          batchableByCollection.set(key, { inserts: [], updates: [], deletes: [] });
+          batchableByCollection.set(key, {
+            inserts: [],
+            updates: [],
+            deletes: [],
+          });
         }
         const group = batchableByCollection.get(key)!;
-        if (op.operationType === 'insert' || op.operationType === 'nested_insert') {
+        if (
+          op.operationType === 'insert' ||
+          op.operationType === 'nested_insert'
+        ) {
           group.inserts.push(op);
-        } else if (op.operationType === 'update' || op.operationType === 'nested_update') {
+        } else if (
+          op.operationType === 'update' ||
+          op.operationType === 'nested_update'
+        ) {
           group.updates.push(op);
         } else if (op.operationType === 'delete') {
           group.deletes.push(op);
@@ -298,8 +341,13 @@ export class MongoOperationLogService {
         await this.rollbackSingleOperation(op);
         rolledBackOperations.push(op.operationId);
       } catch (error) {
-        failedOperations.push({ operationId: op.operationId, error: error.message });
-        this.logger.error(`[${txId}] Failed to rollback ${op.operationId}: ${error.message}`);
+        failedOperations.push({
+          operationId: op.operationId,
+          error: error.message,
+        });
+        this.logger.error(
+          `[${txId}] Failed to rollback ${op.operationId}: ${error.message}`,
+        );
       }
     }
 
@@ -313,13 +361,20 @@ export class MongoOperationLogService {
           (async () => {
             try {
               const idsToDelete = group.inserts.map((op) =>
-                typeof op.documentId === 'string' ? new ObjectId(op.documentId) : op.documentId,
+                typeof op.documentId === 'string'
+                  ? new ObjectId(op.documentId)
+                  : op.documentId,
               );
               await collection.deleteMany({ _id: { $in: idsToDelete } });
-              rolledBackOperations.push(...group.inserts.map((op) => op.operationId));
+              rolledBackOperations.push(
+                ...group.inserts.map((op) => op.operationId),
+              );
             } catch (error) {
               for (const op of group.inserts) {
-                failedOperations.push({ operationId: op.operationId, error: error.message });
+                failedOperations.push({
+                  operationId: op.operationId,
+                  error: error.message,
+                });
               }
             }
           })(),
@@ -330,17 +385,30 @@ export class MongoOperationLogService {
         batchPromises.push(
           (async () => {
             const bulkOps = group.updates.map((op) => {
-              const docId = typeof op.documentId === 'string' ? new ObjectId(op.documentId) : op.documentId;
+              const docId =
+                typeof op.documentId === 'string'
+                  ? new ObjectId(op.documentId)
+                  : op.documentId;
               return op.oldData
-                ? { replaceOne: { filter: { _id: docId }, replacement: op.oldData } }
+                ? {
+                    replaceOne: {
+                      filter: { _id: docId },
+                      replacement: op.oldData,
+                    },
+                  }
                 : { deleteOne: { filter: { _id: docId } } };
             });
             try {
               await collection.bulkWrite(bulkOps, { ordered: false });
-              rolledBackOperations.push(...group.updates.map((op) => op.operationId));
+              rolledBackOperations.push(
+                ...group.updates.map((op) => op.operationId),
+              );
             } catch (error) {
               for (const op of group.updates) {
-                failedOperations.push({ operationId: op.operationId, error: error.message });
+                failedOperations.push({
+                  operationId: op.operationId,
+                  error: error.message,
+                });
               }
             }
           })(),
@@ -353,17 +421,25 @@ export class MongoOperationLogService {
             const docsToRestore = group.deletes
               .filter((op) => op.oldData)
               .map((op) => {
-                const docId = typeof op.documentId === 'string' ? new ObjectId(op.documentId) : op.documentId;
+                const docId =
+                  typeof op.documentId === 'string'
+                    ? new ObjectId(op.documentId)
+                    : op.documentId;
                 return { ...op.oldData, _id: docId };
               });
             try {
               if (docsToRestore.length > 0) {
                 await collection.insertMany(docsToRestore, { ordered: false });
               }
-              rolledBackOperations.push(...group.deletes.map((op) => op.operationId));
+              rolledBackOperations.push(
+                ...group.deletes.map((op) => op.operationId),
+              );
             } catch (error) {
               for (const op of group.deletes) {
-                failedOperations.push({ operationId: op.operationId, error: error.message });
+                failedOperations.push({
+                  operationId: op.operationId,
+                  error: error.message,
+                });
               }
             }
           })(),
@@ -390,7 +466,10 @@ export class MongoOperationLogService {
 
   private async rollbackSingleOperation(op: IOperationLog): Promise<void> {
     const collection = this.mongoService.getDb().collection(op.collection);
-    const docId = typeof op.documentId === 'string' ? new ObjectId(op.documentId) : op.documentId;
+    const docId =
+      typeof op.documentId === 'string'
+        ? new ObjectId(op.documentId)
+        : op.documentId;
 
     switch (op.operationType) {
       case 'insert':
@@ -426,12 +505,17 @@ export class MongoOperationLogService {
   }
 
   private async rollbackInverseRelation(op: IOperationLog): Promise<void> {
-    if (!op.metadata?.nestedOperations || op.metadata.nestedOperations.length === 0) {
+    if (
+      !op.metadata?.nestedOperations ||
+      op.metadata.nestedOperations.length === 0
+    ) {
       return;
     }
 
     for (const nestedOpId of op.metadata.nestedOperations) {
-      const nestedOp = await this.getLogCollection().findOne({ operationId: nestedOpId });
+      const nestedOp = await this.getLogCollection().findOne({
+        operationId: nestedOpId,
+      });
       if (nestedOp) {
         await this.rollbackSingleOperation(nestedOp);
       }
@@ -446,7 +530,9 @@ export class MongoOperationLogService {
   }
 
   async cleanupOldLogs(olderThanDays: number = 7): Promise<number> {
-    const cutoffDate = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    const cutoffDate = new Date(
+      Date.now() - olderThanDays * 24 * 60 * 60 * 1000,
+    );
     const result = await this.getLogCollection().deleteMany({
       createdAt: { $lt: cutoffDate },
       status: { $in: ['completed', 'rolled_back', 'aborted'] },
@@ -456,10 +542,16 @@ export class MongoOperationLogService {
       createdAt: { $lt: cutoffDate },
     });
     const activeTxIds = await this.getLogCollection().distinct('txId');
-    const counterCollection = this.mongoService.getDb().collection('system_operation_counters');
-    const orphanedCounterIds = staleTxIds.filter((id: any) => !activeTxIds.includes(id));
+    const counterCollection = this.mongoService
+      .getDb()
+      .collection('system_operation_counters');
+    const orphanedCounterIds = staleTxIds.filter(
+      (id: any) => !activeTxIds.includes(id),
+    );
     if (orphanedCounterIds.length > 0) {
-      await counterCollection.deleteMany({ _id: { $in: orphanedCounterIds } as any });
+      await counterCollection.deleteMany({
+        _id: { $in: orphanedCounterIds } as any,
+      });
     }
 
     return result.deletedCount || 0;
@@ -481,7 +573,9 @@ export class MongoOperationLogService {
   }
 
   private async getNextSequence(txId: string): Promise<number> {
-    const counterCollection = this.mongoService.getDb().collection('system_operation_counters');
+    const counterCollection = this.mongoService
+      .getDb()
+      .collection('system_operation_counters');
     const result = await counterCollection.findOneAndUpdate(
       { _id: txId as any },
       { $inc: { seq: 1 } },
@@ -510,7 +604,10 @@ export class MongoOperationLogService {
     return checkpointId;
   }
 
-  async rollbackToCheckpoint(txId: string, checkpointId: string): Promise<IRollbackResult> {
+  async rollbackToCheckpoint(
+    txId: string,
+    checkpointId: string,
+  ): Promise<IRollbackResult> {
     const [checkpoint, operationsToRollback] = await Promise.all([
       this.getLogCollection().findOne({ operationId: checkpointId }),
       this.getLogCollection()

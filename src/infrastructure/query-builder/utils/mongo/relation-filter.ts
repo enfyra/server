@@ -1,10 +1,9 @@
-import { WhereCondition } from '../../../../shared/types/query-builder.types';
-import { hasLogicalOperators } from '../shared/logical-operators.util';
-import { separateFilters } from '../shared/filter-separator.util';
 import {
-  whereToMongoFilter,
-  convertLogicalFilterToMongo,
-} from './filter-builder';
+  separateFilters,
+  hasAnyRelations,
+} from '../shared/filter-separator.util';
+import { renderRawFilterToMongo } from './render-filter';
+import { resolveMongoJunctionInfo } from '../../../mongo/utils/mongo-junction.util';
 
 export async function buildRelationLookupPipeline(
   metadata: any,
@@ -19,57 +18,13 @@ export async function buildRelationLookupPipeline(
   const { fieldFilters, relationFilters } = separated;
 
   if (fieldFilters && Object.keys(fieldFilters).length > 0) {
-    if (!hasLogicalOperators(fieldFilters)) {
-      const whereConditions: WhereCondition[] = [];
-      for (const [field, value] of Object.entries(fieldFilters)) {
-        if (typeof value === 'object' && value !== null) {
-          for (const [op, val] of Object.entries(value)) {
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in' || op === '_nin') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = '_contains';
-            else if (op === '_starts_with') operator = '_starts_with';
-            else if (op === '_ends_with') operator = '_ends_with';
-            else if (op === '_between') operator = '_between';
-            else if (op === '_is_null') operator = '_is_null';
-            else if (op === '_is_not_null') operator = '_is_not_null';
-            else operator = op.replace('_', ' ');
-
-            whereConditions.push({
-              field,
-              operator,
-              value: val,
-            } as WhereCondition);
-          }
-        } else {
-          whereConditions.push({
-            field,
-            operator: '=',
-            value,
-          } as WhereCondition);
-        }
-      }
-      const matchFilter = whereToMongoFilter(
-        metadata,
-        whereConditions,
-        targetTable,
-        dbType,
-      );
+    const matchFilter = renderRawFilterToMongo(
+      metadata,
+      fieldFilters,
+      targetTable,
+    );
+    if (Object.keys(matchFilter).length > 0) {
       subPipeline.push({ $match: matchFilter });
-    } else {
-      const logicalFilter = convertLogicalFilterToMongo(
-        metadata,
-        fieldFilters,
-        targetTable,
-        dbType,
-      );
-      subPipeline.push({ $match: logicalFilter });
     }
   }
 
@@ -120,6 +75,20 @@ export async function applyRelationFilters(
       continue;
     }
 
+    if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
+      const nullOnly = classifyRelationNullOnlyFilter(relationFilter);
+      if (nullOnly !== null) {
+        const fkField = relation.foreignKeyColumn || `${relationName}Id`;
+        const effectiveNull = invert ? !nullOnly : nullOnly;
+        pipeline.push({
+          $match: {
+            [fkField]: effectiveNull ? { $eq: null } : { $ne: null },
+          },
+        });
+        continue;
+      }
+    }
+
     const lookupFieldName = `__lookup_${relationName}`;
 
     const lookupPipeline = await buildRelationLookupPipeline(
@@ -129,6 +98,58 @@ export async function applyRelationFilters(
       targetMeta,
       dbType,
     );
+
+    if (relation.type === 'many-to-many') {
+      const info = resolveMongoJunctionInfo(tableName, relation as any);
+      if (!info) continue;
+
+      if (lookupPipeline.length > 0) {
+        pipeline.push({
+          $lookup: {
+            from: info.junctionName,
+            localField: '_id',
+            foreignField: info.selfColumn,
+            as: lookupFieldName,
+            pipeline: [
+              {
+                $lookup: {
+                  from: targetTable,
+                  localField: info.otherColumn,
+                  foreignField: '_id',
+                  as: 'targetDocs',
+                  pipeline: lookupPipeline,
+                },
+              },
+              { $match: { $expr: { $gt: [{ $size: '$targetDocs' }, 0] } } },
+            ],
+          },
+        });
+      } else {
+        pipeline.push({
+          $lookup: {
+            from: info.junctionName,
+            localField: '_id',
+            foreignField: info.selfColumn,
+            as: lookupFieldName,
+          },
+        });
+      }
+
+      pipeline.push({
+        $match: {
+          $expr: invert
+            ? { $eq: [{ $size: `$${lookupFieldName}` }, 0] }
+            : { $gt: [{ $size: `$${lookupFieldName}` }, 0] },
+        },
+      });
+
+      pipeline.push({
+        $project: {
+          [lookupFieldName]: 0,
+        },
+      });
+      continue;
+    }
 
     let localField: string;
     let foreignField: string;
@@ -174,6 +195,42 @@ export async function applyRelationFilters(
       },
     });
   }
+}
+
+function classifyRelationNullOnlyFilter(relFilter: any): boolean | null {
+  if (!relFilter || typeof relFilter !== 'object' || Array.isArray(relFilter)) {
+    return null;
+  }
+  const keys = Object.keys(relFilter);
+  if (keys.length === 0) return null;
+
+  let target: Record<string, any> = relFilter;
+  if (keys.length === 1 && keys[0] === 'id') {
+    if (
+      typeof relFilter.id !== 'object' ||
+      relFilter.id === null ||
+      Array.isArray(relFilter.id)
+    ) {
+      return null;
+    }
+    target = relFilter.id;
+  }
+
+  const targetKeys = Object.keys(target);
+  if (targetKeys.length === 0) return null;
+
+  let wantsNull: boolean | null = null;
+  for (const k of targetKeys) {
+    let v: boolean | null = null;
+    if (k === '_is_null') v = target[k] === true ? true : false;
+    else if (k === '_is_not_null') v = target[k] === true ? false : true;
+    else if (k === '_eq' && target[k] === null) v = true;
+    else if (k === '_neq' && target[k] === null) v = false;
+    else return null;
+    if (wantsNull !== null && wantsNull !== v) return null;
+    wantsNull = v;
+  }
+  return wantsNull;
 }
 
 function isM2oFkNullOnlyFilter(
@@ -222,10 +279,29 @@ export async function applyMixedFilters(
   dbType?: string,
 ): Promise<void> {
   if (filter._and && Array.isArray(filter._and)) {
+    const relationNames = new Set<string>(
+      (tableMeta.relations || []).map((r: any) => r.propertyName as string),
+    );
+    const simpleConditions: any[] = [];
+    const nestedConditions: any[] = [];
+
+    for (const condition of filter._and) {
+      if (
+        condition &&
+        typeof condition === 'object' &&
+        ('_and' in condition || '_or' in condition || '_not' in condition) &&
+        hasAnyRelations(condition, relationNames)
+      ) {
+        nestedConditions.push(condition);
+      } else {
+        simpleConditions.push(condition);
+      }
+    }
+
     const fieldConditions: any[] = [];
     const allRelationFilters: any = {};
 
-    for (const condition of filter._and) {
+    for (const condition of simpleConditions) {
       const separated = separateFilters(condition, tableMeta);
 
       if (Object.keys(separated.fieldFilters).length > 0) {
@@ -244,7 +320,7 @@ export async function applyMixedFilters(
 
     if (fieldConditions.length > 0) {
       const mongoFieldConditions = fieldConditions.map((fc) =>
-        convertLogicalFilterToMongo(metadata, fc, tableName, dbType),
+        renderRawFilterToMongo(metadata, fc, tableName),
       );
       pipeline.push({ $match: { $and: mongoFieldConditions } });
     }
@@ -260,6 +336,17 @@ export async function applyMixedFilters(
           dbType,
         );
       }
+    }
+
+    for (const nested of nestedConditions) {
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        nested,
+        tableName,
+        tableMeta,
+        dbType,
+      );
     }
     return;
   }
@@ -291,6 +378,15 @@ export async function applyMixedFilters(
 
     if (hasRelations) {
       const lookupFields: string[] = [];
+      const relNameCount = new Map<string, number>();
+      for (const rc of relationConditions) {
+        relNameCount.set(
+          rc.relationName,
+          (relNameCount.get(rc.relationName) || 0) + 1,
+        );
+      }
+      const relNameIdx = new Map<string, number>();
+
       for (const relCondition of relationConditions) {
         const relation = tableMeta.relations.find(
           (r: any) => r.propertyName === relCondition.relationName,
@@ -301,7 +397,13 @@ export async function applyMixedFilters(
         const targetMeta = metadata.tables?.get(targetTable);
         if (!targetMeta) continue;
 
-        const lookupFieldName = `__lookup_${relCondition.relationName}`;
+        const dupCount = relNameCount.get(relCondition.relationName) || 1;
+        const idx = relNameIdx.get(relCondition.relationName) || 0;
+        relNameIdx.set(relCondition.relationName, idx + 1);
+        const lookupFieldName =
+          dupCount > 1
+            ? `__lookup_${relCondition.relationName}_${idx}`
+            : `__lookup_${relCondition.relationName}`;
         lookupFields.push(lookupFieldName);
 
         const lookupPipeline = await buildRelationLookupPipeline(
@@ -314,6 +416,44 @@ export async function applyMixedFilters(
 
         let localField: string;
         let foreignField: string;
+
+        if (relation.type === 'many-to-many') {
+          const info = resolveMongoJunctionInfo(tableName, relation as any);
+          if (!info) continue;
+
+          if (lookupPipeline.length > 0) {
+            pipeline.push({
+              $lookup: {
+                from: info.junctionName,
+                localField: '_id',
+                foreignField: info.selfColumn,
+                as: lookupFieldName,
+                pipeline: [
+                  {
+                    $lookup: {
+                      from: targetTable,
+                      localField: info.otherColumn,
+                      foreignField: '_id',
+                      as: 'targetDocs',
+                      pipeline: lookupPipeline,
+                    },
+                  },
+                  { $match: { $expr: { $gt: [{ $size: '$targetDocs' }, 0] } } },
+                ],
+              },
+            });
+          } else {
+            pipeline.push({
+              $lookup: {
+                from: info.junctionName,
+                localField: '_id',
+                foreignField: info.selfColumn,
+                as: lookupFieldName,
+              },
+            });
+          }
+          continue;
+        }
 
         if (relation.type === 'many-to-one' || relation.type === 'one-to-one') {
           localField =
@@ -347,9 +487,7 @@ export async function applyMixedFilters(
       const orConditions: any[] = [];
 
       for (const fc of fieldConditions) {
-        orConditions.push(
-          convertLogicalFilterToMongo(metadata, fc, tableName, dbType),
-        );
+        orConditions.push(renderRawFilterToMongo(metadata, fc, tableName));
       }
 
       for (const lookupField of lookupFields) {
@@ -371,7 +509,7 @@ export async function applyMixedFilters(
           )
         ) {
           orConditions.push(
-            convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+            renderRawFilterToMongo(metadata, condition, tableName),
           );
         }
       }
@@ -389,7 +527,7 @@ export async function applyMixedFilters(
       }
     } else {
       const mongoFieldConditions = filter._or.map((condition: any) =>
-        convertLogicalFilterToMongo(metadata, condition, tableName, dbType),
+        renderRawFilterToMongo(metadata, condition, tableName),
       );
       pipeline.push({ $match: { $or: mongoFieldConditions } });
     }
@@ -397,14 +535,53 @@ export async function applyMixedFilters(
   }
 
   if (filter._not) {
+    if (filter._not._or) {
+      const transformed = {
+        _and: filter._not._or.map((b: any) => ({ _not: b })),
+      };
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        transformed,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+      return;
+    }
+    if (filter._not._and) {
+      const transformed = {
+        _or: filter._not._and.map((b: any) => ({ _not: b })),
+      };
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        transformed,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+      return;
+    }
+    if (filter._not._not) {
+      await applyMixedFilters(
+        metadata,
+        pipeline,
+        filter._not._not,
+        tableName,
+        tableMeta,
+        dbType,
+      );
+      return;
+    }
+
     const separated = separateFilters(filter._not, tableMeta);
 
     if (Object.keys(separated.fieldFilters).length > 0) {
-      const mongoFilter = convertLogicalFilterToMongo(
+      const mongoFilter = renderRawFilterToMongo(
         metadata,
         separated.fieldFilters,
         tableName,
-        dbType,
       );
       pipeline.push({ $match: { $nor: [mongoFilter] } });
     }
@@ -425,57 +602,13 @@ export async function applyMixedFilters(
   const { fieldFilters, relationFilters } = separated;
 
   if (fieldFilters && Object.keys(fieldFilters).length > 0) {
-    if (!hasLogicalOperators(fieldFilters)) {
-      const whereConditions: WhereCondition[] = [];
-      for (const [field, value] of Object.entries(fieldFilters)) {
-        if (typeof value === 'object' && value !== null) {
-          for (const [op, val] of Object.entries(value)) {
-            let operator: string;
-            if (op === '_eq') operator = '=';
-            else if (op === '_neq') operator = '!=';
-            else if (op === '_in') operator = 'in';
-            else if (op === '_not_in' || op === '_nin') operator = 'not in';
-            else if (op === '_gt') operator = '>';
-            else if (op === '_gte') operator = '>=';
-            else if (op === '_lt') operator = '<';
-            else if (op === '_lte') operator = '<=';
-            else if (op === '_contains') operator = '_contains';
-            else if (op === '_starts_with') operator = '_starts_with';
-            else if (op === '_ends_with') operator = '_ends_with';
-            else if (op === '_between') operator = '_between';
-            else if (op === '_is_null') operator = '_is_null';
-            else if (op === '_is_not_null') operator = '_is_not_null';
-            else operator = op.replace('_', ' ');
-
-            whereConditions.push({
-              field,
-              operator,
-              value: val,
-            } as WhereCondition);
-          }
-        } else {
-          whereConditions.push({
-            field,
-            operator: '=',
-            value,
-          } as WhereCondition);
-        }
-      }
-      const matchFilter = whereToMongoFilter(
-        metadata,
-        whereConditions,
-        tableName,
-        dbType,
-      );
+    const matchFilter = renderRawFilterToMongo(
+      metadata,
+      fieldFilters,
+      tableName,
+    );
+    if (Object.keys(matchFilter).length > 0) {
       pipeline.push({ $match: matchFilter });
-    } else {
-      const logicalFilter = convertLogicalFilterToMongo(
-        metadata,
-        fieldFilters,
-        tableName,
-        dbType,
-      );
-      pipeline.push({ $match: logicalFilter });
     }
   }
 

@@ -162,7 +162,10 @@ describe('Worker Read Engine routing', () => {
         {
           $repos: {
             users: {
-              find: async (_opts: any) => ({ data: [{ id: 2 }], bridged: true }),
+              find: async (_opts: any) => ({
+                data: [{ id: 2 }],
+                bridged: true,
+              }),
             },
           },
         },

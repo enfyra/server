@@ -1,8 +1,10 @@
 export type TRelationOnDeleteAction = 'CASCADE' | 'SET NULL' | 'RESTRICT';
 
-export function normalizeRelationOnDelete(relation: {
-  onDelete?: string | null;
-} | null): TRelationOnDeleteAction {
+export function normalizeRelationOnDelete(
+  relation: {
+    onDelete?: string | null;
+  } | null,
+): TRelationOnDeleteAction {
   const raw = String(relation?.onDelete ?? 'SET NULL')
     .toUpperCase()
     .trim()

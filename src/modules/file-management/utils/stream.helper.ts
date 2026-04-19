@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { Logger } from '@nestjs/common';
+import { Logger } from '../../../shared/logger';
 import { PassThrough } from 'stream';
 import * as fs from 'fs';
 import * as sharp from 'sharp';

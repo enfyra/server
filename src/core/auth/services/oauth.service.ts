@@ -1,10 +1,17 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import * as jwt from 'jsonwebtoken';
 import { randomUUID, createHash } from 'crypto';
 import ms, { type StringValue } from 'ms';
+import { BadRequestException } from '../../../shared/errors';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { OAuthConfigCacheService } from '../../../infrastructure/cache/services/oauth-config-cache.service';
+import { EnvService } from '../../../shared/services/env.service';
+import { CacheService } from '../../../infrastructure/cache/services/cache.service';
+import {
+  loadUserWithRole,
+  userCacheKey,
+  USER_CACHE_TTL_MS,
+} from '../../../shared/utils/load-user-with-role.util';
 
 type OAuthProvider = 'google' | 'facebook' | 'github';
 
@@ -15,9 +22,11 @@ interface OAuthUserInfo {
   avatar?: string;
 }
 
-@Injectable()
 export class OAuthService {
-  private readonly logger = new Logger(OAuthService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly oauthConfigCacheService: OAuthConfigCacheService;
+  private readonly envService: EnvService;
+  private readonly cacheService: CacheService;
 
   private readonly providerUrls: Record<
     OAuthProvider,
@@ -44,15 +53,20 @@ export class OAuthService {
     },
   };
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly jwtService: JwtService,
-    private readonly queryBuilder: QueryBuilderService,
-    private readonly oauthConfigCache: OAuthConfigCacheService,
-  ) {}
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    oauthConfigCacheService: OAuthConfigCacheService;
+    envService: EnvService;
+    cacheService: CacheService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.oauthConfigCacheService = deps.oauthConfigCacheService;
+    this.envService = deps.envService;
+    this.cacheService = deps.cacheService;
+  }
 
   getAuthorizationUrl(provider: OAuthProvider, state: string): string {
-    const config = this.oauthConfigCache.getDirectConfigByProvider(provider);
+    const config = this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -95,7 +109,7 @@ export class OAuthService {
     expTime: number;
     loginProvider: string | null;
   }> {
-    const config = this.oauthConfigCache.getDirectConfigByProvider(provider);
+    const config = this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -151,7 +165,7 @@ export class OAuthService {
 
     if (!response.ok) {
       const error = await response.text();
-      this.logger.error(`Token exchange failed: ${error}`);
+      console.error(`Token exchange failed: ${error}`);
       throw new BadRequestException('Failed to exchange authorization code');
     }
 
@@ -172,7 +186,7 @@ export class OAuthService {
 
     if (!response.ok) {
       const error = await response.text();
-      this.logger.error(`Failed to fetch user info: ${error}`);
+      console.error(`Failed to fetch user info: ${error}`);
       throw new BadRequestException(
         'Failed to fetch user info from OAuth provider',
       );
@@ -211,23 +225,24 @@ export class OAuthService {
     provider: OAuthProvider,
     userInfo: OAuthUserInfo,
   ): Promise<any> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
+    const isMongoDB = this.queryBuilderService.isMongoDb();
 
-    const existingAccount = await this.queryBuilder.findOneWhere(
-      'oauth_account_definition',
-      {
+    const existingAccount = await this.queryBuilderService.findOne({
+      table: 'oauth_account_definition',
+      where: {
         provider,
         providerUserId: userInfo.id,
       },
-    );
+    });
 
     if (existingAccount) {
       const userId = isMongoDB
         ? existingAccount.user?._id || existingAccount.user
         : existingAccount.userId;
 
-      const user = await this.queryBuilder.findOneWhere('user_definition', {
-        [isMongoDB ? '_id' : 'id']: userId,
+      const user = await this.queryBuilderService.findOne({
+        table: 'user_definition',
+        where: { [DatabaseConfigService.getPkField()]: userId },
       });
 
       if (!user) {
@@ -237,8 +252,9 @@ export class OAuthService {
       return user;
     }
 
-    let user = await this.queryBuilder.findOneWhere('user_definition', {
-      email: userInfo.email,
+    let user = await this.queryBuilderService.findOne({
+      table: 'user_definition',
+      where: { email: userInfo.email },
     });
 
     if (!user) {
@@ -258,35 +274,30 @@ export class OAuthService {
               isSystem: false,
             };
 
-        user = await this.queryBuilder.insertAndGet(
-          'user_definition',
-          userData,
-        );
-        this.logger.log(
+        user = await this.queryBuilderService.insert('user_definition', userData);
+        console.log(
           `Created new user via ${provider} OAuth: ${userInfo.email}`,
         );
       } catch {
-        user = await this.queryBuilder.findOneWhere('user_definition', {
-          email: userInfo.email,
+        user = await this.queryBuilderService.findOne({
+          table: 'user_definition',
+          where: { email: userInfo.email },
         });
         if (!user)
           throw new BadRequestException('Failed to create user account');
       }
     }
 
-    const userId = isMongoDB ? user._id : user.id;
+    const userId = DatabaseConfigService.getRecordId(user);
     const accountData: any = isMongoDB
       ? { provider, providerUserId: userInfo.id, user: userId }
       : { provider, providerUserId: userInfo.id, userId };
 
     try {
-      await this.queryBuilder.insertAndGet(
-        'oauth_account_definition',
-        accountData,
-      );
-      this.logger.log(`Linked ${provider} account to user: ${userInfo.email}`);
+      await this.queryBuilderService.insert('oauth_account_definition', accountData);
+      console.log(`Linked ${provider} account to user: ${userInfo.email}`);
     } catch {
-      this.logger.warn(
+      console.warn(
         `OAuth account already linked for ${provider}:${userInfo.id}`,
       );
     }
@@ -298,15 +309,11 @@ export class OAuthService {
     user: any,
     provider: OAuthProvider,
   ): Promise<any> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const userId = isMongoDB ? user._id : user.id;
+    const isMongoDB = this.queryBuilderService.isMongoDb();
+    const userId = DatabaseConfigService.getRecordId(user);
 
     const expiredAt = new Date(
-      Date.now() +
-        ms(
-          (this.configService.get<string>('REFRESH_TOKEN_REMEMBER_EXP') ||
-            '7d') as StringValue,
-        ),
+      Date.now() + ms(this.envService.get('REFRESH_TOKEN_REMEMBER_EXP') as StringValue),
     );
 
     const sessionData: any = isMongoDB
@@ -324,7 +331,7 @@ export class OAuthService {
           loginProvider: provider,
         };
 
-    return this.queryBuilder.insertAndGet('session_definition', sessionData);
+    return this.queryBuilderService.insert('session_definition', sessionData);
   }
 
   private async generateTokens(
@@ -336,39 +343,46 @@ export class OAuthService {
     expTime: number;
     loginProvider: string | null;
   }> {
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const userId = isMongoDB ? user._id : user.id;
-    const sessionId = isMongoDB ? session._id : session.id;
+    const isMongoDB = this.queryBuilderService.isMongoDb();
+    const userId = DatabaseConfigService.getRecordId(user);
+    const sessionId = DatabaseConfigService.getRecordId(session);
     const loginProvider = session.loginProvider ?? null;
 
-    const accessToken = this.jwtService.sign(
+    const accessToken = jwt.sign(
       { id: userId, loginProvider },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          'ACCESS_TOKEN_EXP',
-        ) as StringValue,
+        expiresIn: this.envService.get('ACCESS_TOKEN_EXP') as StringValue,
       },
     );
 
-    const refreshToken = this.jwtService.sign(
+    const refreshToken = jwt.sign(
       { sessionId: sessionId?.toString() },
+      this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.configService.get<string>(
-          'REFRESH_TOKEN_REMEMBER_EXP',
-        ) as StringValue,
+        expiresIn: this.envService.get('REFRESH_TOKEN_REMEMBER_EXP') as StringValue,
       },
     );
 
     const refreshTokenHash = createHash('sha256')
       .update(refreshToken)
       .digest('hex');
-    await this.queryBuilder.updateById(
+    await this.queryBuilderService.update(
       'session_definition',
       sessionId?.toString(),
       { refreshTokenHash },
     );
 
-    const decoded: any = this.jwtService.decode(accessToken);
+    const userForCache = await loadUserWithRole(this.queryBuilderService, userId);
+    if (userForCache) {
+      await this.cacheService.set(
+        userCacheKey(userId),
+        userForCache,
+        USER_CACHE_TTL_MS,
+      );
+    }
+
+    const decoded: any = jwt.decode(accessToken);
 
     return {
       accessToken,

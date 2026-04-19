@@ -1,18 +1,27 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { IStorageService, StorageConfig } from './storage.interface';
 import { LocalStorageService } from './local-storage.service';
 import { GCSStorageService } from './gcs-storage.service';
 import { R2StorageService } from './r2-storage.service';
 import { S3StorageService } from './s3-storage.service';
 
-@Injectable()
 export class StorageFactoryService {
-  constructor(
-    private localStorageService: LocalStorageService,
-    private gcsStorageService: GCSStorageService,
-    private r2StorageService: R2StorageService,
-    private s3StorageService: S3StorageService,
-  ) {}
+  private readonly localStorageService: LocalStorageService;
+  private readonly gcsStorageService: GCSStorageService;
+  private readonly r2StorageService: R2StorageService;
+  private readonly s3StorageService: S3StorageService;
+
+  constructor(deps: {
+    localStorageService: LocalStorageService;
+    gcsStorageService: GCSStorageService;
+    r2StorageService: R2StorageService;
+    s3StorageService: S3StorageService;
+  }) {
+    this.localStorageService = deps.localStorageService;
+    this.gcsStorageService = deps.gcsStorageService;
+    this.r2StorageService = deps.r2StorageService;
+    this.s3StorageService = deps.s3StorageService;
+  }
 
   getStorageService(storageType: string): IStorageService {
     switch (storageType) {

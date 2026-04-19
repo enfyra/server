@@ -22,7 +22,10 @@ const WHITELISTED_KEYS = [
   'originalUrl',
 ] as const;
 
-function buildReqContext(req: Record<string, any>, resolvedIp: string): Record<string, any> {
+function buildReqContext(
+  req: Record<string, any>,
+  resolvedIp: string,
+): Record<string, any> {
   return {
     method: req.method,
     url: req.url,
@@ -41,7 +44,10 @@ function makeMockReq(overrides: Record<string, any> = {}): Record<string, any> {
   return {
     method: 'GET',
     url: '/api/test?foo=bar',
-    headers: { 'content-type': 'application/json', authorization: 'Bearer token123' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: 'Bearer token123',
+    },
     query: { foo: 'bar' },
     params: { id: '42' },
     hostname: 'example.com',
@@ -81,7 +87,10 @@ describe('$req context sanitization', () => {
   });
 
   it('does not expose _internalSecret or rawBody', () => {
-    const req = makeMockReq({ _internalSecret: 'boom', rawBody: Buffer.from('secret') });
+    const req = makeMockReq({
+      _internalSecret: 'boom',
+      rawBody: Buffer.from('secret'),
+    });
     const $req = buildReqContext(req, '10.0.0.1');
     expect('_internalSecret' in $req).toBe(false);
     expect('rawBody' in $req).toBe(false);
@@ -96,9 +105,14 @@ describe('$req context sanitization', () => {
   });
 
   it('passes through headers object including auth header', () => {
-    const req = makeMockReq({ headers: { authorization: 'Bearer abc', 'x-custom': 'yes' } });
+    const req = makeMockReq({
+      headers: { authorization: 'Bearer abc', 'x-custom': 'yes' },
+    });
     const $req = buildReqContext(req, '1.2.3.4');
-    expect($req.headers).toEqual({ authorization: 'Bearer abc', 'x-custom': 'yes' });
+    expect($req.headers).toEqual({
+      authorization: 'Bearer abc',
+      'x-custom': 'yes',
+    });
   });
 
   it('passes through query string parameters', () => {

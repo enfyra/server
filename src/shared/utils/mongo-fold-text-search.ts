@@ -9,7 +9,7 @@ let ramCache: string | null = null;
 function tryReadBodyFromDisk(): string | null {
   const candidates = [
     path.join(__dirname, BODY_FILENAME),
-    path.join(process.cwd(), 'dist', 'src', 'shared', 'utils', BODY_FILENAME),
+    path.join(process.cwd(), 'dist', 'shared', 'utils', BODY_FILENAME),
   ];
   for (const p of candidates) {
     try {

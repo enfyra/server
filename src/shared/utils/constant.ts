@@ -18,7 +18,8 @@ export const FLOW_CACHE_SYNC_EVENT_KEY = 'enfyra:flow-cache-sync';
 export const FOLDER_TREE_CACHE_SYNC_EVENT_KEY = 'enfyra:folder-tree-cache-sync';
 export const GUARD_CACHE_SYNC_EVENT_KEY = 'enfyra:guard-cache-sync';
 export const SETTING_CACHE_SYNC_EVENT_KEY = 'enfyra:setting-cache-sync';
-export const FIELD_PERMISSION_CACHE_SYNC_EVENT_KEY = 'enfyra:field-permission-cache-sync';
+export const FIELD_PERMISSION_CACHE_SYNC_EVENT_KEY =
+  'enfyra:field-permission-cache-sync';
 export const DEFAULT_MAX_QUERY_DEPTH = 7;
 export const DEFAULT_MAX_UPLOAD_FILE_SIZE_MB = 10;
 export const DEFAULT_MAX_REQUEST_BODY_SIZE_MB = 1;

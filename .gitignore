@@ -2,6 +2,7 @@
 /dist
 /node_modules
 /build
+*.tsbuildinfo
 
 /src/migrations/*.ts
 schema-from-db.json
@@ -68,3 +69,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 CLAUDE.md
 .mcp.json
 docs/
+.internal/
+/src_bak

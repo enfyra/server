@@ -1,17 +1,17 @@
-import { Logger } from '@nestjs/common';
 import { DataMigrationService } from '../../src/core/bootstrap/services/data-migration.service';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
-function makeQueryBuilder(overrides: Partial<{
-  select: jest.Mock;
-  update: jest.Mock;
-  updateById: jest.Mock;
-  delete: jest.Mock;
-  isMongoDb: jest.Mock;
-}> = {}) {
+function makeQueryBuilder(
+  overrides: Partial<{
+    find: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+    isMongoDb: jest.Mock;
+  }> = {},
+) {
   return {
-    select: jest.fn().mockResolvedValue({ data: [] }),
+    find: jest.fn().mockResolvedValue({ data: [] }),
     update: jest.fn().mockResolvedValue(undefined),
-    updateById: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
     isMongoDb: jest.fn().mockReturnValue(false),
     ...overrides,
@@ -19,7 +19,7 @@ function makeQueryBuilder(overrides: Partial<{
 }
 
 function makeService(qb: any): DataMigrationService {
-  const svc = new DataMigrationService(qb);
+  const svc = new DataMigrationService({ queryBuilderService: qb });
   (svc as any).initOld = null;
   return svc;
 }
@@ -29,7 +29,11 @@ describe('DataMigrationService.transformRecord', () => {
     const svc = makeService(makeQueryBuilder());
     const { newRecord, relationUpdates } = (svc as any).transformRecord(
       'route_definition',
-      { _unique: { path: { _eq: '/me' } }, publishedMethods: ['GET', 'POST'], isEnabled: true },
+      {
+        _unique: { path: { _eq: '/me' } },
+        publishedMethods: ['GET', 'POST'],
+        isEnabled: true,
+      },
     );
     expect(relationUpdates.publishedMethods).toEqual(['GET', 'POST']);
     expect(newRecord.publishedMethods).toBeUndefined();
@@ -77,9 +81,17 @@ describe('DataMigrationService.transformRecord', () => {
 });
 
 describe('DataMigrationService.updateRelations', () => {
-  it('calls updateById with empty array to clear publishedMethods (the bug fix)', async () => {
+  beforeEach(() => {
+    DatabaseConfigService.overrideForTesting('mysql');
+  });
+
+  afterEach(() => {
+    DatabaseConfigService.resetForTesting();
+  });
+
+  it('calls update with empty array to clear publishedMethods (the bug fix)', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn().mockResolvedValue({ data: [] }),
+      find: jest.fn().mockResolvedValue({ data: [] }),
     });
     const svc = makeService(qb);
 
@@ -87,14 +99,14 @@ describe('DataMigrationService.updateRelations', () => {
       publishedMethods: [],
     });
 
-    expect(qb.updateById).toHaveBeenCalledWith('route_definition', 99, {
+    expect(qb.update).toHaveBeenCalledWith('route_definition', 99, {
       publishedMethods: [],
     });
   });
 
-  it('calls updateById with method IDs when methods are provided', async () => {
+  it('calls update with method IDs when methods are provided', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn().mockResolvedValue({
+      find: jest.fn().mockResolvedValue({
         data: [{ id: 1 }, { id: 2 }],
       }),
     });
@@ -104,14 +116,14 @@ describe('DataMigrationService.updateRelations', () => {
       publishedMethods: ['GET', 'POST'],
     });
 
-    expect(qb.updateById).toHaveBeenCalledWith('route_definition', 10, {
+    expect(qb.update).toHaveBeenCalledWith('route_definition', 10, {
       publishedMethods: [1, 2],
     });
   });
 
   it('clears availableMethods when provided empty array', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn().mockResolvedValue({ data: [] }),
+      find: jest.fn().mockResolvedValue({ data: [] }),
     });
     const svc = makeService(qb);
 
@@ -119,7 +131,7 @@ describe('DataMigrationService.updateRelations', () => {
       availableMethods: [],
     });
 
-    expect(qb.updateById).toHaveBeenCalledWith('route_definition', 5, {
+    expect(qb.update).toHaveBeenCalledWith('route_definition', 5, {
       availableMethods: [],
     });
   });
@@ -132,12 +144,13 @@ describe('DataMigrationService.updateRelations', () => {
       publishedMethods: [],
     });
 
-    expect(qb.updateById).not.toHaveBeenCalled();
+    expect(qb.update).not.toHaveBeenCalled();
   });
 
   it('handles both publishedMethods and availableMethods in one call', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn()
+      find: jest
+        .fn()
         .mockResolvedValueOnce({ data: [] })
         .mockResolvedValueOnce({ data: [{ id: 3 }] }),
     });
@@ -148,16 +161,29 @@ describe('DataMigrationService.updateRelations', () => {
       availableMethods: ['POST'],
     });
 
-    expect(qb.updateById).toHaveBeenCalledTimes(2);
-    expect(qb.updateById).toHaveBeenCalledWith('route_definition', 7, { publishedMethods: [] });
-    expect(qb.updateById).toHaveBeenCalledWith('route_definition', 7, { availableMethods: [3] });
+    expect(qb.update).toHaveBeenCalledTimes(2);
+    expect(qb.update).toHaveBeenCalledWith('route_definition', 7, {
+      publishedMethods: [],
+    });
+    expect(qb.update).toHaveBeenCalledWith('route_definition', 7, {
+      availableMethods: [3],
+    });
   });
 });
 
 describe('DataMigrationService.migrateTable — end-to-end for publishedMethods clear', () => {
+  beforeEach(() => {
+    DatabaseConfigService.overrideForTesting('mysql');
+  });
+
+  afterEach(() => {
+    DatabaseConfigService.resetForTesting();
+  });
+
   it('clears publishedMethods on existing route when empty array specified', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn()
+      find: jest
+        .fn()
         .mockResolvedValueOnce({ data: [{ id: 42 }] })
         .mockResolvedValueOnce({ data: [] }),
     });
@@ -168,16 +194,18 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
     ]);
 
     expect(qb.update).toHaveBeenCalledWith(
-      expect.objectContaining({ table: 'route_definition' }),
+      'route_definition',
+      { where: [{ field: 'id', operator: '=', value: 42 }] },
+      {},
     );
-    expect(qb.updateById).toHaveBeenCalledWith('route_definition', 42, {
+    expect(qb.update).toHaveBeenCalledWith('route_definition', 42, {
       publishedMethods: [],
     });
   });
 
   it('skips record not found in DB', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn().mockResolvedValue({ data: [] }),
+      find: jest.fn().mockResolvedValue({ data: [] }),
     });
     const svc = makeService(qb);
 
@@ -185,12 +213,12 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
       { _unique: { path: { _eq: '/nonexistent' } }, publishedMethods: [] },
     ]);
 
-    expect(qb.updateById).not.toHaveBeenCalled();
+    expect(qb.update).not.toHaveBeenCalled();
   });
 
   it('does not call updateRelations when no relation fields in record', async () => {
     const qb = makeQueryBuilder({
-      select: jest.fn().mockResolvedValue({ data: [{ id: 1 }] }),
+      find: jest.fn().mockResolvedValue({ data: [{ id: 1 }] }),
     });
     const svc = makeService(qb);
 
@@ -198,7 +226,6 @@ describe('DataMigrationService.migrateTable — end-to-end for publishedMethods 
       { _unique: { path: { _eq: '/me' } }, isEnabled: true },
     ]);
 
-    expect(qb.update).toHaveBeenCalled();
-    expect(qb.updateById).not.toHaveBeenCalled();
+    expect(qb.update).toHaveBeenCalledTimes(1);
   });
 });

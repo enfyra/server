@@ -92,9 +92,7 @@ function validateNoExistingInverse(
   }
 }
 
-function computeInverseType(
-  owningType: TRelation['type'],
-): TRelation['type'] {
+function computeInverseType(owningType: TRelation['type']): TRelation['type'] {
   if (owningType === 'many-to-one') return 'one-to-many';
   if (owningType === 'one-to-many') return 'many-to-one';
   return owningType;
@@ -222,7 +220,13 @@ function validateNoDuplicateInverseRelation(
 }
 
 let nextId = 1000;
-function makeRel(partial: Partial<TRelation> & Pick<TRelation, 'propertyName' | 'type' | 'sourceTableId' | 'targetTableId'>): TRelation {
+function makeRel(
+  partial: Partial<TRelation> &
+    Pick<
+      TRelation,
+      'propertyName' | 'type' | 'sourceTableId' | 'targetTableId'
+    >,
+): TRelation {
   return {
     id: nextId++,
     mappedBy: null,
@@ -246,7 +250,11 @@ describe('Inverse relation auto-creation', () => {
   const tasksTable: TTable = { id: 1, name: 'tasks', isSystem: false };
   const usersTable: TTable = { id: 2, name: 'users', isSystem: false };
   const tagsTable: TTable = { id: 3, name: 'tags', isSystem: false };
-  const categoriesTable: TTable = { id: 4, name: 'categories', isSystem: false };
+  const categoriesTable: TTable = {
+    id: 4,
+    name: 'categories',
+    isSystem: false,
+  };
 
   describe('mappedBy vs inversePropertyName mutual exclusion', () => {
     it('rejects relation with both mappedBy and inversePropertyName', () => {
@@ -366,10 +374,18 @@ describe('Inverse relation auto-creation', () => {
       ];
 
       expect(() =>
-        validateInversePropertyNameNotTaken('tasks', usersTable.name, existingOnTarget),
+        validateInversePropertyNameNotTaken(
+          'tasks',
+          usersTable.name,
+          existingOnTarget,
+        ),
       ).toThrow(ValidationException);
       expect(() =>
-        validateInversePropertyNameNotTaken('tasks', usersTable.name, existingOnTarget),
+        validateInversePropertyNameNotTaken(
+          'tasks',
+          usersTable.name,
+          existingOnTarget,
+        ),
       ).toThrow(/property name already exists/);
     });
 
@@ -384,7 +400,11 @@ describe('Inverse relation auto-creation', () => {
       ];
 
       expect(() =>
-        validateInversePropertyNameNotTaken('tasks', usersTable.name, existingOnTarget),
+        validateInversePropertyNameNotTaken(
+          'tasks',
+          usersTable.name,
+          existingOnTarget,
+        ),
       ).not.toThrow();
     });
 
@@ -399,7 +419,11 @@ describe('Inverse relation auto-creation', () => {
       ];
 
       expect(() =>
-        validateInversePropertyNameNotTaken('items', usersTable.name, existingOnTarget),
+        validateInversePropertyNameNotTaken(
+          'items',
+          usersTable.name,
+          existingOnTarget,
+        ),
       ).toThrow(/property name already exists/);
     });
   });
@@ -459,7 +483,10 @@ describe('Inverse relation auto-creation', () => {
   });
 
   describe('type flipping correctness', () => {
-    const cases: Array<{ owning: TRelation['type']; expected: TRelation['type'] }> = [
+    const cases: Array<{
+      owning: TRelation['type'];
+      expected: TRelation['type'];
+    }> = [
       { owning: 'many-to-one', expected: 'one-to-many' },
       { owning: 'one-to-one', expected: 'one-to-one' },
       { owning: 'many-to-many', expected: 'many-to-many' },
@@ -1305,7 +1332,11 @@ describe('Inverse relation auto-creation', () => {
         sourceTableId: selfTable.id,
         targetTableId: selfTable.id,
         inversePropertyName: 'relatedBy',
-        junctionTableName: getJunctionTableName('products', 'relatedProducts', 'products'),
+        junctionTableName: getJunctionTableName(
+          'products',
+          'relatedProducts',
+          'products',
+        ),
         junctionSourceColumn: sourceColumn,
         junctionTargetColumn: targetColumn,
       });
@@ -1383,7 +1414,11 @@ describe('Inverse relation auto-creation', () => {
       ];
 
       try {
-        validateInversePropertyNameNotTaken('items', usersTable.name, existingOnTarget);
+        validateInversePropertyNameNotTaken(
+          'items',
+          usersTable.name,
+          existingOnTarget,
+        );
         fail('Expected ValidationException');
       } catch (err: any) {
         expect(err).toBeInstanceOf(ValidationException);

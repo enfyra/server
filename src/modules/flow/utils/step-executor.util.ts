@@ -98,12 +98,12 @@ export interface StepExecOptions {
   config: Record<string, any>;
   timeout: number;
   ctx: TDynamicContext;
-  handlerExecutor: ExecutorEngineService;
+  executorEngineService: ExecutorEngineService;
   shouldTransformCode?: boolean;
 }
 
 export async function executeStepCore(opts: StepExecOptions): Promise<any> {
-  const { type, config, timeout, ctx, handlerExecutor, shouldTransformCode } =
+  const { type, config, timeout, ctx, executorEngineService, shouldTransformCode } =
     opts;
 
   switch (type) {
@@ -111,14 +111,14 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
       const code = shouldTransformCode
         ? transformCode(config.code || '')
         : config.code || '';
-      return handlerExecutor.run(code, ctx, timeout);
+      return executorEngineService.run(code, ctx, timeout);
     }
 
     case 'condition': {
       const code = shouldTransformCode
         ? transformCode(config.code || 'return false;')
         : config.code || 'return false;';
-      return handlerExecutor.run(code, ctx, timeout);
+      return executorEngineService.run(code, ctx, timeout);
     }
 
     case 'query':

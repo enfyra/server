@@ -1,15 +1,8 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
 import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
-import {
-  buildNestedSubquery,
-  buildCTEStrategy,
-  buildOwnerCTEStrategy,
-} from './nested-subquery-builder';
-import {
-  quoteIdentifier,
-  getEmptyJsonArray,
-} from '../../../knex/utils/migration/sql-dialect';
+import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
+import { BatchFetchDescriptor } from './batch-relation-fetcher';
 
 export interface LimitedCteSortJoinStep {
   targetTable: string;
@@ -26,6 +19,7 @@ export interface LimitedCteSortJoin {
 interface FieldExpansionResult {
   select: string[];
   cteClauses?: string[];
+  batchFetchDescriptors: BatchFetchDescriptor[];
 }
 
 interface TableMetadata {
@@ -47,7 +41,6 @@ export async function expandFieldsToJoinsAndSelect(
   fields: string[],
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   dbType: DatabaseType,
-  listTables?: () => Promise<string[]>,
   limit?: number,
   orderByClause?: string,
   whereClause?: string,
@@ -56,10 +49,11 @@ export async function expandFieldsToJoinsAndSelect(
   maxDepth?: number,
 ): Promise<FieldExpansionResult> {
   const select: string[] = [];
+  const batchFetchDescriptors: BatchFetchDescriptor[] = [];
 
   const baseMeta = await metadataGetter(tableName);
   if (!baseMeta) {
-    return { select: [] };
+    return { select: [], batchFetchDescriptors: [] };
   }
 
   const fieldsByRelation = new Map<string, string[]>();
@@ -205,150 +199,55 @@ export async function expandFieldsToJoinsAndSelect(
     const selectPk = sortJoinFragment
       ? `${quotedTable}.${quotedPkCol}`
       : quotedPkCol;
-    cteClauses.push(`${quotedLimitedCTE} AS (
+    cteClauses.push(`${quoteIdentifier(limitedCTEName, dbType)} AS (
       SELECT ${selectPk} FROM ${quotedTable}${sortJoinFragment}${wherePart}${effectiveOrderBy ? ' ' + effectiveOrderBy : ''}${limitSQL ? ' ' + limitSQL : ''}${offsetSQL ? ' ' + offsetSQL : ''}
     )`);
   }
 
-  for (const [relationName, nestedFields] of fieldsByRelation.entries()) {
-    if (relationName === '') continue;
+  fieldsByRelation.forEach((nestedFields, relationName) => {
+    if (relationName === '') return;
 
     const relation = baseMeta.relations?.find(
       (r) => r.propertyName === relationName,
     );
-    if (!relation) {
-      continue;
-    }
+    if (!relation) return;
 
-    const isIdOnly =
-      nestedFields.length === 1 &&
-      (nestedFields[0] === 'id' || nestedFields[0] === '_id');
     const isOwnerRelation =
       relation.type === 'many-to-one' ||
       (relation.type === 'one-to-one' && !(relation as any).isInverse);
 
-    if (isIdOnly && isOwnerRelation) {
+    if (isOwnerRelation) {
       const fkColumn =
         relation.foreignKeyColumn ||
-        getForeignKeyColumnName(relation.targetTableName);
-      const jsonObjectFunc =
-        dbType === 'postgres' ? 'jsonb_build_object' : 'JSON_OBJECT';
+        getForeignKeyColumnName(
+          relation.targetTableName || (relation as any).targetTable,
+        );
       const quotedTable = quoteIdentifier(tableName, dbType);
-      const quotedFkCol = quoteIdentifier(fkColumn, dbType);
-      const quotedRelation = quoteIdentifier(relationName, dbType);
-      const fkRef = `${quotedTable}.${quotedFkCol}`;
-
-      const mapping = `(CASE WHEN ${fkRef} IS NULL THEN NULL ELSE ${jsonObjectFunc}('id', ${fkRef}) END) as ${quotedRelation}`;
-      select.push(mapping);
-    } else if (useCTE && limitedCTEName && isOwnerRelation) {
-      const cteClause = await buildOwnerCTEStrategy(
-        tableName,
-        baseMeta as any,
-        relationName,
-        nestedFields,
-        dbType,
-        metadataGetter as any,
-        limitedCTEName,
-        undefined,
-        maxDepth,
-      );
-
-      if (cteClause) {
-        cteClauses.push(cteClause);
-        const cteName = `${relationName}_agg`;
-        const quotedCTEName = quoteIdentifier(cteName, dbType);
-        const quotedRelation = quoteIdentifier(relationName, dbType);
-        const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
-        select.push(
-          `${quotedCTEName}.${quotedRelationInCTE} as ${quotedRelation}`,
-        );
-      } else {
-        const subquery = await buildNestedSubquery(
-          tableName,
-          baseMeta as any,
-          relationName,
-          nestedFields,
-          dbType,
-          metadataGetter as any,
-          0,
-          undefined,
-          undefined,
-          maxDepth,
-        );
-
-        if (subquery) {
-          select.push(
-            `${subquery} as ${quoteIdentifier(relationName, dbType)}`,
-          );
-        }
-      }
-    } else if (
-      useCTE &&
-      limitedCTEName &&
-      (relation.type === 'one-to-many' || relation.type === 'many-to-many')
-    ) {
-      const cteClause = await buildCTEStrategy(
-        tableName,
-        baseMeta as any,
-        relationName,
-        nestedFields,
-        dbType,
-        metadataGetter as any,
-        limitedCTEName,
-        undefined,
-        maxDepth,
-      );
-
-      if (cteClause) {
-        cteClauses.push(cteClause);
-        const cteName = `${relationName}_agg`;
-        const quotedCTEName = quoteIdentifier(cteName, dbType);
-        const quotedRelation = quoteIdentifier(relationName, dbType);
-        const emptyArray =
-          dbType === 'postgres' ? "'[]'::jsonb" : getEmptyJsonArray(dbType);
-        const quotedRelationInCTE = quoteIdentifier(relationName, dbType);
-        select.push(
-          `COALESCE(${quotedCTEName}.${quotedRelationInCTE}, ${emptyArray}) as ${quotedRelation}`,
-        );
-      } else {
-        const subquery = await buildNestedSubquery(
-          tableName,
-          baseMeta as any,
-          relationName,
-          nestedFields,
-          dbType,
-          metadataGetter as any,
-          0,
-          undefined,
-          undefined,
-          maxDepth,
-        );
-
-        if (subquery) {
-          select.push(
-            `${subquery} as ${quoteIdentifier(relationName, dbType)}`,
-          );
-        }
-      }
-    } else {
-      const subquery = await buildNestedSubquery(
-        tableName,
-        baseMeta as any,
-        relationName,
-        nestedFields,
-        dbType,
-        metadataGetter as any,
-        0,
-        undefined,
-        undefined,
-        maxDepth,
-      );
-
-      if (subquery) {
-        select.push(`${subquery} as ${quoteIdentifier(relationName, dbType)}`);
-      }
+      const quotedFk = quoteIdentifier(fkColumn, dbType);
+      const quotedAlias = quoteIdentifier(relationName, dbType);
+      select.push(`${quotedTable}.${quotedFk} as ${quotedAlias}`);
     }
-  }
 
-  return { select, cteClauses: cteClauses.length > 0 ? cteClauses : undefined };
+    const targetTable =
+      relation.targetTableName || (relation as any).targetTable;
+
+    batchFetchDescriptors.push({
+      relationName,
+      type: relation.type,
+      targetTable,
+      fields: nestedFields,
+      isInverse: (relation as any).isInverse,
+      fkColumn: relation.foreignKeyColumn,
+      mappedBy: (relation as any).mappedBy,
+      junctionTableName: relation.junctionTableName,
+      junctionSourceColumn: relation.junctionSourceColumn,
+      junctionTargetColumn: relation.junctionTargetColumn,
+    });
+  });
+
+  return {
+    select,
+    cteClauses: cteClauses.length > 0 ? cteClauses : undefined,
+    batchFetchDescriptors,
+  };
 }

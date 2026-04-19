@@ -1,4 +1,8 @@
-import { BaseTableProcessor, UpsertResult } from '../../src/core/bootstrap/processors/base-table-processor';
+import {
+  BaseTableProcessor,
+  UpsertResult,
+} from '../../src/core/bootstrap/processors/base-table-processor';
+import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 
 class TestProcessor extends BaseTableProcessor {
   getUniqueIdentifier(record: any) {
@@ -7,22 +11,20 @@ class TestProcessor extends BaseTableProcessor {
 }
 
 describe('BaseTableProcessor.processWithQueryBuilder', () => {
-  const prevDb = process.env.DB_TYPE;
-
   afterAll(() => {
-    process.env.DB_TYPE = prevDb;
+    DatabaseConfigService.resetForTesting();
   });
 
   beforeEach(() => {
-    process.env.DB_TYPE = 'mysql';
+    DatabaseConfigService.overrideForTesting('mysql');
   });
 
   it('returns zeros for empty input', async () => {
     const p = new TestProcessor();
     const qb = {
-      findOneWhere: jest.fn(),
-      insertAndGet: jest.fn(),
-      updateById: jest.fn(),
+      findOne: jest.fn(),
+      insert: jest.fn(),
+      update: jest.fn(),
     };
     const r: UpsertResult = await p.processWithQueryBuilder(
       [],
@@ -30,15 +32,15 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
       'demo_table',
     );
     expect(r).toEqual({ created: 0, skipped: 0 });
-    expect(qb.findOneWhere).not.toHaveBeenCalled();
+    expect(qb.findOne).not.toHaveBeenCalled();
   });
 
   it('inserts when no row exists', async () => {
     const p = new TestProcessor();
     const qb = {
-      findOneWhere: jest.fn().mockResolvedValue(null),
-      insertAndGet: jest.fn().mockResolvedValue({ id: 10, name: 'alpha' }),
-      updateById: jest.fn(),
+      findOne: jest.fn().mockResolvedValue(null),
+      insert: jest.fn().mockResolvedValue({ id: 10, name: 'alpha' }),
+      update: jest.fn(),
     };
     const r = await p.processWithQueryBuilder(
       [{ name: 'alpha', description: 'd' }],
@@ -46,7 +48,7 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
       'demo_table',
     );
     expect(r.created).toBe(1);
-    expect(qb.insertAndGet).toHaveBeenCalledWith('demo_table', {
+    expect(qb.insert).toHaveBeenCalledWith('demo_table', {
       name: 'alpha',
       description: 'd',
     });
@@ -55,11 +57,11 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
   it('updates when row exists and scalar field changed', async () => {
     const p = new TestProcessor();
     const qb = {
-      findOneWhere: jest
+      findOne: jest
         .fn()
         .mockResolvedValue({ id: 7, name: 'alpha', description: 'old' }),
-      insertAndGet: jest.fn(),
-      updateById: jest.fn().mockResolvedValue(undefined),
+      insert: jest.fn(),
+      update: jest.fn().mockResolvedValue(undefined),
     };
     const r = await p.processWithQueryBuilder(
       [{ name: 'alpha', description: 'new' }],
@@ -67,7 +69,7 @@ describe('BaseTableProcessor.processWithQueryBuilder', () => {
       'demo_table',
     );
     expect(r.skipped).toBe(1);
-    expect(qb.updateById).toHaveBeenCalledWith('demo_table', 7, {
+    expect(qb.update).toHaveBeenCalledWith('demo_table', 7, {
       name: 'alpha',
       description: 'new',
     });

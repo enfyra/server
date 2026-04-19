@@ -36,10 +36,11 @@ export type TFieldPermissionContext = {
   record?: any | null;
 };
 
-function bucketPriority(rule: TFieldPermissionRule, userId: string | null): 1 | 2 | 3 | 4 {
-  const isUserSpecific = userId
-    ? rule.allowedUserIds?.includes(userId)
-    : false;
+function bucketPriority(
+  rule: TFieldPermissionRule,
+  userId: string | null,
+): 1 | 2 | 3 | 4 {
+  const isUserSpecific = userId ? rule.allowedUserIds?.includes(userId) : false;
   const hasCondition = rule.condition != null;
   if (isUserSpecific && hasCondition) return 1;
   if (!isUserSpecific && hasCondition) return 2;
@@ -47,7 +48,10 @@ function bucketPriority(rule: TFieldPermissionRule, userId: string | null): 1 | 
   return 4;
 }
 
-function isRuleForSubject(rule: TFieldPermissionRule, ctx: TFieldPermissionContext): boolean {
+function isRuleForSubject(
+  rule: TFieldPermissionRule,
+  ctx: TFieldPermissionContext,
+): boolean {
   if (rule.tableName !== ctx.tableName) return false;
   if (rule.action !== ctx.action) return false;
   if (rule.isEnabled !== true) return false;
@@ -64,7 +68,8 @@ function ruleAppliesToUser(rule: TFieldPermissionRule, user: any): boolean {
 
   const isUserSpecific =
     userId != null && rule.allowedUserIds?.includes(userId);
-  const isRoleMatch = rule.roleId != null && roleId != null && rule.roleId === roleId;
+  const isRoleMatch =
+    rule.roleId != null && roleId != null && rule.roleId === roleId;
 
   if (rule.allowedUserIds && rule.allowedUserIds.length > 0) {
     return isUserSpecific;
@@ -83,7 +88,11 @@ export async function decideFieldPermission(
   const userId = getUserId(ctx.user);
   const defaultAllowed = opt?.defaultAllowed ?? true;
 
-  const policies = await cache.getPoliciesFor(ctx.user, ctx.tableName, ctx.action);
+  const policies = await cache.getPoliciesFor(
+    ctx.user,
+    ctx.tableName,
+    ctx.action,
+  );
   if (policies.length === 0) return { allowed: defaultAllowed };
 
   const rules: TFieldPermissionRule[] = [];
@@ -100,7 +109,10 @@ export async function decideFieldPermission(
 
   const byTier = new Map<number, TFieldPermissionRule[]>();
   for (const r of rules) {
-    if (r.condition != null && !matchFieldPermissionCondition(r.condition, record, ctx.user)) {
+    if (
+      r.condition != null &&
+      !matchFieldPermissionCondition(r.condition, record, ctx.user)
+    ) {
       continue;
     }
     const tier = bucketPriority(r, userId);
@@ -136,4 +148,3 @@ export function formatFieldPermissionErrorMessage(opts: {
   const joined = parts.join(', ');
   return `You do not have permission to ${opts.action} ${joined} on table '${opts.tableName}'.`;
 }
-

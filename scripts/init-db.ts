@@ -1,19 +1,18 @@
 import 'reflect-metadata';
 import * as dotenv from 'dotenv';
+import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
 
 async function initializeDatabase(): Promise<void> {
-  const DB_TYPE = process.env.DB_TYPE || 'mysql';
+  const dbType = resolveDbTypeFromEnv();
 
-  if (DB_TYPE === 'mongodb') {
+  if (dbType === 'mongodb') {
     const { initializeDatabaseMongo } = await import('./init-db-mongo');
     await initializeDatabaseMongo();
-  } else if (['mysql', 'postgres', 'mariadb'].includes(DB_TYPE)) {
+  } else {
     const { initializeDatabaseSql } = await import('./init-db-sql');
     await initializeDatabaseSql();
-  } else {
-    throw new Error(`Unsupported DB_TYPE: ${DB_TYPE}. Supported: mysql, postgres, mariadb, mongodb`);
   }
 }
 

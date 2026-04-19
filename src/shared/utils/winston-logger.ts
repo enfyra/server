@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as winston from 'winston';
-import * as DailyRotateFile from 'winston-daily-rotate-file';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import { EventEmitter } from 'events';
 
 // Increase max listeners to prevent memory leak warnings from multiple transports
@@ -99,13 +99,14 @@ const createRotateTransport = (
 const transports: winston.transport[] = [
   createRotateTransport('app', undefined, '7d'),
   createRotateTransport('error', 'error', '14d'),
+  createRotateTransport('executor-health', undefined, '3d'),
 ];
 
 const consoleTransport = new winston.transports.Console({
   format: consoleFormat,
 });
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV === 'test') {
   transports.push(consoleTransport);
 }
 

@@ -1,13 +1,14 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
-import { MongoTransactionLockService } from '../../src/infrastructure/mongo/services/mongo-transaction-lock.service';
+import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
 import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
 import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
 import { MetadataCacheService } from '../../src/infrastructure/cache/services/metadata-cache.service';
 import { InstanceService } from '../../src/shared/services/instance.service';
+import { EnvService } from '../../src/shared/services/env.service';
 
-const MONGO_URI = 'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';
+const MONGO_URI =
+  'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';
 
 interface IBenchmarkResult {
   name: string;
@@ -30,10 +31,10 @@ describe('MongoDB Saga System - Integration Tests', () => {
   let mongoClient: MongoClient;
   let db: Db;
   let mongoService: MongoService;
-  let lockService: MongoTransactionLockService;
+  let lockService: MongoSagaLockService;
   let logService: MongoOperationLogService;
   let coordinator: MongoSagaCoordinator;
-  let benchmarkResults: IBenchmarkResult[] = [];
+  const benchmarkResults: IBenchmarkResult[] = [];
 
   const COLLECTIONS = {
     orders: 'test_orders',
@@ -46,31 +47,45 @@ describe('MongoDB Saga System - Integration Tests', () => {
   };
 
   beforeAll(async () => {
+    try {
+      const probe = new MongoClient(MONGO_URI, {
+        serverSelectionTimeoutMS: 2000,
+        connectTimeoutMS: 2000,
+      });
+      await probe.connect();
+      await probe.db('admin').command({ ping: 1 });
+      await probe.close();
+    } catch {
+      throw new Error('MongoDB not available - skipping integration tests');
+    }
     mongoClient = new MongoClient(MONGO_URI);
     await mongoClient.connect();
     db = mongoClient.db('enfyra_test');
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        MongoService,
-        MongoTransactionLockService,
-        MongoOperationLogService,
-        InstanceService,
-        MongoSagaCoordinator,
-        {
-          provide: MetadataCacheService,
-          useClass: MockMetadataCacheService,
-        },
-      ],
-    }).compile();
+    // Manual dependency injection
+    const envService = {
+      get: (key: string) => {
+        if (key === 'DB_URI') return MONGO_URI;
+        return process.env[key];
+      },
+    } as any;
 
-    mongoService = module.get<MongoService>(MongoService);
-    lockService = module.get<MongoTransactionLockService>(MongoTransactionLockService);
-    logService = module.get<MongoOperationLogService>(MongoOperationLogService);
-    coordinator = module.get<MongoSagaCoordinator>(MongoSagaCoordinator);
-
+    const instanceService = new InstanceService();
+    mongoService = new MongoService({ envService });
     Object.defineProperty(mongoService, 'db', { value: db });
     Object.defineProperty(mongoService, 'client', { value: mongoClient });
+
+    lockService = new MongoSagaLockService({ mongoService });
+    logService = new MongoOperationLogService({ mongoService });
+    const mockMetadataCacheService = new MockMetadataCacheService() as any;
+
+    coordinator = new MongoSagaCoordinator({
+      mongoService,
+      lockService,
+      logService,
+      instanceService,
+      cacheService: undefined,
+    });
 
     await cleanupAllCollections();
   });
@@ -126,7 +141,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.total).toBe(100);
       expect(result.stats?.operationsCount).toBe(1);
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: result.data._id });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: result.data._id });
       expect(doc).toBeDefined();
       expect(doc!.customerId).toBe('cust-1');
       expect(doc!.__txId).toBeUndefined();
@@ -136,10 +153,12 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const result = await coordinator.execute(async (tx) => {
         const orders = [];
         for (let i = 1; i <= 5; i++) {
-          orders.push(await tx.insertOne(COLLECTIONS.orders, {
-            customerId: `seq-${i}`,
-            total: i * 100,
-          }));
+          orders.push(
+            await tx.insertOne(COLLECTIONS.orders, {
+              customerId: `seq-${i}`,
+              total: i * 100,
+            }),
+          );
         }
         return orders;
       });
@@ -180,20 +199,29 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should rollback insert on error', async () => {
-      const countBefore = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countBefore = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
 
       const result = await coordinator.execute(async (tx) => {
-        await tx.insertOne(COLLECTIONS.orders, { customerId: 'will-rollback', total: 999 });
+        await tx.insertOne(COLLECTIONS.orders, {
+          customerId: 'will-rollback',
+          total: 999,
+        });
         throw new Error('Force rollback');
       });
 
       expect(result.success).toBe(false);
-      const countAfter = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countAfter = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(countAfter).toBe(countBefore);
     });
 
     it('should rollback insertMany on error', async () => {
-      const countBefore = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countBefore = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
 
       const result = await coordinator.execute(async (tx) => {
         await tx.insertMany(COLLECTIONS.orders, [
@@ -205,7 +233,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(false);
-      const countAfter = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countAfter = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(countAfter).toBe(countBefore);
     });
   });
@@ -230,14 +260,19 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     it('should update a single document by id', async () => {
       const result = await coordinator.execute(async (tx) => {
-        return tx.updateOne(COLLECTIONS.orders, seedIds[0], { status: 'completed', total: 150 });
+        return tx.updateOne(COLLECTIONS.orders, seedIds[0], {
+          status: 'completed',
+          total: 150,
+        });
       });
 
       expect(result.success).toBe(true);
       expect(result.data.status).toBe('completed');
       expect(result.data.total).toBe(150);
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[0] });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: seedIds[0] });
       expect(doc!.__txId).toBeUndefined();
     });
 
@@ -251,7 +286,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ customerId: 'u-2' });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ customerId: 'u-2' });
       expect(doc!.status).toBe('shipped');
       expect(doc!.total).toBe(250);
     });
@@ -266,13 +303,19 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ customerId: 'u-3' });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ customerId: 'u-3' });
       expect(doc!.status).toBe('cancelled');
     });
 
     it('should updateOneByFilter return no-op for non-existent filter', async () => {
       const result = await coordinator.execute(async (tx) => {
-        return tx.updateOneByFilter(COLLECTIONS.orders, { customerId: 'non-existent' }, { status: 'x' });
+        return tx.updateOneByFilter(
+          COLLECTIONS.orders,
+          { customerId: 'non-existent' },
+          { status: 'x' },
+        );
       });
 
       expect(result.success).toBe(true);
@@ -309,42 +352,57 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data).toHaveLength(3);
 
       for (let i = 0; i < 3; i++) {
-        const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[i] });
+        const doc = await db
+          .collection(COLLECTIONS.orders)
+          .findOne({ _id: seedIds[i] });
         expect(doc!.status).toBe(`batch-${i}`);
         expect(doc!.__txId).toBeUndefined();
       }
     });
 
     it('should rollback update on error', async () => {
-      const originalDoc = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[0] });
+      const originalDoc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: seedIds[0] });
 
       const result = await coordinator.execute(async (tx) => {
-        await tx.updateOne(COLLECTIONS.orders, seedIds[0], { status: 'will-rollback', total: 99999 });
+        await tx.updateOne(COLLECTIONS.orders, seedIds[0], {
+          status: 'will-rollback',
+          total: 99999,
+        });
         throw new Error('Force rollback');
       });
 
       expect(result.success).toBe(false);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[0] });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: seedIds[0] });
       expect(doc!.status).toBe(originalDoc!.status);
       expect(doc!.total).toBe(originalDoc!.total);
     });
 
     it('should rollback batch updateMany on error', async () => {
-      const originals = await db.collection(COLLECTIONS.orders)
+      const originals = await db
+        .collection(COLLECTIONS.orders)
         .find({ _id: { $in: seedIds.slice(0, 3) } })
         .toArray();
 
       const result = await coordinator.execute(async (tx) => {
-        await tx.updateMany(COLLECTIONS.orders, seedIds.slice(0, 3).map((id) => ({
-          id,
-          data: { status: 'will-rollback' },
-        })));
+        await tx.updateMany(
+          COLLECTIONS.orders,
+          seedIds.slice(0, 3).map((id) => ({
+            id,
+            data: { status: 'will-rollback' },
+          })),
+        );
         throw new Error('Force rollback');
       });
 
       expect(result.success).toBe(false);
       for (const orig of originals) {
-        const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: orig._id });
+        const doc = await db
+          .collection(COLLECTIONS.orders)
+          .findOne({ _id: orig._id });
         expect(doc!.status).toBe(orig.status);
       }
     });
@@ -386,7 +444,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.success).toBe(true);
       expect(result.data).toBe(true);
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[0] });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: seedIds[0] });
       expect(doc).toBeNull();
     });
 
@@ -411,7 +471,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.deletedCount).toBe(3);
       expect(result.data.deletedIds).toHaveLength(3);
 
-      const remaining = await db.collection(COLLECTIONS.orders).countDocuments();
+      const remaining = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(remaining).toBe(2);
     });
 
@@ -425,26 +487,36 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should rollback delete on error', async () => {
-      const countBefore = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countBefore = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
 
       const result = await coordinator.execute(async (tx) => {
         await tx.deleteOne(COLLECTIONS.orders, seedIds[0]);
-        const check = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[0] });
+        const check = await db
+          .collection(COLLECTIONS.orders)
+          .findOne({ _id: seedIds[0] });
         expect(check).toBeNull();
         throw new Error('Force rollback');
       });
 
       expect(result.success).toBe(false);
-      const countAfter = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countAfter = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(countAfter).toBe(countBefore);
 
-      const restoredDoc = await db.collection(COLLECTIONS.orders).findOne({ _id: seedIds[0] });
+      const restoredDoc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: seedIds[0] });
       expect(restoredDoc).not.toBeNull();
       expect(restoredDoc!.customerId).toBe('d-1');
     });
 
     it('should rollback deleteMany on error', async () => {
-      const countBefore = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countBefore = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
 
       const result = await coordinator.execute(async (tx) => {
         await tx.deleteMany(COLLECTIONS.orders, seedIds.slice(0, 3));
@@ -452,7 +524,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(false);
-      const countAfter = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countAfter = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(countAfter).toBe(countBefore);
     });
   });
@@ -504,7 +578,11 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     it('should findOne with consistent read (acquires read lock)', async () => {
       const result = await coordinator.execute(async (tx) => {
-        return tx.findOne(COLLECTIONS.orders, { _id: seedIds[0] }, { useConsistentRead: true });
+        return tx.findOne(
+          COLLECTIONS.orders,
+          { _id: seedIds[0] },
+          { useConsistentRead: true },
+        );
       });
 
       expect(result.success).toBe(true);
@@ -531,7 +609,11 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     it('should find with consistent read (re-reads after locking)', async () => {
       const result = await coordinator.execute(async (tx) => {
-        return tx.find(COLLECTIONS.orders, { status: 'active' }, { useConsistentRead: true });
+        return tx.find(
+          COLLECTIONS.orders,
+          { status: 'active' },
+          { useConsistentRead: true },
+        );
       });
 
       expect(result.success).toBe(true);
@@ -540,7 +622,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     it('should parallelRead multiple collections', async () => {
       await db.collection(COLLECTIONS.products).deleteMany({});
-      await db.collection(COLLECTIONS.products).insertOne({ name: 'Widget', price: 25 });
+      await db
+        .collection(COLLECTIONS.products)
+        .insertOne({ name: 'Widget', price: 25 });
 
       const result = await coordinator.execute(async (tx) => {
         return tx.parallelRead([
@@ -590,7 +674,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.success).toBe(true);
       expect(result.data.customerId).toBe('new-order');
 
-      const deleted = await db.collection(COLLECTIONS.orders).findOne({ _id: existing.insertedId });
+      const deleted = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: existing.insertedId });
       expect(deleted).toBeNull();
 
       const count = await db.collection(COLLECTIONS.orders).countDocuments();
@@ -616,25 +702,39 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.data.order.customerId).toBe('cross-coll');
       expect(result.data.product.name).toBe('Widget');
 
-      const orderCount = await db.collection(COLLECTIONS.orders).countDocuments();
-      const productCount = await db.collection(COLLECTIONS.products).countDocuments();
+      const orderCount = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
+      const productCount = await db
+        .collection(COLLECTIONS.products)
+        .countDocuments();
       expect(orderCount).toBe(1);
       expect(productCount).toBe(1);
     });
 
     it('should rollback cross-collection operations on error', async () => {
-      const ordersBefore = await db.collection(COLLECTIONS.orders).countDocuments();
-      const productsBefore = await db.collection(COLLECTIONS.products).countDocuments();
+      const ordersBefore = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
+      const productsBefore = await db
+        .collection(COLLECTIONS.products)
+        .countDocuments();
 
       const result = await coordinator.execute(async (tx) => {
-        await tx.insertOne(COLLECTIONS.orders, { customerId: 'rollback-cross' });
+        await tx.insertOne(COLLECTIONS.orders, {
+          customerId: 'rollback-cross',
+        });
         await tx.insertOne(COLLECTIONS.products, { name: 'rollback-product' });
         throw new Error('Force rollback');
       });
 
       expect(result.success).toBe(false);
-      expect(await db.collection(COLLECTIONS.orders).countDocuments()).toBe(ordersBefore);
-      expect(await db.collection(COLLECTIONS.products).countDocuments()).toBe(productsBefore);
+      expect(await db.collection(COLLECTIONS.orders).countDocuments()).toBe(
+        ordersBefore,
+      );
+      expect(await db.collection(COLLECTIONS.products).countDocuments()).toBe(
+        productsBefore,
+      );
     });
   });
 
@@ -700,7 +800,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const docs = await db.collection(COLLECTIONS.orders)
+      const docs = await db
+        .collection(COLLECTIONS.orders)
         .find({ customerId: { $regex: /^mcp-/ } })
         .sort({ customerId: 1 })
         .toArray();
@@ -727,7 +828,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(false);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: inserted.insertedId });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: inserted.insertedId });
       expect(doc!.status).toBe('original');
       expect(doc!.total).toBe(100);
       expect(doc!.tags).toEqual(['a', 'b']);
@@ -746,7 +849,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(false);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: inserted.insertedId });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: inserted.insertedId });
       expect(doc).not.toBeNull();
       expect(doc!.customerId).toBe('rb-delete');
       expect(doc!.nested).toEqual({ key: 'value' });
@@ -780,18 +885,26 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: result.data._id });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: result.data._id });
       expect(doc!.__txId).toBeUndefined();
     });
 
     it('should remove __txId from updated documents after commit', async () => {
-      const inserted = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'before-update' });
+      const inserted = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'before-update' });
 
       await coordinator.execute(async (tx) => {
-        return tx.updateOne(COLLECTIONS.orders, inserted.insertedId, { customerId: 'after-update' });
+        return tx.updateOne(COLLECTIONS.orders, inserted.insertedId, {
+          customerId: 'after-update',
+        });
       });
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: inserted.insertedId });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: inserted.insertedId });
       expect(doc!.__txId).toBeUndefined();
       expect(doc!.customerId).toBe('after-update');
     });
@@ -818,8 +931,12 @@ describe('MongoDB Saga System - Integration Tests', () => {
         await tx.insertOne(COLLECTIONS.products, { name: 'product-txid' });
       });
 
-      const order = await db.collection(COLLECTIONS.orders).findOne({ customerId: 'cross-txid' });
-      const product = await db.collection(COLLECTIONS.products).findOne({ name: 'product-txid' });
+      const order = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ customerId: 'cross-txid' });
+      const product = await db
+        .collection(COLLECTIONS.products)
+        .findOne({ name: 'product-txid' });
       expect(order!.__txId).toBeUndefined();
       expect(product!.__txId).toBeUndefined();
     });
@@ -861,35 +978,67 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       const results = await Promise.all([
         coordinator.execute(async (tx) => {
-          return tx.findOne(COLLECTIONS.orders, { _id: doc.insertedId }, { useConsistentRead: true });
+          return tx.findOne(
+            COLLECTIONS.orders,
+            { _id: doc.insertedId },
+            { useConsistentRead: true },
+          );
         }),
         coordinator.execute(async (tx) => {
-          return tx.findOne(COLLECTIONS.orders, { _id: doc.insertedId }, { useConsistentRead: true });
+          return tx.findOne(
+            COLLECTIONS.orders,
+            { _id: doc.insertedId },
+            { useConsistentRead: true },
+          );
         }),
         coordinator.execute(async (tx) => {
-          return tx.findOne(COLLECTIONS.orders, { _id: doc.insertedId }, { useConsistentRead: true });
+          return tx.findOne(
+            COLLECTIONS.orders,
+            { _id: doc.insertedId },
+            { useConsistentRead: true },
+          );
         }),
       ]);
 
       expect(results.every((r) => r.success)).toBe(true);
-      expect(results.every((r) => r.data?.customerId === 'shared-read')).toBe(true);
+      expect(results.every((r) => r.data?.customerId === 'shared-read')).toBe(
+        true,
+      );
     });
 
     it('should detect and prevent deadlock scenarios', async () => {
-      const order1 = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'deadlock-1' });
-      const order2 = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'deadlock-2' });
+      const order1 = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'deadlock-1' });
+      const order2 = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'deadlock-2' });
 
       const [result1, result2] = await Promise.all([
-        coordinator.execute(async (tx) => {
-          await tx.updateOne(COLLECTIONS.orders, order1.insertedId, { status: 'tx1-held' });
-          await new Promise((r) => setTimeout(r, 100));
-          await tx.updateOne(COLLECTIONS.orders, order2.insertedId, { status: 'tx1-wants' });
-        }, { maxRetries: 2, waitTimeout: 500 }),
-        coordinator.execute(async (tx) => {
-          await new Promise((r) => setTimeout(r, 50));
-          await tx.updateOne(COLLECTIONS.orders, order2.insertedId, { status: 'tx2-held' });
-          await tx.updateOne(COLLECTIONS.orders, order1.insertedId, { status: 'tx2-wants' });
-        }, { maxRetries: 2, waitTimeout: 500 }),
+        coordinator.execute(
+          async (tx) => {
+            await tx.updateOne(COLLECTIONS.orders, order1.insertedId, {
+              status: 'tx1-held',
+            });
+            await new Promise((r) => setTimeout(r, 100));
+            await tx.updateOne(COLLECTIONS.orders, order2.insertedId, {
+              status: 'tx1-wants',
+            });
+          },
+          { maxRetries: 2, waitTimeout: 500 },
+        ),
+        coordinator.execute(
+          async (tx) => {
+            await new Promise((r) => setTimeout(r, 50));
+            await tx.updateOne(COLLECTIONS.orders, order2.insertedId, {
+              status: 'tx2-held',
+            });
+            await tx.updateOne(COLLECTIONS.orders, order1.insertedId, {
+              status: 'tx2-wants',
+            });
+          },
+          { maxRetries: 2, waitTimeout: 500 },
+        ),
       ]);
 
       const oneSucceeded = result1.success || result2.success;
@@ -905,15 +1054,21 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const results = [];
       for (let i = 0; i < 5; i++) {
         const result = await coordinator.execute(async (tx) => {
-          const current = await tx.findOne(COLLECTIONS.orders, { _id: doc.insertedId });
-          await tx.updateOne(COLLECTIONS.orders, doc.insertedId, { counter: current.counter + 1 });
+          const current = await tx.findOne(COLLECTIONS.orders, {
+            _id: doc.insertedId,
+          });
+          await tx.updateOne(COLLECTIONS.orders, doc.insertedId, {
+            counter: current.counter + 1,
+          });
           return current.counter + 1;
         });
         results.push(result);
       }
 
       expect(results.every((r) => r.success)).toBe(true);
-      const final = await db.collection(COLLECTIONS.orders).findOne({ _id: doc.insertedId });
+      const final = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: doc.insertedId });
       expect(final!.counter).toBe(5);
     });
   });
@@ -965,45 +1120,62 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: result.data._id });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: result.data._id });
       expect(doc!.shipping.address.city).toBe('Anytown');
       expect(doc!.shipping.tracking).toHaveLength(1);
     });
 
     it('should handle insert-then-update-then-delete of same doc in one tx', async () => {
       const result = await coordinator.execute(async (tx) => {
-        const doc = await tx.insertOne(COLLECTIONS.orders, { customerId: 'lifecycle', status: 'created' });
+        const doc = await tx.insertOne(COLLECTIONS.orders, {
+          customerId: 'lifecycle',
+          status: 'created',
+        });
         await tx.updateOne(COLLECTIONS.orders, doc._id, { status: 'updated' });
         await tx.deleteOne(COLLECTIONS.orders, doc._id);
         return doc._id;
       });
 
       expect(result.success).toBe(true);
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: result.data });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: result.data });
       expect(doc).toBeNull();
     });
 
     it('should rollback insert-then-update-then-delete correctly', async () => {
-      const countBefore = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countBefore = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
 
       const result = await coordinator.execute(async (tx) => {
-        const doc = await tx.insertOne(COLLECTIONS.orders, { customerId: 'lifecycle-rb' });
+        const doc = await tx.insertOne(COLLECTIONS.orders, {
+          customerId: 'lifecycle-rb',
+        });
         await tx.updateOne(COLLECTIONS.orders, doc._id, { status: 'updated' });
         await tx.deleteOne(COLLECTIONS.orders, doc._id);
         throw new Error('Force rollback');
       });
 
       expect(result.success).toBe(false);
-      const countAfter = await db.collection(COLLECTIONS.orders).countDocuments();
+      const countAfter = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(countAfter).toBe(countBefore);
     });
 
     it('should handle string ids correctly', async () => {
-      const inserted = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'string-id-test' });
+      const inserted = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'string-id-test' });
       const idString = inserted.insertedId.toString();
 
       const result = await coordinator.execute(async (tx) => {
-        return tx.updateOne(COLLECTIONS.orders, idString, { status: 'updated-via-string' });
+        return tx.updateOne(COLLECTIONS.orders, idString, {
+          status: 'updated-via-string',
+        });
       });
 
       expect(result.success).toBe(true);
@@ -1029,9 +1201,13 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should strip __txId from updateOne return value', async () => {
-      const ins = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'leak-upd' });
+      const ins = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'leak-upd' });
       const result = await coordinator.execute(async (tx) => {
-        return tx.updateOne(COLLECTIONS.orders, ins.insertedId, { status: 'updated' });
+        return tx.updateOne(COLLECTIONS.orders, ins.insertedId, {
+          status: 'updated',
+        });
       });
 
       expect(result.success).toBe(true);
@@ -1040,7 +1216,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     it('should strip __txId from findOne return value during transaction', async () => {
       const result = await coordinator.execute(async (tx) => {
-        const doc = await tx.insertOne(COLLECTIONS.orders, { customerId: 'leak-find' });
+        const doc = await tx.insertOne(COLLECTIONS.orders, {
+          customerId: 'leak-find',
+        });
         return tx.findOne(COLLECTIONS.orders, { _id: doc._id });
       });
 
@@ -1072,14 +1250,16 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should strip __txId from updateMany return values', async () => {
-      const ins = await db.collection(COLLECTIONS.orders).insertMany([
-        { customerId: 'leak-um-1' },
-        { customerId: 'leak-um-2' },
-      ]);
+      const ins = await db
+        .collection(COLLECTIONS.orders)
+        .insertMany([{ customerId: 'leak-um-1' }, { customerId: 'leak-um-2' }]);
       const ids = Object.values(ins.insertedIds);
 
       const result = await coordinator.execute(async (tx) => {
-        return tx.updateMany(COLLECTIONS.orders, ids.map((id) => ({ id, data: { status: 'x' } })));
+        return tx.updateMany(
+          COLLECTIONS.orders,
+          ids.map((id) => ({ id, data: { status: 'x' } })),
+        );
       });
 
       expect(result.success).toBe(true);
@@ -1087,7 +1267,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should strip __txId from parallelRead return values', async () => {
-      await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'leak-pr', __txId: 'stale-tx' });
+      await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'leak-pr', __txId: 'stale-tx' });
 
       const result = await coordinator.execute(async (tx) => {
         return tx.parallelRead([
@@ -1113,7 +1295,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('Nested saga executions are not supported');
+      expect(result.error?.message).toContain(
+        'Nested saga executions are not supported',
+      );
     });
   });
 
@@ -1129,7 +1313,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
         { customerId: 'clean', total: 100 },
       ]);
 
-      const result = await coordinator.recoverOrphanedTransactions();
+      const result = await coordinator.recoverOrphanedSagas();
       expect(result.recovered).toBeGreaterThanOrEqual(2);
 
       const docs = await db.collection(COLLECTIONS.orders).find({}).toArray();
@@ -1144,10 +1328,12 @@ describe('MongoDB Saga System - Integration Tests', () => {
         __txId: liveTxId,
       });
 
-      const result = await coordinator.recoverOrphanedTransactions();
+      const result = await coordinator.recoverOrphanedSagas();
       expect(result.recovered).toBe(0);
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ customerId: 'live-1' });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ customerId: 'live-1' });
       expect(doc?.__txId).toBe(liveTxId);
 
       await lockService.abortTransaction(liveTxId, 'test teardown');
@@ -1182,7 +1368,10 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should report resource lock status', async () => {
-      const isLocked = await lockService.isResourceLocked('test_orders', 'some-id');
+      const isLocked = await lockService.isResourceLocked(
+        'test_orders',
+        'some-id',
+      );
       expect(typeof isLocked).toBe('boolean');
     });
   });
@@ -1233,7 +1422,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const docs = await db.collection(COLLECTIONS.orders)
+      const docs = await db
+        .collection(COLLECTIONS.orders)
         .find({ _id: { $in: ids } })
         .sort({ customerId: 1 })
         .toArray();
@@ -1244,11 +1434,13 @@ describe('MongoDB Saga System - Integration Tests', () => {
     });
 
     it('should batch delete multiple documents', async () => {
-      const ins = await db.collection(COLLECTIONS.orders).insertMany([
-        { customerId: 'pd-1' },
-        { customerId: 'pd-2' },
-        { customerId: 'pd-3' },
-      ]);
+      const ins = await db
+        .collection(COLLECTIONS.orders)
+        .insertMany([
+          { customerId: 'pd-1' },
+          { customerId: 'pd-2' },
+          { customerId: 'pd-3' },
+        ]);
       const ids = Object.values(ins.insertedIds);
 
       const result = await coordinator.execute(async (tx) => {
@@ -1259,7 +1451,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const remaining = await db.collection(COLLECTIONS.orders).countDocuments();
+      const remaining = await db
+        .collection(COLLECTIONS.orders)
+        .countDocuments();
       expect(remaining).toBe(1);
     });
 
@@ -1272,17 +1466,28 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       const result = await coordinator.execute(async (tx) => {
         const plan = tx.createSagaPlan();
-        plan.insert(COLLECTIONS.orders, { customerId: 'mix-new', status: 'created' });
+        plan.insert(COLLECTIONS.orders, {
+          customerId: 'mix-new',
+          status: 'created',
+        });
         plan.update(COLLECTIONS.orders, ids[0], { status: 'completed' });
         plan.delete(COLLECTIONS.orders, ids[1]);
         return plan.execute();
       });
 
       expect(result.success).toBe(true);
-      const docs = await db.collection(COLLECTIONS.orders).find({}).sort({ customerId: 1 }).toArray();
+      const docs = await db
+        .collection(COLLECTIONS.orders)
+        .find({})
+        .sort({ customerId: 1 })
+        .toArray();
       expect(docs).toHaveLength(2);
-      expect(docs.find((d) => d.customerId === 'mix-1')!.status).toBe('completed');
-      expect(docs.find((d) => d.customerId === 'mix-new')!.status).toBe('created');
+      expect(docs.find((d) => d.customerId === 'mix-1')!.status).toBe(
+        'completed',
+      );
+      expect(docs.find((d) => d.customerId === 'mix-new')!.status).toBe(
+        'created',
+      );
       expect(docs.find((d) => d.customerId === 'mix-2')).toBeUndefined();
     });
 
@@ -1296,11 +1501,15 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       expect(result.success).toBe(true);
       expect(await db.collection(COLLECTIONS.orders).countDocuments()).toBe(1);
-      expect(await db.collection(COLLECTIONS.products).countDocuments()).toBe(1);
+      expect(await db.collection(COLLECTIONS.products).countDocuments()).toBe(
+        1,
+      );
     });
 
     it('should rollback plan on error', async () => {
-      const ins = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'plan-rb', status: 'original' });
+      const ins = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'plan-rb', status: 'original' });
 
       const result = await coordinator.execute(async (tx) => {
         const plan = tx.createSagaPlan();
@@ -1313,7 +1522,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.success).toBe(false);
       expect(result.rollbackResult?.success).toBe(true);
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: ins.insertedId });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: ins.insertedId });
       expect(doc!.status).toBe('original');
       const count = await db.collection(COLLECTIONS.orders).countDocuments();
       expect(count).toBe(1);
@@ -1342,10 +1553,16 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     it('should mix plan with regular operations', async () => {
       const result = await coordinator.execute(async (tx) => {
-        const doc = await tx.insertOne(COLLECTIONS.orders, { customerId: 'before-plan', total: 50 });
+        const doc = await tx.insertOne(COLLECTIONS.orders, {
+          customerId: 'before-plan',
+          total: 50,
+        });
 
         const plan = tx.createSagaPlan();
-        plan.insert(COLLECTIONS.orders, { customerId: 'plan-after', total: 100 });
+        plan.insert(COLLECTIONS.orders, {
+          customerId: 'plan-after',
+          total: 100,
+        });
         plan.update(COLLECTIONS.orders, doc._id, { total: 75 });
         await plan.execute();
 
@@ -1353,7 +1570,11 @@ describe('MongoDB Saga System - Integration Tests', () => {
       });
 
       expect(result.success).toBe(true);
-      const docs = await db.collection(COLLECTIONS.orders).find({}).sort({ customerId: 1 }).toArray();
+      const docs = await db
+        .collection(COLLECTIONS.orders)
+        .find({})
+        .sort({ customerId: 1 })
+        .toArray();
       expect(docs).toHaveLength(2);
       expect(docs.find((d) => d.customerId === 'before-plan')!.total).toBe(75);
     });
@@ -1371,7 +1592,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
     it('should batch rollback multiple inserts', async () => {
       const result = await coordinator.execute(async (tx) => {
         for (let i = 0; i < 10; i++) {
-          await tx.insertOne(COLLECTIONS.orders, { customerId: `batch-rb-${i}` });
+          await tx.insertOne(COLLECTIONS.orders, {
+            customerId: `batch-rb-${i}`,
+          });
         }
         throw new Error('Rollback 10 inserts');
       });
@@ -1400,21 +1623,31 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.success).toBe(false);
       expect(result.rollbackResult?.success).toBe(true);
 
-      const orders = await db.collection(COLLECTIONS.orders).find({}).sort({ customerId: 1 }).toArray();
+      const orders = await db
+        .collection(COLLECTIONS.orders)
+        .find({})
+        .sort({ customerId: 1 })
+        .toArray();
       expect(orders).toHaveLength(2);
       expect(orders[0].status).toBe('original');
       expect(orders[1].status).toBe('original');
-      expect(await db.collection(COLLECTIONS.products).countDocuments()).toBe(0);
+      expect(await db.collection(COLLECTIONS.products).countDocuments()).toBe(
+        0,
+      );
     });
 
     it('should batch rollback plan operations', async () => {
-      const existing = await db.collection(COLLECTIONS.orders).insertOne({ customerId: 'plan-brb', status: 'original' });
+      const existing = await db
+        .collection(COLLECTIONS.orders)
+        .insertOne({ customerId: 'plan-brb', status: 'original' });
 
       const result = await coordinator.execute(async (tx) => {
         const plan = tx.createSagaPlan();
         plan.insert(COLLECTIONS.orders, { customerId: 'plan-brb-new-1' });
         plan.insert(COLLECTIONS.orders, { customerId: 'plan-brb-new-2' });
-        plan.update(COLLECTIONS.orders, existing.insertedId, { status: 'changed' });
+        plan.update(COLLECTIONS.orders, existing.insertedId, {
+          status: 'changed',
+        });
         await plan.execute();
         throw new Error('Rollback plan');
       });
@@ -1422,7 +1655,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(result.success).toBe(false);
       expect(result.rollbackResult?.success).toBe(true);
 
-      const doc = await db.collection(COLLECTIONS.orders).findOne({ _id: existing.insertedId });
+      const doc = await db
+        .collection(COLLECTIONS.orders)
+        .findOne({ _id: existing.insertedId });
       expect(doc!.status).toBe('original');
       expect(await db.collection(COLLECTIONS.orders).countDocuments()).toBe(1);
     });
@@ -1467,14 +1702,18 @@ describe('MongoDB Saga System - Integration Tests', () => {
         });
       }
       const duration = Date.now() - start;
-      const baseline = benchmarkResults.find((r) => r.name === 'BASELINE: Raw Insert');
+      const baseline = benchmarkResults.find(
+        (r) => r.name === 'BASELINE: Raw Insert',
+      );
 
       benchmarkResults.push({
         name: 'TX: Single Insert',
         durationMs: duration,
         operationsCount: ITERATIONS,
         avgOpDurationMs: duration / ITERATIONS,
-        overheadVsBaseline: baseline ? duration / baseline.durationMs : undefined,
+        overheadVsBaseline: baseline
+          ? duration / baseline.durationMs
+          : undefined,
       });
     });
 
@@ -1491,8 +1730,11 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       const batchStart = Date.now();
       await coordinator.execute(async (tx) => {
-        await tx.insertMany(COLLECTIONS.orders,
-          Array.from({ length: docCount }, (_, i) => ({ customerId: `batch-bm-${i}` })),
+        await tx.insertMany(
+          COLLECTIONS.orders,
+          Array.from({ length: docCount }, (_, i) => ({
+            customerId: `batch-bm-${i}`,
+          })),
         );
       });
       const batchDuration = Date.now() - batchStart;
@@ -1508,14 +1750,17 @@ describe('MongoDB Saga System - Integration Tests', () => {
         durationMs: batchDuration,
         operationsCount: docCount,
         avgOpDurationMs: batchDuration / docCount,
-        overheadVsBaseline: batchDuration > 0 ? individualDuration / batchDuration : undefined,
+        overheadVsBaseline:
+          batchDuration > 0 ? individualDuration / batchDuration : undefined,
       });
     });
 
     it('BASELINE + TX: read operations comparison', async () => {
       const ids: ObjectId[] = [];
       for (let i = 0; i < ITERATIONS; i++) {
-        const r = await db.collection(COLLECTIONS.orders).insertOne({ customerId: `read-bm-${i}` });
+        const r = await db
+          .collection(COLLECTIONS.orders)
+          .insertOne({ customerId: `read-bm-${i}` });
         ids.push(r.insertedId);
       }
 
@@ -1536,35 +1781,74 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const txConsistentStart = Date.now();
       await coordinator.execute(async (tx) => {
         for (const id of ids) {
-          await tx.findOne(COLLECTIONS.orders, { _id: id }, { useConsistentRead: true });
+          await tx.findOne(
+            COLLECTIONS.orders,
+            { _id: id },
+            { useConsistentRead: true },
+          );
         }
       });
       const txConsistentDuration = Date.now() - txConsistentStart;
 
       const parallelStart = Date.now();
       await coordinator.execute(async (tx) => {
-        await tx.parallelRead(ids.map((id) => ({ collection: COLLECTIONS.orders, filter: { _id: id } })));
+        await tx.parallelRead(
+          ids.map((id) => ({
+            collection: COLLECTIONS.orders,
+            filter: { _id: id },
+          })),
+        );
       });
       const parallelDuration = Date.now() - parallelStart;
 
       benchmarkResults.push(
-        { name: 'BASELINE: Raw Reads', durationMs: rawDuration, operationsCount: ITERATIONS, avgOpDurationMs: rawDuration / ITERATIONS },
-        { name: 'TX: Fast Reads (no lock)', durationMs: txFastDuration, operationsCount: ITERATIONS, avgOpDurationMs: txFastDuration / ITERATIONS, overheadVsBaseline: rawDuration > 0 ? txFastDuration / rawDuration : undefined },
-        { name: 'TX: Consistent Reads (read lock)', durationMs: txConsistentDuration, operationsCount: ITERATIONS, avgOpDurationMs: txConsistentDuration / ITERATIONS, overheadVsBaseline: rawDuration > 0 ? txConsistentDuration / rawDuration : undefined },
-        { name: 'TX: Parallel Reads', durationMs: parallelDuration, operationsCount: ITERATIONS, avgOpDurationMs: parallelDuration / ITERATIONS, overheadVsBaseline: rawDuration > 0 ? parallelDuration / rawDuration : undefined },
+        {
+          name: 'BASELINE: Raw Reads',
+          durationMs: rawDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: rawDuration / ITERATIONS,
+        },
+        {
+          name: 'TX: Fast Reads (no lock)',
+          durationMs: txFastDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: txFastDuration / ITERATIONS,
+          overheadVsBaseline:
+            rawDuration > 0 ? txFastDuration / rawDuration : undefined,
+        },
+        {
+          name: 'TX: Consistent Reads (read lock)',
+          durationMs: txConsistentDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: txConsistentDuration / ITERATIONS,
+          overheadVsBaseline:
+            rawDuration > 0 ? txConsistentDuration / rawDuration : undefined,
+        },
+        {
+          name: 'TX: Parallel Reads',
+          durationMs: parallelDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: parallelDuration / ITERATIONS,
+          overheadVsBaseline:
+            rawDuration > 0 ? parallelDuration / rawDuration : undefined,
+        },
       );
     });
 
     it('TX: update benchmark', async () => {
       const ids: ObjectId[] = [];
       for (let i = 0; i < ITERATIONS; i++) {
-        const r = await db.collection(COLLECTIONS.orders).insertOne({ customerId: `upd-bm-${i}`, counter: 0 });
+        const r = await db
+          .collection(COLLECTIONS.orders)
+          .insertOne({ customerId: `upd-bm-${i}`, counter: 0 });
         ids.push(r.insertedId);
       }
 
       const rawStart = Date.now();
       for (const id of ids) {
-        await db.collection(COLLECTIONS.orders).updateOne({ _id: id }, { $inc: { counter: 1 } });
+        await db
+          .collection(COLLECTIONS.orders)
+          .updateOne({ _id: id }, { $inc: { counter: 1 } });
       }
       const rawDuration = Date.now() - rawStart;
 
@@ -1577,8 +1861,20 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const txDuration = Date.now() - txStart;
 
       benchmarkResults.push(
-        { name: 'BASELINE: Raw Updates', durationMs: rawDuration, operationsCount: ITERATIONS, avgOpDurationMs: rawDuration / ITERATIONS },
-        { name: 'TX: Updates', durationMs: txDuration, operationsCount: ITERATIONS, avgOpDurationMs: txDuration / ITERATIONS, overheadVsBaseline: rawDuration > 0 ? txDuration / rawDuration : undefined },
+        {
+          name: 'BASELINE: Raw Updates',
+          durationMs: rawDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: rawDuration / ITERATIONS,
+        },
+        {
+          name: 'TX: Updates',
+          durationMs: txDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: txDuration / ITERATIONS,
+          overheadVsBaseline:
+            rawDuration > 0 ? txDuration / rawDuration : undefined,
+        },
       );
     });
 
@@ -1586,9 +1882,13 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const rawIds: ObjectId[] = [];
       const txIds: ObjectId[] = [];
       for (let i = 0; i < ITERATIONS; i++) {
-        const r1 = await db.collection(COLLECTIONS.orders).insertOne({ customerId: `del-raw-${i}` });
+        const r1 = await db
+          .collection(COLLECTIONS.orders)
+          .insertOne({ customerId: `del-raw-${i}` });
         rawIds.push(r1.insertedId);
-        const r2 = await db.collection(COLLECTIONS.orders).insertOne({ customerId: `del-tx-${i}` });
+        const r2 = await db
+          .collection(COLLECTIONS.orders)
+          .insertOne({ customerId: `del-tx-${i}` });
         txIds.push(r2.insertedId);
       }
 
@@ -1607,8 +1907,20 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const txDuration = Date.now() - txStart;
 
       benchmarkResults.push(
-        { name: 'BASELINE: Raw Deletes', durationMs: rawDuration, operationsCount: ITERATIONS, avgOpDurationMs: rawDuration / ITERATIONS },
-        { name: 'TX: Deletes', durationMs: txDuration, operationsCount: ITERATIONS, avgOpDurationMs: txDuration / ITERATIONS, overheadVsBaseline: rawDuration > 0 ? txDuration / rawDuration : undefined },
+        {
+          name: 'BASELINE: Raw Deletes',
+          durationMs: rawDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: rawDuration / ITERATIONS,
+        },
+        {
+          name: 'TX: Deletes',
+          durationMs: txDuration,
+          operationsCount: ITERATIONS,
+          avgOpDurationMs: txDuration / ITERATIONS,
+          overheadVsBaseline:
+            rawDuration > 0 ? txDuration / rawDuration : undefined,
+        },
       );
     });
 
@@ -1619,7 +1931,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const results = await Promise.all(
         Array.from({ length: concurrency }, (_, i) =>
           coordinator.execute(async (tx) => {
-            await tx.insertOne(COLLECTIONS.orders, { customerId: `conc-bm-${i}` });
+            await tx.insertOne(COLLECTIONS.orders, {
+              customerId: `conc-bm-${i}`,
+            });
             return i;
           }),
         ),
@@ -1642,7 +1956,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const imperativeStart = Date.now();
       await coordinator.execute(async (tx) => {
         for (let i = 0; i < docCount; i++) {
-          await tx.insertOne(COLLECTIONS.orders, { customerId: `imp-plan-${i}` });
+          await tx.insertOne(COLLECTIONS.orders, {
+            customerId: `imp-plan-${i}`,
+          });
         }
       });
       const imperativeDuration = Date.now() - imperativeStart;
@@ -1668,7 +1984,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
         durationMs: planDuration,
         operationsCount: docCount,
         avgOpDurationMs: planDuration / docCount,
-        overheadVsBaseline: planDuration > 0 ? imperativeDuration / planDuration : undefined,
+        overheadVsBaseline:
+          planDuration > 0 ? imperativeDuration / planDuration : undefined,
       });
     });
 
@@ -1678,17 +1995,25 @@ describe('MongoDB Saga System - Integration Tests', () => {
       const setupIds1: ObjectId[] = [];
       const setupIds2: ObjectId[] = [];
       for (let i = 0; i < opCount; i++) {
-        const r1 = await db.collection(COLLECTIONS.orders).insertOne({ customerId: `mix-imp-${i}`, counter: 0 });
+        const r1 = await db
+          .collection(COLLECTIONS.orders)
+          .insertOne({ customerId: `mix-imp-${i}`, counter: 0 });
         setupIds1.push(r1.insertedId);
-        const r2 = await db.collection(COLLECTIONS.orders).insertOne({ customerId: `mix-plan-${i}`, counter: 0 });
+        const r2 = await db
+          .collection(COLLECTIONS.orders)
+          .insertOne({ customerId: `mix-plan-${i}`, counter: 0 });
         setupIds2.push(r2.insertedId);
       }
 
       const imperativeStart = Date.now();
       await coordinator.execute(async (tx) => {
         for (let i = 0; i < opCount; i++) {
-          await tx.insertOne(COLLECTIONS.orders, { customerId: `mix-imp-new-${i}` });
-          await tx.updateOne(COLLECTIONS.orders, setupIds1[i], { counter: i + 1 });
+          await tx.insertOne(COLLECTIONS.orders, {
+            customerId: `mix-imp-new-${i}`,
+          });
+          await tx.updateOne(COLLECTIONS.orders, setupIds1[i], {
+            counter: i + 1,
+          });
         }
       });
       const imperativeDuration = Date.now() - imperativeStart;
@@ -1715,7 +2040,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
         durationMs: planDuration,
         operationsCount: opCount * 2,
         avgOpDurationMs: planDuration / (opCount * 2),
-        overheadVsBaseline: planDuration > 0 ? imperativeDuration / planDuration : undefined,
+        overheadVsBaseline:
+          planDuration > 0 ? imperativeDuration / planDuration : undefined,
       });
     });
 
@@ -1733,7 +2059,11 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
       expect(result.success).toBe(false);
       expect(result.rollbackResult?.success).toBe(true);
-      expect(await db.collection(COLLECTIONS.orders).countDocuments({ customerId: { $regex: /^rb-bm-/ } })).toBe(0);
+      expect(
+        await db
+          .collection(COLLECTIONS.orders)
+          .countDocuments({ customerId: { $regex: /^rb-bm-/ } }),
+      ).toBe(0);
 
       benchmarkResults.push({
         name: `BATCH ROLLBACK: ${opCount} inserts`,
@@ -1758,14 +2088,15 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(acq.success).toBe(true);
 
       const past = new Date(Date.now() - 120_000);
-      await db.collection(COLLECTIONS.meta).updateOne(
-        { txId },
-        { $set: { expiresAt: past, lastActivityAt: past } },
-      );
-      await db.collection(COLLECTIONS.locks).updateMany(
-        { txId },
-        { $set: { expiresAt: past } },
-      );
+      await db
+        .collection(COLLECTIONS.meta)
+        .updateOne(
+          { txId },
+          { $set: { expiresAt: past, lastActivityAt: past } },
+        );
+      await db
+        .collection(COLLECTIONS.locks)
+        .updateMany({ txId }, { $set: { expiresAt: past } });
 
       await lockService.renewTransactionLease(txId);
 
@@ -1786,9 +2117,9 @@ describe('MongoDB Saga System - Integration Tests', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('recoverOrphanedTransactions(boot) updates recovery metrics', async () => {
+    it('recoverOrphanedSagas(boot) updates recovery metrics', async () => {
       const before = coordinator.getSagaRecoveryMetrics();
-      await coordinator.recoverOrphanedTransactions('boot');
+      await coordinator.recoverOrphanedSagas('boot');
       const after = coordinator.getSagaRecoveryMetrics();
       expect(after.totalRuns).toBe(before.totalRuns + 1);
       expect(after.bootRuns).toBe(before.bootRuns + 1);
@@ -1796,39 +2127,35 @@ describe('MongoDB Saga System - Integration Tests', () => {
       expect(after.lastError).toBeNull();
     });
 
-    it('recoverOrphanedTransactions(periodic) increments periodicRuns', async () => {
+    it('recoverOrphanedSagas(periodic) increments periodicRuns', async () => {
       const before = coordinator.getSagaRecoveryMetrics();
-      await coordinator.recoverOrphanedTransactions('periodic');
+      await coordinator.recoverOrphanedSagas('periodic');
       const after = coordinator.getSagaRecoveryMetrics();
       expect(after.totalRuns).toBe(before.totalRuns + 1);
       expect(after.periodicRuns).toBe(before.periodicRuns + 1);
     });
 
-    it(
-      'execute invokes renewTransactionLease during long callback (heartbeat)',
-      async () => {
-        const spy = jest.spyOn(lockService, 'renewTransactionLease');
-        await db.collection(COLLECTIONS.orders).deleteMany({
-          customerId: 'heartbeat-probe',
-        });
-        await coordinator.execute(
-          async (tx) => {
-            await new Promise((r) => setTimeout(r, 4500));
-            return tx.insertOne(COLLECTIONS.orders, {
-              customerId: 'heartbeat-probe',
-              total: 1,
-            });
-          },
-          { maxDurationMs: 20_000 },
-        );
-        expect(spy).toHaveBeenCalled();
-        spy.mockRestore();
-        const doc = await db.collection(COLLECTIONS.orders).findOne({
-          customerId: 'heartbeat-probe',
-        });
-        expect(doc).toBeTruthy();
-      },
-      20_000,
-    );
+    it('execute invokes renewTransactionLease during long callback (heartbeat)', async () => {
+      const spy = jest.spyOn(lockService, 'renewTransactionLease');
+      await db.collection(COLLECTIONS.orders).deleteMany({
+        customerId: 'heartbeat-probe',
+      });
+      await coordinator.execute(
+        async (tx) => {
+          await new Promise((r) => setTimeout(r, 4500));
+          return tx.insertOne(COLLECTIONS.orders, {
+            customerId: 'heartbeat-probe',
+            total: 1,
+          });
+        },
+        { maxDurationMs: 20_000 },
+      );
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+      const doc = await db.collection(COLLECTIONS.orders).findOne({
+        customerId: 'heartbeat-probe',
+      });
+      expect(doc).toBeTruthy();
+    }, 20_000);
   });
 });

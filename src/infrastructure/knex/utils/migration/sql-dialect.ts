@@ -337,8 +337,8 @@ export function getForeignKeyConstraintsQuery(
           FROM pg_constraint con
           INNER JOIN pg_class rel ON rel.oid = con.conrelid
           INNER JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
-          WHERE rel.relname = $1
-          AND att.attname = $2
+          WHERE rel.relname = ?
+          AND att.attname = ?
           AND con.contype = 'f'
         `,
         bindings: [tableName, columnName],
@@ -398,7 +398,7 @@ export function getAllForeignKeyConstraintsReferencingTableQuery(
           INNER JOIN pg_class rrel ON rrel.oid = con.confrelid
           INNER JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
           INNER JOIN pg_attribute ratt ON ratt.attrelid = con.confrelid AND ratt.attnum = ANY(con.confkey)
-          WHERE rrel.relname = $1
+          WHERE rrel.relname = ?
           AND con.contype = 'f'
         `,
         bindings: [tableName],

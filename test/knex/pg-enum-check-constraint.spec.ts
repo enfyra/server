@@ -14,10 +14,16 @@ describe('Postgres ENUM conversion — CHECK constraint handling', () => {
       executedSql.push(sql.trim().replace(/\s+/g, ' '));
 
       // Simulate PG information_schema responses
-      if (sql.includes('data_type, udt_name') && sql.includes('information_schema.columns')) {
+      if (
+        sql.includes('data_type, udt_name') &&
+        sql.includes('information_schema.columns')
+      ) {
         return { rows: [{ data_type: 'text', udt_name: 'text' }] };
       }
-      if (sql.includes('column_default') && sql.includes('information_schema.columns')) {
+      if (
+        sql.includes('column_default') &&
+        sql.includes('information_schema.columns')
+      ) {
         return { rows: [{ column_default: null }] };
       }
       return { rows: [] };
@@ -114,9 +120,7 @@ describe('Postgres ENUM conversion — CHECK constraint handling', () => {
       true,
     );
 
-    const typeToText = executedSql.find(
-      (s) => s.includes('TYPE text USING'),
-    );
+    const typeToText = executedSql.find((s) => s.includes('TYPE text USING'));
     expect(typeToText).toBeUndefined();
   });
 

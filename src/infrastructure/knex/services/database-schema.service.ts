@@ -1,19 +1,27 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { KnexService } from '../knex.service';
+import { Logger } from '../../../shared/logger';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import type { Cradle } from '../../../container';
 
-@Injectable()
 export class DatabaseSchemaService {
   private readonly logger = new Logger(DatabaseSchemaService.name);
+  private readonly databaseConfigService: DatabaseConfigService;
+  private readonly lazyRef: Cradle;
 
-  constructor(private readonly knexService: KnexService) {}
+  constructor(deps: {
+    databaseConfigService: DatabaseConfigService;
+    lazyRef: Cradle;
+  }) {
+    this.databaseConfigService = deps.databaseConfigService;
+    this.lazyRef = deps.lazyRef;
+  }
+
 
   async getAllTableSchemas(): Promise<Map<string, any>> {
-    const knex = this.knexService.getKnex();
-    const dbType = process.env.DB_TYPE;
+    const knex = this.lazyRef.knexService.getKnex();
 
-    if (dbType === 'mysql') {
+    if (this.databaseConfigService.isMySql()) {
       return this.getAllMySQLTableSchemas(knex);
-    } else if (dbType === 'postgres') {
+    } else if (this.databaseConfigService.isPostgres()) {
       return this.getAllPostgreSQLTableSchemas(knex);
     }
     return new Map();
@@ -217,15 +225,15 @@ export class DatabaseSchemaService {
   }
 
   async getActualTableSchema(tableName: string): Promise<any> {
-    const knex = this.knexService.getKnex();
-    const dbType = process.env.DB_TYPE || 'mysql';
-
-    if (dbType === 'mysql') {
+    const knex = this.lazyRef.knexService.getKnex();
+    if (this.databaseConfigService.isMySql()) {
       return await this.getMySQLTableSchema(tableName, knex);
-    } else if (dbType === 'postgres') {
+    } else if (this.databaseConfigService.isPostgres()) {
       return await this.getPostgreSQLTableSchema(tableName, knex);
     } else {
-      throw new Error(`Unsupported database type: ${dbType}`);
+      throw new Error(
+        `Unsupported database type: ${this.databaseConfigService.getDbType()}`,
+      );
     }
   }
 
@@ -383,12 +391,10 @@ export class DatabaseSchemaService {
       .where('tablename', tableName)
       .where('schemaname', 'public');
 
-    // Parse uniques and indexes from pg_indexes
     const uniques: string[][] = [];
     const regularIndexes: string[][] = [];
 
     for (const idx of indexes) {
-      // Skip primary key indexes
       if (
         idx.indexname.endsWith('_pkey') ||
         idx.indexname === `pk_${tableName}`
@@ -396,12 +402,9 @@ export class DatabaseSchemaService {
         continue;
       }
 
-      // Check if unique by indexdef containing 'UNIQUE'
       const isUnique =
         idx.indexdef?.includes('UNIQUE') || idx.indexname.includes('_unique');
 
-      // Extract column names from indexdef
-      // Format: CREATE UNIQUE INDEX "indexname" ON "tablename" ("col1", "col2")
       const columnsMatch = idx.indexdef?.match(/\(([^)]+)\)/);
       if (columnsMatch) {
         const columns = columnsMatch[1]

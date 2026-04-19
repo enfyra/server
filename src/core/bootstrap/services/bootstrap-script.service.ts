@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Logger } from '../../../shared/logger';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { CacheService } from '../../../infrastructure/cache/services/cache.service';
@@ -14,18 +14,30 @@ import {
 } from '../../../shared/utils/constant';
 import { transformCode } from '../../../infrastructure/executor-engine/code-transformer';
 
-@Injectable()
 export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly cacheService: CacheService;
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly instanceService: InstanceService;
+  private readonly eventEmitter: EventEmitter2;
 
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private handlerExecutorService: ExecutorEngineService,
-    private cacheService: CacheService,
-    private repoRegistryService: RepoRegistryService,
-    private instanceService: InstanceService,
-    private eventEmitter: EventEmitter2,
-  ) {}
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    executorEngineService: ExecutorEngineService;
+    cacheService: CacheService;
+    repoRegistryService: RepoRegistryService;
+    instanceService: InstanceService;
+    eventEmitter: EventEmitter2;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.executorEngineService = deps.executorEngineService;
+    this.cacheService = deps.cacheService;
+    this.repoRegistryService = deps.repoRegistryService;
+    this.instanceService = deps.instanceService;
+    this.eventEmitter = deps.eventEmitter;
+  }
 
   async onMetadataLoaded() {
     const start = Date.now();
@@ -77,14 +89,14 @@ export class BootstrapScriptService {
   ): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        if (this.queryBuilder.isMongoDb()) {
-          const db = this.queryBuilder.getMongoDb();
+        if (this.queryBuilderService.isMongoDb()) {
+          const db = this.queryBuilderService.getMongoDb();
           const collections = await db
             .listCollections({ name: 'bootstrap_script_definition' })
             .toArray();
           if (collections.length > 0) return;
         } else {
-          const knex = this.queryBuilder.getKnex();
+          const knex = this.queryBuilderService.getKnex();
           const exists = await knex.schema.hasTable(
             'bootstrap_script_definition',
           );
@@ -110,8 +122,8 @@ export class BootstrapScriptService {
   }
 
   private async executeBootstrapScriptsWithoutLock(): Promise<number> {
-    const result = await this.queryBuilder.select({
-      tableName: 'bootstrap_script_definition',
+    const result = await this.queryBuilderService.find({
+      table: 'bootstrap_script_definition',
       filter: { isEnabled: { _eq: true } },
       sort: ['priority'],
     });
@@ -154,7 +166,7 @@ export class BootstrapScriptService {
     ctx.$helpers.$fetch = createFetchHelper();
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     const timeoutMs = script.timeout || 30000;
-    const executionResult = await this.handlerExecutorService.run(
+    const executionResult = await this.executorEngineService.run(
       script.logic,
       ctx,
       timeoutMs,

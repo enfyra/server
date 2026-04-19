@@ -43,11 +43,11 @@ export class FileValidationHelper {
     file: any,
     req: RequestWithRouteData,
   ): Promise<void> {
-    if (file.isPublished === true) return;
+    if (file.isPublished) return;
 
     const user = req.routeData?.context?.$user || req.user;
     if (!user?.id) throw new AuthenticationException('Authentication required');
-    if (user.isRootAdmin === true) return;
+    if (user.isRootAdmin) return;
 
     const hasAccess = (file.permissions || []).some(
       (p: any) =>

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 
 export function isProbablyVueSFC(content: string): boolean {
   if (typeof content !== 'string') return false;

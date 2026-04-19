@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
 import { FileManagementService } from '../../modules/file-management/services/file-management.service';
 import { TDynamicContext } from '../types';
 
-@Injectable()
 export class UploadFileHelper {
-  constructor(private readonly fileManagementService: FileManagementService) {}
+  private readonly fileManagementService: FileManagementService;
+  constructor(deps: { fileManagementService: FileManagementService }) {
+    this.fileManagementService = deps.fileManagementService;
+  }
 
   private getFileRepo(context: TDynamicContext) {
     const fileRepo = context.$repos?.file_definition || context.$repos?.main;

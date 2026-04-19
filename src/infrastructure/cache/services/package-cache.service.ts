@@ -1,18 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import {
   PackageCdnLoaderService,
   extractErrorMessage,
 } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import {
-  ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
-} from '../../../shared/utils/constant';
-import {
-  CACHE_IDENTIFIERS,
-} from '../../../shared/utils/cache-events.constants';
-import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
+import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import type { Cradle } from '../../../container';
 
 const PACKAGE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
@@ -22,20 +17,26 @@ const PACKAGE_CONFIG: CacheConfig = {
 
 const SYSTEM_EVENT_PREFIX = '$system:package';
 
-@Injectable()
 export class PackageCacheService extends BaseCacheService<string[]> {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-    private readonly websocketGateway: DynamicWebSocketGateway,
-    private readonly cdnLoader: PackageCdnLoaderService,
-  ) {
-    super(PACKAGE_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly packageCdnLoaderService: PackageCdnLoaderService;
+  private readonly lazyRef: Cradle;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter: EventEmitter2;
+    packageCdnLoaderService: PackageCdnLoaderService;
+    lazyRef: Cradle;
+  }) {
+    super(PACKAGE_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
+    this.lazyRef = deps.lazyRef;
+    this.packageCdnLoaderService = deps.packageCdnLoaderService;
   }
 
   protected async loadFromDb(): Promise<string[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'package_definition',
+    const result = await this.queryBuilderService.find({
+      table: 'package_definition',
       fields: ['name'],
       filter: {
         isEnabled: true,
@@ -63,7 +64,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
   private emitEvent(event: string, data: any) {
     try {
-      this.websocketGateway.emitToNamespace(
+      this.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         `${SYSTEM_EVENT_PREFIX}:${event}`,
         data,
@@ -79,11 +80,11 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     extra?: Record<string, any>,
   ) {
     try {
-      await this.queryBuilder.update({
-        table: 'package_definition',
-        where: [{ field: 'id', operator: '=', value: id }],
-        data: { status, ...extra },
-      });
+      await this.queryBuilderService.update(
+        'package_definition',
+        { where: [{ field: 'id', operator: '=', value: id }] },
+        { status, ...extra },
+      );
     } catch (error) {
       this.logger.error(
         `Failed to update status to ${status} for package ${id}: ${error.message}`,
@@ -95,7 +96,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     const packagesWithMeta = await this.loadPackagesForSync();
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
-        !this.cdnLoader.isLoaded(pkg.name) &&
+        !this.packageCdnLoaderService.isLoaded(pkg.name) &&
         (pkg.status === 'installed' || pkg.status === 'failed'),
     );
 
@@ -115,7 +116,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
     for (const pkg of toPreload) {
       try {
-        await this.cdnLoader.loadPackage(pkg.name, pkg.version);
+        await this.packageCdnLoaderService.loadPackage(pkg.name, pkg.version);
         await this.updatePackageStatus(pkg.id, 'installed', {
           lastError: null,
         });
@@ -150,8 +151,8 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       status: string;
     }>
   > {
-    const result = await this.queryBuilder.select({
-      tableName: 'package_definition',
+    const result = await this.queryBuilderService.find({
+      table: 'package_definition',
       fields: ['id', 'name', 'version', 'status'],
       filter: {
         isEnabled: true,
@@ -168,7 +169,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
   }
 
   getCdnLoader(): PackageCdnLoaderService {
-    return this.cdnLoader;
+    return this.packageCdnLoaderService;
   }
 
   async getPackages(): Promise<string[]> {

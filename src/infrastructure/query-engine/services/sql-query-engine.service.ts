@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { LoggingService } from '../../../core/exceptions/services/logging.service';
 import {
@@ -6,15 +5,20 @@ import {
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
 
-@Injectable()
 export class SqlQueryEngine {
-  constructor(
-    private queryBuilder: QueryBuilderService,
-    private loggingService: LoggingService,
-  ) {}
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly loggingService: LoggingService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    loggingService: LoggingService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.loggingService = deps.loggingService;
+  }
 
   async find(options: {
-    tableName: string;
+    table: string;
     fields?: string | string[];
     filter?: any;
     sort?: string | string[];
@@ -28,8 +32,8 @@ export class SqlQueryEngine {
     try {
       const fields = options.fields || '*';
 
-      const result = await this.queryBuilder.select({
-        tableName: options.tableName,
+      const result = await this.queryBuilderService.find({
+        table: options.table,
         fields: fields,
         filter: options.filter,
         sort: options.sort,
@@ -47,7 +51,7 @@ export class SqlQueryEngine {
         context: 'find',
         error: error.message,
         stack: error.stack,
-        tableName: options.tableName,
+        table: options.table,
         fields: options.fields,
         filterPresent: !!options.filter,
         sortPresent: !!options.sort,
@@ -60,10 +64,7 @@ export class SqlQueryEngine {
         error.message?.includes('relation') &&
         error.message?.includes('does not exist')
       ) {
-        throw new ResourceNotFoundException(
-          'Table or Relation',
-          options.tableName,
-        );
+        throw new ResourceNotFoundException('Table or Relation', options.table);
       }
 
       if (
@@ -73,7 +74,7 @@ export class SqlQueryEngine {
         throw new DatabaseQueryException(
           `Invalid column in query: ${error.message}`,
           {
-            tableName: options.tableName,
+            table: options.table,
             fields: options.fields,
             operation: 'query',
           },
@@ -81,7 +82,7 @@ export class SqlQueryEngine {
       }
 
       throw new DatabaseQueryException(`Query failed: ${error.message}`, {
-        tableName: options.tableName,
+        table: options.table,
         operation: 'find',
         originalError: error.message,
       });

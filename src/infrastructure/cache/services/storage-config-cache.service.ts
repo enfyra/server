@@ -1,10 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import {
-  CACHE_IDENTIFIERS,
-} from '../../../shared/utils/cache-events.constants';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const STORAGE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.STORAGE,
@@ -12,20 +10,22 @@ const STORAGE_CONFIG: CacheConfig = {
   cacheName: 'StorageConfigCache',
 };
 
-@Injectable()
 export class StorageConfigCacheService extends BaseCacheService<
   Map<string | number, any>
 > {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(STORAGE_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter?: EventEmitter2;
+  }) {
+    super(STORAGE_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   protected async loadFromDb(): Promise<any[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'storage_config_definition',
+    const result = await this.queryBuilderService.find({
+      table: 'storage_config_definition',
       filter: { isEnabled: { _eq: true } },
       fields: ['*'],
     });
@@ -35,10 +35,10 @@ export class StorageConfigCacheService extends BaseCacheService<
 
   protected transformData(configs: any[]): Map<string | number, any> {
     const configsMap = new Map<string | number, any>();
-    const isMongoDb = this.queryBuilder.isMongoDb();
+    const isMongoDb = this.queryBuilderService.isMongoDb();
 
     for (const config of configs) {
-      const idField = isMongoDb ? '_id' : 'id';
+      const idField = DatabaseConfigService.getPkField();
       let id = config[idField];
 
       if (!id) {
@@ -86,7 +86,7 @@ export class StorageConfigCacheService extends BaseCacheService<
     }
 
     let normalizedId: string | number = id;
-    const isMongoDb = this.queryBuilder.isMongoDb();
+    const isMongoDb = this.queryBuilderService.isMongoDb();
 
     if (isMongoDb) {
       if (
@@ -130,7 +130,7 @@ export class StorageConfigCacheService extends BaseCacheService<
     await this.ensureLoaded();
     const values = Array.from(this.cache.values());
     for (const config of values) {
-      if (config.type === type && config.isEnabled === true) {
+      if (config.type === type && config.isEnabled) {
         return config;
       }
     }

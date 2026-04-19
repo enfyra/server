@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
@@ -7,13 +6,18 @@ import {
   isCanonicalTableRoutePath,
   REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
-@Injectable()
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+
 export class RouteDefinitionProcessor extends BaseTableProcessor {
-  constructor(private readonly queryBuilder: QueryBuilderService) {
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: { queryBuilderService: QueryBuilderService }) {
     super();
+    this.queryBuilderService = deps.queryBuilderService;
   }
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+    const pkField = DatabaseConfigService.getPkField();
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformedRecord = { ...record };
@@ -32,12 +36,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
         }
         if (record.mainTable) {
           if (isMongoDB) {
-            const mainTable = await this.queryBuilder.findOneWhere(
-              'table_definition',
-              {
+            const mainTable = await this.queryBuilderService.findOne({
+              table: 'table_definition',
+              where: {
                 name: record.mainTable,
               },
-            );
+            });
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
@@ -49,12 +53,12 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
                 ? new ObjectId(mainTable._id)
                 : mainTable._id;
           } else {
-            const mainTable = await this.queryBuilder.findOneWhere(
-              'table_definition',
-              {
+            const mainTable = await this.queryBuilderService.findOne({
+              table: 'table_definition',
+              where: {
                 name: record.mainTable,
               },
-            );
+            });
             if (!mainTable) {
               this.logger.warn(
                 `Table '${record.mainTable}' not found for route ${record.path}, skipping.`,
@@ -66,80 +70,88 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
           }
         }
         if (record.publishedMethods && Array.isArray(record.publishedMethods)) {
-          if (isMongoDB) {
-            transformedRecord._publishedMethods = record.publishedMethods;
-            delete transformedRecord.publishedMethods;
-          } else {
-            transformedRecord._publishedMethods = record.publishedMethods;
-            delete transformedRecord.publishedMethods;
-          }
-        }
-        if (record.availableMethods && Array.isArray(record.availableMethods)) {
-          if (isMongoDB) {
-            transformedRecord._availableMethods = record.availableMethods;
-            delete transformedRecord.availableMethods;
-          } else {
-            transformedRecord._availableMethods = record.availableMethods;
-            delete transformedRecord.availableMethods;
-          }
-        }
-        if (isMongoDB && record.path === '/route_definition') {
-          this.logger.log(
-            `📋 Sample route document to insert: ${JSON.stringify(transformedRecord, null, 2)}`,
+          const methodNames = record.publishedMethods;
+          const result = await this.queryBuilderService.find({
+            table: 'method_definition',
+            filter: { method: { _in: methodNames } },
+            fields: [pkField, 'method'],
+          });
+          const methods = result.data || [];
+          transformedRecord.publishedMethods = methods.map(
+            (m: any) => m[pkField],
           );
         }
+        if (
+          record.skipRoleGuardMethods &&
+          Array.isArray(record.skipRoleGuardMethods)
+        ) {
+          const methodNames = record.skipRoleGuardMethods;
+          const result = await this.queryBuilderService.find({
+            table: 'method_definition',
+            filter: { method: { _in: methodNames } },
+            fields: [pkField, 'method'],
+          });
+          const methods = result.data || [];
+          transformedRecord.skipRoleGuardMethods = methods.map(
+            (m: any) => m[pkField],
+          );
+        }
+        if (record.availableMethods && Array.isArray(record.availableMethods)) {
+          const methodNames = record.availableMethods;
+          const result = await this.queryBuilderService.find({
+            table: 'method_definition',
+            filter: { method: { _in: methodNames } },
+            fields: [pkField, 'method'],
+          });
+          const methods = result.data || [];
+          transformedRecord.availableMethods = methods.map(
+            (m: any) => m[pkField],
+          );
+        }
+
         return transformedRecord;
       }),
     );
     return transformedRecords.filter(Boolean);
   }
   async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
-    if (
-      !isMongoDB &&
-      record._publishedMethods &&
-      Array.isArray(record._publishedMethods)
-    ) {
-      const methodNames = record._publishedMethods;
-      const result = await this.queryBuilder.select({
-        tableName: 'method_definition',
-        filter: { method: { _in: methodNames } },
-        fields: ['id', 'method'],
-      });
-      const methods = result.data;
-      const methodIds = methods.map((m: any) => m.id);
-      if (methodIds.length > 0) {
-        await this.queryBuilder.updateById('route_definition', record.id, {
-          publishedMethods: methodIds,
-        });
-        this.logger.log(
-          `   🔗 Linked ${methodIds.length} published methods to route ${record.path}`,
-        );
-      }
-    }
-    if (
-      !isMongoDB &&
-      record._availableMethods &&
-      Array.isArray(record._availableMethods)
-    ) {
-      const methodNames = record._availableMethods;
-      const result = await this.queryBuilder.select({
-        tableName: 'method_definition',
-        filter: { method: { _in: methodNames } },
-        fields: ['id', 'method'],
-      });
-      const methods = result.data;
-      const methodIds = methods.map((m: any) => m.id);
-      if (methodIds.length > 0) {
-        await this.queryBuilder.updateById('route_definition', record.id, {
-          availableMethods: methodIds,
-        });
-        this.logger.log(
-          `   🔗 Linked ${methodIds.length} available methods to route ${record.path}`,
-        );
-      }
-    }
+    if (!isNew) return;
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     await this.ensureDefaultCrudHandlers(record, isMongoDB);
+  }
+
+  async ensureMissingHandlers(): Promise<void> {
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
+
+    this.logger.log('[ensureMissingHandlers] Starting handler check...');
+
+    const { data: routes } = await this.queryBuilderService.find({
+      table: 'route_definition',
+      filter: { isEnabled: { _eq: true } },
+    });
+
+    if (!routes || routes.length === 0) return;
+
+    this.logger.log(
+      `[ensureMissingHandlers] Found ${routes.length} enabled routes`,
+    );
+
+    for (const route of routes) {
+      const routeId = DatabaseConfigService.getRecordId(route);
+
+      const filter = isMongoDB
+        ? { route: { _eq: routeId } }
+        : { routeId: { _eq: routeId } };
+
+      const handlerCount = await this.queryBuilderService.countRecords(
+        'route_handler_definition',
+        filter,
+      );
+
+      if (handlerCount > 0) continue;
+
+      await this.ensureDefaultCrudHandlers(route, isMongoDB);
+    }
   }
 
   private async ensureDefaultCrudHandlers(
@@ -147,59 +159,164 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     isMongoDB: boolean,
   ): Promise<void> {
     const path = record.path;
-    const mainTableFk = isMongoDB ? record.mainTable : record.mainTableId;
-    if (!mainTableFk) return;
 
-    const tableRow = await this.queryBuilder.findById(
-      'table_definition',
-      mainTableFk,
-    );
-    const tableName = tableRow?.name;
+    let tableName: string | undefined;
+    const mainTableValue = record.mainTable;
+    if (
+      mainTableValue &&
+      typeof mainTableValue === 'object' &&
+      mainTableValue.name
+    ) {
+      tableName = mainTableValue.name;
+    } else {
+      let mainTableFk = isMongoDB ? mainTableValue : record.mainTableId;
+      if (!mainTableFk) return;
+      if (isMongoDB && typeof mainTableFk === 'string') {
+        const { ObjectId } = require('mongodb');
+        mainTableFk = new ObjectId(mainTableFk);
+      }
+      const tableRow = isMongoDB
+        ? await this.queryBuilderService
+            .getMongoDb()
+            .collection('table_definition')
+            .findOne({ _id: mainTableFk })
+        : await this.queryBuilderService.findOne({
+            table: 'table_definition',
+            where: { id: mainTableFk },
+          });
+      tableName = tableRow?.name;
+    }
     if (!tableName || !isCanonicalTableRoutePath(path, tableName)) return;
 
-    const available = record._availableMethods;
-    if (!Array.isArray(available) || available.length === 0) return;
-
-    const routeId = isMongoDB ? record._id : record.id;
+    this.logger.log(
+      `[${path}] Creating default CRUD handlers for table "${tableName}"...`,
+    );
+    const routeId = DatabaseConfigService.getRecordId(record);
     if (!routeId) return;
+
+    let methodIds: any[] = [];
+    const raw = record.availableMethods;
+    if (Array.isArray(raw) && raw.length > 0) {
+      methodIds =
+        typeof raw[0] === 'object' && raw[0] !== null
+          ? raw.map((m: any) => m?.id ?? m?._id).filter(Boolean)
+          : [...raw];
+    } else {
+      const junctionName =
+        'route_definition_availableMethods_method_definition';
+      if (isMongoDB) {
+        const mongoService = this.queryBuilderService.getMongoDb();
+        const routeIdObj =
+          typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
+        const rows = await mongoService
+          .collection(junctionName)
+          .find({ route_definitionId: routeIdObj })
+          .toArray();
+        methodIds = rows.map((r: any) => r.method_definitionId);
+      } else {
+        const knex = this.queryBuilderService.getKnex();
+        const rows = await knex(junctionName)
+          .select('method_definitionId')
+          .where({ route_definitionId: routeId });
+        methodIds = rows.map((r: any) => r.method_definitionId);
+      }
+    }
+
+    if (methodIds.length === 0) return;
+
+    const idStrings = methodIds.map((id: any) => id.toString());
+    const methodResult = await this.queryBuilderService.find({
+      table: 'method_definition',
+      filter: { id: { _in: idStrings } },
+      fields: ['method'],
+    });
+    const available: string[] = (methodResult.data || [])
+      .map((m: any) => m.method)
+      .filter(Boolean);
+
+    if (available.length === 0) return;
 
     for (const methodName of REST_HANDLER_METHOD_NAMES) {
       if (!available.includes(methodName)) continue;
-      const logic = DEFAULT_REST_HANDLER_LOGIC[methodName];
-      if (!logic) continue;
 
-      const methodRow = await this.queryBuilder.findOneWhere(
-        'method_definition',
-        {
-          method: methodName,
-        },
-      );
-      if (!methodRow) continue;
+      const logic = DEFAULT_REST_HANDLER_LOGIC[methodName];
+      if (!logic) {
+        this.logger.warn(
+          `[${path}] No default logic for method: ${methodName}`,
+        );
+        continue;
+      }
+
+      const methodRow = await this.queryBuilderService.findOne({
+        table: 'method_definition',
+        where: { method: methodName },
+      });
+      if (!methodRow) {
+        this.logger.warn(`[${path}] Method row not found: ${methodName}`);
+        continue;
+      }
 
       const methodKeyId = isMongoDB
         ? (methodRow._id ?? methodRow.id)
         : methodRow.id;
 
-      const existing = isMongoDB
-        ? await this.queryBuilder.findOneWhere('route_handler_definition', {
-            route: routeId,
-            method: methodKeyId,
-          })
-        : await this.queryBuilder.findOneWhere('route_handler_definition', {
+      let existing;
+      if (isMongoDB) {
+        const { ObjectId } = require('mongodb');
+        const mongoService = this.queryBuilderService.getMongoDb();
+        const routeIdObj =
+          typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
+        const methodIdObj =
+          typeof methodKeyId === 'string'
+            ? new ObjectId(methodKeyId)
+            : methodKeyId;
+        existing = await mongoService
+          .collection('route_handler_definition')
+          .findOne({
+            route: routeIdObj,
+            method: methodIdObj,
+          });
+      } else {
+        existing = await this.queryBuilderService.findOne({
+          table: 'route_handler_definition',
+          where: {
             routeId,
             methodId: methodKeyId,
-          });
+          },
+        });
+      }
 
-      if (existing) continue;
+      if (existing) {
+        continue;
+      }
 
-      const data = isMongoDB
-        ? { route: routeId, method: methodKeyId, logic, timeout: 30000 }
-        : { routeId, methodId: methodKeyId, logic, timeout: 30000 };
+      let data: Record<string, any>;
+      if (isMongoDB) {
+        const { ObjectId } = require('mongodb');
+        data = {
+          route: typeof routeId === 'string' ? new ObjectId(routeId) : routeId,
+          method:
+            typeof methodKeyId === 'string'
+              ? new ObjectId(methodKeyId)
+              : methodKeyId,
+          logic,
+          timeout: 30000,
+        };
+      } else {
+        data = { routeId, methodId: methodKeyId, logic, timeout: 30000 };
+      }
 
-      await this.queryBuilder.insert({
-        table: 'route_handler_definition',
-        data,
-      });
+      if (isMongoDB) {
+        const mongoService = this.queryBuilderService.getMongoDb();
+        await mongoService
+          .collection('route_handler_definition')
+          .insertOne(data);
+      } else {
+        await this.queryBuilderService.insertWithOptions({
+          table: 'route_handler_definition',
+          data,
+        });
+      }
       this.logger.log(`   Default ${methodName} handler → ${path}`);
     }
   }
@@ -215,6 +332,7 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       'isSystem',
       'mainTable',
       'publishedMethods',
+      'skipRoleGuardMethods',
       'availableMethods',
     ];
   }

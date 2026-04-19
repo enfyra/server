@@ -1,10 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import {
-  CACHE_IDENTIFIERS,
-} from '../../../shared/utils/cache-events.constants';
+import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const OAUTH_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
@@ -23,20 +20,22 @@ export interface OAuthConfig {
   description?: string;
 }
 
-@Injectable()
 export class OAuthConfigCacheService extends BaseCacheService<
   Map<string, OAuthConfig>
 > {
-  constructor(
-    private readonly queryBuilder: QueryBuilderService,
-    eventEmitter: EventEmitter2,
-  ) {
-    super(OAUTH_CONFIG, eventEmitter);
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    eventEmitter?: EventEmitter2;
+  }) {
+    super(OAUTH_CONFIG, deps.eventEmitter);
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   protected async loadFromDb(): Promise<OAuthConfig[]> {
-    const result = await this.queryBuilder.select({
-      tableName: 'oauth_config_definition',
+    const result = await this.queryBuilderService.find({
+      table: 'oauth_config_definition',
       filter: { isEnabled: { _eq: true } },
     });
     if (!result.data || result.data.length === 0) {

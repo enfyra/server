@@ -34,7 +34,11 @@ describe('RouteCacheService — partial reload for table_definition', () => {
         return;
       }
       for (const route of cache.routes) {
-        if (payload.ids.some((id: any) => String(id) === String(route.mainTable?.id))) {
+        if (
+          payload.ids.some(
+            (id: any) => String(id) === String(route.mainTable?.id),
+          )
+        ) {
           affectedTableNames.add(route.mainTable?.name);
         }
       }
@@ -75,8 +79,16 @@ describe('RouteCacheService — partial reload for table_definition', () => {
 
   it('delete table: no routes in DB → remove stale from cache', async () => {
     cache.routes = [
-      { id: 10, mainTable: { id: 50, name: 'deleted_table' }, path: '/deleted_table' },
-      { id: 11, mainTable: { id: 60, name: 'other_table' }, path: '/other_table' },
+      {
+        id: 10,
+        mainTable: { id: 50, name: 'deleted_table' },
+        path: '/deleted_table',
+      },
+      {
+        id: 11,
+        mainTable: { id: 60, name: 'other_table' },
+        path: '/other_table',
+      },
     ];
     dbRoutes = [];
 

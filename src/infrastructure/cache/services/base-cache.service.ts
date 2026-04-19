@@ -1,5 +1,5 @@
-import { Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Logger } from '../../../shared/logger';
+import { EventEmitter2 } from 'eventemitter2';
 import {
   CACHE_IDENTIFIERS,
   TCacheInvalidationPayload,
@@ -48,9 +48,7 @@ export abstract class BaseCacheService<T> {
         this.cacheLoaded = true;
 
         const elapsed = Date.now() - start;
-        this.logger.log(
-          `Loaded ${this.getLogCount()} in ${elapsed}ms`,
-        );
+        this.logger.log(`Loaded ${this.getLogCount()} in ${elapsed}ms`);
 
         this.emitLoadedEvent();
       } catch (error) {
@@ -71,6 +69,7 @@ export abstract class BaseCacheService<T> {
   ): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
+      return;
     }
     try {
       const start = Date.now();
@@ -135,9 +134,20 @@ export abstract class BaseCacheService<T> {
     if (!this.cacheLoaded) {
       await this.reload();
     }
+    if (this.isLoading && this.loadingPromise) {
+      await this.loadingPromise;
+    }
   }
 
   getRawCache(): T {
+    if (this.isLoading && this.loadingPromise) {
+      this.logger.warn('Cache reload in progress, returning stale data. Consider using await ensureLoaded() before access.');
+    }
+    return this.cache;
+  }
+
+  async getCacheAsync(): Promise<T> {
+    await this.ensureLoaded();
     return this.cache;
   }
 

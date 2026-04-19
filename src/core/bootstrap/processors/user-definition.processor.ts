@@ -1,19 +1,23 @@
-import { Injectable } from '@nestjs/common';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
-@Injectable()
 export class UserDefinitionProcessor extends BaseTableProcessor {
-  constructor(
-    private readonly bcryptService: BcryptService,
-    private readonly queryBuilder: QueryBuilderService,
-  ) {
+  private readonly bcryptService: BcryptService;
+  private readonly queryBuilderService: QueryBuilderService;
+
+  constructor(deps: {
+    bcryptService: BcryptService;
+    queryBuilderService: QueryBuilderService;
+  }) {
     super();
+    this.bcryptService = deps.bcryptService;
+    this.queryBuilderService = deps.queryBuilderService;
   }
 
   async transformRecords(records: any[], context?: any): Promise<any[]> {
-    const isMongoDB = process.env.DB_TYPE === 'mongodb';
+    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (record) => {
         const transformed = {
@@ -32,7 +36,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
         const result = await this.autoTransformFkFields(
           transformed,
           'user_definition',
-          this.queryBuilder,
+          this.queryBuilderService,
         );
         return result;
       }),
@@ -46,10 +50,10 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     tableName: string,
     context?: any,
   ): Promise<UpsertResult> {
-    const existingRootAdmin = await queryBuilder.findOneWhere(
-      tableName,
-      { isRootAdmin: true },
-    );
+    const existingRootAdmin = await queryBuilder.findOne({
+      table: tableName,
+      where: { isRootAdmin: true },
+    });
 
     if (existingRootAdmin) {
       this.logger.log(
@@ -77,10 +81,10 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
     for (const record of transformedRecords) {
       try {
         const uniqueWhere = this.getUniqueIdentifier(record);
-        const existingRecord = await queryBuilder.findOneWhere(
-          tableName,
-          uniqueWhere,
-        );
+        const existingRecord = await queryBuilder.findOne({
+          table: tableName,
+          where: uniqueWhere,
+        });
 
         if (existingRecord) {
           skippedCount++;
@@ -93,14 +97,11 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
             );
             delete insertData._plainPassword;
           }
-          const inserted = await queryBuilder.insertAndGet(
-            tableName,
-            insertData,
-          );
+          const inserted = await queryBuilder.insert(tableName, insertData);
           createdCount++;
           this.logger.log(`   Created: ${this.getRecordIdentifier(record)}`);
           if (this.afterUpsert) {
-            const idField = queryBuilder.isMongoDb() ? '_id' : 'id';
+            const idField = queryBuilder.getPkField();
             await this.afterUpsert(
               { ...record, [idField]: inserted[idField] },
               true,

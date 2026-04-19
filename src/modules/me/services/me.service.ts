@@ -1,12 +1,7 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '../../../shared/errors';
 import { Request } from 'express';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { ObjectId } from 'mongodb';
 
-@Injectable()
 export class MeService {
-  constructor(private readonly queryBuilder: QueryBuilderService) {}
-
   async find(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
     const repo = req.routeData?.context?.$repos?.main;
@@ -31,25 +26,18 @@ export class MeService {
     if (!repo) {
       throw new Error('Repository not found in route context');
     }
-
     const userId = req.user._id || req.user.id;
     return await repo.update({ id: userId, data: body });
   }
 
-  async findOAuthAccounts(req: Request & { user: any }) {
+  async findOAuthAccounts(req: Request & { user: any; routeData?: any }) {
     if (!req.user) throw new UnauthorizedException();
+    const repo = req.routeData?.context?.$repos?.main;
+    if (!repo) {
+      throw new Error('Repository not found in route context');
+    }
     const userId = req.user._id || req.user.id;
-    const isMongoDB = this.queryBuilder.isMongoDb();
-    const where = isMongoDB
-      ? {
-          user:
-            userId instanceof ObjectId ? userId : new ObjectId(String(userId)),
-        }
-      : { userId };
-    const data = await this.queryBuilder.findWhere(
-      'oauth_account_definition',
-      where,
-    );
+    const { data } = await repo.find({ where: { userId } });
     return { data };
   }
 }

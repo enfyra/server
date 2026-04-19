@@ -1,4 +1,6 @@
-export function mongoTopologySupportsNativeTransactions(hello: unknown): boolean {
+export function mongoTopologySupportsNativeTransactions(
+  hello: unknown,
+): boolean {
   if (!hello || typeof hello !== 'object') {
     return false;
   }

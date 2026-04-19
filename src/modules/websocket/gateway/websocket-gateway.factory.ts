@@ -1,36 +1,38 @@
-import { Injectable } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { DynamicWebSocketGateway } from './dynamic-websocket.gateway';
 
-@Injectable()
 export class WebsocketGatewayFactory {
-  constructor(private readonly dynamicGateway: DynamicWebSocketGateway) {}
+  private readonly dynamicWebSocketGateway: DynamicWebSocketGateway;
+
+  constructor(deps: { dynamicWebSocketGateway: DynamicWebSocketGateway }) {
+    this.dynamicWebSocketGateway = deps.dynamicWebSocketGateway;
+  }
 
   async emitToUser(
     userId: number | string,
     event: string,
     data: any,
   ): Promise<void> {
-    this.dynamicGateway.emitToUser(userId, event, data);
+    this.dynamicWebSocketGateway.emitToUser(userId, event, data);
   }
 
   async emitToRoom(room: string, event: string, data: any): Promise<void> {
-    this.dynamicGateway.emitToRoom(room, event, data);
+    this.dynamicWebSocketGateway.emitToRoom(room, event, data);
   }
 
   async emitToGateway(path: string, event: string, data: any): Promise<void> {
-    this.dynamicGateway.emitToNamespace(path, event, data);
+    this.dynamicWebSocketGateway.emitToNamespace(path, event, data);
   }
 
   async broadcast(event: string, data: any): Promise<void> {
-    this.dynamicGateway.emitToAll(event, data);
+    this.dynamicWebSocketGateway.emitToAll(event, data);
   }
 
   async getServer(): Promise<Server> {
-    return (this.dynamicGateway as any).server;
+    return (this.dynamicWebSocketGateway as any).server;
   }
 
   async registerGateways(): Promise<void> {
-    await this.dynamicGateway.registerGateways();
+    await this.dynamicWebSocketGateway.registerGateways();
   }
 }

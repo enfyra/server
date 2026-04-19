@@ -13,5 +13,6 @@ module.exports = {
   roots: ['<rootDir>/src/', '<rootDir>/test/'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1'
-  }
+  },
+  setupFiles: ['<rootDir>/test/jest.setup.ts']
 };

@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { MongoClient, Db } from 'mongodb';
-import { MongoService } from '../src/infrastructure/mongo/services/mongo.service';
 import {
   ColumnDef,
   RelationDef,
@@ -13,7 +12,11 @@ import {
   loadSchemaMigration,
   hasSchemaMigrations,
   applyMongoSchemaMigrations,
-} from './utils/schema-migration';
+} from '../src/shared/utils/provision-schema-migration';
+import {
+  buildJunctionDefs,
+  createJunctionCollections,
+} from '../src/infrastructure/mongo/utils/junction-collections';
 dotenv.config();
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {
@@ -67,12 +70,6 @@ function createValidationSchema(tableDef: TableDef, allTables: Record<string, Ta
         properties[rel.propertyName] = {
           bsonType: ['objectId', 'null'],
           description: `Reference to ${rel.targetTable}`,
-        };
-      } else if (rel.type === 'many-to-many') {
-        properties[rel.propertyName] = {
-          bsonType: 'array',
-          items: { bsonType: 'objectId' },
-          description: `Many-to-many relation to ${rel.targetTable}`,
         };
       }
     }
@@ -181,23 +178,6 @@ async function createIndexes(
           }
         }
       }
-      if (relation.type === 'many-to-many') {
-        const fieldName = relation.propertyName;
-        const indexName = `${collectionName}_${fieldName}_fk_idx`;
-        try {
-          await collection.createIndex(
-            { [fieldName]: 1 },
-            { name: indexName }
-          );
-          console.log(`  Created index on M2M field: ${fieldName}`);
-        } catch (error: any) {
-          if (error.code === 85 || error.code === 86) {
-            console.log(`  Index on ${fieldName} already exists, skipping`);
-          } else {
-            throw error;
-          }
-        }
-      }
     }
   }
 }
@@ -240,16 +220,16 @@ async function createCollection(db: Db, tableDef: TableDef, allTables: Record<st
   await createIndexes(db, collectionName, tableDef);
 }
 export async function initializeDatabaseMongo(): Promise<void> {
-  const MONGO_URI = process.env.MONGO_URI;
-  if (!MONGO_URI) {
-    throw new Error('MONGO_URI is not defined in environment variables');
+  const DB_URI = process.env.DB_URI;
+  if (!DB_URI) {
+    throw new Error('DB_URI is not defined in environment variables');
   }
   console.log('🚀 Initializing MongoDB database...');
-  const client = new MongoClient(MONGO_URI);
+  const client = new MongoClient(DB_URI);
   try {
     await client.connect();
     console.log('✅ Connected to MongoDB');
-    const dbName = MONGO_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
+    const dbName = DB_URI.match(/\/([^/?]+)(\?|$)/)?.[1] || 'enfyra';
     const db = client.db(dbName);
     const settingCollection = db.collection('setting_definition');
     const existingSettings = await settingCollection.findOne({ isInit: true });
@@ -274,6 +254,10 @@ export async function initializeDatabaseMongo(): Promise<void> {
     for (const tableDef of tables) {
       await createCollection(db, tableDef, snapshot);
     }
+
+    const junctionDefs = buildJunctionDefs(snapshot);
+    await createJunctionCollections(db, junctionDefs);
+
     console.log('🎉 MongoDB database initialization completed!');
   } catch (error) {
     console.error('❌ Error during MongoDB initialization:', error);

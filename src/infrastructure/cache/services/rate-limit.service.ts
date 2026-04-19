@@ -1,7 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '@liaoliaots/nestjs-redis';
+import { Logger } from '../../../shared/logger';
 import { Redis } from 'ioredis';
-import { ConfigService } from '@nestjs/config';
+import { EnvService } from '../../../shared/services/env.service';
+
+export interface RateLimitOptions {
+  maxRequests: number;
+  perSeconds: number;
+}
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -12,16 +16,11 @@ export interface RateLimitResult {
   window: number;
 }
 
-export interface RateLimitOptions {
-  maxRequests: number;
-  perSeconds: number;
-}
-
-@Injectable()
 export class RateLimitService {
   private readonly logger = new Logger(RateLimitService.name);
   private readonly redis: Redis;
   private readonly nodeName: string | null;
+  private readonly envService: EnvService;
 
   private readonly luaScript = `
     local key = KEYS[1]
@@ -44,17 +43,15 @@ export class RateLimitService {
     end
   `;
 
-  constructor(
-    private readonly redisService: RedisService,
-    private readonly configService: ConfigService,
-  ) {
-    this.redis = this.redisService.getOrNil();
+  constructor(deps: { redis: Redis; envService: EnvService }) {
+    this.redis = deps.redis;
+    this.envService = deps.envService;
     if (!this.redis) {
       this.logger.warn(
         'Redis connection not available - RateLimitService will not work',
       );
     }
-    this.nodeName = this.configService.get<string>('NODE_NAME') || null;
+    this.nodeName = this.envService.get('NODE_NAME') || null;
   }
 
   private decorateKey(key: string): string {
@@ -145,20 +142,32 @@ export class RateLimitService {
 
     const decoratedKey = this.decorateKey(key);
     const now = Date.now();
+    const windowStart = now - options.perSeconds * 1000;
 
     try {
-      await this.redis.zremrangebyscore(
-        decoratedKey,
-        0,
-        now - options.perSeconds * 1000,
-      );
-      const current = await this.redis.zcard(decoratedKey);
-      const remaining = Math.max(0, options.maxRequests - current);
-      const ttl = await this.redis.pttl(decoratedKey);
-      const resetAt = ttl > 0 ? now + ttl : now + options.perSeconds * 1000;
+      const pipeline = this.redis.pipeline();
+      pipeline.zremrangebyscore(decoratedKey, 0, windowStart);
+      pipeline.zcard(decoratedKey);
+      pipeline.zrange(decoratedKey, 0, 0, 'WITHSCORES');
+      const results = await pipeline.exec();
+
+      if (!results) {
+        throw new Error('Redis pipeline execution failed');
+      }
+
+      const count = results[1][1] as number;
+      const oldestResult = results[2][1] as string[];
+      let resetAt = now + options.perSeconds * 1000;
+      if (oldestResult && oldestResult.length >= 2) {
+        const oldestTimestamp = parseFloat(oldestResult[1]);
+        if (!Number.isNaN(oldestTimestamp)) {
+          resetAt = oldestTimestamp + options.perSeconds * 1000;
+        }
+      }
+      const remaining = Math.max(0, options.maxRequests - count);
 
       return {
-        allowed: current < options.maxRequests,
+        allowed: count < options.maxRequests,
         remaining,
         resetAt,
         retryAfter: 0,
@@ -166,7 +175,7 @@ export class RateLimitService {
         window: options.perSeconds,
       };
     } catch (error) {
-      this.logger.error(`Rate limit status check failed: ${error}`);
+      this.logger.error(`Rate limit status failed: ${error}`);
       return {
         allowed: true,
         remaining: options.maxRequests,

@@ -161,10 +161,8 @@ $ctx.$cache = new Proxy({}, {
     __call('cacheCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
 });
 
-$ctx.$dispatch = new Proxy({}, {
-  get: (_, method) => async (...args) =>
-    __call('dispatchCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) }))
-});
+$ctx.$trigger = async (...args) =>
+  __call('dispatchCall', JSON.stringify({ method: 'trigger', argsJson: JSON.stringify(args) }));
 
 const __throwDefaults = { 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Validation failed', 429: 'Too many requests', 500: 'Internal server error', 503: 'Service unavailable' };
 $ctx.$throw = new Proxy({}, {

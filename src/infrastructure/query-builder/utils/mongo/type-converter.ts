@@ -6,12 +6,19 @@ export function convertValueByType(
   field: string,
   value: any,
 ): any {
-  if (field === '_id' && typeof value === 'string') {
-    try {
-      return new ObjectId(value);
-    } catch (err) {
-      return value;
+  if (field === '_id') {
+    // Already an ObjectId — return as-is
+    if (value instanceof ObjectId) return value;
+    // String — convert to ObjectId
+    if (typeof value === 'string') {
+      try {
+        return new ObjectId(value);
+      } catch (err) {
+        return value;
+      }
     }
+    // Any other type (number, etc.) — return as-is, let MongoDB handle it
+    return value;
   }
 
   const tableMeta = metadata?.tables?.get(tableName);

@@ -1,3 +1,5 @@
+import { FilterNode } from './types/filter-ast';
+import { FieldTree } from './types/field-tree';
 export type DatabaseType = 'postgres' | 'mysql' | 'sqlite' | 'mongodb';
 export type RelationType =
   | 'many-to-one'
@@ -45,5 +47,6 @@ export interface QueryPlan {
   hasOnlyManyToOneDataJoins: boolean;
   limitedCteFilterJoins: JoinSpec[];
   limitedCteSortJoin: JoinSpec | null;
-  sqlStrategy: SqlStrategy;
+  filterTree: FilterNode | null;
+  fieldTree: FieldTree | null;
 }

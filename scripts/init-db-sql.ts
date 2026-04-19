@@ -8,24 +8,25 @@ import {
 } from '../src/shared/types/database-init.types';
 import {
   parseSnapshotToSchema,
-} from './utils/sql/schema-parser';
-import { ensureDatabaseExists } from './utils/sql/database-setup';
+} from '../src/infrastructure/knex/utils/provision/schema-parser';
+import { ensureDatabaseExists } from '../src/infrastructure/knex/utils/provision/database-setup';
 import {
   createTable,
   createAllTables,
-} from './utils/sql/table-builder';
-import { addForeignKeys } from './utils/sql/foreign-keys';
+} from '../src/infrastructure/knex/utils/provision/table-builder';
+import { addForeignKeys } from '../src/infrastructure/knex/utils/provision/foreign-keys';
 import {
   createJunctionTables,
   syncJunctionTables,
-} from './utils/sql/junction-tables';
-import { syncTable } from './utils/sql/migrations';
+} from '../src/infrastructure/knex/utils/provision/junction-tables';
+import { syncTable } from '../src/infrastructure/knex/utils/provision/sync-table';
 import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
 import {
   loadSchemaMigration,
   hasSchemaMigrations,
   applySqlSchemaMigrations,
-} from './utils/schema-migration';
+} from '../src/shared/utils/provision-schema-migration';
+import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();
 
@@ -36,46 +37,26 @@ dotenv.config();
 
 
 export async function initializeDatabaseSql(): Promise<void> {
-  const DB_TYPE = process.env.DB_TYPE || 'mysql';
-
-  let connectionConfig: {
-    host: string;
-    port: number;
-    user: string;
-    password: string;
-    database: string;
-  };
+  const dbType = resolveDbTypeFromEnv();
 
   const DB_URI = process.env.DB_URI;
-
-  if (DB_URI) {
-    try {
-      const parsed = parseDatabaseUri(DB_URI);
-      connectionConfig = {
-        host: parsed.host,
-        port: parsed.port,
-        user: parsed.user,
-        password: parsed.password,
-        database: parsed.database,
-      };
-    } catch (error) {
-      console.error('❌ Failed to parse DB_URI:', error);
-      throw error;
-    }
-  } else {
-    connectionConfig = {
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || (DB_TYPE === 'postgres' ? 5432 : 3306),
-      user: process.env.DB_USERNAME || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'enfyra',
-    };
+  if (!DB_URI) {
+    throw new Error('DB_URI environment variable is required but not set.');
   }
+
+  const parsed = parseDatabaseUri(DB_URI);
+  const connectionConfig = {
+    host: parsed.host,
+    port: parsed.port,
+    user: parsed.user,
+    password: parsed.password,
+    database: parsed.database,
+  };
 
   await ensureDatabaseExists();
 
   const knexInstance = knex({
-    client: DB_TYPE === 'postgres' ? 'pg' : 'mysql2',
+    client: dbType === 'postgres' ? 'pg' : 'mysql2',
     connection: {
       host: connectionConfig.host,
       port: connectionConfig.port,
@@ -114,7 +95,7 @@ export async function initializeDatabaseSql(): Promise<void> {
 
     const schemas = parseSnapshotToSchema(snapshot);
 
-    await createAllTables(knexInstance, schemas, DB_TYPE);
+    await createAllTables(knexInstance, schemas, dbType);
 
     for (const schema of schemas) {
       const exists = await knexInstance.schema.hasTable(schema.tableName);

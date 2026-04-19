@@ -58,7 +58,10 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   role_definition: ROUTE_GROUP,
   method_definition: ROUTE_GROUP,
 
-  field_permission_definition: [CACHE_IDENTIFIERS.FIELD_PERMISSION],
+  field_permission_definition: [
+    CACHE_IDENTIFIERS.FIELD_PERMISSION,
+    CACHE_IDENTIFIERS.GRAPHQL,
+  ],
 
   storage_config_definition: [CACHE_IDENTIFIERS.STORAGE],
   oauth_config_definition: [CACHE_IDENTIFIERS.OAUTH_CONFIG],
@@ -72,6 +75,7 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   guard_definition: [CACHE_IDENTIFIERS.GUARD],
   guard_rule_definition: [CACHE_IDENTIFIERS.GUARD],
   setting_definition: [CACHE_IDENTIFIERS.SETTING],
+  gql_definition: [CACHE_IDENTIFIERS.GRAPHQL],
 };
 
 export function shouldReloadCache(

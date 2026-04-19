@@ -1,27 +1,44 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
-import { JwtService } from '@nestjs/jwt';
+import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { EnvService } from '../../../shared/services/env.service';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
+import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { GuardCacheService } from '../../../infrastructure/cache/services/guard-cache.service';
 import { GuardEvaluatorService } from '../../../infrastructure/cache/services/guard-evaluator.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
+import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
-@Injectable()
 export class DynamicResolver {
-  constructor(
-    private jwtService: JwtService,
-    private queryBuilder: QueryBuilderService,
-    private handlerExecutorService: ExecutorEngineService,
-    private routeCacheService: RouteCacheService,
-    private repoRegistryService: RepoRegistryService,
-    private guardCacheService: GuardCacheService,
-    private guardEvaluatorService: GuardEvaluatorService,
-  ) {}
+  private readonly queryBuilderService: QueryBuilderService;
+  private readonly executorEngineService: ExecutorEngineService;
+  private readonly gqlDefinitionCacheService: GqlDefinitionCacheService;
+  private readonly repoRegistryService: RepoRegistryService;
+  private readonly guardCacheService: GuardCacheService;
+  private readonly guardEvaluatorService: GuardEvaluatorService;
+  private readonly envService: EnvService;
+
+  constructor(deps: {
+    queryBuilderService: QueryBuilderService;
+    executorEngineService: ExecutorEngineService;
+    gqlDefinitionCacheService: GqlDefinitionCacheService;
+    repoRegistryService: RepoRegistryService;
+    guardCacheService: GuardCacheService;
+    guardEvaluatorService: GuardEvaluatorService;
+    envService: EnvService;
+  }) {
+    this.queryBuilderService = deps.queryBuilderService;
+    this.executorEngineService = deps.executorEngineService;
+    this.gqlDefinitionCacheService = deps.gqlDefinitionCacheService;
+    this.repoRegistryService = deps.repoRegistryService;
+    this.guardCacheService = deps.guardCacheService;
+    this.guardEvaluatorService = deps.guardEvaluatorService;
+    this.envService = deps.envService;
+  }
 
   async dynamicResolver(
     tableName: string,
@@ -53,7 +70,7 @@ export class DynamicResolver {
       $throw: ScriptErrorFactory.createThrowHandlers(),
       $helpers: {
         jwt: (payload: any, ext: string) =>
-          this.jwtService.sign(payload, {
+          jwt.sign(payload, this.envService.get('SECRET_KEY'), {
             expiresIn: ext as import('ms').StringValue,
           }),
       },
@@ -89,7 +106,7 @@ export class DynamicResolver {
     );
     try {
       const defaultHandler = `return await $ctx.$repos.main.find();`;
-      const result = await this.handlerExecutorService.run(
+      const result = await this.executorEngineService.run(
         defaultHandler,
         handlerCtx,
         30000,
@@ -145,7 +162,7 @@ export class DynamicResolver {
         default:
           throw new BadRequestException(`Unsupported operation: ${operation}`);
       }
-      const result = await this.handlerExecutorService.run(
+      const result = await this.executorEngineService.run(
         defaultHandler,
         handlerCtx,
         30000,
@@ -167,89 +184,68 @@ export class DynamicResolver {
     if (!mainTableName) {
       throwGqlError('400', 'Missing table name');
     }
-    const routeEngine = this.routeCacheService.getRouteEngine();
-    const matchResult = routeEngine.find(method, `/${mainTableName}`);
-    if (!matchResult) {
-      throwGqlError('404', 'Route not found');
-    }
-    const currentRoute = matchResult.route;
 
-    const routePath = currentRoute.path || mainTableName;
+    if (isMetadataTable(mainTableName)) {
+      throwGqlError(
+        '403',
+        `Metadata table "${mainTableName}" is not accessible via GraphQL. Use REST API instead.`,
+      );
+    }
+
+    const isEnabled =
+      await this.gqlDefinitionCacheService.isEnabledForTable(mainTableName);
+    if (!isEnabled) {
+      throwGqlError(
+        '404',
+        `GraphQL is not enabled for table: ${mainTableName}`,
+      );
+    }
+
+    const routePath = `/${mainTableName}`;
     const clientIp = this.resolveClientIp(context);
 
     await this.runGuards('pre_auth', routePath, method, clientIp, null);
 
     const accessToken =
       context.request?.headers?.get('authorization')?.split('Bearer ')[1] || '';
-    const user = await this.checkAccess(currentRoute, method, accessToken);
+    const user = await this.checkAccess(mainTableName, method, accessToken);
 
     const userId =
       user && !user.isAnonymous ? user._id || user.id || null : null;
     await this.runGuards('post_auth', routePath, method, clientIp, userId);
 
     return {
-      matchedRoute: currentRoute,
       user,
-      mainTable: currentRoute.mainTable,
+      mainTable: { name: mainTableName },
     };
   }
 
   private async checkAccess(
-    currentRoute: any,
+    tableName: string,
     method: string,
     accessToken: string,
   ) {
-    if (!currentRoute?.isEnabled) {
-      throwGqlError('404', 'NotFound');
-    }
-    const isPublished = currentRoute.publishedMethods?.some(
-      (item: any) => (item?.method ?? item) === method,
-    );
-    if (isPublished) {
-      return { isAnonymous: true };
+    if (!accessToken) {
+      throwGqlError('401', 'Authentication required');
     }
     let decoded;
     try {
-      decoded = this.jwtService.verify(accessToken);
+      decoded = jwt.verify(accessToken, this.envService.get('SECRET_KEY'));
     } catch {
       throwGqlError('401', 'Unauthorized');
     }
-    const user = await this.queryBuilder.findOneWhere('user_definition', {
-      id: decoded.id,
+    const user = await this.queryBuilderService.findOne({
+      table: 'user_definition',
+      where: { id: decoded.id },
     });
     if (!user) {
       throwGqlError('401', 'Invalid user');
     }
     if (user.roleId) {
-      user.role = await this.queryBuilder.findOneWhere('role_definition', {
-        id: user.roleId,
+      user.role = await this.queryBuilderService.findOne({
+        table: 'role_definition',
+        where: { id: user.roleId },
       });
-    }
-
-    if (user.isRootAdmin) return user;
-
-    const userId = String(user._id || user.id);
-    const userRoleId = user.role ? String(user.role._id || user.role.id) : null;
-
-    const canPass = currentRoute.routePermissions?.find((permission: any) => {
-      const hasMethodAccess = permission.methods?.some(
-        (m: any) => (m?.method ?? m) === method,
-      );
-      if (!hasMethodAccess) return false;
-      if (
-        permission?.allowedUsers?.some(
-          (u: any) => String(u?._id || u?.id) === userId,
-        )
-      ) {
-        return true;
-      }
-      if (!userRoleId) return false;
-      const permRoleId = String(permission?.role?._id || permission?.role?.id);
-      return permRoleId === userRoleId;
-    });
-
-    if (!canPass) {
-      throwGqlError('403', 'Not allowed');
     }
     return user;
   }

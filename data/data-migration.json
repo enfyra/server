@@ -1,174 +1,681 @@
 {
-  "_deletedRecords": [
-    { "table": "route_definition", "filter": { "path": { "_eq": "/api-docs" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/metadata-sync/:id" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/flow/test-step" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/ai_config_definition" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/ai_conversation_definition" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/ai_message_definition" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/chat" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/chat/stream" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/ai-agent/cancel" } } },
-    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai" } } },
-    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/chat" } } },
-    { "table": "menu_definition", "filter": { "path": { "_eq": "/ai-agent/config" } } },
-    { "table": "websocket_event_definition", "filter": { "eventName": { "_eq": "ping" } } },
-    { "table": "route_definition", "filter": { "path": { "_eq": "/admin/reload/swagger" } } }
-  ],
-  "menu_definition": [
-    {
-      "_unique": { "path": { "_eq": "/dashboard" } },
-      "type": "Menu",
-      "isSystem": true
-    }
-  ],
-  "post_hook_definition": [
-    {
-      "_unique": { "name": { "_eq": "Default response" } },
-      "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}"
-    }
-  ],
-  "route_definition": [
-    {
-      "_unique": { "path": { "_eq": "/package_definition" } },
-      "publishedMethods": [],
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/auth/login" } },
-      "publishedMethods": ["POST"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/auth/logout" } },
-      "publishedMethods": ["POST"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/auth/refresh-token" } },
-      "publishedMethods": ["POST"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/me" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/assets/:id" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/metadata" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/metadata/:name" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/folder_definition/tree" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/admin/test/run" } },
-      "isEnabled": true
-    },
-    {
-      "_unique": { "path": { "_eq": "/route_definition" } },
-      "publishedMethods": [],
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/table_definition" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/setting_definition" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/me/oauth-accounts" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/graphql-schema" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/method_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/pre_hook_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/post_hook_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/route_handler_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/route_permission_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/menu_definition" } },
-      "publishedMethods": [],
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/extension_definition" } },
-      "publishedMethods": [],
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/extension_definition/preview" } },
-      "publishedMethods": []
-    },
-    {
-      "_unique": { "path": { "_eq": "/bootstrap_script_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/storage_config_definition" } },
-      "publishedMethods": [],
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/oauth_config_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/oauth_account_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/websocket_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/websocket_event_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/flow_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/flow_step_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/flow_execution_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/file_permission_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    },
-    {
-      "_unique": { "path": { "_eq": "/guard_rule_definition" } },
-      "availableMethods": ["GET", "POST", "PATCH", "DELETE"]
-    }
-  ]
+    "_deletedRecords": [
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/api-docs"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/admin/metadata-sync/:id"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/admin/flow/test-step"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai_config_definition"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai_conversation_definition"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai_message_definition"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai-agent/chat"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai-agent/chat/stream"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai-agent/cancel"
+                }
+            }
+        },
+        {
+            "table": "menu_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai"
+                }
+            }
+        },
+        {
+            "table": "menu_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai-agent/chat"
+                }
+            }
+        },
+        {
+            "table": "menu_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/ai-agent/config"
+                }
+            }
+        },
+        {
+            "table": "websocket_event_definition",
+            "filter": {
+                "eventName": {
+                    "_eq": "ping"
+                }
+            }
+        },
+        {
+            "table": "route_definition",
+            "filter": {
+                "path": {
+                    "_eq": "/admin/reload/swagger"
+                }
+            }
+        },
+        {
+            "table": "method_definition",
+            "filter": {
+                "method": {
+                    "_eq": "GQL_QUERY"
+                }
+            }
+        },
+        {
+            "table": "method_definition",
+            "filter": {
+                "method": {
+                    "_eq": "GQL_MUTATION"
+                }
+            }
+        }
+    ],
+    "menu_definition": [
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/dashboard"
+                }
+            },
+            "type": "Menu",
+            "isSystem": true
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/settings/api-tester"
+                }
+            },
+            "permission": {
+                "and": [
+                    {
+                        "route": "/route_definition",
+                        "actions": [
+                            "read"
+                        ]
+                    },
+                    {
+                        "or": [
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "create"
+                                ]
+                            },
+                            {
+                                "route": "/route_definition",
+                                "actions": [
+                                    "update"
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+    "post_hook_definition": [
+        {
+            "_unique": {
+                "name": {
+                    "_eq": "Default response"
+                }
+            },
+            "code": "@DATA = { statusCode: @STATUS, ...@DATA, message: 'Success'}"
+        }
+    ],
+    "route_definition": [
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/package_definition"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/auth/login"
+                }
+            },
+            "publishedMethods": [
+                "POST"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/auth/logout"
+                }
+            },
+            "publishedMethods": [
+                "POST"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/auth/refresh-token"
+                }
+            },
+            "publishedMethods": [
+                "POST"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/me"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET",
+                "PATCH"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/assets/:id"
+                }
+            },
+            "publishedMethods": []
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/metadata"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/metadata/:name"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/folder_definition/tree"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/admin/test/run"
+                }
+            },
+            "isEnabled": true
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/route_definition"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/table_definition"
+                }
+            },
+            "publishedMethods": []
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/setting_definition"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/me/oauth-accounts"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/graphql-schema"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/method_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/pre_hook_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/post_hook_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/route_handler_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/route_permission_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/menu_definition"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/extension_definition"
+                }
+            },
+            "publishedMethods": [],
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/extension_definition/preview"
+                }
+            },
+            "publishedMethods": []
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/bootstrap_script_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/storage_config_definition"
+                }
+            },
+            "publishedMethods": [],
+            "skipRoleGuardMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/oauth_config_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/oauth_account_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/websocket_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/websocket_event_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/flow_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/flow_step_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/flow_execution_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/file_permission_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/guard_rule_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/user_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/role_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/folder_definition"
+                }
+            },
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        }
+    ],
+    "gql_definition": [
+        {
+            "_unique": {
+                "table": { "name": { "_eq": "table_definition" } }
+            },
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "_unique": {
+                "table": { "name": { "_eq": "user_definition" } }
+            },
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "_unique": {
+                "table": { "name": { "_eq": "role_definition" } }
+            },
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "_unique": {
+                "table": { "name": { "_eq": "setting_definition" } }
+            },
+            "isEnabled": true,
+            "isSystem": true
+        },
+        {
+            "_unique": {
+                "table": { "name": { "_eq": "folder_definition" } }
+            },
+            "isEnabled": true,
+            "isSystem": true
+        }
+    ]
 }
