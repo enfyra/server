@@ -8,6 +8,7 @@ import {
   ScriptExecutionException,
   ScriptTimeoutException,
 } from '../custom-exceptions';
+import { AppError } from '../../../shared/errors';
 
 export interface ErrorResponse {
   success: false;
@@ -89,6 +90,14 @@ function getErrorDetails(exception: unknown): {
     return {
       statusCode: exception.statusCode,
       errorCode: exception.errorCode,
+      message: exception.message,
+      details: exception.details,
+    };
+  }
+  if (exception instanceof AppError) {
+    return {
+      statusCode: exception.statusCode,
+      errorCode: exception.code || exception.name,
       message: exception.message,
       details: exception.details,
     };

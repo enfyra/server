@@ -418,4 +418,13 @@ export class DynamicWebSocketGateway {
       this.server.of(path).emit(event, data);
     }
   }
+
+  async roomSize(room: string): Promise<number> {
+    let total = 0;
+    for (const path of this.registeredGateways) {
+      const sockets = await this.server.of(path).in(room).allSockets();
+      total += sockets.size;
+    }
+    return total;
+  }
 }

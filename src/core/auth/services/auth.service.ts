@@ -56,7 +56,11 @@ export class AuthService {
   }
 
   async login(body: any) {
-    const { email, password } = body;
+    const { email, password } = body ?? {};
+
+    if (!email || !password) {
+      throw new BadRequestException('Email and password are required');
+    }
 
     const user = await this.queryBuilder.findOne({
       table: 'user_definition',

@@ -150,9 +150,20 @@ $ctx.$helpers = new Proxy({}, {
   }
 });
 
+// $socket methods that return a value go through awaiting __call.
+// Void methods (emit/join/leave/reply/disconnect/broadcast) stay fire-and-forget
+// so existing scripts that don't await keep their original semantics.
+const __SOCKET_AWAIT_METHODS = new Set(['roomSize']);
 $ctx.$socket = new Proxy({}, {
-  get: (_, method) => (...args) => {
-    __fireRef.applyIgnored(undefined, ['socketCall', JSON.stringify({ method: String(method), argsJson: JSON.stringify(args) })]);
+  get: (_, method) => {
+    const m = String(method);
+    if (__SOCKET_AWAIT_METHODS.has(m)) {
+      return async (...args) =>
+        __call('socketCall', JSON.stringify({ method: m, argsJson: JSON.stringify(args) }));
+    }
+    return (...args) => {
+      __fireRef.applyIgnored(undefined, ['socketCall', JSON.stringify({ method: m, argsJson: JSON.stringify(args) })]);
+    };
   }
 });
 

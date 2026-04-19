@@ -439,7 +439,12 @@ export class IsolatedExecutorService {
                 signal,
               );
             } else if (msg.type === 'socketCall') {
-              this.handleSocketCall(msg, ctx);
+              this.handleIoCall(
+                () => this.execSocketCall(msg, ctx),
+                entry.worker,
+                msg.callId,
+                signal,
+              );
             } else if (msg.type === 'cacheCall') {
               this.handleIoCall(
                 () => this.execCacheCall(msg, ctx),
@@ -514,12 +519,13 @@ export class IsolatedExecutorService {
     return fn(...args);
   }
 
-  private handleSocketCall(msg: any, ctx: any) {
-    try {
-      const args = JSON.parse(msg.argsJson);
-      const fn = ctx?.$socket?.[msg.method];
-      if (typeof fn === 'function') fn(...args);
-    } catch {}
+  private async execSocketCall(msg: any, ctx: any): Promise<unknown> {
+    const args = JSON.parse(msg.argsJson);
+    const fn = ctx?.$socket?.[msg.method];
+    if (typeof fn !== 'function') {
+      throw new Error(`Socket method not found: ${msg.method}`);
+    }
+    return fn(...args);
   }
 
   private async execCacheCall(msg: any, ctx: any): Promise<unknown> {
