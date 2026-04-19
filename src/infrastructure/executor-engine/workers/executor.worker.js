@@ -42,6 +42,9 @@ parentPort.on('message', async (msg) => {
     const cb = pendingCallbacks.get(msg.callId);
     if (cb) {
       pendingCallbacks.delete(msg.callId);
+      // msg.error may be a plain string (legacy) or JSON-encoded payload
+      // with `__userThrow`. Keep message as JSON so extractThrowInfo()
+      // recovers statusCode/code/details across the isolate boundary.
       cb.reject(new Error(msg.error));
     }
   }
@@ -242,7 +245,12 @@ async function createIsolateContext(id, pkgSources, snapshot, memoryLimitMb) {
 function extractThrowInfo(error) {
   try {
     const parsed = JSON.parse(error.message);
-    if (parsed && parsed.__userThrow) return parsed;
+    if (parsed && parsed.__userThrow) {
+      return {
+        ...parsed,
+        message: parsed.message ?? error.message,
+      };
+    }
   } catch {}
   return null;
 }

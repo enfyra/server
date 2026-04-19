@@ -32,7 +32,7 @@
         "isSystem": true,
         "columns": [
             { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
-            { "name": "ruleType", "type": "enum", "isNullable": false, "isSystem": true, "options": ["min", "max", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "required", "custom"], "description": "Type of validation rule" },
+            { "name": "ruleType", "type": "enum", "isNullable": false, "isSystem": true, "options": ["min", "max", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "custom"], "description": "Type of validation rule" },
             { "name": "value", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Rule payload — shape depends on ruleType (e.g. {v: 10} for min/max, {v: 'email'} for format)" },
             { "name": "message", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Custom error message when rule fails (falls back to default if null)" },
             { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this rule is active" },
@@ -162,7 +162,8 @@
             { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" },
             { "name": "maxQueryDepth", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 7, "description": "Maximum nesting depth for REST deep-fetch and GraphQL queries (default: 7)" },
             { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 10, "description": "Maximum upload file size in MB (default: 10)" },
-            { "name": "maxRequestBodySize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 1, "description": "Maximum JSON/urlencoded request body size in MB (default: 1)" }
+            { "name": "maxRequestBodySize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 1, "description": "Maximum JSON/urlencoded request body size in MB (default: 1)" },
+            { "name": "uniquesIndexesRepaired", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether user-table uniques/indexes metadata has been repaired (one-time fix for fkColumn leak)" }
         ],
         "relations": []
     },

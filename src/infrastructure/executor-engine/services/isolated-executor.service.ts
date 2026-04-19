@@ -488,10 +488,20 @@ export class IsolatedExecutorService {
     } catch (error) {
       if (signal?.aborted) return;
       try {
+        // Encode error metadata as JSON in message so it survives the
+        // isolated-vm boundary (isolate drops custom Error properties).
+        const payload = {
+          __userThrow: true,
+          message: (error as Error).message,
+          statusCode: (error as any).statusCode,
+          code: (error as any).errorCode ?? (error as any).code,
+          details: (error as any).details,
+          messages: (error as any).messages,
+        };
         worker.postMessage({
           type: 'callError',
           callId,
-          error: (error as Error).message,
+          error: JSON.stringify(payload),
         });
       } catch {}
     }

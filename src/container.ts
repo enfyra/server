@@ -47,6 +47,7 @@ import { MetadataMigrationService } from './core/bootstrap/services/metadata-mig
 import { MetadataProvisionMongoService } from './core/bootstrap/services/metadata-provision-mongo.service';
 import { MetadataProvisionSqlService } from './core/bootstrap/services/metadata-provision-sql.service';
 import { MetadataProvisionService } from './core/bootstrap/services/metadata-provision.service';
+import { MetadataRepairService } from './core/bootstrap/services/metadata-repair.service';
 import { ProvisionService } from './core/bootstrap/services/provision.service';
 
 import { LoggingService } from './core/exceptions/services/logging.service';
@@ -261,6 +262,7 @@ export interface Cradle {
 
   provisionService: ProvisionService;
   firstRunInitializer: FirstRunInitializer;
+  metadataRepairService: MetadataRepairService;
   metadataProvisionService: MetadataProvisionService;
   metadataProvisionSqlService: MetadataProvisionSqlService;
   metadataProvisionMongoService: MetadataProvisionMongoService;
@@ -456,6 +458,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     provisionService: asClass(ProvisionService).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
+    metadataRepairService: asClass(MetadataRepairService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
     metadataProvisionSqlService: asClass(MetadataProvisionSqlService).singleton(),
     metadataProvisionMongoService: asClass(MetadataProvisionMongoService).singleton(),

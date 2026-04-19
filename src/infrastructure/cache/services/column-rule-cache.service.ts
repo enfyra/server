@@ -12,7 +12,6 @@ export type TColumnRuleType =
   | 'format'
   | 'minItems'
   | 'maxItems'
-  | 'required'
   | 'custom';
 
 export interface TColumnRule {

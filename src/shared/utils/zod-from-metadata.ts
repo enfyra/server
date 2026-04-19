@@ -5,6 +5,17 @@ export const ZOD_META_MAX_DEPTH = 10;
 
 const AUTO_MANAGED_COLUMNS = new Set(['id', '_id', 'createdAt', 'updatedAt']);
 
+/**
+ * Virtual (non-column) fields that specific tables accept in POST/PATCH body.
+ * These are handled by custom handler logic on the server (not persisted as
+ * columns on the target table). Kept explicit to preserve strict validation
+ * for everything else.
+ */
+const TABLE_VIRTUAL_FIELDS: Record<string, string[]> = {
+  table_definition: ['graphqlEnabled'],
+  field_permission_definition: ['config'],
+};
+
 export interface BuildZodOpts {
   tableMeta: any;
   mode: 'create' | 'update';
@@ -97,12 +108,8 @@ function buildColumnZod(
       break;
   }
 
-  let requiredOverride = false;
   for (const rule of rules) {
     switch (rule.ruleType) {
-      case 'required':
-        requiredOverride = true;
-        break;
       case 'min':
       case 'max': {
         const v = rule.value?.v;
@@ -163,8 +170,7 @@ function buildColumnZod(
   const isNullable = col.isNullable !== false;
   if (isNullable) s = s.nullable();
   const hasDefault = col.defaultValue !== undefined && col.defaultValue !== null;
-  const makeOptional =
-    mode === 'update' || (!requiredOverride && (isNullable || hasDefault));
+  const makeOptional = mode === 'update' || isNullable || hasDefault;
   if (makeOptional) s = s.optional();
 
   return s;
@@ -257,20 +263,41 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
 
   if (tableMeta?.name) visited.add(tableMeta.name);
 
-  // Identify the FK column of the back-reference relation we're skipping. The
-  // server auto-sets this FK during nested create; user shouldn't send it.
-  let skipFkColumn: string | null = null;
+  // Admin UIs often echo auto-managed fields back in PATCH payloads. Accept
+  // them silently (server ignores these; they're not user-writable).
+  const autoManagedSchema: Record<string, z.ZodType> = {};
+  for (const col of tableMeta?.columns || []) {
+    if (AUTO_MANAGED_COLUMNS.has(col.name)) {
+      autoManagedSchema[col.name] = z.any().optional();
+    }
+  }
+
+  // Whitelisted virtual fields per system table (handled by custom handlers).
+  const virtualFields = TABLE_VIRTUAL_FIELDS[tableMeta?.name] || [];
+  for (const f of virtualFields) {
+    autoManagedSchema[f] = z.any().optional();
+  }
+
+  // Collect FK columns to skip:
+  // 1. Back-reference FK when cascading (server auto-sets)
+  // 2. Every FK of owning relations — the relation propertyName is the public
+  //    interface (user sends `column: {id}`, not `columnId`). relation-
+  //    transformer derives FK from relation payload.
+  const skipFkColumns = new Set<string>();
   if (skipChildRelationName) {
     const backRel = (tableMeta?.relations || []).find(
       (r: any) => r.propertyName === skipChildRelationName,
     );
-    if (backRel?.foreignKeyColumn) skipFkColumn = backRel.foreignKeyColumn;
+    if (backRel?.foreignKeyColumn) skipFkColumns.add(backRel.foreignKeyColumn);
+  }
+  for (const rel of tableMeta?.relations || []) {
+    if (rel?.foreignKeyColumn) skipFkColumns.add(rel.foreignKeyColumn);
   }
 
-  const shape: Record<string, z.ZodType> = {};
+  const shape: Record<string, z.ZodType> = { ...autoManagedSchema };
 
   for (const col of tableMeta?.columns || []) {
-    if (skipFkColumn && col.name === skipFkColumn) continue;
+    if (skipFkColumns.has(col.name)) continue;
     const s = buildColumnZod(col, mode, rulesForColumn);
     if (s) shape[col.name] = s;
   }
