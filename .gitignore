@@ -69,6 +69,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 CLAUDE.md
 .mcp.json
 docs/
-.agent
 .internal/
 /src_bak
