@@ -1,12 +1,14 @@
-jest.mock('../../src/shared/utils/winston-logger', () => ({
+import { vi } from 'vitest';
+
+vi.mock('../../src/shared/utils/winston-logger', () => ({
   winstonLogger: {
-    info: jest.fn(),
-    error: jest.fn(),
-    warn: jest.fn(),
-    debug: jest.fn(),
-    verbose: jest.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
   },
-  shouldLog: jest.fn().mockReturnValue(true),
+  shouldLog: vi.fn().mockReturnValue(true),
 }));
 
 import { AppLogger } from '../../src/shared/utils/app-logger';
