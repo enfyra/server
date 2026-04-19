@@ -439,7 +439,12 @@ export class IsolatedExecutorService {
                 signal,
               );
             } else if (msg.type === 'socketCall') {
-              this.handleSocketCall(msg, ctx);
+              this.handleIoCall(
+                () => this.execSocketCall(msg, ctx),
+                entry.worker,
+                msg.callId,
+                signal,
+              );
             } else if (msg.type === 'cacheCall') {
               this.handleIoCall(
                 () => this.execCacheCall(msg, ctx),
@@ -483,10 +488,20 @@ export class IsolatedExecutorService {
     } catch (error) {
       if (signal?.aborted) return;
       try {
+        // Encode error metadata as JSON in message so it survives the
+        // isolated-vm boundary (isolate drops custom Error properties).
+        const payload = {
+          __userThrow: true,
+          message: (error as Error).message,
+          statusCode: (error as any).statusCode,
+          code: (error as any).errorCode ?? (error as any).code,
+          details: (error as any).details,
+          messages: (error as any).messages,
+        };
         worker.postMessage({
           type: 'callError',
           callId,
-          error: (error as Error).message,
+          error: JSON.stringify(payload),
         });
       } catch {}
     }
@@ -514,12 +529,13 @@ export class IsolatedExecutorService {
     return fn(...args);
   }
 
-  private handleSocketCall(msg: any, ctx: any) {
-    try {
-      const args = JSON.parse(msg.argsJson);
-      const fn = ctx?.$socket?.[msg.method];
-      if (typeof fn === 'function') fn(...args);
-    } catch {}
+  private async execSocketCall(msg: any, ctx: any): Promise<unknown> {
+    const args = JSON.parse(msg.argsJson);
+    const fn = ctx?.$socket?.[msg.method];
+    if (typeof fn !== 'function') {
+      throw new Error(`Socket method not found: ${msg.method}`);
+    }
+    return fn(...args);
   }
 
   private async execCacheCall(msg: any, ctx: any): Promise<unknown> {

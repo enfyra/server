@@ -57,6 +57,7 @@ export class MongoQueryExecutor {
         }),
       };
     }
+
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
 

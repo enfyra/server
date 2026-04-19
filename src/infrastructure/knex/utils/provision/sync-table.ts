@@ -3,6 +3,29 @@ import { getForeignKeyColumnName } from '../sql-schema-naming.util';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
+
+/**
+ * Apply ALTER COLUMN type change for the supported subset of knex column types.
+ * Throws explicitly on unsupported types so the schema migration fails loudly
+ * instead of silently skipping the change.
+ */
+export function applyAlterColumnType(
+  table: Knex.AlterTableBuilder,
+  knexType: string,
+  columnName: string,
+  tableName: string,
+): Knex.ColumnBuilder {
+  switch (knexType) {
+    case 'integer':
+      return table.integer(columnName).alter();
+    case 'string':
+      return table.string(columnName, 255).alter();
+    default:
+      throw new Error(
+        `ALTER COLUMN to type "${knexType}" is not supported for column "${columnName}" on table "${tableName}". Drop and recreate the column instead, or extend sync-table.ts to handle this type.`,
+      );
+  }
+}
 export async function applyColumnMigrations(
   knex: Knex,
   tableName: string,
@@ -382,23 +405,13 @@ export async function applyColumnMigrations(
           }
         } else {
           await knex.schema.alterTable(tableName, (table) => {
-          let column: Knex.ColumnBuilder;
-          switch (knexType) {
-            case 'integer':
-              column = table.integer(col.name).alter();
-              break;
-            case 'string':
-              column = table.string(col.name, 255).alter();
-              break;
-            default:
-                return;
-          }
-          if (col.isNullable === false) {
-            column.notNullable();
-          } else {
-            column.nullable();
-          }
-      });
+            const column = applyAlterColumnType(table, knexType, col.name, tableName);
+            if (col.isNullable === false) {
+              column.notNullable();
+            } else {
+              column.nullable();
+            }
+          });
         }
           }
         if (changes.includes('nullable')) {

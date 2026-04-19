@@ -14,6 +14,8 @@ import { QueryPlanner } from './planner/query-planner';
 import { DatabaseConfigService } from '../../shared/services/database-config.service';
 import type { Cradle } from '../../container';
 import { normalizeMongoDocument } from '../mongo/utils/normalize-mongo-document.util';
+import { whereToMongoFilter } from './utils/mongo/filter-builder';
+import { applyWhereToKnex as applyWhereToKnexComplete } from './utils/sql/sql-where-builder';
 
 let ObjectId: any;
 try {
@@ -91,88 +93,30 @@ export class QueryBuilderService {
     return value;
   }
 
-  private buildMongoFilter(where: WhereCondition[]): any {
-    const filter: any = {};
-    for (const condition of where) {
-      let fieldName = condition.field.includes('.')
-        ? condition.field.split('.').pop()
-        : condition.field;
-      if (fieldName === 'id') fieldName = '_id';
-
-      let value = condition.value;
-      if (fieldName === '_id') {
-        value = this.safeObjectId(value);
-      }
-
-      switch (condition.operator) {
-        case '=':
-          filter[fieldName] = value;
-          break;
-        case '!=':
-          filter[fieldName] = { $ne: value };
-          break;
-        case '>':
-          filter[fieldName] = { $gt: value };
-          break;
-        case '<':
-          filter[fieldName] = { $lt: value };
-          break;
-        case '>=':
-          filter[fieldName] = { $gte: value };
-          break;
-        case '<=':
-          filter[fieldName] = { $lte: value };
-          break;
-        case 'in':
-          filter[fieldName] = { $in: value };
-          break;
-        case 'not in':
-          filter[fieldName] = { $nin: value };
-          break;
-      }
+  private buildMongoFilter(where: WhereCondition[], table?: string): any {
+    const metadata =
+      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? { tables: new Map() };
+    const filter = whereToMongoFilter(metadata, where, table, this.dbType);
+    if (filter._id !== undefined) {
+      filter._id = this.safeObjectId(filter._id);
     }
     return filter;
   }
 
-  private applyWhereToKnex(query: any, conditions: WhereCondition[]): any {
-    for (const condition of conditions) {
-      switch (condition.operator) {
-        case '=':
-          query = query.where(condition.field, '=', condition.value);
-          break;
-        case '!=':
-          query = query.where(condition.field, '!=', condition.value);
-          break;
-        case '>':
-          query = query.where(condition.field, '>', condition.value);
-          break;
-        case '<':
-          query = query.where(condition.field, '<', condition.value);
-          break;
-        case '>=':
-          query = query.where(condition.field, '>=', condition.value);
-          break;
-        case '<=':
-          query = query.where(condition.field, '<=', condition.value);
-          break;
-        case 'like':
-          query = query.where(condition.field, 'like', condition.value);
-          break;
-        case 'in':
-          query = query.whereIn(condition.field, condition.value);
-          break;
-        case 'not in':
-          query = query.whereNotIn(condition.field, condition.value);
-          break;
-        case 'is null':
-          query = query.whereNull(condition.field);
-          break;
-        case 'is not null':
-          query = query.whereNotNull(condition.field);
-          break;
-      }
-    }
-    return query;
+  private applyWhereToKnex(
+    query: any,
+    conditions: WhereCondition[],
+    table?: string,
+  ): any {
+    const metadata =
+      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? { tables: new Map() };
+    return applyWhereToKnexComplete(
+      query,
+      conditions,
+      table ?? '',
+      metadata,
+      this.dbType as 'postgres' | 'mysql' | 'sqlite',
+    );
   }
 
   async insertWithOptions(options: InsertOptions): Promise<any> {
@@ -272,7 +216,7 @@ export class QueryBuilderService {
       const dataWithTimestamp =
         this.mongoService.applyUpdateTimestamp(dataWithRelations);
 
-      const filter = this.buildMongoFilter(options.where);
+      const filter = this.buildMongoFilter(options.where, options.table);
 
       const collection = this.mongoService.collection(options.table);
       await collection.updateMany(filter, { $set: dataWithTimestamp });
@@ -284,7 +228,7 @@ export class QueryBuilderService {
     let query: any = knex(options.table);
 
     if (options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where);
+      query = this.applyWhereToKnex(query, options.where, options.table);
     }
 
     const recordsToUpdate = await query;
@@ -300,7 +244,7 @@ export class QueryBuilderService {
     if (options.returning) {
       const returnQuery = knex(options.table);
       if (options.where.length > 0) {
-        this.applyWhereToKnex(returnQuery, options.where);
+        this.applyWhereToKnex(returnQuery, options.where, options.table);
       }
       return await returnQuery.select(options.returning);
     }
@@ -310,7 +254,7 @@ export class QueryBuilderService {
 
   async deleteWithOptions(options: DeleteOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter = this.buildMongoFilter(options.where);
+      const filter = this.buildMongoFilter(options.where, options.table);
 
       const collection = this.mongoService.collection(options.table);
       const result = await collection.deleteMany(filter);
@@ -321,7 +265,7 @@ export class QueryBuilderService {
     let query: any = knex(options.table);
 
     if (options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where);
+      query = this.applyWhereToKnex(query, options.where, options.table);
     }
 
     return await query.delete();
@@ -329,7 +273,7 @@ export class QueryBuilderService {
 
   async count(options: CountOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter = options.where ? this.buildMongoFilter(options.where) : {};
+      const filter = options.where ? this.buildMongoFilter(options.where, options.table) : {};
       return this.mongoService.count(options.table, filter);
     }
 
@@ -337,7 +281,7 @@ export class QueryBuilderService {
     let query: any = knex(options.table);
 
     if (options.where && options.where.length > 0) {
-      query = this.applyWhereToKnex(query, options.where);
+      query = this.applyWhereToKnex(query, options.where, options.table);
     }
 
     const result = await query.count('* as count').first();
@@ -504,7 +448,7 @@ export class QueryBuilderService {
 
     if (filter && Object.keys(filter).length > 0) {
       const where = this.filterToWhere(filter);
-      query = this.applyWhereToKnex(query, where);
+      query = this.applyWhereToKnex(query, where, table);
     }
 
     const result = await query.count('* as count').first();

@@ -1,7 +1,6 @@
-import 'reflect-metadata';
 import * as http from 'http';
 import { buildContainer } from './container';
-import { bootstrap, shutdown } from './bootstrap';
+import { init, shutdown } from './init';
 import { buildExpressApp } from './express-app';
 import { env } from './env';
 import { Logger } from './shared/logger';
@@ -17,9 +16,9 @@ async function main() {
   const container = buildContainer();
   logger.log(`Container built: ${Date.now() - containerStart}ms`);
 
-  const bootstrapStart = Date.now();
-  await bootstrap(container);
-  logger.log(`Bootstrap completed: ${Date.now() - bootstrapStart}ms`);
+  const initStart = Date.now();
+  await init(container);
+  logger.log(`Init completed: ${Date.now() - initStart}ms`);
 
   const app = buildExpressApp(container);
   const server = http.createServer(app);

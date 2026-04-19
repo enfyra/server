@@ -1,4 +1,6 @@
 export abstract class CustomException extends Error {
+  public messages?: string[];
+
   constructor(
     message: string,
     public readonly statusCode: number,
@@ -12,7 +14,7 @@ export abstract class CustomException extends Error {
 
   toJSON() {
     return {
-      message: this.message,
+      message: this.messages ?? this.message,
       errorCode: this.errorCode,
       details: this.details,
     };
@@ -205,10 +207,19 @@ export class FileSizeExceededException extends CustomException {
   }
 }
 
-// NestJS-compatible exceptions
 export class BadRequestException extends CustomException {
-  constructor(message: string | Record<string, any> = 'Bad Request', details?: any) {
-    super(typeof message === 'string' ? message : JSON.stringify(message), 400, 'BAD_REQUEST', details);
+  constructor(
+    message: string | string[] | Record<string, any> = 'Bad Request',
+    details?: any,
+  ) {
+    const isArray = Array.isArray(message);
+    const primary = isArray
+      ? (message as string[]).join('; ') || 'Bad Request'
+      : typeof message === 'string'
+        ? message
+        : JSON.stringify(message);
+    super(primary, 400, 'BAD_REQUEST', details);
+    if (isArray) this.messages = message as string[];
   }
 }
 

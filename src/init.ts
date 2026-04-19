@@ -2,7 +2,7 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
 
-export async function bootstrap(
+export async function init(
   container: AwilixContainer<Cradle>,
 ): Promise<void> {
   const c: any = container.cradle;
@@ -27,6 +27,12 @@ export async function bootstrap(
     await c.firstRunInitializer.run();
   }
 
+  try {
+    await c.metadataRepairService?.runIfNeeded?.();
+  } catch (e: any) {
+    console.warn('MetadataRepairService failed (non-fatal):', e.message);
+  }
+
   await c.cacheOrchestratorService?.init?.();
   await c.metadataCacheService?.reload?.();
   c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
@@ -35,6 +41,7 @@ export async function bootstrap(
   await Promise.all([
     c.routeCacheService?.reload?.(),
     c.fieldPermissionCacheService?.reload?.(),
+    c.columnRuleCacheService?.reload?.(),
     c.settingCacheService?.reload?.(),
     c.storageConfigCacheService?.reload?.(),
     c.oauthConfigCacheService?.reload?.(),

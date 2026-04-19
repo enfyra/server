@@ -2,7 +2,7 @@ import { DatabaseConfigService } from '../../../shared/services/database-config.
 import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
-import { BadRequestException } from '../../../shared/errors';
+import { BadRequestException } from '../../exceptions/custom-exceptions';
 import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { BcryptService } from './bcrypt.service';
@@ -13,6 +13,12 @@ import {
   userCacheKey,
   USER_CACHE_TTL_MS,
 } from '../../../shared/utils/load-user-with-role.util';
+import { parseOrBadRequest } from '../../../shared/utils/zod-parse.util';
+import {
+  loginSchema,
+  refreshTokenSchema,
+  logoutSchema,
+} from '../schemas/auth.schemas';
 
 export class AuthService {
   private bcryptService: BcryptService;
@@ -55,7 +61,8 @@ export class AuthService {
     return new Date(Date.now() + expiryMs);
   }
 
-  async login(body: any) {
+  async login(rawBody: unknown) {
+    const body = parseOrBadRequest(loginSchema, rawBody);
     const { email, password } = body;
 
     const user = await this.queryBuilder.findOne({
@@ -143,7 +150,8 @@ export class AuthService {
     };
   }
 
-  async logout(body: any, req: any) {
+  async logout(rawBody: unknown, req: any) {
+    const body = parseOrBadRequest(logoutSchema, rawBody);
     let decoded: any;
     try {
       decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
@@ -181,7 +189,8 @@ export class AuthService {
     return 'Logout successfully!';
   }
 
-  async refreshToken(body: any) {
+  async refreshToken(rawBody: unknown) {
+    const body = parseOrBadRequest(refreshTokenSchema, rawBody);
     let decoded: any;
     try {
       decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));

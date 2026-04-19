@@ -208,7 +208,10 @@ export class SchemaMigrationValidatorService {
         removedRelations,
       );
 
-    const stripKey = (cols: any[]) => cols.map(({ _key, ...rest }) => rest);
+    const stripKey = (cols: any[]) =>
+      cols
+        .map(({ key, ...rest }) => rest)
+        .sort((a: any, b: any) => safeStr(a.name).localeCompare(safeStr(b.name)));
     const canonicalPayload = {
       version: 1,
       operation: ctx.operation,

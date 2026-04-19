@@ -3,6 +3,7 @@ import { Db, ObjectId } from 'mongodb';
 import { AsyncLocalStorage } from 'async_hooks';
 import { MongoService } from './mongo.service';
 import { MongoSagaLockService } from './mongo-saga-lock.service';
+import { MongoSagaSession } from './mongo-saga-session';
 import {
   MongoOperationLogService,
   IOperationLog,
@@ -318,7 +319,6 @@ export class MongoSagaCoordinator {
         },
       };
 
-      const { MongoSagaSession } = require('./mongo-saga-session') as any;
       const session = new MongoSagaSession(
         txId,
         this.lockService,
