@@ -15,7 +15,7 @@ export class RedisPubSubService {
     this.envService = deps.envService;
   }
 
-  async onInit() {
+  async init() {
     try {
       this.pub = new Redis(this.envService.get('REDIS_URI'));
       this.sub = new Redis(this.envService.get('REDIS_URI'), {

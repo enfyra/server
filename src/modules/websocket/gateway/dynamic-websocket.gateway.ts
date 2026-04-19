@@ -7,7 +7,6 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
-import { BaseService } from '../../../shared/lifecycle';
 import { EnvService } from '../../../shared/services/env.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
@@ -19,7 +18,7 @@ interface SocketData extends Socket {
   };
 }
 
-export class DynamicWebSocketGateway extends BaseService {
+export class DynamicWebSocketGateway {
   server: Server;
   private readonly logger = new Logger(DynamicWebSocketGateway.name);
   private registeredGateways = new Set<string>();
@@ -41,7 +40,6 @@ export class DynamicWebSocketGateway extends BaseService {
     eventEmitter: any;
     envService: EnvService;
   }) {
-    super();
     this.connectionQueue = deps.wsConnectionQueue;
     this.eventQueue = deps.wsEventQueue;
     this.websocketCacheService = deps.websocketCacheService;
@@ -102,10 +100,10 @@ export class DynamicWebSocketGateway extends BaseService {
     this.logger.log(`Redis adapter configured (prefix: ${keyPrefix})`);
   }
 
-  afterInit(server: Server) {
+  async afterInit(server: Server) {
     this.server = server;
     this.setupRedisAdapter(server);
-    this.registerGateways();
+    await this.registerGateways();
     this.logger.log('WebSocket Gateway initialized');
   }
 

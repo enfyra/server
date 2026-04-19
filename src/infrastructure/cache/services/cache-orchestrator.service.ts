@@ -20,7 +20,7 @@ import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant
 import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
 import { GraphqlService } from '../../../modules/graphql/services/graphql.service';
 import { BootstrapScriptService } from '../../../core/bootstrap/services/bootstrap-script.service';
-import { LifecycleAware } from '../../../shared/lifecycle';
+import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
 
 const COLOR = '\x1b[33m';
 const RESET = '\x1b[0m';
@@ -185,40 +185,8 @@ export class CacheOrchestratorService implements LifecycleAware {
     deps.eventEmitter.on(CACHE_EVENTS.INVALIDATE, this.handleInvalidation.bind(this));
   }
 
-  async onInit() {
+  async init() {
     this.subscribeToRedis();
-  }
-
-  async onBootstrap() {
-    await this.bootstrap();
-  }
-
-  private async bootstrap(): Promise<void> {
-    const start = Date.now();
-    await this.metadataCacheService.reload();
-    this.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
-
-    await Promise.all([
-      this.routeCacheService.reload(false),
-      this.guardCacheService.reload(false),
-      this.flowCacheService.reload(false),
-      this.websocketCacheService.reload(false),
-      this.packageCacheService.reload(false),
-      this.settingCacheService.reload(false),
-      this.storageConfigCacheService.reload(false),
-      this.oauthConfigCacheService.reload(false),
-      this.folderTreeCacheService.reload(false),
-      this.reloadRepoRegistry(),
-      this.bootstrapScriptService?.onMetadataLoaded?.(),
-    ]);
-
-    if (this.graphqlService) {
-      await this.graphqlService.reloadSchema();
-    }
-    this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
-
-    this.logger.log(`Bootstrap completed in ${Date.now() - start}ms`);
-    this.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
   }
 
   private handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {

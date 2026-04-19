@@ -7,7 +7,7 @@ import {
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
-import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
+import type { Cradle } from '../../../container';
 
 const PACKAGE_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.PACKAGE,
@@ -19,27 +19,19 @@ const SYSTEM_EVENT_PREFIX = '$system:package';
 
 export class PackageCacheService extends BaseCacheService<string[]> {
   private readonly queryBuilderService: QueryBuilderService;
-  private _dynamicWebSocketGateway?: DynamicWebSocketGateway;
   private readonly packageCdnLoaderService: PackageCdnLoaderService;
-  private _container?: any;
+  private readonly lazyRef: Cradle;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
     eventEmitter: EventEmitter2;
     packageCdnLoaderService: PackageCdnLoaderService;
-    _container?: any;
+    lazyRef: Cradle;
   }) {
     super(PACKAGE_CONFIG, deps.eventEmitter);
     this.queryBuilderService = deps.queryBuilderService;
-    this._container = deps._container;
+    this.lazyRef = deps.lazyRef;
     this.packageCdnLoaderService = deps.packageCdnLoaderService;
-  }
-
-  private get dynamicWebSocketGateway(): DynamicWebSocketGateway | undefined {
-    if (!this._dynamicWebSocketGateway && this._container) {
-      this._dynamicWebSocketGateway = this._container.cradle?.dynamicWebSocketGateway;
-    }
-    return this._dynamicWebSocketGateway;
   }
 
   protected async loadFromDb(): Promise<string[]> {
@@ -72,7 +64,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
   private emitEvent(event: string, data: any) {
     try {
-      this.dynamicWebSocketGateway?.emitToNamespace(
+      this.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         `${SYSTEM_EVENT_PREFIX}:${event}`,
         data,

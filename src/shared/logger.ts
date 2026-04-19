@@ -42,22 +42,9 @@ function formatTime(d: Date): string {
 
 export class Logger {
   private context?: string;
-  private shortContext?: string;
 
   constructor(context?: string) {
     this.context = context;
-    if (context) {
-      this.shortContext = context
-        .replace(/Service$/, '')
-        .replace(/Cache$/, '')
-        .replace(/Manager$/, '')
-        .replace(/Definition$/, '')
-        .replace(/Processor$/, '')
-        .replace(/Controller$/, '')
-        .replace(/Guard$/, '')
-        .replace(/Hook$/, '')
-        .substring(0, 12);
-    }
   }
 
   log(message: any, context?: string) {
@@ -106,18 +93,7 @@ export class Logger {
     const icon = LEVEL_ICONS[level];
     const iconColor = LEVEL_COLORS[level];
 
-    const shortCtx = context
-      ? context
-          .replace(/Service$/, '')
-          .replace(/Cache$/, '')
-          .replace(/Manager$/, '')
-          .replace(/Definition$/, '')
-          .replace(/Processor$/, '')
-          .replace(/Controller$/, '')
-          .replace(/Guard$/, '')
-          .replace(/Hook$/, '')
-          .substring(0, 12)
-      : '';
+    const shortCtx = context || '';
 
     let msgStr: string;
     if (typeof message === 'object' && message !== null) {
@@ -135,7 +111,7 @@ export class Logger {
 
     const emphasize = level === 'error' || level === 'warn';
     const ctxColor = emphasize ? iconColor : SERVICE;
-    const ctxStr = shortCtx ? `${ctxColor}${shortCtx.padEnd(12)}${RESET} ` : '';
+    const ctxStr = shortCtx ? `${ctxColor}${shortCtx}${RESET} ` : '';
     const arrowStr = `${ARROW} `;
     const msgColored = emphasize ? `${iconColor}${msgStr}${RESET}` : msgStr;
 

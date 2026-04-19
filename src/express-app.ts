@@ -3,13 +3,7 @@ import cors from 'cors';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { buildRequestScope } from './container';
-import { GlobalExceptionFilter } from './core/exceptions/filters/global-exception.filter';
-import * as jwt from 'jsonwebtoken';
-
-// Minimal JwtService interface for Express 5 migration
-interface JwtService {
-  sign(payload: any, options?: any): string;
-}
+import { globalExceptionMiddleware } from './core/exceptions/filters/global-exception.filter';
 
 import { routeDetectMiddleware } from './http/middleware/route-detect.middleware';
 import { notFoundDetectMiddleware } from './http/middleware/not-found-detect.middleware';
@@ -59,18 +53,14 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     next();
   });
 
-  // Simple JwtService wrapper for Express 5 migration
   const c = container.cradle;
-  const jwtService: any = {
-    sign: (payload: any, options: any) => jwt.sign(payload, c.envService.get('SECRET_KEY'), options),
-  };
 
   app.use(bodyParserMiddleware(c.settingCacheService));
   app.use(parseQueryMiddleware);
   app.use(fileUploadMiddleware(c.settingCacheService));
   app.use(
     routeDetectMiddleware(
-      jwtService,
+      c.envService.get('SECRET_KEY'),
       c.routeCacheService,
       c.repoRegistryService,
       c.cacheService,
@@ -121,17 +111,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
     next();
   });
 
-  const globalExceptionFilter = new GlobalExceptionFilter();
-  app.use((err: any, req: any, res: any, next: any) => {
-    const host = {
-      switchToHttp: () => ({
-        getResponse: () => res,
-        getRequest: () => req,
-        getNext: () => next,
-      }),
-    };
-    globalExceptionFilter.catch(err, host as any);
-  });
+  app.use(globalExceptionMiddleware);
 
   return app;
 }

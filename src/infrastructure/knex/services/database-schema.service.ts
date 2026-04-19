@@ -1,30 +1,23 @@
 import { Logger } from '../../../shared/logger';
-import { KnexService } from '../knex.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import type { Cradle } from '../../../container';
 
 export class DatabaseSchemaService {
   private readonly logger = new Logger(DatabaseSchemaService.name);
-  private _knexService?: KnexService;
   private readonly databaseConfigService: DatabaseConfigService;
-  private _container?: any;
+  private readonly lazyRef: Cradle;
 
   constructor(deps: {
     databaseConfigService: DatabaseConfigService;
-    _container?: any;
+    lazyRef: Cradle;
   }) {
     this.databaseConfigService = deps.databaseConfigService;
-    this._container = deps._container;
+    this.lazyRef = deps.lazyRef;
   }
 
-  private get knexService(): KnexService {
-    if (!this._knexService && this._container) {
-      this._knexService = this._container.cradle?.knexService;
-    }
-    return this._knexService as KnexService;
-  }
 
   async getAllTableSchemas(): Promise<Map<string, any>> {
-    const knex = this.knexService.getKnex();
+    const knex = this.lazyRef.knexService.getKnex();
 
     if (this.databaseConfigService.isMySql()) {
       return this.getAllMySQLTableSchemas(knex);
@@ -232,7 +225,7 @@ export class DatabaseSchemaService {
   }
 
   async getActualTableSchema(tableName: string): Promise<any> {
-    const knex = this.knexService.getKnex();
+    const knex = this.lazyRef.knexService.getKnex();
     if (this.databaseConfigService.isMySql()) {
       return await this.getMySQLTableSchema(tableName, knex);
     } else if (this.databaseConfigService.isPostgres()) {

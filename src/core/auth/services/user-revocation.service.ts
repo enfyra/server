@@ -23,7 +23,7 @@ export class UserRevocationService {
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async onInit(): Promise<void> {
+  async init(): Promise<void> {
     this.redisPubSubService.subscribeWithHandler(
       USER_REVOKED_CHANNEL,
       (_channel, message) => {

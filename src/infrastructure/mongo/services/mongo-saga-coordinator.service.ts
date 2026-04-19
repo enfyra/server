@@ -65,7 +65,7 @@ export class MongoSagaCoordinator {
     this.cacheService = deps.cacheService;
   }
 
-  async onInit(): Promise<void> {
+  async init(): Promise<void> {
     try {
       this.mongoService.getDb();
     } catch {

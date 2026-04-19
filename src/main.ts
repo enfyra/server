@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import * as http from 'http';
 import { buildContainer } from './container';
 import { bootstrap, shutdown } from './bootstrap';
 import { buildExpressApp } from './express-app';
@@ -20,18 +21,44 @@ async function main() {
   await bootstrap(container);
   logger.log(`Bootstrap completed: ${Date.now() - bootstrapStart}ms`);
 
-  const appStart = Date.now();
   const app = buildExpressApp(container);
+  const server = http.createServer(app);
 
-  const listenWithRetry = async (): Promise<import('http').Server> => {
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') return;
+    logger.error('HTTP server runtime error', err);
+    process.exit(1);
+  });
+
+  const gateway = container.cradle.dynamicWebSocketGateway;
+  if (gateway) {
+    const { Server } = require('socket.io');
+    const io = new Server(server, {
+      cors: { origin: true, credentials: true },
+    });
+    gateway.server = io;
+    await gateway.afterInit(io);
+  }
+
+  const listenWithRetry = async (): Promise<void> => {
     const maxAttempts = process.env.DEV_WATCH ? 25 : 1;
     const delayMs = 200;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await new Promise<import('http').Server>((resolve, reject) => {
-          const s = app.listen(env.PORT, '0.0.0.0', () => resolve(s));
-          s.once('error', reject);
+        await new Promise<void>((resolve, reject) => {
+          const onError = (err: NodeJS.ErrnoException) => {
+            server.removeListener('listening', onListening);
+            reject(err);
+          };
+          const onListening = () => {
+            server.removeListener('error', onError);
+            resolve();
+          };
+          server.once('error', onError);
+          server.once('listening', onListening);
+          server.listen(env.PORT, '0.0.0.0');
         });
+        return;
       } catch (err: any) {
         if (err?.code === 'EADDRINUSE' && attempt < maxAttempts) {
           if (attempt === 1) {
@@ -46,11 +73,9 @@ async function main() {
     throw new Error(`Failed to bind port ${env.PORT} after ${maxAttempts} attempts`);
   };
 
-  let server: import('http').Server;
   try {
-    server = await listenWithRetry();
-    logger.log(`HTTP Listen: ${Date.now() - appStart}ms`);
-    logger.log(`Cold Start completed! Total: ${Date.now() - startTime}ms`);
+    await listenWithRetry();
+    logger.log(`HTTP listening on port ${env.PORT}`);
   } catch (err: any) {
     if (err?.code === 'EADDRINUSE') {
       logger.error(`Port ${env.PORT} is already in use. Another server instance may be running.`);
@@ -60,20 +85,7 @@ async function main() {
     process.exit(1);
   }
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    logger.error('HTTP server runtime error', err);
-    process.exit(1);
-  });
-
-  const gateway = container.cradle.dynamicWebSocketGateway;
-  if (gateway) {
-    const { Server } = require('socket.io');
-    const io = new Server(server, {
-      cors: { origin: true, credentials: true },
-    });
-    gateway.server = io;
-    gateway.afterInit(io);
-  }
+  logger.log(`Cold Start completed! Total: ${Date.now() - startTime}ms`);
 
   if (!process.env.DEV_WATCH) {
     for (const sig of ['SIGINT', 'SIGTERM'] as const) {

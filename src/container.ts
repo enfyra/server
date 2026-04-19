@@ -159,6 +159,7 @@ export interface Cradle {
   commonService: CommonService;
   instanceService: InstanceService;
   configService: any;
+  lazyRef: Cradle;
   bcryptService: BcryptService;
   authService: AuthService;
   oauthService: OAuthService;
@@ -324,6 +325,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     commonService: asClass(CommonService).singleton(),
     databaseConfigService: asClass(DatabaseConfigService).singleton(),
+    lazyRef: asFunction((cradle) => cradle).singleton(),
     instanceService: asClass(InstanceService).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
@@ -335,7 +337,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     schemaMigrationValidatorService: asClass(SchemaMigrationValidatorService).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 
-    mongoService: asClass(MongoService).singleton().inject((container) => ({ _container: container })),
+    mongoService: asClass(MongoService).singleton(),
     mongoSchemaMigrationService: asClass(MongoSchemaMigrationService).singleton(),
     mongoSchemaMigrationLockService: asClass(MongoSchemaMigrationLockService).singleton(),
     mongoSagaLockService: asClass(MongoSagaLockService).singleton(),
@@ -351,18 +353,18 @@ export function buildContainer(): AwilixContainer<Cradle> {
     mongoSchemaDiffService: asClass(MongoSchemaDiffService).singleton(),
     mongoRelationManagerService: asClass(MongoRelationManagerService).singleton(),
 
-    knexService: asClass(KnexService).singleton().inject((container) => ({ _container: container })),
+    knexService: asClass(KnexService).singleton(),
     knexHookManagerService: asClass(KnexHookManagerService).singleton(),
     replicationManager: asClass(ReplicationManager).singleton(),
     sqlSchemaMigrationService: asClass(SqlSchemaMigrationService).singleton(),
     sqlSchemaDiffService: asClass(SqlSchemaDiffService).singleton(),
     migrationJournalService: asClass(MigrationJournalService).singleton(),
-    databaseSchemaService: asClass(DatabaseSchemaService).singleton().inject((container) => ({ _container: container })),
+    databaseSchemaService: asClass(DatabaseSchemaService).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
     sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService).singleton(),
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
-    queryBuilderService: asClass(QueryBuilderService).singleton().inject((container) => ({ _container: container })),
+    queryBuilderService: asClass(QueryBuilderService).singleton(),
     queryEngine: asClass(QueryEngine).singleton(),
     sqlQueryEngine: asClass(SqlQueryEngine).singleton(),
     mongoQueryEngine: asClass(MongoQueryEngine).singleton(),
@@ -372,9 +374,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     cacheService: asClass(CacheService).singleton(),
     redisPubSubService: asClass(RedisPubSubService).singleton(),
-    metadataCacheService: asClass(MetadataCacheService).singleton().inject((container) => ({ _container: container })),
+    metadataCacheService: asClass(MetadataCacheService).singleton(),
     routeCacheService: asClass(RouteCacheService).singleton(),
-    packageCacheService: asClass(PackageCacheService).singleton().inject((container) => ({ _container: container })),
+    packageCacheService: asClass(PackageCacheService).singleton(),
     storageConfigCacheService: asClass(StorageConfigCacheService).singleton(),
     websocketCacheService: asClass(WebsocketCacheService).singleton(),
     oauthConfigCacheService: asClass(OAuthConfigCacheService).singleton(),
@@ -445,8 +447,8 @@ export function buildContainer(): AwilixContainer<Cradle> {
     builtInSocketRegistry: asClass(BuiltInSocketRegistry).singleton(),
     dynamicWebSocketGateway: asClass(DynamicWebSocketGateway).singleton(),
     websocketGatewayFactory: asClass(WebsocketGatewayFactory).singleton(),
-    connectionQueueService: asClass(ConnectionQueueService).singleton().inject((container) => ({ _container: container, envService: (container.cradle as Cradle).envService })),
-    eventQueueService: asClass(EventQueueService).singleton().inject((container) => ({ _container: container, envService: (container.cradle as Cradle).envService })),
+    connectionQueueService: asClass(ConnectionQueueService).singleton(),
+    eventQueueService: asClass(EventQueueService).singleton(),
     websocketEmitService: asClass(WebsocketEmitService).singleton(),
 
     provisionService: asClass(ProvisionService).singleton(),

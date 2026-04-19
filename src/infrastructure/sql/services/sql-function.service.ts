@@ -1,9 +1,8 @@
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { installMysqlUnaccent } from '../mysql-unaccent.bootstrap';
-import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
 
-export class SqlFunctionService implements LifecycleAware {
+export class SqlFunctionService {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly databaseConfigService: DatabaseConfigService;
 
@@ -15,7 +14,7 @@ export class SqlFunctionService implements LifecycleAware {
     this.databaseConfigService = deps.databaseConfigService;
   }
 
-  async onBootstrap(): Promise<void> {
+  async installExtensions(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
     }

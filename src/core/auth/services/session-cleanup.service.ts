@@ -2,10 +2,12 @@ import { Job, Queue, Worker } from 'bullmq';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services/env.service';
+import { Logger } from '../../../shared/logger';
 
 const BATCH_SIZE = 20;
 
 export class SessionCleanupService {
+  private readonly logger = new Logger(SessionCleanupService.name);
   private readonly queryBuilderService: QueryBuilderService;
   private readonly cleanupQueue: Queue;
   private readonly envService: EnvService;
@@ -21,7 +23,7 @@ export class SessionCleanupService {
     this.envService = deps.envService;
   }
 
-  async onInit() {
+  async init() {
     const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
     this.worker = new Worker(
       SYSTEM_QUEUES.SESSION_CLEANUP,
@@ -74,7 +76,7 @@ export class SessionCleanupService {
           totalDeleted++;
           batchDeleted++;
         } catch (err) {
-          console.warn(
+          this.logger.warn(
             `Failed to delete session ${session[idField]}: ${err.message}`,
           );
         }
@@ -84,7 +86,7 @@ export class SessionCleanupService {
       if (expired.length < BATCH_SIZE) hasMore = false;
     }
 
-    console.log(
+    this.logger.log(
       `Cleaned up ${totalDeleted} expired sessions in ${Date.now() - startTime}ms`,
     );
     return { deleted: totalDeleted };

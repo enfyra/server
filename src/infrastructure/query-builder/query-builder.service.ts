@@ -12,6 +12,7 @@ import { MongoQueryExecutor } from './executors/mongo-query-executor';
 import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from './planner/query-planner';
 import { DatabaseConfigService } from '../../shared/services/database-config.service';
+import type { Cradle } from '../../container';
 import { normalizeMongoDocument } from '../mongo/utils/normalize-mongo-document.util';
 
 let ObjectId: any;
@@ -23,8 +24,7 @@ export class QueryBuilderService {
   private readonly knexService?: KnexService;
   private readonly mongoService?: any;
   private readonly databaseConfigService: DatabaseConfigService;
-  private _metadataCacheService?: any;
-  private _container?: any;
+  private readonly lazyRef: Cradle;
   private dbType: DatabaseType;
   private debugLog: any[] = [];
 
@@ -32,23 +32,13 @@ export class QueryBuilderService {
     knexService?: KnexService;
     mongoService?: MongoService;
     databaseConfigService: DatabaseConfigService;
-    metadataCacheService?: any;
-    _container?: any;
+    lazyRef: Cradle;
   }) {
     this.knexService = deps.knexService;
     this.mongoService = deps.mongoService;
     this.databaseConfigService = deps.databaseConfigService;
-    this._metadataCacheService = deps.metadataCacheService;
-    this._container = deps._container;
+    this.lazyRef = deps.lazyRef;
     this.dbType = this.databaseConfigService.getDbType();
-  }
-
-  private get metadataCache(): any {
-    if (this._metadataCacheService) return this._metadataCacheService;
-    if (this._container) {
-      this._metadataCacheService = this._container.cradle?.metadataCacheService;
-    }
-    return this._metadataCacheService;
   }
 
   async runWithPolicy<T>(
@@ -239,7 +229,7 @@ export class QueryBuilderService {
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
-    const metadata = this.metadataCache?.getDirectMetadata?.() ?? { tables: new Map(), tablesList: [] };
+    const metadata = this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? { tables: new Map(), tablesList: [] };
 
     const planner = new QueryPlanner();
     const plan = planner.plan({

@@ -9,7 +9,7 @@ import {
 } from 'mongodb';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
-import type { AwilixContainer } from 'awilix';
+import type { Cradle } from '../../../container';
 import { Logger } from '../../../shared/logger';
 import { EnvService } from '../../../shared/services/env.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
@@ -28,7 +28,7 @@ export class MongoService {
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly metadataCacheService: MetadataCacheService;
   private readonly mongoRelationManagerService: MongoRelationManagerService;
-  private readonly _container: AwilixContainer<any>;
+  private readonly lazyRef: Cradle;
 
   private readonly policyContext = new AsyncLocalStorage<{
     check: (
@@ -56,22 +56,15 @@ export class MongoService {
     databaseConfigService: DatabaseConfigService;
     metadataCacheService: MetadataCacheService;
     mongoRelationManagerService: MongoRelationManagerService;
-    _container: AwilixContainer<any>;
+    lazyRef: Cradle;
   }) {
     this.envService = deps.envService;
     this.databaseConfigService = deps.databaseConfigService;
     this.metadataCacheService = deps.metadataCacheService;
     this.mongoRelationManagerService = deps.mongoRelationManagerService;
-    this._container = deps._container;
+    this.lazyRef = deps.lazyRef;
   }
 
-  private getSagaCoordinator(): MongoSagaCoordinator | undefined {
-    try {
-      return this._container.cradle.mongoSagaCoordinator;
-    } catch {
-      return undefined;
-    }
-  }
 
   async runWithPolicy<T>(
     policyCheck: (
@@ -117,7 +110,7 @@ export class MongoService {
     }
   }
 
-  async onInit(): Promise<void> {
+  async init(): Promise<void> {
     if (!this.databaseConfigService.isMongoDb()) {
       return;
     }
@@ -221,7 +214,7 @@ export class MongoService {
         await session.endSession();
       }
     }
-    const sagaCoordinator = this.getSagaCoordinator();
+    const sagaCoordinator = this.lazyRef.mongoSagaCoordinator;
     if (!sagaCoordinator) {
       throw new Error(
         'MongoSagaCoordinator is required when native multi-document transactions are not available',

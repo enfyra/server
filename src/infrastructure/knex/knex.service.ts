@@ -1,7 +1,7 @@
 import { Logger } from '../../shared/logger';
 import { Knex, knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
-import { MetadataCacheService } from '../cache/services/metadata-cache.service';
+import type { Cradle } from '../../container';
 import { ExtendedKnex } from './types/knex-extended.types';
 import { KnexEntityManager } from './entity-manager';
 import { FieldStripper } from './utils/field-stripper';
@@ -46,33 +46,25 @@ export class KnexService implements LifecycleAware {
 
   private readonly databaseConfigService: DatabaseConfigService;
   private readonly envService: EnvService;
-  private _metadataCacheService?: MetadataCacheService;
   private readonly knexHookManagerService: KnexHookManagerService;
   private readonly replicationManager?: ReplicationManager;
-  private _container?: any;
+  private readonly lazyRef: Cradle;
 
   constructor(deps: {
     databaseConfigService: DatabaseConfigService;
     knexHookManagerService: KnexHookManagerService;
     replicationManager?: ReplicationManager;
-    _container?: any;
+    lazyRef: Cradle;
     envService: EnvService;
   }) {
     this.databaseConfigService = deps.databaseConfigService;
     this.knexHookManagerService = deps.knexHookManagerService;
     this.replicationManager = deps.replicationManager;
-    this._container = deps._container;
+    this.lazyRef = deps.lazyRef;
     this.envService = deps.envService;
   }
 
-  private get metadataCacheService(): MetadataCacheService | undefined {
-    if (!this._metadataCacheService && this._container) {
-      this._metadataCacheService = this._container.cradle?.metadataCacheService;
-    }
-    return this._metadataCacheService;
-  }
-
-  async onInit(): Promise<void> {
+  async init(): Promise<void> {
     const start = Date.now();
     const DB_TYPE = this.databaseConfigService.getDbType();
     this.dbType = DB_TYPE;
@@ -164,7 +156,7 @@ export class KnexService implements LifecycleAware {
     }
 
     this.fieldStripper = new FieldStripper(
-      this.metadataCacheService || (null as any),
+      this.lazyRef.metadataCacheService || (null as any),
     );
     this.hookManager = this.knexHookManagerService;
 
@@ -209,7 +201,7 @@ export class KnexService implements LifecycleAware {
   }
 
   private async isJunctionTable(tableName: string): Promise<boolean> {
-    const metadata = await this.metadataCacheService?.getMetadata();
+    const metadata = await this.lazyRef.metadataCacheService?.getMetadata();
     if (!metadata) return false;
 
     const tables =
@@ -235,11 +227,11 @@ export class KnexService implements LifecycleAware {
   ): Promise<Set<string>> {
     const booleanFields = new Set<string>();
 
-    const metadata = this.metadataCacheService.getDirectMetadata();
+    const metadata = this.lazyRef.metadataCacheService.getDirectMetadata();
     if (!metadata) return booleanFields;
 
     const tableMetadata =
-      await this.metadataCacheService.lookupTableByName(tableName);
+      await this.lazyRef.metadataCacheService.lookupTableByName(tableName);
     if (!tableMetadata) return booleanFields;
 
     if (tableMetadata.columns) {
@@ -331,7 +323,7 @@ export class KnexService implements LifecycleAware {
   getKnex(): ExtendedKnex {
     if (!this.knexInstance) {
       throw new Error(
-        'Knex instance not initialized. Call onInit first.',
+        'Knex instance not initialized. Call init first.',
       );
     }
 
@@ -690,7 +682,7 @@ export class KnexService implements LifecycleAware {
 
     try {
       const tableMetadata =
-        await this.metadataCacheService.getTableMetadata?.(parentTableName);
+        await this.lazyRef.metadataCacheService.getTableMetadata?.(parentTableName);
       if (tableMetadata && tableMetadata.relations) {
         const relation = tableMetadata.relations.find(
           (r: any) => r.propertyName === relationName,

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import * as jwt from 'jsonwebtoken';
 import { TDynamicContext } from '../../shared/types';
 import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
 import { RepoRegistryService } from '../../infrastructure/cache/services/repo-registry.service';
@@ -14,7 +15,7 @@ import { FlowService } from '../../modules/flow/services/flow.service';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
 
 export function routeDetectMiddleware(
-  jwtService: any,
+  secretKey: string,
   routeCacheService: RouteCacheService,
   repoRegistryService: RepoRegistryService,
   cacheService: CacheService,
@@ -47,7 +48,7 @@ export function routeDetectMiddleware(
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $helpers: {
           $jwt: (payload: any, exp: string) =>
-            jwtService.sign(payload, {
+            jwt.sign(payload, secretKey, {
               expiresIn: exp as import('ms').StringValue,
             }),
           $bcrypt: {

@@ -40,7 +40,7 @@ export class ReplicationManager implements LifecycleAware {
     this.dbType = this.databaseConfigService.getDbType();
   }
 
-  async onInit(): Promise<void> {
+  async init(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
     }

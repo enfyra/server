@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { TDynamicContext } from '../../../shared/types';
-import { DynamicWebSocketGateway } from '../gateway/dynamic-websocket.gateway';
+import type { Cradle } from '../../../container';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
@@ -27,11 +27,10 @@ export class EventQueueService {
   private readonly logger = new Logger(EventQueueService.name);
 
   private readonly executorEngineService: ExecutorEngineService;
-  private _dynamicWebSocketGateway?: DynamicWebSocketGateway;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly flowService: FlowService;
   private readonly envService: EnvService;
-  private _container?: any;
+  private readonly lazyRef: Cradle;
   private worker?: Worker;
 
   constructor(deps: {
@@ -39,16 +38,16 @@ export class EventQueueService {
     repoRegistryService: RepoRegistryService;
     flowService: FlowService;
     envService: EnvService;
-    _container?: any;
+    lazyRef: Cradle;
   }) {
     this.executorEngineService = deps.executorEngineService;
-    this._container = deps._container;
+    this.lazyRef = deps.lazyRef;
     this.repoRegistryService = deps.repoRegistryService;
     this.flowService = deps.flowService;
     this.envService = deps.envService;
   }
 
-  async onInit() {
+  async init() {
     const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
     this.worker = new Worker(
       SYSTEM_QUEUES.WS_EVENT,
@@ -74,13 +73,6 @@ export class EventQueueService {
     if (this.worker) {
       await this.worker.close();
     }
-  }
-
-  private get dynamicWebSocketGateway(): DynamicWebSocketGateway | undefined {
-    if (!this._dynamicWebSocketGateway && this._container) {
-      this._dynamicWebSocketGateway = this._container.cradle?.dynamicWebSocketGateway;
-    }
-    return this._dynamicWebSocketGateway;
   }
 
   async process(job: Job<EventJobData>): Promise<any> {
@@ -182,25 +174,25 @@ export class EventQueueService {
     const self = this;
     return {
       join: (room: string) => {
-        self.dynamicWebSocketGateway?.joinRoom(gatewayPath, socketId, room);
+        self.lazyRef.dynamicWebSocketGateway?.joinRoom(gatewayPath, socketId, room);
       },
       leave: (room: string) => {
-        self.dynamicWebSocketGateway?.leaveRoom(gatewayPath, socketId, room);
+        self.lazyRef.dynamicWebSocketGateway?.leaveRoom(gatewayPath, socketId, room);
       },
       reply: (event: string, data: any) => {
-        self.dynamicWebSocketGateway?.emitToSocket(gatewayPath, socketId, event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToSocket(gatewayPath, socketId, event, data);
       },
       emitToUser: (userId: number | string, event: string, data: any) => {
-        self.dynamicWebSocketGateway?.emitToUser(userId, event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToUser(userId, event, data);
       },
       emitToRoom: (room: string, event: string, data: any) => {
-        self.dynamicWebSocketGateway?.emitToRoom(room, event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToRoom(room, event, data);
       },
       emitToGateway: (path: string, event: string, data: any) => {
-        self.dynamicWebSocketGateway?.emitToNamespace(path, event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToNamespace(path, event, data);
       },
       broadcast: (event: string, data: any) => {
-        self.dynamicWebSocketGateway?.emitToAll(event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
       },
     };
   }

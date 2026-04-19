@@ -1,23 +1,21 @@
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
+import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
 
 export async function bootstrap(
   container: AwilixContainer<Cradle>,
 ): Promise<void> {
   const c: any = container.cradle;
 
-  await c.mongoService?.onInit?.();
-  await c.replicationManager?.onInit?.();
-  await c.knexService?.onInit?.();
-  await c.sqlPoolClusterCoordinatorService?.onInit?.();
-  await c.sqlFunctionService?.onInit?.();
+  await c.mongoService?.init?.();
+  await c.replicationManager?.init?.();
+  await c.knexService?.init?.();
+  await c.sqlPoolClusterCoordinatorService?.init?.();
 
-  await c.redisPubSubService?.onInit?.();
-
-  await c.isolatedExecutorService?.onInit?.();
+  await c.redisPubSubService?.init?.();
 
   try {
-    await c.mongoSagaCoordinator?.onInit?.();
+    await c.mongoSagaCoordinator?.init?.();
   } catch (e: any) {
     console.warn('MongoSagaCoordinator init skipped:', e.message);
   }
@@ -29,33 +27,38 @@ export async function bootstrap(
     await c.firstRunInitializer.run();
   }
 
-  await c.cacheOrchestratorService?.onInit?.();
+  await c.cacheOrchestratorService?.init?.();
   await c.metadataCacheService?.reload?.();
-  await c.repoRegistryService?.onInit?.();
-  await c.routeCacheService?.reload?.();
-  await c.fieldPermissionCacheService?.reload?.();
-  await c.settingCacheService?.reload?.();
-  await c.storageConfigCacheService?.reload?.();
-  await c.oauthConfigCacheService?.reload?.();
-  await c.websocketCacheService?.reload?.();
-  await c.flowCacheService?.reload?.();
-  await c.packageCacheService?.reload?.();
-  await c.folderTreeCacheService?.reload?.();
-  await c.guardCacheService?.reload?.();
-  await c.gqlDefinitionCacheService?.reload?.();
+  c.eventEmitter.emit(CACHE_EVENTS.METADATA_LOADED);
+  await c.repoRegistryService?.rebuildFromMetadata?.(c.metadataCacheService);
 
-  await c.cacheOrchestratorService?.onBootstrap?.();
-  await c.sqlPoolClusterCoordinatorService?.onBootstrap?.();
-  await c.sqlFunctionService?.onBootstrap?.();
+  await Promise.all([
+    c.routeCacheService?.reload?.(),
+    c.fieldPermissionCacheService?.reload?.(),
+    c.settingCacheService?.reload?.(),
+    c.storageConfigCacheService?.reload?.(),
+    c.oauthConfigCacheService?.reload?.(),
+    c.websocketCacheService?.reload?.(),
+    c.flowCacheService?.reload?.(),
+    c.packageCacheService?.reload?.(),
+    c.folderTreeCacheService?.reload?.(),
+    c.guardCacheService?.reload?.(),
+    c.gqlDefinitionCacheService?.reload?.(),
+    c.bootstrapScriptService?.onMetadataLoaded?.(),
+    c.sqlFunctionService?.installExtensions?.(),
+  ]);
 
   await c.graphqlService?.reloadSchema?.();
+  c.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
 
-  await c.sessionCleanupService?.onInit?.();
-  await c.userRevocationService?.onInit?.();
-  await c.eventQueueService?.onInit?.();
-  await c.connectionQueueService?.onInit?.();
+  await Promise.all([
+    c.sessionCleanupService?.init?.(),
+    c.userRevocationService?.init?.(),
+    c.eventQueueService?.init?.(),
+    c.connectionQueueService?.init?.(),
+  ]);
 
-  c.eventEmitter.emit('SYSTEM_READY');
+  c.eventEmitter.emit(CACHE_EVENTS.SYSTEM_READY);
 }
 
 export async function shutdown(

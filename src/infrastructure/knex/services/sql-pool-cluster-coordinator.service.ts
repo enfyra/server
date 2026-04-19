@@ -16,9 +16,8 @@ import {
   SQL_COORD_RESERVE_MIN,
   SQL_COORD_RESERVE_RATIO,
 } from '../../../shared/utils/auto-scaling.constants';
-import { BaseService } from '../../../shared/lifecycle';
 
-export class SqlPoolClusterCoordinatorService extends BaseService {
+export class SqlPoolClusterCoordinatorService {
   private readonly logger = new Logger(SqlPoolClusterCoordinatorService.name);
   private redis: Redis | null = null;
   private readonly zsetKey: string;
@@ -41,7 +40,6 @@ export class SqlPoolClusterCoordinatorService extends BaseService {
     eventEmitter: EventEmitter2;
     replicationManager?: ReplicationManager;
   }) {
-    super();
     this._redis = deps.redis;
     this.databaseConfigService = deps.databaseConfigService;
     this.instanceService = deps.instanceService;
@@ -70,7 +68,7 @@ export class SqlPoolClusterCoordinatorService extends BaseService {
       .slice(0, 12);
   }
 
-  async onInit(): Promise<void> {
+  async init(): Promise<void> {
     if (this.databaseConfigService.isMongoDb()) {
       return;
     }
