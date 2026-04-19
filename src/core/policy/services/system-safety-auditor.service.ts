@@ -194,7 +194,7 @@ export class SystemSafetyAuditorService {
       if (operation === 'delete' && isSystem)
         throw new Error('Cannot delete system table!');
       if (operation === 'update' && isSystem) {
-        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description']);
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description', 'validateBody']);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
         if (disallowed.length > 0) {
           throw new Error(

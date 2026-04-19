@@ -30,6 +30,7 @@ export const CACHE_IDENTIFIERS = {
   GUARD: 'guard',
   SETTING: 'setting',
   FIELD_PERMISSION: 'field-permission',
+  COLUMN_RULE: 'column-rule',
 } as const;
 
 type CacheIdentifier =
@@ -49,6 +50,7 @@ export const CACHE_INVALIDATION_MAP: Record<string, CacheIdentifier[]> = {
   table_definition: METADATA_GROUP,
   column_definition: METADATA_GROUP,
   relation_definition: METADATA_GROUP,
+  column_rule_definition: [CACHE_IDENTIFIERS.COLUMN_RULE],
 
   route_definition: ROUTE_GROUP,
   pre_hook_definition: ROUTE_GROUP,

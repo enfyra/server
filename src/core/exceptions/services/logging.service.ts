@@ -1,5 +1,10 @@
-import { AsyncLocalStorage } from 'async_hooks';
-import { winstonLogger } from '../../../shared/utils/winston-logger';
+import {
+  logStore,
+  mergeLogContext,
+  setCorrelationId as setStoreCorrelationId,
+  clearLogContext,
+} from '../../../shared/log-store';
+import { Logger } from '../../../shared/logger';
 
 export interface LogContext {
   correlationId?: string;
@@ -11,76 +16,45 @@ export interface LogContext {
   [key: string]: any;
 }
 
-export interface LogLevel {
-  ERROR: 'error';
-  WARN: 'warn';
-  INFO: 'log';
-  DEBUG: 'debug';
-  VERBOSE: 'verbose';
-}
-
 export class LoggingService {
-  private readonly als = new AsyncLocalStorage<{
-    correlationId: string | null;
-    context: LogContext;
-  }>();
+  private readonly logger = new Logger('HTTP');
 
   setCorrelationId(correlationId: string): void {
-    const store = this.als.getStore();
-    if (store) {
-      store.correlationId = correlationId;
-      store.context.correlationId = correlationId;
-    }
+    setStoreCorrelationId(correlationId);
   }
 
   setContext(context: Partial<LogContext>): void {
-    const store = this.als.getStore();
-    if (store) {
-      store.context = { ...store.context, ...context };
-    }
+    const { correlationId, ...rest } = context;
+    if (correlationId) setStoreCorrelationId(correlationId);
+    if (Object.keys(rest).length > 0) mergeLogContext(rest);
   }
 
   clearContext(): void {
-    const store = this.als.getStore();
-    if (store) {
-      store.correlationId = null;
-      store.context = {};
-    }
+    clearLogContext();
   }
 
   run<T>(fn: () => T): T {
-    return this.als.run({ correlationId: null, context: {} }, fn);
-  }
-
-  private createLogMeta(data?: any): any {
-    const store = this.als.getStore();
-    const meta: any = { ...(store?.context || {}) };
-
-    if (data) {
-      meta.data = data;
-    }
-
-    return meta;
+    return logStore.run({ correlationId: undefined, context: {} }, fn);
   }
 
   error(message: string, data?: any): void {
-    winstonLogger.error(message, this.createLogMeta(data));
+    this.logger.error(data ? { message, data } : message);
   }
 
   warn(message: string, data?: any): void {
-    winstonLogger.warn(message, this.createLogMeta(data));
+    this.logger.warn(data ? { message, data } : message);
   }
 
   log(message: string, data?: any): void {
-    winstonLogger.info(message, this.createLogMeta(data));
+    this.logger.log(data ? { message, data } : message);
   }
 
   debug(message: string, data?: any): void {
-    winstonLogger.debug(message, this.createLogMeta(data));
+    this.logger.debug(data ? { message, data } : message);
   }
 
   verbose(message: string, data?: any): void {
-    winstonLogger.verbose(message, this.createLogMeta(data));
+    this.logger.verbose(data ? { message, data } : message);
   }
 
   logResponse(
@@ -108,22 +82,15 @@ export class LoggingService {
     success: boolean,
     error?: any,
   ): void {
-    const logData: any = {
+    const data: any = {
       operation,
       table,
       duration: `${duration}ms`,
       success,
     };
-
-    if (error) {
-      logData.error = error;
-    }
-
-    if (success) {
-      this.log('Database Operation', logData);
-    } else {
-      this.error('Database Operation Failed', logData);
-    }
+    if (error) data.error = error;
+    if (success) this.log('Database Operation', data);
+    else this.error('Database Operation Failed', data);
   }
 
   logExternalServiceCall(
@@ -134,23 +101,16 @@ export class LoggingService {
     success: boolean,
     error?: any,
   ): void {
-    const logData: any = {
+    const data: any = {
       service,
       endpoint,
       method,
       duration: `${duration}ms`,
       success,
     };
-
-    if (error) {
-      logData.error = error;
-    }
-
-    if (success) {
-      this.log('External Service Call', logData);
-    } else {
-      this.error('External Service Call Failed', logData);
-    }
+    if (error) data.error = error;
+    if (success) this.log('External Service Call', data);
+    else this.error('External Service Call Failed', data);
   }
 
   logScriptExecution(
@@ -159,21 +119,14 @@ export class LoggingService {
     success: boolean,
     error?: any,
   ): void {
-    const logData: any = {
+    const data: any = {
       scriptId,
       duration: `${duration}ms`,
       success,
     };
-
-    if (error) {
-      logData.error = error;
-    }
-
-    if (success) {
-      this.log('Script Execution', logData);
-    } else {
-      this.error('Script Execution Failed', logData);
-    }
+    if (error) data.error = error;
+    if (success) this.log('Script Execution', data);
+    else this.error('Script Execution Failed', data);
   }
 
   logPerformance(operation: string, duration: number, metadata?: any): void {
@@ -190,12 +143,7 @@ export class LoggingService {
     ip?: string,
     details?: any,
   ): void {
-    this.warn('Security Event', {
-      event,
-      userId,
-      ip,
-      ...details,
-    });
+    this.warn('Security Event', { event, userId, ip, ...details });
   }
 
   logBusinessEvent(
@@ -205,12 +153,6 @@ export class LoggingService {
     entityId?: string,
     details?: any,
   ): void {
-    this.log('Business Event', {
-      event,
-      userId,
-      entity,
-      entityId,
-      ...details,
-    });
+    this.log('Business Event', { event, userId, entity, entityId, ...details });
   }
 }

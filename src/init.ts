@@ -35,6 +35,7 @@ export async function init(
   await Promise.all([
     c.routeCacheService?.reload?.(),
     c.fieldPermissionCacheService?.reload?.(),
+    c.columnRuleCacheService?.reload?.(),
     c.settingCacheService?.reload?.(),
     c.storageConfigCacheService?.reload?.(),
     c.oauthConfigCacheService?.reload?.(),

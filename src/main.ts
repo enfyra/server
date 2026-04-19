@@ -1,4 +1,3 @@
-import 'reflect-metadata';
 import * as http from 'http';
 import { buildContainer } from './container';
 import { init, shutdown } from './init';

@@ -11,6 +11,7 @@ import { preAuthMetadataGuard, postAuthMetadataGuard } from './http/middleware/m
 import { jwtAuthMiddleware } from './http/middleware/jwt-auth.middleware';
 import { roleGuardMiddleware } from './http/middleware/role-guard.middleware';
 import { requestLoggingBegin, requestLoggingEnd } from './http/middleware/request-logging.middleware';
+import { bodyValidationMiddleware } from './http/middleware/body-validation.middleware';
 import { dynamicInterceptorBegin, dynamicInterceptorEnd } from './http/middleware/dynamic-interceptor.middleware';
 import { parseQueryMiddleware } from './http/middleware/parse-query.middleware';
 import { bodyParserMiddleware } from './http/middleware/body-parser.middleware';
@@ -77,6 +78,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   app.use(roleGuardMiddleware(c.policyService));
   app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
   app.use(requestLoggingBegin);
+  app.use(bodyValidationMiddleware(container));
   app.use(dynamicInterceptorBegin(c.executorEngineService));
 
   registerAuthRoutes(app, container);

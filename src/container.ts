@@ -58,6 +58,7 @@ import { SystemSafetyAuditorService } from './core/policy/services/system-safety
 import { CacheOrchestratorService } from './infrastructure/cache/services/cache-orchestrator.service';
 import { CacheService } from './infrastructure/cache/services/cache.service';
 import { FieldPermissionCacheService } from './infrastructure/cache/services/field-permission-cache.service';
+import { ColumnRuleCacheService } from './infrastructure/cache/services/column-rule-cache.service';
 import { FlowCacheService } from './infrastructure/cache/services/flow-cache.service';
 import { FolderTreeCacheService } from './infrastructure/cache/services/folder-tree-cache.service';
 import { GqlDefinitionCacheService } from './infrastructure/cache/services/gql-definition-cache.service';
@@ -216,6 +217,7 @@ export interface Cradle {
   guardEvaluatorService: GuardEvaluatorService;
   settingCacheService: SettingCacheService;
   fieldPermissionCacheService: FieldPermissionCacheService;
+  columnRuleCacheService: ColumnRuleCacheService;
   gqlDefinitionCacheService: GqlDefinitionCacheService;
   repoRegistryService: RepoRegistryService;
   dynamicRepository: (tableName: string, context: any, enforceFieldPermission?: boolean) => DynamicRepository;
@@ -388,6 +390,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     guardEvaluatorService: asClass(GuardEvaluatorService).singleton(),
     settingCacheService: asClass(SettingCacheService).singleton(),
     fieldPermissionCacheService: asClass(FieldPermissionCacheService).singleton(),
+    columnRuleCacheService: asClass(ColumnRuleCacheService).singleton(),
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
     dynamicRepository: asFunction((cradle: any) => {

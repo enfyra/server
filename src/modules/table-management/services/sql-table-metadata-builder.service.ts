@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { CreateTableDto } from '../dto/create-table.dto';
+import { TCreateTableBody } from '../types/table-handler.types';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
@@ -96,7 +96,7 @@ export class SqlTableMetadataBuilderService {
 
   constructAfterMetadata(
     exists: any,
-    body: CreateTableDto,
+    body: TCreateTableBody,
     oldMetadata: any,
     targetTablesMap: Map<number, string>,
   ): any {
