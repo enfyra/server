@@ -269,6 +269,8 @@ describe('buildZodFromMetadata — relations', () => {
       relations: [{ type: 'many-to-one', propertyName: 'author', targetTable: 'author' }],
     }), 'create', () => targetMeta);
     expect(s.safeParse({ author: { name: 'Alice' } }).success).toBe(true);
+    // Nested cascaded objects use passthrough — unknown keys accepted,
+    // required fields still enforced. `{nope: 1}` misses `name` → fail.
     expect(s.safeParse({ author: { nope: 1 } }).success).toBe(false);
   });
 
@@ -498,23 +500,28 @@ describe('buildZodFromMetadata — cascade create vs update semantics', () => {
 describe('buildZodFromMetadata — cycle detection + depth cap', () => {
   const author: any = { name: 'author', validateBody: true, columns: [], relations: [] };
   const post: any = { name: 'post', validateBody: true, columns: [], relations: [] };
-  author.relations = [{ type: 'one-to-many', propertyName: 'posts', targetTable: 'post' }];
-  post.relations = [{ type: 'many-to-one', propertyName: 'author', targetTable: 'author' }];
+  author.relations = [
+    { type: 'one-to-many', propertyName: 'posts', targetTable: 'post', mappedBy: 'author' },
+  ];
+  post.relations = [
+    { type: 'many-to-one', propertyName: 'author', targetTable: 'author', foreignKeyColumn: 'authorId' },
+  ];
 
   const getTableMetadata = (name: string) => (name === 'author' ? author : name === 'post' ? post : null);
 
-  it('cycle does not infinite-loop', () => {
+  it('cycle does not infinite-loop; cascaded nested objects use passthrough', () => {
     const s = build(author, 'create', getTableMetadata);
-    const r = s.safeParse({ posts: [{ author: 5 }] });
-    expect(r.success).toBe(true);
+    // Nested post without any field → pass
+    expect(s.safeParse({ posts: [{}] }).success).toBe(true);
+    // Nested with back-ref → also pass (passthrough ignores extras; server strips)
+    expect(s.safeParse({ posts: [{ author: 5 }] }).success).toBe(true);
   });
 
-  it('deep cycle: allows connect but stops cascade beyond visited set', () => {
+  it('deep cascade: nested o2m on both sides works without back-ref', () => {
     const s = build(author, 'create', getTableMetadata);
-    const r = s.safeParse({
-      posts: [{ author: 1 }],
-    });
-    expect(r.success).toBe(true);
+    // Just the nested o2m empty → pass
+    expect(s.safeParse({ posts: [] }).success).toBe(true);
+    expect(s.safeParse({ posts: [{}] }).success).toBe(true);
   });
 
   it('self-referencing m2o (parent → same table) does not infinite-loop', () => {

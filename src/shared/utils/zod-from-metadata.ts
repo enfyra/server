@@ -12,6 +12,8 @@ export interface BuildZodOpts {
   getTableMetadata: (tableName: string) => any | null;
   visited?: Set<string>;
   depth?: number;
+  skipChildRelationName?: string | null;
+  strict?: boolean;
 }
 
 function connectByIdSchema(): z.ZodType {
@@ -175,7 +177,10 @@ function buildRelationZod(
     Pick<BuildZodOpts, 'rulesForColumn' | 'getTableMetadata' | 'visited' | 'depth'>
   >,
 ): z.ZodType | null {
-  if (mode === 'update' && rel.isUpdatable === false) return null;
+  // NOTE: `isUpdatable=false` on a relation semantically means the LINK can't
+  // be swapped out, but nested CRUD through the relation may still be allowed
+  // (e.g. table_definition.columns is not-updatable as a link but server PATCH
+  // handles nested column changes). Don't filter here; server enforces.
 
   const targetName = rel.targetTableName || rel.targetTable;
   const isInverse = rel.mappedBy || rel.isInverse;
@@ -198,6 +203,8 @@ function buildRelationZod(
           getTableMetadata: ctx.getTableMetadata,
           visited: new Set([...ctx.visited, targetName]),
           depth: ctx.depth + 1,
+          skipChildRelationName: rel.mappedBy ?? null,
+          strict: false,
         });
         return z.union([connectByIdSchema(), nested]).nullable().optional();
       }
@@ -212,6 +219,8 @@ function buildRelationZod(
           getTableMetadata: ctx.getTableMetadata,
           visited: new Set([...ctx.visited, targetName]),
           depth: ctx.depth + 1,
+          skipChildRelationName: rel.mappedBy ?? null,
+          strict: false,
         });
         return z.union([connectByIdSchema(), nested]).nullable().optional();
       }
@@ -228,6 +237,8 @@ function buildRelationZod(
           getTableMetadata: ctx.getTableMetadata,
           visited: new Set([...ctx.visited, targetName]),
           depth: ctx.depth + 1,
+          skipChildRelationName: rel.mappedBy ?? null,
+          strict: false,
         });
         return z.array(z.union([connectByIdSchema(), nested])).optional();
       }
@@ -242,17 +253,30 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
   const { tableMeta, mode, rulesForColumn, getTableMetadata } = opts;
   const visited = opts.visited ?? new Set<string>();
   const depth = opts.depth ?? 0;
+  const skipChildRelationName = opts.skipChildRelationName ?? null;
 
   if (tableMeta?.name) visited.add(tableMeta.name);
+
+  // Identify the FK column of the back-reference relation we're skipping. The
+  // server auto-sets this FK during nested create; user shouldn't send it.
+  let skipFkColumn: string | null = null;
+  if (skipChildRelationName) {
+    const backRel = (tableMeta?.relations || []).find(
+      (r: any) => r.propertyName === skipChildRelationName,
+    );
+    if (backRel?.foreignKeyColumn) skipFkColumn = backRel.foreignKeyColumn;
+  }
 
   const shape: Record<string, z.ZodType> = {};
 
   for (const col of tableMeta?.columns || []) {
+    if (skipFkColumn && col.name === skipFkColumn) continue;
     const s = buildColumnZod(col, mode, rulesForColumn);
     if (s) shape[col.name] = s;
   }
 
   for (const rel of tableMeta?.relations || []) {
+    if (skipChildRelationName && rel.propertyName === skipChildRelationName) continue;
     const s = buildRelationZod(rel, mode, {
       rulesForColumn,
       getTableMetadata,
@@ -262,5 +286,6 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
     if (s) shape[rel.propertyName] = s;
   }
 
-  return z.object(shape).strict();
+  const isStrict = opts.strict !== false;
+  return isStrict ? z.object(shape).strict() : z.object(shape).passthrough();
 }
