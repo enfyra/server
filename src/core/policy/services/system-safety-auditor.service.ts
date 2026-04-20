@@ -138,8 +138,20 @@ export class SystemSafetyAuditorService {
 
     if (tableName === 'field_permission_definition') {
       if (operation === 'create' || operation === 'update') {
-        const hasColumn = data?.column != null;
-        const hasRelation = data?.relation != null;
+        const hasColumnInData =
+          data && 'column' in data ? data.column != null : undefined;
+        const hasRelationInData =
+          data && 'relation' in data ? data.relation != null : undefined;
+        const existingHasColumn = fullExisting?.column != null;
+        const existingHasRelation = fullExisting?.relation != null;
+        const hasColumn =
+          operation === 'update'
+            ? (hasColumnInData ?? existingHasColumn)
+            : data?.column != null;
+        const hasRelation =
+          operation === 'update'
+            ? (hasRelationInData ?? existingHasRelation)
+            : data?.relation != null;
         if ((hasColumn && hasRelation) || (!hasColumn && !hasRelation)) {
           throw new Error(
             'field_permission_definition requires exactly one of: column or relation',
@@ -194,7 +206,7 @@ export class SystemSafetyAuditorService {
       if (operation === 'delete' && isSystem)
         throw new Error('Cannot delete system table!');
       if (operation === 'update' && isSystem) {
-        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description']);
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description', 'validateBody']);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
         if (disallowed.length > 0) {
           throw new Error(

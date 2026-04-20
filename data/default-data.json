@@ -299,6 +299,19 @@
             ]
         },
         {
+            "path": "/column_rule_definition",
+            "mainTable": "column_rule_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:ruler",
+            "availableMethods": [
+                "GET",
+                "POST",
+                "PATCH",
+                "DELETE"
+            ]
+        },
+        {
             "path": "/menu_definition",
             "mainTable": "menu_definition",
             "isEnabled": true,

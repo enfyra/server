@@ -194,6 +194,10 @@ export class EventQueueService {
       broadcast: (event: string, data: any) => {
         self.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
       },
+      roomSize: async (room: string): Promise<number> => {
+        const gateway = self.lazyRef.dynamicWebSocketGateway;
+        return gateway ? gateway.roomSize(room) : 0;
+      },
     };
   }
 }

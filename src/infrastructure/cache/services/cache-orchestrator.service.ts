@@ -13,6 +13,7 @@ import { StorageConfigCacheService } from './storage-config-cache.service';
 import { OAuthConfigCacheService } from './oauth-config-cache.service';
 import { FolderTreeCacheService } from './folder-tree-cache.service';
 import { FieldPermissionCacheService } from './field-permission-cache.service';
+import { ColumnRuleCacheService } from './column-rule-cache.service';
 import { RepoRegistryService } from './repo-registry.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
@@ -46,7 +47,7 @@ const FLOW_PRIORITY = [
 
 type ReloadStep = (payload: TCacheInvalidationPayload) => Promise<void>;
 
-const RELOAD_CHAINS: Record<string, string[]> = {
+export const RELOAD_CHAINS: Record<string, string[]> = {
   table_definition: [
     'metadata',
     'repoRegistry',
@@ -82,6 +83,8 @@ const RELOAD_CHAINS: Record<string, string[]> = {
 
   field_permission_definition: ['fieldPermission', 'graphql'],
 
+  column_rule_definition: ['column-rule'],
+
   setting_definition: ['setting', 'settingGraphql'],
   storage_config_definition: ['storage'],
   oauth_config_definition: ['oauth'],
@@ -111,6 +114,7 @@ export class CacheOrchestratorService implements LifecycleAware {
   private readonly oauthConfigCacheService: OAuthConfigCacheService;
   private readonly folderTreeCacheService: FolderTreeCacheService;
   private readonly fieldPermissionCacheService: FieldPermissionCacheService;
+  private readonly columnRuleCacheService: ColumnRuleCacheService;
   private readonly repoRegistryService: RepoRegistryService;
   private readonly graphqlService: GraphqlService;
   private readonly bootstrapScriptService: BootstrapScriptService;
@@ -140,6 +144,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     oauthConfigCacheService: OAuthConfigCacheService;
     folderTreeCacheService: FolderTreeCacheService;
     fieldPermissionCacheService: FieldPermissionCacheService;
+    columnRuleCacheService: ColumnRuleCacheService;
     repoRegistryService: RepoRegistryService;
     graphqlService: GraphqlService;
     bootstrapScriptService: BootstrapScriptService;
@@ -159,6 +164,7 @@ export class CacheOrchestratorService implements LifecycleAware {
     this.oauthConfigCacheService = deps.oauthConfigCacheService;
     this.folderTreeCacheService = deps.folderTreeCacheService;
     this.fieldPermissionCacheService = deps.fieldPermissionCacheService;
+    this.columnRuleCacheService = deps.columnRuleCacheService;
     this.repoRegistryService = deps.repoRegistryService;
     this.graphqlService = deps.graphqlService;
     this.bootstrapScriptService = deps.bootstrapScriptService;
@@ -178,6 +184,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       oauth: (p) => this.reloadSimple(this.oauthConfigCacheService, p),
       folder: (p) => this.reloadSimple(this.folderTreeCacheService, p),
       fieldPermission: (p) => this.reloadSimple(this.fieldPermissionCacheService, p),
+      'column-rule': (p) => this.reloadSimple(this.columnRuleCacheService, p),
       settingGraphql: () => this.reloadSettingGraphql(),
       bootstrap: () => this.reloadBootstrapScripts(),
     };
@@ -377,9 +384,27 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadSimple(
-    cache: { reload: (publish?: boolean) => Promise<void> },
-    _payload: TCacheInvalidationPayload,
+    cache: {
+      reload: (publish?: boolean) => Promise<void>;
+      partialReload?: (
+        payload: TCacheInvalidationPayload,
+        publish?: boolean,
+      ) => Promise<void>;
+      supportsPartialReload?: () => boolean;
+      isLoaded?: () => boolean;
+    },
+    payload: TCacheInvalidationPayload,
   ): Promise<void> {
+    if (
+      payload.scope === 'partial' &&
+      payload.ids?.length &&
+      cache.isLoaded?.() &&
+      cache.supportsPartialReload?.() &&
+      cache.partialReload
+    ) {
+      await cache.partialReload(payload, false);
+      return;
+    }
     await cache.reload(false);
   }
 
@@ -494,6 +519,7 @@ export class CacheOrchestratorService implements LifecycleAware {
       this.oauthConfigCacheService.reload(false),
       this.folderTreeCacheService.reload(false),
       this.fieldPermissionCacheService.reload(false),
+      this.columnRuleCacheService.reload(false),
     ]);
     if (this.graphqlService) {
       await this.graphqlService.reloadSchema();

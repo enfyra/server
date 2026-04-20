@@ -91,6 +91,8 @@ export function routeDetectMiddleware(
           broadcast: (event: string, data: any) => {
             dynamicWebSocketGateway.emitToAll(event, data);
           },
+          roomSize: async (room: string): Promise<number> =>
+            dynamicWebSocketGateway.roomSize(room),
         },
         $api: {
           request: {

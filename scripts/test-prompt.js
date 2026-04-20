@@ -21,7 +21,7 @@ function runNode(scriptRel) {
 }
 
 function runYarnJest(jestArgs) {
-  const r = spawnSync('yarn', ['jest', ...jestArgs, '--runInBand'], {
+  const r = spawnSync('yarn', ['vitest', 'run', ...jestArgs], {
     cwd: root,
     stdio: 'inherit',
     env: mergeNodeOptions(),

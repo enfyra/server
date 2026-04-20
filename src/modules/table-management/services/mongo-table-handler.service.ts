@@ -20,7 +20,7 @@ import {
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { getDeletedIds } from '../utils/get-deleted-ids';
-import { CreateTableDto } from '../dto/create-table.dto';
+import { TCreateTableBody } from '../types/table-handler.types';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../core/bootstrap/utils/canonical-table-route.util';
 import {
@@ -279,7 +279,7 @@ export class MongoTableHandlerService {
       }
     }
   }
-  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+  async createTable(body: TCreateTableBody, context?: TDynamicContext) {
     const decision = await this.policyService.checkSchemaMigration({
       operation: 'create',
       tableName: 'table_definition',
@@ -753,7 +753,7 @@ export class MongoTableHandlerService {
       },
     );
   }
-  async updateTable(id: any, body: CreateTableDto, context?: TDynamicContext) {
+  async updateTable(id: any, body: TCreateTableBody, context?: TDynamicContext) {
     const affectedTableNames = new Set<string>();
     const tag = `[mongo:updateTable:${id}]`;
     const stepLog = (msg: string) => this.logger.log(`${tag} ${msg}`);
@@ -853,6 +853,7 @@ export class MongoTableHandlerService {
         if ('indexes' in body) updateData.indexes = body.indexes;
         if ('isSingleRecord' in body)
           updateData.isSingleRecord = body.isSingleRecord;
+        if ('validateBody' in body) updateData.validateBody = body.validateBody;
         if (Object.keys(updateData).length > 0) {
           await this.queryBuilderService.update('table_definition', id, updateData);
         }

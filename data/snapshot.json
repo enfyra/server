@@ -26,6 +26,22 @@
             { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table that this column belongs to" }
         ]
     },
+    "column_rule_definition": {
+        "name": "column_rule_definition",
+        "description": "Validation rules attached to columns (min/max/pattern/format/etc.)",
+        "isSystem": true,
+        "columns": [
+            { "name": "id", "type": "int", "isPrimary": true, "isGenerated": true, "isNullable": false, "isSystem": true, "description": "Primary key identifier" },
+            { "name": "ruleType", "type": "enum", "isNullable": false, "isSystem": true, "options": ["min", "max", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "custom"], "description": "Type of validation rule" },
+            { "name": "value", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Rule payload — shape depends on ruleType (e.g. {v: 10} for min/max, {v: 'email'} for format)" },
+            { "name": "message", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Custom error message when rule fails (falls back to default if null)" },
+            { "name": "isEnabled", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this rule is active" },
+            { "name": "description", "type": "text", "isSystem": true, "description": "Admin note about this rule" }
+        ],
+        "relations": [
+            { "propertyName": "column", "type": "many-to-one", "targetTable": "column_definition", "isSystem": true, "isNullable": false, "inversePropertyName": "rules", "onDelete": "CASCADE", "description": "The column this rule applies to" }
+        ]
+    },
     "relation_definition": {
         "name": "relation_definition",
         "description": "Defines relationships between tables (one-to-one, one-to-many, many-to-one, many-to-many)",
@@ -72,7 +88,8 @@
             { "name": "indexes", "type": "simple-json", "isNullable": true, "isSystem": true, "description": "Array of database indexes for performance optimization" },
             { "name": "alias", "type": "varchar", "isNullable": true, "isSystem": true, "description": "Human-readable alias for the table" },
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of the table's purpose" },
-            { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the table" }
+            { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the table" },
+            { "name": "validateBody", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Auto-validate POST/PATCH bodies against column + relation metadata and column rules. Default true (opt-out per table); set false to skip middleware validation for a table" }
         ]
     },
     "user_definition": {
@@ -145,7 +162,8 @@
             { "name": "projectFavicon", "type": "varchar", "isSystem": true, "description": "Favicon URL or path for the project/application" },
             { "name": "maxQueryDepth", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 7, "description": "Maximum nesting depth for REST deep-fetch and GraphQL queries (default: 7)" },
             { "name": "maxUploadFileSize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 10, "description": "Maximum upload file size in MB (default: 10)" },
-            { "name": "maxRequestBodySize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 1, "description": "Maximum JSON/urlencoded request body size in MB (default: 1)" }
+            { "name": "maxRequestBodySize", "type": "int", "isNullable": true, "isSystem": true, "defaultValue": 1, "description": "Maximum JSON/urlencoded request body size in MB (default: 1)" },
+            { "name": "uniquesIndexesRepaired", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether user-table uniques/indexes metadata has been repaired (one-time fix for fkColumn leak)" }
         ],
         "relations": []
     },

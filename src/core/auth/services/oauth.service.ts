@@ -216,8 +216,12 @@ export class OAuthService {
           name: data.name || data.login,
           avatar: data.avatar_url,
         };
-      default:
-        return data;
+      default: {
+        const _exhaustiveCheck: never = provider;
+        throw new BadRequestException(
+          `Unsupported OAuth provider: ${_exhaustiveCheck}. Add a case to fetchUserInfo() to map this provider's user info shape.`,
+        );
+      }
     }
   }
 

@@ -1,22 +1,23 @@
-import { winstonLogger, shouldLog } from './utils/winston-logger';
+import * as path from 'path';
+import * as fs from 'fs';
+import pino, { Logger as PinoLogger } from 'pino';
+import { logStore } from './log-store';
 
-const MIN_LEVEL: Record<string, number> = {
-  error: 0,
-  warn: 1,
-  log: 2,
-  debug: 3,
-  verbose: 4,
-};
+const LOG_DIR = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
 
-const currentLevel = MIN_LEVEL[process.env.LOG_LEVEL || 'info'] ?? 2;
+type LevelName = 'error' | 'warn' | 'log' | 'debug' | 'verbose';
 
 const RESET = '\x1b[0m';
 const DIM = '\x1b[38;5;245m';
 const BRACKET = '\x1b[38;5;8m';
 const ARROW = '\x1b[38;5;7m→';
 const SERVICE = '\x1b[38;5;220m';
+const CORR = '\x1b[38;5;141m';
 
-const LEVEL_ICONS: Record<string, string> = {
+const LEVEL_ICONS: Record<LevelName, string> = {
   log: '◈',
   error: '✖',
   warn: '⚠',
@@ -24,7 +25,7 @@ const LEVEL_ICONS: Record<string, string> = {
   verbose: '·',
 };
 
-const LEVEL_COLORS: Record<string, string> = {
+const LEVEL_COLORS: Record<LevelName, string> = {
   log: '\x1b[32m',
   error: '\x1b[31m',
   warn: '\x1b[33m',
@@ -32,89 +33,209 @@ const LEVEL_COLORS: Record<string, string> = {
   verbose: '\x1b[90m',
 };
 
+const PINO_LEVEL: Record<LevelName, 'info' | 'warn' | 'error' | 'debug' | 'trace'> = {
+  log: 'info',
+  error: 'error',
+  warn: 'warn',
+  debug: 'debug',
+  verbose: 'trace',
+};
+
+let logCounter = 0;
+function generateLogId(): string {
+  const t = Date.now().toString(36);
+  const c = (logCounter++).toString(36).padStart(4, '0');
+  const r = Math.random().toString(36).substring(2, 6);
+  return `log_${t}_${c}_${r}`;
+}
+
 function formatTime(d: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
-  const h = pad(d.getHours());
-  const m = pad(d.getMinutes());
-  const s = pad(d.getSeconds());
-  return `${h}:${m}:${s}`;
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+const NOOP_STREAM: pino.DestinationStream = {
+  write: () => {},
+};
+
+function buildTransport(): pino.DestinationStream | undefined {
+  if (process.env.LOG_DISABLE_FILES === '1') return NOOP_STREAM;
+  try {
+    return pino.transport({
+      targets: [
+        {
+          level: 'info',
+          target: 'pino-roll',
+          options: {
+            file: path.join(LOG_DIR, 'app'),
+            frequency: 'daily',
+            size: '20m',
+            extension: '.log',
+            mkdir: true,
+          },
+        },
+        {
+          level: 'error',
+          target: 'pino-roll',
+          options: {
+            file: path.join(LOG_DIR, 'error'),
+            frequency: 'daily',
+            size: '20m',
+            extension: '.log',
+            mkdir: true,
+          },
+        },
+      ],
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+const pinoInstance: PinoLogger = pino(
+  {
+    level: 'info',
+    messageKey: 'message',
+    base: { service: 'enfyra-server' },
+    formatters: {
+      level: (label: string) => ({ level: label }),
+    },
+    timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+    mixin: () => {
+      const store = logStore.getStore();
+      const mix: Record<string, any> = { id: generateLogId() };
+      if (store?.correlationId) mix.correlationId = store.correlationId;
+      if (store?.context) {
+        for (const [k, v] of Object.entries(store.context)) {
+          if (mix[k] === undefined) mix[k] = v;
+        }
+      }
+      return mix;
+    },
+  },
+  buildTransport(),
+);
+
+export function __pinoInstanceForTests(): PinoLogger {
+  return pinoInstance;
+}
+
+function extractObjectMessage(
+  payload: Record<string, any>,
+  fallback: string,
+): { msg: string; meta: Record<string, any> } {
+  const { message, msg: msgField, ...rest } = payload;
+  const picked = (typeof message === 'string' && message) ||
+    (typeof msgField === 'string' && msgField) ||
+    fallback;
+  return { msg: picked, meta: rest };
+}
+
+function printPretty(
+  level: LevelName,
+  msg: string,
+  context: string | undefined,
+  correlationId: string | undefined,
+  trace?: string,
+): void {
+  if (process.env.LOG_DISABLE_CONSOLE === '1') return;
+  const icon = LEVEL_ICONS[level];
+  const iconColor = LEVEL_COLORS[level];
+  const time = formatTime(new Date());
+  const emphasize = level === 'error' || level === 'warn';
+  const ctxColor = emphasize ? iconColor : SERVICE;
+  const ctxStr = context ? `${ctxColor}${context}${RESET} ` : '';
+  const corrStr = correlationId ? `${CORR}[${correlationId}]${RESET} ` : '';
+  const msgColored = emphasize ? `${iconColor}${msg}${RESET}` : msg;
+  const line = `${BRACKET}[${time}]${RESET} ${iconColor}${icon}${RESET} ${ctxStr}${corrStr}${ARROW} ${msgColored}`;
+  const target = level === 'error' ? console.error : console.log;
+  target(line);
+  if (trace) {
+    console.error(`${DIM}  ${trace}${RESET}`);
+  }
 }
 
 export class Logger {
-  private context?: string;
+  private readonly context?: string;
 
   constructor(context?: string) {
     this.context = context;
   }
 
-  log(message: any, context?: string) {
-    const ctx = context || this.context;
-    if (!shouldLog(ctx)) return;
-    this.print('log', message, ctx);
-    winstonLogger.info(String(message), { context: ctx });
+  log(message: any, context?: string): void {
+    this.emit('log', message, undefined, context);
   }
 
-  error(message: any, trace?: string | Error, context?: string) {
-    const ctx = context || this.context;
-    if (!shouldLog(ctx)) return;
-    this.print('error', message, ctx);
-    if (trace) {
-      const traceStr = trace instanceof Error ? trace.stack || trace.message : String(trace);
-      console.error(`${DIM}  ${traceStr}${RESET}`);
-    }
-    winstonLogger.error(String(message), { context: ctx, trace: trace instanceof Error ? trace.stack : trace });
+  error(message: any, trace?: string | Error | Record<string, any>, context?: string): void {
+    this.emit('error', message, trace, context);
   }
 
-  warn(message: any, context?: string) {
-    const ctx = context || this.context;
-    if (!shouldLog(ctx)) return;
-    this.print('warn', message, ctx);
-    winstonLogger.warn(String(message), { context: ctx });
+  warn(message: any, context?: string): void {
+    this.emit('warn', message, undefined, context);
   }
 
-  debug(message: any, context?: string) {
-    if (currentLevel < MIN_LEVEL.debug) return;
-    const ctx = context || this.context;
-    if (!shouldLog(ctx)) return;
-    this.print('debug', message, ctx);
-    winstonLogger.debug(String(message), { context: ctx });
+  debug(message: any, context?: string): void {
+    this.emit('debug', message, undefined, context);
   }
 
-  verbose(message: any, context?: string) {
-    if (currentLevel < MIN_LEVEL.verbose) return;
-    const ctx = context || this.context;
-    if (!shouldLog(ctx)) return;
-    this.print('verbose', message, ctx);
-    winstonLogger.verbose(String(message), { context: ctx });
+  verbose(message: any, context?: string): void {
+    this.emit('verbose', message, undefined, context);
   }
 
-  private print(level: string, message: any, context?: string) {
-    const time = formatTime(new Date());
-    const icon = LEVEL_ICONS[level];
-    const iconColor = LEVEL_COLORS[level];
+  fatal(message: any, trace?: string | Error, context?: string): void {
+    this.emit('error', message, trace, context, { fatal: true });
+  }
 
-    const shortCtx = context || '';
+  private emit(
+    level: LevelName,
+    message: any,
+    trace: unknown,
+    context: string | undefined,
+    extraMeta?: Record<string, any>,
+  ): void {
+    const ctx = context || this.context;
+    const fallback = level === 'log' ? 'Log'
+      : level === 'error' ? 'Error'
+      : level === 'warn' ? 'Warning'
+      : level === 'debug' ? 'Debug'
+      : 'Verbose';
 
-    let msgStr: string;
+    let msg: string;
+    const meta: Record<string, any> = { ...(extraMeta || {}) };
+
     if (typeof message === 'object' && message !== null) {
-      if (message.message && typeof message.message === 'string') {
-        msgStr = message.message;
+      if (message instanceof Error) {
+        msg = message.message || fallback;
+        meta.stack = message.stack;
       } else {
-        msgStr = JSON.stringify(message, null, 2);
+        const extracted = extractObjectMessage(message, fallback);
+        msg = extracted.msg;
+        Object.assign(meta, extracted.meta);
       }
+    } else if (message === undefined || message === null) {
+      msg = String(message);
     } else {
-      msgStr = String(message);
+      msg = String(message);
     }
 
-    const timeStr = `${BRACKET}[${time}]${RESET}`;
-    const iconStr = iconColor + icon + RESET;
+    if (trace instanceof Error) {
+      meta.stack = trace.stack || trace.message;
+    } else if (typeof trace === 'string') {
+      meta.stack = trace;
+    } else if (trace && typeof trace === 'object') {
+      const { message: _m, ...rest } = trace as Record<string, any>;
+      for (const [k, v] of Object.entries(rest)) {
+        if (meta[k] === undefined) meta[k] = v;
+      }
+    }
 
-    const emphasize = level === 'error' || level === 'warn';
-    const ctxColor = emphasize ? iconColor : SERVICE;
-    const ctxStr = shortCtx ? `${ctxColor}${shortCtx}${RESET} ` : '';
-    const arrowStr = `${ARROW} `;
-    const msgColored = emphasize ? `${iconColor}${msgStr}${RESET}` : msgStr;
+    if (ctx) meta.context = ctx;
 
-    console.log(`${timeStr} ${iconStr} ${ctxStr}${arrowStr}${msgColored}`);
+    const pinoLevel = PINO_LEVEL[level];
+    pinoInstance[pinoLevel](meta, msg);
+
+    const correlationId = logStore.getStore()?.correlationId;
+    const consoleTrace = level === 'error' ? meta.stack : undefined;
+    printPretty(level, msg, ctx, correlationId, consoleTrace);
   }
 }

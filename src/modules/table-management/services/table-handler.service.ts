@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { SqlTableHandlerService } from './sql-table-handler.service';
 import { MongoTableHandlerService } from './mongo-table-handler.service';
-import { CreateTableDto } from '../dto/create-table.dto';
+import { TCreateTableBody } from '../types/table-handler.types';
 import { TDynamicContext } from '../../../shared/types';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
@@ -29,13 +29,13 @@ export class TableHandlerService {
     return this.sqlTableHandlerService;
   }
 
-  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+  async createTable(body: TCreateTableBody, context?: TDynamicContext) {
     return this.getHandler().createTable(body, context);
   }
 
   async updateTable(
     id: string | number,
-    body: CreateTableDto,
+    body: TCreateTableBody,
     context?: TDynamicContext,
   ) {
     return this.getHandler().updateTable(id, body, context);

@@ -18,7 +18,7 @@ import {
   ValidationException,
 } from '../../../core/exceptions/custom-exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { CreateTableDto } from '../dto/create-table.dto';
+import { TCreateTableBody } from '../types/table-handler.types';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
@@ -219,7 +219,7 @@ export class SqlTableHandlerService {
       );
     }
   }
-  async createTable(body: CreateTableDto, context?: TDynamicContext) {
+  async createTable(body: TCreateTableBody, context?: TDynamicContext) {
     const decision = await this.policyService.checkSchemaMigration({
       operation: 'create',
       tableName: 'table_definition',
@@ -234,7 +234,7 @@ export class SqlTableHandlerService {
       () => this.createTableInternal(body),
     );
   }
-  private async createTableInternal(body: CreateTableDto) {
+  private async createTableInternal(body: TCreateTableBody) {
     if (/[A-Z]/.test(body?.name)) {
       throw new ValidationException(
         'Table name must be lowercase (no uppercase letters).',
@@ -701,7 +701,7 @@ export class SqlTableHandlerService {
   }
   async updateTable(
     id: string | number,
-    body: CreateTableDto,
+    body: TCreateTableBody,
     context?: TDynamicContext,
   ) {
     const t0 = Date.now();
@@ -717,7 +717,7 @@ export class SqlTableHandlerService {
   }
   private async updateTableInternal(
     id: string | number,
-    body: CreateTableDto,
+    body: TCreateTableBody,
     context?: TDynamicContext,
   ) {
     const tag = `[updateTable:${id}]`;

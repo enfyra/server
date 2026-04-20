@@ -8,14 +8,15 @@ import {
   ScriptExecutionException,
   ScriptTimeoutException,
 } from '../custom-exceptions';
+import { AppError } from '../../../shared/errors';
 
 export interface ErrorResponse {
   success: false;
-  message: string;
+  message: string | string[];
   statusCode: number;
   error: {
     code: string;
-    message: string;
+    message: string | string[];
     details?: any;
     timestamp: string;
     path: string;
@@ -72,7 +73,7 @@ export function globalExceptionMiddleware(
 function getErrorDetails(exception: unknown): {
   statusCode: number;
   errorCode: string;
-  message: string;
+  message: string | string[];
   details?: any;
 } {
   if (exception instanceof HttpException) {
@@ -89,6 +90,14 @@ function getErrorDetails(exception: unknown): {
     return {
       statusCode: exception.statusCode,
       errorCode: exception.errorCode,
+      message: exception.messages ?? exception.message,
+      details: exception.details,
+    };
+  }
+  if (exception instanceof AppError) {
+    return {
+      statusCode: exception.statusCode,
+      errorCode: exception.code || exception.name,
       message: exception.message,
       details: exception.details,
     };
@@ -99,6 +108,17 @@ function getErrorDetails(exception: unknown): {
       errorCode: 'GRAPHQL_ERROR',
       message: exception.message,
       details: exception.extensions,
+    };
+  }
+  if (exception instanceof SyntaxError && 'body' in (exception as any)) {
+    return {
+      statusCode: 400,
+      errorCode: 'BAD_REQUEST',
+      message: ['Invalid JSON body'],
+      details:
+        process.env.NODE_ENV === 'development'
+          ? (exception as Error).message
+          : null,
     };
   }
   if (exception instanceof Error) {

@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { CreateTableDto } from '../dto/create-table.dto';
+import { TCreateTableBody } from '../types/table-handler.types';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
   getJunctionTableName,
@@ -13,7 +13,7 @@ export class SqlTableMetadataWriterService {
   async writeTableMetadataUpdates(
     queryRunner: any,
     id: string | number,
-    body: CreateTableDto,
+    body: TCreateTableBody,
     exists: any,
     affectedTableNames: Set<string>,
   ): Promise<void> {
@@ -27,6 +27,9 @@ export class SqlTableMetadataWriterService {
         indexes: body.indexes ? JSON.stringify(body.indexes) : exists.indexes,
         ...(body.isSingleRecord !== undefined && {
           isSingleRecord: body.isSingleRecord,
+        }),
+        ...(body.validateBody !== undefined && {
+          validateBody: body.validateBody,
         }),
       });
 

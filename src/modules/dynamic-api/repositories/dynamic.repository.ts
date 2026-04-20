@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
 } from '../../../core/exceptions/custom-exceptions';
 import { EventEmitter2 } from 'eventemitter2';
@@ -584,6 +585,9 @@ export class DynamicRepository {
         );
         Object.assign(body, processedBody);
       }
+      if (this.tableName === 'column_rule_definition') {
+        await this.assertColumnRuleUnique(body, null);
+      }
       if (this.tableName === 'table_definition') {
         body.isSystem = false;
         const table: any = await this.tableHandlerService.createTable(
@@ -635,7 +639,7 @@ export class DynamicRepository {
         throw error;
       }
     } catch (error: any) {
-      if (error instanceof ForbiddenException) {
+      if (error instanceof ForbiddenException || error instanceof ConflictException) {
         throw error;
       }
       if (error.errInfo) {
@@ -760,6 +764,9 @@ export class DynamicRepository {
         );
         Object.assign(body, processedBody);
       }
+      if (this.tableName === 'column_rule_definition') {
+        await this.assertColumnRuleUnique(body, id);
+      }
       if (this.tableName === 'table_definition') {
         const table: any = await this.tableHandlerService.updateTable(
           id,
@@ -800,7 +807,7 @@ export class DynamicRepository {
       }
       return result;
     } catch (error: any) {
-      if (error instanceof ForbiddenException) {
+      if (error instanceof ForbiddenException || error instanceof ConflictException) {
         throw error;
       }
       throw new BadRequestException(error.message);
@@ -1069,6 +1076,41 @@ export class DynamicRepository {
       (tbl, action, d) => this.cascadeFieldPermissionCheck(tbl, action, d),
       callback,
     );
+  }
+
+  private async assertColumnRuleUnique(
+    body: any,
+    editingId: string | number | null,
+  ): Promise<void> {
+    const ruleType = body?.ruleType;
+    if (!ruleType || ruleType === 'custom') return;
+
+    const columnRef = body?.column;
+    const columnId =
+      columnRef && typeof columnRef === 'object'
+        ? columnRef.id ?? columnRef._id
+        : columnRef;
+    if (columnId == null) return;
+
+    const existing = await this.queryBuilderService.find({
+      table: 'column_rule_definition',
+      filter: {
+        ruleType: { _eq: ruleType },
+        column: { id: { _eq: columnId } },
+      },
+      fields: [this.getIdField()],
+      limit: 10,
+    });
+    const rows: any[] = existing?.data ?? [];
+    const conflict = rows.find(
+      (r) => String(r[this.getIdField()]) !== String(editingId ?? ''),
+    );
+    if (conflict) {
+      throw new ConflictException(
+        `Rule of type '${ruleType}' already exists for this column`,
+        { ruleType, columnId: String(columnId), existingId: conflict[this.getIdField()] },
+      );
+    }
   }
 
   private async reload(opts?: {

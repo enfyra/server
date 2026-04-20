@@ -1,5 +1,4 @@
 export * from './constant';
-export * from './validate-dto.util';
 export * from './script-error-factory';
 
 // Re-export types from shared/types for backward compatibility
