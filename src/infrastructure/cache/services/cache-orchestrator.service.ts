@@ -384,9 +384,27 @@ export class CacheOrchestratorService implements LifecycleAware {
   }
 
   private async reloadSimple(
-    cache: { reload: (publish?: boolean) => Promise<void> },
-    _payload: TCacheInvalidationPayload,
+    cache: {
+      reload: (publish?: boolean) => Promise<void>;
+      partialReload?: (
+        payload: TCacheInvalidationPayload,
+        publish?: boolean,
+      ) => Promise<void>;
+      supportsPartialReload?: () => boolean;
+      isLoaded?: () => boolean;
+    },
+    payload: TCacheInvalidationPayload,
   ): Promise<void> {
+    if (
+      payload.scope === 'partial' &&
+      payload.ids?.length &&
+      cache.isLoaded?.() &&
+      cache.supportsPartialReload?.() &&
+      cache.partialReload
+    ) {
+      await cache.partialReload(payload, false);
+      return;
+    }
     await cache.reload(false);
   }
 

@@ -1,6 +1,9 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import {
+  CACHE_IDENTIFIERS,
+  TCacheInvalidationPayload,
+} from '../../../shared/utils/cache-events.constants';
 import { BaseCacheService } from './base-cache.service';
 
 export type TColumnRuleType =
@@ -63,24 +66,75 @@ export class ColumnRuleCacheService extends BaseCacheService<
     const rows: any[] = Array.isArray(rawData) ? rawData : [];
 
     for (const row of rows) {
-      const columnId = toIdString(row?.column);
-      if (!columnId) continue;
-
-      const rule: TColumnRule = {
-        id: row.id,
-        ruleType: row.ruleType,
-        value: row.value,
-        message: row.message ?? null,
-        isEnabled: row.isEnabled !== false,
-        columnId,
-      };
-
-      const existing = map.get(columnId);
+      const rule = this.rowToRule(row);
+      if (!rule) continue;
+      const existing = map.get(rule.columnId);
       if (existing) existing.push(rule);
-      else map.set(columnId, [rule]);
+      else map.set(rule.columnId, [rule]);
     }
 
     return map;
+  }
+
+  supportsPartialReload(): boolean {
+    return true;
+  }
+
+  protected async applyPartialUpdate(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
+    if (!this.cache) {
+      throw new Error('Cache not initialized, cannot partial reload');
+    }
+    const ids = (payload.ids ?? []).map(String);
+    if (ids.length === 0) return;
+
+    const result = await this.queryBuilderService.find({
+      table: 'column_rule_definition',
+      fields: ['*', 'column.id', 'column._id'],
+      filter: { id: { _in: ids } },
+      limit: ids.length,
+    });
+    const rows: any[] = result?.data ?? [];
+
+    const fetchedById = new Map<string, any>();
+    for (const row of rows) {
+      const rid = toIdString(row);
+      if (rid) fetchedById.set(rid, row);
+    }
+
+    for (const id of ids) {
+      this.removeRuleFromAllBuckets(id);
+      const row = fetchedById.get(id);
+      if (!row) continue;
+      const rule = this.rowToRule(row);
+      if (!rule || !rule.isEnabled) continue;
+      const bucket = this.cache.get(rule.columnId);
+      if (bucket) bucket.push(rule);
+      else this.cache.set(rule.columnId, [rule]);
+    }
+  }
+
+  private removeRuleFromAllBuckets(ruleId: string): void {
+    for (const [columnId, rules] of this.cache.entries()) {
+      const idx = rules.findIndex((r) => String(r.id) === ruleId);
+      if (idx === -1) continue;
+      rules.splice(idx, 1);
+      if (rules.length === 0) this.cache.delete(columnId);
+    }
+  }
+
+  private rowToRule(row: any): TColumnRule | null {
+    const columnId = toIdString(row?.column);
+    if (!columnId) return null;
+    return {
+      id: row.id,
+      ruleType: row.ruleType,
+      value: row.value,
+      message: row.message ?? null,
+      isEnabled: row.isEnabled !== false,
+      columnId,
+    };
   }
 
   async getRulesForColumn(columnId: string | number): Promise<TColumnRule[]> {
