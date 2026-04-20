@@ -47,7 +47,7 @@ const FLOW_PRIORITY = [
 
 type ReloadStep = (payload: TCacheInvalidationPayload) => Promise<void>;
 
-const RELOAD_CHAINS: Record<string, string[]> = {
+export const RELOAD_CHAINS: Record<string, string[]> = {
   table_definition: [
     'metadata',
     'repoRegistry',
@@ -82,6 +82,8 @@ const RELOAD_CHAINS: Record<string, string[]> = {
   guard_rule_definition: ['guard'],
 
   field_permission_definition: ['fieldPermission', 'graphql'],
+
+  column_rule_definition: ['column-rule'],
 
   setting_definition: ['setting', 'settingGraphql'],
   storage_config_definition: ['storage'],
