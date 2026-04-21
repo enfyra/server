@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { ExecutorEngineService } from '../../infrastructure/executor-engine/services/executor-engine.service';
 
-export function dynamicInterceptorBegin(executorEngineService: ExecutorEngineService) {
+export function dynamicInterceptorBegin(
+  executorEngineService: ExecutorEngineService,
+) {
   return async (req: any, res: Response, next: NextFunction) => {
     const preHooks = req.routeData?.preHooks;
     if (preHooks?.length) {
@@ -17,13 +19,17 @@ export function dynamicInterceptorBegin(executorEngineService: ExecutorEngineSer
   };
 }
 
-export function dynamicInterceptorEnd(req: any, res: Response, next: NextFunction) {
+export function dynamicInterceptorEnd(
+  req: any,
+  res: Response,
+  next: NextFunction,
+) {
   if (res.headersSent) {
     return next();
   }
 
   const originalJson = res.json.bind(res);
-  res.json = function(data: any) {
+  res.json = function (data: any) {
     const logs = req.routeData?.context?.$share?.$logs;
     if (logs?.length) {
       data = { ...data, logs };

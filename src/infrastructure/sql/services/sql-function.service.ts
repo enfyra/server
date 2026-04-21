@@ -22,7 +22,9 @@ export class SqlFunctionService {
       const knex = this.queryBuilderService.getKnex();
       await installMysqlUnaccent(knex);
     } else if (this.databaseConfigService.isPostgres()) {
-      await this.queryBuilderService.raw(`CREATE EXTENSION IF NOT EXISTS unaccent;`);
+      await this.queryBuilderService.raw(
+        `CREATE EXTENSION IF NOT EXISTS unaccent;`,
+      );
     }
   }
 }

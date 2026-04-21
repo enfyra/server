@@ -13,7 +13,10 @@ async function loadGuardCache(
   });
   const qb = { find, isMongoDb: () => false };
   const ee = new EventEmitter2();
-  const svc = new GuardCacheService({ queryBuilderService: qb as any, eventEmitter: ee });
+  const svc = new GuardCacheService({
+    queryBuilderService: qb as any,
+    eventEmitter: ee,
+  });
   await svc.reload(false);
   return svc;
 }

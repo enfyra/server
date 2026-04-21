@@ -211,7 +211,9 @@ export class SchemaMigrationValidatorService {
     const stripKey = (cols: any[]) =>
       cols
         .map(({ key, ...rest }) => rest)
-        .sort((a: any, b: any) => safeStr(a.name).localeCompare(safeStr(b.name)));
+        .sort((a: any, b: any) =>
+          safeStr(a.name).localeCompare(safeStr(b.name)),
+        );
     const canonicalPayload = {
       version: 1,
       operation: ctx.operation,

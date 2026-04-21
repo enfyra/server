@@ -37,11 +37,7 @@ function connectByIdSchema(): z.ZodType {
 }
 
 function looseSingleRelationSchema(): z.ZodType {
-  return z.union([
-    z.number(),
-    z.string(),
-    z.object({}).passthrough(),
-  ]);
+  return z.union([z.number(), z.string(), z.object({}).passthrough()]);
 }
 
 function buildColumnZod(
@@ -53,7 +49,9 @@ function buildColumnZod(
   if (AUTO_MANAGED_COLUMNS.has(col.name)) return null;
   if (mode === 'update' && col.isUpdatable === false) return null;
 
-  const rules = (rulesForColumn(col.id) || []).filter((r) => r.isEnabled !== false);
+  const rules = (rulesForColumn(col.id) || []).filter(
+    (r) => r.isEnabled !== false,
+  );
 
   let s: z.ZodType;
   switch (col.type) {
@@ -71,7 +69,9 @@ function buildColumnZod(
     case 'varchar': {
       let base = z.string();
       const maxLen =
-        typeof col.options === 'object' && col.options !== null && typeof col.options.length === 'number'
+        typeof col.options === 'object' &&
+        col.options !== null &&
+        typeof col.options.length === 'number'
           ? col.options.length
           : null;
       if (maxLen !== null) base = base.max(maxLen);
@@ -169,7 +169,8 @@ function buildColumnZod(
 
   const isNullable = col.isNullable !== false;
   if (isNullable) s = s.nullable();
-  const hasDefault = col.defaultValue !== undefined && col.defaultValue !== null;
+  const hasDefault =
+    col.defaultValue !== undefined && col.defaultValue !== null;
   const makeOptional = mode === 'update' || isNullable || hasDefault;
   if (makeOptional) s = s.optional();
 
@@ -180,7 +181,10 @@ function buildRelationZod(
   rel: any,
   mode: 'create' | 'update',
   ctx: Required<
-    Pick<BuildZodOpts, 'rulesForColumn' | 'getTableMetadata' | 'visited' | 'depth'>
+    Pick<
+      BuildZodOpts,
+      'rulesForColumn' | 'getTableMetadata' | 'visited' | 'depth'
+    >
   >,
 ): z.ZodType | null {
   // NOTE: `isUpdatable=false` on a relation semantically means the LINK can't
@@ -303,7 +307,8 @@ export function buildZodFromMetadata(opts: BuildZodOpts): z.ZodObject<any> {
   }
 
   for (const rel of tableMeta?.relations || []) {
-    if (skipChildRelationName && rel.propertyName === skipChildRelationName) continue;
+    if (skipChildRelationName && rel.propertyName === skipChildRelationName)
+      continue;
     const s = buildRelationZod(rel, mode, {
       rulesForColumn,
       getTableMetadata,

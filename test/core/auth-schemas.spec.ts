@@ -25,15 +25,15 @@ describe('loginSchema', () => {
   });
 
   it('missing email → "email is required"', () => {
-    expect(() =>
-      parseOrBadRequest(loginSchema, { password: 'pw' }),
-    ).toThrow(/email is required/);
+    expect(() => parseOrBadRequest(loginSchema, { password: 'pw' })).toThrow(
+      /email is required/,
+    );
   });
 
   it('missing password → "password is required"', () => {
-    expect(() =>
-      parseOrBadRequest(loginSchema, { email: 'a@b.com' }),
-    ).toThrow(/password is required/);
+    expect(() => parseOrBadRequest(loginSchema, { email: 'a@b.com' })).toThrow(
+      /password is required/,
+    );
   });
 
   it('invalid email → "valid email"', () => {

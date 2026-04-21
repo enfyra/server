@@ -4,11 +4,18 @@ import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { BadRequestException } from '../../core/exceptions/custom-exceptions';
 
-export function registerOAuthRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerOAuthRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.get('/auth/:provider', async (req: any, res: Response) => {
-    const oauthService = req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
-    const oauthConfigCache = req.scope?.cradle?.oauthConfigCacheService ?? container.cradle.oauthConfigCacheService;
-    const configService = req.scope?.cradle?.configService ?? container.cradle.configService;
+    const oauthService =
+      req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
+    const oauthConfigCache =
+      req.scope?.cradle?.oauthConfigCacheService ??
+      container.cradle.oauthConfigCacheService;
+    const configService =
+      req.scope?.cradle?.configService ?? container.cradle.configService;
 
     const provider = req.params.provider;
     const redirectUrl = req.query.redirect as string;
@@ -26,15 +33,21 @@ export function registerOAuthRoutes(app: Express, container: AwilixContainer<Cra
 
     const payload = JSON.stringify({ redirect: redirectUrl, ts: Date.now() });
     const sig = signState(payload, configService);
-    const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString('base64url');
+    const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString(
+      'base64url',
+    );
     const authUrl = oauthService.getAuthorizationUrl(provider as any, state);
     return res.redirect(authUrl);
   });
 
   app.get('/auth/:provider/callback', async (req: any, res: Response) => {
-    const oauthService = req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
-    const oauthConfigCache = req.scope?.cradle?.oauthConfigCacheService ?? container.cradle.oauthConfigCacheService;
-    const configService = req.scope?.cradle?.configService ?? container.cradle.configService;
+    const oauthService =
+      req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
+    const oauthConfigCache =
+      req.scope?.cradle?.oauthConfigCacheService ??
+      container.cradle.oauthConfigCacheService;
+    const configService =
+      req.scope?.cradle?.configService ?? container.cradle.configService;
 
     const provider = req.params.provider;
     const code = req.query.code as string;
@@ -44,7 +57,9 @@ export function registerOAuthRoutes(app: Express, container: AwilixContainer<Cra
 
     const config = oauthConfigCache.getDirectConfigByProvider(provider as any);
     if (!config) {
-      throw new BadRequestException(`OAuth provider '${provider}' is not configured`);
+      throw new BadRequestException(
+        `OAuth provider '${provider}' is not configured`,
+      );
     }
 
     const redirectUrl = parseRedirectFromState(state, configService);
@@ -54,8 +69,14 @@ export function registerOAuthRoutes(app: Express, container: AwilixContainer<Cra
     }
 
     if (error) {
-      const safeRedirect = getSafeRedirectUrl(redirectUrl, provider, oauthConfigCache);
-      return res.redirect(`${safeRedirect}?error=${encodeURIComponent(errorDescription || error)}`);
+      const safeRedirect = getSafeRedirectUrl(
+        redirectUrl,
+        provider,
+        oauthConfigCache,
+      );
+      return res.redirect(
+        `${safeRedirect}?error=${encodeURIComponent(errorDescription || error)}`,
+      );
     }
 
     if (!code) {
@@ -78,8 +99,14 @@ export function registerOAuthRoutes(app: Express, container: AwilixContainer<Cra
 
       return res.redirect(callbackUrl.toString());
     } catch (err: any) {
-      const safeRedirect = getSafeRedirectUrl(redirectUrl, provider, oauthConfigCache);
-      return res.redirect(`${safeRedirect}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`);
+      const safeRedirect = getSafeRedirectUrl(
+        redirectUrl,
+        provider,
+        oauthConfigCache,
+      );
+      return res.redirect(
+        `${safeRedirect}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`,
+      );
     }
   });
 }
@@ -89,7 +116,10 @@ function signState(payload: string, configService: any): string {
   return createHmac('sha256', secret).update(payload).digest('hex');
 }
 
-function parseRedirectFromState(state: string | undefined, configService: any): string | null {
+function parseRedirectFromState(
+  state: string | undefined,
+  configService: any,
+): string | null {
   if (!state) return null;
   try {
     const outer = JSON.parse(Buffer.from(state, 'base64url').toString());
@@ -98,7 +128,10 @@ function parseRedirectFromState(state: string | undefined, configService: any): 
     const expectedSig = signState(outer.p, configService);
     const actualSig = outer.s;
     if (expectedSig.length !== actualSig.length) return null;
-    const equal = timingSafeEqual(Buffer.from(expectedSig), Buffer.from(actualSig));
+    const equal = timingSafeEqual(
+      Buffer.from(expectedSig),
+      Buffer.from(actualSig),
+    );
     if (!equal) return null;
 
     const parsed = JSON.parse(outer.p);
@@ -123,13 +156,19 @@ function validateRedirectUrl(url: string, provider: string): void {
   }
 }
 
-function getSafeRedirectUrl(url: string, provider: string, oauthConfigCacheService: any): string {
+function getSafeRedirectUrl(
+  url: string,
+  provider: string,
+  oauthConfigCacheService: any,
+): string {
   try {
     const parsed = new URL(url);
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
       return url;
     }
   } catch {}
-  const config = oauthConfigCacheService.getDirectConfigByProvider(provider as any);
+  const config = oauthConfigCacheService.getDirectConfigByProvider(
+    provider as any,
+  );
   return config?.appCallbackUrl || '/';
 }

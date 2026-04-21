@@ -67,10 +67,7 @@ export class ErrorHandler {
         case '$throw.serviceUnavailable':
           return new ServiceUnavailableException(message || 'Service');
         case '$throw.rateLimit':
-          return new HttpException(
-            message || 'Rate limit exceeded',
-            429,
-          );
+          return new HttpException(message || 'Rate limit exceeded', 429);
         case '$throw.scriptError':
           return new ScriptExecutionException(
             message || 'Script error',
@@ -120,10 +117,7 @@ export class ErrorHandler {
         case '$throw.422':
           return new ValidationException(message || 'Validation failed');
         case '$throw.429':
-          return new HttpException(
-            message || 'Rate limit exceeded',
-            429,
-          );
+          return new HttpException(message || 'Rate limit exceeded', 429);
         case '$throw.500':
           return new DatabaseException(
             message || 'Internal server error',
@@ -159,10 +153,7 @@ export class ErrorHandler {
         case 422:
           return new ValidationException(message || 'Validation failed');
         case 429:
-          return new HttpException(
-            message || 'Rate limit exceeded',
-            429,
-          );
+          return new HttpException(message || 'Rate limit exceeded', 429);
         case 500:
           return new DatabaseException(
             message || 'Internal server error',

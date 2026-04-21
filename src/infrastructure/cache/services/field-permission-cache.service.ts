@@ -198,11 +198,13 @@ export class FieldPermissionCacheService extends BaseCacheService<
   ): void {
     if (rule.condition != null) return;
     if (rule.effect === 'allow') {
-      if (rule.columnName) bucket.unconditionalAllowedColumns.add(rule.columnName);
+      if (rule.columnName)
+        bucket.unconditionalAllowedColumns.add(rule.columnName);
       if (rule.relationPropertyName)
         bucket.unconditionalAllowedRelations.add(rule.relationPropertyName);
     } else {
-      if (rule.columnName) bucket.unconditionalDeniedColumns.add(rule.columnName);
+      if (rule.columnName)
+        bucket.unconditionalDeniedColumns.add(rule.columnName);
       if (rule.relationPropertyName)
         bucket.unconditionalDeniedRelations.add(rule.relationPropertyName);
     }

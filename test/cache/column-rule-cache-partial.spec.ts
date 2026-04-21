@@ -32,7 +32,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
   it('partialReload inserts new rule into existing column bucket', async () => {
     const initial = [
-      { id: 1, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 100 } },
+      {
+        id: 1,
+        ruleType: 'min',
+        value: { v: 0 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
     ];
     const { svc, qb } = makeService(initial);
     await svc.reload(false);
@@ -48,7 +54,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     qb.find.mockClear();
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [2] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [2],
+      },
       false,
     );
 
@@ -62,8 +74,20 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
   it('partialReload removes deleted rule (id present in payload but not in DB)', async () => {
     const data = [
-      { id: 1, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 100 } },
-      { id: 2, ruleType: 'max', value: { v: 100 }, isEnabled: true, column: { id: 100 } },
+      {
+        id: 1,
+        ruleType: 'min',
+        value: { v: 0 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
+      {
+        id: 2,
+        ruleType: 'max',
+        value: { v: 100 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
@@ -72,7 +96,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
     data.splice(1, 1);
 
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [2] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [2],
+      },
       false,
     );
 
@@ -83,7 +113,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
   it('partialReload removes column from cache when last rule is deleted', async () => {
     const data = [
-      { id: 1, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 100 } },
+      {
+        id: 1,
+        ruleType: 'min',
+        value: { v: 0 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
@@ -91,7 +127,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
     data.length = 0;
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
@@ -100,7 +142,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
   it('partialReload treats isEnabled=false as effective delete', async () => {
     const data = [
-      { id: 1, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 100 } },
+      {
+        id: 1,
+        ruleType: 'min',
+        value: { v: 0 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
     ];
     const { svc, qb } = makeService(data);
     await svc.reload(false);
@@ -112,7 +160,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
     });
 
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
@@ -121,7 +175,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
   it('partialReload moves rule between columns when column FK changes', async () => {
     const data: any[] = [
-      { id: 1, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 100 } },
+      {
+        id: 1,
+        ruleType: 'min',
+        value: { v: 0 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
@@ -131,7 +191,13 @@ describe('ColumnRuleCacheService — partial reload', () => {
     data[0].column.id = 200;
 
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
@@ -143,16 +209,26 @@ describe('ColumnRuleCacheService — partial reload', () => {
     const { svc, qb } = makeService([]);
     await svc.reload(false);
 
-    qb.find
-      .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValueOnce({
-        data: [
-          { id: 5, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 999 } },
-        ],
-      });
+    qb.find.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({
+      data: [
+        {
+          id: 5,
+          ruleType: 'min',
+          value: { v: 0 },
+          isEnabled: true,
+          column: { id: 999 },
+        },
+      ],
+    });
 
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [5] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [5],
+      },
       false,
     );
 
@@ -161,14 +237,26 @@ describe('ColumnRuleCacheService — partial reload', () => {
 
   it('partialReload with empty ids is a no-op', async () => {
     const data = [
-      { id: 1, ruleType: 'min', value: { v: 0 }, isEnabled: true, column: { id: 100 } },
+      {
+        id: 1,
+        ruleType: 'min',
+        value: { v: 0 },
+        isEnabled: true,
+        column: { id: 100 },
+      },
     ];
     const { svc, qb } = makeService(data);
     await svc.reload(false);
     qb.find.mockClear();
 
     await svc.partialReload(
-      { table: 'column_rule_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [] },
+      {
+        table: 'column_rule_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [],
+      },
       false,
     );
 

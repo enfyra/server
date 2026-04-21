@@ -176,7 +176,11 @@ export class FlowExecutionQueueService {
 
   private emitFlowEvent(triggeredBy: any, data: any) {
     if (!triggeredBy?.id) return;
-    this.websocketEmitService.emitToUser(triggeredBy.id, 'flow:execution', data);
+    this.websocketEmitService.emitToUser(
+      triggeredBy.id,
+      'flow:execution',
+      data,
+    );
   }
 
   private async cleanupOldExecutions(flow: FlowDefinition): Promise<void> {
@@ -203,7 +207,10 @@ export class FlowExecutionQueueService {
       });
 
       for (const record of oldResult.data || []) {
-        await this.queryBuilderService.delete('flow_execution_definition', record.id);
+        await this.queryBuilderService.delete(
+          'flow_execution_definition',
+          record.id,
+        );
       }
     } catch (err) {
       this.logger.warn(
@@ -217,13 +224,16 @@ export class FlowExecutionQueueService {
     payload: any,
     triggeredBy: any,
   ): Promise<string> {
-    const execution = await this.queryBuilderService.insert('flow_execution_definition', {
-      flow: flow.id,
-      status: 'pending',
-      triggeredBy: triggeredBy?.id || null,
-      payload: payload || {},
-      startedAt: new Date(),
-    });
+    const execution = await this.queryBuilderService.insert(
+      'flow_execution_definition',
+      {
+        flow: flow.id,
+        status: 'pending',
+        triggeredBy: triggeredBy?.id || null,
+        payload: payload || {},
+        startedAt: new Date(),
+      },
+    );
     return execution.id || execution._id;
   }
 
@@ -231,7 +241,11 @@ export class FlowExecutionQueueService {
     executionId: number | string,
     updates: any,
   ): Promise<void> {
-    await this.queryBuilderService.update('flow_execution_definition', executionId as any, updates);
+    await this.queryBuilderService.update(
+      'flow_execution_definition',
+      executionId as any,
+      updates,
+    );
   }
 
   private async executeFlow(

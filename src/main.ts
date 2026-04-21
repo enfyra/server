@@ -1,4 +1,5 @@
 import * as http from 'http';
+import { Server } from 'socket.io';
 import { buildContainer } from './container';
 import { init, shutdown } from './init';
 import { buildExpressApp } from './express-app';
@@ -31,7 +32,6 @@ async function main() {
 
   const gateway = container.cradle.dynamicWebSocketGateway;
   if (gateway) {
-    const { Server } = require('socket.io');
     const io = new Server(server, {
       cors: { origin: true, credentials: true },
     });
@@ -39,45 +39,26 @@ async function main() {
     await gateway.afterInit(io);
   }
 
-  const listenWithRetry = async (): Promise<void> => {
-    const maxAttempts = process.env.DEV_WATCH ? 25 : 1;
-    const delayMs = 200;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const onError = (err: NodeJS.ErrnoException) => {
-            server.removeListener('listening', onListening);
-            reject(err);
-          };
-          const onListening = () => {
-            server.removeListener('error', onError);
-            resolve();
-          };
-          server.once('error', onError);
-          server.once('listening', onListening);
-          server.listen(env.PORT, '0.0.0.0');
-        });
-        return;
-      } catch (err: any) {
-        if (err?.code === 'EADDRINUSE' && attempt < maxAttempts) {
-          if (attempt === 1) {
-            logger.warn(`Port ${env.PORT} busy, waiting for previous instance to release...`);
-          }
-          await new Promise((r) => setTimeout(r, delayMs));
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw new Error(`Failed to bind port ${env.PORT} after ${maxAttempts} attempts`);
-  };
-
   try {
-    await listenWithRetry();
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        server.removeListener('listening', onListening);
+        reject(err);
+      };
+      const onListening = () => {
+        server.removeListener('error', onError);
+        resolve();
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(env.PORT, '0.0.0.0');
+    });
     logger.log(`HTTP listening on port ${env.PORT}`);
   } catch (err: any) {
     if (err?.code === 'EADDRINUSE') {
-      logger.error(`Port ${env.PORT} is already in use. Another server instance may be running.`);
+      logger.error(
+        `Port ${env.PORT} is already in use. Another server instance may be running.`,
+      );
     } else {
       logger.error('HTTP server error', err);
     }
@@ -98,13 +79,15 @@ async function main() {
           if (force) {
             logger.warn('Forcing shutdown after timeout');
           }
-          shutdown(container).then(() => {
-            logger.log('Shutdown complete');
-            process.exit(0);
-          }).catch((error) => {
-            logger.error('Shutdown error:', error);
-            process.exit(1);
-          });
+          shutdown(container)
+            .then(() => {
+              logger.log('Shutdown complete');
+              process.exit(0);
+            })
+            .catch((error) => {
+              logger.error('Shutdown error:', error);
+              process.exit(1);
+            });
         };
 
         server.close(() => {

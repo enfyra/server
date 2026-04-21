@@ -11,7 +11,8 @@ DatabaseConfigService.overrideForTesting('mysql');
 const jestShim: Record<string, any> = new Proxy(
   {
     // jest.setTimeout(ms) → vitest equivalent
-    setTimeout: (ms: number) => vi.setConfig({ testTimeout: ms, hookTimeout: ms }),
+    setTimeout: (ms: number) =>
+      vi.setConfig({ testTimeout: ms, hookTimeout: ms }),
     // jest.requireActual is sync; vi.importActual is async. Most usages can be
     // adapted by awaiting, but we keep a sync fallback that throws if used so
     // the failure is loud.

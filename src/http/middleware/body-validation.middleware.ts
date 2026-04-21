@@ -12,7 +12,11 @@ type Mode = 'create' | 'update';
 
 const schemaCache = new Map<string, z.ZodType>();
 
-function cacheKey(tableName: string, mode: Mode, version: number | string): string {
+function cacheKey(
+  tableName: string,
+  mode: Mode,
+  version: number | string,
+): string {
   return `${tableName}:${mode}:${version}`;
 }
 
@@ -79,7 +83,9 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
       return next(new BadRequestException(['body is required']));
     }
     if (Array.isArray(body)) {
-      return next(new BadRequestException(['body must be an object, not an array']));
+      return next(
+        new BadRequestException(['body must be an object, not an array']),
+      );
     }
     if (typeof body !== 'object') {
       return next(new BadRequestException(['body must be an object']));

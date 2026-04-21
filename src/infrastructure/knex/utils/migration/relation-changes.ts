@@ -203,11 +203,9 @@ async function handleDeletedRelations(
     } else if (rel.type === 'one-to-many') {
       continue;
     } else if (rel.type === 'many-to-many') {
-      const junctionTableName = rel.junctionTableName || getJunctionTableName(
-        tableName,
-        rel.propertyName,
-        rel.targetTableName,
-      );
+      const junctionTableName =
+        rel.junctionTableName ||
+        getJunctionTableName(tableName, rel.propertyName, rel.targetTableName);
 
       if (!diff.junctionTables) {
         diff.junctionTables = { create: [], drop: [], update: [] };
@@ -471,7 +469,8 @@ async function handleRelationTargetAndPropertyChange(
   metadataCacheService?: any,
 ): Promise<void> {
   const relationType = newRel.type;
-  const oldFkColumn = oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
+  const oldFkColumn =
+    oldRel.foreignKeyColumn || getForeignKeyColumnName(oldRel.propertyName);
   const newFkColumn = getForeignKeyColumnName(newRel.propertyName);
 
   if (relationType === 'many-to-one' || relationType === 'one-to-one') {
@@ -492,11 +491,11 @@ async function handleRelationTargetAndPropertyChange(
     if (hasNonNullData) {
       throw new Error(
         `Cannot change target table from '${oldRel.targetTableName}' (${oldPkType}) to ` +
-        `'${newRel.targetTableName}' (${newPkType}) and property name from '${oldRel.propertyName}' to '${newRel.propertyName}'. ` +
-        `Foreign key column '${oldFkColumn}' contains data and changing both requires data migration. Please:\n` +
-        `1. Back up your data\n` +
-        `2. Set '${oldFkColumn}' to NULL for all records\n` +
-        `3. Retry the relation update`,
+          `'${newRel.targetTableName}' (${newPkType}) and property name from '${oldRel.propertyName}' to '${newRel.propertyName}'. ` +
+          `Foreign key column '${oldFkColumn}' contains data and changing both requires data migration. Please:\n` +
+          `1. Back up your data\n` +
+          `2. Set '${oldFkColumn}' to NULL for all records\n` +
+          `3. Retry the relation update`,
       );
     }
 
@@ -932,12 +931,12 @@ async function handleRelationTargetChange(
       if (hasNonNullData) {
         throw new Error(
           `Cannot change target table from '${oldRel.targetTableName}' (${oldPkType}) to ` +
-          `'${newRel.targetTableName}' (${newPkType}) for relation '${newRel.propertyName}'. ` +
-          `Foreign key column '${fkColumn}' contains data and changing the target type requires ` +
-          `data migration. Please:\n` +
-          `1. Back up your data\n` +
-          `2. Set '${fkColumn}' to NULL for all records\n` +
-          `3. Retry the relation target change`,
+            `'${newRel.targetTableName}' (${newPkType}) for relation '${newRel.propertyName}'. ` +
+            `Foreign key column '${fkColumn}' contains data and changing the target type requires ` +
+            `data migration. Please:\n` +
+            `1. Back up your data\n` +
+            `2. Set '${fkColumn}' to NULL for all records\n` +
+            `3. Retry the relation target change`,
         );
       }
 

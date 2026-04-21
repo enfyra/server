@@ -126,8 +126,7 @@ function getErrorDetails(exception: unknown): {
       statusCode: 500,
       errorCode: 'INTERNAL_SERVER_ERROR',
       message: exception.message || 'An unexpected error occurred',
-      details:
-        process.env.NODE_ENV === 'development' ? exception.stack : null,
+      details: process.env.NODE_ENV === 'development' ? exception.stack : null,
     };
   }
   return {

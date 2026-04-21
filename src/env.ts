@@ -8,7 +8,11 @@ const EnvSchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => v === 'true'),
-  DB_REPLICA_HEALTH_CHECK_INTERVAL: z.coerce.number().int().positive().optional(),
+  DB_REPLICA_HEALTH_CHECK_INTERVAL: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
   REDIS_URI: z.string(),
   REDIS_HOST: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
@@ -22,7 +26,9 @@ const EnvSchema = z.object({
   REFRESH_TOKEN_REMEMBER_EXP: z.string().optional().default('7d'),
   ADMIN_EMAIL: z.string(),
   ADMIN_PASSWORD: z.string().min(1),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z
+    .enum(['development', 'production', 'test'])
+    .default('development'),
   LOG_LEVEL: z.string().optional().default('info'),
   INSTANCE_ID: z.string().optional(),
   HOSTNAME: z.string().optional(),

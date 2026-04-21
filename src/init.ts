@@ -2,9 +2,7 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { CACHE_EVENTS } from './shared/utils/cache-events.constants';
 
-export async function init(
-  container: AwilixContainer<Cradle>,
-): Promise<void> {
+export async function init(container: AwilixContainer<Cradle>): Promise<void> {
   const c: any = container.cradle;
 
   await c.mongoService?.init?.();

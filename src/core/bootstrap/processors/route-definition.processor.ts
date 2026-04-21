@@ -136,22 +136,68 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       `[ensureMissingHandlers] Found ${routes.length} enabled routes`,
     );
 
+    const unrouted = await this.deleteUnroutedHandlers(isMongoDB);
+    if (unrouted > 0) {
+      this.logger.warn(
+        `[ensureMissingHandlers] Removed ${unrouted} handler(s) with NULL routeId (orphans from deleted routes)`,
+      );
+    }
+
+    let totalOrphansRemoved = unrouted;
     for (const route of routes) {
       const routeId = DatabaseConfigService.getRecordId(route);
 
-      const filter = isMongoDB
-        ? { route: { _eq: routeId } }
-        : { routeId: { _eq: routeId } };
-
-      const handlerCount = await this.queryBuilderService.countRecords(
-        'route_handler_definition',
-        filter,
+      const methodless = await this.deleteMethodlessHandlers(
+        routeId,
+        isMongoDB,
       );
-
-      if (handlerCount > 0) continue;
+      if (methodless > 0) {
+        totalOrphansRemoved += methodless;
+        this.logger.warn(
+          `[ensureMissingHandlers] Removed ${methodless} handler(s) with NULL methodId on route "${route.path}"`,
+        );
+      }
 
       await this.ensureDefaultCrudHandlers(route, isMongoDB);
     }
+
+    if (totalOrphansRemoved > 0) {
+      this.logger.warn(
+        `[ensureMissingHandlers] Total orphan handlers removed: ${totalOrphansRemoved}`,
+      );
+    }
+  }
+
+  private async deleteMethodlessHandlers(
+    routeId: any,
+    isMongoDB: boolean,
+  ): Promise<number> {
+    if (isMongoDB) {
+      const db = this.queryBuilderService.getMongoDb();
+      const routeIdObj =
+        typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
+      const result = await db
+        .collection('route_handler_definition')
+        .deleteMany({ route: routeIdObj, method: null });
+      return result.deletedCount || 0;
+    }
+    const knex = this.queryBuilderService.getKnex();
+    return await knex('route_handler_definition')
+      .where({ routeId })
+      .whereNull('methodId')
+      .delete();
+  }
+
+  private async deleteUnroutedHandlers(isMongoDB: boolean): Promise<number> {
+    if (isMongoDB) {
+      const db = this.queryBuilderService.getMongoDb();
+      const result = await db
+        .collection('route_handler_definition')
+        .deleteMany({ route: null });
+      return result.deletedCount || 0;
+    }
+    const knex = this.queryBuilderService.getKnex();
+    return await knex('route_handler_definition').whereNull('routeId').delete();
   }
 
   private async ensureDefaultCrudHandlers(
@@ -172,7 +218,6 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       let mainTableFk = isMongoDB ? mainTableValue : record.mainTableId;
       if (!mainTableFk) return;
       if (isMongoDB && typeof mainTableFk === 'string') {
-        const { ObjectId } = require('mongodb');
         mainTableFk = new ObjectId(mainTableFk);
       }
       const tableRow = isMongoDB
@@ -259,10 +304,15 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
       const methodKeyId = isMongoDB
         ? (methodRow._id ?? methodRow.id)
         : methodRow.id;
+      if (methodKeyId == null) {
+        this.logger.error(
+          `[${path}] methodRow for "${methodName}" is missing id — refusing to seed handler with NULL methodId`,
+        );
+        continue;
+      }
 
       let existing;
       if (isMongoDB) {
-        const { ObjectId } = require('mongodb');
         const mongoService = this.queryBuilderService.getMongoDb();
         const routeIdObj =
           typeof routeId === 'string' ? new ObjectId(routeId) : routeId;
@@ -292,7 +342,6 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
 
       let data: Record<string, any>;
       if (isMongoDB) {
-        const { ObjectId } = require('mongodb');
         data = {
           route: typeof routeId === 'string' ? new ObjectId(routeId) : routeId,
           method:

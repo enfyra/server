@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 
-export function parseQueryMiddleware(req: Request, res: Response, next: NextFunction) {
+export function parseQueryMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   const query = req.query;
   const parsedQuery: any = {};
   for (const key in query) {

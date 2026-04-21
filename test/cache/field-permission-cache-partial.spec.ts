@@ -46,7 +46,12 @@ describe('FieldPermissionCacheService — partial reload', () => {
   });
 
   it('partialReload inserts new rule, indexes column into allow Set', async () => {
-    const data: any[] = [makeRow({ id: 1, column: { id: 1, name: 'name', table: { id: 1, name: 'post' } } })];
+    const data: any[] = [
+      makeRow({
+        id: 1,
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
+    ];
     const { svc } = makeService(data);
     await svc.reload(false);
 
@@ -57,11 +62,21 @@ describe('FieldPermissionCacheService — partial reload', () => {
       }),
     );
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [2] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [2],
+      },
       false,
     );
 
-    const policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'post', 'read');
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
     expect(policies).toHaveLength(1);
     expect(policies[0].rules.map((r) => r.id).sort()).toEqual([1, 2]);
     expect(policies[0].unconditionalAllowedColumns.has('name')).toBe(true);
@@ -70,19 +85,35 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
   it('partialReload removes deleted rule and rebuilds bucket Sets', async () => {
     const data: any[] = [
-      makeRow({ id: 1, column: { id: 1, name: 'name', table: { id: 1, name: 'post' } } }),
-      makeRow({ id: 2, column: { id: 2, name: 'email', table: { id: 1, name: 'post' } } }),
+      makeRow({
+        id: 1,
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
+      makeRow({
+        id: 2,
+        column: { id: 2, name: 'email', table: { id: 1, name: 'post' } },
+      }),
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
 
     data.splice(1, 1);
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [2] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [2],
+      },
       false,
     );
 
-    const policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'post', 'read');
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
     expect(policies).toHaveLength(1);
     expect(policies[0].rules).toHaveLength(1);
     expect(policies[0].unconditionalAllowedColumns.has('name')).toBe(true);
@@ -91,24 +122,42 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
   it('partialReload removes bucket entirely when last rule is deleted', async () => {
     const data: any[] = [
-      makeRow({ id: 1, column: { id: 1, name: 'name', table: { id: 1, name: 'post' } } }),
+      makeRow({
+        id: 1,
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
 
     data.length = 0;
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
-    const policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'post', 'read');
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
     expect(policies).toHaveLength(0);
   });
 
   it('partialReload moves rule across buckets when role/action changes', async () => {
     const data: any[] = [
-      makeRow({ id: 1, role: { id: 10 }, action: 'read', column: { id: 1, name: 'name', table: { id: 1, name: 'post' } } }),
+      makeRow({
+        id: 1,
+        role: { id: 10 },
+        action: 'read',
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
@@ -121,14 +170,28 @@ describe('FieldPermissionCacheService — partial reload', () => {
     });
 
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
-    const oldBucket = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'post', 'read');
+    const oldBucket = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
     expect(oldBucket).toHaveLength(0);
 
-    const newBucket = await svc.getPoliciesFor({ id: 99, role: { id: 20 } }, 'post', 'update');
+    const newBucket = await svc.getPoliciesFor(
+      { id: 99, role: { id: 20 } },
+      'post',
+      'update',
+    );
     expect(newBucket).toHaveLength(1);
     expect(newBucket[0].rules[0].id).toBe(1);
     expect(newBucket[0].unconditionalAllowedColumns.has('name')).toBe(true);
@@ -136,7 +199,10 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
   it('partialReload treats isEnabled=false as effective delete', async () => {
     const data: any[] = [
-      makeRow({ id: 1, column: { id: 1, name: 'name', table: { id: 1, name: 'post' } } }),
+      makeRow({
+        id: 1,
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
     ];
     const { svc, qb } = makeService(data);
     await svc.reload(false);
@@ -147,11 +213,21 @@ describe('FieldPermissionCacheService — partial reload', () => {
     });
 
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
-    const policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'post', 'read');
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
     expect(policies).toHaveLength(0);
   });
 
@@ -160,22 +236,40 @@ describe('FieldPermissionCacheService — partial reload', () => {
       makeRow({
         id: 1,
         effect: 'deny',
-        column: { id: 1, name: 'secret', table: { id: 1, name: 'user_definition' } },
+        column: {
+          id: 1,
+          name: 'secret',
+          table: { id: 1, name: 'user_definition' },
+        },
       }),
     ];
     const { svc } = makeService(data);
     await svc.reload(false);
 
-    let policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'user_definition', 'read');
+    let policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'user_definition',
+      'read',
+    );
     expect(policies[0].unconditionalDeniedColumns.has('secret')).toBe(true);
 
     data.length = 0;
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [1] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [1],
+      },
       false,
     );
 
-    policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'user_definition', 'read');
+    policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'user_definition',
+      'read',
+    );
     expect(policies).toHaveLength(0);
   });
 
@@ -197,11 +291,21 @@ describe('FieldPermissionCacheService — partial reload', () => {
       }),
     );
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [2] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [2],
+      },
       false,
     );
 
-    const policies = await svc.getPoliciesFor({ id: 99, role: { id: 10 } }, 'post', 'read');
+    const policies = await svc.getPoliciesFor(
+      { id: 99, role: { id: 10 } },
+      'post',
+      'read',
+    );
     expect(policies[0].rules).toHaveLength(2);
     expect(policies[0].unconditionalAllowedColumns.has('name')).toBe(false);
     expect(policies[0].unconditionalAllowedColumns.has('email')).toBe(true);
@@ -209,14 +313,23 @@ describe('FieldPermissionCacheService — partial reload', () => {
 
   it('partialReload with empty ids is a no-op', async () => {
     const data: any[] = [
-      makeRow({ id: 1, column: { id: 1, name: 'name', table: { id: 1, name: 'post' } } }),
+      makeRow({
+        id: 1,
+        column: { id: 1, name: 'name', table: { id: 1, name: 'post' } },
+      }),
     ];
     const { svc, qb } = makeService(data);
     await svc.reload(false);
     qb.find.mockClear();
 
     await svc.partialReload(
-      { table: 'field_permission_definition', action: 'reload', timestamp: 0, scope: 'partial', ids: [] },
+      {
+        table: 'field_permission_definition',
+        action: 'reload',
+        timestamp: 0,
+        scope: 'partial',
+        ids: [],
+      },
       false,
     );
 

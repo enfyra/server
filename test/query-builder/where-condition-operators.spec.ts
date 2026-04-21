@@ -42,107 +42,152 @@ function makeKnexStub() {
 
 describe('whereToMongoFilter — every operator covered', () => {
   it('= → direct equality', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'name', operator: '=', value: 'alice' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'name', operator: '=', value: 'alice' },
+    ]);
     expect(f).toEqual({ name: 'alice' });
   });
 
   it('!= → $ne', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'name', operator: '!=', value: 'alice' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'name', operator: '!=', value: 'alice' },
+    ]);
     expect(f).toEqual({ name: { $ne: 'alice' } });
   });
 
   it('> → $gt', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'age', operator: '>', value: 18 }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'age', operator: '>', value: 18 },
+    ]);
     expect(f).toEqual({ age: { $gt: 18 } });
   });
 
   it('< → $lt', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'age', operator: '<', value: 18 }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'age', operator: '<', value: 18 },
+    ]);
     expect(f).toEqual({ age: { $lt: 18 } });
   });
 
   it('>= → $gte', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'age', operator: '>=', value: 18 }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'age', operator: '>=', value: 18 },
+    ]);
     expect(f).toEqual({ age: { $gte: 18 } });
   });
 
   it('<= → $lte', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'age', operator: '<=', value: 18 }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'age', operator: '<=', value: 18 },
+    ]);
     expect(f).toEqual({ age: { $lte: 18 } });
   });
 
   it('like → regex with .* and case-insensitive', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'name', operator: 'like', value: 'al%' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'name', operator: 'like', value: 'al%' },
+    ]);
     expect(f).toEqual({ name: { $regex: 'al.*', $options: 'i' } });
   });
 
   it('in → $in (array passes through)', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'role', operator: 'in', value: ['a', 'b'] }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'role', operator: 'in', value: ['a', 'b'] },
+    ]);
     expect(f).toEqual({ role: { $in: ['a', 'b'] } });
   });
 
   it('in → $in (scalar wrapped)', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'role', operator: 'in', value: 'a' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'role', operator: 'in', value: 'a' },
+    ]);
     expect(f).toEqual({ role: { $in: ['a'] } });
   });
 
   it('in → $in (csv string split)', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'role', operator: 'in', value: 'a,b,c' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'role', operator: 'in', value: 'a,b,c' },
+    ]);
     expect(f).toEqual({ role: { $in: ['a', 'b', 'c'] } });
   });
 
   it('not in → $nin', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'role', operator: 'not in', value: ['a'] }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'role', operator: 'not in', value: ['a'] },
+    ]);
     expect(f).toEqual({ role: { $nin: ['a'] } });
   });
 
   it('is null → null literal', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'deletedAt', operator: 'is null' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'deletedAt', operator: 'is null' },
+    ]);
     expect(f).toEqual({ deletedAt: null });
   });
 
   it('is not null → $ne null', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'deletedAt', operator: 'is not null' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'deletedAt', operator: 'is not null' },
+    ]);
     expect(f).toEqual({ deletedAt: { $ne: null } });
   });
 
   it('_between → $gte + $lte object', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'age', operator: '_between', value: [10, 20] }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'age', operator: '_between', value: [10, 20] },
+    ]);
     expect(f).toEqual({ age: { $gte: 10, $lte: 20 } });
   });
 
   it('_between → string CSV split', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'age', operator: '_between', value: '10,20' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'age', operator: '_between', value: '10,20' },
+    ]);
     expect(f).toEqual({ age: { $gte: '10', $lte: '20' } });
   });
 
   it('_is_null=true → $eq null', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'deletedAt', operator: '_is_null', value: true }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'deletedAt', operator: '_is_null', value: true },
+    ]);
     expect(f).toEqual({ deletedAt: { $eq: null } });
   });
 
   it('_is_null=false → $ne null', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'deletedAt', operator: '_is_null', value: false }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'deletedAt', operator: '_is_null', value: false },
+    ]);
     expect(f).toEqual({ deletedAt: { $ne: null } });
   });
 
   it('_is_not_null=true → $ne null', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'deletedAt', operator: '_is_not_null', value: true }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'deletedAt', operator: '_is_not_null', value: true },
+    ]);
     expect(f).toEqual({ deletedAt: { $ne: null } });
   });
 
   it('_is_not_null=false → $eq null', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'deletedAt', operator: '_is_not_null', value: false }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'deletedAt', operator: '_is_not_null', value: false },
+    ]);
     expect(f).toEqual({ deletedAt: { $eq: null } });
   });
 
   it('id field → maps to _id in mongo mode', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'id', operator: '=', value: 'abc' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'id', operator: '=', value: 'abc' },
+    ]);
     expect(f).toEqual({ _id: 'abc' });
   });
 
   it('id field stays as id when dbType !== mongodb', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'id', operator: '=', value: 'abc' }], 'tbl', 'postgres');
+    const f = whereToMongoFilter(
+      emptyMetadata,
+      [{ field: 'id', operator: '=', value: 'abc' }],
+      'tbl',
+      'postgres',
+    );
     expect(f).toEqual({ id: 'abc' });
   });
 
@@ -155,7 +200,9 @@ describe('whereToMongoFilter — every operator covered', () => {
   });
 
   it('field with table prefix uses last segment', () => {
-    const f = whereToMongoFilter(emptyMetadata, [{ field: 'user.name', operator: '=', value: 'alice' }]);
+    const f = whereToMongoFilter(emptyMetadata, [
+      { field: 'user.name', operator: '=', value: 'alice' },
+    ]);
     expect(f).toEqual({ name: 'alice' });
   });
 
@@ -168,7 +215,12 @@ describe('whereToMongoFilter — every operator covered', () => {
       const cond: WhereCondition = {
         field: 'f',
         operator: op,
-        value: op === 'in' || op === 'not in' ? ['a'] : op === '_between' ? [1, 2] : 'x',
+        value:
+          op === 'in' || op === 'not in'
+            ? ['a']
+            : op === '_between'
+              ? [1, 2]
+              : 'x',
       };
       expect(() => whereToMongoFilter(emptyMetadata, [cond])).not.toThrow();
     }
@@ -221,10 +273,12 @@ describe('applyWhereToKnex — every operator covered', () => {
   });
 
   it('in → whereIn (array passthrough)', () => {
-    expect(run([{ field: 'r', operator: 'in', value: ['a', 'b'] }])[0]).toEqual({
-      method: 'whereIn',
-      args: ['r', ['a', 'b']],
-    });
+    expect(run([{ field: 'r', operator: 'in', value: ['a', 'b'] }])[0]).toEqual(
+      {
+        method: 'whereIn',
+        args: ['r', ['a', 'b']],
+      },
+    );
   });
 
   it('in → whereIn (scalar wrapped to array)', () => {
@@ -256,63 +310,81 @@ describe('applyWhereToKnex — every operator covered', () => {
   });
 
   it('_contains → like %v%', () => {
-    expect(run([{ field: 'n', operator: '_contains', value: 'foo' }])[0]).toEqual({
+    expect(
+      run([{ field: 'n', operator: '_contains', value: 'foo' }])[0],
+    ).toEqual({
       method: 'where',
       args: ['n', 'like', '%foo%'],
     });
   });
 
   it('_starts_with → like v%', () => {
-    expect(run([{ field: 'n', operator: '_starts_with', value: 'foo' }])[0]).toEqual({
+    expect(
+      run([{ field: 'n', operator: '_starts_with', value: 'foo' }])[0],
+    ).toEqual({
       method: 'where',
       args: ['n', 'like', 'foo%'],
     });
   });
 
   it('_ends_with → like %v', () => {
-    expect(run([{ field: 'n', operator: '_ends_with', value: 'foo' }])[0]).toEqual({
+    expect(
+      run([{ field: 'n', operator: '_ends_with', value: 'foo' }])[0],
+    ).toEqual({
       method: 'where',
       args: ['n', 'like', '%foo'],
     });
   });
 
   it('_between → whereBetween [a, b]', () => {
-    expect(run([{ field: 'age', operator: '_between', value: [10, 20] }])[0]).toEqual({
+    expect(
+      run([{ field: 'age', operator: '_between', value: [10, 20] }])[0],
+    ).toEqual({
       method: 'whereBetween',
       args: ['age', [10, 20]],
     });
   });
 
   it('_between → CSV string split', () => {
-    expect(run([{ field: 'age', operator: '_between', value: '10,20' }])[0]).toEqual({
+    expect(
+      run([{ field: 'age', operator: '_between', value: '10,20' }])[0],
+    ).toEqual({
       method: 'whereBetween',
       args: ['age', ['10', '20']],
     });
   });
 
   it('_is_null=true → whereNull', () => {
-    expect(run([{ field: 'd', operator: '_is_null', value: true }])[0]).toEqual({
-      method: 'whereNull',
-      args: ['d'],
-    });
+    expect(run([{ field: 'd', operator: '_is_null', value: true }])[0]).toEqual(
+      {
+        method: 'whereNull',
+        args: ['d'],
+      },
+    );
   });
 
   it('_is_null=false → whereNotNull', () => {
-    expect(run([{ field: 'd', operator: '_is_null', value: false }])[0]).toEqual({
+    expect(
+      run([{ field: 'd', operator: '_is_null', value: false }])[0],
+    ).toEqual({
       method: 'whereNotNull',
       args: ['d'],
     });
   });
 
   it('_is_not_null=true → whereNotNull', () => {
-    expect(run([{ field: 'd', operator: '_is_not_null', value: true }])[0]).toEqual({
+    expect(
+      run([{ field: 'd', operator: '_is_not_null', value: true }])[0],
+    ).toEqual({
       method: 'whereNotNull',
       args: ['d'],
     });
   });
 
   it('_is_not_null=false → whereNull', () => {
-    expect(run([{ field: 'd', operator: '_is_not_null', value: false }])[0]).toEqual({
+    expect(
+      run([{ field: 'd', operator: '_is_not_null', value: false }])[0],
+    ).toEqual({
       method: 'whereNull',
       args: ['d'],
     });
@@ -333,7 +405,12 @@ describe('applyWhereToKnex — every operator covered', () => {
       const cond: WhereCondition = {
         field: 'f',
         operator: op,
-        value: op === 'in' || op === 'not in' ? ['a'] : op === '_between' ? [1, 2] : 'x',
+        value:
+          op === 'in' || op === 'not in'
+            ? ['a']
+            : op === '_between'
+              ? [1, 2]
+              : 'x',
       };
       expect(() => run([cond])).not.toThrow();
     }

@@ -24,11 +24,15 @@ export class SystemSafetyAuditorService {
 
     if (existing?.isSystem && tableName === 'table_definition') {
       fullExisting =
-        await this.schemaMigrationValidatorService.enrichTableDefinitionData(existing);
+        await this.schemaMigrationValidatorService.enrichTableDefinitionData(
+          existing,
+        );
     }
 
     const relationFields =
-      await this.schemaMigrationValidatorService.getAllRelationFieldsWithInverse(tableName);
+      await this.schemaMigrationValidatorService.getAllRelationFieldsWithInverse(
+        tableName,
+      );
     const changedFields = this.schemaMigrationValidatorService.getChangedFields(
       data,
       fullExisting,
@@ -36,11 +40,13 @@ export class SystemSafetyAuditorService {
     );
 
     if (operation === 'create') {
-      const jsonFields = await this.schemaMigrationValidatorService.getJsonFields(tableName);
-      const dataWithoutJson = this.schemaMigrationValidatorService.excludeJsonFields(
-        data,
-        jsonFields,
-      );
+      const jsonFields =
+        await this.schemaMigrationValidatorService.getJsonFields(tableName);
+      const dataWithoutJson =
+        this.schemaMigrationValidatorService.excludeJsonFields(
+          data,
+          jsonFields,
+        );
       this.commonService.assertNoSystemFlagDeep([dataWithoutJson]);
     }
 
@@ -94,7 +100,9 @@ export class SystemSafetyAuditorService {
         throw new Error('Cannot create system hook');
       }
       if (operation === 'update' && fullExisting?.isSystem) {
-        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description']);
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields([
+          'description',
+        ]);
         const disallowed = changedFields.filter((f) => !allowed.includes(f));
         if (disallowed.length > 0) {
           throw new Error(
@@ -206,7 +214,10 @@ export class SystemSafetyAuditorService {
       if (operation === 'delete' && isSystem)
         throw new Error('Cannot delete system table!');
       if (operation === 'update' && isSystem) {
-        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description', 'validateBody']);
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields([
+          'description',
+          'validateBody',
+        ]);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
         if (disallowed.length > 0) {
           throw new Error(
@@ -252,9 +263,10 @@ export class SystemSafetyAuditorService {
             }
             return !isEqual(updated[key], oldCol[key]);
           });
-          const allowedCol = this.schemaMigrationValidatorService.getAllowedFields([
-            'description',
-          ]);
+          const allowedCol =
+            this.schemaMigrationValidatorService.getAllowedFields([
+              'description',
+            ]);
           const disallowedChanges = changedFieldsForCol.filter(
             (k) => !allowedCol.includes(k),
           );
@@ -284,9 +296,10 @@ export class SystemSafetyAuditorService {
             }
             return !isEqual(updated[key], oldRel[key]);
           });
-          const allowedRel = this.schemaMigrationValidatorService.getAllowedFields([
-            'description',
-          ]);
+          const allowedRel =
+            this.schemaMigrationValidatorService.getAllowedFields([
+              'description',
+            ]);
           const disallowedChanges = changedFieldsForRel.filter(
             (k) => !allowedRel.includes(k),
           );
@@ -413,7 +426,9 @@ export class SystemSafetyAuditorService {
     if (tableName === 'storage_config_definition') {
       const isSystem = fullExisting?.isSystem;
       if (operation === 'update' && isSystem) {
-        const allowed = this.schemaMigrationValidatorService.getAllowedFields(['description']);
+        const allowed = this.schemaMigrationValidatorService.getAllowedFields([
+          'description',
+        ]);
         const disallowed = changedFields.filter((k) => !allowed.includes(k));
         if (disallowed.length > 0) {
           throw new Error(
@@ -430,7 +445,9 @@ export class SystemSafetyAuditorService {
     newData: any,
   ) {
     const relationFields =
-      await this.schemaMigrationValidatorService.getAllRelationFieldsWithInverse(tableName);
+      await this.schemaMigrationValidatorService.getAllRelationFieldsWithInverse(
+        tableName,
+      );
     if (relationFields.length === 0) return;
     for (const field of relationFields) {
       const oldItems = existing[field];

@@ -2,20 +2,29 @@ import type { Express, Request, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
-export function registerFileRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerFileRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.post('/file_definition', async (req: any, res: Response) => {
-    const fileManagementService = req.scope?.cradle?.fileManagementService ?? container.cradle.fileManagementService;
+    const fileManagementService =
+      req.scope?.cradle?.fileManagementService ??
+      container.cradle.fileManagementService;
     const file = req.file;
 
     if (!file) {
-      const { FileUploadException } = await import('../../core/exceptions/custom-exceptions');
+      const { FileUploadException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new FileUploadException('No file provided');
     }
 
-    const fileRepo = req.routeData?.context?.$repos?.main || req.routeData?.context?.$repos?.file_definition;
+    const fileRepo =
+      req.routeData?.context?.$repos?.main ||
+      req.routeData?.context?.$repos?.file_definition;
 
     if (!fileRepo) {
-      const { ValidationException } = await import('../../core/exceptions/custom-exceptions');
+      const { ValidationException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -40,10 +49,13 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
   });
 
   app.get('/file_definition', async (req: any, res: Response) => {
-    const fileRepo = req.routeData?.context?.$repos?.main || req.routeData?.context?.$repos?.file_definition;
+    const fileRepo =
+      req.routeData?.context?.$repos?.main ||
+      req.routeData?.context?.$repos?.file_definition;
 
     if (!fileRepo) {
-      const { ValidationException } = await import('../../core/exceptions/custom-exceptions');
+      const { ValidationException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -52,15 +64,20 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
   });
 
   app.patch('/file_definition/:id', async (req: any, res: Response) => {
-    const fileManagementService = req.scope?.cradle?.fileManagementService ?? container.cradle.fileManagementService;
+    const fileManagementService =
+      req.scope?.cradle?.fileManagementService ??
+      container.cradle.fileManagementService;
     const file = req.file;
     const id = req.params.id;
     const body = req.body;
 
-    const fileRepo = req.routeData?.context?.$repos?.main || req.routeData?.context?.$repos?.file_definition;
+    const fileRepo =
+      req.routeData?.context?.$repos?.main ||
+      req.routeData?.context?.$repos?.file_definition;
 
     if (!fileRepo) {
-      const { ValidationException } = await import('../../core/exceptions/custom-exceptions');
+      const { ValidationException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -68,19 +85,24 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
     const currentFile = currentFiles.data?.[0];
 
     if (!currentFile) {
-      const { FileNotFoundException } = await import('../../core/exceptions/custom-exceptions');
+      const { FileNotFoundException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 
     if (file) {
       let storageConfigId = currentFile.storageConfig?.id || null;
       if (body.storageConfig !== undefined && body.storageConfig !== null) {
-        storageConfigId = typeof body.storageConfig === 'object' ? (body.storageConfig as any).id : body.storageConfig;
+        storageConfigId =
+          typeof body.storageConfig === 'object'
+            ? (body.storageConfig as any).id
+            : body.storageConfig;
       }
 
       let storageConfig = null;
       if (storageConfigId) {
-        storageConfig = await fileManagementService.getStorageConfigById(storageConfigId);
+        storageConfig =
+          await fileManagementService.getStorageConfigById(storageConfigId);
       }
 
       if (
@@ -89,18 +111,35 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
           storageConfig.type === 'Cloudflare R2' ||
           storageConfig.type === 'Amazon S3')
       ) {
-        await fileManagementService.replaceFileOnStorage(currentFile.location, file.buffer, file.mimetype, storageConfigId);
+        await fileManagementService.replaceFileOnStorage(
+          currentFile.location,
+          file.buffer,
+          file.mimetype,
+          storageConfigId,
+        );
 
-        const nextDescription = body.description !== undefined ? body.description : currentFile.description;
-        const nextFolder = body.folder ? (typeof body.folder === 'object' ? body.folder : { id: body.folder }) : currentFile.folder;
-        const nextStatus = body.status !== undefined ? body.status : currentFile.status;
-        const nextIsPublished = body.isPublished !== undefined ? body.isPublished : currentFile.isPublished;
+        const nextDescription =
+          body.description !== undefined
+            ? body.description
+            : currentFile.description;
+        const nextFolder = body.folder
+          ? typeof body.folder === 'object'
+            ? body.folder
+            : { id: body.folder }
+          : currentFile.folder;
+        const nextStatus =
+          body.status !== undefined ? body.status : currentFile.status;
+        const nextIsPublished =
+          body.isPublished !== undefined
+            ? body.isPublished
+            : currentFile.isPublished;
 
         const updateData = {
           filename: file.originalname,
           mimetype: file.mimetype,
           filesize: file.size,
-          storageConfig: fileManagementService.createIdReference(storageConfigId),
+          storageConfig:
+            fileManagementService.createIdReference(storageConfigId),
           description: nextDescription,
           folder: nextFolder,
           uploadedBy: currentFile.uploadedBy,
@@ -112,10 +151,21 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
         return res.json(result);
       }
 
-      const nextDescription = body.description !== undefined ? body.description : currentFile.description;
-      const nextFolder = body.folder ? (typeof body.folder === 'object' ? body.folder : { id: body.folder }) : currentFile.folder;
-      const nextStatus = body.status !== undefined ? body.status : currentFile.status;
-      const nextIsPublished = body.isPublished !== undefined ? body.isPublished : currentFile.isPublished;
+      const nextDescription =
+        body.description !== undefined
+          ? body.description
+          : currentFile.description;
+      const nextFolder = body.folder
+        ? typeof body.folder === 'object'
+          ? body.folder
+          : { id: body.folder }
+        : currentFile.folder;
+      const nextStatus =
+        body.status !== undefined ? body.status : currentFile.status;
+      const nextIsPublished =
+        body.isPublished !== undefined
+          ? body.isPublished
+          : currentFile.isPublished;
 
       const processedFile = await fileManagementService.processFileUpload(
         {
@@ -130,10 +180,15 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
         storageConfigId,
       );
 
-      const backupPath = await fileManagementService.backupFile(currentFile.location);
+      const backupPath = await fileManagementService.backupFile(
+        currentFile.location,
+      );
 
       try {
-        await fileManagementService.replacePhysicalFile(currentFile.location, processedFile.location);
+        await fileManagementService.replacePhysicalFile(
+          currentFile.location,
+          processedFile.location,
+        );
 
         const updateData = {
           filename: processedFile.filename,
@@ -146,17 +201,27 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
           uploadedBy: currentFile.uploadedBy,
           status: nextStatus,
           isPublished: nextIsPublished,
-          storageConfig: processedFile.storage_config_id ? fileManagementService.createIdReference(processedFile.storage_config_id) : null,
+          storageConfig: processedFile.storage_config_id
+            ? fileManagementService.createIdReference(
+                processedFile.storage_config_id,
+              )
+            : null,
         };
 
         const result = await fileRepo.update({ id, data: updateData });
 
-        await fileManagementService.rollbackFileCreation(processedFile.location, processedFile.storage_config_id);
+        await fileManagementService.rollbackFileCreation(
+          processedFile.location,
+          processedFile.storage_config_id,
+        );
         await fileManagementService.deleteBackupFile(backupPath);
 
         return res.json(result);
       } catch (error) {
-        await fileManagementService.restoreFromBackup(currentFile.location, backupPath);
+        await fileManagementService.restoreFromBackup(
+          currentFile.location,
+          backupPath,
+        );
         throw error;
       }
     }
@@ -164,13 +229,18 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
     const updateData: any = {};
 
     if (body.folder) {
-      updateData.folder = typeof body.folder === 'object' ? body.folder : { id: body.folder };
+      updateData.folder =
+        typeof body.folder === 'object' ? body.folder : { id: body.folder };
     }
 
     if (body.storageConfig !== undefined && body.storageConfig !== null) {
-      const storageConfigId = typeof body.storageConfig === 'object' ? body.storageConfig.id : body.storageConfig;
+      const storageConfigId =
+        typeof body.storageConfig === 'object'
+          ? body.storageConfig.id
+          : body.storageConfig;
       if (storageConfigId) {
-        updateData.storageConfig = fileManagementService.createIdReference(storageConfigId);
+        updateData.storageConfig =
+          fileManagementService.createIdReference(storageConfigId);
       }
     }
 
@@ -195,13 +265,18 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
   });
 
   app.delete('/file_definition/:id', async (req: any, res: Response) => {
-    const fileManagementService = req.scope?.cradle?.fileManagementService ?? container.cradle.fileManagementService;
+    const fileManagementService =
+      req.scope?.cradle?.fileManagementService ??
+      container.cradle.fileManagementService;
     const id = req.params.id;
 
-    const fileRepo = req.routeData?.context?.$repos?.main || req.routeData?.context?.$repos?.file_definition;
+    const fileRepo =
+      req.routeData?.context?.$repos?.main ||
+      req.routeData?.context?.$repos?.file_definition;
 
     if (!fileRepo) {
-      const { ValidationException } = await import('../../core/exceptions/custom-exceptions');
+      const { ValidationException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -209,13 +284,17 @@ export function registerFileRoutes(app: Express, container: AwilixContainer<Crad
     const file = files.data?.[0];
 
     if (!file) {
-      const { FileNotFoundException } = await import('../../core/exceptions/custom-exceptions');
+      const { FileNotFoundException } =
+        await import('../../core/exceptions/custom-exceptions');
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 
     const { location, storageConfig } = file;
 
-    await fileManagementService.deletePhysicalFile(location, storageConfig?.id || null);
+    await fileManagementService.deletePhysicalFile(
+      location,
+      storageConfig?.id || null,
+    );
 
     const result = await fileRepo.delete({ id });
     res.json(result);

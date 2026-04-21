@@ -186,20 +186,26 @@ export class CacheOrchestratorService implements LifecycleAware {
       storage: (p) => this.reloadSimple(this.storageConfigCacheService, p),
       oauth: (p) => this.reloadSimple(this.oauthConfigCacheService, p),
       folder: (p) => this.reloadSimple(this.folderTreeCacheService, p),
-      fieldPermission: (p) => this.reloadSimple(this.fieldPermissionCacheService, p),
+      fieldPermission: (p) =>
+        this.reloadSimple(this.fieldPermissionCacheService, p),
       'column-rule': (p) => this.reloadSimple(this.columnRuleCacheService, p),
       settingGraphql: () => this.reloadSettingGraphql(),
       bootstrap: () => this.reloadBootstrapScripts(),
     };
 
-    deps.eventEmitter.on(CACHE_EVENTS.INVALIDATE, this.handleInvalidation.bind(this));
+    deps.eventEmitter.on(
+      CACHE_EVENTS.INVALIDATE,
+      this.handleInvalidation.bind(this),
+    );
   }
 
   async init() {
     this.subscribeToRedis();
   }
 
-  private handleInvalidation(payload: TCacheInvalidationPayload): Promise<void> {
+  private handleInvalidation(
+    payload: TCacheInvalidationPayload,
+  ): Promise<void> {
     return new Promise<void>((resolve) => {
       this.debounceResolvers.push(resolve);
       this.mergePayload(payload);
@@ -549,7 +555,9 @@ export class CacheOrchestratorService implements LifecycleAware {
           }
           const version = `${signal.instanceId}:${signal.timestamp}:${signal.payload?.table}:${signal.payload?.scope || 'full'}:${signal.payload?.ids?.join(',') || 'all'}`;
           if (this.processedVersions.has(version)) {
-            this.logger.debug(`Skipping duplicate/out-of-order signal: ${version.slice(0, 40)}...`);
+            this.logger.debug(
+              `Skipping duplicate/out-of-order signal: ${version.slice(0, 40)}...`,
+            );
             return;
           }
           this.processedVersions.add(version);

@@ -74,7 +74,9 @@ async function ensureJunctionCollection(
       await db.createCollection(def.name);
       console.log(`  ✅ Created junction collection: ${def.name}`);
     } catch (error: any) {
-      const nowExisting = await db.listCollections({ name: def.name }).toArray();
+      const nowExisting = await db
+        .listCollections({ name: def.name })
+        .toArray();
       if (nowExisting.length > 0) {
         console.log(
           `  ⏩ Junction collection created by another instance: ${def.name}`,

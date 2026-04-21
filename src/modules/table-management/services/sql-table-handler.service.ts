@@ -920,12 +920,13 @@ export class SqlTableHandlerService {
       } else {
         // === MYSQL PATH: DDL first, then metadata writes ===
         stepLog(`STEP 6 ${dbType}: constructing afterMetadata from body...`);
-        const afterMetadata = this.sqlTableMetadataBuilderService.constructAfterMetadata(
-          exists,
-          body,
-          oldMetadata,
-          allTargetTablesMap,
-        );
+        const afterMetadata =
+          this.sqlTableMetadataBuilderService.constructAfterMetadata(
+            exists,
+            body,
+            oldMetadata,
+            allTargetTablesMap,
+          );
         stepLog(`STEP 7 ${dbType}: afterMetadata constructed (+${lap()}ms)`);
 
         const decision = await this.policyService.checkSchemaMigration({

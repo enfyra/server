@@ -280,8 +280,23 @@ describe('SchemaMigrationValidatorService — hash stability', () => {
     const after = {
       name: 'post',
       columns: [
-        { id: objId, name: 'id', type: 'uuid', isNullable: false, isPrimary: true, isGenerated: true, defaultValue: null },
-        { name: 'slug', type: 'varchar', isNullable: true, isPrimary: false, isGenerated: false, defaultValue: null },
+        {
+          id: objId,
+          name: 'id',
+          type: 'uuid',
+          isNullable: false,
+          isPrimary: true,
+          isGenerated: true,
+          defaultValue: null,
+        },
+        {
+          name: 'slug',
+          type: 'varchar',
+          isNullable: true,
+          isPrimary: false,
+          isGenerated: false,
+          defaultValue: null,
+        },
       ],
       relations: [],
       uniques: null,

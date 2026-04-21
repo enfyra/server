@@ -36,7 +36,9 @@ describe('formatZodErrors — message strings', () => {
     const schema = z.object({ pw: z.string().min(8) });
     const r = schema.safeParse({ pw: 'abc' });
     if (!r.success) {
-      expect(formatZodErrors(r.error)[0]).toBe('pw must be at least 8 characters');
+      expect(formatZodErrors(r.error)[0]).toBe(
+        'pw must be at least 8 characters',
+      );
     }
   });
 
@@ -44,7 +46,9 @@ describe('formatZodErrors — message strings', () => {
     const schema = z.object({ s: z.string().max(3) });
     const r = schema.safeParse({ s: 'abcdef' });
     if (!r.success) {
-      expect(formatZodErrors(r.error)[0]).toBe('s must be at most 3 characters');
+      expect(formatZodErrors(r.error)[0]).toBe(
+        's must be at most 3 characters',
+      );
     }
   });
 
@@ -52,7 +56,9 @@ describe('formatZodErrors — message strings', () => {
     const schema = z.object({ email: z.string().email() });
     const r = schema.safeParse({ email: 'nope' });
     if (!r.success) {
-      expect(formatZodErrors(r.error)[0]).toMatch(/email must be a valid email/);
+      expect(formatZodErrors(r.error)[0]).toMatch(
+        /email must be a valid email/,
+      );
     }
   });
 
@@ -68,7 +74,9 @@ describe('formatZodErrors — message strings', () => {
     const schema = z.object({ role: z.enum(['admin', 'user', 'guest']) });
     const r = schema.safeParse({ role: 'nope' });
     if (!r.success) {
-      expect(formatZodErrors(r.error)[0]).toBe('role must be one of: admin, user, guest');
+      expect(formatZodErrors(r.error)[0]).toBe(
+        'role must be one of: admin, user, guest',
+      );
     }
   });
 
@@ -81,7 +89,9 @@ describe('formatZodErrors — message strings', () => {
   });
 
   it('nested path → "a.b.c is required"', () => {
-    const schema = z.object({ a: z.object({ b: z.object({ c: z.string() }) }) });
+    const schema = z.object({
+      a: z.object({ b: z.object({ c: z.string() }) }),
+    });
     const r = schema.safeParse({ a: { b: {} } });
     if (!r.success) {
       expect(formatZodErrors(r.error)[0]).toBe('a.b.c is required');

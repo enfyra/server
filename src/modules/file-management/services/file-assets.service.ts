@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '../../../shared/logger';
 import { NotFoundException } from '../../../core/exceptions/custom-exceptions';
@@ -140,9 +141,10 @@ export class FileAssetsService {
       let sc: any;
 
       if (storageConfigId) {
-        sc = await this.fileManagementService.getStorageConfigById(
-          storageConfigId,
-        );
+        sc =
+          await this.fileManagementService.getStorageConfigById(
+            storageConfigId,
+          );
       } else {
         sc = {
           type: 'Local Storage',
@@ -186,8 +188,7 @@ export class FileAssetsService {
     }
 
     const query = req.routeData?.context?.$query || req.query;
-    const shouldDownload =
-      query.download === 'true' || query.download === true;
+    const shouldDownload = query.download === 'true' || query.download === true;
     await this.streamHelper.streamRegularFile(
       filePath,
       res,
@@ -276,9 +277,10 @@ export class FileAssetsService {
 
       let shouldStream = false;
       if (storageConfigId) {
-        const config = await this.fileManagementService.getStorageConfigById(
-          storageConfigId,
-        );
+        const config =
+          await this.fileManagementService.getStorageConfigById(
+            storageConfigId,
+          );
         shouldStream =
           config.type === 'Google Cloud Storage' ||
           config.type === 'Cloudflare R2' ||
@@ -315,7 +317,7 @@ export class FileAssetsService {
         ));
       }
 
-      const fileStream = require('fs').createReadStream(filePath);
+      const fileStream = fs.createReadStream(filePath);
 
       let imageProcessor = ImageProcessorHelper.createStreamProcessor();
 

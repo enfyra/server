@@ -690,7 +690,8 @@ export class SqlSchemaMigrationService {
           uuid: journalUuid,
           markFailed: (err) =>
             this.migrationJournalService.markFailed(journalUuid!, err),
-          executeRollback: (uuid) => this.migrationJournalService.executeRollback(uuid),
+          executeRollback: (uuid) =>
+            this.migrationJournalService.executeRollback(uuid),
         }
       : undefined;
 

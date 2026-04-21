@@ -2,7 +2,10 @@ import type { Express, Request, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
-export function registerDynamicRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerDynamicRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.all('/{*path}', async (req: any, res: Response) => {
     if (req.routeNotFound || !req.routeData) {
       res.status(404).json({
@@ -19,7 +22,8 @@ export function registerDynamicRoutes(app: Express, container: AwilixContainer<C
       });
       return;
     }
-    const dynamicService = req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
+    const dynamicService =
+      req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
     res.json(result);
   });

@@ -21,14 +21,10 @@ const SUPPORTED_OPS = [
 
 const emptyMetadata = { tables: new Map() };
 const nullableMetadata = {
-  tables: new Map([
-    ['t', { columns: [{ name: 'f', isNullable: true }] }],
-  ]),
+  tables: new Map([['t', { columns: [{ name: 'f', isNullable: true }] }]]),
 };
 const nonNullableMetadata = {
-  tables: new Map([
-    ['t', { columns: [{ name: 'f', isNullable: false }] }],
-  ]),
+  tables: new Map([['t', { columns: [{ name: 'f', isNullable: false }] }]]),
 };
 
 describe('applyOperatorToMatch — supported operators', () => {
@@ -167,7 +163,12 @@ describe('applyOperatorToMatch — coverage of supported list', () => {
   it('every operator in SUPPORTED_OPS does not throw', () => {
     for (const op of SUPPORTED_OPS) {
       const match: any = {};
-      const val = op === '_in' || op === '_not_in' || op === '_nin' ? ['a'] : op === '_between' ? [1, 2] : 'x';
+      const val =
+        op === '_in' || op === '_not_in' || op === '_nin'
+          ? ['a']
+          : op === '_between'
+            ? [1, 2]
+            : 'x';
       expect(() =>
         applyOperatorToMatch(emptyMetadata, match, 't', 'f', op, val),
       ).not.toThrow();

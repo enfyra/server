@@ -1,4 +1,5 @@
 import { Logger } from '../../../shared/logger';
+import { ObjectId } from 'mongodb';
 import { MongoService } from '../../../infrastructure/mongo/services/mongo.service';
 
 export class MongoMetadataSnapshotService {
@@ -10,7 +11,6 @@ export class MongoMetadataSnapshotService {
   }
 
   async getFullTableMetadata(tableId: any): Promise<any> {
-    const { ObjectId } = require('mongodb');
     const queryId =
       typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
 
@@ -83,7 +83,6 @@ export class MongoMetadataSnapshotService {
     relations: any[];
     inverseRelations: any[];
   }> {
-    const { ObjectId } = require('mongodb');
     const db = this.mongoService.getDb();
     const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
     const sourceRelations = await db
@@ -120,7 +119,6 @@ export class MongoMetadataSnapshotService {
     },
     tableId: any,
   ): Promise<void> {
-    const { ObjectId } = require('mongodb');
     const db = this.mongoService.getDb();
     const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
     this.logger.warn(

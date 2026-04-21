@@ -85,7 +85,7 @@ export async function initializeDatabaseSql(): Promise<void> {
     const schemaMigration = loadSchemaMigration();
 
     // Apply schema migrations (dangerous operations: remove, modify)
-    if (hasSchemaMigrations(schemaMigration)) {
+    if (schemaMigration && hasSchemaMigrations(schemaMigration)) {
       console.log('📋 Applying schema migrations from snapshot-migration.json...');
       await applySqlSchemaMigrations(knexInstance, schemaMigration);
     }

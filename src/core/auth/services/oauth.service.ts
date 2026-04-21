@@ -66,7 +66,8 @@ export class OAuthService {
   }
 
   getAuthorizationUrl(provider: OAuthProvider, state: string): string {
-    const config = this.oauthConfigCacheService.getDirectConfigByProvider(provider);
+    const config =
+      this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -109,7 +110,8 @@ export class OAuthService {
     expTime: number;
     loginProvider: string | null;
   }> {
-    const config = this.oauthConfigCacheService.getDirectConfigByProvider(provider);
+    const config =
+      this.oauthConfigCacheService.getDirectConfigByProvider(provider);
     if (!config || !config.isEnabled) {
       throw new BadRequestException(
         `OAuth provider '${provider}' is not configured or disabled`,
@@ -278,7 +280,10 @@ export class OAuthService {
               isSystem: false,
             };
 
-        user = await this.queryBuilderService.insert('user_definition', userData);
+        user = await this.queryBuilderService.insert(
+          'user_definition',
+          userData,
+        );
         console.log(
           `Created new user via ${provider} OAuth: ${userInfo.email}`,
         );
@@ -298,7 +303,10 @@ export class OAuthService {
       : { provider, providerUserId: userInfo.id, userId };
 
     try {
-      await this.queryBuilderService.insert('oauth_account_definition', accountData);
+      await this.queryBuilderService.insert(
+        'oauth_account_definition',
+        accountData,
+      );
       console.log(`Linked ${provider} account to user: ${userInfo.email}`);
     } catch {
       console.warn(
@@ -317,7 +325,8 @@ export class OAuthService {
     const userId = DatabaseConfigService.getRecordId(user);
 
     const expiredAt = new Date(
-      Date.now() + ms(this.envService.get('REFRESH_TOKEN_REMEMBER_EXP') as StringValue),
+      Date.now() +
+        ms(this.envService.get('REFRESH_TOKEN_REMEMBER_EXP') as StringValue),
     );
 
     const sessionData: any = isMongoDB
@@ -364,7 +373,9 @@ export class OAuthService {
       { sessionId: sessionId?.toString() },
       this.envService.get('SECRET_KEY'),
       {
-        expiresIn: this.envService.get('REFRESH_TOKEN_REMEMBER_EXP') as StringValue,
+        expiresIn: this.envService.get(
+          'REFRESH_TOKEN_REMEMBER_EXP',
+        ) as StringValue,
       },
     );
 
@@ -377,7 +388,10 @@ export class OAuthService {
       { refreshTokenHash },
     );
 
-    const userForCache = await loadUserWithRole(this.queryBuilderService, userId);
+    const userForCache = await loadUserWithRole(
+      this.queryBuilderService,
+      userId,
+    );
     if (userForCache) {
       await this.cacheService.set(
         userCacheKey(userId),

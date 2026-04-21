@@ -1241,7 +1241,7 @@
             "path": "/settings/admin/cache",
             "isEnabled": true,
             "isSystem": true,
-            "description": "Manually reload server caches (metadata, routes, swagger, graphql)",
+            "description": "Manually reload server caches (metadata, routes, graphql)",
             "order": 12,
             "parent": "Settings",
             "permission": {

@@ -219,11 +219,16 @@ export class KnexHookManagerService {
     this.addHook('beforeInsert', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
 
-      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return data;
 
-      const hasCreatedAt = tableMetadata.columns.some((c: any) => c.name === 'createdAt');
-      const hasUpdatedAt = tableMetadata.columns.some((c: any) => c.name === 'updatedAt');
+      const hasCreatedAt = tableMetadata.columns.some(
+        (c: any) => c.name === 'createdAt',
+      );
+      const hasUpdatedAt = tableMetadata.columns.some(
+        (c: any) => c.name === 'updatedAt',
+      );
 
       if (!hasCreatedAt && !hasUpdatedAt) return data;
 
@@ -383,10 +388,13 @@ export class KnexHookManagerService {
 
     this.addHook('beforeUpdate', async (tableName, data) => {
       if (await this.isJunctionTable(tableName)) return data;
-      const tableMetadata = await this.metadataCacheService.getTableMetadata(tableName);
+      const tableMetadata =
+        await this.metadataCacheService.getTableMetadata(tableName);
       if (!tableMetadata?.columns) return data;
 
-      const hasUpdatedAt = tableMetadata.columns.some((c: any) => c.name === 'updatedAt');
+      const hasUpdatedAt = tableMetadata.columns.some(
+        (c: any) => c.name === 'updatedAt',
+      );
       if (!hasUpdatedAt) return data;
 
       return {

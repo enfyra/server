@@ -639,7 +639,10 @@ export class DynamicRepository {
         throw error;
       }
     } catch (error: any) {
-      if (error instanceof ForbiddenException || error instanceof ConflictException) {
+      if (
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       if (error.errInfo) {
@@ -807,7 +810,10 @@ export class DynamicRepository {
       }
       return result;
     } catch (error: any) {
-      if (error instanceof ForbiddenException || error instanceof ConflictException) {
+      if (
+        error instanceof ForbiddenException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       throw new BadRequestException(error.message);
@@ -854,11 +860,7 @@ export class DynamicRepository {
         const relRow: any = await this.queryBuilderService.findOne({
           table: 'relation_definition',
           where: { id },
-          fields: [
-            '*',
-            'sourceTable.id',
-            'sourceTable.name',
-          ],
+          fields: ['*', 'sourceTable.id', 'sourceTable.name'],
         });
         const sourceTableId = relRow?.sourceTable?.id;
         if (!sourceTableId) {
@@ -1088,7 +1090,7 @@ export class DynamicRepository {
     const columnRef = body?.column;
     const columnId =
       columnRef && typeof columnRef === 'object'
-        ? columnRef.id ?? columnRef._id
+        ? (columnRef.id ?? columnRef._id)
         : columnRef;
     if (columnId == null) return;
 
@@ -1108,7 +1110,11 @@ export class DynamicRepository {
     if (conflict) {
       throw new ConflictException(
         `Rule of type '${ruleType}' already exists for this column`,
-        { ruleType, columnId: String(columnId), existingId: conflict[this.getIdField()] },
+        {
+          ruleType,
+          columnId: String(columnId),
+          existingId: conflict[this.getIdField()],
+        },
       );
     }
   }

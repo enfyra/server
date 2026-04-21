@@ -94,10 +94,17 @@ export class SchemaMigrationLockService {
       if (row?.isLocked) {
         const now = Date.now();
         const lockedAtMs = row.lockedAt ? new Date(row.lockedAt).getTime() : 0;
-        const heartbeatMs = row.heartbeatAt ? new Date(row.heartbeatAt).getTime() : 0;
+        const heartbeatMs = row.heartbeatAt
+          ? new Date(row.heartbeatAt).getTime()
+          : 0;
 
-        const staleByHeartbeat = heartbeatMs > 0 && (now - heartbeatMs > SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS);
-        const staleByDuration = !heartbeatMs && (now - lockedAtMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS);
+        const staleByHeartbeat =
+          heartbeatMs > 0 &&
+          now - heartbeatMs >
+            SchemaMigrationLockService.STALE_HEARTBEAT_THRESHOLD_MS;
+        const staleByDuration =
+          !heartbeatMs &&
+          now - lockedAtMs > SchemaMigrationLockService.STALE_LOCK_THRESHOLD_MS;
 
         if (staleByHeartbeat || staleByDuration) {
           const staleReason = staleByHeartbeat

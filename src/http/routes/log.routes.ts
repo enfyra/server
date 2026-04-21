@@ -2,22 +2,28 @@ import type { Express, Request, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
-export function registerLogRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerLogRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.get('/logs', async (req: any, res: Response) => {
-    const logReaderService = req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
+    const logReaderService =
+      req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
     const files = logReaderService.getLogFiles();
     const stats = logReaderService.getLogStats();
     res.json({ files, stats });
   });
 
   app.get('/logs/stats', async (req: any, res: Response) => {
-    const logReaderService = req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
+    const logReaderService =
+      req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
     const stats = logReaderService.getLogStats();
     res.json(stats);
   });
 
   app.get('/logs/:filename', async (req: any, res: Response) => {
-    const logReaderService = req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
+    const logReaderService =
+      req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
     const filename = req.params.filename;
     const page = parseInt(req.query.page as string) || 1;
     const pageSize = parseInt(req.query.pageSize as string) || 100;
@@ -41,7 +47,8 @@ export function registerLogRoutes(app: Express, container: AwilixContainer<Cradl
   });
 
   app.get('/logs/:filename/tail', async (req: any, res: Response) => {
-    const logReaderService = req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
+    const logReaderService =
+      req.scope?.cradle?.logReaderService ?? container.cradle.logReaderService;
     const filename = req.params.filename;
     const lines = parseInt(req.query.lines as string) || 50;
     const raw = req.query.raw === 'true';

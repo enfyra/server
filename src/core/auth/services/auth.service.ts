@@ -133,7 +133,9 @@ export class AuthService {
       {
         expiresIn: (body.remember
           ? this.envService.get('REFRESH_TOKEN_REMEMBER_EXP')
-          : this.envService.get('REFRESH_TOKEN_NO_REMEMBER_EXP')) as StringValue,
+          : this.envService.get(
+              'REFRESH_TOKEN_NO_REMEMBER_EXP',
+            )) as StringValue,
       },
     );
 
@@ -154,7 +156,10 @@ export class AuthService {
     const body = parseOrBadRequest(logoutSchema, rawBody);
     let decoded: any;
     try {
-      decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
+      decoded = jwt.verify(
+        body.refreshToken,
+        this.envService.get('SECRET_KEY'),
+      );
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
@@ -193,7 +198,10 @@ export class AuthService {
     const body = parseOrBadRequest(refreshTokenSchema, rawBody);
     let decoded: any;
     try {
-      decoded = jwt.verify(body.refreshToken, this.envService.get('SECRET_KEY'));
+      decoded = jwt.verify(
+        body.refreshToken,
+        this.envService.get('SECRET_KEY'),
+      );
     } catch (e) {
       throw new BadRequestException('Invalid or expired refresh token!');
     }
@@ -257,7 +265,6 @@ export class AuthService {
     const newHash = this.hashToken(refreshToken);
 
     if (this.queryBuilder.isMongoDb()) {
-      const { ObjectId } = require('mongodb');
       const sessionObjId =
         typeof sessionId === 'string' ? new ObjectId(sessionId) : sessionId;
       const filter: any = {

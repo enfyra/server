@@ -9,7 +9,8 @@ import type {
 
 declare global {
   namespace jest {
-    type Mock<T extends (...args: any[]) => any = (...args: any[]) => any> = Mock<T>;
+    type Mock<T extends (...args: any[]) => any = (...args: any[]) => any> =
+      Mock<T>;
     type MockedFunction<T extends (...args: any[]) => any> = MockedFunction<T>;
     type Mocked<T> = ViMocked<T>;
     type MockedObject<T> = MockedObject<T>;

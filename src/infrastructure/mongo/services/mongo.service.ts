@@ -65,7 +65,6 @@ export class MongoService {
     this.lazyRef = deps.lazyRef;
   }
 
-
   async runWithPolicy<T>(
     policyCheck: (
       tableName: string,
@@ -572,11 +571,7 @@ export class MongoService {
     };
   }
 
-  async updateOne(
-    collectionName: string,
-    id: string,
-    data: any,
-  ): Promise<any> {
+  async updateOne(collectionName: string, id: string, data: any): Promise<any> {
     const collection = this.collection(collectionName);
     const objectId = new ObjectId(id);
 

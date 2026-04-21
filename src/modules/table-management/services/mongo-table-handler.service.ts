@@ -1,4 +1,5 @@
 import { Logger } from '../../../shared/logger';
+import { ObjectId } from 'mongodb';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { MongoSchemaMigrationService } from '../../../infrastructure/mongo/services/mongo-schema-migration.service';
 import { MongoService } from '../../../infrastructure/mongo/services/mongo.service';
@@ -66,7 +67,6 @@ export class MongoTableHandlerService {
     sourceTableName: string,
     newRelations: any[],
   ): Promise<void> {
-    const { ObjectId } = require('mongodb');
     const querySourceId =
       typeof sourceTableId === 'string'
         ? new ObjectId(sourceTableId)
@@ -247,7 +247,6 @@ export class MongoTableHandlerService {
       } else if (typeof relation.targetTable === 'string') {
         targetTableName = relation.targetTable;
       } else {
-        const { ObjectId } = require('mongodb');
         const targetId = relation.targetTable._id || relation.targetTable;
         const targetTableRecord = await this.queryBuilderService.findOne({
           table: 'table_definition',
@@ -387,7 +386,6 @@ export class MongoTableHandlerService {
               indexes: body.indexes || [],
             },
           );
-          const { ObjectId } = require('mongodb');
           const tableId =
             typeof tableRecord._id === 'string'
               ? new ObjectId(tableRecord._id)
@@ -447,10 +445,11 @@ export class MongoTableHandlerService {
                       ? new ObjectId(targetTableIdFromObj)
                       : targetTableIdFromObj;
                 } else if (typeof rel.targetTable === 'string') {
-                  const targetTableRecord = await this.queryBuilderService.findOne({
-                    table: 'table_definition',
-                    where: { name: rel.targetTable },
-                  });
+                  const targetTableRecord =
+                    await this.queryBuilderService.findOne({
+                      table: 'table_definition',
+                      where: { name: rel.targetTable },
+                    });
                   if (targetTableRecord) {
                     targetTableObjectId =
                       typeof targetTableRecord._id === 'string'
@@ -466,13 +465,14 @@ export class MongoTableHandlerService {
                 }
                 let resolvedMappedBy = null;
                 if (rel.mappedBy) {
-                  const { data: owningRels } = await this.queryBuilderService.find({
-                    table: 'relation_definition',
-                    where: {
-                      sourceTable: targetTableObjectId,
-                      propertyName: rel.mappedBy,
-                    },
-                  });
+                  const { data: owningRels } =
+                    await this.queryBuilderService.find({
+                      table: 'relation_definition',
+                      where: {
+                        sourceTable: targetTableObjectId,
+                        propertyName: rel.mappedBy,
+                      },
+                    });
                   if (owningRels.length > 0)
                     resolvedMappedBy = owningRels[0]._id;
                 }
@@ -638,7 +638,6 @@ export class MongoTableHandlerService {
               .toArray();
             const allMethodIds = methods.map((m: any) => m._id);
 
-            const { ObjectId } = require('mongodb');
             const routeDoc: any = {
               path: `/${body.name}`,
               mainTable: tableId,
@@ -706,7 +705,9 @@ export class MongoTableHandlerService {
           }
 
           const fullMetadata =
-            await this.mongoMetadataSnapshotService.getFullTableMetadata(tableId);
+            await this.mongoMetadataSnapshotService.getFullTableMetadata(
+              tableId,
+            );
           await this.mongoSchemaMigrationService.createCollection(fullMetadata);
 
           const owningM2m = (fullMetadata.relations || []).filter(
@@ -753,7 +754,11 @@ export class MongoTableHandlerService {
       },
     );
   }
-  async updateTable(id: any, body: TCreateTableBody, context?: TDynamicContext) {
+  async updateTable(
+    id: any,
+    body: TCreateTableBody,
+    context?: TDynamicContext,
+  ) {
     const affectedTableNames = new Set<string>();
     const tag = `[mongo:updateTable:${id}]`;
     const stepLog = (msg: string) => this.logger.log(`${tag} ${msg}`);
@@ -781,7 +786,6 @@ export class MongoTableHandlerService {
       this.tableValidationService.validateRelations(body.relations);
       stepLog(`STEP 2 validated name+relations (+${lap()}ms)`);
       try {
-        const { ObjectId } = require('mongodb');
         const queryId = typeof id === 'string' ? new ObjectId(id) : id;
         const exists = await this.queryBuilderService.findOne({
           table: 'table_definition',
@@ -855,16 +859,22 @@ export class MongoTableHandlerService {
           updateData.isSingleRecord = body.isSingleRecord;
         if ('validateBody' in body) updateData.validateBody = body.validateBody;
         if (Object.keys(updateData).length > 0) {
-          await this.queryBuilderService.update('table_definition', id, updateData);
+          await this.queryBuilderService.update(
+            'table_definition',
+            id,
+            updateData,
+          );
         }
         stepLog(`STEP 7 updated table_definition row (+${lap()}ms)`);
         if (body.columns) {
-          const { data: existingColumns } = await this.queryBuilderService.find({
-            table: 'column_definition',
-            where: {
-              table: queryId,
+          const { data: existingColumns } = await this.queryBuilderService.find(
+            {
+              table: 'column_definition',
+              where: {
+                table: queryId,
+              },
             },
-          });
+          );
           const deletedColumnIds = getDeletedIds(existingColumns, body.columns);
           for (const colId of deletedColumnIds) {
             const deletedCol = existingColumns.find(
@@ -952,12 +962,13 @@ export class MongoTableHandlerService {
           `STEP 8 processed ${body.columns?.length ?? 0} column(s) (+${lap()}ms)`,
         );
         if (body.relations) {
-          const { data: existingRelations } = await this.queryBuilderService.find({
-            table: 'relation_definition',
-            where: {
-              sourceTable: queryId,
-            },
-          });
+          const { data: existingRelations } =
+            await this.queryBuilderService.find({
+              table: 'relation_definition',
+              where: {
+                sourceTable: queryId,
+              },
+            });
           await this.dropRelationFieldsBeforeUpdate(
             body.relations,
             exists.name,
@@ -983,14 +994,19 @@ export class MongoTableHandlerService {
                   .collection(exists.name)
                   .updateMany({}, { $unset: { [fieldName]: '' } });
               }
-              const { data: inverseRels } = await this.queryBuilderService.find({
-                table: 'relation_definition',
-                where: { mappedBy: deletedRelation._id },
-              });
+              const { data: inverseRels } = await this.queryBuilderService.find(
+                {
+                  table: 'relation_definition',
+                  where: { mappedBy: deletedRelation._id },
+                },
+              );
               for (const inv of inverseRels) {
                 if (inv.sourceTableName)
                   affectedTableNames.add(inv.sourceTableName);
-                await this.queryBuilderService.delete('relation_definition', inv._id);
+                await this.queryBuilderService.delete(
+                  'relation_definition',
+                  inv._id,
+                );
               }
             }
             await this.queryBuilderService.delete('relation_definition', relId);
@@ -1132,23 +1148,25 @@ export class MongoTableHandlerService {
                   { relationName: rel.propertyName },
                 );
               }
-              const { data: existingOnTarget } = await this.queryBuilderService.find({
-                table: 'relation_definition',
-                where: {
-                  sourceTable: targetTableObjectId,
-                  propertyName: rel.inversePropertyName,
-                },
-              });
+              const { data: existingOnTarget } =
+                await this.queryBuilderService.find({
+                  table: 'relation_definition',
+                  where: {
+                    sourceTable: targetTableObjectId,
+                    propertyName: rel.inversePropertyName,
+                  },
+                });
               if (existingOnTarget.length > 0) {
                 throw new ValidationException(
                   `Cannot create inverse '${rel.inversePropertyName}' on target table: property name already exists`,
                   { relationName: rel.inversePropertyName },
                 );
               }
-              const { data: existingInverse } = await this.queryBuilderService.find({
-                table: 'relation_definition',
-                where: { mappedBy: relObjectId },
-              });
+              const { data: existingInverse } =
+                await this.queryBuilderService.find({
+                  table: 'relation_definition',
+                  where: { mappedBy: relObjectId },
+                });
               if (existingInverse.length > 0) {
                 throw new ValidationException(
                   `Relation '${rel.propertyName}' already has an inverse '${existingInverse[0].propertyName}'`,
@@ -1386,7 +1404,6 @@ export class MongoTableHandlerService {
     const affectedTableNames = new Set<string>();
     return await this.runWithSchemaLock(`mongo:delete:${id}`, async () => {
       try {
-        const { ObjectId } = require('mongodb');
         const tableId = typeof id === 'string' ? new ObjectId(id) : id;
         const exists = await this.queryBuilderService.findOne({
           table: 'table_definition',
@@ -1509,7 +1526,10 @@ export class MongoTableHandlerService {
           ruleData,
         );
       } else {
-        await this.queryBuilderService.insert('column_rule_definition', ruleData);
+        await this.queryBuilderService.insert(
+          'column_rule_definition',
+          ruleData,
+        );
       }
     }
   }
@@ -1566,7 +1586,6 @@ export class MongoTableHandlerService {
   }
 
   private async getFullTableMetadata(tableId: any): Promise<any> {
-    const { ObjectId } = require('mongodb');
     const queryId =
       typeof tableId === 'string' ? new ObjectId(tableId) : tableId;
 

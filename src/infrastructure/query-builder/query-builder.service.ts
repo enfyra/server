@@ -17,10 +17,7 @@ import { normalizeMongoDocument } from '../mongo/utils/normalize-mongo-document.
 import { whereToMongoFilter } from './utils/mongo/filter-builder';
 import { applyWhereToKnex as applyWhereToKnexComplete } from './utils/sql/sql-where-builder';
 
-let ObjectId: any;
-try {
-  ObjectId = require('mongodb').ObjectId;
-} catch (err) {}
+import { ObjectId } from 'mongodb';
 
 export class QueryBuilderService {
   private readonly knexService?: KnexService;
@@ -95,7 +92,9 @@ export class QueryBuilderService {
 
   private buildMongoFilter(where: WhereCondition[], table?: string): any {
     const metadata =
-      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? { tables: new Map() };
+      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
+        tables: new Map(),
+      };
     const filter = whereToMongoFilter(metadata, where, table, this.dbType);
     if (filter._id !== undefined) {
       filter._id = this.safeObjectId(filter._id);
@@ -109,7 +108,9 @@ export class QueryBuilderService {
     table?: string,
   ): any {
     const metadata =
-      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? { tables: new Map() };
+      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
+        tables: new Map(),
+      };
     return applyWhereToKnexComplete(
       query,
       conditions,
@@ -173,7 +174,11 @@ export class QueryBuilderService {
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
-    const metadata = this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? { tables: new Map(), tablesList: [] };
+    const metadata =
+      this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
+        tables: new Map(),
+        tablesList: [],
+      };
 
     const planner = new QueryPlanner();
     const plan = planner.plan({
@@ -273,7 +278,9 @@ export class QueryBuilderService {
 
   async count(options: CountOptions): Promise<number> {
     if (this.dbType === 'mongodb') {
-      const filter = options.where ? this.buildMongoFilter(options.where, options.table) : {};
+      const filter = options.where
+        ? this.buildMongoFilter(options.where, options.table)
+        : {};
       return this.mongoService.count(options.table, filter);
     }
 

@@ -53,7 +53,10 @@ export class ConnectionQueueService {
       },
       {
         prefix: `${nodeName}:`,
-        connection: { url: this.envService.get('REDIS_URI'), maxRetriesPerRequest: null },
+        connection: {
+          url: this.envService.get('REDIS_URI'),
+          maxRetriesPerRequest: null,
+        },
         concurrency: 5,
       },
     );
@@ -127,10 +130,7 @@ export class ConnectionQueueService {
   }
 
   onFailed(job: Job | undefined, error: Error) {
-    this.logger.error(
-      `Connection job ${job?.id} failed:`,
-      error,
-    );
+    this.logger.error(`Connection job ${job?.id} failed:`, error);
   }
 
   onError(error: Error) {
@@ -141,13 +141,26 @@ export class ConnectionQueueService {
     const self = this;
     return {
       join: (room: string) => {
-        self.lazyRef.dynamicWebSocketGateway?.joinRoom(gatewayPath, socketId, room);
+        self.lazyRef.dynamicWebSocketGateway?.joinRoom(
+          gatewayPath,
+          socketId,
+          room,
+        );
       },
       leave: (room: string) => {
-        self.lazyRef.dynamicWebSocketGateway?.leaveRoom(gatewayPath, socketId, room);
+        self.lazyRef.dynamicWebSocketGateway?.leaveRoom(
+          gatewayPath,
+          socketId,
+          room,
+        );
       },
       reply: (event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToSocket(gatewayPath, socketId, event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToSocket(
+          gatewayPath,
+          socketId,
+          event,
+          data,
+        );
       },
       emitToUser: (userId: number | string, event: string, data: any) => {
         self.lazyRef.dynamicWebSocketGateway?.emitToUser(userId, event, data);
@@ -156,7 +169,11 @@ export class ConnectionQueueService {
         self.lazyRef.dynamicWebSocketGateway?.emitToRoom(room, event, data);
       },
       emitToGateway: (path: string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToNamespace(path, event, data);
+        self.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
+          path,
+          event,
+          data,
+        );
       },
       broadcast: (event: string, data: any) => {
         self.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
@@ -166,7 +183,10 @@ export class ConnectionQueueService {
         return gateway ? gateway.roomSize(room) : 0;
       },
       disconnect: () => {
-        self.lazyRef.dynamicWebSocketGateway?.disconnectSocket(gatewayPath, socketId);
+        self.lazyRef.dynamicWebSocketGateway?.disconnectSocket(
+          gatewayPath,
+          socketId,
+        );
       },
     };
   }

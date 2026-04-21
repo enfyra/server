@@ -388,7 +388,9 @@ export class FileManagementService {
 
   async getStorageConfigById(storageConfigId: number | string): Promise<any> {
     const config =
-      await this.storageConfigCacheService.getStorageConfigById(storageConfigId);
+      await this.storageConfigCacheService.getStorageConfigById(
+        storageConfigId,
+      );
 
     if (!config) {
       throw new BadRequestException(
@@ -408,7 +410,9 @@ export class FileManagementService {
       config = await this.getStorageConfigById(storageConfigId);
     } else {
       config =
-        await this.storageConfigCacheService.getStorageConfigByType('Local Storage');
+        await this.storageConfigCacheService.getStorageConfigByType(
+          'Local Storage',
+        );
 
       if (!config) {
         throw new BadRequestException('No local storage configured');

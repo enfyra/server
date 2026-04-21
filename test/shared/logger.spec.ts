@@ -11,13 +11,14 @@ type LogCall = { level: string; msg: string; meta: Record<string, any> };
 
 function captureCalls(): { calls: LogCall[]; restore: () => void } {
   const calls: LogCall[] = [];
-  const spies = (['info', 'warn', 'error', 'debug', 'trace'] as const).map((lvl) =>
-    vi.spyOn(pinoInstance, lvl).mockImplementation(((a: any, b?: any) => {
-      const meta = typeof a === 'object' && a !== null ? a : {};
-      const msg = typeof a === 'string' ? a : (typeof b === 'string' ? b : '');
-      calls.push({ level: lvl, msg, meta });
-      return pinoInstance as any;
-    }) as any),
+  const spies = (['info', 'warn', 'error', 'debug', 'trace'] as const).map(
+    (lvl) =>
+      vi.spyOn(pinoInstance, lvl).mockImplementation(((a: any, b?: any) => {
+        const meta = typeof a === 'object' && a !== null ? a : {};
+        const msg = typeof a === 'string' ? a : typeof b === 'string' ? b : '';
+        calls.push({ level: lvl, msg, meta });
+        return pinoInstance as any;
+      }) as any),
   );
   return {
     calls,
@@ -27,7 +28,9 @@ function captureCalls(): { calls: LogCall[]; restore: () => void } {
 
 describe('Logger — basic string messages', () => {
   let cap: ReturnType<typeof captureCalls>;
-  beforeEach(() => { cap = captureCalls(); });
+  beforeEach(() => {
+    cap = captureCalls();
+  });
   afterEach(() => cap.restore());
 
   it('log(str) → pino.info with message and context', () => {
@@ -79,7 +82,9 @@ describe('Logger — basic string messages', () => {
 
 describe('Logger — object message dedup', () => {
   let cap: ReturnType<typeof captureCalls>;
-  beforeEach(() => { cap = captureCalls(); });
+  beforeEach(() => {
+    cap = captureCalls();
+  });
   afterEach(() => cap.restore());
 
   it('object with message → msg extracted, no duplicate message key in meta', () => {
@@ -99,7 +104,13 @@ describe('Logger — object message dedup', () => {
     logger.warn({ a: 1 }, 'C');
     logger.debug({ d: 1 }, 'C');
     logger.verbose({ v: 1 }, 'C');
-    expect(cap.calls.map((c) => c.msg)).toEqual(['Log', 'Error', 'Warning', 'Debug', 'Verbose']);
+    expect(cap.calls.map((c) => c.msg)).toEqual([
+      'Log',
+      'Error',
+      'Warning',
+      'Debug',
+      'Verbose',
+    ]);
   });
 
   it('object with falsy message falls back to default', () => {
@@ -121,12 +132,18 @@ describe('Logger — object message dedup', () => {
 
 describe('Logger — object trace parameter', () => {
   let cap: ReturnType<typeof captureCalls>;
-  beforeEach(() => { cap = captureCalls(); });
+  beforeEach(() => {
+    cap = captureCalls();
+  });
   afterEach(() => cap.restore());
 
   it('error(str, { message, ...rest }) → message stripped from meta', () => {
     const logger = new Logger('X');
-    logger.error('Broke', { message: 'ignored', statusCode: 500, url: '/a' } as any);
+    logger.error('Broke', {
+      message: 'ignored',
+      statusCode: 500,
+      url: '/a',
+    } as any);
     expect(cap.calls[0].msg).toBe('Broke');
     expect(cap.calls[0].meta).not.toHaveProperty('message');
     expect(cap.calls[0].meta.statusCode).toBe(500);
@@ -136,14 +153,19 @@ describe('Logger — object trace parameter', () => {
 
 describe('Logger — correlationId auto-inject from ALS', () => {
   let cap: ReturnType<typeof captureCalls>;
-  beforeEach(() => { cap = captureCalls(); });
+  beforeEach(() => {
+    cap = captureCalls();
+  });
   afterEach(() => cap.restore());
 
   it('logs inside logStore.run carry correlationId via pino mixin', () => {
     const logger = new Logger('Req');
-    logStore.run({ correlationId: 'req_abc', context: { userId: 'u1' } }, () => {
-      logger.log('inside');
-    });
+    logStore.run(
+      { correlationId: 'req_abc', context: { userId: 'u1' } },
+      () => {
+        logger.log('inside');
+      },
+    );
     const last = cap.calls[0].meta;
     expect(last.context).toBe('Req');
   });
@@ -157,7 +179,9 @@ describe('Logger — correlationId auto-inject from ALS', () => {
 
 describe('Logger — fatal shorthand', () => {
   let cap: ReturnType<typeof captureCalls>;
-  beforeEach(() => { cap = captureCalls(); });
+  beforeEach(() => {
+    cap = captureCalls();
+  });
   afterEach(() => cap.restore());
 
   it('fatal() emits error with fatal: true', () => {

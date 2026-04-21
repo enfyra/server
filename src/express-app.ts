@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { buildRequestScope } from './container';
@@ -7,12 +8,21 @@ import { globalExceptionMiddleware } from './core/exceptions/filters/global-exce
 
 import { routeDetectMiddleware } from './http/middleware/route-detect.middleware';
 import { notFoundDetectMiddleware } from './http/middleware/not-found-detect.middleware';
-import { preAuthMetadataGuard, postAuthMetadataGuard } from './http/middleware/metadata-guard.middleware';
+import {
+  preAuthMetadataGuard,
+  postAuthMetadataGuard,
+} from './http/middleware/metadata-guard.middleware';
 import { jwtAuthMiddleware } from './http/middleware/jwt-auth.middleware';
 import { roleGuardMiddleware } from './http/middleware/role-guard.middleware';
-import { requestLoggingBegin, requestLoggingEnd } from './http/middleware/request-logging.middleware';
+import {
+  requestLoggingBegin,
+  requestLoggingEnd,
+} from './http/middleware/request-logging.middleware';
 import { bodyValidationMiddleware } from './http/middleware/body-validation.middleware';
-import { dynamicInterceptorBegin, dynamicInterceptorEnd } from './http/middleware/dynamic-interceptor.middleware';
+import {
+  dynamicInterceptorBegin,
+  dynamicInterceptorEnd,
+} from './http/middleware/dynamic-interceptor.middleware';
 import { parseQueryMiddleware } from './http/middleware/parse-query.middleware';
 import { bodyParserMiddleware } from './http/middleware/body-parser.middleware';
 import { fileUploadMiddleware } from './http/middleware/file-upload.middleware';
@@ -33,7 +43,6 @@ import { registerDynamicRoutes } from './http/routes/dynamic.routes';
 
 export function buildExpressApp(container: AwilixContainer<Cradle>) {
   const app = express();
-  const qs = require('qs');
   app.set('query parser', (str: string) => {
     return qs.parse(str, {
       allowPrototypes: false,
@@ -74,7 +83,13 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   );
   app.use(notFoundDetectMiddleware);
   app.use(preAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
-  app.use(jwtAuthMiddleware(c.queryBuilderService, c.cacheService, c.envService.get('SECRET_KEY')));
+  app.use(
+    jwtAuthMiddleware(
+      c.queryBuilderService,
+      c.cacheService,
+      c.envService.get('SECRET_KEY'),
+    ),
+  );
   app.use(roleGuardMiddleware(c.policyService));
   app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
   app.use(requestLoggingBegin);

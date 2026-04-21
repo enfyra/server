@@ -8,11 +8,7 @@ import {
   getJunctionColumnNames,
 } from '../../knex/utils/sql-schema-naming.util';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-
-let ObjectId: any;
-try {
-  ObjectId = require('mongodb').ObjectId;
-} catch (err) {}
+import { ObjectId } from 'mongodb';
 
 const COLOR = '\x1b[36m';
 const RESET = '\x1b[0m';
@@ -81,7 +77,7 @@ export class MetadataCacheService {
       );
     } catch (error) {
       this.logger.warn(
-        `Partial reload failed, falling back to full: ${error.message}`,
+        `Partial reload failed, falling back to full: ${(error as Error).message}`,
       );
       await this.reload();
     }
@@ -152,7 +148,9 @@ export class MetadataCacheService {
     const affectedTableNames = new Set(payload.affectedTables || []);
 
     if (affectedTableNames.size > 0) {
-      const affectedTables = await this.loadTablesByNames([...affectedTableNames]);
+      const affectedTables = await this.loadTablesByNames([
+        ...affectedTableNames,
+      ]);
       for (const t of affectedTables) {
         tables.push(t);
         const tid = String(DatabaseConfigService.getRecordId(t));
@@ -522,7 +520,7 @@ export class MetadataCacheService {
     } catch (error) {
       this.logger.error(
         `Failed to load metadata for table ${table.name}:`,
-        error.message,
+        (error as Error).message,
       );
       return null;
     }
@@ -659,9 +657,11 @@ export class MetadataCacheService {
     isMongoDB: boolean,
   ): Promise<any[]> {
     if (isMongoDB && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('table_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('table_definition');
       const docs = await collection
-        .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } })
+        .find({ _id: { $in: ids.map((id) => new ObjectId(id as string)) } })
         .toArray();
       return docs;
     } else if (this.lazyRef.knexService) {
@@ -677,7 +677,9 @@ export class MetadataCacheService {
 
   private async loadTablesByNames(names: string[]): Promise<any[]> {
     if (this.dbType === 'mongodb' && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('table_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('table_definition');
       const docs = await collection.find({ name: { $in: names } }).toArray();
       return docs;
     } else if (this.lazyRef.knexService) {
@@ -695,7 +697,9 @@ export class MetadataCacheService {
     isMongoDB: boolean,
   ): Promise<any[]> {
     if (isMongoDB && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('column_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('column_definition');
       const docs = await collection
         .find({ table: { $in: tableIds.map((id) => new ObjectId(id)) } })
         .toArray();
@@ -715,7 +719,9 @@ export class MetadataCacheService {
     isMongoDB: boolean,
   ): Promise<any[]> {
     if (isMongoDB && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('relation_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('relation_definition');
       const docs = await collection
         .find({ sourceTable: { $in: tableIds.map((id) => new ObjectId(id)) } })
         .toArray();
@@ -732,30 +738,45 @@ export class MetadataCacheService {
 
   private async loadAllTables(): Promise<any[]> {
     if (this.dbType === 'mongodb' && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('table_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('table_definition');
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
-      return await this.lazyRef.knexService.getKnex().table('table_definition').select();
+      return await this.lazyRef.knexService
+        .getKnex()
+        .table('table_definition')
+        .select();
     }
     return [];
   }
 
   private async loadAllColumns(isMongoDB: boolean): Promise<any[]> {
     if (isMongoDB && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('column_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('column_definition');
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
-      return await this.lazyRef.knexService.getKnex().table('column_definition').select();
+      return await this.lazyRef.knexService
+        .getKnex()
+        .table('column_definition')
+        .select();
     }
     return [];
   }
 
   private async loadAllRelations(isMongoDB: boolean): Promise<any[]> {
     if (isMongoDB && this.lazyRef.mongoService) {
-      const collection = this.lazyRef.mongoService.getDb().collection('relation_definition');
+      const collection = this.lazyRef.mongoService
+        .getDb()
+        .collection('relation_definition');
       return await collection.find({}).toArray();
     } else if (this.lazyRef.knexService) {
-      return await this.lazyRef.knexService.getKnex().table('relation_definition').select();
+      return await this.lazyRef.knexService
+        .getKnex()
+        .table('relation_definition')
+        .select();
     }
     return [];
   }

@@ -275,7 +275,9 @@ export class SqlTableMetadataWriterService {
   ): Promise<number | string> {
     const dbType = DatabaseConfigService.getInstanceDbType();
     if (dbType === 'postgres') {
-      const [result] = await queryRunner(tableName).insert(data).returning('id');
+      const [result] = await queryRunner(tableName)
+        .insert(data)
+        .returning('id');
       return result.id;
     }
     const [insertedId] = await queryRunner(tableName).insert(data);
@@ -332,12 +334,16 @@ export class SqlTableMetadataWriterService {
       .select('id');
     const deletedIds = getDeletedIds(existing, opts.permissions);
     if (deletedIds.length > 0) {
-      const junctionRows = await queryRunner('field_permission_definition_allowedUsers_user_definition')
+      const junctionRows = await queryRunner(
+        'field_permission_definition_allowedUsers_user_definition',
+      )
         .whereIn('field_permission_definitionId', deletedIds)
         .select('*')
         .catch(() => [] as any[]);
       if (Array.isArray(junctionRows) && junctionRows.length > 0) {
-        await queryRunner('field_permission_definition_allowedUsers_user_definition')
+        await queryRunner(
+          'field_permission_definition_allowedUsers_user_definition',
+        )
           .whereIn('field_permission_definitionId', deletedIds)
           .delete()
           .catch(() => undefined);
@@ -349,7 +355,7 @@ export class SqlTableMetadataWriterService {
     for (const perm of opts.permissions) {
       const roleId =
         perm.role && typeof perm.role === 'object'
-          ? perm.role.id ?? perm.role._id
+          ? (perm.role.id ?? perm.role._id)
           : perm.role;
       const permData: any = {
         action: perm.action,
@@ -360,7 +366,8 @@ export class SqlTableMetadataWriterService {
         description: perm.description ?? null,
         roleId: roleId ?? null,
         columnId: opts.subjectFk === 'columnId' ? opts.subjectFkValue : null,
-        relationId: opts.subjectFk === 'relationId' ? opts.subjectFkValue : null,
+        relationId:
+          opts.subjectFk === 'relationId' ? opts.subjectFkValue : null,
       };
       let permId: number | string;
       if (perm.id) {
@@ -387,9 +394,10 @@ export class SqlTableMetadataWriterService {
     users: any[],
   ): Promise<void> {
     const userIds = users
-      .map((u: any) => (typeof u === 'object' ? u.id ?? u._id : u))
+      .map((u: any) => (typeof u === 'object' ? (u.id ?? u._id) : u))
       .filter((v: any) => v != null);
-    const junctionTable = 'field_permission_definition_allowedUsers_user_definition';
+    const junctionTable =
+      'field_permission_definition_allowedUsers_user_definition';
     try {
       await queryRunner(junctionTable)
         .where({ field_permission_definitionId: permId })

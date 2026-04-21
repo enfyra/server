@@ -73,10 +73,6 @@ describe('AdminController — granular reload endpoints', () => {
     expect(result.success).toBe(true);
   });
 
-  it('should NOT have swagger endpoint (removed)', () => {
-    expect(controller.reloadSwagger).toBeUndefined();
-  });
-
   describe('error handling', () => {
     it('reloadAll should propagate orchestrator errors', async () => {
       orchestrator.reloadAll.mockRejectedValue(new Error('Redis down'));

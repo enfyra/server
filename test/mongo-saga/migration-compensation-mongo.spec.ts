@@ -195,7 +195,9 @@ describe('MongoDB Migration Compensation', () => {
         getDb: () => ({ collection: () => mockCollection }),
       };
 
-      const service = new MongoMigrationJournalService({ mongoService: mockMongoService as any });
+      const service = new MongoMigrationJournalService({
+        mongoService: mockMongoService as any,
+      });
       const rawSnapshot = {
         table: { _id: new ObjectId(), name: 'posts' },
         columns: [],
@@ -245,7 +247,9 @@ describe('MongoDB Migration Compensation', () => {
         getDb: () => ({ collection: () => mockCollection }),
       };
 
-      const service = new MongoMigrationJournalService({ mongoService: mockMongoService as any });
+      const service = new MongoMigrationJournalService({
+        mongoService: mockMongoService as any,
+      });
       const executeDiff = jest.fn();
       const restoreFn = jest.fn();
 
@@ -265,7 +269,9 @@ describe('MongoDB Migration Compensation', () => {
         getDb: () => ({ collection: () => mockCollection }),
       };
 
-      const service = new MongoMigrationJournalService({ mongoService: mockMongoService as any });
+      const service = new MongoMigrationJournalService({
+        mongoService: mockMongoService as any,
+      });
 
       await expect(service.recoverPending(jest.fn())).resolves.toBeUndefined();
     });
