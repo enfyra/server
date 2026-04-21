@@ -13,10 +13,73 @@ try {
 const pendingCallbacks = new Map();
 let callbackCounter = 0;
 
+const SCRIPT_CACHE_MAX = 500;
+const HEAP_SAMPLE_INTERVAL_MS = 5_000;
+const isolateCaches = new WeakMap();
+let isolatePool = null;
+let isolatePoolIdx = 0;
+let lastHeapSampleAt = 0;
+let lastHeapRatio = 0;
+
+async function sampleHeapRatio() {
+  const now = Date.now();
+  if (now - lastHeapSampleAt < HEAP_SAMPLE_INTERVAL_MS) return lastHeapRatio;
+  lastHeapSampleAt = now;
+  if (!isolatePool) return 0;
+  let max = 0;
+  for (const iso of isolatePool) {
+    if (!iso || iso.isDisposed) continue;
+    try {
+      const s = await iso.getHeapStatistics();
+      const limit = s.heap_size_limit || 1;
+      const ratio = s.total_heap_size / limit;
+      if (ratio > max) max = ratio;
+    } catch {}
+  }
+  lastHeapRatio = max;
+  return max;
+}
+
+async function postResultMessage(msg) {
+  msg.heapRatio = await sampleHeapRatio();
+  parentPort.postMessage(msg);
+}
+
+function getOrCreateIsolate(memoryLimitMb, poolSize) {
+  if (!isolatePool) {
+    const size = Math.max(1, Math.trunc(Number(poolSize) || 8));
+    isolatePool = new Array(size).fill(null);
+  }
+  const idx = isolatePoolIdx++ % isolatePool.length;
+  let isolate = isolatePool[idx];
+  if (!isolate || isolate.isDisposed) {
+    isolate = new ivm.Isolate({ memoryLimit: memoryLimitMb });
+    isolatePool[idx] = isolate;
+  }
+  return isolate;
+}
+
+async function getCachedScript(isolate, code, filename) {
+  let cache = isolateCaches.get(isolate);
+  if (!cache) {
+    cache = new Map();
+    isolateCaches.set(isolate, cache);
+  }
+  const cached = cache.get(code);
+  if (cached) return cached;
+  const script = await isolate.compileScript(code, { filename });
+  cache.set(code, script);
+  if (cache.size > SCRIPT_CACHE_MAX) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
+  return script;
+}
+
 parentPort.on('message', async (msg) => {
   if (msg.type === 'execute') {
-    handleExecute(msg).catch((err) => {
-      parentPort.postMessage({
+    handleExecute(msg).catch(async (err) => {
+      await postResultMessage({
         type: 'result',
         id: msg.id,
         success: false,
@@ -24,8 +87,8 @@ parentPort.on('message', async (msg) => {
       });
     });
   } else if (msg.type === 'executeBatch') {
-    handleExecuteBatch(msg).catch((err) => {
-      parentPort.postMessage({
+    handleExecuteBatch(msg).catch(async (err) => {
+      await postResultMessage({
         type: 'result',
         id: msg.id,
         success: false,
@@ -199,8 +262,7 @@ const console = {
 };
 `;
 
-async function createIsolateContext(id, pkgSources, snapshot, memoryLimitMb) {
-  const isolate = new ivm.Isolate({ memoryLimit: memoryLimitMb });
+async function prepareContext(isolate, id, pkgSources, snapshot) {
   const context = await isolate.createContext();
   const jail = context.global;
   await jail.set('global', jail.derefInto());
@@ -237,9 +299,10 @@ async function createIsolateContext(id, pkgSources, snapshot, memoryLimitMb) {
     .join('\n');
 
   const setupCode = SETUP_CODE_TEMPLATE.replace('%%PKG_SETUP%%', pkgSetupLines);
-  await (await isolate.compileScript(setupCode, { filename: 'setup.js' })).run(context, { timeout: 5000 });
+  const setupScript = await getCachedScript(isolate, setupCode, 'setup.js');
+  await setupScript.run(context, { timeout: 5000 });
 
-  return { isolate, context };
+  return context;
 }
 
 function extractThrowInfo(error) {
@@ -293,9 +356,9 @@ function buildErrorPayload(error) {
   };
 }
 
-function postError(id, error) {
+async function postError(id, error) {
   const payload = buildErrorPayload(error);
-  parentPort.postMessage({
+  await postResultMessage({
     type: 'result',
     id,
     success: false,
@@ -308,9 +371,10 @@ function postError(id, error) {
 }
 
 async function handleExecute(msg) {
-  const { id, code, pkgSources, snapshot, memoryLimitMb } = msg;
+  const { id, code, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } = msg;
   const timeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
-  const { isolate, context } = await createIsolateContext(id, pkgSources, snapshot, memoryLimitMb);
+  const isolate = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
+  const context = await prepareContext(isolate, id, pkgSources, snapshot);
 
   try {
     const wrappedCode = `
@@ -320,24 +384,21 @@ async function handleExecute(msg) {
 })().then((__result) => __extractResult(__result, __result === undefined));
 `;
 
-    const script = await isolate.compileScript(wrappedCode, { filename: 'handler.js' });
+    const script = await getCachedScript(isolate, wrappedCode, 'handler.js');
     const jsonStr = await script.run(context, { timeout: timeoutMs, promise: true });
 
     const result = JSON.parse(jsonStr);
-    parentPort.postMessage({ type: 'result', id, success: true, ...result });
+    await postResultMessage({ type: 'result', id, success: true, ...result });
   } catch (error) {
-    postError(id, error);
-  } finally {
-    if (!isolate.isDisposed) {
-      isolate.dispose();
-    }
+    await postError(id, error);
   }
 }
 
 async function handleExecuteBatch(msg) {
-  const { id, codeBlocks, pkgSources, snapshot, memoryLimitMb } = msg;
+  const { id, codeBlocks, pkgSources, snapshot, memoryLimitMb, isolatePoolSize } = msg;
   const totalTimeoutMs = Math.max(1, Math.trunc(Number(msg.timeoutMs) || 30000));
-  const { isolate, context } = await createIsolateContext(id, pkgSources, snapshot, memoryLimitMb);
+  const isolate = getOrCreateIsolate(memoryLimitMb, isolatePoolSize);
+  const context = await prepareContext(isolate, id, pkgSources, snapshot);
 
   const preHooksAndHandler = [];
   const postHooks = [];
@@ -380,16 +441,14 @@ async function handleExecuteBatch(msg) {
       }
 
       try {
-        const script = await isolate.compileScript(wrappedBlock, {
-          filename: `${blockLabel}.js`,
-        });
+        const script = await getCachedScript(isolate, wrappedBlock, `${blockLabel}.js`);
         const rawResult = await script.run(context, { timeout: totalTimeoutMs, promise: true });
 
         if (blockType === 'preHook' && typeof rawResult === 'string') {
           const parsed = JSON.parse(rawResult);
           if (parsed.__shortCircuit) {
             const out = await extractFinalResult(isolate, context, parsed.value);
-            parentPort.postMessage({ type: 'result', id, success: true, ...out, shortCircuit: true });
+            await postResultMessage({ type: 'result', id, success: true, ...out, shortCircuit: true });
             return;
           }
         }
@@ -401,7 +460,7 @@ async function handleExecuteBatch(msg) {
 
     if (!caughtError && postHooks.length > 0) {
       const setStatusCode = `$ctx.$statusCode = 200; "__status_set__";`;
-      const statusScript = await isolate.compileScript(setStatusCode, { filename: 'set-status.js' });
+      const statusScript = await getCachedScript(isolate, setStatusCode, 'set-status.js');
       await statusScript.run(context, { timeout: 5000 });
     }
 
@@ -449,9 +508,7 @@ if ($ctx.$api) {
 });`;
 
       try {
-        const script = await isolate.compileScript(wrappedBlock, {
-          filename: `${blockLabel}.js`,
-        });
+        const script = await getCachedScript(isolate, wrappedBlock, `${blockLabel}.js`);
         await script.run(context, { timeout: totalTimeoutMs, promise: true });
       } catch (postHookError) {
         // Individual postHook failure should not stop other postHooks
@@ -473,11 +530,11 @@ if ($ctx.$api) {
           $api: __safeClone($ctx.$api),
           $statusCode: $ctx.$statusCode,
         })`;
-        const extractScript = await isolate.compileScript(extractCode, { filename: 'extract-error-ctx.js' });
+        const extractScript = await getCachedScript(isolate, extractCode, 'extract-error-ctx.js');
         const json = await extractScript.run(context, { timeout: 5000 });
         ctxChanges = JSON.parse(json);
       } catch {}
-      parentPort.postMessage({
+      await postResultMessage({
         type: 'result',
         id,
         success: false,
@@ -494,21 +551,21 @@ if ($ctx.$api) {
     }
 
     const out = await extractFinalResult(isolate, context);
-    parentPort.postMessage({ type: 'result', id, success: true, ...out });
+    await postResultMessage({ type: 'result', id, success: true, ...out });
   } catch (error) {
-    postError(id, error);
-  } finally {
-    if (!isolate.isDisposed) {
-      isolate.dispose();
-    }
+    await postError(id, error);
   }
 }
 
 async function extractFinalResult(isolate, context, overrideValue) {
-  const callCode = overrideValue !== undefined
-    ? `__extractResult(${JSON.stringify(overrideValue)}, false)`
-    : '__extractResult($ctx.$data, $ctx.$data === undefined)';
-  const script = await isolate.compileScript(callCode, { filename: 'extract.js' });
+  if (overrideValue !== undefined) {
+    const callCode = `__extractResult(${JSON.stringify(overrideValue)}, false)`;
+    const script = await isolate.compileScript(callCode, { filename: 'extract.js' });
+    const jsonStr = await script.run(context, { timeout: 5000 });
+    return JSON.parse(jsonStr);
+  }
+  const callCode = '__extractResult($ctx.$data, $ctx.$data === undefined)';
+  const script = await getCachedScript(isolate, callCode, 'extract.js');
   const jsonStr = await script.run(context, { timeout: 5000 });
   return JSON.parse(jsonStr);
 }

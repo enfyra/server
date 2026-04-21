@@ -48,6 +48,10 @@ export function getEffectiveCpuCount(): number {
   return hostCpus;
 }
 
+const ISOLATE_POOL_BUDGET_FRACTION = 0.25;
+const ISOLATE_POOL_MIN = 2;
+const ISOLATE_POOL_MAX = 8;
+
 export function computeEngineTuning(spec: {
   logicalCpuCount: number;
   totalMemoryBytes: number;
@@ -55,6 +59,7 @@ export function computeEngineTuning(spec: {
   maxConcurrentWorkers: number;
   isolateMemoryLimitMb: number;
   tasksPerWorkerCap: number;
+  isolatePoolSize: number;
 } {
   const cpus = Math.max(1, Math.trunc(spec.logicalCpuCount) || 1);
   const totalMb = Math.max(1, spec.totalMemoryBytes / (1024 * 1024));
@@ -74,13 +79,30 @@ export function computeEngineTuning(spec: {
     ),
   );
 
-  return { maxConcurrentWorkers, isolateMemoryLimitMb, tasksPerWorkerCap };
+  const isolateBudgetMb = totalMb * ISOLATE_POOL_BUDGET_FRACTION;
+  const isolatePoolSize = Math.max(
+    ISOLATE_POOL_MIN,
+    Math.min(
+      ISOLATE_POOL_MAX,
+      Math.floor(
+        isolateBudgetMb / (maxConcurrentWorkers * isolateMemoryLimitMb),
+      ),
+    ),
+  );
+
+  return {
+    maxConcurrentWorkers,
+    isolateMemoryLimitMb,
+    tasksPerWorkerCap,
+    isolatePoolSize,
+  };
 }
 
 export function getEngineTuning(): {
   maxConcurrentWorkers: number;
   isolateMemoryLimitMb: number;
   tasksPerWorkerCap: number;
+  isolatePoolSize: number;
 } {
   return computeEngineTuning({
     logicalCpuCount: getEffectiveCpuCount(),
