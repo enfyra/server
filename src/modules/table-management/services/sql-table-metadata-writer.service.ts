@@ -5,7 +5,6 @@ import {
   getJunctionTableName,
   getJunctionColumnNames,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
-import { ValidationException } from '../../../core/exceptions/custom-exceptions';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export class SqlTableMetadataWriterService {
@@ -124,29 +123,6 @@ export class SqlTableMetadataWriterService {
         await queryRunner('relation_definition')
           .whereIn('id', deletedRelationIds)
           .delete();
-      }
-      for (const rel of body.relations) {
-        if (!rel.id) continue;
-        const existingRel = await queryRunner('relation_definition')
-          .where({ id: rel.id })
-          .first();
-        if (existingRel?.mappedById) {
-          const changed =
-            (rel.type !== undefined && rel.type !== existingRel.type) ||
-            (rel.targetTable !== undefined &&
-              (typeof rel.targetTable === 'object'
-                ? rel.targetTable.id
-                : rel.targetTable) !== existingRel.targetTableId) ||
-            (rel.mappedBy !== undefined && rel.mappedBy !== null) ||
-            (rel.isNullable !== undefined &&
-              rel.isNullable !== existingRel.isNullable);
-          if (changed) {
-            throw new ValidationException(
-              `Inverse relation '${existingRel.propertyName}' can only have its propertyName modified`,
-              { relationName: existingRel.propertyName },
-            );
-          }
-        }
       }
       const targetTableIds = body.relations
         .map((rel: any) =>

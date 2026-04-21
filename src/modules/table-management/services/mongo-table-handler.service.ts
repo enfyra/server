@@ -865,25 +865,6 @@ export class MongoTableHandlerService {
             }
             await this.queryBuilderService.delete('relation_definition', relId);
           }
-          for (const rel of body.relations) {
-            if (!rel._id && !rel.id) continue;
-            const relId = rel._id || rel.id;
-            const existingRel = existingRelations.find(
-              (r: any) => r._id?.toString() === relId.toString(),
-            );
-            if (existingRel?.mappedBy) {
-              const changed =
-                (rel.type !== undefined && rel.type !== existingRel.type) ||
-                (rel.isNullable !== undefined &&
-                  rel.isNullable !== existingRel.isNullable);
-              if (changed) {
-                throw new ValidationException(
-                  `Inverse relation '${existingRel.propertyName}' can only have its propertyName modified`,
-                  { relationName: existingRel.propertyName },
-                );
-              }
-            }
-          }
           const relationIds = [];
           for (const rel of body.relations) {
             let targetTableObjectId;
