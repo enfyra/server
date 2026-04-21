@@ -230,6 +230,17 @@ export class SqlTableMetadataWriterService {
               relationData.junctionSourceColumn = sourceColumn;
               relationData.junctionTargetColumn = targetColumn;
             }
+          } else if (updateMappedById) {
+            const owningRel = await queryRunner('relation_definition')
+              .where({ id: updateMappedById })
+              .first();
+            if (owningRel?.junctionTableName) {
+              relationData.junctionTableName = owningRel.junctionTableName;
+              relationData.junctionSourceColumn =
+                owningRel.junctionTargetColumn;
+              relationData.junctionTargetColumn =
+                owningRel.junctionSourceColumn;
+            }
           } else {
             const junctionTableName = getJunctionTableName(
               exists.name,

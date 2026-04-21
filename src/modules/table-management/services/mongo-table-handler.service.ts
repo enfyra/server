@@ -62,145 +62,6 @@ export class MongoTableHandlerService {
     this.tableValidationService = deps.tableManagementValidationService;
     this.mongoMetadataSnapshotService = deps.mongoMetadataSnapshotService;
   }
-  private async validateNoDuplicateInverseRelation(
-    sourceTableId: any,
-    sourceTableName: string,
-    newRelations: any[],
-  ): Promise<void> {
-    const querySourceId =
-      typeof sourceTableId === 'string'
-        ? new ObjectId(sourceTableId)
-        : sourceTableId;
-    for (const rel of newRelations || []) {
-      let targetTableId: any;
-      if (typeof rel.targetTable === 'object' && rel.targetTable._id) {
-        targetTableId =
-          typeof rel.targetTable._id === 'string'
-            ? new ObjectId(rel.targetTable._id)
-            : rel.targetTable._id;
-      } else if (typeof rel.targetTable === 'object' && rel.targetTable.id) {
-        targetTableId =
-          typeof rel.targetTable.id === 'string'
-            ? new ObjectId(rel.targetTable.id)
-            : rel.targetTable.id;
-      } else if (typeof rel.targetTable === 'string') {
-        const targetTableRecord = await this.queryBuilderService.findOne({
-          table: 'table_definition',
-          where: { name: rel.targetTable },
-        });
-        if (targetTableRecord) {
-          targetTableId =
-            typeof targetTableRecord._id === 'string'
-              ? new ObjectId(targetTableRecord._id)
-              : targetTableRecord._id;
-        } else {
-          continue;
-        }
-      } else {
-        continue;
-      }
-      if (!targetTableId) continue;
-      let targetTableName: string;
-      const targetTableRecord = await this.queryBuilderService.findOne({
-        table: 'table_definition',
-        where: { _id: targetTableId },
-      });
-      if (targetTableRecord) {
-        targetTableName = targetTableRecord.name;
-      } else {
-        continue;
-      }
-      let inverseExists = false;
-      let inverseRelationInfo = null;
-      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        const { data: targetRelations } = await this.queryBuilderService.find({
-          table: 'relation_definition',
-          where: {
-            sourceTable: targetTableId,
-            targetTable: querySourceId,
-          },
-        });
-        let sourceRelId: any = null;
-        const { data: sourceRels } = await this.queryBuilderService.find({
-          table: 'relation_definition',
-          where: { sourceTable: querySourceId, propertyName: rel.propertyName },
-        });
-        if (sourceRels.length > 0) sourceRelId = sourceRels[0]._id;
-        const matchingRelation = targetRelations.find((tr: any) => {
-          if (rel.mappedBy && tr.propertyName === rel.mappedBy) return true;
-          if (sourceRelId && tr.mappedBy) {
-            return tr.mappedBy.toString() === sourceRelId.toString();
-          }
-          return false;
-        });
-        if (matchingRelation) {
-          inverseExists = true;
-          inverseRelationInfo = {
-            table: targetTableName,
-            propertyName: matchingRelation.propertyName,
-            type: matchingRelation.type,
-          };
-        }
-      } else if (rel.type === 'one-to-many') {
-        if (!rel.mappedBy) continue;
-        const { data: targetRelations } = await this.queryBuilderService.find({
-          table: 'relation_definition',
-          where: {
-            sourceTable: targetTableId,
-            targetTable: querySourceId,
-            propertyName: rel.mappedBy,
-          },
-        });
-        const matchingRelation = targetRelations.find((tr: any) =>
-          ['many-to-one', 'one-to-one'].includes(tr.type),
-        );
-        if (matchingRelation) {
-          inverseExists = true;
-          inverseRelationInfo = {
-            table: targetTableName,
-            propertyName: matchingRelation.propertyName,
-            type: matchingRelation.type,
-          };
-        }
-      } else if (rel.type === 'many-to-many') {
-        if (!rel.mappedBy) continue;
-        const { data: targetRelations } = await this.queryBuilderService.find({
-          table: 'relation_definition',
-          where: {
-            sourceTable: targetTableId,
-            targetTable: querySourceId,
-            propertyName: rel.mappedBy,
-            type: 'many-to-many',
-          },
-        });
-        if (targetRelations.length > 0) {
-          inverseExists = true;
-          inverseRelationInfo = {
-            table: targetTableName,
-            propertyName: targetRelations[0].propertyName,
-            type: targetRelations[0].type,
-          };
-        }
-      }
-      if (inverseExists && inverseRelationInfo) {
-        throw new ValidationException(
-          `Cannot create relation '${rel.propertyName}' (${rel.type}) from '${sourceTableName}' to '${targetTableName}': ` +
-            `The inverse relation already exists on target table '${targetTableName}' as '${inverseRelationInfo.propertyName}' (${inverseRelationInfo.type}). ` +
-            `Relations should be created on ONLY ONE side. System automatically handles the inverse relation. ` +
-            `Please remove the relation from '${targetTableName}' or update it instead of creating a duplicate.`,
-          {
-            sourceTable: sourceTableName,
-            targetTable: targetTableName,
-            relationName: rel.propertyName,
-            relationType: rel.type,
-            existingInverseTable: targetTableName,
-            existingInverseRelation: inverseRelationInfo.propertyName,
-            existingInverseType: inverseRelationInfo.type,
-          },
-        );
-      }
-    }
-  }
   private migrateRenamedFieldsInBackground(
     renamedColumns: Array<{
       oldName: string;
@@ -218,7 +79,7 @@ export class MongoTableHandlerService {
               { [oldName]: { $exists: true } },
               { $rename: { [oldName]: newName } },
             );
-        } catch (error) {
+        } catch (error: any) {
           this.logger.error(
             `  [Background] Failed to rename field in ${collectionName}:`,
             error.message,
@@ -334,7 +195,7 @@ export class MongoTableHandlerService {
             );
             try {
               await db.collection(body.name).drop();
-            } catch (dropError) {
+            } catch (dropError: any) {
               this.logger.error(
                 `Failed to drop physical collection "${body.name}": ${dropError.message}`,
               );
@@ -420,7 +281,7 @@ export class MongoTableHandlerService {
                 insertedColumnIds.push(colId);
               }
             }
-          } catch (error) {
+          } catch (error: any) {
             this.logger.error(
               `   Failed to insert columns, rolling back table creation`,
             );
@@ -611,7 +472,7 @@ export class MongoTableHandlerService {
                 }
               }
             }
-          } catch (error) {
+          } catch (error: any) {
             this.logger.error(
               `   Failed to insert relations, rolling back table creation`,
             );
@@ -736,7 +597,7 @@ export class MongoTableHandlerService {
 
           fullMetadata.affectedTables = [...affectedTableNames];
           return fullMetadata;
-        } catch (error) {
+        } catch (error: any) {
           this.loggingService.error('Collection creation failed', {
             context: 'createTable',
             error: error.message,
@@ -802,13 +663,6 @@ export class MongoTableHandlerService {
           });
         }
         validateUniquePropertyNames(body.columns || [], body.relations || []);
-        if (body.relations && body.relations.length > 0) {
-          await this.validateNoDuplicateInverseRelation(
-            queryId,
-            exists.name,
-            body.relations,
-          );
-        }
         stepLog(`STEP 4 validators done (+${lap()}ms)`);
         const oldMetadata = await this.metadataCacheService.lookupTableByName(
           exists.name,
@@ -1100,20 +954,34 @@ export class MongoTableHandlerService {
               description: rel.description,
             };
             const targetRelName = resolvedTargetTableName;
-            if (rel.type === 'many-to-many' && !rel.mappedBy && targetRelName) {
-              const junctionTableName = getJunctionTableName(
-                exists.name,
-                rel.propertyName,
-                targetRelName,
-              );
-              const { sourceColumn, targetColumn } = getJunctionColumnNames(
-                exists.name,
-                rel.propertyName,
-                targetRelName,
-              );
-              relationData.junctionTableName = junctionTableName;
-              relationData.junctionSourceColumn = sourceColumn;
-              relationData.junctionTargetColumn = targetColumn;
+            if (rel.type === 'many-to-many' && targetRelName) {
+              if (rel.mappedBy && updateResolvedMappedBy) {
+                const owningRel = await this.queryBuilderService.findOne({
+                  table: 'relation_definition',
+                  where: { _id: updateResolvedMappedBy },
+                });
+                if (owningRel?.junctionTableName) {
+                  relationData.junctionTableName = owningRel.junctionTableName;
+                  relationData.junctionSourceColumn =
+                    owningRel.junctionTargetColumn;
+                  relationData.junctionTargetColumn =
+                    owningRel.junctionSourceColumn;
+                }
+              } else if (!rel.mappedBy) {
+                const junctionTableName = getJunctionTableName(
+                  exists.name,
+                  rel.propertyName,
+                  targetRelName,
+                );
+                const { sourceColumn, targetColumn } = getJunctionColumnNames(
+                  exists.name,
+                  rel.propertyName,
+                  targetRelName,
+                );
+                relationData.junctionTableName = junctionTableName;
+                relationData.junctionSourceColumn = sourceColumn;
+                relationData.junctionTargetColumn = targetColumn;
+              }
             }
             let relObjectId;
             if (rel._id || rel.id) {
@@ -1233,7 +1101,7 @@ export class MongoTableHandlerService {
               rawSnapshot,
             );
             stepLog(`STEP 11 updateCollection done (+${lap()}ms)`);
-          } catch (ddlError) {
+          } catch (ddlError: any) {
             stepLog(
               `STEP 11 updateCollection FAILED, restoring metadata from snapshot...`,
             );
@@ -1380,7 +1248,7 @@ export class MongoTableHandlerService {
         finalMetadata.affectedTables = [...affectedTableNames];
         stepLog(`STEP 15 isSingleRecord cleanup done (+${lap()}ms)`);
         return finalMetadata;
-      } catch (error) {
+      } catch (error: any) {
         this.loggingService.error('Collection update failed', {
           context: 'updateTable',
           error: error.message,
@@ -1479,7 +1347,7 @@ export class MongoTableHandlerService {
         await this.mongoSchemaMigrationService.dropCollection(collectionName);
         exists.affectedTables = [...affectedTableNames];
         return exists;
-      } catch (error) {
+      } catch (error: any) {
         this.loggingService.error('Collection deletion failed', {
           context: 'delete',
           error: error.message,
@@ -1616,14 +1484,14 @@ export class MongoTableHandlerService {
     if (table.uniques && typeof table.uniques === 'string') {
       try {
         table.uniques = JSON.parse(table.uniques);
-      } catch (e) {
+      } catch (e: any) {
         table.uniques = [];
       }
     }
     if (table.indexes && typeof table.indexes === 'string') {
       try {
         table.indexes = JSON.parse(table.indexes);
-      } catch (e) {
+      } catch (e: any) {
         table.indexes = [];
       }
     }
@@ -1637,12 +1505,12 @@ export class MongoTableHandlerService {
       if (col.defaultValue && typeof col.defaultValue === 'string') {
         try {
           col.defaultValue = JSON.parse(col.defaultValue);
-        } catch (e) {}
+        } catch (e: any) {}
       }
       if (col.options && typeof col.options === 'string') {
         try {
           col.options = JSON.parse(col.options);
-        } catch (e) {}
+        } catch (e: any) {}
       }
     }
     const rawRelations = await db
