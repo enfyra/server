@@ -180,10 +180,7 @@ describe('WorkerPool rotation (heap-driven)', () => {
 
     await inflightPromise;
 
-    await waitFor(
-      () => !pool!.getEntries().includes(originalEntry),
-      2000,
-    );
+    await waitFor(() => !pool!.getEntries().includes(originalEntry), 2000);
     expect(pool.getEntries().length).toBe(1);
   });
 
@@ -219,10 +216,7 @@ describe('WorkerPool rotation (heap-driven)', () => {
     expect(stuckResult.success).toBe(false);
     expect(stuckResult.error?.message).toMatch(/crashed/i);
 
-    await waitFor(
-      () => !pool!.getEntries().includes(originalEntry),
-      1000,
-    );
+    await waitFor(() => !pool!.getEntries().includes(originalEntry), 1000);
   });
 
   it('crash handler does NOT re-fire for graceful drain exit', async () => {

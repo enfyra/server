@@ -103,10 +103,7 @@ export class WorkerPool {
           typeof msg.heapRatio === 'number' &&
           msg.heapRatio >= WORKER_HEAP_ROTATE_THRESHOLD
         ) {
-          this.rotateEntry(
-            entry,
-            `heap=${Math.round(msg.heapRatio * 100)}%`,
-          );
+          this.rotateEntry(entry, `heap=${Math.round(msg.heapRatio * 100)}%`);
         }
       } else {
         reg.onIoCall(msg);

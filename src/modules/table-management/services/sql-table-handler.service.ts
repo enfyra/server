@@ -61,100 +61,6 @@ export class SqlTableHandlerService {
     this.sqlTableMetadataBuilderService = deps.sqlTableMetadataBuilderService;
     this.sqlTableMetadataWriterService = deps.sqlTableMetadataWriterService;
   }
-  private async validateNoDuplicateInverseRelation(
-    trx: any,
-    sourceTableId: number,
-    sourceTableName: string,
-    newRelations: any[],
-    targetTablesMap: Map<number, string>,
-  ): Promise<void> {
-    for (const rel of newRelations || []) {
-      const targetTableId =
-        typeof rel.targetTable === 'object'
-          ? rel.targetTable.id
-          : rel.targetTable;
-      if (!targetTableId) continue;
-      const targetTableName = targetTablesMap.get(targetTableId);
-      if (!targetTableName) continue;
-      let inverseExists = false;
-      let inverseRelationInfo = null;
-      if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
-        const targetRelations = await trx('relation_definition')
-          .where({ sourceTableId: targetTableId })
-          .where({ targetTableId: sourceTableId })
-          .where((builder: any) => {
-            if (rel.mappedBy) {
-              builder.where({ propertyName: rel.mappedBy });
-            }
-            builder.orWhereIn(
-              'mappedById',
-              trx('relation_definition').select('id').where({
-                sourceTableId: sourceTableId,
-                propertyName: rel.propertyName,
-              }),
-            );
-          })
-          .select('*');
-        if (targetRelations.length > 0) {
-          inverseExists = true;
-          inverseRelationInfo = {
-            table: targetTableName,
-            propertyName: targetRelations[0].propertyName,
-            type: targetRelations[0].type,
-          };
-        }
-      } else if (rel.type === 'one-to-many') {
-        if (!rel.mappedBy) continue;
-        const targetRelations = await trx('relation_definition')
-          .where({ sourceTableId: targetTableId })
-          .where({ targetTableId: sourceTableId })
-          .where({ propertyName: rel.mappedBy })
-          .whereIn('type', ['many-to-one', 'one-to-one'])
-          .select('*');
-        if (targetRelations.length > 0) {
-          inverseExists = true;
-          inverseRelationInfo = {
-            table: targetTableName,
-            propertyName: targetRelations[0].propertyName,
-            type: targetRelations[0].type,
-          };
-        }
-      } else if (rel.type === 'many-to-many') {
-        if (!rel.mappedBy) continue;
-        const targetRelations = await trx('relation_definition')
-          .where({ sourceTableId: targetTableId })
-          .where({ targetTableId: sourceTableId })
-          .where({ propertyName: rel.mappedBy })
-          .where({ type: 'many-to-many' })
-          .select('*');
-        if (targetRelations.length > 0) {
-          inverseExists = true;
-          inverseRelationInfo = {
-            table: targetTableName,
-            propertyName: targetRelations[0].propertyName,
-            type: targetRelations[0].type,
-          };
-        }
-      }
-      if (inverseExists && inverseRelationInfo) {
-        throw new ValidationException(
-          `Cannot create relation '${rel.propertyName}' (${rel.type}) from '${sourceTableName}' to '${targetTableName}': ` +
-            `The inverse relation already exists on target table '${targetTableName}' as '${inverseRelationInfo.propertyName}' (${inverseRelationInfo.type}). ` +
-            `Relations should be created on ONLY ONE side. System automatically handles the inverse relation. ` +
-            `Please remove the relation from '${targetTableName}' or update it instead of creating a duplicate.`,
-          {
-            sourceTable: sourceTableName,
-            targetTable: targetTableName,
-            relationName: rel.propertyName,
-            relationType: rel.type,
-            existingInverseTable: targetTableName,
-            existingInverseRelation: inverseRelationInfo.propertyName,
-            existingInverseType: inverseRelationInfo.type,
-          },
-        );
-      }
-    }
-  }
   private validateAllColumnsUnique(
     columns: any[],
     relations: any[],
@@ -339,7 +245,7 @@ export class SqlTableHandlerService {
       }
       try {
         validateUniquePropertyNames(body.columns || [], body.relations || []);
-      } catch (error) {
+      } catch (error: any) {
         await trx.rollback();
         throw error;
       }
@@ -368,7 +274,7 @@ export class SqlTableHandlerService {
           body.name,
           targetTablesMap,
         );
-      } catch (error) {
+      } catch (error: any) {
         await trx.rollback();
         throw error;
       }
@@ -779,16 +685,6 @@ export class SqlTableHandlerService {
         exists.name,
         m2mTargetTablesMap,
       );
-      const newRelations = body.relations?.filter((rel: any) => !rel.id) || [];
-      if (newRelations.length > 0) {
-        await this.validateNoDuplicateInverseRelation(
-          knex,
-          Number(id),
-          exists.name,
-          newRelations,
-          m2mTargetTablesMap,
-        );
-      }
       stepLog(`STEP 4 validators done (+${lap()}ms)`);
 
       const oldMetadata =
@@ -909,7 +805,7 @@ export class SqlTableHandlerService {
           stepLog(`STEP 12 PG: committing metadata + DDL transaction...`);
           await trx.commit();
           stepLog(`STEP 12 PG: committed (+${lap()}ms)`);
-        } catch (innerError) {
+        } catch (innerError: any) {
           if (trx && !trx.isCompleted()) {
             try {
               await trx.rollback();
@@ -968,7 +864,7 @@ export class SqlTableHandlerService {
               ),
             ]);
             stepLog(`STEP 9 ${dbType}: DDL done (+${lap()}ms)`);
-          } catch (ddlError) {
+          } catch (ddlError: any) {
             stepLog(`STEP 9 ${dbType}: DDL FAILED, metadata not saved`);
             throw ddlError;
           }
@@ -993,7 +889,7 @@ export class SqlTableHandlerService {
                 `STEP 10 ${dbType}: metadata committed (attempt ${attempt}) (+${lap()}ms)`,
               );
               break;
-            } catch (metadataError) {
+            } catch (metadataError: any) {
               if (trx && !trx.isCompleted()) {
                 try {
                   await trx.rollback();
@@ -1055,7 +951,7 @@ export class SqlTableHandlerService {
             );
             await trx.commit();
             stepLog(`STEP 9 ${dbType}: metadata committed (+${lap()}ms)`);
-          } catch (metadataError) {
+          } catch (metadataError: any) {
             if (trx && !trx.isCompleted()) {
               try {
                 await trx.rollback();
@@ -1230,12 +1126,12 @@ export class SqlTableHandlerService {
                     );
                   } else {
                   }
-                } catch (error) {}
+                } catch (error: any) {}
                 try {
                   await trx.schema.alterTable(sourceTable.name, (table) => {
                     table.dropColumn(fkColumn);
                   });
-                } catch (error) {}
+                } catch (error: any) {}
               }
             }
           }
@@ -1294,16 +1190,16 @@ export class SqlTableHandlerService {
                 await trx.raw(
                   `ALTER TABLE ${qt(fk.table_name)} DROP CONSTRAINT ${qt(fk.constraint_name)}`,
                 );
-              } catch (error) {}
+              } catch (error: any) {}
               try {
                 await trx.schema.alterTable(fk.table_name, (table: any) => {
                   table.dropColumn(fk.column_name);
                 });
-              } catch (error) {}
+              } catch (error: any) {}
             }
           } else {
           }
-        } catch (error) {}
+        } catch (error: any) {}
         for (const rel of targetRelations) {
           const sourceTable = await trx('table_definition')
             .where({ id: rel.sourceTableId })
@@ -1324,7 +1220,7 @@ export class SqlTableHandlerService {
         if (trx && !trx.isCompleted()) {
           try {
             await trx.rollback();
-          } catch (rollbackError: any   ) {
+          } catch (rollbackError: any) {
             this.logger.error(
               `Failed to rollback transaction: ${rollbackError.message}`,
             );

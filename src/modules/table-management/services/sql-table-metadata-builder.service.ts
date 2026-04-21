@@ -30,14 +30,14 @@ export class SqlTableMetadataBuilderService {
     if (table.uniques && typeof table.uniques === 'string') {
       try {
         table.uniques = JSON.parse(table.uniques);
-      } catch (e) {
+      } catch (e: any) {
         table.uniques = [];
       }
     }
     if (table.indexes && typeof table.indexes === 'string') {
       try {
         table.indexes = JSON.parse(table.indexes);
-      } catch (e) {
+      } catch (e: any) {
         table.indexes = [];
       }
     }
@@ -48,12 +48,12 @@ export class SqlTableMetadataBuilderService {
       if (col.defaultValue && typeof col.defaultValue === 'string') {
         try {
           col.defaultValue = JSON.parse(col.defaultValue);
-        } catch (e) {}
+        } catch (e: any) {}
       }
       if (col.options && typeof col.options === 'string') {
         try {
           col.options = JSON.parse(col.options);
-        } catch (e) {}
+        } catch (e: any) {}
       }
     }
     const relations = await trx('relation_definition')

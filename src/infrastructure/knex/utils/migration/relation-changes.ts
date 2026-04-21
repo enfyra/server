@@ -254,6 +254,9 @@ async function handleCreatedRelations(
     ...(createdRelsWithoutId || []),
   ];
   for (const rel of allCreated) {
+    if (rel.mappedBy || rel.mappedById) {
+      continue;
+    }
     if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
       const fkColumn = getForeignKeyColumnName(rel.propertyName);
 
