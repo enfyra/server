@@ -242,7 +242,8 @@ export class ReplicationManager implements LifecycleAware {
   }
 
   private startHealthCheck(): void {
-    const interval = this.envService.get('DB_REPLICA_HEALTH_CHECK_INTERVAL') ?? 30000;
+    const interval =
+      this.envService.get('DB_REPLICA_HEALTH_CHECK_INTERVAL') ?? 30000;
     this.healthCheckInterval = setInterval(async () => {
       for (const node of this.replicaNodes) {
         try {

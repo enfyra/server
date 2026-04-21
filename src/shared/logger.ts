@@ -33,7 +33,10 @@ const LEVEL_COLORS: Record<LevelName, string> = {
   verbose: '\x1b[90m',
 };
 
-const PINO_LEVEL: Record<LevelName, 'info' | 'warn' | 'error' | 'debug' | 'trace'> = {
+const PINO_LEVEL: Record<
+  LevelName,
+  'info' | 'warn' | 'error' | 'debug' | 'trace'
+> = {
   log: 'info',
   error: 'error',
   warn: 'warn',
@@ -125,7 +128,8 @@ function extractObjectMessage(
   fallback: string,
 ): { msg: string; meta: Record<string, any> } {
   const { message, msg: msgField, ...rest } = payload;
-  const picked = (typeof message === 'string' && message) ||
+  const picked =
+    (typeof message === 'string' && message) ||
     (typeof msgField === 'string' && msgField) ||
     fallback;
   return { msg: picked, meta: rest };
@@ -166,7 +170,11 @@ export class Logger {
     this.emit('log', message, undefined, context);
   }
 
-  error(message: any, trace?: string | Error | Record<string, any>, context?: string): void {
+  error(
+    message: any,
+    trace?: string | Error | Record<string, any>,
+    context?: string,
+  ): void {
     this.emit('error', message, trace, context);
   }
 
@@ -194,11 +202,16 @@ export class Logger {
     extraMeta?: Record<string, any>,
   ): void {
     const ctx = context || this.context;
-    const fallback = level === 'log' ? 'Log'
-      : level === 'error' ? 'Error'
-      : level === 'warn' ? 'Warning'
-      : level === 'debug' ? 'Debug'
-      : 'Verbose';
+    const fallback =
+      level === 'log'
+        ? 'Log'
+        : level === 'error'
+          ? 'Error'
+          : level === 'warn'
+            ? 'Warning'
+            : level === 'debug'
+              ? 'Debug'
+              : 'Verbose';
 
     let msg: string;
     const meta: Record<string, any> = { ...(extraMeta || {}) };

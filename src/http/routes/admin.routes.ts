@@ -6,9 +6,14 @@ import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { transformCode } from '../../infrastructure/executor-engine/code-transformer';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 
-export function registerAdminRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerAdminRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.post('/admin/reload', async (req: any, res: Response) => {
-    const orchestrator = req.scope?.cradle?.cacheOrchestratorService ?? container.cradle.cacheOrchestratorService;
+    const orchestrator =
+      req.scope?.cradle?.cacheOrchestratorService ??
+      container.cradle.cacheOrchestratorService;
     const startTime = Date.now();
     try {
       await orchestrator.reloadAll();
@@ -25,45 +30,63 @@ export function registerAdminRoutes(app: Express, container: AwilixContainer<Cra
   });
 
   app.post('/admin/reload/metadata', async (req: any, res: Response) => {
-    const orchestrator = req.scope?.cradle?.cacheOrchestratorService ?? container.cradle.cacheOrchestratorService;
+    const orchestrator =
+      req.scope?.cradle?.cacheOrchestratorService ??
+      container.cradle.cacheOrchestratorService;
     const start = Date.now();
     await orchestrator.reloadMetadataAndDeps();
     res.json({ success: true, duration: `${Date.now() - start}ms` });
   });
 
   app.post('/admin/reload/routes', async (req: any, res: Response) => {
-    const orchestrator = req.scope?.cradle?.cacheOrchestratorService ?? container.cradle.cacheOrchestratorService;
+    const orchestrator =
+      req.scope?.cradle?.cacheOrchestratorService ??
+      container.cradle.cacheOrchestratorService;
     const start = Date.now();
     await orchestrator.reloadRoutesOnly();
     res.json({ success: true, duration: `${Date.now() - start}ms` });
   });
 
   app.post('/admin/reload/graphql', async (req: any, res: Response) => {
-    const orchestrator = req.scope?.cradle?.cacheOrchestratorService ?? container.cradle.cacheOrchestratorService;
+    const orchestrator =
+      req.scope?.cradle?.cacheOrchestratorService ??
+      container.cradle.cacheOrchestratorService;
     const start = Date.now();
     await orchestrator.reloadGraphqlOnly();
     res.json({ success: true, duration: `${Date.now() - start}ms` });
   });
 
   app.post('/admin/reload/guards', async (req: any, res: Response) => {
-    const orchestrator = req.scope?.cradle?.cacheOrchestratorService ?? container.cradle.cacheOrchestratorService;
+    const orchestrator =
+      req.scope?.cradle?.cacheOrchestratorService ??
+      container.cradle.cacheOrchestratorService;
     const start = Date.now();
     await orchestrator.reloadGuardsOnly();
     res.json({ success: true, duration: `${Date.now() - start}ms` });
   });
 
   app.post('/admin/flow/test-step', async (req: any, res: Response) => {
-    const flowService = req.scope?.cradle?.flowService ?? container.cradle.flowService;
+    const flowService =
+      req.scope?.cradle?.flowService ?? container.cradle.flowService;
     const result = await flowService.testStep(
-      { type: req.body.type, config: req.body.config, timeout: req.body.timeout },
+      {
+        type: req.body.type,
+        config: req.body.config,
+        timeout: req.body.timeout,
+      },
       req.body.mockFlow,
     );
     res.json(result);
   });
 
   app.post('/admin/flow/trigger/:id', async (req: any, res: Response) => {
-    const flowService = req.scope?.cradle?.flowService ?? container.cradle.flowService;
-    const result = await flowService.trigger(req.params.id, req.body?.payload || {}, req.user || null);
+    const flowService =
+      req.scope?.cradle?.flowService ?? container.cradle.flowService;
+    const result = await flowService.trigger(
+      req.params.id,
+      req.body?.payload || {},
+      req.user || null,
+    );
     res.json({
       success: true,
       message: 'Flow triggered',
@@ -73,12 +96,18 @@ export function registerAdminRoutes(app: Express, container: AwilixContainer<Cra
   });
 
   app.post('/admin/websocket/test-event', async (req: any, res: Response) => {
-    const result = await runTest(req.body, req.scope?.cradle ?? container.cradle);
+    const result = await runTest(
+      req.body,
+      req.scope?.cradle ?? container.cradle,
+    );
     res.json(result);
   });
 
   app.post('/admin/test/run', async (req: any, res: Response) => {
-    const result = await runTest(req.body, req.scope?.cradle ?? container.cradle);
+    const result = await runTest(
+      req.body,
+      req.scope?.cradle ?? container.cradle,
+    );
     res.json(result);
   });
 }
@@ -96,7 +125,9 @@ async function runTest(body: any, cradle: any) {
 
   if (kind === 'websocket_event') {
     const script = String(body?.script || '').trim();
-    const gatewayPath = String(body?.gatewayPath || body?.path || '/__ws_test__').trim();
+    const gatewayPath = String(
+      body?.gatewayPath || body?.path || '/__ws_test__',
+    ).trim();
     const eventName = String(body?.eventName || '').trim();
     const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
     const payload = body?.payload ?? body?.body ?? {};
@@ -120,7 +151,10 @@ async function runTest(body: any, cradle: any) {
     const repoRegistryService = cradle.repoRegistryService;
 
     const emitted: Array<{ method: string; args: any[] }> = [];
-    const capture = (method: string) => (...args: any[]) => emitted.push({ method, args });
+    const capture =
+      (method: string) =>
+      (...args: any[]) =>
+        emitted.push({ method, args });
     const socketProxy = {
       join: capture('join'),
       leave: capture('leave'),
@@ -168,7 +202,11 @@ async function runTest(body: any, cradle: any) {
 
     try {
       const transformed = transformCode(script);
-      const result = await handlerExecutorService.run(transformed, ctx, timeoutMs);
+      const result = await handlerExecutorService.run(
+        transformed,
+        ctx,
+        timeoutMs,
+      );
       return {
         success: true,
         result,
@@ -191,7 +229,9 @@ async function runTest(body: any, cradle: any) {
 
   if (kind === 'websocket_connection') {
     const script = String(body?.script || '').trim();
-    const gatewayPath = String(body?.gatewayPath || body?.path || '/__ws_test__').trim();
+    const gatewayPath = String(
+      body?.gatewayPath || body?.path || '/__ws_test__',
+    ).trim();
     const timeoutMs = Number(body?.timeoutMs ?? body?.timeout ?? 5000);
     const payload = body?.payload ?? body?.body ?? {};
     const user = body?.user ?? null;
@@ -208,7 +248,10 @@ async function runTest(body: any, cradle: any) {
     const repoRegistryService = cradle.repoRegistryService;
 
     const emitted: Array<{ method: string; args: any[] }> = [];
-    const capture = (method: string) => (...args: any[]) => emitted.push({ method, args });
+    const capture =
+      (method: string) =>
+      (...args: any[]) =>
+        emitted.push({ method, args });
     const socketProxy = {
       join: capture('join'),
       leave: capture('leave'),
@@ -256,7 +299,11 @@ async function runTest(body: any, cradle: any) {
 
     try {
       const transformed = transformCode(script);
-      const result = await handlerExecutorService.run(transformed, ctx, timeoutMs);
+      const result = await handlerExecutorService.run(
+        transformed,
+        ctx,
+        timeoutMs,
+      );
       return {
         success: true,
         result,

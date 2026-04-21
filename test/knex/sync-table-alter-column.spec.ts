@@ -37,7 +37,9 @@ describe('applyAlterColumnType', () => {
 
   it("throws clear error for unsupported 'boolean'", () => {
     const { table } = makeAlterTableStub();
-    expect(() => applyAlterColumnType(table, 'boolean', 'isActive', 'users')).toThrow(
+    expect(() =>
+      applyAlterColumnType(table, 'boolean', 'isActive', 'users'),
+    ).toThrow(
       /ALTER COLUMN to type "boolean" is not supported.*"isActive".*"users"/,
     );
   });
@@ -51,9 +53,9 @@ describe('applyAlterColumnType', () => {
 
   it("throws for 'datetime'", () => {
     const { table } = makeAlterTableStub();
-    expect(() => applyAlterColumnType(table, 'datetime', 'createdAt', 'logs')).toThrow(
-      /ALTER COLUMN to type "datetime" is not supported/,
-    );
+    expect(() =>
+      applyAlterColumnType(table, 'datetime', 'createdAt', 'logs'),
+    ).toThrow(/ALTER COLUMN to type "datetime" is not supported/);
   });
 
   it("throws for 'timestamp'", () => {
@@ -65,16 +67,16 @@ describe('applyAlterColumnType', () => {
 
   it("throws for 'bigInteger'", () => {
     const { table } = makeAlterTableStub();
-    expect(() => applyAlterColumnType(table, 'bigInteger', 'count', 'stats')).toThrow(
-      /not supported/,
-    );
+    expect(() =>
+      applyAlterColumnType(table, 'bigInteger', 'count', 'stats'),
+    ).toThrow(/not supported/);
   });
 
   it("throws for 'enum'", () => {
     const { table } = makeAlterTableStub();
-    expect(() => applyAlterColumnType(table, 'enum', 'status', 'orders')).toThrow(
-      /not supported/,
-    );
+    expect(() =>
+      applyAlterColumnType(table, 'enum', 'status', 'orders'),
+    ).toThrow(/not supported/);
   });
 
   it('error message contains migration guidance', () => {

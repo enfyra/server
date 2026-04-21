@@ -32,7 +32,10 @@ export class SessionCleanupService {
       },
       {
         prefix: `${nodeName}:`,
-        connection: { url: this.envService.get('REDIS_URI'), maxRetriesPerRequest: null },
+        connection: {
+          url: this.envService.get('REDIS_URI'),
+          maxRetriesPerRequest: null,
+        },
         concurrency: 1,
       },
     );

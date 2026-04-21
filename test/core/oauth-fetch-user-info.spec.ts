@@ -40,7 +40,11 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
       name: 'Alice',
       picture: 'https://pic',
     });
-    const result = await (service as any).fetchUserInfo('https://userinfo', 'tok', 'google');
+    const result = await (service as any).fetchUserInfo(
+      'https://userinfo',
+      'tok',
+      'google',
+    );
     expect(result).toEqual({
       id: 'g-123',
       email: 'a@b.com',
@@ -56,7 +60,11 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
       name: 'Alice',
       picture: { data: { url: 'https://fb-pic' } },
     });
-    const result = await (service as any).fetchUserInfo('https://userinfo', 'tok', 'facebook');
+    const result = await (service as any).fetchUserInfo(
+      'https://userinfo',
+      'tok',
+      'facebook',
+    );
     expect(result).toEqual({
       id: 'fb-456',
       email: 'a@b.com',
@@ -67,7 +75,11 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
 
   it('facebook → handles missing picture (no avatar)', async () => {
     mockJsonResponse({ id: 'fb-1', email: 'x@y.com', name: 'X' });
-    const result = await (service as any).fetchUserInfo('https://u', 'tok', 'facebook');
+    const result = await (service as any).fetchUserInfo(
+      'https://u',
+      'tok',
+      'facebook',
+    );
     expect(result.avatar).toBeUndefined();
   });
 
@@ -79,7 +91,11 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
       login: 'alice-dev',
       avatar_url: 'https://gh-pic',
     });
-    const result = await (service as any).fetchUserInfo('https://userinfo', 'tok', 'github');
+    const result = await (service as any).fetchUserInfo(
+      'https://userinfo',
+      'tok',
+      'github',
+    );
     expect(result).toEqual({
       id: '12345',
       email: 'a@b.com',
@@ -96,7 +112,11 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
       login: 'realname',
       avatar_url: 'https://x',
     });
-    const result = await (service as any).fetchUserInfo('https://u', 'tok', 'github');
+    const result = await (service as any).fetchUserInfo(
+      'https://u',
+      'tok',
+      'github',
+    );
     expect(result.name).toBe('Real Name');
   });
 
@@ -120,7 +140,11 @@ describe('OAuthService.fetchUserInfo — provider mapping', () => {
   it('exhaustiveness throw mentions where to fix', async () => {
     mockJsonResponse({ id: 'x' });
     try {
-      await (service as any).fetchUserInfo('https://u', 'tok', 'discord' as any);
+      await (service as any).fetchUserInfo(
+        'https://u',
+        'tok',
+        'discord' as any,
+      );
       throw new Error('should have thrown');
     } catch (e: any) {
       expect(e.message).toContain('Add a case to fetchUserInfo()');

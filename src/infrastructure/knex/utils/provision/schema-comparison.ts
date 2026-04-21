@@ -37,14 +37,22 @@ type CurrentSchema = {
     defaultValue: any;
     enumValues?: string[] | null;
   }>;
-  foreignKeys: Array<{ column: string; references: string; referencesTable: string }>;
+  foreignKeys: Array<{
+    column: string;
+    references: string;
+    referencesTable: string;
+  }>;
   uniques: Array<{ name: string; columns: string[] }>;
   indexes: Array<{ name: string; columns: string[] }>;
 };
-export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): Promise<CurrentSchema> {
+export async function getCurrentDatabaseSchema(
+  knex: Knex,
+  tableName: string,
+): Promise<CurrentSchema> {
   const dbType = knex.client.config.client;
   if (dbType === 'mysql2') {
-    const columnsResult = await knex.raw(`
+    const columnsResult = await knex.raw(
+      `
       SELECT
         COLUMN_NAME as name,
         DATA_TYPE as type,
@@ -56,8 +64,11 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         AND TABLE_NAME = ?
         AND COLUMN_NAME NOT IN ('id', 'createdAt', 'updatedAt')
       ORDER BY ORDINAL_POSITION
-    `, [tableName]);
-    const fkResult = await knex.raw(`
+    `,
+      [tableName],
+    );
+    const fkResult = await knex.raw(
+      `
       SELECT
         COLUMN_NAME as \`column\`,
         REFERENCED_COLUMN_NAME as \`references\`,
@@ -66,7 +77,9 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
       WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = ?
         AND REFERENCED_TABLE_NAME IS NOT NULL
-    `, [tableName]);
+    `,
+      [tableName],
+    );
     const indexResult = await knex.raw(
       `
       SELECT
@@ -93,10 +106,10 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
           }
         }
         return {
-        name: col.name,
+          name: col.name,
           type: col.type === 'enum' ? 'enum' : col.type,
-        isNullable: col.isNullable === 'YES',
-        defaultValue: col.defaultValue,
+          isNullable: col.isNullable === 'YES',
+          defaultValue: col.defaultValue,
           enumValues: enumValues,
         };
       }),
@@ -115,7 +128,8 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         })),
     };
   } else if (dbType === 'pg') {
-    const columnsResult = await knex.raw(`
+    const columnsResult = await knex.raw(
+      `
       SELECT
         c.column_name as name,
         c.data_type as type,
@@ -134,8 +148,11 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         AND c.table_name = ?
         AND c.column_name NOT IN ('id', 'createdAt', 'updatedAt')
       ORDER BY c.ordinal_position
-    `, [tableName]);
-    const fkResult = await knex.raw(`
+    `,
+      [tableName],
+    );
+    const fkResult = await knex.raw(
+      `
       SELECT
         kcu.column_name as "column",
         ccu.column_name as "references",
@@ -147,7 +164,9 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
         ON tc.constraint_name = ccu.constraint_name
       WHERE tc.table_name = ?
         AND tc.constraint_type = 'FOREIGN KEY'
-    `, [tableName]);
+    `,
+      [tableName],
+    );
     const indexResult = await knex.raw(
       `
       SELECT
@@ -168,10 +187,14 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
     return {
       columns: columnsResult.rows.map((col: any) => ({
         name: col.name,
-        type: col.type === 'USER-DEFINED' && col.enum_values ? 'enum' : col.type,
+        type:
+          col.type === 'USER-DEFINED' && col.enum_values ? 'enum' : col.type,
         isNullable: col.isNullable === 'YES',
         defaultValue: col.defaultValue,
-        enumValues: parsePgArray(col.enum_values).length > 0 ? parsePgArray(col.enum_values) : null,
+        enumValues:
+          parsePgArray(col.enum_values).length > 0
+            ? parsePgArray(col.enum_values)
+            : null,
       })),
       foreignKeys: fkResult.rows,
       uniques: indexResult.rows
@@ -192,7 +215,7 @@ export async function getCurrentDatabaseSchema(knex: Knex, tableName: string): P
 }
 export function compareSchemas(
   snapshotSchema: KnexTableSchema,
-  currentSchema: CurrentSchema
+  currentSchema: CurrentSchema,
 ): {
   columnsToAdd: ColumnDef[];
   columnsToRemove: string[];
@@ -216,10 +239,13 @@ export function compareSchemas(
     indexesToRemove: [] as Array<{ columns: string[]; name?: string }>,
   };
   const snapshotColumns = snapshotSchema.definition.columns.filter(
-    col => !col.isPrimary && col.name !== 'createdAt' && col.name !== 'updatedAt'
+    (col) =>
+      !col.isPrimary && col.name !== 'createdAt' && col.name !== 'updatedAt',
   );
-  const snapshotColumnNames = new Set(snapshotColumns.map(c => c.name));
-  const currentColumnNamesSet = new Set(currentSchema.columns.map(c => c.name));
+  const snapshotColumnNames = new Set(snapshotColumns.map((c) => c.name));
+  const currentColumnNamesSet = new Set(
+    currentSchema.columns.map((c) => c.name),
+  );
   for (const col of snapshotColumns) {
     if (!currentColumnNamesSet.has(col.name)) {
       diff.columnsToAdd.push(col);
@@ -238,7 +264,9 @@ export function compareSchemas(
     if (snapshotColumnNames.has(col.name)) {
       continue;
     }
-    const isCurrentFkColumn = currentSchema.foreignKeys.some(fk => fk.column === col.name);
+    const isCurrentFkColumn = currentSchema.foreignKeys.some(
+      (fk) => fk.column === col.name,
+    );
     if (isCurrentFkColumn && !snapshotFkColumnNames.has(col.name)) {
       continue;
     }
@@ -248,11 +276,16 @@ export function compareSchemas(
     diff.columnsToRemove.push(col.name);
   }
   for (const snapshotCol of snapshotColumns) {
-    const currentCol = currentSchema.columns.find(c => c.name === snapshotCol.name);
+    const currentCol = currentSchema.columns.find(
+      (c) => c.name === snapshotCol.name,
+    );
     if (currentCol) {
       const changes: string[] = [];
       const snapshotType = getKnexColumnType(snapshotCol);
-      if (snapshotType !== currentCol.type && !isTypeCompatible(snapshotType, currentCol.type)) {
+      if (
+        snapshotType !== currentCol.type &&
+        !isTypeCompatible(snapshotType, currentCol.type)
+      ) {
         changes.push('type');
       }
       if (snapshotCol.type === 'enum' && Array.isArray(snapshotCol.options)) {
@@ -260,7 +293,9 @@ export function compareSchemas(
         const snapshotEnumValues = snapshotCol.options || [];
         const enumValuesMatch =
           currentEnumValues.length === snapshotEnumValues.length &&
-          currentEnumValues.every((val: string, idx: number) => val === snapshotEnumValues[idx]);
+          currentEnumValues.every(
+            (val: string, idx: number) => val === snapshotEnumValues[idx],
+          );
         if (!enumValuesMatch) {
           changes.push('enum-options');
         }
@@ -271,9 +306,13 @@ export function compareSchemas(
       }
 
       const snapshotDefault =
-        snapshotCol.defaultValue === undefined ? null : snapshotCol.defaultValue;
+        snapshotCol.defaultValue === undefined
+          ? null
+          : snapshotCol.defaultValue;
       const currentDefault = normalizeDbDefaultValue(currentCol.defaultValue);
-      if (!isDefaultEquivalent(snapshotDefault, currentDefault, snapshotCol.type)) {
+      if (
+        !isDefaultEquivalent(snapshotDefault, currentDefault, snapshotCol.type)
+      ) {
         changes.push('default');
       }
 
@@ -290,13 +329,18 @@ export function compareSchemas(
       }
     }
   }
-  const currentFkColumns = new Set(currentSchema.foreignKeys.map(fk => fk.column));
-  const currentColumnNames = new Set(currentSchema.columns.map(c => c.name));
+  const currentFkColumns = new Set(
+    currentSchema.foreignKeys.map((fk) => fk.column),
+  );
+  const currentColumnNames = new Set(currentSchema.columns.map((c) => c.name));
   if (snapshotSchema.definition.relations) {
     for (const rel of snapshotSchema.definition.relations) {
       if (rel.type === 'many-to-one' || rel.type === 'one-to-one') {
         const fkColumn = getForeignKeyColumnName(rel.propertyName);
-        if (!currentFkColumns.has(fkColumn) && !currentColumnNames.has(fkColumn)) {
+        if (
+          !currentFkColumns.has(fkColumn) &&
+          !currentColumnNames.has(fkColumn)
+        ) {
           diff.relationsToAdd.push(rel);
         }
       } else if (rel.type === 'many-to-many') {
@@ -313,7 +357,10 @@ export function compareSchemas(
     const relation = snapshotSchema.definition.relations?.find(
       (r) => r.propertyName === fieldName,
     );
-    if (relation && (relation.type === 'many-to-one' || relation.type === 'one-to-one')) {
+    if (
+      relation &&
+      (relation.type === 'many-to-one' || relation.type === 'one-to-one')
+    ) {
       return getForeignKeyColumnName(relation.propertyName);
     }
     return fieldName;
@@ -323,15 +370,25 @@ export function compareSchemas(
     return arr.map((c) => c.trim().toLowerCase()).join('|');
   };
   const snapshotUniqueGroups =
-    snapshotSchema.definition.uniques?.map((group) => group.map(resolveFieldName)) || [];
+    snapshotSchema.definition.uniques?.map((group) =>
+      group.map(resolveFieldName),
+    ) || [];
   const snapshotIndexGroups =
-    snapshotSchema.definition.indexes?.map((group) => group.map(resolveFieldName)) || [];
-  const currentUniqueMap = new Map<string, { columns: string[]; name?: string }>();
+    snapshotSchema.definition.indexes?.map((group) =>
+      group.map(resolveFieldName),
+    ) || [];
+  const currentUniqueMap = new Map<
+    string,
+    { columns: string[]; name?: string }
+  >();
   for (const u of currentSchema.uniques || []) {
     const key = normalizeGroup(u.columns || []);
     currentUniqueMap.set(key, { columns: u.columns || [], name: u.name });
   }
-  const currentIndexMap = new Map<string, { columns: string[]; name?: string }>();
+  const currentIndexMap = new Map<
+    string,
+    { columns: string[]; name?: string }
+  >();
   for (const idx of currentSchema.indexes || []) {
     const key = normalizeGroup(idx.columns || []);
     currentIndexMap.set(key, { columns: idx.columns || [], name: idx.name });
@@ -398,8 +455,16 @@ function isDefaultEquivalent(
   colType: string,
 ): boolean {
   if (snapshotDefault == null && currentDefault == null) return true;
-  const sqlFunctions = ['now', 'current_timestamp', 'current_date', 'current_time'];
-  if (typeof snapshotDefault === 'string' && sqlFunctions.includes(snapshotDefault.toLowerCase())) {
+  const sqlFunctions = [
+    'now',
+    'current_timestamp',
+    'current_date',
+    'current_time',
+  ];
+  if (
+    typeof snapshotDefault === 'string' &&
+    sqlFunctions.includes(snapshotDefault.toLowerCase())
+  ) {
     if (typeof currentDefault === 'string') {
       const normalized = currentDefault.toLowerCase().replace(/[()]/g, '');
       if (sqlFunctions.includes(normalized)) return true;
@@ -411,32 +476,39 @@ function isDefaultEquivalent(
       snapshotDefault === undefined || snapshotDefault === null
         ? null
         : snapshotDefault === true ||
-            snapshotDefault === 1 ||
-            String(snapshotDefault).toLowerCase() === 'true' ||
-            String(snapshotDefault) === '1';
+          snapshotDefault === 1 ||
+          String(snapshotDefault).toLowerCase() === 'true' ||
+          String(snapshotDefault) === '1';
     const c =
       currentDefault === undefined || currentDefault === null
         ? null
         : currentDefault === true ||
-            currentDefault === 1 ||
-            String(currentDefault).toLowerCase() === 'true' ||
-            String(currentDefault) === '1';
+          currentDefault === 1 ||
+          String(currentDefault).toLowerCase() === 'true' ||
+          String(currentDefault) === '1';
     return s === c;
   }
   return String(snapshotDefault) === String(currentDefault);
 }
 export function isTypeCompatible(type1: string, type2: string): boolean {
   const compatibleTypes: Record<string, string[]> = {
-    'integer': ['int', 'integer', 'bigint', 'bigInteger', 'smallint', 'tinyint'],
-    'string': ['varchar', 'text', 'char', 'character varying'],
-    'text': ['varchar', 'text', 'longtext', 'mediumtext', 'character varying'],
-    'timestamp': ['timestamp', 'datetime', 'timestamp without time zone', 'timestamp with time zone'],
-    'boolean': ['tinyint', 'boolean', 'bool'],
-    'real': ['real', 'float', 'double precision'],
+    integer: ['int', 'integer', 'bigint', 'bigInteger', 'smallint', 'tinyint'],
+    string: ['varchar', 'text', 'char', 'character varying'],
+    text: ['varchar', 'text', 'longtext', 'mediumtext', 'character varying'],
+    timestamp: [
+      'timestamp',
+      'datetime',
+      'timestamp without time zone',
+      'timestamp with time zone',
+    ],
+    boolean: ['tinyint', 'boolean', 'bool'],
+    real: ['real', 'float', 'double precision'],
   };
   for (const [baseType, variants] of Object.entries(compatibleTypes)) {
-    if ((type1 === baseType || variants.includes(type1)) &&
-        (type2 === baseType || variants.includes(type2))) {
+    if (
+      (type1 === baseType || variants.includes(type1)) &&
+      (type2 === baseType || variants.includes(type2))
+    ) {
       return true;
     }
   }

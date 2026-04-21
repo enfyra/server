@@ -134,7 +134,9 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       const routeIds: (string | number)[] = [];
       for (const route of this.cache.routes) {
         if (affectedTableNames.has(route.mainTable?.name)) {
-          const rid = this.queryBuilderService.isMongoDb() ? route._id : route.id;
+          const rid = this.queryBuilderService.isMongoDb()
+            ? route._id
+            : route.id;
           routeIds.push(rid);
         }
       }

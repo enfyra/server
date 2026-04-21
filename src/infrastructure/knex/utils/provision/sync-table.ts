@@ -34,7 +34,9 @@ export async function applyColumnMigrations(
 ): Promise<void> {
   const dbType = knex.client.config.client;
   if (diff.columnsToAdd.length > 0) {
-    console.log(`  📝 Adding ${diff.columnsToAdd.length} column(s) to ${tableName}:`);
+    console.log(
+      `  📝 Adding ${diff.columnsToAdd.length} column(s) to ${tableName}:`,
+    );
     for (const col of diff.columnsToAdd) {
       console.log(`    + ${col.name} (${col.type})`);
     }
@@ -96,73 +98,109 @@ export async function applyColumnMigrations(
             }
             column.defaultTo(!!defVal);
           } else {
-          column.defaultTo(col.defaultValue);
+            column.defaultTo(col.defaultValue);
           }
         }
         if (col.isUnique) {
           column.unique();
         }
-        if (col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date') {
+        if (
+          col.type === 'datetime' ||
+          col.type === 'timestamp' ||
+          col.type === 'date'
+        ) {
           table.index([col.name]);
         }
       }
     });
     for (const col of diff.columnsToAdd) {
       if (col.defaultValue !== undefined && col.defaultValue !== null) {
-        await knex(tableName).whereNull(col.name).update({ [col.name]: col.defaultValue });
+        await knex(tableName)
+          .whereNull(col.name)
+          .update({ [col.name]: col.defaultValue });
       }
     }
   }
   if (diff.columnsToRemove.length > 0) {
   }
   if (diff.columnsToModify.length > 0) {
-    console.log(`  ✏️  Modifying ${diff.columnsToModify.length} column(s) in ${tableName}:`);
+    console.log(
+      `  ✏️  Modifying ${diff.columnsToModify.length} column(s) in ${tableName}:`,
+    );
     for (const { column: col, changes } of diff.columnsToModify) {
       console.log(`    ~ ${col.name} (${changes.join(', ')})`);
     }
     if (dbType === 'mysql2') {
       for (const { column: col, changes } of diff.columnsToModify) {
-        if (col.type === 'enum' && Array.isArray(col.options) && changes.includes('type')) {
+        if (
+          col.type === 'enum' &&
+          Array.isArray(col.options) &&
+          changes.includes('type')
+        ) {
           console.log(`    Converting ${col.name} from ${col.name} to ENUM...`);
-          const enumValues = col.options.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(',');
+          const enumValues = col.options
+            .map((val: string) => `'${val.replace(/'/g, "''")}'`)
+            .join(',');
           const nullable = col.isNullable === false ? 'NOT NULL' : 'NULL';
-          const defaultValue = col.defaultValue ? `DEFAULT '${col.defaultValue.replace(/'/g, "''")}'` : '';
-          await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim());
+          const defaultValue = col.defaultValue
+            ? `DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`
+            : '';
+          await knex.raw(
+            `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim(),
+          );
           continue;
         }
       }
       for (const { column: col, changes } of diff.columnsToModify) {
-        if (changes.includes('enum-options') && col.type === 'enum' && Array.isArray(col.options)) {
-          const currentEnumResult = await knex.raw(`
+        if (
+          changes.includes('enum-options') &&
+          col.type === 'enum' &&
+          Array.isArray(col.options)
+        ) {
+          const currentEnumResult = await knex.raw(
+            `
             SELECT COLUMN_TYPE
             FROM INFORMATION_SCHEMA.COLUMNS
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME = ?
               AND COLUMN_NAME = ?
-          `, [tableName, col.name]);
+          `,
+            [tableName, col.name],
+          );
           if (currentEnumResult[0]?.length > 0) {
             const currentColumnType = currentEnumResult[0][0].COLUMN_TYPE;
             const enumMatch = currentColumnType.match(/^enum\((.+)\)$/i);
             const currentEnumValues = enumMatch
-              ? enumMatch[1].split(',').map((val: string) => val.trim().replace(/^'|'$/g, ''))
+              ? enumMatch[1]
+                  .split(',')
+                  .map((val: string) => val.trim().replace(/^'|'$/g, ''))
               : [];
             const newEnumValues = col.options || [];
             const valueMap: Record<string, string> = {};
             for (const oldVal of currentEnumValues) {
-              const match = newEnumValues.find((newVal: string) =>
-                newVal.toLowerCase() === oldVal.toLowerCase()
+              const match = newEnumValues.find(
+                (newVal: string) =>
+                  newVal.toLowerCase() === oldVal.toLowerCase(),
               );
               if (match && oldVal !== match) {
                 valueMap[oldVal] = match;
               }
             }
             for (const [oldVal, newVal] of Object.entries(valueMap)) {
-              await knex(tableName).where(col.name, oldVal).update({ [col.name]: newVal });
+              await knex(tableName)
+                .where(col.name, oldVal)
+                .update({ [col.name]: newVal });
             }
-            const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(',');
+            const enumValues = newEnumValues
+              .map((val: string) => `'${val.replace(/'/g, "''")}'`)
+              .join(',');
             const nullable = col.isNullable === false ? 'NOT NULL' : 'NULL';
-            const defaultValue = col.defaultValue ? `DEFAULT '${col.defaultValue.replace(/'/g, "''")}'` : '';
-            await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim());
+            const defaultValue = col.defaultValue
+              ? `DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`
+              : '';
+            await knex.raw(
+              `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ENUM(${enumValues}) ${nullable} ${defaultValue}`.trim(),
+            );
             continue;
           }
         }
@@ -174,71 +212,101 @@ export async function applyColumnMigrations(
         const knexType = getKnexColumnType(col);
         let sqlType = knexType;
         const typeMap: Record<string, string> = {
-          'integer': 'INT',
-          'bigInteger': 'BIGINT',
-          'string': 'VARCHAR(255)',
-          'text': 'TEXT',
-          'boolean': 'TINYINT(1)',
-          'uuid': 'CHAR(36)',
-          'timestamp': 'TIMESTAMP',
-          'datetime': 'DATETIME',
-          'json': 'LONGTEXT',
+          integer: 'INT',
+          bigInteger: 'BIGINT',
+          string: 'VARCHAR(255)',
+          text: 'TEXT',
+          boolean: 'TINYINT(1)',
+          uuid: 'CHAR(36)',
+          timestamp: 'TIMESTAMP',
+          datetime: 'DATETIME',
+          json: 'LONGTEXT',
         };
         sqlType = typeMap[knexType] || 'TEXT';
         const nullable = col.isNullable === false ? 'NOT NULL' : 'NULL';
-        await knex.raw(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ${sqlType} ${nullable}`);
+        await knex.raw(
+          `ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ${sqlType} ${nullable}`,
+        );
       }
     } else {
       for (const { column: col, changes } of diff.columnsToModify) {
-        if (col.type === 'enum' && Array.isArray(col.options) && changes.includes('type')) {
+        if (
+          col.type === 'enum' &&
+          Array.isArray(col.options) &&
+          changes.includes('type')
+        ) {
           const newEnumType = `${tableName}_${col.name}_enum`;
           const newEnumValues = col.options || [];
 
           // Check actual current type in database
-          const currentTypeResult = await knex.raw(`
+          const currentTypeResult = await knex.raw(
+            `
             SELECT data_type, udt_name
             FROM information_schema.columns
             WHERE table_schema = 'public'
               AND table_name = ?
               AND column_name = ?
-          `, [tableName, col.name]);
-          const currentType = currentTypeResult.rows[0]?.udt_name || currentTypeResult.rows[0]?.data_type;
+          `,
+            [tableName, col.name],
+          );
+          const currentType =
+            currentTypeResult.rows[0]?.udt_name ||
+            currentTypeResult.rows[0]?.data_type;
 
           // Skip if already an ENUM type
           if (currentType && currentType.endsWith('_enum')) {
-            console.log(`    ⏩ Column ${col.name} is already ENUM (${currentType}), skipping migration`);
+            console.log(
+              `    ⏩ Column ${col.name} is already ENUM (${currentType}), skipping migration`,
+            );
             continue;
           }
 
-          console.log(`    Converting ${col.name} from ${currentType || 'varchar/text'} to ENUM...`);
+          console.log(
+            `    Converting ${col.name} from ${currentType || 'varchar/text'} to ENUM...`,
+          );
 
           try {
-            const defaultResult = await knex.raw(`
+            const defaultResult = await knex.raw(
+              `
               SELECT column_default
               FROM information_schema.columns
               WHERE table_schema = 'public'
                 AND table_name = ?
                 AND column_name = ?
-            `, [tableName, col.name]);
+            `,
+              [tableName, col.name],
+            );
             const currentDefault = defaultResult.rows[0]?.column_default;
             const hasDefault = !!currentDefault;
 
             if (hasDefault) {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
+              );
             }
 
             try {
-              await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
+              );
             } catch (e) {}
 
             if (currentType !== 'text') {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
+              );
             }
 
-            const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(', ');
+            const enumValues = newEnumValues
+              .map((val: string) => `'${val.replace(/'/g, "''")}'`)
+              .join(', ');
             await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
-            await knex.raw(`CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`);
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`);
+            await knex.raw(
+              `CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`,
+            );
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`,
+            );
 
             if (hasDefault) {
               let defaultVal = currentDefault;
@@ -250,77 +318,117 @@ export async function applyColumnMigrations(
                 defaultVal = col.defaultValue;
               }
               if (defaultVal) {
-                await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`);
+                await knex.raw(
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`,
+                );
               }
             } else if (col.defaultValue) {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
+              );
             }
 
             if (col.isNullable === false) {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`,
+              );
             }
 
-            console.log(`    ✅ Converted ${col.name} to ENUM(${col.options.join(', ')})`);
+            console.log(
+              `    ✅ Converted ${col.name} to ENUM(${col.options.join(', ')})`,
+            );
           } catch (error) {
-            console.log(`    ⚠️  Failed to convert ${col.name} to ENUM: ${error.message}`);
+            console.log(
+              `    ⚠️  Failed to convert ${col.name} to ENUM: ${error.message}`,
+            );
           }
 
           continue;
         }
       }
       for (const { column: col, changes } of diff.columnsToModify) {
-        if (changes.includes('enum-options') && col.type === 'enum' && Array.isArray(col.options)) {
-          const enumTypeResult = await knex.raw(`
+        if (
+          changes.includes('enum-options') &&
+          col.type === 'enum' &&
+          Array.isArray(col.options)
+        ) {
+          const enumTypeResult = await knex.raw(
+            `
             SELECT udt_name
             FROM information_schema.columns
             WHERE table_schema = 'public'
               AND table_name = ?
               AND column_name = ?
-          `, [tableName, col.name]);
+          `,
+            [tableName, col.name],
+          );
           if (enumTypeResult.rows.length > 0) {
             const oldEnumType = enumTypeResult.rows[0].udt_name;
             const newEnumType = `${tableName}_${col.name}_enum`;
-            const currentEnumResult = await knex.raw(`
+            const currentEnumResult = await knex.raw(
+              `
               SELECT e.enumlabel
               FROM pg_enum e
               JOIN pg_type t ON e.enumtypid = t.oid
               WHERE t.typname = ?
               ORDER BY e.enumsortorder
-            `, [oldEnumType]);
-            const currentEnumValues = currentEnumResult.rows.map((r: any) => r.enumlabel);
+            `,
+              [oldEnumType],
+            );
+            const currentEnumValues = currentEnumResult.rows.map(
+              (r: any) => r.enumlabel,
+            );
             const newEnumValues = col.options || [];
             const valueMap: Record<string, string> = {};
             for (const oldVal of currentEnumValues) {
-              const match = newEnumValues.find((newVal: string) =>
-                newVal.toLowerCase() === oldVal.toLowerCase()
+              const match = newEnumValues.find(
+                (newVal: string) =>
+                  newVal.toLowerCase() === oldVal.toLowerCase(),
               );
               if (match && oldVal !== match) {
                 valueMap[oldVal] = match;
               }
             }
-            const defaultResult = await knex.raw(`
+            const defaultResult = await knex.raw(
+              `
               SELECT column_default
               FROM information_schema.columns
               WHERE table_schema = 'public'
                 AND table_name = ?
                 AND column_name = ?
-            `, [tableName, col.name]);
+            `,
+              [tableName, col.name],
+            );
             const currentDefault = defaultResult.rows[0]?.column_default;
             const hasDefault = !!currentDefault;
             if (hasDefault) {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
+              );
             }
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
+            );
             for (const [oldVal, newVal] of Object.entries(valueMap)) {
-              await knex(tableName).where(col.name, oldVal).update({ [col.name]: newVal });
+              await knex(tableName)
+                .where(col.name, oldVal)
+                .update({ [col.name]: newVal });
             }
             try {
-              await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" DROP CONSTRAINT IF EXISTS "${tableName}_${col.name}_check"`,
+              );
             } catch (e) {}
-            const enumValues = newEnumValues.map((val: string) => `'${val.replace(/'/g, "''")}'`).join(', ');
+            const enumValues = newEnumValues
+              .map((val: string) => `'${val.replace(/'/g, "''")}'`)
+              .join(', ');
             await knex.raw(`DROP TYPE IF EXISTS "${newEnumType}" CASCADE`);
-            await knex.raw(`CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`);
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`);
+            await knex.raw(
+              `CREATE TYPE "${newEnumType}" AS ENUM (${enumValues})`,
+            );
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE "${newEnumType}" USING "${col.name}"::"${newEnumType}"`,
+            );
             if (hasDefault) {
               let defaultVal = currentDefault;
               if (defaultVal && defaultVal.includes('::')) {
@@ -333,10 +441,14 @@ export async function applyColumnMigrations(
                 defaultVal = col.defaultValue;
               }
               if (defaultVal) {
-                await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`);
+                await knex.raw(
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${defaultVal.replace(/'/g, "''")}'`,
+                );
               }
             } else if (col.defaultValue) {
-              await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`);
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
+              );
             }
             if (oldEnumType !== newEnumType) {
               try {
@@ -347,78 +459,101 @@ export async function applyColumnMigrations(
           }
         }
       }
-        for (const { column: col, changes } of diff.columnsToModify) {
-          if (changes.includes('enum-options')) {
-            continue;
-          }
-          if (changes.includes('default')) {
-            try {
-              if (col.defaultValue === undefined || col.defaultValue === null) {
+      for (const { column: col, changes } of diff.columnsToModify) {
+        if (changes.includes('enum-options')) {
+          continue;
+        }
+        if (changes.includes('default')) {
+          try {
+            if (col.defaultValue === undefined || col.defaultValue === null) {
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
+              );
+            } else if (col.type === 'boolean') {
+              const def =
+                col.defaultValue === true ||
+                col.defaultValue === 1 ||
+                String(col.defaultValue).toLowerCase() === 'true' ||
+                String(col.defaultValue) === '1';
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${def ? 'true' : 'false'}`,
+              );
+            } else if (typeof col.defaultValue === 'string') {
+              const sqlFunctions = [
+                'now',
+                'current_timestamp',
+                'current_date',
+                'current_time',
+              ];
+              if (sqlFunctions.includes(col.defaultValue.toLowerCase())) {
                 await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP DEFAULT`,
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}()`,
                 );
-              } else if (col.type === 'boolean') {
-                const def =
-                  col.defaultValue === true ||
-                  col.defaultValue === 1 ||
-                  String(col.defaultValue).toLowerCase() === 'true' ||
-                  String(col.defaultValue) === '1';
-                await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${def ? 'true' : 'false'}`,
-                );
-              } else if (typeof col.defaultValue === 'string') {
-                const sqlFunctions = ['now', 'current_timestamp', 'current_date', 'current_time'];
-                if (sqlFunctions.includes(col.defaultValue.toLowerCase())) {
-                  await knex.raw(
-                    `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}()`,
-                  );
-                } else {
-                  await knex.raw(
-                    `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
-                  );
-                }
               } else {
                 await knex.raw(
-                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
+                  `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`,
                 );
               }
-            } catch (e) {}
-          }
-          if (changes.includes('type')) {
+            } else {
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET DEFAULT ${col.defaultValue}`,
+              );
+            }
+          } catch (e) {}
+        }
+        if (changes.includes('type')) {
           const knexType = getKnexColumnType(col);
-        const currentTypeResult = await knex.raw(`
+          const currentTypeResult = await knex.raw(
+            `
           SELECT data_type, udt_name
           FROM information_schema.columns
           WHERE table_schema = 'public'
             AND table_name = ?
             AND column_name = ?
-        `, [tableName, col.name]);
-        const currentDataType = currentTypeResult.rows[0]?.data_type;
-        const currentUdtName = currentTypeResult.rows[0]?.udt_name;
-        const isCurrentJson = currentDataType === 'jsonb' || currentUdtName === 'jsonb';
-        const isCurrentText = currentDataType === 'text' || currentUdtName === 'text';
-        if (knexType === 'text') {
-          if (isCurrentJson) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
-          } else if (!isCurrentText) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`);
-          }
-        } else {
-          await knex.schema.alterTable(tableName, (table) => {
-            const column = applyAlterColumnType(table, knexType, col.name, tableName);
-            if (col.isNullable === false) {
-              column.notNullable();
-            } else {
-              column.nullable();
+        `,
+            [tableName, col.name],
+          );
+          const currentDataType = currentTypeResult.rows[0]?.data_type;
+          const currentUdtName = currentTypeResult.rows[0]?.udt_name;
+          const isCurrentJson =
+            currentDataType === 'jsonb' || currentUdtName === 'jsonb';
+          const isCurrentText =
+            currentDataType === 'text' || currentUdtName === 'text';
+          if (knexType === 'text') {
+            if (isCurrentJson) {
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
+              );
+            } else if (!isCurrentText) {
+              await knex.raw(
+                `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" TYPE text USING "${col.name}"::text`,
+              );
             }
-          });
-        }
+          } else {
+            await knex.schema.alterTable(tableName, (table) => {
+              const column = applyAlterColumnType(
+                table,
+                knexType,
+                col.name,
+                tableName,
+              );
+              if (col.isNullable === false) {
+                column.notNullable();
+              } else {
+                column.nullable();
+              }
+            });
           }
+        }
         if (changes.includes('nullable')) {
           if (col.isNullable === false) {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`);
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" SET NOT NULL`,
+            );
           } else {
-            await knex.raw(`ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP NOT NULL`);
+            await knex.raw(
+              `ALTER TABLE "${tableName}" ALTER COLUMN "${col.name}" DROP NOT NULL`,
+            );
           }
         }
       }
@@ -434,13 +569,16 @@ export async function applyRelationMigrations(
   if (diff.relationsToRemove.length > 0) {
   }
   if (diff.relationsToAdd.length > 0) {
-    const m2oRelations = diff.relationsToAdd.filter(r => {
+    const m2oRelations = diff.relationsToAdd.filter((r) => {
       if (r.type === 'many-to-one') return true;
-      if (r.type === 'one-to-one' && !(r as any)._isInverseGenerated) return true;
+      if (r.type === 'one-to-one' && !(r as any)._isInverseGenerated)
+        return true;
       return false;
     });
     if (m2oRelations.length > 0) {
-      console.log(`  📝 Adding ${m2oRelations.length} relation(s) to ${tableName}:`);
+      console.log(
+        `  📝 Adding ${m2oRelations.length} relation(s) to ${tableName}:`,
+      );
       for (const rel of m2oRelations) {
         const fkColumn = getForeignKeyColumnName(rel.propertyName);
         console.log(`    + ${fkColumn} → ${rel.targetTable}.id`);
@@ -479,9 +617,14 @@ export async function applyRelationMigrations(
         } catch (error) {
           const msg = (error?.message || '').toLowerCase();
           if (msg.includes('already exists') || msg.includes('duplicate')) {
-            console.log(`    ⏩ Relation ${fkColumn} already exists on ${tableName}`);
+            console.log(
+              `    ⏩ Relation ${fkColumn} already exists on ${tableName}`,
+            );
           } else {
-            console.error(`    ❌ Failed to add relation ${fkColumn} on ${tableName}:`, error.message);
+            console.error(
+              `    ❌ Failed to add relation ${fkColumn} on ${tableName}:`,
+              error.message,
+            );
           }
         }
       }
@@ -522,7 +665,9 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    - Dropped UNIQUE (${colsArr.join(', ')})`);
       } catch (err: any) {
-        console.log(`    ⚠️  Failed to drop UNIQUE (${colsArr.join(', ')}): ${err?.message}`);
+        console.log(
+          `    ⚠️  Failed to drop UNIQUE (${colsArr.join(', ')}): ${err?.message}`,
+        );
       }
     }
   }
@@ -539,7 +684,9 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    - Dropped INDEX (${colsArr.join(', ')})`);
       } catch (err: any) {
-        console.log(`    ⚠️  Failed to drop INDEX (${colsArr.join(', ')}): ${err?.message}`);
+        console.log(
+          `    ⚠️  Failed to drop INDEX (${colsArr.join(', ')}): ${err?.message}`,
+        );
       }
     }
   }
@@ -552,7 +699,9 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    + Added UNIQUE (${colsArr.join(', ')})`);
       } catch (err: any) {
-        console.log(`    ⚠️  Failed to add UNIQUE (${colsArr.join(', ')}): ${err?.message}`);
+        console.log(
+          `    ⚠️  Failed to add UNIQUE (${colsArr.join(', ')}): ${err?.message}`,
+        );
       }
     }
   }
@@ -565,7 +714,9 @@ export async function applyIndexAndUniqueMigrations(
         });
         console.log(`    + Added INDEX (${colsArr.join(', ')})`);
       } catch (err: any) {
-        console.log(`    ⚠️  Failed to add INDEX (${colsArr.join(', ')}): ${err?.message}`);
+        console.log(
+          `    ⚠️  Failed to add INDEX (${colsArr.join(', ')}): ${err?.message}`,
+        );
       }
     }
   }
@@ -605,10 +756,16 @@ async function syncRelationOnDeleteChanges(
   schema: KnexTableSchema,
 ): Promise<void> {
   const dbType = knex.client.config.client;
-  const hasOnDeleteColumn = await knex.schema.hasColumn('relation_definition', 'onDelete');
+  const hasOnDeleteColumn = await knex.schema.hasColumn(
+    'relation_definition',
+    'onDelete',
+  );
   if (!hasOnDeleteColumn) {
     await knex.schema.alterTable('relation_definition', (table) => {
-      table.enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL']).notNullable().defaultTo('SET NULL');
+      table
+        .enum('onDelete', ['CASCADE', 'RESTRICT', 'SET NULL'])
+        .notNullable()
+        .defaultTo('SET NULL');
     });
   }
   const tableDefRow = await knex('table_definition')
@@ -622,19 +779,27 @@ async function syncRelationOnDeleteChanges(
     .select('id', 'propertyName', 'type', 'onDelete');
   const snapshotRelations = schema.definition.relations || [];
   for (const snapshotRel of snapshotRelations) {
-    const dbRel = dbRelations.find(r => r.propertyName === snapshotRel.propertyName);
+    const dbRel = dbRelations.find(
+      (r) => r.propertyName === snapshotRel.propertyName,
+    );
     if (!dbRel) {
       continue;
     }
     const snapshotOnDelete = (snapshotRel as any).onDelete || 'SET NULL';
     const dbOnDelete = dbRel.onDelete || 'SET NULL';
     if (snapshotOnDelete !== dbOnDelete) {
-      console.log(`  🔄 Updating onDelete for ${snapshotRel.propertyName}: ${dbOnDelete} → ${snapshotOnDelete}`);
-      if (snapshotRel.type === 'many-to-one' || snapshotRel.type === 'one-to-one') {
+      console.log(
+        `  🔄 Updating onDelete for ${snapshotRel.propertyName}: ${dbOnDelete} → ${snapshotOnDelete}`,
+      );
+      if (
+        snapshotRel.type === 'many-to-one' ||
+        snapshotRel.type === 'one-to-one'
+      ) {
         const fkColumn = getForeignKeyColumnName(snapshotRel.propertyName);
         const targetTable = snapshotRel.targetTable;
         if (dbType === 'pg') {
-          const fkConstraints = await knex.raw(`
+          const fkConstraints = await knex.raw(
+            `
             SELECT tc.constraint_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
@@ -643,24 +808,33 @@ async function syncRelationOnDeleteChanges(
               AND tc.table_name = ?
               AND kcu.column_name = ?
               AND tc.constraint_type = 'FOREIGN KEY'
-          `, [tableName, fkColumn]);
+          `,
+            [tableName, fkColumn],
+          );
           if (fkConstraints.rows?.length > 0) {
             const constraintName = fkConstraints.rows[0].constraint_name;
-            await knex.raw(`ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`);
+            await knex.raw(
+              `ALTER TABLE "${tableName}" DROP CONSTRAINT "${constraintName}"`,
+            );
             console.log(`    Dropped FK constraint: ${constraintName}`);
           }
         } else if (dbType === 'mysql2') {
-          const fkConstraints = await knex.raw(`
+          const fkConstraints = await knex.raw(
+            `
             SELECT CONSTRAINT_NAME
             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME = ?
               AND COLUMN_NAME = ?
               AND REFERENCED_TABLE_NAME IS NOT NULL
-          `, [tableName, fkColumn]);
+          `,
+            [tableName, fkColumn],
+          );
           if (fkConstraints[0]?.length > 0) {
             const constraintName = fkConstraints[0][0].CONSTRAINT_NAME;
-            await knex.raw(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
+            await knex.raw(
+              `ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``,
+            );
             console.log(`    Dropped FK constraint: ${constraintName}`);
           }
         }
@@ -671,12 +845,19 @@ async function syncRelationOnDeleteChanges(
             .inTable(targetTable);
           fk.onDelete(snapshotOnDelete).onUpdate('CASCADE');
         });
-        console.log(`    Recreated FK constraint with onDelete: ${snapshotOnDelete}`);
-        await knex.raw(
-          `UPDATE ?? SET ?? = ? WHERE ?? = ?`,
-          ['relation_definition', 'onDelete', snapshotOnDelete, 'id', dbRel.id],
+        console.log(
+          `    Recreated FK constraint with onDelete: ${snapshotOnDelete}`,
         );
-        console.log(`    Updated relation_definition.onDelete to: ${snapshotOnDelete}`);
+        await knex.raw(`UPDATE ?? SET ?? = ? WHERE ?? = ?`, [
+          'relation_definition',
+          'onDelete',
+          snapshotOnDelete,
+          'id',
+          dbRel.id,
+        ]);
+        console.log(
+          `    Updated relation_definition.onDelete to: ${snapshotOnDelete}`,
+        );
       }
     }
   }

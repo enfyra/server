@@ -3,9 +3,14 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { NotFoundException } from '../../core/exceptions/custom-exceptions';
 
-export function registerMetadataRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerMetadataRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.get('/metadata', async (req: any, res: Response) => {
-    const metadataCacheService = req.scope?.cradle?.metadataCacheService ?? container.cradle.metadataCacheService;
+    const metadataCacheService =
+      req.scope?.cradle?.metadataCacheService ??
+      container.cradle.metadataCacheService;
     const metadata = await metadataCacheService.getMetadata();
     if (!metadata) {
       throw new NotFoundException('Metadata not available');
@@ -14,7 +19,9 @@ export function registerMetadataRoutes(app: Express, container: AwilixContainer<
   });
 
   app.get('/metadata/:name', async (req: any, res: Response) => {
-    const metadataCacheService = req.scope?.cradle?.metadataCacheService ?? container.cradle.metadataCacheService;
+    const metadataCacheService =
+      req.scope?.cradle?.metadataCacheService ??
+      container.cradle.metadataCacheService;
     const table = await metadataCacheService.getTableMetadata(req.params.name);
     if (!table) {
       throw new NotFoundException(`Table '${req.params.name}' not found`);

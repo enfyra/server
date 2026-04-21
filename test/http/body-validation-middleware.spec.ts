@@ -109,7 +109,9 @@ describe('bodyValidationMiddleware — skip conditions', () => {
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
     if (!err || !/title is required/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "title is required", got: ${JSON.stringify(err?.messages || err?.message)}`);
+      throw new Error(
+        `Expected "title is required", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 
@@ -134,7 +136,9 @@ describe('bodyValidationMiddleware — skip conditions', () => {
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
     if (!err || !/title is required/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "title is required", got: ${JSON.stringify(err?.messages || err?.message)}`);
+      throw new Error(
+        `Expected "title is required", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 
@@ -147,8 +151,13 @@ describe('bodyValidationMiddleware — skip conditions', () => {
     });
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
-    if (!err || !/title must be a string/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`);
+    if (
+      !err ||
+      !/title must be a string/.test((err.messages || []).join('|'))
+    ) {
+      throw new Error(
+        `Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 });
@@ -185,7 +194,9 @@ describe('bodyValidationMiddleware — POST validates on create', () => {
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
     if (!err || !/title is required/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "title is required", got: ${JSON.stringify(err?.messages || err?.message)}`);
+      throw new Error(
+        `Expected "title is required", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 
@@ -198,8 +209,13 @@ describe('bodyValidationMiddleware — POST validates on create', () => {
     });
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
-    if (!err || !/title must be a string/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`);
+    if (
+      !err ||
+      !/title must be a string/.test((err.messages || []).join('|'))
+    ) {
+      throw new Error(
+        `Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 
@@ -212,8 +228,13 @@ describe('bodyValidationMiddleware — POST validates on create', () => {
     });
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
-    if (!err || !/malicious is not allowed/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "malicious is not allowed", got: ${JSON.stringify(err?.messages || err?.message)}`);
+    if (
+      !err ||
+      !/malicious is not allowed/.test((err.messages || []).join('|'))
+    ) {
+      throw new Error(
+        `Expected "malicious is not allowed", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 });
@@ -222,9 +243,7 @@ describe('bodyValidationMiddleware — PATCH update mode', () => {
   const tableMeta = {
     name: 'post',
     validateBody: true,
-    columns: [
-      { id: 'c1', name: 'title', type: 'varchar', isNullable: false },
-    ],
+    columns: [{ id: 'c1', name: 'title', type: 'varchar', isNullable: false }],
     relations: [],
   };
 
@@ -248,8 +267,13 @@ describe('bodyValidationMiddleware — PATCH update mode', () => {
     });
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
-    if (!err || !/title must be a string/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`);
+    if (
+      !err ||
+      !/title must be a string/.test((err.messages || []).join('|'))
+    ) {
+      throw new Error(
+        `Expected "title must be a string", got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 });
@@ -258,9 +282,7 @@ describe('bodyValidationMiddleware — column rules applied', () => {
   const tableMeta = {
     name: 'user',
     validateBody: true,
-    columns: [
-      { id: 'c1', name: 'email', type: 'varchar', isNullable: false },
-    ],
+    columns: [{ id: 'c1', name: 'email', type: 'varchar', isNullable: false }],
     relations: [],
   };
   const rules = new Map<string, any[]>();
@@ -287,7 +309,9 @@ describe('bodyValidationMiddleware — column rules applied', () => {
     mw(req, res, next);
     const err = next.mock.calls[0]?.[0];
     if (!err || !/email/.test((err.messages || []).join('|'))) {
-      throw new Error(`Expected email error, got: ${JSON.stringify(err?.messages || err?.message)}`);
+      throw new Error(
+        `Expected email error, got: ${JSON.stringify(err?.messages || err?.message)}`,
+      );
     }
   });
 
@@ -328,14 +352,22 @@ describe('bodyValidationMiddleware — schema caching', () => {
     const mw = bodyValidationMiddleware(container);
 
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: { title: 'x' } } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: { title: 'x' },
+      } as any,
       makeReqRes({}).res,
       makeReqRes({}).next,
     );
     const firstTotal = getMetaSpy.mock.calls.length;
 
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: { title: 'y' } } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: { title: 'y' },
+      } as any,
       makeReqRes({}).res,
       makeReqRes({}).next,
     );
@@ -365,7 +397,11 @@ describe('bodyValidationMiddleware — schema caching', () => {
     const mw = bodyValidationMiddleware(container);
 
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: { title: 'x' } } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: { title: 'x' },
+      } as any,
       makeReqRes({}).res,
       makeReqRes({}).next,
     );
@@ -374,7 +410,11 @@ describe('bodyValidationMiddleware — schema caching', () => {
     currentVersion = 2; // bump — new cache key
 
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: { title: 'y' } } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: { title: 'y' },
+      } as any,
       makeReqRes({}).res,
       makeReqRes({}).next,
     );
@@ -393,7 +433,11 @@ describe('bodyValidationMiddleware — schema caching', () => {
     const mw = bodyValidationMiddleware(container);
 
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: { title: 'x' } } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: { title: 'x' },
+      } as any,
       makeReqRes({}).res,
       makeReqRes({}).next,
     );
@@ -402,7 +446,11 @@ describe('bodyValidationMiddleware — schema caching', () => {
     invalidateBodyValidationCache();
 
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: { title: 'y' } } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: { title: 'y' },
+      } as any,
       makeReqRes({}).res,
       makeReqRes({}).next,
     );
@@ -422,7 +470,9 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
     const err = next.mock.calls[0]?.[0];
     if (!err) throw new Error('next not called with error');
     if (!regex.test((err.messages || []).join('|') || err.message || '')) {
-      throw new Error(`Error mismatch: ${JSON.stringify(err.messages || err.message)}`);
+      throw new Error(
+        `Error mismatch: ${JSON.stringify(err.messages || err.message)}`,
+      );
     }
   }
 
@@ -430,7 +480,11 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
     const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
     const { res, next } = makeReqRes({});
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/post' }, body: null } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/post' },
+        body: null,
+      } as any,
       res,
       next,
     );
@@ -441,7 +495,11 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
     const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
     const { res, next } = makeReqRes({});
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/post' }, body: undefined } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/post' },
+        body: undefined,
+      } as any,
       res,
       next,
     );
@@ -452,7 +510,11 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
     const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
     const { res, next } = makeReqRes({});
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/post' }, body: [{ title: 'x' }] } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/post' },
+        body: [{ title: 'x' }],
+      } as any,
       res,
       next,
     );
@@ -463,7 +525,11 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
     const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
     const { res, next } = makeReqRes({});
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/post' }, body: 'raw' } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/post' },
+        body: 'raw',
+      } as any,
       res,
       next,
     );
@@ -474,7 +540,11 @@ describe('bodyValidationMiddleware — defensive body handling', () => {
     const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
     const { res, next } = makeReqRes({});
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/post' }, body: 42 } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/post' },
+        body: 42,
+      } as any,
       res,
       next,
     );
@@ -487,11 +557,14 @@ describe('bodyValidationMiddleware — metadata cache null (cold start)', () => 
     const tableMeta = {
       name: 'post',
       validateBody: true,
-      columns: [{ id: 'c1', name: 'title', type: 'varchar', isNullable: false }],
+      columns: [
+        { id: 'c1', name: 'title', type: 'varchar', isNullable: false },
+      ],
       relations: [],
     };
     const container = makeContainer({ tableMeta });
-    (container.cradle.metadataCacheService as any).getDirectMetadata = () => null;
+    (container.cradle.metadataCacheService as any).getDirectMetadata = () =>
+      null;
     const mw = bodyValidationMiddleware(container);
     const { req, res, next } = makeReqRes({
       method: 'POST',
@@ -518,7 +591,11 @@ describe('bodyValidationMiddleware — error format', () => {
     const mw = bodyValidationMiddleware(makeContainer({ tableMeta }));
     const { res, next } = makeReqRes({});
     mw(
-      { method: 'POST', routeData: { mainTable: tableMeta, path: '/' + tableMeta.name }, body: {} } as any,
+      {
+        method: 'POST',
+        routeData: { mainTable: tableMeta, path: '/' + tableMeta.name },
+        body: {},
+      } as any,
       res,
       next,
     );

@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { HttpException } from '../../core/exceptions/custom-exceptions';
-import { GuardCacheService, GuardPosition } from '../../infrastructure/cache/services/guard-cache.service';
-import { GuardEvaluatorService, GuardEvalContext } from '../../infrastructure/cache/services/guard-evaluator.service';
+import {
+  GuardCacheService,
+  GuardPosition,
+} from '../../infrastructure/cache/services/guard-cache.service';
+import {
+  GuardEvaluatorService,
+  GuardEvalContext,
+} from '../../infrastructure/cache/services/guard-evaluator.service';
 
 async function runMetadataGuards(
   position: GuardPosition,
@@ -48,10 +54,19 @@ async function runMetadataGuards(
   return true;
 }
 
-export function preAuthMetadataGuard(guardCacheService: GuardCacheService, guardEvaluatorService: GuardEvaluatorService) {
+export function preAuthMetadataGuard(
+  guardCacheService: GuardCacheService,
+  guardEvaluatorService: GuardEvaluatorService,
+) {
   return async (req: any, res: Response, next: NextFunction) => {
     try {
-      await runMetadataGuards('pre_auth', req, res, guardCacheService, guardEvaluatorService);
+      await runMetadataGuards(
+        'pre_auth',
+        req,
+        res,
+        guardCacheService,
+        guardEvaluatorService,
+      );
       next();
     } catch (error) {
       next(error);
@@ -59,10 +74,19 @@ export function preAuthMetadataGuard(guardCacheService: GuardCacheService, guard
   };
 }
 
-export function postAuthMetadataGuard(guardCacheService: GuardCacheService, guardEvaluatorService: GuardEvaluatorService) {
+export function postAuthMetadataGuard(
+  guardCacheService: GuardCacheService,
+  guardEvaluatorService: GuardEvaluatorService,
+) {
   return async (req: any, res: Response, next: NextFunction) => {
     try {
-      await runMetadataGuards('post_auth', req, res, guardCacheService, guardEvaluatorService);
+      await runMetadataGuards(
+        'post_auth',
+        req,
+        res,
+        guardCacheService,
+        guardEvaluatorService,
+      );
       next();
     } catch (error) {
       next(error);

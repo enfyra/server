@@ -9,20 +9,23 @@ type Call = { level: string; msg: string; meta: Record<string, any> };
 
 function capture(): { calls: Call[]; restore: () => void } {
   const calls: Call[] = [];
-  const spies = (['info', 'warn', 'error', 'debug', 'trace'] as const).map((lvl) =>
-    vi.spyOn(pino, lvl).mockImplementation(((a: any, b?: any) => {
-      const meta = typeof a === 'object' && a !== null ? a : {};
-      const msg = typeof a === 'string' ? a : (typeof b === 'string' ? b : '');
-      calls.push({ level: lvl, msg, meta });
-      return pino as any;
-    }) as any),
+  const spies = (['info', 'warn', 'error', 'debug', 'trace'] as const).map(
+    (lvl) =>
+      vi.spyOn(pino, lvl).mockImplementation(((a: any, b?: any) => {
+        const meta = typeof a === 'object' && a !== null ? a : {};
+        const msg = typeof a === 'string' ? a : typeof b === 'string' ? b : '';
+        calls.push({ level: lvl, msg, meta });
+        return pino as any;
+      }) as any),
   );
   return { calls, restore: () => spies.forEach((s) => s.mockRestore()) };
 }
 
 describe('LoggingService — ALS correlation', () => {
   let cap: ReturnType<typeof capture>;
-  beforeEach(() => { cap = capture(); });
+  beforeEach(() => {
+    cap = capture();
+  });
   afterEach(() => cap.restore());
 
   it('run() creates isolated ALS frame with fresh correlationId slot', () => {
@@ -39,7 +42,10 @@ describe('LoggingService — ALS correlation', () => {
     const svc = new LoggingService();
     svc.run(() => {
       svc.setContext({ userId: 'u1', ip: '1.2.3.4' });
-      expect(logStore.getStore()?.context).toEqual({ userId: 'u1', ip: '1.2.3.4' });
+      expect(logStore.getStore()?.context).toEqual({
+        userId: 'u1',
+        ip: '1.2.3.4',
+      });
       svc.setContext({ method: 'POST' });
       expect(logStore.getStore()?.context).toEqual({
         userId: 'u1',
@@ -72,7 +78,9 @@ describe('LoggingService — ALS correlation', () => {
 
 describe('LoggingService — structured event methods', () => {
   let cap: ReturnType<typeof capture>;
-  beforeEach(() => { cap = capture(); });
+  beforeEach(() => {
+    cap = capture();
+  });
   afterEach(() => cap.restore());
 
   it('logResponse emits API Response with method/url/statusCode/responseTime', () => {

@@ -2,9 +2,14 @@ import type { Express, Request, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
-export function registerFolderRoutes(app: Express, container: AwilixContainer<Cradle>) {
+export function registerFolderRoutes(
+  app: Express,
+  container: AwilixContainer<Cradle>,
+) {
   app.get('/folder_definition/tree', async (req: any, res: Response) => {
-    const folderTreeCache = req.scope?.cradle?.folderTreeCacheService ?? container.cradle.folderTreeCacheService;
+    const folderTreeCache =
+      req.scope?.cradle?.folderTreeCacheService ??
+      container.cradle.folderTreeCacheService;
     const flat = req.query.flat === 'true';
 
     if (flat) {

@@ -367,9 +367,6 @@ export class MetadataProvisionMongoService {
         ? null
         : snapshotRelId || null;
       if (inverseType === 'many-to-many') {
-        const {
-          getJunctionTableName,
-        } = require('../../../infrastructure/knex/utils/sql-schema-naming.util');
         const owningDoc = snapshotRelId
           ? await relationColl.findOne({ _id: snapshotRelId })
           : null;

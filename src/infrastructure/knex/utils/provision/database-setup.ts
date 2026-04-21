@@ -37,7 +37,9 @@ export async function ensureDatabaseExists(): Promise<void> {
         [connectionConfig.database],
       );
       if (result[0].length === 0) {
-        await tempKnex.raw(`CREATE DATABASE IF NOT EXISTS \`${connectionConfig.database}\``);
+        await tempKnex.raw(
+          `CREATE DATABASE IF NOT EXISTS \`${connectionConfig.database}\``,
+        );
       }
     } else if (dbType === 'postgres') {
       const result = await tempKnex.raw(
@@ -45,32 +47,12 @@ export async function ensureDatabaseExists(): Promise<void> {
         [connectionConfig.database],
       );
       if (result.rows.length === 0) {
-        await tempKnex.raw(`CREATE DATABASE "${connectionConfig.database}" WITH ENCODING 'UTF8'`);
+        await tempKnex.raw(
+          `CREATE DATABASE "${connectionConfig.database}" WITH ENCODING 'UTF8'`,
+        );
       }
     }
   } finally {
     await tempKnex.destroy();
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

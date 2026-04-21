@@ -322,9 +322,7 @@ export class KnexService implements LifecycleAware {
 
   getKnex(): ExtendedKnex {
     if (!this.knexInstance) {
-      throw new Error(
-        'Knex instance not initialized. Call init first.',
-      );
+      throw new Error('Knex instance not initialized. Call init first.');
     }
 
     const self = this;
@@ -682,7 +680,9 @@ export class KnexService implements LifecycleAware {
 
     try {
       const tableMetadata =
-        await this.lazyRef.metadataCacheService.getTableMetadata?.(parentTableName);
+        await this.lazyRef.metadataCacheService.getTableMetadata?.(
+          parentTableName,
+        );
       if (tableMetadata && tableMetadata.relations) {
         const relation = tableMetadata.relations.find(
           (r: any) => r.propertyName === relationName,

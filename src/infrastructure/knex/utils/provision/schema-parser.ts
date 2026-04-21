@@ -9,7 +9,9 @@ import {
   KnexTableSchema,
 } from '../../../../shared/types/database-init.types';
 
-export function parseSnapshotToSchema(snapshot: Record<string, any>): KnexTableSchema[] {
+export function parseSnapshotToSchema(
+  snapshot: Record<string, any>,
+): KnexTableSchema[] {
   const schemas: KnexTableSchema[] = [];
   const inverseRelationsToAdd: Array<{ tableName: string; relation: any }> = [];
 
@@ -89,7 +91,10 @@ export function parseSnapshotToSchema(snapshot: Record<string, any>): KnexTableS
             tableName,
           );
 
-          if (createdJunctionNames.has(junctionTableName) || createdJunctionNames.has(reverseJunctionName)) {
+          if (
+            createdJunctionNames.has(junctionTableName) ||
+            createdJunctionNames.has(reverseJunctionName)
+          ) {
             continue;
           }
 
@@ -138,26 +143,15 @@ export function getKnexColumnType(columnDef: ColumnDef): string {
   return typeMap[columnDef.type] || 'text';
 }
 
-export function getPrimaryKeyType(schemas: KnexTableSchema[], tableName: string): 'uuid' | 'integer' {
-  const schema = schemas.find(s => s.tableName === tableName);
+export function getPrimaryKeyType(
+  schemas: KnexTableSchema[],
+  tableName: string,
+): 'uuid' | 'integer' {
+  const schema = schemas.find((s) => s.tableName === tableName);
   if (!schema) return 'integer';
 
-  const pkColumn = schema.definition.columns.find(c => c.isPrimary);
+  const pkColumn = schema.definition.columns.find((c) => c.isPrimary);
   if (!pkColumn) return 'integer';
 
   return pkColumn.type === 'uuid' ? 'uuid' : 'integer';
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -205,12 +205,15 @@ export class MigrationJournalService {
           .where({ uuid: entry.uuid })
           .update({
             status: 'failed',
-            errorMessage: 'Stale migration - automatically marked as failed during recovery',
+            errorMessage:
+              'Stale migration - automatically marked as failed during recovery',
             completedAt: new Date(),
           });
       }
     } catch (error: any) {
-      this.logger.error(`Failed to cleanup stale pending journals: ${error.message}`);
+      this.logger.error(
+        `Failed to cleanup stale pending journals: ${error.message}`,
+      );
     }
   }
 
@@ -225,7 +228,6 @@ export class MigrationJournalService {
       if (deleted > 0) {
         this.logger.log(`Cleaned up ${deleted} old journal entries`);
       }
-    } catch {
-    }
+    } catch {}
   }
 }

@@ -15,7 +15,6 @@ export class DatabaseSchemaService {
     this.lazyRef = deps.lazyRef;
   }
 
-
   async getAllTableSchemas(): Promise<Map<string, any>> {
     const knex = this.lazyRef.knexService.getKnex();
 

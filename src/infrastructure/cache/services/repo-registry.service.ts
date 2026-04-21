@@ -4,7 +4,11 @@ import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { EventEmitter2 } from 'eventemitter2';
 
-type RepoFactory = (tableName: string, context: any, enforceFieldPermission?: boolean) => DynamicRepository;
+type RepoFactory = (
+  tableName: string,
+  context: any,
+  enforceFieldPermission?: boolean,
+) => DynamicRepository;
 
 export class RepoRegistryService {
   private readonly metadataCacheService: MetadataCacheService;
@@ -19,7 +23,10 @@ export class RepoRegistryService {
   }) {
     this.metadataCacheService = deps.metadataCacheService;
     this.repoFactory = deps.dynamicRepository;
-    deps.eventEmitter.on(CACHE_EVENTS.INVALIDATE, this.handleCacheInvalidation.bind(this));
+    deps.eventEmitter.on(
+      CACHE_EVENTS.INVALIDATE,
+      this.handleCacheInvalidation.bind(this),
+    );
   }
 
   async rebuildFromMetadata(
@@ -87,7 +94,11 @@ export class RepoRegistryService {
         return existing;
       }
 
-      const repo = self.repoFactory(resolvedName, context, enforceFieldPermission);
+      const repo = self.repoFactory(
+        resolvedName,
+        context,
+        enforceFieldPermission,
+      );
 
       repoCache.set(resolvedKey, repo);
       repoCache.set(cacheKey, repo);

@@ -95,13 +95,17 @@ export class DataProvisionService {
     this.settingDefinitionProcessor = deps.settingDefinitionProcessor;
     this.extensionDefinitionProcessor = deps.extensionDefinitionProcessor;
     this.folderDefinitionProcessor = deps.folderDefinitionProcessor;
-    this.bootstrapScriptDefinitionProcessor = deps.bootstrapScriptDefinitionProcessor;
-    this.routePermissionDefinitionProcessor = deps.routePermissionDefinitionProcessor;
+    this.bootstrapScriptDefinitionProcessor =
+      deps.bootstrapScriptDefinitionProcessor;
+    this.routePermissionDefinitionProcessor =
+      deps.routePermissionDefinitionProcessor;
     this.websocketDefinitionProcessor = deps.websocketDefinitionProcessor;
-    this.websocketEventDefinitionProcessor = deps.websocketEventDefinitionProcessor;
+    this.websocketEventDefinitionProcessor =
+      deps.websocketEventDefinitionProcessor;
     this.flowDefinitionProcessor = deps.flowDefinitionProcessor;
     this.flowStepDefinitionProcessor = deps.flowStepDefinitionProcessor;
-    this.flowExecutionDefinitionProcessor = deps.flowExecutionDefinitionProcessor;
+    this.flowExecutionDefinitionProcessor =
+      deps.flowExecutionDefinitionProcessor;
     this.graphqlDefinitionProcessor = deps.graphqlDefinitionProcessor;
     this.dbType = this.databaseConfigService.getDbType();
     this.initializeProcessors();
@@ -111,12 +115,21 @@ export class DataProvisionService {
     this.processors.set('user_definition', this.userDefinitionProcessor);
     this.processors.set('menu_definition', this.menuDefinitionProcessor);
     this.processors.set('route_definition', this.routeDefinitionProcessor);
-    this.processors.set('route_handler_definition', this.routeHandlerDefinitionProcessor);
+    this.processors.set(
+      'route_handler_definition',
+      this.routeHandlerDefinitionProcessor,
+    );
     this.processors.set('method_definition', this.methodDefinitionProcessor);
     this.processors.set('pre_hook_definition', this.preHookDefinitionProcessor);
-    this.processors.set('post_hook_definition', this.postHookDefinitionProcessor);
+    this.processors.set(
+      'post_hook_definition',
+      this.postHookDefinitionProcessor,
+    );
     this.processors.set('setting_definition', this.settingDefinitionProcessor);
-    this.processors.set('extension_definition', this.extensionDefinitionProcessor);
+    this.processors.set(
+      'extension_definition',
+      this.extensionDefinitionProcessor,
+    );
     this.processors.set('folder_definition', this.folderDefinitionProcessor);
     this.processors.set(
       'bootstrap_script_definition',
@@ -150,7 +163,10 @@ export class DataProvisionService {
 
     for (const tableName of allTables) {
       if (!registeredTables.includes(tableName)) {
-        this.processors.set(tableName, new GenericTableProcessor({ tableName }));
+        this.processors.set(
+          tableName,
+          new GenericTableProcessor({ tableName }),
+        );
       }
     }
   }

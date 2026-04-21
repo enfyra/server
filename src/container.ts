@@ -152,7 +152,6 @@ import { UploadFileHelper } from './shared/helpers/upload-file.helper';
 import { EnvService } from './shared/services/env.service';
 import { InstanceService } from './shared/services/instance.service';
 
-
 export interface Cradle {
   envService: EnvService;
   eventEmitter: EventEmitter2;
@@ -171,7 +170,6 @@ export interface Cradle {
   policyService: PolicyService;
   schemaMigrationValidatorService: SchemaMigrationValidatorService;
   systemSafetyAuditorService: SystemSafetyAuditorService;
-
 
   mongoService: MongoService;
   mongoSchemaMigrationService: MongoSchemaMigrationService;
@@ -221,7 +219,11 @@ export interface Cradle {
   columnRuleCacheService: ColumnRuleCacheService;
   gqlDefinitionCacheService: GqlDefinitionCacheService;
   repoRegistryService: RepoRegistryService;
-  dynamicRepository: (tableName: string, context: any, enforceFieldPermission?: boolean) => DynamicRepository;
+  dynamicRepository: (
+    tableName: string,
+    context: any,
+    enforceFieldPermission?: boolean,
+  ) => DynamicRepository;
   cacheOrchestratorService: CacheOrchestratorService;
 
   tableHandlerService: TableHandlerService;
@@ -310,7 +312,8 @@ export function buildContainer(): AwilixContainer<Cradle> {
   container.register({
     envService: asClass(EnvService).singleton(),
     configService: asValue({
-      get: (key: string, defaultValue?: any) => (env as any)[key] ?? defaultValue,
+      get: (key: string, defaultValue?: any) =>
+        (env as any)[key] ?? defaultValue,
       getOrThrow: (key: string) => {
         const v = (env as any)[key];
         if (v === undefined) throw new Error(`Config ${key} not found`);
@@ -322,10 +325,30 @@ export function buildContainer(): AwilixContainer<Cradle> {
     ),
     redis: asValue(new Redis(env.REDIS_URI)),
 
-    flowQueue: asValue(new Queue(SYSTEM_QUEUES.FLOW_EXECUTION, { prefix: `${env.NODE_NAME}:`, connection: new Redis(env.REDIS_URI) })),
-    wsConnectionQueue: asValue(new Queue(SYSTEM_QUEUES.WS_CONNECTION, { prefix: `${env.NODE_NAME}:`, connection: new Redis(env.REDIS_URI) })),
-    wsEventQueue: asValue(new Queue(SYSTEM_QUEUES.WS_EVENT, { prefix: `${env.NODE_NAME}:`, connection: new Redis(env.REDIS_URI) })),
-    cleanupQueue: asValue(new Queue(SYSTEM_QUEUES.SESSION_CLEANUP, { prefix: `${env.NODE_NAME}:`, connection: new Redis(env.REDIS_URI) })),
+    flowQueue: asValue(
+      new Queue(SYSTEM_QUEUES.FLOW_EXECUTION, {
+        prefix: `${env.NODE_NAME}:`,
+        connection: new Redis(env.REDIS_URI),
+      }),
+    ),
+    wsConnectionQueue: asValue(
+      new Queue(SYSTEM_QUEUES.WS_CONNECTION, {
+        prefix: `${env.NODE_NAME}:`,
+        connection: new Redis(env.REDIS_URI),
+      }),
+    ),
+    wsEventQueue: asValue(
+      new Queue(SYSTEM_QUEUES.WS_EVENT, {
+        prefix: `${env.NODE_NAME}:`,
+        connection: new Redis(env.REDIS_URI),
+      }),
+    ),
+    cleanupQueue: asValue(
+      new Queue(SYSTEM_QUEUES.SESSION_CLEANUP, {
+        prefix: `${env.NODE_NAME}:`,
+        connection: new Redis(env.REDIS_URI),
+      }),
+    ),
 
     commonService: asClass(CommonService).singleton(),
     databaseConfigService: asClass(DatabaseConfigService).singleton(),
@@ -338,24 +361,37 @@ export function buildContainer(): AwilixContainer<Cradle> {
     userRevocationService: asClass(UserRevocationService).singleton(),
     loggingService: asClass(LoggingService).singleton(),
     policyService: asClass(PolicyService).singleton(),
-    schemaMigrationValidatorService: asClass(SchemaMigrationValidatorService).singleton(),
+    schemaMigrationValidatorService: asClass(
+      SchemaMigrationValidatorService,
+    ).singleton(),
     systemSafetyAuditorService: asClass(SystemSafetyAuditorService).singleton(),
 
     mongoService: asClass(MongoService).singleton(),
-    mongoSchemaMigrationService: asClass(MongoSchemaMigrationService).singleton(),
-    mongoSchemaMigrationLockService: asClass(MongoSchemaMigrationLockService).singleton(),
+    mongoSchemaMigrationService: asClass(
+      MongoSchemaMigrationService,
+    ).singleton(),
+    mongoSchemaMigrationLockService: asClass(
+      MongoSchemaMigrationLockService,
+    ).singleton(),
     mongoSagaLockService: asClass(MongoSagaLockService).singleton(),
-    mongoSagaCoordinator: asFunction((cradle) => new MongoSagaCoordinator({
-      mongoService: cradle.mongoService,
-      lockService: cradle.mongoSagaLockService,
-      logService: cradle.mongoOperationLogService,
-      instanceService: cradle.instanceService,
-      cacheService: cradle.cacheService,
-    })).singleton(),
+    mongoSagaCoordinator: asFunction(
+      (cradle) =>
+        new MongoSagaCoordinator({
+          mongoService: cradle.mongoService,
+          lockService: cradle.mongoSagaLockService,
+          logService: cradle.mongoOperationLogService,
+          instanceService: cradle.instanceService,
+          cacheService: cradle.cacheService,
+        }),
+    ).singleton(),
     mongoOperationLogService: asClass(MongoOperationLogService).singleton(),
-    mongoMigrationJournalService: asClass(MongoMigrationJournalService).singleton(),
+    mongoMigrationJournalService: asClass(
+      MongoMigrationJournalService,
+    ).singleton(),
     mongoSchemaDiffService: asClass(MongoSchemaDiffService).singleton(),
-    mongoRelationManagerService: asClass(MongoRelationManagerService).singleton(),
+    mongoRelationManagerService: asClass(
+      MongoRelationManagerService,
+    ).singleton(),
 
     knexService: asClass(KnexService).singleton(),
     knexHookManagerService: asClass(KnexHookManagerService).singleton(),
@@ -365,7 +401,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     migrationJournalService: asClass(MigrationJournalService).singleton(),
     databaseSchemaService: asClass(DatabaseSchemaService).singleton(),
     schemaMigrationLockService: asClass(SchemaMigrationLockService).singleton(),
-    sqlPoolClusterCoordinatorService: asClass(SqlPoolClusterCoordinatorService).singleton(),
+    sqlPoolClusterCoordinatorService: asClass(
+      SqlPoolClusterCoordinatorService,
+    ).singleton(),
     sqlFunctionService: asClass(SqlFunctionService).singleton(),
 
     queryBuilderService: asClass(QueryBuilderService).singleton(),
@@ -391,12 +429,18 @@ export function buildContainer(): AwilixContainer<Cradle> {
     guardCacheService: asClass(GuardCacheService).singleton(),
     guardEvaluatorService: asClass(GuardEvaluatorService).singleton(),
     settingCacheService: asClass(SettingCacheService).singleton(),
-    fieldPermissionCacheService: asClass(FieldPermissionCacheService).singleton(),
+    fieldPermissionCacheService: asClass(
+      FieldPermissionCacheService,
+    ).singleton(),
     columnRuleCacheService: asClass(ColumnRuleCacheService).singleton(),
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
     dynamicRepository: asFunction((cradle: any) => {
-      return (tableName: string, context: any, enforceFieldPermission?: boolean) => {
+      return (
+        tableName: string,
+        context: any,
+        enforceFieldPermission?: boolean,
+      ) => {
         return new DynamicRepository({
           tableName,
           context,
@@ -416,18 +460,30 @@ export function buildContainer(): AwilixContainer<Cradle> {
     }).singleton(),
     cacheOrchestratorService: asClass(CacheOrchestratorService).singleton(),
 
-    tableHandlerService: asClass(TableHandlerService).singleton().inject((container: any) => ({
-      sqlTableHandlerService: container.cradle.sqlTableHandlerService,
-      mongoTableHandlerService: container.cradle.mongoTableHandlerService,
-      databaseConfigService: container.cradle.databaseConfigService,
-    })),
+    tableHandlerService: asClass(TableHandlerService)
+      .singleton()
+      .inject((container: any) => ({
+        sqlTableHandlerService: container.cradle.sqlTableHandlerService,
+        mongoTableHandlerService: container.cradle.mongoTableHandlerService,
+        databaseConfigService: container.cradle.databaseConfigService,
+      })),
     sqlTableHandlerService: asClass(SqlTableHandlerService).singleton(),
     mongoTableHandlerService: asClass(MongoTableHandlerService).singleton(),
-    tableValidationService: asClass(DynamicApiTableValidationService).singleton(),
-    tableManagementValidationService: asClass(TableManagementValidationService).singleton(),
-    mongoMetadataSnapshotService: asClass(MongoMetadataSnapshotService).singleton(),
-    sqlTableMetadataBuilderService: asClass(SqlTableMetadataBuilderService).singleton(),
-    sqlTableMetadataWriterService: asClass(SqlTableMetadataWriterService).singleton(),
+    tableValidationService: asClass(
+      DynamicApiTableValidationService,
+    ).singleton(),
+    tableManagementValidationService: asClass(
+      TableManagementValidationService,
+    ).singleton(),
+    mongoMetadataSnapshotService: asClass(
+      MongoMetadataSnapshotService,
+    ).singleton(),
+    sqlTableMetadataBuilderService: asClass(
+      SqlTableMetadataBuilderService,
+    ).singleton(),
+    sqlTableMetadataWriterService: asClass(
+      SqlTableMetadataWriterService,
+    ).singleton(),
 
     dynamicService: asClass(DynamicService).singleton(),
 
@@ -460,8 +516,12 @@ export function buildContainer(): AwilixContainer<Cradle> {
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),
     metadataRepairService: asClass(MetadataRepairService).singleton(),
     metadataProvisionService: asClass(MetadataProvisionService).singleton(),
-    metadataProvisionSqlService: asClass(MetadataProvisionSqlService).singleton(),
-    metadataProvisionMongoService: asClass(MetadataProvisionMongoService).singleton(),
+    metadataProvisionSqlService: asClass(
+      MetadataProvisionSqlService,
+    ).singleton(),
+    metadataProvisionMongoService: asClass(
+      MetadataProvisionMongoService,
+    ).singleton(),
     dataProvisionService: asClass(DataProvisionService).singleton(),
     dataMigrationService: asClass(DataMigrationService).singleton(),
     metadataMigrationService: asClass(MetadataMigrationService).singleton(),
@@ -470,21 +530,39 @@ export function buildContainer(): AwilixContainer<Cradle> {
     userDefinitionProcessor: asClass(UserDefinitionProcessor).singleton(),
     menuDefinitionProcessor: asClass(MenuDefinitionProcessor).singleton(),
     routeDefinitionProcessor: asClass(RouteDefinitionProcessor).singleton(),
-    routeHandlerDefinitionProcessor: asClass(RouteHandlerDefinitionProcessor).singleton(),
+    routeHandlerDefinitionProcessor: asClass(
+      RouteHandlerDefinitionProcessor,
+    ).singleton(),
     methodDefinitionProcessor: asClass(MethodDefinitionProcessor).singleton(),
     preHookDefinitionProcessor: asClass(PreHookDefinitionProcessor).singleton(),
-    postHookDefinitionProcessor: asClass(PostHookDefinitionProcessor).singleton(),
+    postHookDefinitionProcessor: asClass(
+      PostHookDefinitionProcessor,
+    ).singleton(),
     hookDefinitionProcessor: asClass(HookDefinitionProcessor).singleton(),
     settingDefinitionProcessor: asClass(SettingDefinitionProcessor).singleton(),
-    extensionDefinitionProcessor: asClass(ExtensionDefinitionProcessor).singleton(),
+    extensionDefinitionProcessor: asClass(
+      ExtensionDefinitionProcessor,
+    ).singleton(),
     folderDefinitionProcessor: asClass(FolderDefinitionProcessor).singleton(),
-    bootstrapScriptDefinitionProcessor: asClass(BootstrapScriptDefinitionProcessor).singleton(),
-    routePermissionDefinitionProcessor: asClass(RoutePermissionDefinitionProcessor).singleton(),
-    websocketDefinitionProcessor: asClass(WebsocketDefinitionProcessor).singleton(),
-    websocketEventDefinitionProcessor: asClass(WebsocketEventDefinitionProcessor).singleton(),
+    bootstrapScriptDefinitionProcessor: asClass(
+      BootstrapScriptDefinitionProcessor,
+    ).singleton(),
+    routePermissionDefinitionProcessor: asClass(
+      RoutePermissionDefinitionProcessor,
+    ).singleton(),
+    websocketDefinitionProcessor: asClass(
+      WebsocketDefinitionProcessor,
+    ).singleton(),
+    websocketEventDefinitionProcessor: asClass(
+      WebsocketEventDefinitionProcessor,
+    ).singleton(),
     flowDefinitionProcessor: asClass(FlowDefinitionProcessor).singleton(),
-    flowStepDefinitionProcessor: asClass(FlowStepDefinitionProcessor).singleton(),
-    flowExecutionDefinitionProcessor: asClass(FlowExecutionDefinitionProcessor).singleton(),
+    flowStepDefinitionProcessor: asClass(
+      FlowStepDefinitionProcessor,
+    ).singleton(),
+    flowExecutionDefinitionProcessor: asClass(
+      FlowExecutionDefinitionProcessor,
+    ).singleton(),
     graphqlDefinitionProcessor: asClass(GraphQLDefinitionProcessor).singleton(),
     genericTableProcessor: asClass(GenericTableProcessor).singleton(),
   });

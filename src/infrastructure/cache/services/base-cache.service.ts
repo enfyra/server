@@ -141,7 +141,9 @@ export abstract class BaseCacheService<T> {
 
   getRawCache(): T {
     if (this.isLoading && this.loadingPromise) {
-      this.logger.warn('Cache reload in progress, returning stale data. Consider using await ensureLoaded() before access.');
+      this.logger.warn(
+        'Cache reload in progress, returning stale data. Consider using await ensureLoaded() before access.',
+      );
     }
     return this.cache;
   }

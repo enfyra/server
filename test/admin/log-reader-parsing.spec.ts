@@ -49,7 +49,11 @@ describe('LogReaderService — compat with pino JSON output', () => {
     });
 
     const reader = new LogReaderService();
-    const content = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
+    const content = fs
+      .readFileSync(file, 'utf-8')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
     expect(content.length).toBeGreaterThan(0);
     const parsed = (reader as any).parseLogLine(content[0]);
     expect(parsed.level).toBe('info');
@@ -74,10 +78,18 @@ describe('LogReaderService — compat with pino JSON output', () => {
     logger.info({ correlationId: 'req_b', context: 'Y' }, 'line-b');
 
     const reader = new LogReaderService();
-    const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
-    const match = (reader as any);
-    expect(match.matchesFilter(lines[0], undefined, undefined, undefined, 'req_a')).toBe(true);
-    expect(match.matchesFilter(lines[1], undefined, undefined, undefined, 'req_a')).toBe(false);
+    const lines = fs
+      .readFileSync(file, 'utf-8')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    const match = reader as any;
+    expect(
+      match.matchesFilter(lines[0], undefined, undefined, undefined, 'req_a'),
+    ).toBe(true);
+    expect(
+      match.matchesFilter(lines[1], undefined, undefined, undefined, 'req_a'),
+    ).toBe(false);
   });
 
   it('matchesFilter respects level match', () => {
@@ -93,8 +105,12 @@ describe('LogReaderService — compat with pino JSON output', () => {
     logger.info({}, 'info-line');
     logger.error({}, 'error-line');
     const reader = new LogReaderService();
-    const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
-    const m = (reader as any);
+    const lines = fs
+      .readFileSync(file, 'utf-8')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    const m = reader as any;
     expect(m.matchesFilter(lines[0], undefined, 'info')).toBe(true);
     expect(m.matchesFilter(lines[0], undefined, 'error')).toBe(false);
     expect(m.matchesFilter(lines[1], undefined, 'error')).toBe(true);
@@ -130,6 +146,10 @@ describe('LogReaderService — compat with pino JSON output', () => {
 
     const reader = new LogReaderService();
     const tail = reader.tailLog('app-2026-04-19.log', 3) as any;
-    expect(tail.lines.map((l: any) => l.message)).toEqual(['three', 'two', 'one']);
+    expect(tail.lines.map((l: any) => l.message)).toEqual([
+      'three',
+      'two',
+      'one',
+    ]);
   });
 });

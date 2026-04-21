@@ -135,8 +135,7 @@ export class MongoMigrationJournalService {
           `Cleaned up ${result.deletedCount} old journal entries`,
         );
       }
-    } catch {
-    }
+    } catch {}
   }
   async recoverPending(
     executeDiff: (diff: any) => Promise<void>,

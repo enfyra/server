@@ -103,8 +103,14 @@ export interface StepExecOptions {
 }
 
 export async function executeStepCore(opts: StepExecOptions): Promise<any> {
-  const { type, config, timeout, ctx, executorEngineService, shouldTransformCode } =
-    opts;
+  const {
+    type,
+    config,
+    timeout,
+    ctx,
+    executorEngineService,
+    shouldTransformCode,
+  } = opts;
 
   switch (type) {
     case 'script': {

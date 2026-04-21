@@ -21,7 +21,8 @@ export class MongoRelationManagerService {
   }
 
   async stripInverseRelations(tableName: string, data: any): Promise<any> {
-    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata?.relations) {
       return data;
     }
@@ -48,7 +49,8 @@ export class MongoRelationManagerService {
     newData: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return;
     }
@@ -181,7 +183,8 @@ export class MongoRelationManagerService {
     insertOne: (collectionName: string, data: any) => Promise<any>,
     updateOne: (collectionName: string, id: string, data: any) => Promise<any>,
   ): Promise<any> {
-    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata || !metadata.relations) {
       return data;
     }
@@ -317,7 +320,8 @@ export class MongoRelationManagerService {
     recordData: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
 
     if (metadata?.relations) {
       for (const relation of metadata.relations) {
@@ -416,7 +420,8 @@ export class MongoRelationManagerService {
   private async isSystemFilterIfApplicable(
     targetCollection: string,
   ): Promise<Record<string, unknown>> {
-    const meta = await this.metadataCacheService.lookupTableByName(targetCollection);
+    const meta =
+      await this.metadataCacheService.lookupTableByName(targetCollection);
     const has = !!meta?.columns?.some(
       (c: { name?: string }) => c.name === 'isSystem',
     );
@@ -593,7 +598,8 @@ export class MongoRelationManagerService {
     const pending = this.getM2mPending(data);
     if (!pending || pending.size === 0) return;
 
-    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const [propertyName, targetIds] of pending.entries()) {
@@ -629,7 +635,8 @@ export class MongoRelationManagerService {
     const pending = this.getM2mPending(data);
     if (!pending || pending.size === 0) return;
 
-    const metadata = await this.metadataCacheService.lookupTableByName(tableName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(tableName);
     if (!metadata?.relations) return;
 
     for (const [propertyName, targetIds] of pending.entries()) {
@@ -735,7 +742,8 @@ export class MongoRelationManagerService {
     data: any,
     getCollection: (name: string) => Collection<Document>,
   ): Promise<void> {
-    const metadata = await this.metadataCacheService.lookupTableByName(collectionName);
+    const metadata =
+      await this.metadataCacheService.lookupTableByName(collectionName);
     if (!metadata?.relations) {
       return;
     }

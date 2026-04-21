@@ -273,9 +273,10 @@ export class DynamicWebSocketGateway {
             let script = builtInScript;
             let freshEvent: any = event;
             if (!script) {
-              const freshGateway = await this.websocketCacheService.getGatewayByPath(
-                gatewayData.path,
-              );
+              const freshGateway =
+                await this.websocketCacheService.getGatewayByPath(
+                  gatewayData.path,
+                );
               freshEvent =
                 freshGateway?.events?.find(
                   (e: any) => e.eventName === eventName,

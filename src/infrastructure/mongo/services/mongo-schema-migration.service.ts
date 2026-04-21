@@ -1,4 +1,5 @@
 import { Logger } from '../../../shared/logger';
+import { ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
@@ -186,7 +187,9 @@ export class MongoSchemaMigrationService {
           newMetadata,
         );
         if (journalUuid) {
-          await this.migrationJournalService.markCompleted(journalUuid).catch(() => {});
+          await this.migrationJournalService
+            .markCompleted(journalUuid)
+            .catch(() => {});
         }
       } catch (execError) {
         if (journalUuid) {
@@ -457,7 +460,6 @@ export class MongoSchemaMigrationService {
       );
       return;
     }
-    const { ObjectId } = require('mongodb');
     const db = this.mongoService.getDb();
     const tableId = snapshot.table._id;
     const oid = typeof tableId === 'string' ? new ObjectId(tableId) : tableId;

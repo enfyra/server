@@ -1,6 +1,9 @@
 import { Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
-import { TokenExpiredException, InvalidTokenException } from '../../core/exceptions/custom-exceptions';
+import {
+  TokenExpiredException,
+  InvalidTokenException,
+} from '../../core/exceptions/custom-exceptions';
 import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
 import { CacheService } from '../../infrastructure/cache/services/cache.service';
 import {

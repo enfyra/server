@@ -51,7 +51,9 @@ export class SqlPoolClusterCoordinatorService {
   }
 
   private resolveDbServerHash(): string {
-    const dbUri = (this as any).configService?.get?.('DB_URI') || (global as any).__env?.DB_URI;
+    const dbUri =
+      (this as any).configService?.get?.('DB_URI') ||
+      (global as any).__env?.DB_URI;
     let host: string;
     let port: number;
     if (dbUri) {

@@ -29,12 +29,7 @@ export class BusinessLogicException extends CustomException {
 
 export class ValidationException extends CustomException {
   constructor(message: string, details?: any) {
-    super(
-      message,
-      422,
-      'VALIDATION_ERROR',
-      details,
-    );
+    super(message, 422, 'VALIDATION_ERROR', details);
   }
 }
 
@@ -93,11 +88,7 @@ export class DatabaseException extends CustomException {
 
 export class DatabaseConnectionException extends CustomException {
   constructor() {
-    super(
-      'Database connection failed',
-      503,
-      'DATABASE_CONNECTION_ERROR',
-    );
+    super('Database connection failed', 503, 'DATABASE_CONNECTION_ERROR');
   }
 }
 
@@ -170,12 +161,9 @@ export class SchemaException extends CustomException {
 
 export class ConfigurationException extends CustomException {
   constructor(message: string, configKey?: string) {
-    super(
-      `Configuration error: ${message}`,
-      500,
-      'CONFIGURATION_ERROR',
-      { configKey },
-    );
+    super(`Configuration error: ${message}`, 500, 'CONFIGURATION_ERROR', {
+      configKey,
+    });
   }
 }
 
@@ -187,12 +175,7 @@ export class FileUploadException extends CustomException {
 
 export class FileNotFoundException extends CustomException {
   constructor(filePath: string) {
-    super(
-      `File not found: ${filePath}`,
-      404,
-      'FILE_NOT_FOUND',
-      { filePath },
-    );
+    super(`File not found: ${filePath}`, 404, 'FILE_NOT_FOUND', { filePath });
   }
 }
 
@@ -244,12 +227,17 @@ export class NotFoundException extends CustomException {
 export class HttpException extends CustomException {
   private _response: string | object;
   constructor(message: string | object, statusCode: number) {
-    const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+    const messageStr =
+      typeof message === 'string' ? message : JSON.stringify(message);
     super(messageStr, statusCode, 'HTTP_ERROR');
     this._response = message;
   }
-  getStatus() { return this.statusCode; }
-  getResponse() { return this._response; }
+  getStatus() {
+    return this.statusCode;
+  }
+  getResponse() {
+    return this._response;
+  }
 }
 
 export class MethodNotAllowedException extends CustomException {

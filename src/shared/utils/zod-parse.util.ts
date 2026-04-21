@@ -32,15 +32,18 @@ function formatIssue(issue: ZodIssueLike): string {
         if (min === 1) return `${field} should not be empty`;
         return `${field} must be at least ${min} characters`;
       }
-      if (origin === 'array') return `${field} must contain at least ${min} items`;
+      if (origin === 'array')
+        return `${field} must contain at least ${min} items`;
       if (origin === 'number') return `${field} must be at least ${min}`;
       return `${field} is too small`;
     }
     case 'too_big': {
       const max = (issue as any).maximum;
       const origin = (issue as any).origin;
-      if (origin === 'string') return `${field} must be at most ${max} characters`;
-      if (origin === 'array') return `${field} must contain at most ${max} items`;
+      if (origin === 'string')
+        return `${field} must be at most ${max} characters`;
+      if (origin === 'array')
+        return `${field} must contain at most ${max} items`;
       if (origin === 'number') return `${field} must be at most ${max}`;
       return `${field} is too big`;
     }

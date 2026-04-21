@@ -506,4 +506,9 @@ export class MongoSagaCoordinator {
   }
 }
 
-export type { ISagaContext, ISagaOptions, ISagaResult, ISagaRecoveryMetrics } from './mongo-saga.types';
+export type {
+  ISagaContext,
+  ISagaOptions,
+  ISagaResult,
+  ISagaRecoveryMetrics,
+} from './mongo-saga.types';

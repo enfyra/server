@@ -156,7 +156,11 @@ describe('DynamicWebSocketGateway.roomSize — real Socket.IO + Redis adapter', 
       forceNew: true,
     });
     clients.push(c1, c2, c3);
-    await Promise.all([waitConnected(c1), waitConnected(c2), waitConnected(c3)]);
+    await Promise.all([
+      waitConnected(c1),
+      waitConnected(c2),
+      waitConnected(c3),
+    ]);
 
     await new Promise<void>((resolve) =>
       c1.emit('join', 'meeting_42', () => resolve()),

@@ -23,18 +23,19 @@ export function buildTableSchema(
     if (col.isPrimary && col.isGenerated) {
       if (col.type === 'uuid') {
         if (dbType === 'postgres') {
-          column = table.uuid(col.name).primary().defaultTo(knex.raw('gen_random_uuid()'));
+          column = table
+            .uuid(col.name)
+            .primary()
+            .defaultTo(knex.raw('gen_random_uuid()'));
         } else {
           column = table.uuid(col.name).primary();
         }
       } else {
         column = table.increments(col.name).primary();
       }
-    }
-    else if (col.type === 'enum' && Array.isArray(col.options)) {
+    } else if (col.type === 'enum' && Array.isArray(col.options)) {
       column = table.enum(col.name, col.options);
-    }
-    else {
+    } else {
       switch (knexType) {
         case 'integer':
           column = table.integer(col.name);
@@ -78,7 +79,10 @@ export function buildTableSchema(
     }
 
     if (col.defaultValue !== undefined && col.defaultValue !== null) {
-      if (typeof col.defaultValue === 'string' && col.defaultValue.toLowerCase() === 'now') {
+      if (
+        typeof col.defaultValue === 'string' &&
+        col.defaultValue.toLowerCase() === 'now'
+      ) {
         column.defaultTo(knex.fn.now());
       } else {
         if (col.type === 'boolean') {
@@ -111,7 +115,10 @@ export function buildTableSchema(
         continue;
       }
 
-      if (relation.type === 'one-to-one' && (relation as any)._isInverseGenerated) {
+      if (
+        relation.type === 'one-to-one' &&
+        (relation as any)._isInverseGenerated
+      ) {
         continue;
       }
 
@@ -151,7 +158,9 @@ export function buildTableSchema(
     for (const uniqueGroup of definition.uniques) {
       if (Array.isArray(uniqueGroup) && uniqueGroup.length > 0) {
         const columnNames = uniqueGroup.map((fieldName) => {
-          const relation = definition.relations?.find(r => r.propertyName === fieldName);
+          const relation = definition.relations?.find(
+            (r) => r.propertyName === fieldName,
+          );
           if (relation) {
             return getForeignKeyColumnName(relation.propertyName);
           }
@@ -169,14 +178,18 @@ export function buildTableSchema(
     for (const indexGroup of definition.indexes) {
       if (Array.isArray(indexGroup) && indexGroup.length > 0) {
         const columnNames = indexGroup.map((fieldName) => {
-          const relation = definition.relations?.find(r => r.propertyName === fieldName);
+          const relation = definition.relations?.find(
+            (r) => r.propertyName === fieldName,
+          );
           if (relation) {
             return getForeignKeyColumnName(relation.propertyName);
           }
           return fieldName;
         });
         for (const c of columnNames) indexedColumns.add(c);
-        const physicalCols = columnNames.includes('id') ? columnNames : [...columnNames, 'id'];
+        const physicalCols = columnNames.includes('id')
+          ? columnNames
+          : [...columnNames, 'id'];
         table.index(physicalCols, `idx_${tableName}_${columnNames.join('_')}`);
       }
     }
@@ -195,8 +208,11 @@ export function buildTableSchema(
   table.index(['updatedAt', 'id'], `idx_${tableName}_updatedAt`);
   indexedColumns.add('updatedAt');
 
-  const timestampFields = definition.columns.filter(col =>
-    col.type === 'datetime' || col.type === 'timestamp' || col.type === 'date'
+  const timestampFields = definition.columns.filter(
+    (col) =>
+      col.type === 'datetime' ||
+      col.type === 'timestamp' ||
+      col.type === 'date',
   );
 
   for (const field of timestampFields) {
@@ -237,7 +253,9 @@ export async function createAllTables(
       } catch (error) {
         const nowExists = await knex.schema.hasTable(schema.tableName);
         if (nowExists) {
-          console.log(`⏩ Table created by another instance: ${schema.tableName}`);
+          console.log(
+            `⏩ Table created by another instance: ${schema.tableName}`,
+          );
         } else {
           throw error;
         }
@@ -253,4 +271,3 @@ export async function createAllTables(
 
   console.log('✅ All tables created successfully!');
 }
-

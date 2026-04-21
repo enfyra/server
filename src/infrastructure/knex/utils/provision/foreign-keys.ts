@@ -28,7 +28,10 @@ export async function addForeignKeys(
         continue;
       }
 
-      if (relation.type === 'one-to-one' && (relation as any)._isInverseGenerated) {
+      if (
+        relation.type === 'one-to-one' &&
+        (relation as any)._isInverseGenerated
+      ) {
         continue;
       }
 
@@ -68,13 +71,17 @@ export async function addForeignKeys(
     } catch (error) {
       const msg = (error?.message || '').toLowerCase();
       if (msg.includes('already exists') || msg.includes('duplicate')) {
-        console.log(`  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.foreignKeyColumn}`);
+        console.log(
+          `  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.foreignKeyColumn}`,
+        );
       } else {
-        console.error(`  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.foreignKeyColumn}:`, error.message);
+        console.error(
+          `  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.foreignKeyColumn}:`,
+          error.message,
+        );
       }
     }
   }
 
   console.log('✅ Foreign keys added');
 }
-

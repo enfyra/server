@@ -25,7 +25,9 @@ export interface WebSocketGateway {
   events: WebSocketEvent[];
 }
 
-export class WebsocketCacheService extends BaseCacheService<WebSocketGateway[]> {
+export class WebsocketCacheService extends BaseCacheService<
+  WebSocketGateway[]
+> {
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {

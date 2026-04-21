@@ -43,7 +43,11 @@ export class MetadataProvisionSqlService {
   }
   private async ensureCoreTables(): Promise<void> {
     const qb = this.queryBuilderService.getConnection();
-    const coreTables = ['table_definition', 'column_definition', 'relation_definition'];
+    const coreTables = [
+      'table_definition',
+      'column_definition',
+      'relation_definition',
+    ];
 
     for (const tableName of coreTables) {
       const exists = await qb.schema.hasTable(tableName);
@@ -66,7 +70,13 @@ export class MetadataProvisionSqlService {
         } else if (tableName === 'column_definition') {
           await qb.schema.createTable(tableName, (table) => {
             table.increments('id').primary();
-            table.integer('tableId').notNullable().unsigned().references('id').inTable('table_definition').onDelete('CASCADE');
+            table
+              .integer('tableId')
+              .notNullable()
+              .unsigned()
+              .references('id')
+              .inTable('table_definition')
+              .onDelete('CASCADE');
             table.string('name').notNullable();
             table.string('type').notNullable();
             table.boolean('isPrimary').notNullable().defaultTo(false);
@@ -86,9 +96,27 @@ export class MetadataProvisionSqlService {
         } else if (tableName === 'relation_definition') {
           await qb.schema.createTable(tableName, (table) => {
             table.increments('id').primary();
-            table.integer('sourceTableId').notNullable().unsigned().references('id').inTable('table_definition').onDelete('CASCADE');
-            table.integer('targetTableId').nullable().unsigned().references('id').inTable('table_definition').onDelete('SET NULL');
-            table.integer('mappedById').nullable().unsigned().references('id').inTable('relation_definition').onDelete('CASCADE');
+            table
+              .integer('sourceTableId')
+              .notNullable()
+              .unsigned()
+              .references('id')
+              .inTable('table_definition')
+              .onDelete('CASCADE');
+            table
+              .integer('targetTableId')
+              .nullable()
+              .unsigned()
+              .references('id')
+              .inTable('table_definition')
+              .onDelete('SET NULL');
+            table
+              .integer('mappedById')
+              .nullable()
+              .unsigned()
+              .references('id')
+              .inTable('relation_definition')
+              .onDelete('CASCADE');
             table.string('type').notNullable();
             table.string('propertyName').notNullable();
             table.boolean('isNullable').notNullable().defaultTo(true);
@@ -132,7 +160,9 @@ export class MetadataProvisionSqlService {
       for (const [name, defRaw] of tableEntries) {
         const def = defRaw as any;
         if (!def.name) {
-          this.logger.error(`Table definition has no 'name' property: ${JSON.stringify(Object.keys(def))}`);
+          this.logger.error(
+            `Table definition has no 'name' property: ${JSON.stringify(Object.keys(def))}`,
+          );
           continue;
         }
         const exist = existingTableMap.get(def.name);
@@ -154,7 +184,9 @@ export class MetadataProvisionSqlService {
         } else {
           const { columns, relations, ...rest } = def;
           if (!rest.name) {
-            this.logger.error(`Table definition missing 'name' field: ${JSON.stringify(rest)}`);
+            this.logger.error(
+              `Table definition missing 'name' field: ${JSON.stringify(rest)}`,
+            );
             continue;
           }
           const insertedId = await this.insertAndGetId(
@@ -529,7 +561,9 @@ export class MetadataProvisionSqlService {
       case 'uuid':
         column = tableBuilder.uuid(col.name);
         if (col.isGenerated && col.isPrimary) {
-          column = column.defaultTo(this.queryBuilderService.getConnection().raw('(UUID())'));
+          column = column.defaultTo(
+            this.queryBuilderService.getConnection().raw('(UUID())'),
+          );
         }
         break;
       case 'timestamp':
@@ -543,7 +577,11 @@ export class MetadataProvisionSqlService {
         column = tableBuilder.enum(col.name, col.options || []);
         break;
       case 'decimal':
-        column = tableBuilder.decimal(col.name, col.precision || 10, col.scale || 2);
+        column = tableBuilder.decimal(
+          col.name,
+          col.precision || 10,
+          col.scale || 2,
+        );
         break;
       case 'float':
         column = tableBuilder.float(col.name);
@@ -561,7 +599,9 @@ export class MetadataProvisionSqlService {
     if (col.defaultValue !== null && col.defaultValue !== undefined) {
       if (col.defaultValue === 'now') {
         if (col.type === 'timestamp' || col.type === 'datetime') {
-          column = column.defaultTo(this.queryBuilderService.getConnection().raw('CURRENT_TIMESTAMP'));
+          column = column.defaultTo(
+            this.queryBuilderService.getConnection().raw('CURRENT_TIMESTAMP'),
+          );
         } else if (col.type === 'date') {
           column = column.defaultTo('2099-12-31');
         }

@@ -42,7 +42,9 @@ function makeCache(tables: any[]) {
   return {
     getAllTablesMetadata: vi.fn().mockResolvedValue(tables),
     clearMetadataCache: vi.fn().mockResolvedValue(undefined),
-    getMetadata: vi.fn().mockResolvedValue({ tables: new Map(), tablesList: tables }),
+    getMetadata: vi
+      .fn()
+      .mockResolvedValue({ tables: new Map(), tablesList: tables }),
   } as any;
 }
 
@@ -88,9 +90,7 @@ describe('MetadataRepairService.runIfNeeded', () => {
       makeTable({
         uniques: [['name']],
         indexes: [['createdAt']],
-        relations: [
-          { propertyName: 'author', foreignKeyColumn: 'authorId' },
-        ],
+        relations: [{ propertyName: 'author', foreignKeyColumn: 'authorId' }],
       }),
     ]);
     const svc = new MetadataRepairService({
@@ -153,9 +153,7 @@ describe('MetadataRepairService.runIfNeeded', () => {
         name: 'user_definition',
         isSystem: true,
         indexes: [['userId']],
-        relations: [
-          { propertyName: 'user', foreignKeyColumn: 'userId' },
-        ],
+        relations: [{ propertyName: 'user', foreignKeyColumn: 'userId' }],
       }),
     ]);
     const svc = new MetadataRepairService({
@@ -178,9 +176,7 @@ describe('MetadataRepairService.runIfNeeded', () => {
       makeTable({
         uniques: [['provider', 'providerUserId']],
         indexes: [['user']],
-        relations: [
-          { propertyName: 'user', foreignKeyColumn: 'userId' },
-        ],
+        relations: [{ propertyName: 'user', foreignKeyColumn: 'userId' }],
       }),
     ]);
     const svc = new MetadataRepairService({
@@ -204,9 +200,7 @@ describe('MetadataRepairService.runIfNeeded', () => {
         id: 7,
         uniques: JSON.stringify([['authorId']]),
         indexes: JSON.stringify([]),
-        relations: [
-          { propertyName: 'author', foreignKeyColumn: 'authorId' },
-        ],
+        relations: [{ propertyName: 'author', foreignKeyColumn: 'authorId' }],
       }),
     ]);
     const svc = new MetadataRepairService({

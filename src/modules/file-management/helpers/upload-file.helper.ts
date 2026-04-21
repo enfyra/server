@@ -132,10 +132,15 @@ export class UploadFileHelper {
     let config;
 
     if (storageConfigId) {
-      config = await this.storageConfigCacheService.getStorageConfigById(storageConfigId);
+      config =
+        await this.storageConfigCacheService.getStorageConfigById(
+          storageConfigId,
+        );
     } else {
       config =
-        await this.storageConfigCacheService.getStorageConfigByType('Local Storage');
+        await this.storageConfigCacheService.getStorageConfigByType(
+          'Local Storage',
+        );
 
       if (!config) {
         throw new BadRequestException('No local storage configured');

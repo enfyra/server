@@ -677,5 +677,11 @@
             "isEnabled": true,
             "isSystem": true
         }
+    ],
+    "table_definition": [
+        {
+            "_unique": { "name": { "_eq": "file_definition" } },
+            "validateBody": false
+        }
     ]
 }

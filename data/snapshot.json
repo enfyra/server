@@ -269,8 +269,8 @@
             { "name": "description", "type": "text", "isSystem": true, "description": "Description of what this handler does" }
         ],
         "relations": [
-            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": true, "onDelete": "CASCADE", "description": "The route this handler is attached to" },
-            { "propertyName": "method", "type": "many-to-one", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": true, "description": "HTTP method (GET, POST, etc.) this handler responds to" }
+            { "propertyName": "route", "type": "many-to-one", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": false, "onDelete": "CASCADE", "description": "The route this handler is attached to" },
+            { "propertyName": "method", "type": "many-to-one", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "handlers", "isNullable": false, "onDelete": "CASCADE", "description": "HTTP method (GET, POST, etc.) this handler responds to" }
         ]
     },
     "pre_hook_definition": {
