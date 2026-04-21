@@ -54,6 +54,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
     'route',
     'graphql',
     'fieldPermission',
+    'column-rule',
   ],
   column_definition: [
     'metadata',
@@ -61,6 +62,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
     'route',
     'graphql',
     'fieldPermission',
+    'column-rule',
   ],
   relation_definition: [
     'metadata',
@@ -68,6 +70,7 @@ export const RELOAD_CHAINS: Record<string, string[]> = {
     'route',
     'graphql',
     'fieldPermission',
+    'column-rule',
   ],
 
   route_definition: ['route', 'graphql', 'guard'],

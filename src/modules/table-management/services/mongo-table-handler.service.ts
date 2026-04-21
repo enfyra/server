@@ -936,6 +936,16 @@ export class MongoTableHandlerService {
                   : inserted._id;
             }
             columnIds.push(colObjectId);
+            await this.writeNestedRulesMongo({
+              rules: (col as any).rules,
+              subjectFk: 'column',
+              subjectFkValue: colObjectId,
+            });
+            await this.writeNestedFieldPermissionsMongo({
+              permissions: (col as any).fieldPermissions,
+              subjectFk: 'column',
+              subjectFkValue: colObjectId,
+            });
           }
         }
         stepLog(
@@ -1110,6 +1120,11 @@ export class MongoTableHandlerService {
                   : inserted._id;
             }
             relationIds.push(relObjectId);
+            await this.writeNestedFieldPermissionsMongo({
+              permissions: (rel as any).fieldPermissions,
+              subjectFk: 'relation',
+              subjectFkValue: relObjectId,
+            });
             if (rel.inversePropertyName && !(rel._id || rel.id)) {
               if (rel.mappedBy) {
                 throw new ValidationException(
@@ -1464,6 +1479,92 @@ export class MongoTableHandlerService {
       }
     });
   }
+  private async writeNestedRulesMongo(opts: {
+    rules: any[] | undefined;
+    subjectFk: 'column' | 'relation';
+    subjectFkValue: any;
+  }): Promise<void> {
+    if (!Array.isArray(opts.rules)) return;
+    const { data: existing } = await this.queryBuilderService.find({
+      table: 'column_rule_definition',
+      where: { [opts.subjectFk]: opts.subjectFkValue },
+    });
+    const deletedIds = getDeletedIds(existing, opts.rules);
+    for (const rid of deletedIds) {
+      await this.queryBuilderService.delete('column_rule_definition', rid);
+    }
+    for (const rule of opts.rules) {
+      const ruleData: any = {
+        ruleType: rule.ruleType,
+        value: rule.value ?? null,
+        message: rule.message ?? null,
+        isEnabled: rule.isEnabled !== false,
+        [opts.subjectFk]: opts.subjectFkValue,
+      };
+      const ruleId = rule._id || rule.id;
+      if (ruleId) {
+        await this.queryBuilderService.update(
+          'column_rule_definition',
+          ruleId,
+          ruleData,
+        );
+      } else {
+        await this.queryBuilderService.insert('column_rule_definition', ruleData);
+      }
+    }
+  }
+
+  private async writeNestedFieldPermissionsMongo(opts: {
+    permissions: any[] | undefined;
+    subjectFk: 'column' | 'relation';
+    subjectFkValue: any;
+  }): Promise<void> {
+    if (!Array.isArray(opts.permissions)) return;
+    const { data: existing } = await this.queryBuilderService.find({
+      table: 'field_permission_definition',
+      where: { [opts.subjectFk]: opts.subjectFkValue },
+    });
+    const deletedIds = getDeletedIds(existing, opts.permissions);
+    for (const pid of deletedIds) {
+      await this.queryBuilderService.delete('field_permission_definition', pid);
+    }
+    for (const perm of opts.permissions) {
+      const roleRef =
+        perm.role && typeof perm.role === 'object'
+          ? perm.role._id || perm.role.id
+          : perm.role;
+      const allowedUserIds = Array.isArray(perm.allowedUsers)
+        ? perm.allowedUsers
+            .map((u: any) => (typeof u === 'object' ? u._id || u.id : u))
+            .filter((v: any) => v != null)
+        : undefined;
+      const permData: any = {
+        action: perm.action,
+        effect: perm.effect ?? 'allow',
+        condition: perm.condition ?? null,
+        isEnabled: perm.isEnabled !== false,
+        description: perm.description ?? null,
+        role: roleRef ?? null,
+        column: opts.subjectFk === 'column' ? opts.subjectFkValue : null,
+        relation: opts.subjectFk === 'relation' ? opts.subjectFkValue : null,
+        ...(allowedUserIds !== undefined && { allowedUsers: allowedUserIds }),
+      };
+      const permId = perm._id || perm.id;
+      if (permId) {
+        await this.queryBuilderService.update(
+          'field_permission_definition',
+          permId,
+          permData,
+        );
+      } else {
+        await this.queryBuilderService.insert(
+          'field_permission_definition',
+          permData,
+        );
+      }
+    }
+  }
+
   private async getFullTableMetadata(tableId: any): Promise<any> {
     const { ObjectId } = require('mongodb');
     const queryId =

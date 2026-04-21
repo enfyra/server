@@ -1,4 +1,4 @@
-import { isEqual } from 'lodash';
+import { isDeepStrictEqual as isEqual } from 'node:util';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';

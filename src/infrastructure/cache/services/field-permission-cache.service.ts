@@ -94,6 +94,11 @@ export class FieldPermissionCacheService extends BaseCacheService<
     if (!this.cache) {
       throw new Error('Cache not initialized, cannot partial reload');
     }
+    if (payload.table !== 'field_permission_definition') {
+      throw new Error(
+        'partial reload by non-field_permission_definition payload unsupported',
+      );
+    }
     const ids = (payload.ids ?? []).map(String);
     if (ids.length === 0) return;
 

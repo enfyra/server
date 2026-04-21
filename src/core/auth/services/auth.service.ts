@@ -75,7 +75,7 @@ export class AuthService {
       !user.password ||
       !(await this.bcryptService.compare(password, user.password))
     ) {
-      throw new BadRequestException(`Login failed!`);
+      throw new BadRequestException('Invalid email or password');
     }
 
     const isMongoDB = this.queryBuilder.isMongoDb();
