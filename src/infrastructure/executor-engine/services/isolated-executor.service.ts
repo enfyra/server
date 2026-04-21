@@ -21,6 +21,8 @@ import {
   WORKER_FLOOR,
   WORKER_HYSTERESIS_TICKS,
   WORKER_DISPATCH_RSS_CEILING,
+  WORKER_HEAP_ROTATE_THRESHOLD,
+  WORKER_DRAIN_TIMEOUT_MS,
 } from '../../../shared/utils/auto-scaling.constants';
 
 const WORKER_SCRIPT = path.join(__dirname, '../workers/executor.worker.js');
@@ -37,18 +39,22 @@ interface TaskReg {
   abortController: AbortController;
 }
 
-interface PoolEntry {
+export interface PoolEntry {
   worker: Worker;
   tasks: Map<string, TaskReg>;
+  draining: boolean;
+  spawnedAt: number;
+  drainTimeout?: ReturnType<typeof setTimeout>;
 }
 
-class WorkerPool {
+export class WorkerPool {
   private readonly entries: PoolEntry[] = [];
   private readonly waiting: Array<(e: PoolEntry) => void> = [];
   private max: number;
   private readonly effectiveMemory: number;
   private readonly rssCeiling: number;
   private readonly tasksCap: number;
+  private readonly drainTimeoutMs: number;
   private cachedMemoryOk = true;
   private lastMemoryCheckMs = 0;
   private readonly memorySampleIntervalMs = 200;
@@ -60,29 +66,59 @@ class WorkerPool {
     tasksCap: number,
     private readonly scriptPath: string,
     private readonly onCrash?: () => void,
+    private readonly onRotate?: (info: {
+      reason: string;
+      ageMs: number;
+    }) => void,
+    drainTimeoutMs: number = WORKER_DRAIN_TIMEOUT_MS,
   ) {
     this.max = poolSize;
     this.effectiveMemory = effectiveMemory;
     this.rssCeiling = rssCeiling;
     this.tasksCap = tasksCap;
+    this.drainTimeoutMs = drainTimeoutMs;
     for (let i = 0; i < poolSize; i++) this.spawnEntry();
+  }
+
+  getEntries(): readonly PoolEntry[] {
+    return this.entries;
   }
 
   private spawnEntry(): PoolEntry {
     const worker = new Worker(this.scriptPath);
-    const entry: PoolEntry = { worker, tasks: new Map() };
+    const entry: PoolEntry = {
+      worker,
+      tasks: new Map(),
+      draining: false,
+      spawnedAt: Date.now(),
+    };
 
     worker.on('message', (msg: any) => {
       const reg = entry.tasks.get(msg.id);
       if (!reg) return;
       if (msg.type === 'result') {
         reg.onResult(msg);
+        if (
+          !entry.draining &&
+          typeof msg.heapRatio === 'number' &&
+          msg.heapRatio >= WORKER_HEAP_ROTATE_THRESHOLD
+        ) {
+          this.rotateEntry(
+            entry,
+            `heap=${Math.round(msg.heapRatio * 100)}%`,
+          );
+        }
       } else {
         reg.onIoCall(msg);
       }
     });
 
     worker.on('exit', () => {
+      const wasDraining = entry.draining;
+      if (entry.drainTimeout) {
+        clearTimeout(entry.drainTimeout);
+        entry.drainTimeout = undefined;
+      }
       for (const [, reg] of entry.tasks) {
         reg.abortController.abort();
         reg.onResult({
@@ -94,13 +130,31 @@ class WorkerPool {
       entry.tasks.clear();
       const idx = this.entries.indexOf(entry);
       if (idx !== -1) this.entries.splice(idx, 1);
-      if (this.onCrash) this.onCrash();
-      if (this.entries.length < this.max) this.spawnEntry();
+      if (!wasDraining) {
+        if (this.onCrash) this.onCrash();
+        if (this.entries.length < this.max) this.spawnEntry();
+      }
       this.drainWaiting();
     });
 
     this.entries.push(entry);
     return entry;
+  }
+
+  private rotateEntry(entry: PoolEntry, reason: string): void {
+    if (entry.draining) return;
+    entry.draining = true;
+    const ageMs = Date.now() - entry.spawnedAt;
+    if (this.onRotate) this.onRotate({ reason, ageMs });
+    this.spawnEntry();
+    if (entry.tasks.size === 0) {
+      entry.worker.terminate();
+      return;
+    }
+    entry.drainTimeout = setTimeout(() => {
+      entry.drainTimeout = undefined;
+      entry.worker.terminate();
+    }, this.drainTimeoutMs);
   }
 
   private isMemoryAvailable(): boolean {
@@ -116,6 +170,7 @@ class WorkerPool {
   private findLeastBusy(): PoolEntry | null {
     let best: PoolEntry | null = null;
     for (const e of this.entries) {
+      if (e.draining) continue;
       if (e.tasks.size < this.tasksCap) {
         if (!best || e.tasks.size < best.tasks.size) best = e;
       }
@@ -137,6 +192,13 @@ class WorkerPool {
 
   unregisterTask(entry: PoolEntry, taskId: string): void {
     entry.tasks.delete(taskId);
+    if (entry.draining && entry.tasks.size === 0) {
+      if (entry.drainTimeout) {
+        clearTimeout(entry.drainTimeout);
+        entry.drainTimeout = undefined;
+      }
+      entry.worker.terminate();
+    }
     this.drainWaiting();
   }
 
@@ -216,6 +278,10 @@ export class IsolatedExecutorService {
     this.isolationTuning.tasksPerWorkerCap,
     WORKER_SCRIPT,
     () => this.logger.warn('Worker crashed, replacement spawned'),
+    ({ reason, ageMs }) =>
+      this.logger.log(
+        `Worker rotation: reason=${reason} age=${Math.round(ageMs / 1000)}s`,
+      ),
   );
   private readonly ceiling = this.isolationTuning.maxConcurrentWorkers;
   private prevCpuUsage = process.cpuUsage();
@@ -232,7 +298,7 @@ export class IsolatedExecutorService {
     this.packageCacheService = deps.packageCacheService;
     this.packageCdnLoaderService = deps.packageCdnLoaderService;
     this.logger.log(
-      `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate, ${this.isolationTuning.tasksPerWorkerCap} tasks/worker cap`,
+      `Worker pool started: ${this.isolationTuning.maxConcurrentWorkers} workers, ${this.isolationTuning.isolateMemoryLimitMb}MB per isolate, ${this.isolationTuning.isolatePoolSize} isolates/worker, ${this.isolationTuning.tasksPerWorkerCap} tasks/worker cap`,
     );
     this.tuneTimer = setInterval(
       () => this.autoTune(),
@@ -581,6 +647,7 @@ export class IsolatedExecutorService {
           snapshot,
           timeoutMs: safeTimeoutMs,
           memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
+          isolatePoolSize: this.isolationTuning.isolatePoolSize,
         },
         ctx,
         safeTimeoutMs,
@@ -635,6 +702,7 @@ export class IsolatedExecutorService {
           snapshot,
           timeoutMs: safeTimeoutMs,
           memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
+          isolatePoolSize: this.isolationTuning.isolatePoolSize,
         },
         ctx,
         safeTimeoutMs,

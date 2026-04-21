@@ -26,3 +26,7 @@ export const WORKER_CPU_LOW = 0.5;
 export const WORKER_FLOOR = 1;
 export const WORKER_HYSTERESIS_TICKS = 3;
 export const WORKER_DISPATCH_RSS_CEILING = 0.9;
+
+export const WORKER_HEAP_ROTATE_THRESHOLD = 0.8;
+export const WORKER_HEAP_SAMPLE_INTERVAL_MS = 5_000;
+export const WORKER_DRAIN_TIMEOUT_MS = 60_000;

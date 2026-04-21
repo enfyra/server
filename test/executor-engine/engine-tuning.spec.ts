@@ -82,4 +82,56 @@ describe('computeEngineTuning', () => {
     });
     expect(veryLarge.tasksPerWorkerCap).toBe(256);
   });
+
+  it('derives isolatePoolSize from 25% ram budget, clamped [2,8]', () => {
+    const tiny = computeEngineTuning({
+      logicalCpuCount: 2,
+      totalMemoryBytes: 256 * 1024 * 1024,
+    });
+    expect(tiny.isolatePoolSize).toBe(2);
+
+    const small = computeEngineTuning({
+      logicalCpuCount: 2,
+      totalMemoryBytes: 2 * 1024 * 1024 * 1024,
+    });
+    // budget = 512mb, memLimit=51, workers=2 → floor(512/102) = 5
+    expect(small.isolatePoolSize).toBe(5);
+
+    const mid = computeEngineTuning({
+      logicalCpuCount: 2,
+      totalMemoryBytes: 8 * 1024 * 1024 * 1024,
+    });
+    // budget = 2048mb, memLimit=128, workers=2 → floor(2048/256) = 8
+    expect(mid.isolatePoolSize).toBe(8);
+
+    const huge = computeEngineTuning({
+      logicalCpuCount: 32,
+      totalMemoryBytes: 64 * 1024 * 1024 * 1024,
+    });
+    // would be 64 but clamped to 8 (matches bench sweet spot at workers=2)
+    expect(huge.isolatePoolSize).toBe(8);
+  });
+
+  it('isolatePoolSize total cap never exceeds 25% effective memory', () => {
+    const cases = [
+      256 * 1024 * 1024,
+      1 * 1024 * 1024 * 1024,
+      4 * 1024 * 1024 * 1024,
+      16 * 1024 * 1024 * 1024,
+      64 * 1024 * 1024 * 1024,
+    ];
+    for (const bytes of cases) {
+      const t = computeEngineTuning({
+        logicalCpuCount: 4,
+        totalMemoryBytes: bytes,
+      });
+      const totalCapMb =
+        t.isolatePoolSize * t.maxConcurrentWorkers * t.isolateMemoryLimitMb;
+      const totalMb = bytes / (1024 * 1024);
+      // allow POOL_MIN=2 floor to breach 25% on extremely tiny machines
+      if (totalMb >= 1024) {
+        expect(totalCapMb).toBeLessThanOrEqual(totalMb * 0.25);
+      }
+    }
+  });
 });
