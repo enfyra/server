@@ -298,7 +298,7 @@ export class SqlTableHandlerService {
         );
         try {
           await this.schemaMigrationService.dropTable(body.name, [], trx);
-        } catch (dropError) {
+        } catch (dropError: any) {
           await trx.rollback();
           this.logger.error(
             `Failed to drop physical table "${body.name}": ${dropError.message}`,
@@ -659,11 +659,11 @@ export class SqlTableHandlerService {
       }
       fullMetadata.affectedTables = [...new Set(affectedTables)];
       return fullMetadata;
-    } catch (error) {
+    } catch (error: any) {
       if (trx && !trx.isCompleted()) {
         try {
           await trx.rollback();
-        } catch (rollbackError) {
+        } catch (rollbackError: any) {
           this.logger.error(
             `Failed to rollback transaction: ${rollbackError.message}`,
           );
@@ -678,7 +678,7 @@ export class SqlTableHandlerService {
           this.logger.warn(
             `Rolled back physical table ${body.name} after failure`,
           );
-        } catch (dropError) {
+        } catch (dropError: any) {
           this.logger.error(
             `Failed to rollback physical table ${body.name}: ${dropError.message}`,
           );
@@ -1111,7 +1111,7 @@ export class SqlTableHandlerService {
         name: exists.name,
         affectedTables: [...affectedTableNames],
       };
-    } catch (error) {
+    } catch (error: any) {
       this.loggingService.error('Table update failed', {
         context: 'updateTable',
         error: error.message,
@@ -1318,14 +1318,13 @@ export class SqlTableHandlerService {
           allRelations,
           trx,
         );
-        await trx.commit();
         exists.affectedTables = [...affectedTableNames];
         return exists;
-      } catch (error) {
+      } catch (error: any) {
         if (trx && !trx.isCompleted()) {
           try {
             await trx.rollback();
-          } catch (rollbackError) {
+          } catch (rollbackError: any   ) {
             this.logger.error(
               `Failed to rollback transaction: ${rollbackError.message}`,
             );
