@@ -86,6 +86,11 @@ export class ColumnRuleCacheService extends BaseCacheService<
     if (!this.cache) {
       throw new Error('Cache not initialized, cannot partial reload');
     }
+    if (payload.table !== 'column_rule_definition') {
+      throw new Error(
+        'partial reload by non-column_rule_definition payload unsupported',
+      );
+    }
     const ids = (payload.ids ?? []).map(String);
     if (ids.length === 0) return;
 

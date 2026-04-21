@@ -1,4 +1,4 @@
-import { isEqual } from 'lodash';
+import { isDeepStrictEqual as isEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
 

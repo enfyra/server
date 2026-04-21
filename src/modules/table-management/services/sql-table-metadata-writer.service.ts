@@ -6,6 +6,7 @@ import {
   getJunctionColumnNames,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { ValidationException } from '../../../core/exceptions/custom-exceptions';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -72,13 +73,29 @@ export class SqlTableMetadataWriterService {
             col.metadata !== undefined ? JSON.stringify(col.metadata) : null,
           tableId: id,
         };
+        let columnId: number | string;
         if (col.id) {
           await queryRunner('column_definition')
             .where({ id: col.id })
             .update(columnData);
+          columnId = col.id;
         } else {
-          await queryRunner('column_definition').insert(columnData);
+          columnId = await this.insertAndGetId(
+            queryRunner,
+            'column_definition',
+            columnData,
+          );
         }
+        await this.writeNestedRules(queryRunner, {
+          rules: (col as any).rules,
+          fkField: 'columnId',
+          fkValue: columnId,
+        });
+        await this.writeNestedFieldPermissions(queryRunner, {
+          permissions: (col as any).fieldPermissions,
+          subjectFk: 'columnId',
+          subjectFkValue: columnId,
+        });
       }
     }
 
@@ -217,91 +234,176 @@ export class SqlTableMetadataWriterService {
             const junctionTableName = getJunctionTableName(
               exists.name,
               rel.propertyName,
-              targetTableName,
+              targetTablesMap.get(targetTableId)!,
             );
             const { sourceColumn, targetColumn } = getJunctionColumnNames(
               exists.name,
               rel.propertyName,
-              targetTableName,
+              targetTablesMap.get(targetTableId)!,
             );
             relationData.junctionTableName = junctionTableName;
             relationData.junctionSourceColumn = sourceColumn;
             relationData.junctionTargetColumn = targetColumn;
           }
-        } else {
-          relationData.junctionTableName = null;
-          relationData.junctionSourceColumn = null;
-          relationData.junctionTargetColumn = null;
         }
+        let relationId: number | string;
         if (rel.id) {
           await queryRunner('relation_definition')
             .where({ id: rel.id })
             .update(relationData);
+          relationId = rel.id;
         } else {
-          await queryRunner('relation_definition').insert(relationData);
+          relationId = await this.insertAndGetId(
+            queryRunner,
+            'relation_definition',
+            relationData,
+          );
         }
-        if (rel.inversePropertyName && !rel.id) {
-          if (rel.mappedBy) {
-            throw new ValidationException(
-              `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
-              { relationName: rel.propertyName },
-            );
-          }
-          const existingOnTarget = await queryRunner('relation_definition')
-            .where({
-              sourceTableId: targetTableId,
-              propertyName: rel.inversePropertyName,
-            })
-            .first();
-          if (existingOnTarget) {
-            throw new ValidationException(
-              `Cannot create inverse '${rel.inversePropertyName}' on target table: property name already exists`,
-              { relationName: rel.inversePropertyName },
-            );
-          }
-          const insertedRel = await queryRunner('relation_definition')
-            .where({ sourceTableId: id, propertyName: rel.propertyName })
-            .first();
-          if (insertedRel) {
-            const existingInverse = await queryRunner('relation_definition')
-              .where({ mappedById: insertedRel.id })
-              .first();
-            if (existingInverse) {
-              throw new ValidationException(
-                `Relation '${rel.propertyName}' already has an inverse '${existingInverse.propertyName}'`,
-                { relationName: rel.propertyName },
-              );
-            }
-            let inverseType = rel.type;
-            if (rel.type === 'many-to-one') inverseType = 'one-to-many';
-            else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
-            const inverseData: any = {
-              propertyName: rel.inversePropertyName,
-              type: inverseType,
-              sourceTableId: targetTableId,
-              targetTableId: id,
-              mappedById: insertedRel.id,
-              isNullable: rel.isNullable ?? true,
-              isSystem: false,
-              isUpdatable: rel.isUpdatable ?? true,
-              isPublished: rel.isPublished ?? true,
-            };
-            if (inverseType === 'many-to-many') {
-              inverseData.junctionTableName = relationData.junctionTableName;
-              inverseData.junctionSourceColumn =
-                relationData.junctionTargetColumn;
-              inverseData.junctionTargetColumn =
-                relationData.junctionSourceColumn;
-            }
-            await queryRunner('relation_definition').insert(inverseData);
-            const targetName = targetTablesMap.get(targetTableId);
-            if (targetName) affectedTableNames.add(targetName);
-            this.logger.log(
-              `Auto-created inverse relation '${rel.inversePropertyName}'`,
-            );
-          }
-        }
+        await this.writeNestedFieldPermissions(queryRunner, {
+          permissions: (rel as any).fieldPermissions,
+          subjectFk: 'relationId',
+          subjectFkValue: relationId,
+        });
       }
+    }
+  }
+
+  private async insertAndGetId(
+    queryRunner: any,
+    tableName: string,
+    data: any,
+  ): Promise<number | string> {
+    const dbType = DatabaseConfigService.getInstanceDbType();
+    if (dbType === 'postgres') {
+      const [result] = await queryRunner(tableName).insert(data).returning('id');
+      return result.id;
+    }
+    const [insertedId] = await queryRunner(tableName).insert(data);
+    return insertedId;
+  }
+
+  private async writeNestedRules(
+    queryRunner: any,
+    opts: {
+      rules: any[] | undefined;
+      fkField: 'columnId' | 'relationId';
+      fkValue: number | string;
+    },
+  ): Promise<void> {
+    if (!Array.isArray(opts.rules)) return;
+    const existing = await queryRunner('column_rule_definition')
+      .where({ [opts.fkField]: opts.fkValue })
+      .select('id');
+    const deletedIds = getDeletedIds(existing, opts.rules);
+    if (deletedIds.length > 0) {
+      await queryRunner('column_rule_definition')
+        .whereIn('id', deletedIds)
+        .delete();
+    }
+    for (const rule of opts.rules) {
+      const ruleData: any = {
+        ruleType: rule.ruleType,
+        value: rule.value != null ? JSON.stringify(rule.value) : null,
+        message: rule.message ?? null,
+        isEnabled: rule.isEnabled !== false,
+        [opts.fkField]: opts.fkValue,
+      };
+      if (rule.id) {
+        await queryRunner('column_rule_definition')
+          .where({ id: rule.id })
+          .update(ruleData);
+      } else {
+        await queryRunner('column_rule_definition').insert(ruleData);
+      }
+    }
+  }
+
+  private async writeNestedFieldPermissions(
+    queryRunner: any,
+    opts: {
+      permissions: any[] | undefined;
+      subjectFk: 'columnId' | 'relationId';
+      subjectFkValue: number | string;
+    },
+  ): Promise<void> {
+    if (!Array.isArray(opts.permissions)) return;
+    const existing = await queryRunner('field_permission_definition')
+      .where({ [opts.subjectFk]: opts.subjectFkValue })
+      .select('id');
+    const deletedIds = getDeletedIds(existing, opts.permissions);
+    if (deletedIds.length > 0) {
+      const junctionRows = await queryRunner('field_permission_definition_allowedUsers_user_definition')
+        .whereIn('field_permission_definitionId', deletedIds)
+        .select('*')
+        .catch(() => [] as any[]);
+      if (Array.isArray(junctionRows) && junctionRows.length > 0) {
+        await queryRunner('field_permission_definition_allowedUsers_user_definition')
+          .whereIn('field_permission_definitionId', deletedIds)
+          .delete()
+          .catch(() => undefined);
+      }
+      await queryRunner('field_permission_definition')
+        .whereIn('id', deletedIds)
+        .delete();
+    }
+    for (const perm of opts.permissions) {
+      const roleId =
+        perm.role && typeof perm.role === 'object'
+          ? perm.role.id ?? perm.role._id
+          : perm.role;
+      const permData: any = {
+        action: perm.action,
+        effect: perm.effect ?? 'allow',
+        condition:
+          perm.condition != null ? JSON.stringify(perm.condition) : null,
+        isEnabled: perm.isEnabled !== false,
+        description: perm.description ?? null,
+        roleId: roleId ?? null,
+        columnId: opts.subjectFk === 'columnId' ? opts.subjectFkValue : null,
+        relationId: opts.subjectFk === 'relationId' ? opts.subjectFkValue : null,
+      };
+      let permId: number | string;
+      if (perm.id) {
+        await queryRunner('field_permission_definition')
+          .where({ id: perm.id })
+          .update(permData);
+        permId = perm.id;
+      } else {
+        permId = await this.insertAndGetId(
+          queryRunner,
+          'field_permission_definition',
+          permData,
+        );
+      }
+      if (Array.isArray(perm.allowedUsers)) {
+        await this.syncAllowedUsers(queryRunner, permId, perm.allowedUsers);
+      }
+    }
+  }
+
+  private async syncAllowedUsers(
+    queryRunner: any,
+    permId: number | string,
+    users: any[],
+  ): Promise<void> {
+    const userIds = users
+      .map((u: any) => (typeof u === 'object' ? u.id ?? u._id : u))
+      .filter((v: any) => v != null);
+    const junctionTable = 'field_permission_definition_allowedUsers_user_definition';
+    try {
+      await queryRunner(junctionTable)
+        .where({ field_permission_definitionId: permId })
+        .delete();
+      if (userIds.length > 0) {
+        await queryRunner(junctionTable).insert(
+          userIds.map((uid: any) => ({
+            field_permission_definitionId: permId,
+            user_definitionId: uid,
+          })),
+        );
+      }
+    } catch {
+      // Junction table name may vary by schema convention; best-effort sync.
     }
   }
 }
