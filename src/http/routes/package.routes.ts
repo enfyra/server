@@ -181,9 +181,6 @@ export function registerPackageRoutes(
     const cdnLoader =
       req.scope?.cradle?.packageCdnLoaderService ??
       container.cradle.packageCdnLoaderService;
-    const queryBuilder =
-      req.scope?.cradle?.queryBuilderService ??
-      container.cradle.queryBuilderService;
     const websocketGateway =
       req.scope?.cradle?.dynamicWebSocketGateway ??
       container.cradle.dynamicWebSocketGateway;

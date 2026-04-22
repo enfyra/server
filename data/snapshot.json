@@ -23,7 +23,7 @@
             { "name": "metadata", "type": "simple-json", "isSystem": true, "description": "Additional metadata for the column" }
         ],
         "relations": [
-            { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table that this column belongs to" }
+            { "propertyName": "table", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "columns", "onDelete": "CASCADE", "description": "The table that this column belongs to" }
         ]
     },
     "column_rule_definition": {
@@ -66,7 +66,7 @@
             { "name": "isUpdatable", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": true, "description": "Whether this relation can be updated. When false, the foreign key column will be protected from updates." }
         ],
         "relations": [
-            { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "isInverseEager": true, "onDelete": "CASCADE", "description": "The table where this relation is defined" },
+            { "propertyName": "sourceTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "inversePropertyName": "relations", "onDelete": "CASCADE", "description": "The table where this relation is defined" },
             { "propertyName": "targetTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "isUpdatable": false, "isNullable": true, "description": "The table that this relation points to" },
             { "propertyName": "mappedBy", "type": "many-to-one", "targetTable": "relation_definition", "isSystem": true, "isNullable": true, "onDelete": "CASCADE", "description": "Owning-side relation that this inverse maps to (self-referencing FK)" }
         ]
@@ -200,8 +200,8 @@
         "relations": [
             { "propertyName": "mainTable", "type": "many-to-one", "targetTable": "table_definition", "isSystem": true, "onDelete": "CASCADE", "description": "Primary table that this route operates on" },
             { "propertyName": "availableMethods", "type": "many-to-many", "targetTable": "method_definition", "isSystem": true, "inversePropertyName": "routesWithAvailable", "description": "HTTP methods this route supports" },
-            { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Pre-hooks that run before route execution" },
-            { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "isInverseEager": false, "description": "Post-hooks that run after route execution" }
+            { "propertyName": "preHooks", "type": "one-to-many", "targetTable": "pre_hook_definition", "isSystem": true, "inversePropertyName": "route", "description": "Pre-hooks that run before route execution" },
+            { "propertyName": "postHooks", "type": "one-to-many", "targetTable": "post_hook_definition", "isSystem": true, "inversePropertyName": "route", "description": "Post-hooks that run after route execution" }
         ]
     },
     "role_definition": {
@@ -355,7 +355,7 @@
             { "name": "isSystem", "type": "boolean", "isNullable": false, "isSystem": true, "defaultValue": false, "description": "Whether this is a system-defined method" }
         ],
         "relations": [
-            { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method" },
+            { "propertyName": "routePermissions", "type": "many-to-many", "targetTable": "route_permission_definition", "isSystem": true, "inversePropertyName": "methods", "description": "Permissions associated with this method", "isNullable": true },
             { "propertyName": "routes", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "publishedMethods", "description": "Routes that support this method" },
             { "propertyName": "routesWithAvailable", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "availableMethods", "description": "Routes that have this method available" },
             { "propertyName": "routesSkipRoleGuard", "type": "many-to-many", "targetTable": "route_definition", "isSystem": true, "inversePropertyName": "skipRoleGuardMethods", "description": "Routes where this method skips RoleGuard (still requires authentication)" }

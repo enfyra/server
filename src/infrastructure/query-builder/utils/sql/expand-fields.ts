@@ -164,7 +164,6 @@ export async function expandFieldsToJoinsAndSelect(
       offset !== undefined && offset !== null && offset > 0
         ? `OFFSET ${offset}`
         : '';
-    const quotedLimitedCTE = quoteIdentifier(limitedCTEName, dbType);
     const pkColumn = baseMeta ? getPrimaryKeyColumn(baseMeta as any) : null;
     const pkName = pkColumn?.name || 'id';
     const quotedPkCol = quoteIdentifier(pkName, dbType);

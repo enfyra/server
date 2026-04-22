@@ -126,12 +126,12 @@ export class KnexHookRegistry {
       if (Array.isArray(data)) {
         return data.map((record) => {
           const {
-            createdAt,
-            updatedAt,
-            created_at,
-            updated_at,
-            CreatedAt,
-            UpdatedAt,
+            createdAt: _createdAt,
+            updatedAt: _updatedAt,
+            created_at: _created_at,
+            updated_at: _updated_at,
+            CreatedAt: _CreatedAt,
+            UpdatedAt: _UpdatedAt,
             ...cleanRecord
           } = record;
           const result: any = { ...cleanRecord };
@@ -141,12 +141,12 @@ export class KnexHookRegistry {
         });
       }
       const {
-        createdAt,
-        updatedAt,
-        created_at,
-        updated_at,
-        CreatedAt,
-        UpdatedAt,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        created_at: _created_at,
+        updated_at: _updated_at,
+        CreatedAt: _CreatedAt,
+        UpdatedAt: _UpdatedAt,
         ...cleanData
       } = data;
       const result: any = { ...cleanData };
@@ -186,12 +186,12 @@ export class KnexHookRegistry {
     });
     this.addHook('beforeUpdate', (tableName, data) => {
       const {
-        createdAt,
-        updatedAt,
-        created_at,
-        updated_at,
-        CreatedAt,
-        UpdatedAt,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        created_at: _created_at,
+        updated_at: _updated_at,
+        CreatedAt: _CreatedAt,
+        UpdatedAt: _UpdatedAt,
         ...updateData
       } = data;
       return this.stripNonUpdatableFields(tableName, updateData);

@@ -299,7 +299,6 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const idField = DatabaseConfigService.getPkField();
     let totalCreated = 0;
     let totalSkipped = 0;

@@ -168,7 +168,7 @@ export class MetadataProvisionSqlService {
         const exist = existingTableMap.get(def.name);
         if (exist) {
           tableNameToId[name] = exist.id;
-          const { columns, relations, ...rest } = def;
+          const { columns: _c, relations: _r, ...rest } = def;
           if (this.detectTableChanges(rest, exist)) {
             await trx('table_definition')
               .where('id', exist.id)
@@ -182,7 +182,7 @@ export class MetadataProvisionSqlService {
               });
           }
         } else {
-          const { columns, relations, ...rest } = def;
+          const { columns: _c, relations: _r, ...rest } = def;
           if (!rest.name) {
             this.logger.error(
               `Table definition missing 'name' field: ${JSON.stringify(rest)}`,
@@ -610,7 +610,7 @@ export class MetadataProvisionSqlService {
       }
     }
     if (col.isUnique) {
-      column = column.unique();
+      column.unique();
     }
   }
 

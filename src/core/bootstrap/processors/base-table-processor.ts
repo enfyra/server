@@ -5,7 +5,6 @@ import {
   getManyToOneRelations,
   getScalarColumns,
   getUniqueFields,
-  FkRelationInfo,
 } from '../utils/snapshot-meta.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 export interface UpsertResult {
@@ -120,7 +119,6 @@ export abstract class BaseTableProcessor {
     if (!records || records.length === 0) {
       return { created: 0, skipped: 0 };
     }
-    const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const idField = DatabaseConfigService.getPkField();
     const transformedRecords = await this.transformRecords(records, context);
     let createdCount = 0;

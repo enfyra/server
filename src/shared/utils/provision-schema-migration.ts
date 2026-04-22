@@ -221,7 +221,7 @@ async function getPrimaryKeyType(
   knex: Knex,
   tableName: string,
 ): Promise<'int' | 'uuid'> {
-  const result = await knex(tableName).limit(1).select(knex.raw('1 as _'));
+  await knex(tableName).limit(1).select(knex.raw('1 as _'));
   const tableInfo = await knex.raw(
     knex.client.config.client === 'pg'
       ? `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = 'id'`

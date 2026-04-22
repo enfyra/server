@@ -41,7 +41,6 @@ export class SchemaMigrationLockService {
   private static readonly STALE_HEARTBEAT_THRESHOLD_MS = 30_000;
 
   async acquire(context: string): Promise<SchemaMigrationLockHandle> {
-    const knex = this.knexService.getKnex();
     const dbType = this.queryBuilderService.getDatabaseType() || 'mysql';
     const token = randomUUID();
     const lockedBy = this.buildInstanceId();

@@ -92,7 +92,7 @@ describe('CacheOrchestratorService — RELOAD_CHAINS + multi-instance', () => {
     });
 
     it('every chain entry should have at least one step', () => {
-      for (const [table, chain] of Object.entries(RELOAD_CHAINS)) {
+      for (const chain of Object.values(RELOAD_CHAINS)) {
         expect(chain.length).toBeGreaterThan(0);
       }
     });

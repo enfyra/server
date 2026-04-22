@@ -152,7 +152,7 @@ export class MetadataProvisionMongoService {
     }
     const tableRecords = Object.entries(snapshot).map(([tableName, defRaw]) => {
       const def = defRaw as any;
-      const { columns, relations, ...tableData } = def;
+      const { columns: _c, relations: _r, ...tableData } = def;
       const record = this.buildRecordFromColumns(tableData, tableDef.columns);
       record.isSingleRecord = tableData.isSingleRecord || false;
       return record;

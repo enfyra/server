@@ -494,7 +494,6 @@ export class DatabaseSchemaService {
   }
 
   private transformForeignKeysToRelations(foreignKeys: any[]): any[] {
-    const relations: any[] = [];
     const fkMap = new Map<string, any>();
 
     foreignKeys.forEach((fk) => {

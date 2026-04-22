@@ -33,7 +33,6 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
   }
 
   protected async loadFromDb(): Promise<any> {
-    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
     const flowsResult = await this.queryBuilderService.find({

@@ -70,18 +70,19 @@ export class FlowService {
   }
 
   async testStep(
-    step: { type: string; config: any; timeout?: number },
+    step: { type: string; config: any; timeout?: number; key?: string },
     mockFlow?: any,
   ): Promise<{
     success: boolean;
     result?: any;
     error?: string;
     duration: number;
+    flowContext?: any;
   }> {
     const startTime = Date.now();
     const logs: any[] = [];
 
-    const flowContext = {
+    const flowContext: any = {
       $payload: mockFlow?.$payload || {},
       $last: mockFlow?.$last || null,
       $meta: { flowId: 'test', flowName: 'test', executionId: 'test' },
@@ -147,7 +148,17 @@ export class FlowService {
         });
       }
 
-      return { success: true, result, duration: Date.now() - startTime };
+      if (step.key) {
+        flowContext[step.key] = result;
+      }
+      flowContext.$last = result;
+
+      return {
+        success: true,
+        result,
+        duration: Date.now() - startTime,
+        flowContext,
+      };
     } catch (error) {
       return {
         success: false,
