@@ -4,6 +4,7 @@ import {
   QueryOptions,
   WhereCondition,
 } from '../../../shared/types/query-builder.types';
+import { DebugTrace } from '../../../shared/utils/debug-trace.util';
 import {
   buildWhereClause,
   hasLogicalOperators,
@@ -55,12 +56,15 @@ export class SqlQueryExecutor {
     deep?: Record<string, any>;
     debugLog?: any[];
     debugMode?: boolean;
+    debugTrace?: DebugTrace;
     metadata?: any;
     plan?: QueryPlan;
   }): Promise<any> {
+    const execStart = performance.now();
     this.metadata = options.metadata;
     const debugLog = options.debugLog || [];
     this.debugLog = debugLog;
+    const trace = options.debugTrace;
 
     if (options.filter) {
       validateFilterShape(options.filter, options.tableName, options.metadata);
@@ -82,6 +86,29 @@ export class SqlQueryExecutor {
           dbType: this.dbType as any,
         }),
       };
+    }
+
+    const plan = options.plan!;
+    const tableMeta = options.metadata?.tables?.get(options.tableName);
+    const hasTableRelations =
+      tableMeta?.relations && tableMeta.relations.length > 0;
+    const hasDeepRelations =
+      options.deep && typeof options.deep === 'object' && Object.keys(options.deep).length > 0;
+    const hasExplicitFields =
+      plan.rawFields && plan.rawFields.length > 0 && !plan.rawFields.includes('*');
+    const isSimpleQuery =
+      plan.joins.length === 0 &&
+      !plan.hasRelationFilters &&
+      !plan.hasRelationSort &&
+      !hasDeepRelations &&
+      !hasTableRelations &&
+      hasExplicitFields;
+
+    if (isSimpleQuery) {
+      if (trace) trace.setQueryPath('simple');
+      const result = await this.executeSimple(options, plan);
+      if (trace) trace.dur('sql_executor', execStart, { table: options.tableName });
+      return result;
     }
 
     const queryOptions: QueryOptions = {
@@ -710,37 +737,37 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       }
     }
 
-    if (options.debugMode) {
+    if (options.debugMode && trace) {
       const sqlString =
         useCTE && rawSQLQuery ? rawSQLQuery : query.toSQL().toNative().sql;
-      let explain: any;
+      trace.setSql(sqlString);
       try {
+        let explainResult: any;
         if (useCTE && rawSQLQuery) {
-          const explainResult = await this.knex.raw(`EXPLAIN ${rawSQLQuery}`);
-          explain =
-            this.dbType === 'postgres'
-              ? (explainResult as any).rows
-              : (explainResult as any)[0];
+          explainResult = await this.knex.raw(`EXPLAIN ${rawSQLQuery}`);
         } else {
           const native = query.toSQL().toNative();
-          const explainResult = await this.knex.raw(
-            `EXPLAIN ${native.sql}`,
+          const explainSql = native.sql.replace(/\$\d+/g, '?');
+          explainResult = await this.knex.raw(
+            `EXPLAIN ${explainSql}`,
             native.bindings,
           );
-          explain =
-            this.dbType === 'postgres'
-              ? (explainResult as any).rows
-              : (explainResult as any)[0];
         }
+        trace.setExplain(
+          this.dbType === 'postgres'
+            ? (explainResult as any).rows
+            : (explainResult as any)[0],
+        );
       } catch (e) {
-        explain = { error: String(e) };
+        trace.setExplain({ error: String(e) });
       }
-      return { sql: sqlString, explain };
     }
 
     let results: any[];
     if (useCTE && rawSQLQuery) {
+      const dbStart = performance.now();
       const rawResult = await this.knex.raw(rawSQLQuery);
+      if (trace) trace.dur('db_execute', dbStart, { table: options.tableName, path: 'cte' });
       if (this.dbType === 'postgres') {
         results = (rawResult as any).rows;
       } else {
@@ -770,7 +797,9 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
         }
       }
     } else {
+      const dbStart = performance.now();
       results = await query;
+      if (trace) trace.dur('db_execute', dbStart, { table: options.tableName });
     }
 
     let filterCount = 0;
@@ -830,7 +859,9 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     }
 
     if (this.knexService) {
+      const parseStart = performance.now();
       results = await this.knexService.parseResult(results, queryOptions.table);
+      if (trace) trace.dur('db_parseResult', parseStart, { table: options.tableName });
     } else {
       const parseSimpleJsonFields = (data: any, tableName: string): any => {
         if (!data || !this.metadata) return data;
@@ -904,6 +935,11 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
       results = parseSimpleJsonFields(results, queryOptions.table);
     }
 
+    if (trace) {
+      trace.setQueryPath('full');
+      trace.dur('sql_executor', execStart, { table: options.tableName });
+    }
+
     return {
       data: results,
       ...(metaParts.length > 0 && {
@@ -914,6 +950,121 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
           ...(metaParts.includes('filterCount') || metaParts.includes('*')
             ? { filterCount }
             : {}),
+        },
+      }),
+    };
+  }
+
+  private async executeSimple(
+    options: {
+      tableName: string;
+      fields?: string | string[];
+      filter?: any;
+      meta?: string;
+      deep?: Record<string, any>;
+      debugLog?: any[];
+      debugMode?: boolean;
+      metadata?: any;
+    },
+    plan: QueryPlan,
+  ): Promise<any> {
+    const table = options.tableName;
+
+    const selectFields =
+      plan.rawFields && plan.rawFields.length > 0
+        ? plan.rawFields
+        : ['*'];
+
+    let query: any = this.knex(table).select(selectFields);
+
+    if (plan.filterTree) {
+      renderFilterToKnex(query, plan.filterTree, {
+        dbType: this.dbType as any,
+        rootTable: table,
+      });
+    }
+
+    for (const s of plan.sortItems) {
+      const field = s.field.includes('.')
+        ? s.field
+        : `${table}.${s.field}`;
+      query = query.orderBy(field, s.direction);
+    }
+
+    if (plan.limit !== undefined && plan.limit !== null && plan.limit > 0) {
+      query = query.limit(plan.limit);
+    }
+    if (plan.offset !== undefined) {
+      query = query.offset(plan.offset);
+    }
+
+    const metaParts = Array.isArray(options.meta)
+      ? options.meta
+      : (options.meta || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+    const needsFilterCount =
+      metaParts.includes('filterCount') || metaParts.includes('*');
+    const needsTotalCount =
+      metaParts.includes('totalCount') || metaParts.includes('*');
+
+    if (needsFilterCount) {
+      query.select(this.knex.raw('COUNT(*) OVER() as __filter_count__'));
+    }
+    if (needsTotalCount) {
+      const quotedTbl = quoteIdentifier(table, this.dbType);
+      query.select(
+        this.knex.raw(
+          `(SELECT COUNT(*) FROM ${quotedTbl}) as __total_count__`,
+        ),
+      );
+    }
+
+    const simpleTrace = (options as any).debugTrace as DebugTrace | undefined;
+
+    if (options.debugMode && simpleTrace) {
+      const native = query.toSQL().toNative();
+      simpleTrace.setSql(native.sql);
+      try {
+        const explainSql = native.sql.replace(/\$\d+/g, '?');
+        const explainResult = await this.knex.raw(
+          `EXPLAIN ${explainSql}`,
+          native.bindings,
+        );
+        simpleTrace.setExplain(
+          this.dbType === 'postgres'
+            ? (explainResult as any).rows
+            : (explainResult as any)[0],
+        );
+      } catch (e) {
+        simpleTrace.setExplain({ error: String(e) });
+      }
+    }
+
+    const dbStart = performance.now();
+    let results: any[];
+    results = await query;
+    if (simpleTrace) simpleTrace.dur('db_execute', dbStart, { table });
+
+    if (this.knexService) {
+      results = await this.knexService.parseResult(results, table);
+    }
+
+    let filterCount = 0;
+    let totalCount = 0;
+    if (needsFilterCount && results.length > 0) {
+      filterCount = Number(results[0].__filter_count__ || 0);
+      results.forEach((row: any) => delete row.__filter_count__);
+    }
+    if (needsTotalCount && results.length > 0) {
+      totalCount = Number(results[0].__total_count__ || 0);
+      results.forEach((row: any) => delete row.__total_count__);
+    }
+
+    return {
+      data: results,
+      ...(metaParts.length > 0 && {
+        meta: {
+          ...(needsTotalCount ? { totalCount } : {}),
+          ...(needsFilterCount ? { filterCount } : {}),
         },
       }),
     };

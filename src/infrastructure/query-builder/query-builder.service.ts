@@ -13,6 +13,7 @@ import { SqlQueryExecutor } from './executors/sql-query-executor';
 import { QueryPlanner } from './planner/query-planner';
 import { DatabaseConfigService } from '../../shared/services/database-config.service';
 import type { Cradle } from '../../container';
+import { DebugTrace } from '../../shared/utils/debug-trace.util';
 import { normalizeMongoDocument } from '../mongo/utils/normalize-mongo-document.util';
 import { whereToMongoFilter } from './utils/mongo/filter-builder';
 import { applyWhereToKnex as applyWhereToKnexComplete } from './utils/sql/sql-where-builder';
@@ -171,15 +172,18 @@ export class QueryBuilderService {
     deep?: Record<string, any>;
     debugMode?: boolean;
     debugLog?: any[];
+    debugTrace?: DebugTrace;
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
+    const selectStart = performance.now();
     const metadata =
       this.lazyRef.metadataCacheService?.getDirectMetadata?.() ?? {
         tables: new Map(),
         tablesList: [],
       };
 
+    const planStart = performance.now();
     const planner = new QueryPlanner();
     const plan = planner.plan({
       tableName: options.tableName,
@@ -192,6 +196,11 @@ export class QueryBuilderService {
       metadata,
       dbType: this.dbType as any,
     });
+    const trace = options.debugTrace;
+    if (trace) {
+      trace.dur('qb_planner', planStart, { table: options.tableName });
+      trace.setPlan(this.sanitizePlan(plan));
+    }
 
     if (this.dbType === 'mongodb') {
       const executor = new MongoQueryExecutor(this.mongoService);
@@ -209,7 +218,28 @@ export class QueryBuilderService {
       this.knexService,
       options.maxQueryDepth,
     );
-    return executor.execute({ ...options, metadata, plan });
+    const result = await executor.execute({ ...options, metadata, plan });
+    if (trace) {
+      trace.dur('qb_total_select', selectStart, { table: options.tableName });
+    }
+    return result;
+  }
+
+  private sanitizePlan(plan: any): any {
+    return {
+      rawFields: plan.rawFields,
+      hasRelationFilters: plan.hasRelationFilters,
+      hasRelationSort: plan.hasRelationSort,
+      joins: plan.joins?.length ?? 0,
+      sortItems: plan.sortItems,
+      limit: plan.limit,
+      offset: plan.offset,
+      page: plan.page,
+      isSimpleQuery:
+        plan.joins?.length === 0 &&
+        !plan.hasRelationFilters &&
+        !plan.hasRelationSort,
+    };
   }
 
   async updateWithOptions(options: UpdateOptions): Promise<any> {
@@ -368,6 +398,7 @@ export class QueryBuilderService {
     deep?: Record<string, any>;
     debugMode?: boolean;
     debugLog?: any[];
+    debugTrace?: DebugTrace;
     pipeline?: any[];
     maxQueryDepth?: number;
   }): Promise<any> {
@@ -385,6 +416,7 @@ export class QueryBuilderService {
       deep: options.deep,
       debugMode: options.debugMode,
       debugLog: options.debugLog,
+      debugTrace: options.debugTrace,
       pipeline: options.pipeline,
       maxQueryDepth: options.maxQueryDepth,
     });

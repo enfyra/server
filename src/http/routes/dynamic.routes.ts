@@ -2,6 +2,14 @@ import type { Express, Request, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
+function attachDebug(req: any, data: any): any {
+  const debug: any = req._debug;
+  if (debug && req.routeData?.context?.$query?.debugMode) {
+    return { ...data, debug: debug.toJSON() };
+  }
+  return data;
+}
+
 export function registerDynamicRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
@@ -25,6 +33,11 @@ export function registerDynamicRoutes(
     const dynamicService =
       req.scope?.cradle?.dynamicService ?? container.cradle.dynamicService;
     const result = await dynamicService.runHandler(req);
-    res.json(result);
+    const logs = req.routeData?.context?.$share?.$logs;
+    let response = result;
+    if (logs?.length) {
+      response = { ...response, logs };
+    }
+    res.json(attachDebug(req, response));
   });
 }

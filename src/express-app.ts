@@ -40,6 +40,7 @@ import { registerGraphqlSchemaRoutes } from './http/routes/graphql-schema.routes
 import { registerPackageRoutes } from './http/routes/package.routes';
 import { registerMeRoutes } from './http/routes/me.routes';
 import { registerDynamicRoutes } from './http/routes/dynamic.routes';
+import { DebugTrace } from './shared/utils/debug-trace.util';
 
 export function buildExpressApp(container: AwilixContainer<Cradle>) {
   const app = express();
@@ -59,6 +60,14 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   app.use(express.text({ type: 'text/plain' }));
 
   app.use((req: any, res, next) => {
+    const start = performance.now();
+    req._perfStart = start;
+    const debugMode =
+      req.query?.debugMode === 'true' || req.query?.debugMode === true;
+    if (debugMode) {
+      req._debug = new DebugTrace();
+      req._debug.dur('mw_scope_create', start);
+    }
     req.scope = buildRequestScope(container, req, res);
     next();
   });
@@ -68,6 +77,10 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   app.use(bodyParserMiddleware(c.settingCacheService));
   app.use(parseQueryMiddleware);
   app.use(fileUploadMiddleware(c.settingCacheService));
+  app.use((req: any, _res: any, next: any) => {
+    req._perfRouteDetect = performance.now();
+    next();
+  });
   app.use(
     routeDetectMiddleware(
       c.envService.get('SECRET_KEY'),
@@ -81,6 +94,11 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.flowService,
     ),
   );
+  app.use((req: any, _res: any, next: any) => {
+    if (req._debug) req._debug.dur('mw_route_detect', req._perfRouteDetect);
+    req._perfJwt = performance.now();
+    next();
+  });
   app.use(notFoundDetectMiddleware);
   app.use(preAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
   app.use(
@@ -90,6 +108,10 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.envService.get('SECRET_KEY'),
     ),
   );
+  app.use((req: any, _res: any, next: any) => {
+    if (req._debug) req._debug.dur('mw_jwt_auth', req._perfJwt);
+    next();
+  });
   app.use(roleGuardMiddleware(c.policyService));
   app.use(postAuthMetadataGuard(c.guardCacheService, c.guardEvaluatorService));
   app.use(requestLoggingBegin);

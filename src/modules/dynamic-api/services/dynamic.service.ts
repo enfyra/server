@@ -76,13 +76,14 @@ export class DynamicService {
       if (shortCircuit) {
         const httpRes = req.routeData.res;
         if (httpRes && !httpRes.headersSent) {
-          httpRes
-            .status(200)
-            .json(
-              req.routeData.context.$share.$logs.length
-                ? { result: value, logs: req.routeData.context.$share.$logs }
-                : value,
-            );
+          let response = req.routeData.context.$share.$logs.length
+            ? { result: value, logs: req.routeData.context.$share.$logs }
+            : value;
+          const debug: any = (req as any)._debug;
+          if (debug && req.routeData?.context?.$query?.debugMode) {
+            response = { ...response, debug: debug.toJSON() };
+          }
+          httpRes.status(200).json(response);
         }
         return undefined;
       }
