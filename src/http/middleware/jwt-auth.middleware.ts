@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import * as jwt from 'jsonwebtoken';
+import { jwtVerify } from 'jose';
 import {
   TokenExpiredException,
   InvalidTokenException,
@@ -17,6 +17,8 @@ export function jwtAuthMiddleware(
   cacheService: CacheService,
   secretKey: string,
 ) {
+  const key = new TextEncoder().encode(secretKey);
+
   return async (req: any, res: Response, next: NextFunction) => {
     try {
       const authHeader = req.headers.authorization;
@@ -32,9 +34,10 @@ export function jwtAuthMiddleware(
       let payload: any;
 
       try {
-        payload = jwt.verify(token, secretKey);
+        const { payload: decoded } = await jwtVerify(token, key);
+        payload = decoded;
       } catch (err: any) {
-        if (err.name === 'TokenExpiredError') {
+        if (err.code === 'ERR_JWT_EXPIRED') {
           throw new TokenExpiredException();
         }
         throw new InvalidTokenException();

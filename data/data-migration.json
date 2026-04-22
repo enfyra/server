@@ -127,6 +127,19 @@
                     "_eq": "GQL_MUTATION"
                 }
             }
+        },
+        {
+            "table": "relation_definition",
+            "filter": {
+                "propertyName": {
+                    "_eq": "handlers"
+                },
+                "sourceTable": {
+                    "name": {
+                        "_eq": "method_definition"
+                    }
+                }
+            }
         }
     ],
     "menu_definition": [

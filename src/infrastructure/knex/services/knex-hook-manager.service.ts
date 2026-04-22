@@ -311,32 +311,46 @@ export class KnexHookManagerService {
         ? tableMetadata.uniques
         : Object.values(tableMetadata.uniques || {});
 
-      for (const relation of tableMetadata.relations) {
-        if (!['one-to-one', 'many-to-one'].includes(relation.type)) continue;
-        if (relation.isInverse || relation.mappedBy) continue;
+      for (const unique of uniques) {
+        const uniqueCols = Array.isArray(unique) ? unique : [unique];
 
-        const fkColumn =
-          relation.foreignKeyColumn ||
-          getForeignKeyColumnName(relation.propertyName);
-        if (!fkColumn || !(fkColumn in data) || data[fkColumn] == null)
-          continue;
+        const uniqueRelations = uniqueCols
+          .map((col: string) => {
+            const rel = tableMetadata.relations.find(
+              (r: any) =>
+                r.propertyName === col ||
+                r.foreignKeyColumn === col ||
+                getForeignKeyColumnName(r.propertyName) === col,
+            );
+            return rel;
+          })
+          .filter(Boolean);
 
-        const hasUnique = uniques.some((u: any) => {
-          const cols = Array.isArray(u) ? u : [u];
-          return cols.some((col: string) => {
-            const colFk = col.endsWith('Id')
-              ? col
-              : getForeignKeyColumnName(col);
-            return colFk === fkColumn || col === relation.propertyName;
-          });
+        if (uniqueRelations.length === 0) continue;
+
+        const allNullable = uniqueRelations.every(
+          (r: any) => r.isNullable !== false,
+        );
+        if (!allNullable) continue;
+
+        const allPresentWithValue = uniqueRelations.every((r: any) => {
+          const fk =
+            r.foreignKeyColumn || getForeignKeyColumnName(r.propertyName);
+          return fk in data && data[fk] != null;
         });
+        if (!allPresentWithValue) continue;
 
-        if (!hasUnique) continue;
+        const query = getActiveKnex()(tableName).whereNot('id', data.id);
+        const nullSet: Record<string, null> = {};
 
-        await getActiveKnex()(tableName)
-          .where(fkColumn, data[fkColumn])
-          .whereNot('id', data.id)
-          .update({ [fkColumn]: null });
+        for (const r of uniqueRelations) {
+          const fk =
+            r.foreignKeyColumn || getForeignKeyColumnName(r.propertyName);
+          query.andWhere(fk, data[fk]);
+          nullSet[fk] = null;
+        }
+
+        await query.update(nullSet);
       }
 
       return data;

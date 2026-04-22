@@ -42,6 +42,7 @@ export class SqlQueryEngine {
         meta: options.meta,
         deep: options.deep,
         debugMode: options.debugMode,
+        debugTrace: (options as any).debugTrace,
         maxQueryDepth: (options as any).maxQueryDepth,
       });
 

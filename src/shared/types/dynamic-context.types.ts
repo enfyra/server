@@ -113,6 +113,7 @@ export interface TDynamicContext {
     };
   };
   $uploadedFile?: UploadedFileInfo;
+  $debug?: any;
   $socket?: {
     join?: (room: string) => void;
     leave?: (room: string) => void;

@@ -41,6 +41,7 @@ export class MongoQueryEngine {
       limit,
       meta,
       debugMode,
+      debugTrace: (options as any).debugTrace,
     });
 
     return result;

@@ -45,6 +45,7 @@ export function routeDetectMiddleware(
       const realClientIP = resolveClientIpFromRequest(req);
       const context: TDynamicContext = {
         $body: req.routeData?.context?.$body || req.body || {},
+        $debug: req._debug || undefined,
         $throw: ScriptErrorFactory.createThrowHandlers(),
         $helpers: {
           $jwt: (payload: any, exp: string) =>

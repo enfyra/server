@@ -459,6 +459,7 @@ export class DynamicRepository {
       aggregate: this.context.$query?.aggregate || {},
       deep: cleanDeep || {},
       debugMode: debugMode,
+      debugTrace: this.context.$debug || undefined,
       maxQueryDepth: this.settingCacheService.getMaxQueryDepth(),
     } as any);
 
