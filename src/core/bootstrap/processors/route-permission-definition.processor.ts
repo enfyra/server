@@ -28,6 +28,7 @@ export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
           this.queryBuilderService,
         );
         if (!result.route && !result.routeId) return null;
+        if (!result.methods || result.methods.length === 0) return null;
         return result;
       }),
     );

@@ -6,6 +6,7 @@ import {
   getJunctionColumnNames,
 } from '../../../infrastructure/knex/utils/sql-schema-naming.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { ValidationException } from '../../../core/exceptions/custom-exceptions';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);
@@ -251,6 +252,69 @@ export class SqlTableMetadataWriterService {
           subjectFk: 'relationId',
           subjectFkValue: relationId,
         });
+
+        if (!rel.id && rel.inversePropertyName) {
+          if (rel.mappedBy) {
+            throw new ValidationException(
+              `Relation '${rel.propertyName}' cannot have both 'mappedBy' and 'inversePropertyName'`,
+              { relationName: rel.propertyName },
+            );
+          }
+          const existingOnTarget = await queryRunner('relation_definition')
+            .where({
+              sourceTableId: targetTableId,
+              propertyName: rel.inversePropertyName,
+            })
+            .first();
+          if (existingOnTarget) {
+            throw new ValidationException(
+              `Cannot create inverse '${rel.inversePropertyName}' on '${targetTablesMap.get(targetTableId)}': property name already exists`,
+              {
+                relationName: rel.inversePropertyName,
+                targetTable: targetTablesMap.get(targetTableId),
+              },
+            );
+          }
+          const existingInverse = await queryRunner('relation_definition')
+            .where({ mappedById: relationId })
+            .first();
+          if (existingInverse) {
+            throw new ValidationException(
+              `Relation '${rel.propertyName}' already has an inverse '${existingInverse.propertyName}'`,
+              { relationName: rel.propertyName },
+            );
+          }
+          let inverseType = rel.type;
+          if (rel.type === 'many-to-one') inverseType = 'one-to-many';
+          else if (rel.type === 'one-to-many') inverseType = 'many-to-one';
+          const inverseData: any = {
+            propertyName: rel.inversePropertyName,
+            type: inverseType,
+            sourceTableId: targetTableId,
+            targetTableId: id,
+            mappedById: relationId,
+            isNullable: rel.isNullable ?? true,
+            isSystem: rel.isSystem || false,
+            isUpdatable: rel.isUpdatable ?? true,
+            isPublished: rel.isPublished ?? true,
+          };
+          if (rel.type === 'many-to-many') {
+            const owningRel = await queryRunner('relation_definition')
+              .where({ id: relationId })
+              .first();
+            if (owningRel?.junctionTableName) {
+              inverseData.junctionTableName = owningRel.junctionTableName;
+              inverseData.junctionSourceColumn = owningRel.junctionTargetColumn;
+              inverseData.junctionTargetColumn = owningRel.junctionSourceColumn;
+            }
+          }
+          await queryRunner('relation_definition').insert(inverseData);
+          const targetName = targetTablesMap.get(targetTableId);
+          if (targetName) affectedTableNames.add(targetName);
+          this.logger.log(
+            `Auto-created inverse relation '${rel.inversePropertyName}' on '${targetName}'`,
+          );
+        }
       }
     }
   }

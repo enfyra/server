@@ -6,8 +6,6 @@ import { transformCode } from '../../../infrastructure/executor-engine/code-tran
 
 const DEFAULT_HTTP_TIMEOUT = 30000;
 const MAX_HTTP_TIMEOUT = 60000;
-const MAX_SLEEP_MS = 60000;
-const DEFAULT_SLEEP_MS = 1000;
 
 const BLOCKED_HOSTNAMES = new Set([
   'localhost',

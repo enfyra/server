@@ -123,7 +123,6 @@ export class QueryPlanner {
       hasRelationFilters || hasRelationSort ? 'after-joins' : 'before-joins';
 
     const joins = registry.getAll();
-    const hasJoins = joins.length > 0;
 
     const dataJoins = joins.filter((j) => j.purposes.includes('data'));
     const hasOnlyManyToOneDataJoins =

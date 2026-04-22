@@ -340,12 +340,6 @@ async function collectParentIdsFromJunction(
     ? { [info!.otherColumn]: { $in: targetIds } }
     : {};
 
-  const allJunction = await db
-    .collection(info!.junctionName)
-    .find({})
-    .toArray();
-  for (const j of allJunction) {
-  }
   const junctionRows = await db
     .collection(info!.junctionName)
     .find(junctionQuery, { projection: { [info!.selfColumn]: 1 } })

@@ -73,7 +73,7 @@ export class MongoTableHandlerService {
       const db = this.mongoService.getDb();
       for (const { oldName, newName, collectionName } of renamedColumns) {
         try {
-          const result = await db
+          await db
             .collection(collectionName)
             .updateMany(
               { [oldName]: { $exists: true } },
@@ -1051,10 +1051,15 @@ export class MongoTableHandlerService {
                 inverseData.junctionSourceColumn = targetColumn;
                 inverseData.junctionTargetColumn = sourceColumn;
               }
-              const inverseRecord = await this.queryBuilderService.insert(
+              await this.queryBuilderService.insert(
                 'relation_definition',
                 inverseData,
               );
+              const invTargetName =
+                typeof rel.targetTable === 'string'
+                  ? rel.targetTable
+                  : rel.targetTable?.name;
+              if (invTargetName) affectedTableNames.add(invTargetName);
               this.logger.log(
                 `Auto-created inverse relation '${rel.inversePropertyName}'`,
               );

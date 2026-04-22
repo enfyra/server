@@ -13,8 +13,6 @@ export function registerExtensionRoutes(
       throw new BadRequestException('Code is required');
     }
 
-    const { processExtensionDefinition } =
-      await import('../../modules/extension-definition/utils/processor.util');
     const { buildExtensionWithVite } =
       await import('../../modules/extension-definition/utils/compiler.util');
     const { isProbablyVueSFC, assertValidVueSFC, assertValidJsBundleSyntax } =

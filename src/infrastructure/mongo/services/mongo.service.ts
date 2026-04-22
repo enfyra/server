@@ -377,7 +377,12 @@ export class MongoService {
 
     if (Array.isArray(data)) {
       return data.map((record) => {
-        const { id, createdAt, updatedAt, ...cleanRecord } = record;
+        const {
+          id: _id,
+          createdAt: _ca,
+          updatedAt: _ua,
+          ...cleanRecord
+        } = record;
         return {
           ...cleanRecord,
           createdAt: now,
@@ -385,7 +390,7 @@ export class MongoService {
         };
       });
     } else {
-      const { id, createdAt, updatedAt, ...cleanData } = data;
+      const { id: _id, createdAt: _ca, updatedAt: _ua, ...cleanData } = data;
       return {
         ...cleanData,
         createdAt: now,
@@ -564,7 +569,13 @@ export class MongoService {
   }
 
   applyUpdateTimestamp(data: any): any {
-    const { _id, id: idField, createdAt, updatedAt, ...cleanData } = data;
+    const {
+      _id,
+      id: _idField,
+      createdAt: _ca,
+      updatedAt: _ua,
+      ...cleanData
+    } = data;
     return {
       ...cleanData,
       updatedAt: new Date(),

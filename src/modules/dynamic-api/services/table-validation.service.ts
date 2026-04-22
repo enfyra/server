@@ -31,7 +31,6 @@ export class DynamicApiTableValidationService {
     tableName: string,
     tableMetadata: any,
   ) {
-    const idField = this.queryBuilderService.getPkField();
     const { data: existingResult } = await this.queryBuilderService.find({
       table: tableName,
     });

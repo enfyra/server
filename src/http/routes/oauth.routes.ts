@@ -11,9 +11,6 @@ export function registerOAuthRoutes(
   app.get('/auth/:provider', async (req: any, res: Response) => {
     const oauthService =
       req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
-    const oauthConfigCache =
-      req.scope?.cradle?.oauthConfigCacheService ??
-      container.cradle.oauthConfigCacheService;
     const configService =
       req.scope?.cradle?.configService ?? container.cradle.configService;
 

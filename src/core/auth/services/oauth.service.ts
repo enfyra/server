@@ -356,7 +356,6 @@ export class OAuthService {
     expTime: number;
     loginProvider: string | null;
   }> {
-    const isMongoDB = this.queryBuilderService.isMongoDb();
     const userId = DatabaseConfigService.getRecordId(user);
     const sessionId = DatabaseConfigService.getRecordId(session);
     const loginProvider = session.loginProvider ?? null;

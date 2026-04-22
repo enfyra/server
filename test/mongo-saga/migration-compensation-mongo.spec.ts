@@ -7,7 +7,6 @@ describe('MongoDB Migration Compensation', () => {
     it('captures table, columns, relations, and inverse relations', async () => {
       const tableId = new ObjectId();
       const owningRelId = new ObjectId();
-      const inverseRelId = new ObjectId();
 
       const mockDb = {
         collection: jest.fn((name: string) => {
@@ -89,7 +88,6 @@ describe('MongoDB Migration Compensation', () => {
       const tableId = new ObjectId();
       const owningRelId = new ObjectId();
       const snapshotInverseId = new ObjectId();
-      const newInverseId = new ObjectId(); // auto-created during failed migration
 
       const operations: string[] = [];
 

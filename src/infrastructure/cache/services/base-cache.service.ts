@@ -28,7 +28,7 @@ export abstract class BaseCacheService<T> {
     this.logger = new Logger(`${config.colorCode}${config.cacheName}\x1b[0m`);
   }
 
-  async reload(publish = true): Promise<void> {
+  async reload(_publish = true): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       return this.loadingPromise;
     }
@@ -65,7 +65,7 @@ export abstract class BaseCacheService<T> {
 
   async partialReload(
     payload: TCacheInvalidationPayload,
-    publish = true,
+    _publish = true,
   ): Promise<void> {
     if (this.isLoading && this.loadingPromise) {
       await this.loadingPromise;
@@ -84,7 +84,7 @@ export abstract class BaseCacheService<T> {
       this.logger.warn(
         `Partial reload failed, falling back to full reload: ${error.message}`,
       );
-      await this.reload(publish);
+      await this.reload(_publish);
     }
   }
 

@@ -108,7 +108,6 @@ export class DataMigrationService {
   private async deleteRecords(
     records: { table: string; filter: Record<string, any> }[],
   ): Promise<void> {
-    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
     for (const { table, filter } of records) {
@@ -142,7 +141,6 @@ export class DataMigrationService {
   ): Promise<number> {
     const recordsArray = Array.isArray(records) ? records : [records];
     let migratedCount = 0;
-    const isMongoDB = this.queryBuilderService.isMongoDb();
     const idField = DatabaseConfigService.getPkField();
 
     for (const oldRecord of recordsArray) {
@@ -230,7 +228,6 @@ export class DataMigrationService {
           field === 'skipRoleGuardMethods' ||
           field === 'availableMethods'
         ) {
-          const isMongoDB = this.queryBuilderService.isMongoDb();
           const idField = DatabaseConfigService.getPkField();
           const result = await this.queryBuilderService.find({
             table: 'method_definition',

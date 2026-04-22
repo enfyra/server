@@ -73,6 +73,7 @@ export function registerAdminRoutes(
         type: req.body.type,
         config: req.body.config,
         timeout: req.body.timeout,
+        key: req.body.key,
       },
       req.body.mockFlow,
     );
@@ -118,7 +119,12 @@ async function runTest(body: any, cradle: any) {
   if (kind === 'flow_step') {
     const flowService = cradle.flowService;
     return flowService.testStep(
-      { type: body.type, config: body.config, timeout: body.timeout },
+      {
+        type: body.type,
+        config: body.config,
+        timeout: body.timeout,
+        key: body.key,
+      },
       body.mockFlow,
     );
   }

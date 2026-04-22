@@ -131,7 +131,6 @@ export function generateModifyColumnSQL(
       const oldIsEnum =
         oldColumn &&
         (oldColumn.type === 'enum' || oldColumn.type === 'array-select');
-      const newIsEnum = checkConstraint !== null;
 
       if (oldIsEnum) {
         const constraintName = `chk_${tableName}_${columnName}`;

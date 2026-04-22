@@ -77,7 +77,6 @@ describe('MongoDB Saga System - Integration Tests', () => {
 
     lockService = new MongoSagaLockService({ mongoService });
     logService = new MongoOperationLogService({ mongoService });
-    const mockMetadataCacheService = new MockMetadataCacheService() as any;
 
     coordinator = new MongoSagaCoordinator({
       mongoService,
@@ -788,7 +787,7 @@ describe('MongoDB Saga System - Integration Tests', () => {
     it('should support multiple checkpoints', async () => {
       const result = await coordinator.execute(async (tx) => {
         await tx.insertOne(COLLECTIONS.orders, { customerId: 'mcp-1' });
-        const cp1 = await tx.createCheckpoint('first');
+        await tx.createCheckpoint('first');
 
         await tx.insertOne(COLLECTIONS.orders, { customerId: 'mcp-2' });
         const cp2 = await tx.createCheckpoint('second');

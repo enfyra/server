@@ -2099,11 +2099,6 @@ describe('G. End-to-end flow simulation', () => {
       'pre_hook_definition',
       'post_hook_definition',
     ];
-    const expectedIsolatedTables = [
-      'field_permission_definition',
-      'setting_definition',
-    ];
-
     for (const t of expectedMetadataTables) {
       expect(CACHE_INVALIDATION_MAP[t]).toContain('metadata');
       expect(CACHE_INVALIDATION_MAP[t]).toContain('route');
