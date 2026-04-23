@@ -1,11 +1,5 @@
 import { JoinRegistry } from './join-registry';
-import {
-  QueryPlan,
-  DatabaseType,
-  ResolvedSortItem,
-  PaginationPlacement,
-  JoinSpec,
-} from './query-plan.types';
+import { QueryPlan, DatabaseType, ResolvedSortItem } from './query-plan.types';
 import { parseFilter } from './filter-parser';
 import { FilterNode } from './types/filter-ast';
 import { parseFields } from './field-parser';
@@ -58,7 +52,6 @@ export class QueryPlanner {
     const rawSort = this.parseSort(sort);
     const sortItems: ResolvedSortItem[] = [];
     let hasRelationSort = false;
-    let limitedCteSortJoin: JoinSpec | null = null;
 
     for (const s of rawSort) {
       const isDesc = s.startsWith('-');
@@ -86,9 +79,6 @@ export class QueryPlanner {
               fullPath: path,
             });
             hasRelationSort = true;
-            if (!limitedCteSortJoin) {
-              limitedCteSortJoin = registry.get(sortResult.lastJoinId) ?? null;
-            }
           }
           continue;
         }
@@ -119,22 +109,7 @@ export class QueryPlanner {
     const needsFilterCount =
       metaParts.includes('filterCount') || metaParts.includes('*');
 
-    const paginationPlacement: PaginationPlacement =
-      hasRelationFilters || hasRelationSort ? 'after-joins' : 'before-joins';
-
     const joins = registry.getAll();
-
-    const dataJoins = joins.filter((j) => j.purposes.includes('data'));
-    const hasOnlyManyToOneDataJoins =
-      dataJoins.length > 0 &&
-      dataJoins.every(
-        (j) =>
-          j.relationType === 'many-to-one' || j.relationType === 'one-to-one',
-      );
-
-    const limitedCteFilterJoins = joins.filter(
-      (j) => j.purposes.includes('filter') && !j.purposes.includes('data'),
-    );
 
     return {
       table: tableName,
@@ -145,14 +120,10 @@ export class QueryPlanner {
       sortItems,
       limit: parsedLimit,
       offset,
-      paginationPlacement,
       needsTotalCount,
       needsFilterCount,
       hasRelationFilters,
       hasRelationSort,
-      hasOnlyManyToOneDataJoins,
-      limitedCteFilterJoins,
-      limitedCteSortJoin,
       filterTree,
       fieldTree,
     };

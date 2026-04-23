@@ -10,15 +10,9 @@ export async function expandFieldsToSelect(
   fields: string[],
   metadataGetter: any,
   dbType: 'postgres' | 'mysql' | 'sqlite',
-  limit?: number,
-  orderByClause?: string,
-  whereClause?: string,
-  offset?: number,
-  limitedCteSortJoin?: any,
   maxQueryDepth?: number,
 ): Promise<{
   select: string[];
-  cteClauses?: string[];
   batchFetchDescriptors?: any[];
 }> {
   if (!metadataGetter) {
@@ -33,16 +27,10 @@ export async function expandFieldsToSelect(
       fields,
       metadataGetter,
       dbType,
-      limit,
-      orderByClause,
-      whereClause,
-      offset,
-      limitedCteSortJoin,
       maxQueryDepth,
     );
     return {
       select: expanded.select,
-      cteClauses: expanded.cteClauses,
       batchFetchDescriptors: expanded.batchFetchDescriptors,
     };
   } catch (error) {
@@ -90,24 +78,4 @@ export function buildRelationSortSubquery(
   const targetPk = pkCol?.name || 'id';
 
   return `(SELECT ${q(targetTable)}.${q(sortField)} FROM ${q(targetTable)} WHERE ${q(targetTable)}.${q(targetPk)} = ${q(parentTable)}.${q(fkCol)})`;
-}
-
-export async function buildRelationSubqueryForCTE(
-  knex: Knex,
-  tableName: string,
-  relationName: string,
-  relationFilter: any,
-  metadata: any,
-  dbType: 'postgres' | 'mysql' | 'sqlite',
-  metadataGetter: (tName: string) => any,
-): Promise<string | null> {
-  return await buildRelationSubquery(
-    knex,
-    tableName,
-    relationName,
-    relationFilter,
-    metadata,
-    dbType,
-    metadataGetter,
-  );
 }
