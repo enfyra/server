@@ -14,23 +14,16 @@ import {
   applyRelationFilters,
 } from '../utils/sql/relation-filter.util';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
-import { getPrimaryKeyColumn } from '../../knex/utils/metadata-loader';
-import { getForeignKeyColumnName } from '../../knex/utils/sql-schema-naming.util';
 import { KnexService } from '../../knex/knex.service';
 import { QueryPlan, ResolvedSortItem } from '../planner/query-plan.types';
-import { decideSqlStrategy } from '../planner/sql-strategy-decider';
 import { renderFilterToKnex } from '../utils/sql/render-filter';
 import { validateFilterShape } from '../utils/shared/filter-sanitizer.util';
 import { QueryPlanner } from '../planner/query-planner';
-import {
-  applyWhereToKnex,
-  compileFilterToSqlWhereExpression,
-} from '../utils/sql/sql-where-builder';
+import { applyWhereToKnex } from '../utils/sql/sql-where-builder';
 import {
   expandFieldsToSelect,
   getMetadataGetter,
   buildRelationSortSubquery,
-  buildRelationSubqueryForCTE,
 } from '../utils/sql/sql-field-expander';
 
 export class SqlQueryExecutor {
@@ -93,9 +86,13 @@ export class SqlQueryExecutor {
     const hasTableRelations =
       tableMeta?.relations && tableMeta.relations.length > 0;
     const hasDeepRelations =
-      options.deep && typeof options.deep === 'object' && Object.keys(options.deep).length > 0;
+      options.deep &&
+      typeof options.deep === 'object' &&
+      Object.keys(options.deep).length > 0;
     const hasExplicitFields =
-      plan.rawFields && plan.rawFields.length > 0 && !plan.rawFields.includes('*');
+      plan.rawFields &&
+      plan.rawFields.length > 0 &&
+      !plan.rawFields.includes('*');
     const isSimpleQuery =
       plan.joins.length === 0 &&
       !plan.hasRelationFilters &&
@@ -107,7 +104,8 @@ export class SqlQueryExecutor {
     if (isSimpleQuery) {
       if (trace) trace.setQueryPath('simple');
       const result = await this.executeSimple(options, plan);
-      if (trace) trace.dur('sql_executor', execStart, { table: options.tableName });
+      if (trace)
+        trace.dur('sql_executor', execStart, { table: options.tableName });
       return result;
     }
 
@@ -220,13 +218,6 @@ export class SqlQueryExecutor {
         fullPath: s.field,
       }));
 
-    const planLimitedCteSortJoin = options.plan?.limitedCteSortJoin ?? null;
-    const planSqlStrategy = options.plan
-      ? decideSqlStrategy(options.plan, this.dbType as any)
-      : undefined;
-    const usePlanCTE =
-      planSqlStrategy === 'cte-flat' || planSqlStrategy === 'cte-aggregate';
-
     const mainTableSorts: Array<{ field: string; direction: 'asc' | 'desc' }> =
       [];
     const relationSortSubqueries: Array<{
@@ -251,13 +242,6 @@ export class SqlQueryExecutor {
           direction: item.direction,
         });
       } else {
-        if (
-          usePlanCTE &&
-          planLimitedCteSortJoin &&
-          item.joinId === planLimitedCteSortJoin.id
-        ) {
-          continue;
-        }
         const joinSpec = options.plan?.joins.find((j) => j.id === item.joinId);
         if (
           joinSpec &&
@@ -281,153 +265,7 @@ export class SqlQueryExecutor {
       }
     }
 
-    let cteClauses: string[] | undefined = undefined;
-    let useCTE = false;
-    let whereClauseForCTE: string | undefined = undefined;
-
     if (queryOptions.fields && queryOptions.fields.length > 0) {
-      const orderByParts: string[] = [];
-      for (const s of mainTableSorts) {
-        const field = s.field.includes('.')
-          ? s.field
-          : `${queryOptions.table}.${s.field}`;
-        orderByParts.push(
-          `${quoteIdentifier(field.split('.')[0], this.dbType)}.${quoteIdentifier(field.split('.')[1] || field, this.dbType)} ${s.direction.toUpperCase()}`,
-        );
-      }
-      for (const rs of relationSortSubqueries) {
-        orderByParts.push(`${rs.sql} ${rs.direction.toUpperCase()}`);
-      }
-      const orderByClause =
-        orderByParts.length > 0
-          ? `ORDER BY ${orderByParts.join(', ')}`
-          : undefined;
-
-      let builtLimitedCteSortJoin: any = undefined;
-      if (usePlanCTE && planLimitedCteSortJoin) {
-        const sortItem = resolvedSortItems.find(
-          (s) => s.joinId === planLimitedCteSortJoin.id,
-        );
-        if (sortItem) {
-          const joinMap = new Map(
-            (options.plan!.joins ?? []).map((j: any) => [j.id, j]),
-          );
-          const chain: any[] = [];
-          let cur: any = planLimitedCteSortJoin;
-          while (cur) {
-            chain.unshift(cur);
-            cur = cur.parentJoinId ? joinMap.get(cur.parentJoinId) : undefined;
-          }
-          const steps = chain.map((joinSpec: any) => {
-            const fkCol =
-              joinSpec.relationMeta?.foreignKeyColumn ||
-              getForeignKeyColumnName(joinSpec.propertyName);
-            const targetMeta = this.metadata?.tables?.get(joinSpec.targetTable);
-            const pkCol =
-              targetMeta?.columns?.find((c: any) => c.isPrimary)?.name || 'id';
-            return { targetTable: joinSpec.targetTable, fkCol, pkCol };
-          });
-          builtLimitedCteSortJoin = {
-            steps,
-            sortField: sortItem.field,
-            direction: sortItem.direction,
-          };
-        }
-      }
-
-      if (
-        queryOptions.limit !== undefined &&
-        (orderByClause || builtLimitedCteSortJoin) &&
-        (this.dbType === 'postgres' || this.dbType === 'mysql')
-      ) {
-        const metadata = this.metadata?.tables?.get(queryOptions.table);
-        if (
-          originalFilter &&
-          (hasLogicalOperators(originalFilter) ||
-            Object.keys(originalFilter).length > 0)
-        ) {
-          if (metadata) {
-            const sqlExpr = await compileFilterToSqlWhereExpression(
-              this.knex,
-              originalFilter,
-              queryOptions.table,
-              metadata,
-              this.dbType,
-              this.metadata,
-              (
-                tableName: string,
-                relationName: string,
-                relationFilter: any,
-                meta: any,
-              ) =>
-                buildRelationSubqueryForCTE(
-                  this.knex,
-                  tableName,
-                  relationName,
-                  relationFilter,
-                  meta,
-                  this.dbType,
-                  (tName: string) => this.metadata?.tables?.get(tName),
-                ),
-            );
-            if (sqlExpr) {
-              whereClauseForCTE = `WHERE ${sqlExpr}`;
-            }
-          }
-        } else if (queryOptions.where && queryOptions.where.length > 0) {
-          const SAFE_CTE_OPERATORS = new Set([
-            '=',
-            '!=',
-            '<>',
-            '>',
-            '>=',
-            '<',
-            '<=',
-            'in',
-            'not in',
-            'like',
-            'ilike',
-            'is',
-            'is not',
-          ]);
-          const whereParts: string[] = [];
-          for (const condition of queryOptions.where) {
-            const normalizedOp = String(condition.operator)
-              .toLowerCase()
-              .trim();
-            if (!SAFE_CTE_OPERATORS.has(normalizedOp)) continue;
-            let field: string;
-            if (condition.field.includes('.')) {
-              const parts = condition.field.split('.');
-              field = parts
-                .map((p) => quoteIdentifier(p, this.dbType))
-                .join('.');
-            } else {
-              field = `${quoteIdentifier(queryOptions.table, this.dbType)}.${quoteIdentifier(condition.field, this.dbType)}`;
-            }
-            let value: string;
-            if (typeof condition.value === 'string') {
-              value = `'${condition.value.replace(/'/g, "''")}'`;
-            } else if (condition.value === null) {
-              value = 'NULL';
-            } else if (typeof condition.value === 'boolean') {
-              value = condition.value ? 'true' : 'false';
-            } else if (
-              typeof condition.value === 'number' &&
-              Number.isFinite(condition.value)
-            ) {
-              value = String(condition.value);
-            } else {
-              continue;
-            }
-            whereParts.push(`${field} ${normalizedOp} ${value}`);
-          }
-          if (whereParts.length > 0) {
-            whereClauseForCTE = `WHERE ${whereParts.join(' AND ')}`;
-          }
-        }
-      }
-
       const metadataGetter = getMetadataGetter(this.metadata);
       const expandedResult = await expandFieldsToSelect(
         this.knex,
@@ -435,19 +273,12 @@ export class SqlQueryExecutor {
         queryOptions.fields,
         metadataGetter,
         this.dbType,
-        queryOptions.limit,
-        orderByClause,
-        whereClauseForCTE,
-        queryOptions.offset,
-        builtLimitedCteSortJoin,
         this.maxQueryDepth,
       );
       queryOptions.select = [
         ...(queryOptions.select || []),
         ...expandedResult.select,
       ];
-      cteClauses = expandedResult.cteClauses || [];
-      useCTE = cteClauses.length > 0;
       var pendingBatchFetches = expandedResult.batchFetchDescriptors || [];
     }
 
@@ -466,7 +297,6 @@ export class SqlQueryExecutor {
     queryOptions.sort = mainTableSorts;
 
     let query: any = this.knex(queryOptions.table);
-    let rawSQLQuery: string | null = null;
 
     const metaParts = Array.isArray(options.meta)
       ? options.meta
@@ -480,279 +310,135 @@ export class SqlQueryExecutor {
     const needsTotalCount =
       metaParts.includes('totalCount') || metaParts.includes('*');
 
-    let filterCountBaseQuery: string | null = null;
-
-    if (useCTE && cteClauses) {
-      const limitedCTEName = `limited_${queryOptions.table}`;
-      const tableAlias = 't';
-      const quotedTable = quoteIdentifier(queryOptions.table, this.dbType);
-
-      const aggregationCTENames = new Set<string>();
-
-      cteClauses.forEach((cte) => {
-        const match = cte.match(/^[`"]?(\w+)[`"]?\s+AS\s*\(/i);
-        if (match) {
-          const cteName = match[1];
-          if (cteName !== limitedCTEName) {
-            aggregationCTENames.add(cteName);
-          }
+    if (queryOptions.select) {
+      const selectItems = queryOptions.select.map((field) => {
+        if (typeof field === 'string' && field.trim().startsWith('(')) {
+          return this.knex.raw(field);
         }
+        if (typeof field === 'string' && / as /i.test(field)) {
+          return this.knex.raw(field);
+        }
+        return field;
       });
-
-      const selectItems = queryOptions.select.map((item) => {
-        if (typeof item === 'string') {
-          const quotedTable = quoteIdentifier(queryOptions.table, this.dbType);
-          const tableRefPattern = new RegExp(`"${queryOptions.table}"\\.`, 'g');
-          const tableRefPattern2 = new RegExp(`${quotedTable}\\.`, 'g');
-          const tableRefPattern3 = new RegExp(`${queryOptions.table}\\.`, 'g');
-          let result = item.replace(tableRefPattern, `${tableAlias}.`);
-          result = result.replace(tableRefPattern2, `${tableAlias}.`);
-          result = result.replace(tableRefPattern3, `${tableAlias}.`);
-
-          if (
-            this.dbType === 'postgres' &&
-            !result.trim().startsWith('(') &&
-            !result.includes('select ') &&
-            !result.includes('COALESCE')
-          ) {
-            result = result.replace(
-              new RegExp(`${tableAlias}\\.([a-zA-Z_][a-zA-Z0-9_]*)`, 'g'),
-              (match, columnName) => {
-                return `${tableAlias}.${quoteIdentifier(columnName, this.dbType)}`;
-              },
-            );
-          }
-
-          return result;
-        }
-        return item;
-      });
-
-      const selectSQL = selectItems.join(', ');
-
-      const tableMeta = this.metadata?.tables?.get(queryOptions.table);
-      const pkColumn = tableMeta ? getPrimaryKeyColumn(tableMeta) : null;
-      const pkName = pkColumn?.name || 'id';
-      const quotedPkName = quoteIdentifier(pkName, this.dbType);
-
-      const leftJoins = Array.from(aggregationCTENames)
-        .map((cteName) => {
-          const quotedCTEName = quoteIdentifier(cteName, this.dbType);
-          const quotedParentId = quoteIdentifier('parent_id', this.dbType);
-          return `LEFT JOIN ${quotedCTEName} ON ${tableAlias}.${quotedPkName} = ${quotedCTEName}.${quotedParentId}`;
-        })
-        .join(' ');
-
-      const orderBySQLParts: string[] = [];
-      for (const s of mainTableSorts) {
-        let field = s.field;
-        if (field.includes('.')) {
-          const parts = field.split('.');
-          if (parts[0] === queryOptions.table) {
-            field = `${tableAlias}.${quoteIdentifier(parts[1], this.dbType)}`;
-          } else {
-            field = field.replace(
-              new RegExp(`^${queryOptions.table}\\.`, 'g'),
-              `${tableAlias}.`,
-            );
-          }
-        } else {
-          field = `${tableAlias}.${quoteIdentifier(field, this.dbType)}`;
-        }
-        orderBySQLParts.push(`${field} ${s.direction.toUpperCase()}`);
-      }
-      for (const rs of relationSortSubqueries) {
-        orderBySQLParts.push(`${rs.sql} ${rs.direction.toUpperCase()}`);
-      }
-      const orderBySQL =
-        orderBySQLParts.length > 0
-          ? `ORDER BY ${orderBySQLParts.join(', ')}`
-          : '';
-
-      const quotedLimitedCTE = quoteIdentifier(limitedCTEName, this.dbType);
-
-      filterCountBaseQuery = null;
-      if (needsFilterCount) {
-        const limitedCTEDef = cteClauses.find(
-          (cte) =>
-            cte.startsWith(`${quotedLimitedCTE} AS`) ||
-            cte.startsWith(`"${limitedCTEName}" AS`),
-        );
-        if (limitedCTEDef) {
-          const asMatch = limitedCTEDef.match(
-            /AS\s*\(\s*(SELECT\s+[\s\S]+)\s*\)$/i,
-          );
-          if (asMatch) {
-            let baseQuery = asMatch[1].trim();
-            baseQuery = baseQuery.replace(/\s+ORDER\s+BY\s+[\s\S]+$/i, '');
-            baseQuery = baseQuery.replace(/\s+LIMIT\s+\d+$/i, '');
-            baseQuery = baseQuery.replace(/\s+OFFSET\s+\d+$/i, '');
-            filterCountBaseQuery = `SELECT COUNT(*) as cnt FROM (${baseQuery}) subq`;
-          }
-        }
-      }
-
-      const totalCountSelect = needsTotalCount
-        ? `, (SELECT COUNT(*) FROM ${quotedTable}) as __total_count__`
-        : '';
-
-      rawSQLQuery = `
-WITH ${cteClauses.join(',\n')}
-SELECT ${selectSQL}${totalCountSelect}
-FROM ${quotedLimitedCTE}
-INNER JOIN ${quotedTable} ${tableAlias} ON ${quotedLimitedCTE}.${quotedPkName} = ${tableAlias}.${quotedPkName}
-${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
-      `.trim();
-    } else {
-      if (queryOptions.select) {
-        const selectItems = queryOptions.select.map((field) => {
-          if (typeof field === 'string' && field.trim().startsWith('(')) {
-            return this.knex.raw(field);
-          }
-          if (typeof field === 'string' && / as /i.test(field)) {
-            return this.knex.raw(field);
-          }
-          return field;
-        });
-        query = query.select(selectItems);
-      }
-
-      if (needsFilterCount) {
-        query.select(this.knex.raw('COUNT(*) OVER() as __filter_count__'));
-      }
-
-      if (needsTotalCount) {
-        const quotedTbl = quoteIdentifier(queryOptions.table, this.dbType);
-        query.select(
-          this.knex.raw(
-            `(SELECT COUNT(*) FROM ${quotedTbl}) as __total_count__`,
-          ),
-        );
-      }
+      query = query.select(selectItems);
     }
 
-    if (!useCTE) {
-      const isSystemTable = [
-        'table_definition',
-        'column_definition',
-        'relation_definition',
-        'method_definition',
-      ].includes(queryOptions.table);
+    if (needsFilterCount) {
+      query.select(this.knex.raw('COUNT(*) OVER() as __filter_count__'));
+    }
 
-      if (
-        originalFilter &&
-        (hasLogicalOperators(originalFilter) ||
-          Object.keys(originalFilter).length > 0)
-      ) {
-        const metadata = this.metadata?.tables?.get(queryOptions.table);
-        const hasRelations =
-          !isSystemTable &&
-          metadata &&
-          metadata.relations &&
-          metadata.relations.length > 0
-            ? separateFilters(originalFilter, metadata).hasRelations
-            : false;
+    if (needsTotalCount) {
+      const quotedTbl = quoteIdentifier(queryOptions.table, this.dbType);
+      query.select(
+        this.knex.raw(`(SELECT COUNT(*) FROM ${quotedTbl}) as __total_count__`),
+      );
+    }
 
-        if (hasRelations) {
-          await applyRelationFilters(
-            this.knex,
-            query,
-            originalFilter,
-            queryOptions.table,
-            metadata,
-            this.dbType,
-            (tableName: string) => this.metadata?.tables?.get(tableName),
-          );
-        } else if (options.plan?.filterTree) {
-          renderFilterToKnex(query, options.plan.filterTree, {
-            dbType: this.dbType as any,
-            rootTable: queryOptions.table,
-          });
-        } else {
-          this.logger.debug(
-            `buildWhereClause fallback for table=${queryOptions.table}`,
-          );
-          query = buildWhereClause(
-            query,
-            originalFilter,
-            queryOptions.table,
-            this.dbType,
-            metadata,
-          );
-        }
-      } else if (queryOptions.where && queryOptions.where.length > 0) {
-        query = applyWhereToKnex(
+    const isSystemTable = [
+      'table_definition',
+      'column_definition',
+      'relation_definition',
+      'method_definition',
+    ].includes(queryOptions.table);
+
+    if (
+      originalFilter &&
+      (hasLogicalOperators(originalFilter) ||
+        Object.keys(originalFilter).length > 0)
+    ) {
+      const metadata = this.metadata?.tables?.get(queryOptions.table);
+      const hasRelations =
+        !isSystemTable &&
+        metadata &&
+        metadata.relations &&
+        metadata.relations.length > 0
+          ? separateFilters(originalFilter, metadata).hasRelations
+          : false;
+
+      if (hasRelations) {
+        await applyRelationFilters(
+          this.knex,
           query,
-          queryOptions.where,
+          originalFilter,
           queryOptions.table,
-          this.metadata,
+          metadata,
           this.dbType,
+          (tableName: string) => this.metadata?.tables?.get(tableName),
+        );
+      } else if (options.plan?.filterTree) {
+        renderFilterToKnex(query, options.plan.filterTree, {
+          dbType: this.dbType as any,
+          rootTable: queryOptions.table,
+        });
+      } else {
+        this.logger.debug(
+          `buildWhereClause fallback for table=${queryOptions.table}`,
+        );
+        query = buildWhereClause(
+          query,
+          originalFilter,
+          queryOptions.table,
+          this.dbType,
+          metadata,
         );
       }
+    } else if (queryOptions.where && queryOptions.where.length > 0) {
+      query = applyWhereToKnex(
+        query,
+        queryOptions.where,
+        queryOptions.table,
+        this.metadata,
+        this.dbType,
+      );
+    }
 
-      if (queryOptions.sort) {
-        for (const sortOpt of queryOptions.sort) {
-          const sortField = sortOpt.field.includes('.')
-            ? sortOpt.field
-            : `${queryOptions.table}.${sortOpt.field}`;
-          query = query.orderBy(sortField, sortOpt.direction);
-        }
+    if (queryOptions.sort) {
+      for (const sortOpt of queryOptions.sort) {
+        const sortField = sortOpt.field.includes('.')
+          ? sortOpt.field
+          : `${queryOptions.table}.${sortOpt.field}`;
+        query = query.orderBy(sortField, sortOpt.direction);
       }
-      for (const rs of relationSortSubqueries) {
-        query = query.orderByRaw(`${rs.sql} ${rs.direction.toUpperCase()}`);
-      }
+    }
+    for (const rs of relationSortSubqueries) {
+      query = query.orderByRaw(`${rs.sql} ${rs.direction.toUpperCase()}`);
+    }
 
-      if (queryOptions.groupBy) {
-        query = query.groupBy(queryOptions.groupBy);
-      }
+    if (queryOptions.groupBy) {
+      query = query.groupBy(queryOptions.groupBy);
+    }
 
-      if (queryOptions.offset) {
-        query = query.offset(queryOptions.offset);
-      }
+    if (queryOptions.offset) {
+      query = query.offset(queryOptions.offset);
+    }
 
-      if (
-        queryOptions.limit !== undefined &&
-        queryOptions.limit !== null &&
-        queryOptions.limit > 0
-      ) {
-        query = query.limit(queryOptions.limit);
-      }
+    if (
+      queryOptions.limit !== undefined &&
+      queryOptions.limit !== null &&
+      queryOptions.limit > 0
+    ) {
+      query = query.limit(queryOptions.limit);
     }
 
     let totalCount = 0;
 
     if (this.debugLog) {
-      if (useCTE && rawSQLQuery) {
-        this.debugLog.push({
-          type: 'SQL Query (CTE)',
-          table: queryOptions.table,
-          sql: rawSQLQuery,
-        });
-      } else {
-        this.debugLog.push({
-          type: 'SQL Query',
-          table: queryOptions.table,
-          sql: query.toSQL().toNative(),
-        });
-      }
+      this.debugLog.push({
+        type: 'SQL Query',
+        table: queryOptions.table,
+        sql: query.toSQL().toNative(),
+      });
     }
 
     if (options.debugMode && trace) {
-      const sqlString =
-        useCTE && rawSQLQuery ? rawSQLQuery : query.toSQL().toNative().sql;
-      trace.setSql(sqlString);
+      const native = query.toSQL().toNative();
+      trace.setSql(native.sql);
       try {
-        let explainResult: any;
-        if (useCTE && rawSQLQuery) {
-          explainResult = await this.knex.raw(`EXPLAIN ${rawSQLQuery}`);
-        } else {
-          const native = query.toSQL().toNative();
-          const explainSql = native.sql.replace(/\$\d+/g, '?');
-          explainResult = await this.knex.raw(
-            `EXPLAIN ${explainSql}`,
-            native.bindings,
-          );
-        }
+        const explainSql = native.sql.replace(/\$\d+/g, '?');
+        const explainResult = await this.knex.raw(
+          `EXPLAIN ${explainSql}`,
+          native.bindings,
+        );
         trace.setExplain(
           this.dbType === 'postgres'
             ? (explainResult as any).rows
@@ -764,60 +450,13 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     }
 
     let results: any[];
-    if (useCTE && rawSQLQuery) {
-      const dbStart = performance.now();
-      const rawResult = await this.knex.raw(rawSQLQuery);
-      if (trace) trace.dur('db_execute', dbStart, { table: options.tableName, path: 'cte' });
-      if (this.dbType === 'postgres') {
-        results = (rawResult as any).rows;
-      } else {
-        if (Array.isArray(rawResult) && rawResult.length > 0) {
-          const rows = rawResult[0];
-          if (Array.isArray(rows)) {
-            results = rows;
-          } else if (rows && typeof rows === 'object') {
-            const keys = Object.keys(rows);
-            if (keys.length > 0 && /^\d+$/.test(keys[0])) {
-              results = Object.values(rows);
-            } else {
-              results = [rows];
-            }
-          } else {
-            results = [];
-          }
-        } else if (rawResult && typeof rawResult === 'object') {
-          const keys = Object.keys(rawResult);
-          if (keys.length > 0 && /^\d+$/.test(keys[0])) {
-            results = Object.values(rawResult);
-          } else {
-            results = [rawResult];
-          }
-        } else {
-          results = [];
-        }
-      }
-    } else {
-      const dbStart = performance.now();
-      results = await query;
-      if (trace) trace.dur('db_execute', dbStart, { table: options.tableName });
-    }
+    const dbStart = performance.now();
+    results = await query;
+    if (trace) trace.dur('db_execute', dbStart, { table: options.tableName });
 
     let filterCount = 0;
 
-    if (needsFilterCount && useCTE && filterCountBaseQuery) {
-      const filterCountResult = await this.knex.raw(filterCountBaseQuery);
-      if (this.dbType === 'postgres') {
-        filterCount = Number((filterCountResult as any).rows?.[0]?.cnt || 0);
-      } else {
-        const rowsArray = Array.isArray(filterCountResult)
-          ? Array.isArray(filterCountResult[0])
-            ? filterCountResult[0]
-            : filterCountResult
-          : null;
-        const row = rowsArray?.[0];
-        filterCount = Number(row?.cnt ?? row?.count ?? 0);
-      }
-    } else if (needsFilterCount && results.length > 0) {
+    if (needsFilterCount && results.length > 0) {
       filterCount = Number(results[0].__filter_count__ || 0);
 
       results.forEach((row: any) => {
@@ -861,7 +500,8 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     if (this.knexService) {
       const parseStart = performance.now();
       results = await this.knexService.parseResult(results, queryOptions.table);
-      if (trace) trace.dur('db_parseResult', parseStart, { table: options.tableName });
+      if (trace)
+        trace.dur('db_parseResult', parseStart, { table: options.tableName });
     } else {
       const parseSimpleJsonFields = (data: any, tableName: string): any => {
         if (!data || !this.metadata) return data;
@@ -971,9 +611,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     const table = options.tableName;
 
     const selectFields =
-      plan.rawFields && plan.rawFields.length > 0
-        ? plan.rawFields
-        : ['*'];
+      plan.rawFields && plan.rawFields.length > 0 ? plan.rawFields : ['*'];
 
     let query: any = this.knex(table).select(selectFields);
 
@@ -985,9 +623,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     }
 
     for (const s of plan.sortItems) {
-      const field = s.field.includes('.')
-        ? s.field
-        : `${table}.${s.field}`;
+      const field = s.field.includes('.') ? s.field : `${table}.${s.field}`;
       query = query.orderBy(field, s.direction);
     }
 
@@ -1000,7 +636,10 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
 
     const metaParts = Array.isArray(options.meta)
       ? options.meta
-      : (options.meta || '').split(',').map((x: string) => x.trim()).filter(Boolean);
+      : (options.meta || '')
+          .split(',')
+          .map((x: string) => x.trim())
+          .filter(Boolean);
     const needsFilterCount =
       metaParts.includes('filterCount') || metaParts.includes('*');
     const needsTotalCount =
@@ -1012,9 +651,7 @@ ${leftJoins ? leftJoins : ''}${orderBySQL ? ' ' + orderBySQL : ''}
     if (needsTotalCount) {
       const quotedTbl = quoteIdentifier(table, this.dbType);
       query.select(
-        this.knex.raw(
-          `(SELECT COUNT(*) FROM ${quotedTbl}) as __total_count__`,
-        ),
+        this.knex.raw(`(SELECT COUNT(*) FROM ${quotedTbl}) as __total_count__`),
       );
     }
 

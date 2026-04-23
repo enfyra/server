@@ -6,8 +6,6 @@ export type RelationType =
   | 'one-to-many'
   | 'one-to-one'
   | 'many-to-many';
-export type SqlStrategy = 'simple' | 'subquery' | 'cte-flat' | 'cte-aggregate';
-export type PaginationPlacement = 'before-joins' | 'after-joins';
 export type JoinType = 'left' | 'inner';
 export type JoinPurpose = 'data' | 'filter' | 'sort';
 
@@ -39,14 +37,10 @@ export interface QueryPlan {
   sortItems: ResolvedSortItem[];
   limit: number | undefined;
   offset: number | undefined;
-  paginationPlacement: PaginationPlacement;
   needsTotalCount: boolean;
   needsFilterCount: boolean;
   hasRelationFilters: boolean;
   hasRelationSort: boolean;
-  hasOnlyManyToOneDataJoins: boolean;
-  limitedCteFilterJoins: JoinSpec[];
-  limitedCteSortJoin: JoinSpec | null;
   filterTree: FilterNode | null;
   fieldTree: FieldTree | null;
 }
