@@ -8,7 +8,12 @@ import {
   TableMeta,
   chunkedFetch,
   parseFields,
+  PER_PARENT_CONCURRENCY,
 } from '../shared/batch-fetch-engine';
+import { renderFilterToKnex } from './render-filter';
+import { JoinRegistry } from '../../planner/join-registry';
+import { parseFilter } from '../../planner/filter-parser';
+import { perParentRun } from '../shared/per-parent-runner.util';
 
 export class SqlBatchAdapter implements BatchFetchAdapter {
   pkField = 'id';
@@ -16,7 +21,95 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
   constructor(
     private knex: Knex,
     private dbType: 'postgres' | 'mysql' | 'sqlite' = 'postgres',
+    private metadata?: any,
   ) {}
+
+  private buildFilterTree(userFilter: any, targetTable: string) {
+    if (!userFilter || !this.metadata) return null;
+    const registry = new JoinRegistry();
+    const metaArg = this.metadata?.tables ? this.metadata : { tables: new Map(Object.entries(this.metadata as any)) };
+    const { node } = parseFilter(userFilter, targetTable, metaArg, registry);
+    return node;
+  }
+
+  private parseSortTokens(
+    userSort: string | string[] | undefined,
+    targetTable: string,
+    tableAlias?: string,
+  ): Array<{ column: string; order: 'asc' | 'desc' }> {
+    if (!userSort) return [];
+    const tokens = Array.isArray(userSort)
+      ? userSort
+      : userSort
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    return tokens.map((token) => {
+      const isDesc = token.startsWith('-');
+      const path = isDesc ? token.slice(1) : token;
+      const parts = path.split('.');
+      if (parts.length === 1) {
+        const col = tableAlias ? `${tableAlias}.${parts[0]}` : `${targetTable}.${parts[0]}`;
+        return { column: col, order: isDesc ? 'desc' : ('asc' as const) };
+      }
+      const colPart = parts[parts.length - 1];
+      const alias = `__sort_${parts.slice(0, -1).join('_')}`;
+      return { column: `${alias}.${colPart}`, order: isDesc ? 'desc' : ('asc' as const) };
+    });
+  }
+
+  private applySortJoins(
+    query: Knex.QueryBuilder,
+    userSort: string | string[] | undefined,
+    targetTable: string,
+    tableAlias?: string,
+  ): void {
+    if (!userSort || !this.metadata) return;
+    const tokens = Array.isArray(userSort)
+      ? userSort
+      : userSort
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    const joinedAliases = new Set<string>();
+
+    for (const token of tokens) {
+      const path = token.startsWith('-') ? token.slice(1) : token;
+      const parts = path.split('.');
+      if (parts.length <= 1) continue;
+
+      let currentTable = targetTable;
+      let currentAlias = tableAlias || targetTable;
+
+      for (let i = 0; i < parts.length - 1; i++) {
+        const relName = parts[i];
+        const currentMeta = this.metadata?.tables?.get(currentTable);
+        if (!currentMeta) break;
+        const rel = currentMeta.relations?.find((r: any) => r.propertyName === relName);
+        if (!rel) break;
+
+        const nextTable = rel.targetTableName || rel.targetTable;
+        const joinAlias = `__sort_${parts.slice(0, i + 1).join('_')}`;
+
+        if (!joinedAliases.has(joinAlias)) {
+          joinedAliases.add(joinAlias);
+          const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+          const nextMeta = this.metadata?.tables?.get(nextTable);
+          const nextPk = nextMeta ? (getPrimaryKeyColumn(nextMeta as any)?.name || 'id') : 'id';
+          query.leftJoin(
+            `${nextTable} as ${joinAlias}`,
+            `${joinAlias}.${nextPk}`,
+            `${currentAlias}.${fkCol}`,
+          );
+        }
+
+        currentTable = nextTable;
+        currentAlias = joinAlias;
+      }
+    }
+  }
 
   private toKnexSelect(col: string, prefix?: string): any {
     const asIdx = col.indexOf(' as ');
@@ -169,11 +262,30 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     targetTable: string,
     fkValues: any[],
     fetchSpec: { selectCols: string[]; pkCol: string },
+    desc?: BatchFetchDescriptor,
   ): Promise<any[]> {
+    const filterTree = desc?.userFilter
+      ? this.buildFilterTree(desc.userFilter, targetTable)
+      : null;
+    const sortTokens = desc?.userSort
+      ? this.parseSortTokens(desc.userSort, targetTable)
+      : [];
+
     const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
-    return chunkedFetch(fkValues, (chunk) =>
-      this.knex(targetTable).select(selects).whereIn(fetchSpec.pkCol, chunk),
-    );
+
+    return chunkedFetch(fkValues, (chunk) => {
+      const q = this.knex(targetTable).select(selects).whereIn(fetchSpec.pkCol, chunk);
+      if (filterTree) {
+        renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: targetTable });
+      }
+      if (sortTokens.length > 0) {
+        this.applySortJoins(q, desc!.userSort, targetTable);
+        for (const s of sortTokens) {
+          q.orderBy(s.column, s.order);
+        }
+      }
+      return q;
+    });
   }
 
   async fetchInverse(
@@ -181,9 +293,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     fkField: string,
     parentIds: any[],
     fetchSpec: { selectCols: string[]; pkCol: string },
+    desc?: BatchFetchDescriptor,
   ): Promise<{ docs: any[]; groupKeyField: string }> {
     let groupKey = fkField;
-    let fkPushedAsRaw = false;
     const aliasEntry = fetchSpec.selectCols.find((c) =>
       c.startsWith(`${fkField} as `),
     );
@@ -191,20 +303,77 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
       groupKey = aliasEntry.split(' as ')[1].trim();
     } else if (!fetchSpec.selectCols.includes(fkField)) {
       fetchSpec.selectCols.push(fkField);
-      fkPushedAsRaw = true;
+    }
+
+    const filterTree = desc?.userFilter
+      ? this.buildFilterTree(desc.userFilter, targetTable)
+      : null;
+    const sortTokens = desc?.userSort
+      ? this.parseSortTokens(desc.userSort, targetTable)
+      : [];
+    const userLimit = desc?.userLimit;
+    const userPage = desc?.userPage;
+
+    if (userLimit !== undefined) {
+      const offset = userPage ? (userPage - 1) * userLimit : 0;
+      const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
+
+      const resultMap = await perParentRun(
+        parentIds,
+        async (parentId) => {
+          const q = this.knex(targetTable)
+            .select(selects)
+            .where(fkField, parentId);
+          if (filterTree) {
+            renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: targetTable });
+          }
+          this.applySortJoins(q, desc!.userSort, targetTable);
+          if (sortTokens.length > 0) {
+            for (const s of sortTokens) {
+              q.orderBy(s.column, s.order);
+            }
+          } else {
+            q.orderBy(fetchSpec.pkCol, 'asc');
+          }
+          if (offset > 0) q.offset(offset);
+          q.limit(userLimit);
+          return q as Promise<any[]>;
+        },
+        PER_PARENT_CONCURRENCY,
+      );
+
+      const docs: any[] = [];
+      for (const [parentKey, rows] of resultMap.entries()) {
+        const originalId = parentIds.find((id) => String(id) === parentKey);
+        for (const row of rows) {
+          if (!row[fkField]) {
+            row[fkField] = originalId ?? parentKey;
+          }
+          docs.push(row);
+        }
+      }
+
+      return { docs, groupKeyField: groupKey };
     }
 
     const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
-    const docs = await chunkedFetch(parentIds, (chunk) =>
-      this.knex(targetTable)
+    const docs = await chunkedFetch(parentIds, (chunk) => {
+      const q = this.knex(targetTable)
         .select(selects)
-        .whereIn(fkField, chunk)
-        .orderBy(fetchSpec.pkCol, 'asc'),
-    );
-
-    if (fkPushedAsRaw) {
-      (docs as any)._fkPushedAsRaw = true;
-    }
+        .whereIn(fkField, chunk);
+      if (filterTree) {
+        renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: targetTable });
+      }
+      this.applySortJoins(q, desc?.userSort, targetTable);
+      if (sortTokens.length > 0) {
+        for (const s of sortTokens) {
+          q.orderBy(s.column, s.order);
+        }
+      } else {
+        q.orderBy(fetchSpec.pkCol, 'asc');
+      }
+      return q;
+    });
 
     return { docs, groupKeyField: groupKey };
   }
@@ -243,9 +412,20 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
       );
     }
 
+    const filterTree = desc.userFilter
+      ? this.buildFilterTree(desc.userFilter, desc.targetTable)
+      : null;
+    const sortTokens = desc.userSort
+      ? this.parseSortTokens(desc.userSort, desc.targetTable, 't')
+      : [];
+    const userLimit = desc.userLimit;
+    const userPage = desc.userPage;
+
     const isPkOnly =
       fetchSpec.selectCols.length === 1 &&
-      fetchSpec.selectCols[0] === fetchSpec.pkCol;
+      fetchSpec.selectCols[0] === fetchSpec.pkCol &&
+      !filterTree &&
+      !userLimit;
 
     if (isPkOnly) {
       const junctionRows = await chunkedFetch(parentIds, (chunk) =>
@@ -271,8 +451,54 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
       this.toKnexSelect(c, 't'),
     );
 
-    const rows = await chunkedFetch(parentIds, (chunk) =>
-      this.knex(junctionTable)
+    if (userLimit !== undefined) {
+      const offset = userPage ? (userPage - 1) * userLimit : 0;
+
+      const grouped = new Map<string, any[]>();
+      for (const id of parentIds) {
+        grouped.set(this.keyOf(id), []);
+      }
+
+      const resultMap = await perParentRun(
+        parentIds,
+        async (parentId) => {
+          const q = this.knex(junctionTable)
+            .join(
+              `${desc.targetTable} as t`,
+              `${junctionTable}.${targetCol}`,
+              `t.${fetchSpec.pkCol}`,
+            )
+            .select(targetSelectCols)
+            .where(`${junctionTable}.${sourceCol}`, parentId);
+          if (filterTree) {
+            renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: 't' });
+          }
+          this.applySortJoins(q, desc.userSort, desc.targetTable, 't');
+          if (sortTokens.length > 0) {
+            for (const s of sortTokens) {
+              q.orderBy(s.column, s.order);
+            }
+          } else {
+            q.orderBy(`t.${fetchSpec.pkCol}`, 'asc');
+          }
+          if (offset > 0) q.offset(offset);
+          q.limit(userLimit);
+          return q as Promise<any[]>;
+        },
+        PER_PARENT_CONCURRENCY,
+      );
+
+      const allDocs: any[] = [];
+      for (const [parentKey, rows] of resultMap.entries()) {
+        grouped.set(parentKey, rows);
+        for (const row of rows) allDocs.push(row);
+      }
+
+      return { grouped, docs: allDocs };
+    }
+
+    const rows = await chunkedFetch(parentIds, (chunk) => {
+      const q = this.knex(junctionTable)
         .join(
           `${desc.targetTable} as t`,
           `${junctionTable}.${targetCol}`,
@@ -282,9 +508,20 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
           `${junctionTable}.${sourceCol} as __sourceId__`,
           ...targetSelectCols,
         ])
-        .whereIn(`${junctionTable}.${sourceCol}`, chunk)
-        .orderBy(`t.${fetchSpec.pkCol}`, 'asc'),
-    );
+        .whereIn(`${junctionTable}.${sourceCol}`, chunk);
+      if (filterTree) {
+        renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: 't' });
+      }
+      this.applySortJoins(q, desc.userSort, desc.targetTable, 't');
+      if (sortTokens.length > 0) {
+        for (const s of sortTokens) {
+          q.orderBy(s.column, s.order);
+        }
+      } else {
+        q.orderBy(`t.${fetchSpec.pkCol}`, 'asc');
+      }
+      return q;
+    });
 
     const grouped = new Map<string, any[]>();
     for (const row of rows) {

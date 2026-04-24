@@ -3,6 +3,7 @@ import {
   BatchFetchEngine,
   BatchFetchDescriptor,
   MetadataGetter,
+  BatchTrace,
 } from '../shared/batch-fetch-engine';
 import { MongoBatchAdapter } from './mongo-batch-adapter';
 
@@ -16,9 +17,11 @@ export async function executeMongoBatchFetches(
   maxDepth: number = 3,
   currentDepth: number = 0,
   parentTableName?: string,
+  metadata?: any,
+  trace?: BatchTrace,
 ): Promise<void> {
-  const adapter = new MongoBatchAdapter(db);
-  const engine = new BatchFetchEngine(adapter, metadataGetter);
+  const adapter = new MongoBatchAdapter(db, metadata);
+  const engine = new BatchFetchEngine(adapter, metadataGetter, trace);
   await engine.execute(
     parentDocs,
     descriptors,

@@ -1,28 +1,23 @@
 import { DynamicRepository } from '../../../modules/dynamic-api/repositories/dynamic.repository';
+import { DynamicRepositoryFactory } from '../../../modules/dynamic-api/repositories/dynamic-repository.factory';
 import { MetadataCacheService } from './metadata-cache.service';
 import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { EventEmitter2 } from 'eventemitter2';
 
-type RepoFactory = (
-  tableName: string,
-  context: any,
-  enforceFieldPermission?: boolean,
-) => DynamicRepository;
-
 export class RepoRegistryService {
   private readonly metadataCacheService: MetadataCacheService;
-  private readonly repoFactory: RepoFactory;
+  private readonly factory: DynamicRepositoryFactory;
   private aliasToName = new Map<string, string>();
   private initialized = false;
 
   constructor(deps: {
     metadataCacheService: MetadataCacheService;
-    dynamicRepository: RepoFactory;
+    dynamicRepositoryFactory: DynamicRepositoryFactory;
     eventEmitter: EventEmitter2;
   }) {
     this.metadataCacheService = deps.metadataCacheService;
-    this.repoFactory = deps.dynamicRepository;
+    this.factory = deps.dynamicRepositoryFactory;
     deps.eventEmitter.on(
       CACHE_EVENTS.INVALIDATE,
       this.handleCacheInvalidation.bind(this),
@@ -94,7 +89,7 @@ export class RepoRegistryService {
         return existing;
       }
 
-      const repo = self.repoFactory(
+      const repo = self.factory.create(
         resolvedName,
         context,
         enforceFieldPermission,

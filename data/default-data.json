@@ -1519,5 +1519,23 @@
             "connectionHandlerTimeout": 5000
         }
     ],
-    "websocket_event_definition": []
+    "websocket_event_definition": [],
+    "field_permission_definition": [
+        {
+            "isEnabled": true,
+            "action": "update",
+            "effect": "allow",
+            "description": "Allow authenticated user to update own password via /me",
+            "_column": {
+                "table": "user_definition",
+                "name": "password"
+            },
+            "_role": null,
+            "condition": {
+                "id": {
+                    "_eq": "@USER.id"
+                }
+            }
+        }
+    ]
 }

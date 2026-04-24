@@ -25,6 +25,11 @@ import {
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
 import { UserRevocationService } from '../../../core/auth/services/user-revocation.service';
+import { validateDeepOptions } from '../../../infrastructure/query-builder/utils/shared/deep-options-validator.util';
+import {
+  rewriteFilterDenyingFields,
+  rewriteSortDroppingDenied,
+} from '../../../infrastructure/query-builder/utils/shared/filter-field-walker.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -390,24 +395,81 @@ export class DynamicRepository {
       for (const relName of Object.keys(cleanDeep)) {
         const relEntry = cleanDeep[relName];
         if (!relEntry || typeof relEntry !== 'object') continue;
-        if (!relEntry.deep && !relEntry.fields) continue;
         const relMeta = (meta.relations || []).find(
           (r: any) => r.propertyName === relName,
         );
         const targetTable = relMeta?.targetTable || relMeta?.targetTableName;
         if (!targetTable) continue;
+
         const nested = await this.stripDeniedFields(
           targetTable,
           relEntry.fields,
           relEntry.deep,
         );
         if (nested.needsPostSql) hasConditionalPending = true;
+
+        const isAllowed = (tblName: string, fieldName: string, fieldType: 'column' | 'relation') => {
+          const tblMeta = (meta.columns || meta.relations) ? meta : null;
+          return true;
+        };
+
+        let cleanedFilter = relEntry.filter;
+        let cleanedSort = relEntry.sort;
+
+        if (this.enforceFieldPermission && this.fieldPermissionCacheService && !this.context?.$user?.isRootAdmin) {
+          const targetMeta = await this.metadataCacheService.lookupTableByName(targetTable);
+          if (targetMeta) {
+            const fullMetadata = await this.metadataCacheService.getMetadata();
+
+            if (relEntry.filter) {
+              cleanedFilter = rewriteFilterDenyingFields(
+                relEntry.filter,
+                targetTable,
+                fullMetadata,
+                (tblName, fieldName, fieldType) => {
+                  const tMeta = fullMetadata?.tables?.get(tblName);
+                  if (!tMeta) return true;
+                  if (fieldType === 'column') {
+                    const col = tMeta.columns?.find((c: any) => c.name === fieldName);
+                    return col?.isPublished !== false;
+                  } else {
+                    const rel = tMeta.relations?.find((r: any) => r.propertyName === fieldName);
+                    return rel?.isPublished !== false;
+                  }
+                },
+              );
+            }
+
+            if (relEntry.sort) {
+              const fullMetadata2 = await this.metadataCacheService.getMetadata();
+              cleanedSort = rewriteSortDroppingDenied(
+                relEntry.sort,
+                targetTable,
+                fullMetadata2,
+                (tblName, fieldName, fieldType) => {
+                  const tMeta = fullMetadata2?.tables?.get(tblName);
+                  if (!tMeta) return true;
+                  if (fieldType === 'column') {
+                    const col = tMeta.columns?.find((c: any) => c.name === fieldName);
+                    return col?.isPublished !== false;
+                  } else {
+                    const rel = tMeta.relations?.find((r: any) => r.propertyName === fieldName);
+                    return rel?.isPublished !== false;
+                  }
+                },
+              );
+            }
+          }
+        }
+
         cleanDeep[relName] = {
           ...relEntry,
           ...(nested.fields !== relEntry.fields
             ? { fields: nested.fields }
             : {}),
           ...(nested.deep !== relEntry.deep ? { deep: nested.deep } : {}),
+          ...(cleanedFilter !== relEntry.filter ? { filter: cleanedFilter } : {}),
+          ...(cleanedSort !== relEntry.sort ? { sort: cleanedSort } : {}),
         };
       }
     }
@@ -434,6 +496,18 @@ export class DynamicRepository {
 
     const rawFields = opt?.fields || this.context.$query?.fields;
     const rawDeep: Record<string, any> = this.context.$query?.deep || {};
+
+    if (rawDeep && Object.keys(rawDeep).length > 0) {
+      const metadata = await this.metadataCacheService.getMetadata();
+      validateDeepOptions(
+        this.tableName,
+        rawDeep,
+        metadata,
+        0,
+        this.settingCacheService.getMaxQueryDepth(),
+      );
+    }
+
     const {
       fields: cleanFields,
       deep: cleanDeep,
@@ -948,7 +1022,7 @@ export class DynamicRepository {
         await this.userRevocationService.publish(id);
       }
       return { message: 'Delete successfully!', statusCode: 200 };
-    } catch (error) {
+    } catch (error: any) {
       throw new BadRequestException(error.message);
     }
   }

@@ -3,6 +3,7 @@ import {
   BatchFetchEngine,
   BatchFetchDescriptor,
   MetadataGetter,
+  BatchTrace,
 } from '../shared/batch-fetch-engine';
 import { SqlBatchAdapter } from './sql-batch-adapter';
 
@@ -17,9 +18,11 @@ export async function executeBatchFetches(
   currentDepth: number = 0,
   parentTableName?: string,
   dbType: 'postgres' | 'mysql' | 'sqlite' = 'postgres',
+  metadata?: any,
+  trace?: BatchTrace,
 ): Promise<void> {
-  const adapter = new SqlBatchAdapter(knex, dbType);
-  const engine = new BatchFetchEngine(adapter, metadataGetter);
+  const adapter = new SqlBatchAdapter(knex, dbType, metadata);
+  const engine = new BatchFetchEngine(adapter, metadataGetter, trace);
   await engine.execute(
     parentRows,
     descriptors,

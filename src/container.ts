@@ -31,6 +31,7 @@ import { MenuDefinitionProcessor } from './core/bootstrap/processors/menu-defini
 import { MethodDefinitionProcessor } from './core/bootstrap/processors/method-definition.processor';
 import { PostHookDefinitionProcessor } from './core/bootstrap/processors/post-hook-definition.processor';
 import { PreHookDefinitionProcessor } from './core/bootstrap/processors/pre-hook-definition.processor';
+import { FieldPermissionDefinitionProcessor } from './core/bootstrap/processors/field-permission-definition.processor';
 import { RouteDefinitionProcessor } from './core/bootstrap/processors/route-definition.processor';
 import { RouteHandlerDefinitionProcessor } from './core/bootstrap/processors/route-handler-definition.processor';
 import { RoutePermissionDefinitionProcessor } from './core/bootstrap/processors/route-permission-definition.processor';
@@ -72,7 +73,7 @@ import { PackageCdnLoaderService } from './infrastructure/cache/services/package
 import { RateLimitService } from './infrastructure/cache/services/rate-limit.service';
 import { RedisPubSubService } from './infrastructure/cache/services/redis-pubsub.service';
 import { RepoRegistryService } from './infrastructure/cache/services/repo-registry.service';
-import { DynamicRepository } from './modules/dynamic-api/repositories/dynamic.repository';
+import { DynamicRepositoryFactory } from './modules/dynamic-api/repositories/dynamic-repository.factory';
 import { RouteCacheService } from './infrastructure/cache/services/route-cache.service';
 import { SettingCacheService } from './infrastructure/cache/services/setting-cache.service';
 import { StorageConfigCacheService } from './infrastructure/cache/services/storage-config-cache.service';
@@ -219,11 +220,7 @@ export interface Cradle {
   columnRuleCacheService: ColumnRuleCacheService;
   gqlDefinitionCacheService: GqlDefinitionCacheService;
   repoRegistryService: RepoRegistryService;
-  dynamicRepository: (
-    tableName: string,
-    context: any,
-    enforceFieldPermission?: boolean,
-  ) => DynamicRepository;
+  dynamicRepositoryFactory: DynamicRepositoryFactory;
   cacheOrchestratorService: CacheOrchestratorService;
 
   tableHandlerService: TableHandlerService;
@@ -280,6 +277,7 @@ export interface Cradle {
   methodDefinitionProcessor: MethodDefinitionProcessor;
   preHookDefinitionProcessor: PreHookDefinitionProcessor;
   postHookDefinitionProcessor: PostHookDefinitionProcessor;
+  fieldPermissionDefinitionProcessor: FieldPermissionDefinitionProcessor;
   hookDefinitionProcessor: HookDefinitionProcessor;
   settingDefinitionProcessor: SettingDefinitionProcessor;
   extensionDefinitionProcessor: ExtensionDefinitionProcessor;
@@ -435,29 +433,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     columnRuleCacheService: asClass(ColumnRuleCacheService).singleton(),
     gqlDefinitionCacheService: asClass(GqlDefinitionCacheService).singleton(),
     repoRegistryService: asClass(RepoRegistryService).singleton(),
-    dynamicRepository: asFunction((cradle: any) => {
-      return (
-        tableName: string,
-        context: any,
-        enforceFieldPermission?: boolean,
-      ) => {
-        return new DynamicRepository({
-          tableName,
-          context,
-          enforceFieldPermission,
-          tableHandlerService: cradle.tableHandlerService,
-          queryBuilderService: cradle.queryBuilderService,
-          queryEngine: cradle.queryEngine,
-          metadataCacheService: cradle.metadataCacheService,
-          policyService: cradle.policyService,
-          tableValidationService: cradle.tableValidationService,
-          settingCacheService: cradle.settingCacheService,
-          fieldPermissionCacheService: cradle.fieldPermissionCacheService,
-          userRevocationService: cradle.userRevocationService,
-          eventEmitter: cradle.eventEmitter,
-        });
-      };
-    }).singleton(),
+    dynamicRepositoryFactory: asClass(DynamicRepositoryFactory).singleton(),
     cacheOrchestratorService: asClass(CacheOrchestratorService).singleton(),
 
     tableHandlerService: asClass(TableHandlerService)
@@ -537,6 +513,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
     preHookDefinitionProcessor: asClass(PreHookDefinitionProcessor).singleton(),
     postHookDefinitionProcessor: asClass(
       PostHookDefinitionProcessor,
+    ).singleton(),
+    fieldPermissionDefinitionProcessor: asClass(
+      FieldPermissionDefinitionProcessor,
     ).singleton(),
     hookDefinitionProcessor: asClass(HookDefinitionProcessor).singleton(),
     settingDefinitionProcessor: asClass(SettingDefinitionProcessor).singleton(),

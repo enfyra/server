@@ -16,6 +16,7 @@ import { RouteHandlerDefinitionProcessor } from '../processors/route-handler-def
 import { MethodDefinitionProcessor } from '../processors/method-definition.processor';
 import { PreHookDefinitionProcessor } from '../processors/pre-hook-definition.processor';
 import { PostHookDefinitionProcessor } from '../processors/post-hook-definition.processor';
+import { FieldPermissionDefinitionProcessor } from '../processors/field-permission-definition.processor';
 import { SettingDefinitionProcessor } from '../processors/setting-definition.processor';
 import { ExtensionDefinitionProcessor } from '../processors/extension-definition.processor';
 import { FolderDefinitionProcessor } from '../processors/folder-definition.processor';
@@ -46,6 +47,7 @@ export class DataProvisionService {
   private readonly methodDefinitionProcessor: MethodDefinitionProcessor;
   private readonly preHookDefinitionProcessor: PreHookDefinitionProcessor;
   private readonly postHookDefinitionProcessor: PostHookDefinitionProcessor;
+  private readonly fieldPermissionDefinitionProcessor: FieldPermissionDefinitionProcessor;
   private readonly settingDefinitionProcessor: SettingDefinitionProcessor;
   private readonly extensionDefinitionProcessor: ExtensionDefinitionProcessor;
   private readonly folderDefinitionProcessor: FolderDefinitionProcessor;
@@ -70,6 +72,7 @@ export class DataProvisionService {
     methodDefinitionProcessor: MethodDefinitionProcessor;
     preHookDefinitionProcessor: PreHookDefinitionProcessor;
     postHookDefinitionProcessor: PostHookDefinitionProcessor;
+    fieldPermissionDefinitionProcessor: FieldPermissionDefinitionProcessor;
     settingDefinitionProcessor: SettingDefinitionProcessor;
     extensionDefinitionProcessor: ExtensionDefinitionProcessor;
     folderDefinitionProcessor: FolderDefinitionProcessor;
@@ -92,6 +95,8 @@ export class DataProvisionService {
     this.methodDefinitionProcessor = deps.methodDefinitionProcessor;
     this.preHookDefinitionProcessor = deps.preHookDefinitionProcessor;
     this.postHookDefinitionProcessor = deps.postHookDefinitionProcessor;
+    this.fieldPermissionDefinitionProcessor =
+      deps.fieldPermissionDefinitionProcessor;
     this.settingDefinitionProcessor = deps.settingDefinitionProcessor;
     this.extensionDefinitionProcessor = deps.extensionDefinitionProcessor;
     this.folderDefinitionProcessor = deps.folderDefinitionProcessor;
@@ -124,6 +129,10 @@ export class DataProvisionService {
     this.processors.set(
       'post_hook_definition',
       this.postHookDefinitionProcessor,
+    );
+    this.processors.set(
+      'field_permission_definition',
+      this.fieldPermissionDefinitionProcessor,
     );
     this.processors.set('setting_definition', this.settingDefinitionProcessor);
     this.processors.set(

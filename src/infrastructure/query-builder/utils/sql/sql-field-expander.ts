@@ -11,6 +11,7 @@ export async function expandFieldsToSelect(
   metadataGetter: any,
   dbType: 'postgres' | 'mysql' | 'sqlite',
   maxQueryDepth?: number,
+  deepOptions?: Record<string, any>,
 ): Promise<{
   select: string[];
   batchFetchDescriptors?: any[];
@@ -28,6 +29,7 @@ export async function expandFieldsToSelect(
       metadataGetter,
       dbType,
       maxQueryDepth,
+      deepOptions,
     );
     return {
       select: expanded.select,

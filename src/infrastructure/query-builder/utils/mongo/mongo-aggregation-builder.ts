@@ -300,25 +300,40 @@ export async function executeAggregationPipeline(
   }
 
   if (batchFetchableRelations.length > 0 && results.length > 0) {
+    const deepOptions = options.deep || {};
     const descriptors: MongoBatchFetchDescriptor[] =
       batchFetchableRelations.map((rel) => {
         const tableMeta = metadata?.tables?.get(options.table);
         const relMeta = tableMeta?.relations?.find(
           (r: any) => r.propertyName === rel.propertyName,
         );
+        const deepEntry = deepOptions[rel.propertyName];
+        const resolvedFields =
+          deepEntry?.fields != null
+            ? Array.isArray(deepEntry.fields)
+              ? deepEntry.fields
+              : String(deepEntry.fields)
+                  .split(',')
+                  .map((s: string) => s.trim())
+                  .filter(Boolean)
+            : rel.nestedFields && rel.nestedFields.length > 0
+              ? rel.nestedFields
+              : ['_id'];
         return {
           relationName: rel.propertyName,
           type: relMeta?.type as MongoBatchFetchDescriptor['type'],
           targetTable: rel.targetTable,
-          fields:
-            rel.nestedFields && rel.nestedFields.length > 0
-              ? rel.nestedFields
-              : ['_id'],
+          fields: resolvedFields,
           isInverse: relMeta?.isInverse,
           mappedBy: relMeta?.mappedBy,
           junctionTableName: relMeta?.junctionTableName,
           localField: rel.localField,
           foreignField: rel.foreignField,
+          userFilter: deepEntry?.filter,
+          userSort: deepEntry?.sort,
+          userLimit: deepEntry?.limit !== undefined ? Number(deepEntry.limit) : undefined,
+          userPage: deepEntry?.page !== undefined ? Number(deepEntry.page) : undefined,
+          nestedDeep: deepEntry?.deep,
         };
       });
 
@@ -332,6 +347,7 @@ export async function executeAggregationPipeline(
         3,
         0,
         options.table,
+        metadata,
       );
     }
   }

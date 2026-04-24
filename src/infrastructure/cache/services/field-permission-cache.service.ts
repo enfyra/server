@@ -270,6 +270,11 @@ export class FieldPermissionCacheService extends BaseCacheService<
     const roleKey = `r:${roleId ?? 'null'}|${tableName}|${action}`;
     if (cache.has(roleKey)) policies.push(cache.get(roleKey)!);
 
+    if (roleId != null) {
+      const catchAllKey = `r:null|${tableName}|${action}`;
+      if (cache.has(catchAllKey)) policies.push(cache.get(catchAllKey)!);
+    }
+
     return policies;
   }
 }

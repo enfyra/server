@@ -274,6 +274,7 @@ export class SqlQueryExecutor {
         metadataGetter,
         this.dbType,
         this.maxQueryDepth,
+        options.deep,
       );
       queryOptions.select = [
         ...(queryOptions.select || []),
@@ -493,6 +494,8 @@ export class SqlQueryExecutor {
           0,
           queryOptions.table,
           this.dbType as any,
+          this.metadata,
+          trace,
         );
       }
     }

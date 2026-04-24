@@ -11,7 +11,15 @@ export interface BatchFetchDescriptor {
   junctionTargetColumn?: string;
   localField?: string;
   foreignField?: string;
+
+  userFilter?: any;
+  userSort?: string | string[];
+  userLimit?: number;
+  userPage?: number;
+  nestedDeep?: Record<string, any>;
 }
+
+export const PER_PARENT_CONCURRENCY = 16;
 
 export interface RelationMeta {
   propertyName: string;
@@ -94,6 +102,7 @@ export interface BatchFetchAdapter {
     targetTable: string,
     fkValues: any[],
     fetchSpec: any,
+    desc?: BatchFetchDescriptor,
   ): Promise<any[]>;
 
   fetchInverse(
@@ -101,6 +110,7 @@ export interface BatchFetchAdapter {
     fkField: string,
     parentIds: any[],
     fetchSpec: any,
+    desc?: BatchFetchDescriptor,
   ): Promise<{ docs: any[]; groupKeyField: string }>;
 
   fetchM2M(
@@ -122,11 +132,45 @@ export interface BatchFetchAdapter {
   ): void;
 }
 
+export interface BatchTrace {
+  dur(stage: string, startTs: number, meta?: Record<string, unknown>): number;
+}
+
 export class BatchFetchEngine {
   constructor(
     private adapter: BatchFetchAdapter,
     private metadataGetter: MetadataGetter,
+    private trace?: BatchTrace,
   ) {}
+
+  private enrichNestedDescs(
+    nestedDescs: BatchFetchDescriptor[],
+    nestedDeep?: Record<string, any>,
+  ): BatchFetchDescriptor[] {
+    if (!nestedDeep || Object.keys(nestedDeep).length === 0) return nestedDescs;
+    return nestedDescs.map((nd) => {
+      const entry = nestedDeep[nd.relationName];
+      if (!entry) return nd;
+      const resolvedFields =
+        entry.fields != null
+          ? Array.isArray(entry.fields)
+            ? entry.fields
+            : String(entry.fields)
+                .split(',')
+                .map((s: string) => s.trim())
+                .filter(Boolean)
+          : nd.fields;
+      return {
+        ...nd,
+        fields: resolvedFields,
+        userFilter: entry.filter ?? nd.userFilter,
+        userSort: entry.sort ?? nd.userSort,
+        userLimit: entry.limit !== undefined ? Number(entry.limit) : nd.userLimit,
+        userPage: entry.page !== undefined ? Number(entry.page) : nd.userPage,
+        nestedDeep: entry.deep ?? nd.nestedDeep,
+      };
+    });
+  }
 
   async execute(
     parentDocs: any[],
@@ -235,16 +279,30 @@ export class BatchFetchEngine {
       return;
     }
 
+    const fetchStart = performance.now();
     const docs = await this.adapter.fetchOwner(
       desc.targetTable,
       fkValues,
       fetchSpec,
+      desc,
     );
+    this.trace?.dur(`batch_fetch_L${currentDepth}_${desc.relationName}`, fetchStart, {
+      relationType: desc.type,
+      targetTable: desc.targetTable,
+      strategy: 'batch-in',
+      roundtrips: Math.ceil(fkValues.length / WHERE_IN_CHUNK_SIZE) || 1,
+      rowsTransferred: docs.length,
+      rowsReturned: docs.length,
+      rowsDiscarded: 0,
+      userFilter: Boolean(desc.userFilter),
+      userSort: Boolean(desc.userSort),
+    });
 
-    if (nestedDescs.length > 0) {
+    const enrichedNestedDescs = this.enrichNestedDescs(nestedDescs, desc.nestedDeep);
+    if (enrichedNestedDescs.length > 0) {
       await this.execute(
         docs,
-        nestedDescs,
+        enrichedNestedDescs,
         maxDepth,
         currentDepth + 1,
         desc.targetTable,
@@ -293,11 +351,13 @@ export class BatchFetchEngine {
       targetMeta,
     );
 
+    const inverseStart = performance.now();
     const { docs, groupKeyField } = await this.adapter.fetchInverse(
       desc.targetTable,
       fkField,
       parentIds,
       fetchSpec,
+      desc,
     );
 
     const grouped = new Map<string, any[]>();
@@ -311,16 +371,39 @@ export class BatchFetchEngine {
       grouped.get(k)!.push(doc);
     }
 
+    const strategy = desc.userLimit !== undefined ? 'per-parent-c16' : 'batch-in';
+    const roundtrips = desc.userLimit !== undefined
+      ? parentIds.length
+      : Math.ceil(parentIds.length / WHERE_IN_CHUNK_SIZE) || 1;
+    const concurrencyWaves = desc.userLimit !== undefined
+      ? Math.ceil(parentIds.length / PER_PARENT_CONCURRENCY)
+      : undefined;
+    const rowsReturned = Array.from(grouped.values()).reduce((s, a) => s + a.length, 0);
+    this.trace?.dur(`batch_fetch_L${currentDepth}_${desc.relationName}`, inverseStart, {
+      relationType: desc.type,
+      targetTable: desc.targetTable,
+      strategy,
+      roundtrips,
+      concurrencyWaves,
+      rowsTransferred: docs.length,
+      rowsReturned,
+      rowsDiscarded: docs.length - rowsReturned,
+      userLimit: desc.userLimit,
+      userFilter: Boolean(desc.userFilter),
+      userSort: Boolean(desc.userSort),
+    });
+
     if (this.adapter.postProcessInverseChild) {
       for (const doc of docs) {
         this.adapter.postProcessInverseChild(doc, fkField, userRequestedFk);
       }
     }
 
-    if (nestedDescs.length > 0) {
+    const enrichedInverseDescs = this.enrichNestedDescs(nestedDescs, desc.nestedDeep);
+    if (enrichedInverseDescs.length > 0) {
       await this.execute(
         docs,
-        nestedDescs,
+        enrichedInverseDescs,
         maxDepth,
         currentDepth + 1,
         desc.targetTable,
@@ -360,6 +443,7 @@ export class BatchFetchEngine {
       targetMeta,
     );
 
+    const m2mStart = performance.now();
     const { grouped, docs } = await this.adapter.fetchM2M(
       parentDocs,
       desc,
@@ -368,10 +452,33 @@ export class BatchFetchEngine {
       fetchSpec,
     );
 
-    if (nestedDescs.length > 0 && docs.length > 0) {
+    const m2mStrategy = desc.userLimit !== undefined ? 'm2m-per-parent-c16' : 'm2m-batch';
+    const m2mRoundtrips = desc.userLimit !== undefined
+      ? parentIds.length
+      : Math.ceil(parentIds.length / WHERE_IN_CHUNK_SIZE) || 1;
+    const m2mConcurrencyWaves = desc.userLimit !== undefined
+      ? Math.ceil(parentIds.length / PER_PARENT_CONCURRENCY)
+      : undefined;
+    const m2mReturned = Array.from(grouped.values()).reduce((s, a) => s + a.length, 0);
+    this.trace?.dur(`batch_fetch_L${currentDepth}_${desc.relationName}`, m2mStart, {
+      relationType: desc.type,
+      targetTable: desc.targetTable,
+      strategy: m2mStrategy,
+      roundtrips: m2mRoundtrips,
+      concurrencyWaves: m2mConcurrencyWaves,
+      rowsTransferred: docs.length,
+      rowsReturned: m2mReturned,
+      rowsDiscarded: docs.length - m2mReturned,
+      userLimit: desc.userLimit,
+      userFilter: Boolean(desc.userFilter),
+      userSort: Boolean(desc.userSort),
+    });
+
+    const enrichedM2MDescs = this.enrichNestedDescs(nestedDescs, desc.nestedDeep);
+    if (enrichedM2MDescs.length > 0 && docs.length > 0) {
       await this.execute(
         docs,
-        nestedDescs,
+        enrichedM2MDescs,
         maxDepth,
         currentDepth + 1,
         desc.targetTable,

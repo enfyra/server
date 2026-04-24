@@ -153,6 +153,7 @@ export class MongoQueryExecutor {
 
     this.lastBuiltPipeline = null;
     queryOptions.plan = options.plan;
+    queryOptions.deep = options.deep;
     const results = await this.selectLegacy(queryOptions);
 
     if (options.debugMode) {

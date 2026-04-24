@@ -28,6 +28,7 @@ export async function expandFieldsToJoinsAndSelect(
   metadataGetter: (tableName: string) => Promise<TableMetadata | null>,
   dbType: DatabaseType,
   maxDepth?: number,
+  deepOptions?: Record<string, any>,
 ): Promise<FieldExpansionResult> {
   const select: string[] = [];
   const batchFetchDescriptors: BatchFetchDescriptor[] = [];
@@ -140,17 +141,35 @@ export async function expandFieldsToJoinsAndSelect(
     const targetTable =
       relation.targetTableName || (relation as any).targetTable;
 
+    const deepEntry = deepOptions?.[relationName];
+    const resolvedFields =
+      deepEntry?.fields != null
+        ? Array.isArray(deepEntry.fields)
+          ? deepEntry.fields
+          : String(deepEntry.fields)
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+        : nestedFields;
+
     batchFetchDescriptors.push({
       relationName,
       type: relation.type,
       targetTable,
-      fields: nestedFields,
+      fields: resolvedFields,
       isInverse: (relation as any).isInverse,
       fkColumn: relation.foreignKeyColumn,
       mappedBy: (relation as any).mappedBy,
       junctionTableName: relation.junctionTableName,
       junctionSourceColumn: relation.junctionSourceColumn,
       junctionTargetColumn: relation.junctionTargetColumn,
+      userFilter: deepEntry?.filter,
+      userSort: deepEntry?.sort,
+      userLimit:
+        deepEntry?.limit !== undefined ? Number(deepEntry.limit) : undefined,
+      userPage:
+        deepEntry?.page !== undefined ? Number(deepEntry.page) : undefined,
+      nestedDeep: deepEntry?.deep,
     });
   });
 
