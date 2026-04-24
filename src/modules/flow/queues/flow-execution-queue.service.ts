@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { Job, Queue } from 'bullmq';
+import { Job, Queue, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
@@ -17,6 +17,8 @@ import {
 } from '../../../shared/types/flow.types';
 import { executeStepCore } from '../utils/step-executor.util';
 import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
+import { EnvService } from '../../../shared/services/env.service';
+import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -32,7 +34,9 @@ export class FlowExecutionQueueService {
   private readonly queryBuilderService: QueryBuilderService;
   private readonly websocketEmitService: WebsocketEmitService;
   private readonly dynamicContextFactory: DynamicContextFactory;
+  private readonly envService: EnvService;
   private readonly flowQueue: Queue;
+  private worker?: Worker;
 
   constructor(deps: {
     executorEngineService: ExecutorEngineService;
@@ -41,6 +45,7 @@ export class FlowExecutionQueueService {
     queryBuilderService: QueryBuilderService;
     websocketEmitService: WebsocketEmitService;
     dynamicContextFactory: DynamicContextFactory;
+    envService: EnvService;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -49,7 +54,48 @@ export class FlowExecutionQueueService {
     this.queryBuilderService = deps.queryBuilderService;
     this.websocketEmitService = deps.websocketEmitService;
     this.dynamicContextFactory = deps.dynamicContextFactory;
+    this.envService = deps.envService;
     this.flowQueue = deps.flowQueue;
+  }
+
+  async init() {
+    if (this.worker) return;
+
+    const nodeName = this.envService.get('NODE_NAME') || 'enfyra';
+    this.worker = new Worker(
+      SYSTEM_QUEUES.FLOW_EXECUTION,
+      async (job: Job<FlowJobData>) => {
+        return await this.process(job);
+      },
+      {
+        prefix: `${nodeName}:`,
+        connection: {
+          url: this.envService.get('REDIS_URI'),
+          maxRetriesPerRequest: null,
+        },
+        concurrency: 5,
+      },
+    );
+
+    this.worker.on('failed', (job, err) => {
+      this.logger.error(`Flow job ${job?.id} failed: ${err.message}`);
+    });
+    this.worker.on('completed', (job) => {
+      this.logger.debug(`Flow job ${job.id} completed`);
+    });
+    this.worker.on('error', (err) => {
+      this.logger.error(`Flow queue worker error: ${err.message}`);
+    });
+    this.logger.log(
+      `Flow queue worker started on ${SYSTEM_QUEUES.FLOW_EXECUTION}`,
+    );
+  }
+
+  async onDestroy() {
+    if (this.worker) {
+      await this.worker.close();
+      this.worker = undefined;
+    }
   }
 
   async process(job: Job<FlowJobData>): Promise<any> {
