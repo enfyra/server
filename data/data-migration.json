@@ -244,6 +244,23 @@
         {
             "_unique": {
                 "path": {
+                    "_eq": "/auth/providers"
+                }
+            },
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
                     "_eq": "/me"
                 }
             },

@@ -9,4 +9,5 @@ export interface IOAuthConfig {
 
 export interface IOAuthConfigCache {
   getDirectConfigByProvider(provider: string): IOAuthConfig | null;
+  getAllProviders(): string[];
 }

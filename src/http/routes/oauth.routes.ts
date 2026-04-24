@@ -15,6 +15,25 @@ export function registerOAuthRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  app.get('/auth/providers', (req: any, res: Response) => {
+    const oauthConfigCache =
+      req.scope?.cradle?.oauthConfigCacheService ??
+      container.cradle.oauthConfigCacheService;
+
+    const providers = oauthConfigCache
+      .getAllProviders()
+      .filter((provider): provider is 'google' | 'facebook' | 'github' =>
+        VALID_OAUTH_PROVIDERS.includes(provider as any),
+      )
+      .sort(
+        (a, b) =>
+          VALID_OAUTH_PROVIDERS.indexOf(a) - VALID_OAUTH_PROVIDERS.indexOf(b),
+      )
+      .map((provider) => ({ provider }));
+
+    return res.json({ data: providers });
+  });
+
   app.get('/auth/:provider', async (req: any, res: Response) => {
     const oauthService =
       req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
@@ -28,8 +47,7 @@ export function registerOAuthRoutes(
     const redirectUrl = req.query.redirect as string;
     const appOrigin = req.query.appOrigin as string | undefined;
 
-    const validProviders = ['google', 'facebook', 'github'];
-    if (!validProviders.includes(provider)) {
+    if (!VALID_OAUTH_PROVIDERS.includes(provider as any)) {
       throw new BadRequestException(`Invalid OAuth provider: ${provider}`);
     }
 
@@ -124,6 +142,8 @@ export function registerOAuthRoutes(
     }
   });
 }
+
+const VALID_OAUTH_PROVIDERS = ['google', 'facebook', 'github'] as const;
 
 function signState(payload: string, configService: any): string {
   const secret = (configService.get('SECRET_KEY') as string) || '';

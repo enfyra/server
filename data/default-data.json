@@ -167,6 +167,19 @@
             ]
         },
         {
+            "path": "/auth/providers",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET"
+            ]
+        },
+        {
             "path": "/auth/:provider",
             "mainTable": "user_definition",
             "isEnabled": true,
