@@ -963,9 +963,9 @@
         },
         {
             "type": "Menu",
-            "label": "Routings",
+            "label": "Routes",
             "icon": "heroicons:map",
-            "path": "/settings/routings",
+            "path": "/settings/routes",
             "isEnabled": true,
             "isSystem": true,
             "description": "Route management",

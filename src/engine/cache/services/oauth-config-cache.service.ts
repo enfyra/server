@@ -16,7 +16,8 @@ export interface OAuthConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
-  appCallbackUrl: string;
+  appCallbackUrl?: string | null;
+  autoSetCookies: boolean;
   isEnabled: boolean;
   description?: string;
 }
@@ -49,7 +50,8 @@ export class OAuthConfigCacheService
       clientId: config.clientId,
       clientSecret: config.clientSecret,
       redirectUri: config.redirectUri,
-      appCallbackUrl: config.appCallbackUrl,
+      appCallbackUrl: config.appCallbackUrl ?? null,
+      autoSetCookies: config.autoSetCookies === true,
       isEnabled: config.isEnabled !== false,
       description: config.description,
     }));
