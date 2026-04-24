@@ -30,8 +30,10 @@ import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
 } from '../../../domain/query-dsl/filter-field-walker.util';
+import { Logger } from '../../../shared/logger';
 
 export class DynamicRepository {
+  private readonly logger = new Logger(DynamicRepository.name);
   public context: TDynamicContext;
   private tableName: string;
   private queryEngine: QueryEngine;
@@ -113,6 +115,49 @@ export class DynamicRepository {
     if (item == null) return null;
     if (typeof item === 'string' || typeof item === 'number') return item;
     return item?._id ?? item?.id ?? null;
+  }
+
+  private stripNonUpdatableColumns(data: any, tableMetadata: any): any {
+    if (!data || typeof data !== 'object' || !tableMetadata?.columns) {
+      return data;
+    }
+
+    const stripped = { ...data };
+    for (const column of tableMetadata.columns) {
+      if (column.isUpdatable === false && column.name in stripped) {
+        delete stripped[column.name];
+      }
+    }
+    return stripped;
+  }
+
+  private shouldDebugUserMutation(
+    originalData: any,
+    strippedData: any,
+  ): boolean {
+    if (this.tableName !== 'user_definition') return false;
+
+    const isMeRoute = this.context?.$req?.path === '/me';
+    const hasRootAdminInput =
+      originalData &&
+      typeof originalData === 'object' &&
+      Object.prototype.hasOwnProperty.call(originalData, 'isRootAdmin');
+    const hasRootAdminAfterStrip =
+      strippedData &&
+      typeof strippedData === 'object' &&
+      Object.prototype.hasOwnProperty.call(strippedData, 'isRootAdmin');
+
+    return isMeRoute || hasRootAdminInput || hasRootAdminAfterStrip;
+  }
+
+  private logUserMutationDebug(
+    stage: string,
+    payload: Record<string, any>,
+  ): void {
+    this.logger.warn({
+      message: `[mutation-debug] ${stage}`,
+      ...payload,
+    });
   }
 
   private async assertQueryAllowed() {
@@ -758,12 +803,73 @@ export class DynamicRepository {
   }) {
     await this.ensureInit();
     try {
-      const { id, data: body, fields } = opt;
+      const { id, fields } = opt;
+      const originalBody = opt.data;
+      const body = this.stripNonUpdatableColumns(
+        originalBody,
+        this.tableMetadata,
+      );
+      const debugUserMutation = this.shouldDebugUserMutation(
+        originalBody,
+        body,
+      );
+      const originalKeys =
+        originalBody && typeof originalBody === 'object'
+          ? Object.keys(originalBody)
+          : [];
+      const strippedKeys =
+        body && typeof body === 'object' ? Object.keys(body) : [];
+      const hasRootAdminInput = originalKeys.includes('isRootAdmin');
+      const removedKeys = originalKeys.filter(
+        (key) => !strippedKeys.includes(key),
+      );
+      if (hasRootAdminInput && this.tableName !== 'user_definition') {
+        this.logUserMutationDebug('root admin input on non-user table', {
+          route: this.context?.$req?.path,
+          method: this.context?.$req?.method,
+          tableName: this.tableName,
+          id,
+          originalKeys,
+          strippedKeys,
+        });
+      }
+      if (debugUserMutation) {
+        const inputColumns = this.tableMetadata?.columns
+          ?.filter((column: any) => originalKeys.includes(column.name))
+          .map((column: any) => ({
+            name: column.name,
+            isUpdatable: column.isUpdatable,
+            isPublished: column.isPublished,
+            isSystem: column.isSystem,
+          }));
+        this.logUserMutationDebug('dynamic update input', {
+          route: this.context?.$req?.path,
+          method: this.context?.$req?.method,
+          tableName: this.tableName,
+          id,
+          currentUserId: this.getItemId(this.context?.$user),
+          originalKeys,
+          strippedKeys,
+          removedKeys,
+          inputColumns,
+        });
+      }
       const existsResult = await this.find({
         where: { [this.getIdField()]: { _eq: id } },
       });
       const exists = existsResult?.data?.[0];
       if (!exists) throw new BadRequestException(`id ${id} is not exists!`);
+      if (debugUserMutation) {
+        this.logUserMutationDebug('dynamic update existing record', {
+          route: this.context?.$req?.path,
+          tableName: this.tableName,
+          id,
+          existingId: this.getItemId(exists),
+          existingIsRootAdmin: exists?.isRootAdmin,
+          currentUserId: this.getItemId(this.context?.$user),
+          currentUserIsRootAdmin: this.context?.$user?.isRootAdmin,
+        });
+      }
 
       if (this.enforceFieldPermission && this.fieldPermissionCacheService) {
         if (this.context?.$user?.isRootAdmin) {
@@ -777,6 +883,7 @@ export class DynamicRepository {
             for (const key of Object.keys(body || {})) {
               const col = meta.columns?.find((c: any) => c.name === key);
               if (col) {
+                if (col.isUpdatable === false) continue;
                 const defaultAllowed = col.isPublished !== false;
                 const decision = await decideFieldPermission(
                   this.fieldPermissionCacheService,
@@ -815,6 +922,15 @@ export class DynamicRepository {
               }
             }
             if (denied.length > 0) {
+              if (debugUserMutation) {
+                this.logUserMutationDebug('field permission denied', {
+                  route: this.context?.$req?.path,
+                  tableName: this.tableName,
+                  id,
+                  strippedKeys,
+                  denied,
+                });
+              }
               throw new ForbiddenException(
                 formatFieldPermissionErrorMessage({
                   action: 'update',
@@ -839,6 +955,17 @@ export class DynamicRepository {
         existing: exists,
         currentUser: this.context.$user,
       });
+      if (debugUserMutation) {
+        this.logUserMutationDebug('system policy decision', {
+          route: this.context?.$req?.path,
+          tableName: this.tableName,
+          id,
+          strippedKeys,
+          allow: updateDecision.allow,
+          code: (updateDecision as any).code,
+          message: (updateDecision as any).message,
+        });
+      }
       if (isPolicyDeny(updateDecision)) {
         throw new BadRequestException(updateDecision.message);
       }
@@ -904,6 +1031,21 @@ export class DynamicRepository {
       }
       return result;
     } catch (error: any) {
+      const originalBody = opt.data;
+      if (this.shouldDebugUserMutation(originalBody, originalBody)) {
+        this.logUserMutationDebug('dynamic update caught error', {
+          route: this.context?.$req?.path,
+          method: this.context?.$req?.method,
+          tableName: this.tableName,
+          id: opt.id,
+          originalKeys:
+            originalBody && typeof originalBody === 'object'
+              ? Object.keys(originalBody)
+              : [],
+          errorName: error?.name,
+          errorMessage: error?.message,
+        });
+      }
       if (
         error instanceof ForbiddenException ||
         error instanceof ConflictException
@@ -1116,6 +1258,7 @@ export class DynamicRepository {
     for (const key of Object.keys(data || {})) {
       const col = meta.columns?.find((c: any) => c.name === key);
       if (col) {
+        if (action === 'update' && col.isUpdatable === false) continue;
         const decision = await decideFieldPermission(
           this.fieldPermissionCacheService,
           {

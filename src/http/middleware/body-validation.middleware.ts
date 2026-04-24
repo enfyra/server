@@ -7,10 +7,12 @@ import { ColumnRuleCacheService } from '../../engine/cache/services/column-rule-
 import { buildZodFromMetadata } from '../../shared/utils/zod-from-metadata';
 import { parseOrBadRequest } from '../../shared/utils/zod-parse.util';
 import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
+import { Logger } from '../../shared/logger';
 
 type Mode = 'create' | 'update';
 
 const schemaCache = new Map<string, z.ZodType>();
+const logger = new Logger('BodyValidation');
 
 function cacheKey(
   tableName: string,
@@ -42,6 +44,38 @@ function buildSchema(
   });
 }
 
+function stripNonUpdatableColumnsForPatch(body: any, tableMeta: any): any {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+
+  const nonUpdatableColumns = (tableMeta?.columns || [])
+    .filter((column: any) => column?.isUpdatable === false)
+    .map((column: any) => column.name)
+    .filter(Boolean);
+
+  if (nonUpdatableColumns.length === 0) return body;
+
+  const stripped = { ...body };
+  const removedKeys: string[] = [];
+  for (const key of nonUpdatableColumns) {
+    if (Object.prototype.hasOwnProperty.call(stripped, key)) {
+      delete stripped[key];
+      removedKeys.push(key);
+    }
+  }
+
+  if (removedKeys.length > 0) {
+    logger.warn({
+      message: '[mutation-debug] body validation stripped non-updatable fields',
+      tableName: tableMeta?.name,
+      removedKeys,
+      bodyKeys: Object.keys(body),
+      strippedKeys: Object.keys(stripped),
+    });
+  }
+
+  return stripped;
+}
+
 export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
   const metadataCache = container.cradle.metadataCacheService;
   const ruleCache = container.cradle.columnRuleCacheService;
@@ -68,10 +102,14 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
     const mode: Mode = method === 'POST' ? 'create' : 'update';
     const version = metadataCache.getDirectMetadata()?.version ?? 0;
     const key = cacheKey(mainTable.name, mode, version);
+    const tableMeta =
+      metadataCache.getDirectMetadata()?.tables?.get(mainTable.name) ?? null;
 
     let schema = schemaCache.get(key);
     if (!schema) {
-      const built = buildSchema(mainTable.name, mode, metadataCache, ruleCache);
+      const built = tableMeta
+        ? buildSchema(mainTable.name, mode, metadataCache, ruleCache)
+        : null;
       if (!built) return next();
       if (schemaCache.size > 500) schemaCache.clear();
       schemaCache.set(key, built);
@@ -92,7 +130,17 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
     }
 
     try {
-      parseOrBadRequest(schema, body);
+      const validationBody =
+        mode === 'update'
+          ? stripNonUpdatableColumnsForPatch(body, tableMeta)
+          : body;
+      if (validationBody !== body) {
+        req.body = validationBody;
+        if (routeData?.context) {
+          routeData.context.$body = validationBody;
+        }
+      }
+      parseOrBadRequest(schema, validationBody);
     } catch (err) {
       return next(err);
     }

@@ -2,8 +2,10 @@ import { isDeepStrictEqual as isEqual } from 'node:util';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
 import { IMetadataCache } from '../../shared/interfaces/metadata-cache.interface';
+import { Logger } from '../../../shared/logger';
 
 export class SystemSafetyAuditorService {
+  private readonly logger = new Logger(SystemSafetyAuditorService.name);
   private readonly commonService: CommonService;
   private readonly metadataCacheService: IMetadataCache;
   private readonly schemaMigrationValidatorService: SchemaMigrationValidatorService;
@@ -131,14 +133,43 @@ export class SystemSafetyAuditorService {
       if (operation === 'delete' && isRoot)
         throw new Error('Cannot delete Root Admin user');
       if (operation === 'update') {
+        const getItemId = (item: any) => String(item?._id ?? item?.id ?? '');
+        const existingId = getItemId(fullExisting);
+        const currentUserId = getItemId(currentUser);
+        const isSelf = currentUserId === existingId;
+        const hasRootAdminInput =
+          data &&
+          typeof data === 'object' &&
+          Object.prototype.hasOwnProperty.call(data, 'isRootAdmin');
+        const willBlockRootAdminChange =
+          hasRootAdminInput && data.isRootAdmin !== fullExisting?.isRootAdmin;
+        const willBlockRootSelfUpdate = isRoot && !isSelf;
+
+        if (hasRootAdminInput || isRoot || currentUser?.isRootAdmin) {
+          this.logger.warn({
+            message: '[mutation-debug] system safety user_definition',
+            operation,
+            tableName,
+            dataKeys: data && typeof data === 'object' ? Object.keys(data) : [],
+            changedFields,
+            hasRootAdminInput,
+            inputIsRootAdmin: hasRootAdminInput ? data.isRootAdmin : undefined,
+            existingId,
+            existingIsRootAdmin: fullExisting?.isRootAdmin,
+            currentUserId,
+            currentUserIsRootAdmin: currentUser?.isRootAdmin,
+            isSelf,
+            willBlockRootAdminChange,
+            willBlockRootSelfUpdate,
+          });
+        }
+
         if (
-          'isRootAdmin' in data &&
+          hasRootAdminInput &&
           data.isRootAdmin !== fullExisting?.isRootAdmin
         ) {
           throw new Error('Cannot modify isRootAdmin');
         }
-        const getItemId = (item: any) => String(item?._id ?? item?.id ?? '');
-        const isSelf = getItemId(currentUser) === getItemId(fullExisting);
         if (isRoot && !isSelf)
           throw new Error('Only Root Admin can modify themselves');
       }
