@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { CACHE_EVENTS } from '../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../shared/utils/constant';
+import { getErrorMessage } from '../../shared/utils/error.util';
 
 export function registerPackageRoutes(
   app: Express,
@@ -288,7 +289,7 @@ async function executeCdnLoad(
 
     emitEvent(websocketGateway, 'installed', { id, name, version });
   } catch (error) {
-    const errorDetail = error?.message || String(error);
+    const errorDetail = getErrorMessage(error);
     console.error(`CDN load failed for ${name}: ${errorDetail}`);
 
     await updateStatus(queryBuilder, id, 'failed', { lastError: errorDetail });
@@ -323,7 +324,7 @@ async function executeCdnUpdate(
 
     emitEvent(websocketGateway, 'installed', { id, name, version: newVersion });
   } catch (error) {
-    const errorDetail = error?.message || String(error);
+    const errorDetail = getErrorMessage(error);
     console.error(`CDN update failed for ${name}: ${errorDetail}`);
 
     await updateStatus(queryBuilder, id, 'failed', { lastError: errorDetail });

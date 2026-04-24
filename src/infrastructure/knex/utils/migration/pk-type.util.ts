@@ -1,5 +1,6 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../../shared/logger';
+import { getErrorMessage } from '../../../../shared/utils/error.util';
 const logger = new Logger('PkTypeUtil');
 
 export async function getPrimaryKeyTypeForTable(
@@ -47,7 +48,7 @@ export async function getPrimaryKeyTypeForTable(
     return 'int';
   } catch (error) {
     logger.warn(
-      `Error getting primary key type for ${tableName}: ${error.message}, defaulting to int`,
+      `Error getting primary key type for ${tableName}: ${getErrorMessage(error)}, defaulting to int`,
     );
     return 'int';
   }

@@ -2,6 +2,7 @@ import { DatabaseConfigService } from '../../../shared/services/database-config.
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId, Db } from 'mongodb';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   SchemaMigrationDef,
   TableMigrationDef,
@@ -39,7 +40,7 @@ export class MetadataMigrationService {
       }
     } catch (error) {
       this.logger.warn(
-        `Failed to load snapshot-migration.json: ${error.message}`,
+        `Failed to load snapshot-migration.json: ${getErrorMessage(error)}`,
       );
       this.migrations = null;
     }
@@ -141,7 +142,7 @@ export class MetadataMigrationService {
         this.logger.log(`  Dropped metadata for table: ${tableName}`);
       } catch (error) {
         this.logger.error(
-          `  Failed to drop metadata for ${tableName}: ${error.message}`,
+          `  Failed to drop metadata for ${tableName}: ${getErrorMessage(error)}`,
         );
       }
     }

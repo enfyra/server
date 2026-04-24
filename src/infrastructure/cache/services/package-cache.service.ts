@@ -6,6 +6,7 @@ import {
 } from './package-cdn-loader.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 import type { Cradle } from '../../../container';
 
@@ -70,7 +71,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
         data,
       );
     } catch (error) {
-      this.logger.warn(`Failed to emit WS event ${event}: ${error.message}`);
+      this.logger.warn(`Failed to emit WS event ${event}: ${getErrorMessage(error)}`);
     }
   }
 
@@ -87,7 +88,7 @@ export class PackageCacheService extends BaseCacheService<string[]> {
       );
     } catch (error) {
       this.logger.error(
-        `Failed to update status to ${status} for package ${id}: ${error.message}`,
+        `Failed to update status to ${status} for package ${id}: ${getErrorMessage(error)}`,
       );
     }
   }

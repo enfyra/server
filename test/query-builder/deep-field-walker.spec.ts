@@ -49,7 +49,8 @@ const META: Record<string, any> = {
 const metadata = { tables: new Map(Object.entries(META)) };
 
 function denyField(tableName: string, fieldName: string) {
-  return (tbl: string, field: string) => !(tbl === tableName && field === fieldName);
+  return (tbl: string, field: string) =>
+    !(tbl === tableName && field === fieldName);
 }
 
 function allowAll() {
@@ -59,7 +60,12 @@ function allowAll() {
 describe('rewriteFilterDenyingFields', () => {
   test('passes through filter when all allowed', () => {
     const filter = { title: { _eq: 'hello' } };
-    const result = rewriteFilterDenyingFields(filter, 'posts', metadata, allowAll());
+    const result = rewriteFilterDenyingFields(
+      filter,
+      'posts',
+      metadata,
+      allowAll(),
+    );
     expect(result).toEqual(filter);
   });
 
@@ -179,7 +185,12 @@ describe('rewriteFilterDenyingFields', () => {
 
 describe('rewriteSortDroppingDenied', () => {
   test('passes through when all allowed', () => {
-    const result = rewriteSortDroppingDenied('title,-id', 'posts', metadata, allowAll());
+    const result = rewriteSortDroppingDenied(
+      'title,-id',
+      'posts',
+      metadata,
+      allowAll(),
+    );
     expect(result).toBe('title,-id');
   });
 

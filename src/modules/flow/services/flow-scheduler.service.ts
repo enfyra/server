@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { parseExpression } from 'cron-parser';
 import { Queue } from 'bullmq';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 
 export class FlowSchedulerService {
@@ -90,7 +91,7 @@ export class FlowSchedulerService {
         this.logger.log(`Registered ${registered} scheduled flows`);
       }
     } catch (error) {
-      this.logger.error(`Failed to rebuild flow schedules: ${error.message}`);
+      this.logger.error(`Failed to rebuild flow schedules: ${getErrorMessage(error)}`);
     }
   }
 }

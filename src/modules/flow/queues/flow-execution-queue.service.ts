@@ -3,6 +3,7 @@ import { Job, Queue } from 'bullmq';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
+import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
 import { TDynamicContext } from '../../../shared/types';
@@ -153,7 +154,7 @@ export class FlowExecutionQueueService {
         status: 'failed',
         completedAt: new Date(),
         duration: Date.now() - startTime,
-        error: { message: error.message, stack: error.stack },
+        error: { message: getErrorMessage(error), stack: getErrorStack(error) },
       });
 
       this.emitFlowEvent(triggeredBy, {
@@ -162,15 +163,15 @@ export class FlowExecutionQueueService {
         flowName: flow.name,
         status: 'failed',
         duration: Date.now() - startTime,
-        error: error.message,
+        error: getErrorMessage(error),
       });
 
       this.cleanupOldExecutions(flow).catch((err) =>
         this.logger.warn(
-          `Cleanup failed for flow ${flow.name}: ${err.message}`,
+          `Cleanup failed for flow ${flow.name}: ${getErrorMessage(err)}`,
         ),
       );
-      return { success: false, executionId, error: error.message };
+      return { success: false, executionId, error: getErrorMessage(error) };
     }
   }
 
@@ -397,13 +398,13 @@ export class FlowExecutionQueueService {
           }
           if (!retrySuccess) throw error;
         } else if (step.onError === 'skip') {
-          flowContext[step.key] = { error: error.message, skipped: true };
+          flowContext[step.key] = { error: getErrorMessage(error), skipped: true };
           flowContext.$last = flowContext[step.key];
           completedSteps.push({
             key: step.key,
             type: step.type,
             status: 'skipped',
-            error: error.message,
+            error: getErrorMessage(error),
             duration: Date.now() - stepStart,
           });
           return;

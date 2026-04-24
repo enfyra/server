@@ -1,6 +1,7 @@
 import { Knex } from 'knex';
 import { getForeignKeyColumnName } from '../sql-schema-naming.util';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
+import { getErrorMessage } from '../../../../shared/utils/error.util';
 
 export async function addForeignKeys(
   knex: Knex,
@@ -69,15 +70,14 @@ export async function addForeignKeys(
         table.index([fkOp.foreignKeyColumn]);
       });
     } catch (error) {
-      const msg = (error?.message || '').toLowerCase();
+      const msg = getErrorMessage(error).toLowerCase();
       if (msg.includes('already exists') || msg.includes('duplicate')) {
         console.log(
           `  ⏩ FK already exists: ${fkOp.tableName}.${fkOp.foreignKeyColumn}`,
         );
       } else {
         console.error(
-          `  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.foreignKeyColumn}:`,
-          error.message,
+          `  ❌ Failed to add FK ${fkOp.tableName}.${fkOp.foreignKeyColumn}: ${getErrorMessage(error)}`,
         );
       }
     }

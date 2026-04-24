@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { getForeignKeyColumnName } from './sql-schema-naming.util';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 /**
  * Cascade rules:
@@ -461,8 +462,7 @@ export class CascadeHandler {
       return targetTable?.name || null;
     } catch (error) {
       this.logger.warn(
-        `[resolveTargetTableName] Failed for ${relationName} of ${parentTableName}`,
-        error,
+        `[resolveTargetTableName] Failed for ${relationName} of ${parentTableName}: ${getErrorMessage(error)}`,
       );
       return null;
     }

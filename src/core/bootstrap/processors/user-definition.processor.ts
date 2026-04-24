@@ -2,6 +2,7 @@ import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class UserDefinitionProcessor extends BaseTableProcessor {
   private readonly bcryptService: BcryptService;
@@ -110,7 +111,7 @@ export class UserDefinitionProcessor extends BaseTableProcessor {
           }
         }
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
       }
     }
     return { created: createdCount, skipped: skippedCount };

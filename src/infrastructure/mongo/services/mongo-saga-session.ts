@@ -1,5 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId, AggregationCursor } from 'mongodb';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   MongoSagaLockService,
   ILockAcquisitionResult,
@@ -162,7 +163,7 @@ export class MongoSagaSession {
       if (logEntry) {
         await this.logService.markOperationFailed(
           logEntry.operationId,
-          error.message,
+          getErrorMessage(error),
         );
       }
       throw error;
@@ -242,7 +243,7 @@ export class MongoSagaSession {
       if (logEntry) {
         await this.logService.markOperationFailed(
           logEntry.operationId,
-          error.message,
+          getErrorMessage(error),
         );
       }
       throw error;
@@ -319,7 +320,7 @@ export class MongoSagaSession {
       if (logEntry) {
         await this.logService.markOperationFailed(
           logEntry.operationId,
-          error.message,
+          getErrorMessage(error),
         );
       }
       throw error;
@@ -414,7 +415,7 @@ export class MongoSagaSession {
       if (logEntry) {
         await this.logService.markOperationFailed(
           logEntry.operationId,
-          error.message,
+          getErrorMessage(error),
         );
       }
       throw error;
@@ -584,7 +585,7 @@ export class MongoSagaSession {
           logEntries.map((entry) =>
             this.logService.markOperationFailed(
               entry.operationId,
-              error.message,
+              getErrorMessage(error),
             ),
           ),
         );
@@ -684,7 +685,7 @@ export class MongoSagaSession {
           logEntries.map((entry) =>
             this.logService.markOperationFailed(
               entry.operationId,
-              error.message,
+              getErrorMessage(error),
             ),
           ),
         );
@@ -776,7 +777,7 @@ export class MongoSagaSession {
           logEntries.map((entry) =>
             this.logService.markOperationFailed(
               entry.operationId,
-              error.message,
+              getErrorMessage(error),
             ),
           ),
         );

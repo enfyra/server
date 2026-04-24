@@ -5,6 +5,7 @@ import * as jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { WebsocketCacheService } from '../../../infrastructure/cache/services/websocket-cache.service';
 import { BuiltInSocketRegistry } from '../services/built-in-socket.registry';
 import { EnvService } from '../../../shared/services/env.service';
@@ -336,7 +337,7 @@ export class DynamicWebSocketGateway {
                 eventName,
                 error: {
                   code: 'QUEUE_ERROR',
-                  message: error?.message || 'Failed to queue event',
+                  message: getErrorMessage(error) || 'Failed to queue event',
                 },
               });
             }
@@ -344,7 +345,7 @@ export class DynamicWebSocketGateway {
               requestId,
               eventName,
               code: 'QUEUE_ERROR',
-              message: error?.message || 'Failed to queue event',
+              message: getErrorMessage(error) || 'Failed to queue event',
             });
           }
         });

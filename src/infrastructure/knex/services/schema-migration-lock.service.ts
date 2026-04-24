@@ -4,6 +4,7 @@ import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { DatabaseException } from '../../../core/exceptions/custom-exceptions';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export interface SchemaMigrationLockHandle {
   token: string;
@@ -69,7 +70,7 @@ export class SchemaMigrationLockService {
 
       return updated > 0;
     } catch (error) {
-      this.logger.warn(`Failed to refresh heartbeat: ${error.message}`);
+      this.logger.warn(`Failed to refresh heartbeat: ${getErrorMessage(error)}`);
       return false;
     }
   }

@@ -1,5 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   CACHE_IDENTIFIERS,
   TCacheInvalidationPayload,
@@ -82,7 +83,7 @@ export abstract class BaseCacheService<T> {
       this.emitLoadedEvent();
     } catch (error) {
       this.logger.warn(
-        `Partial reload failed, falling back to full reload: ${error.message}`,
+        `Partial reload failed, falling back to full reload: ${getErrorMessage(error)}`,
       );
       await this.reload(_publish);
     }

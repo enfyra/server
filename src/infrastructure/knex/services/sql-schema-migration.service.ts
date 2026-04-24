@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   getForeignKeyColumnName,
   getShortFkName,
@@ -129,7 +130,7 @@ export class SqlSchemaMigrationService {
       return 'integer';
     } catch (error) {
       this.logger.warn(
-        `Error getting primary key type for ${targetTableName}: ${error.message}, defaulting to integer`,
+        `Error getting primary key type for ${targetTableName}: ${getErrorMessage(error)}, defaulting to integer`,
       );
       return 'integer';
     }
@@ -598,7 +599,7 @@ export class SqlSchemaMigrationService {
             });
           } catch (error) {
             this.logger.error(
-              `Failed to create junction table ${junctionTableName}: ${error.message}`,
+              `Failed to create junction table ${junctionTableName}: ${getErrorMessage(error)}`,
             );
             throw error;
           }
@@ -606,7 +607,7 @@ export class SqlSchemaMigrationService {
       }
     } catch (error) {
       this.logger.error(
-        `Failed to create table ${tableName}: ${error.message}`,
+        `Failed to create table ${tableName}: ${getErrorMessage(error)}`,
       );
       throw error;
     }
@@ -711,7 +712,7 @@ export class SqlSchemaMigrationService {
     } catch (error) {
       if (journalUuid) {
         await this.migrationJournalService
-          .markFailed(journalUuid, error.message || 'Unknown error')
+          .markFailed(journalUuid, getErrorMessage(error))
           .catch(() => {});
       }
       throw error;
@@ -759,7 +760,7 @@ export class SqlSchemaMigrationService {
           .update(updateData);
       } catch (error) {
         this.logger.error(
-          `  Failed to update metadata fields for ${tableName}: ${error.message}`,
+          `  Failed to update metadata fields for ${tableName}: ${getErrorMessage(error)}`,
         );
       }
     }
@@ -842,8 +843,7 @@ export class SqlSchemaMigrationService {
       await this.removeColumnFromMetadataIndexes(tableName, columnName);
     } catch (error) {
       this.logger.error(
-        `Failed to drop column ${tableName}.${columnName}:`,
-        error.message,
+        `Failed to drop column ${tableName}.${columnName}: ${getErrorMessage(error)}`,
       );
       throw error;
     }
@@ -867,7 +867,7 @@ export class SqlSchemaMigrationService {
         .update({ indexes: JSON.stringify(cleaned) });
     } catch (error) {
       this.logger.warn(
-        `  Failed to clean up metadata indexes for ${tableName}.${columnName}: ${error.message}`,
+        `  Failed to clean up metadata indexes for ${tableName}.${columnName}: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -908,7 +908,7 @@ export class SqlSchemaMigrationService {
         tableExists = result.length > 0;
       }
     } catch (error) {
-      this.logger.error(`Error checking table existence: ${error.message}`);
+      this.logger.error(`Error checking table existence: ${getErrorMessage(error)}`);
       tableExists = false;
     }
     if (!tableExists) {
@@ -933,7 +933,7 @@ export class SqlSchemaMigrationService {
             await db.raw(`DROP TABLE IF EXISTS ${qt(rel.junctionTableName)}`);
           } catch (error) {
             this.logger.error(
-              `Failed to drop junction table ${rel.junctionTableName}: ${error.message}`,
+              `Failed to drop junction table ${rel.junctionTableName}: ${getErrorMessage(error)}`,
             );
           }
         }
@@ -945,7 +945,7 @@ export class SqlSchemaMigrationService {
     try {
       await db.raw(`DROP TABLE IF EXISTS ${qt(tableName)}`);
     } catch (error) {
-      this.logger.error(`Failed to drop table ${tableName}: ${error.message}`);
+      this.logger.error(`Failed to drop table ${tableName}: ${getErrorMessage(error)}`);
       throw error;
     }
   }

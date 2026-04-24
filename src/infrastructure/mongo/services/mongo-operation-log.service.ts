@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Collection, ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export type TOperationType =
   | 'insert'
@@ -343,10 +344,10 @@ export class MongoOperationLogService {
       } catch (error) {
         failedOperations.push({
           operationId: op.operationId,
-          error: error.message,
+          error: getErrorMessage(error),
         });
         this.logger.error(
-          `[${txId}] Failed to rollback ${op.operationId}: ${error.message}`,
+          `[${txId}] Failed to rollback ${op.operationId}: ${getErrorMessage(error)}`,
         );
       }
     }
@@ -373,7 +374,7 @@ export class MongoOperationLogService {
               for (const op of group.inserts) {
                 failedOperations.push({
                   operationId: op.operationId,
-                  error: error.message,
+                  error: getErrorMessage(error),
                 });
               }
             }
@@ -407,7 +408,7 @@ export class MongoOperationLogService {
               for (const op of group.updates) {
                 failedOperations.push({
                   operationId: op.operationId,
-                  error: error.message,
+                  error: getErrorMessage(error),
                 });
               }
             }
@@ -438,7 +439,7 @@ export class MongoOperationLogService {
               for (const op of group.deletes) {
                 failedOperations.push({
                   operationId: op.operationId,
-                  error: error.message,
+                  error: getErrorMessage(error),
                 });
               }
             }

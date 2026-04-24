@@ -14,7 +14,10 @@ import { perParentRun } from '../shared/per-parent-runner.util';
 export class MongoBatchAdapter implements BatchFetchAdapter {
   pkField = '_id';
 
-  constructor(private db: Db, private metadata?: any) {}
+  constructor(
+    private db: Db,
+    private metadata?: any,
+  ) {}
 
   private normalizeMetadata() {
     if (!this.metadata) return this.metadata;
@@ -99,7 +102,8 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
         if (!joinedAliases.has(alias)) {
           joinedAliases.add(alias);
           const localFieldRaw = rel.foreignKeyColumn || rel.propertyName;
-          const prevAlias = i === 0 ? null : `__sort_${parts.slice(0, i).join('_')}`;
+          const prevAlias =
+            i === 0 ? null : `__sort_${parts.slice(0, i).join('_')}`;
           const localField = prevAlias
             ? `${prevAlias}.${localFieldRaw}`
             : localFieldRaw;
@@ -298,7 +302,11 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     desc?: BatchFetchDescriptor,
   ): Promise<any[]> {
     const userFilter = desc?.userFilter
-      ? renderRawFilterToMongo(this.normalizeMetadata(), desc.userFilter, targetTable)
+      ? renderRawFilterToMongo(
+          this.normalizeMetadata(),
+          desc.userFilter,
+          targetTable,
+        )
       : null;
     const sortSpec = this.buildSortFromTokens(desc?.userSort);
 
@@ -309,7 +317,10 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       }
       const findOpts: any = { projection: fetchSpec.projection };
       if (sortSpec) findOpts.sort = sortSpec;
-      return this.db.collection(targetTable).find(matchFilter, findOpts).toArray();
+      return this.db
+        .collection(targetTable)
+        .find(matchFilter, findOpts)
+        .toArray();
     });
   }
 
@@ -332,7 +343,11 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
       .map((v) => this.toObjectId(v));
 
     const userFilter = desc?.userFilter
-      ? renderRawFilterToMongo(this.normalizeMetadata(), desc.userFilter, targetTable)
+      ? renderRawFilterToMongo(
+          this.normalizeMetadata(),
+          desc.userFilter,
+          targetTable,
+        )
       : null;
     const userLimit = desc?.userLimit;
     const userPage = desc?.userPage;
@@ -359,13 +374,20 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             if (offset > 0) pipeline.push({ $skip: offset });
             pipeline.push({ $limit: userLimit });
             if (projection) pipeline.push({ $project: projection });
-            return this.db.collection(targetTable).aggregate(pipeline).toArray();
+            return this.db
+              .collection(targetTable)
+              .aggregate(pipeline)
+              .toArray();
           }
 
-          const sortSpec = this.buildSortFromTokens(desc?.userSort) || { _id: 1 };
+          const sortSpec = this.buildSortFromTokens(desc?.userSort) || {
+            _id: 1,
+          };
           const findOpts: any = { sort: sortSpec };
           if (projection) findOpts.projection = projection;
-          const cursor = this.db.collection(targetTable).find(matchStage, findOpts);
+          const cursor = this.db
+            .collection(targetTable)
+            .find(matchStage, findOpts);
           if (offset > 0) cursor.skip(offset);
           cursor.limit(userLimit);
           return cursor.toArray();
@@ -494,7 +516,11 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
     }
 
     const userFilter = desc.userFilter
-      ? renderRawFilterToMongo(this.normalizeMetadata(), desc.userFilter, desc.targetTable)
+      ? renderRawFilterToMongo(
+          this.normalizeMetadata(),
+          desc.userFilter,
+          desc.targetTable,
+        )
       : null;
     const userLimit = desc.userLimit;
     const userPage = desc.userPage;
@@ -507,10 +533,9 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
         async (parentId) => {
           const junctionRowsForParent = await this.db
             .collection(info.junctionName)
-            .find(
-              { [info.selfColumn]: parentId } as any,
-              { projection: { _id: 0, [info.otherColumn]: 1 } },
-            )
+            .find({ [info.selfColumn]: parentId } as any, {
+              projection: { _id: 0, [info.otherColumn]: 1 },
+            })
             .toArray();
 
           const targetIds = junctionRowsForParent
@@ -533,14 +558,22 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
             );
             if (offset > 0) pipeline.push({ $skip: offset });
             pipeline.push({ $limit: userLimit });
-            if (fetchSpec.projection) pipeline.push({ $project: fetchSpec.projection });
-            return this.db.collection(desc.targetTable).aggregate(pipeline).toArray();
+            if (fetchSpec.projection)
+              pipeline.push({ $project: fetchSpec.projection });
+            return this.db
+              .collection(desc.targetTable)
+              .aggregate(pipeline)
+              .toArray();
           }
 
-          const sortSpec = this.buildSortFromTokens(desc.userSort) || { _id: 1 };
+          const sortSpec = this.buildSortFromTokens(desc.userSort) || {
+            _id: 1,
+          };
           const findOpts: any = { sort: sortSpec };
           if (fetchSpec.projection) findOpts.projection = fetchSpec.projection;
-          const cursor = this.db.collection(desc.targetTable).find(matchStage, findOpts);
+          const cursor = this.db
+            .collection(desc.targetTable)
+            .find(matchStage, findOpts);
           if (offset > 0) cursor.skip(offset);
           cursor.limit(userLimit);
           return cursor.toArray();
@@ -595,8 +628,12 @@ export class MongoBatchAdapter implements BatchFetchAdapter {
           baseFilter,
           desc.userSort!,
         );
-        if (fetchSpec.projection) pipeline.push({ $project: fetchSpec.projection });
-        fetchedDocs = await this.db.collection(desc.targetTable).aggregate(pipeline).toArray();
+        if (fetchSpec.projection)
+          pipeline.push({ $project: fetchSpec.projection });
+        fetchedDocs = await this.db
+          .collection(desc.targetTable)
+          .aggregate(pipeline)
+          .toArray();
       } else {
         const sortSpec = this.buildSortFromTokens(desc.userSort) || { _id: 1 };
         const findOpts: any = { sort: sortSpec };

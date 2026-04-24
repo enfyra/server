@@ -81,8 +81,7 @@ function toComparable(v: any): { kind: 'num' | 'str' | 'null'; value: any } {
     if (Number.isFinite(asDate)) return { kind: 'num', value: asDate };
     return { kind: 'str', value: v };
   }
-  if (typeof v === 'object')
-    return { kind: 'str', value: toIdString(v) ?? '' };
+  if (typeof v === 'object') return { kind: 'str', value: toIdString(v) ?? '' };
   return { kind: 'str', value: String(v) };
 }
 

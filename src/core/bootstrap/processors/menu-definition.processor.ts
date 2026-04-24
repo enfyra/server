@@ -3,6 +3,7 @@ import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class MenuDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: QueryBuilderService;
@@ -42,7 +43,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -64,7 +65,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -86,7 +87,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -184,7 +185,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -206,7 +207,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -228,7 +229,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         if (result.created) totalCreated++;
         if (result.skipped) totalSkipped++;
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -359,7 +360,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
         try {
           await processRecord(record);
         } catch (error) {
-          this.logger.error(`Error: ${error.message}`);
+          this.logger.error(`Error: ${getErrorMessage(error)}`);
           this.logger.error(
             `   Record: ${JSON.stringify(record).substring(0, 200)}`,
           );

@@ -25,15 +25,15 @@ describe('matchFieldPermissionCondition', () => {
 
   describe('_eq / _neq', () => {
     it('matches id equality via macro (@USER.id)', () => {
-      expect(
-        match({ id: { _eq: '@USER.id' } }, { id: 5 }, { id: 5 }),
-      ).toBe(true);
-      expect(
-        match({ id: { _eq: '@USER.id' } }, { id: '5' }, { id: 5 }),
-      ).toBe(true);
-      expect(
-        match({ id: { _eq: '@USER.id' } }, { id: 5 }, { id: 6 }),
-      ).toBe(false);
+      expect(match({ id: { _eq: '@USER.id' } }, { id: 5 }, { id: 5 })).toBe(
+        true,
+      );
+      expect(match({ id: { _eq: '@USER.id' } }, { id: '5' }, { id: 5 })).toBe(
+        true,
+      );
+      expect(match({ id: { _eq: '@USER.id' } }, { id: 5 }, { id: 6 })).toBe(
+        false,
+      );
     });
 
     it('matches id via _id fallback (mongo record)', () => {
@@ -43,12 +43,12 @@ describe('matchFieldPermissionCondition', () => {
     });
 
     it('_neq flips', () => {
-      expect(
-        match({ id: { _neq: '@USER.id' } }, { id: 5 }, { id: 6 }),
-      ).toBe(true);
-      expect(
-        match({ id: { _neq: '@USER.id' } }, { id: 5 }, { id: 5 }),
-      ).toBe(false);
+      expect(match({ id: { _neq: '@USER.id' } }, { id: 5 }, { id: 6 })).toBe(
+        true,
+      );
+      expect(match({ id: { _neq: '@USER.id' } }, { id: 5 }, { id: 5 })).toBe(
+        false,
+      );
     });
 
     it('macro resolving undefined → fail-closed', () => {
@@ -90,7 +90,11 @@ describe('matchFieldPermissionCondition', () => {
   describe('_in / _not_in / _nin', () => {
     it('_in with literal array', () => {
       expect(
-        match({ status: { _in: ['draft', 'review'] } }, { status: 'draft' }, {}),
+        match(
+          { status: { _in: ['draft', 'review'] } },
+          { status: 'draft' },
+          {},
+        ),
       ).toBe(true);
       expect(
         match(
@@ -253,13 +257,9 @@ describe('matchFieldPermissionCondition', () => {
     });
 
     it('relation not loaded → fail-closed', () => {
-      expect(
-        match(
-          { owner: { id: { _eq: '@USER.id' } } },
-          {},
-          { id: 5 },
-        ),
-      ).toBe(false);
+      expect(match({ owner: { id: { _eq: '@USER.id' } } }, {}, { id: 5 })).toBe(
+        false,
+      );
       expect(
         match(
           { owner: { id: { _eq: '@USER.id' } } },
@@ -281,20 +281,14 @@ describe('matchFieldPermissionCondition', () => {
 
     it('m2o stored as raw FK value (not object) → fail-closed', () => {
       expect(
-        match(
-          { owner: { id: { _eq: '@USER.id' } } },
-          { owner: 5 },
-          { id: 5 },
-        ),
+        match({ owner: { id: { _eq: '@USER.id' } } }, { owner: 5 }, { id: 5 }),
       ).toBe(false);
     });
   });
 
   describe('@USER macro paths', () => {
     it('@USER and @USER.id / @USER._id', () => {
-      expect(
-        match({ id: { _eq: '@USER' } }, { id: 5 }, { id: 5 }),
-      ).toBe(true);
+      expect(match({ id: { _eq: '@USER' } }, { id: 5 }, { id: 5 })).toBe(true);
       expect(
         match({ id: { _eq: '@USER._id' } }, { id: 'a' }, { _id: 'a' }),
       ).toBe(true);
@@ -322,21 +316,13 @@ describe('matchFieldPermissionCondition', () => {
 
     it('@USER path not resolvable → fail-closed', () => {
       expect(
-        match(
-          { roleId: { _eq: '@USER.role.id' } },
-          { roleId: 7 },
-          { id: 1 },
-        ),
+        match({ roleId: { _eq: '@USER.role.id' } }, { roleId: 7 }, { id: 1 }),
       ).toBe(false);
     });
 
     it('@USER macro only in value, not in field key', () => {
       expect(
-        match(
-          { '@USER.id': { _eq: 1 } } as any,
-          { '@USER.id': 1 },
-          {},
-        ),
+        match({ '@USER.id': { _eq: 1 } } as any, { '@USER.id': 1 }, {}),
       ).toBe(false);
     });
   });
@@ -360,15 +346,15 @@ describe('matchFieldPermissionCondition', () => {
           { status: { _neq: 'published' } },
         ],
       };
-      expect(
-        match(cond, { ownerId: 5, status: 'draft' }, { id: 5 }),
-      ).toBe(true);
-      expect(
-        match(cond, { ownerId: 5, status: 'published' }, { id: 5 }),
-      ).toBe(false);
-      expect(
-        match(cond, { ownerId: 6, status: 'draft' }, { id: 5 }),
-      ).toBe(false);
+      expect(match(cond, { ownerId: 5, status: 'draft' }, { id: 5 })).toBe(
+        true,
+      );
+      expect(match(cond, { ownerId: 5, status: 'published' }, { id: 5 })).toBe(
+        false,
+      );
+      expect(match(cond, { ownerId: 6, status: 'draft' }, { id: 5 })).toBe(
+        false,
+      );
     });
 
     it('tenant whitelist via @USER.allowedTenantIds', () => {

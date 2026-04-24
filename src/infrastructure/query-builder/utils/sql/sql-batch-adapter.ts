@@ -27,7 +27,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
   private buildFilterTree(userFilter: any, targetTable: string) {
     if (!userFilter || !this.metadata) return null;
     const registry = new JoinRegistry();
-    const metaArg = this.metadata?.tables ? this.metadata : { tables: new Map(Object.entries(this.metadata as any)) };
+    const metaArg = this.metadata?.tables
+      ? this.metadata
+      : { tables: new Map(Object.entries(this.metadata as any)) };
     const { node } = parseFilter(userFilter, targetTable, metaArg, registry);
     return node;
   }
@@ -50,12 +52,17 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
       const path = isDesc ? token.slice(1) : token;
       const parts = path.split('.');
       if (parts.length === 1) {
-        const col = tableAlias ? `${tableAlias}.${parts[0]}` : `${targetTable}.${parts[0]}`;
+        const col = tableAlias
+          ? `${tableAlias}.${parts[0]}`
+          : `${targetTable}.${parts[0]}`;
         return { column: col, order: isDesc ? 'desc' : ('asc' as const) };
       }
       const colPart = parts[parts.length - 1];
       const alias = `__sort_${parts.slice(0, -1).join('_')}`;
-      return { column: `${alias}.${colPart}`, order: isDesc ? 'desc' : ('asc' as const) };
+      return {
+        column: `${alias}.${colPart}`,
+        order: isDesc ? 'desc' : ('asc' as const),
+      };
     });
   }
 
@@ -87,7 +94,9 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
         const relName = parts[i];
         const currentMeta = this.metadata?.tables?.get(currentTable);
         if (!currentMeta) break;
-        const rel = currentMeta.relations?.find((r: any) => r.propertyName === relName);
+        const rel = currentMeta.relations?.find(
+          (r: any) => r.propertyName === relName,
+        );
         if (!rel) break;
 
         const nextTable = rel.targetTableName || rel.targetTable;
@@ -95,9 +104,12 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
 
         if (!joinedAliases.has(joinAlias)) {
           joinedAliases.add(joinAlias);
-          const fkCol = rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
+          const fkCol =
+            rel.foreignKeyColumn || getForeignKeyColumnName(rel.propertyName);
           const nextMeta = this.metadata?.tables?.get(nextTable);
-          const nextPk = nextMeta ? (getPrimaryKeyColumn(nextMeta as any)?.name || 'id') : 'id';
+          const nextPk = nextMeta
+            ? getPrimaryKeyColumn(nextMeta as any)?.name || 'id'
+            : 'id';
           query.leftJoin(
             `${nextTable} as ${joinAlias}`,
             `${joinAlias}.${nextPk}`,
@@ -274,9 +286,14 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
     const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
 
     return chunkedFetch(fkValues, (chunk) => {
-      const q = this.knex(targetTable).select(selects).whereIn(fetchSpec.pkCol, chunk);
+      const q = this.knex(targetTable)
+        .select(selects)
+        .whereIn(fetchSpec.pkCol, chunk);
       if (filterTree) {
-        renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: targetTable });
+        renderFilterToKnex(q, filterTree, {
+          dbType: this.dbType,
+          rootTable: targetTable,
+        });
       }
       if (sortTokens.length > 0) {
         this.applySortJoins(q, desc!.userSort, targetTable);
@@ -325,7 +342,10 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
             .select(selects)
             .where(fkField, parentId);
           if (filterTree) {
-            renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: targetTable });
+            renderFilterToKnex(q, filterTree, {
+              dbType: this.dbType,
+              rootTable: targetTable,
+            });
           }
           this.applySortJoins(q, desc!.userSort, targetTable);
           if (sortTokens.length > 0) {
@@ -358,11 +378,12 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
 
     const selects = fetchSpec.selectCols.map((c) => this.toKnexSelect(c));
     const docs = await chunkedFetch(parentIds, (chunk) => {
-      const q = this.knex(targetTable)
-        .select(selects)
-        .whereIn(fkField, chunk);
+      const q = this.knex(targetTable).select(selects).whereIn(fkField, chunk);
       if (filterTree) {
-        renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: targetTable });
+        renderFilterToKnex(q, filterTree, {
+          dbType: this.dbType,
+          rootTable: targetTable,
+        });
       }
       this.applySortJoins(q, desc?.userSort, targetTable);
       if (sortTokens.length > 0) {
@@ -471,7 +492,10 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
             .select(targetSelectCols)
             .where(`${junctionTable}.${sourceCol}`, parentId);
           if (filterTree) {
-            renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: 't' });
+            renderFilterToKnex(q, filterTree, {
+              dbType: this.dbType,
+              rootTable: 't',
+            });
           }
           this.applySortJoins(q, desc.userSort, desc.targetTable, 't');
           if (sortTokens.length > 0) {
@@ -510,7 +534,10 @@ export class SqlBatchAdapter implements BatchFetchAdapter {
         ])
         .whereIn(`${junctionTable}.${sourceCol}`, chunk);
       if (filterTree) {
-        renderFilterToKnex(q, filterTree, { dbType: this.dbType, rootTable: 't' });
+        renderFilterToKnex(q, filterTree, {
+          dbType: this.dbType,
+          rootTable: 't',
+        });
       }
       this.applySortJoins(q, desc.userSort, desc.targetTable, 't');
       if (sortTokens.length > 0) {

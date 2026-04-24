@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
 import { MongoSagaLockService } from './mongo-saga-lock.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   MongoOperationLogService,
   TOperationType,
@@ -305,7 +306,7 @@ export class SagaPlan {
     } catch (error) {
       await this.logService.markOperationsBatchFailed(
         logEntries.map((e) => e.operationId),
-        error.message,
+        getErrorMessage(error),
       );
       throw error;
     }

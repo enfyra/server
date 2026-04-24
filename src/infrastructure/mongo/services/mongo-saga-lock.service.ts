@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Collection, Db, ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../core/exceptions/custom-exceptions';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export interface IResourceLock {
   _id: string;
@@ -298,7 +299,7 @@ export class MongoSagaLockService {
       };
     } catch (error) {
       await this.releaseLocks(txId, acquiredLocks);
-      throw new DatabaseException(`Lock acquisition failed: ${error.message}`, {
+      throw new DatabaseException(`Lock acquisition failed: ${getErrorMessage(error)}`, {
         txId,
         resources: resources.map((r) => `${r.type}:${r.id}`),
       });
@@ -485,7 +486,7 @@ export class MongoSagaLockService {
 
       this.logger.debug(`[${txId}] Released ${result.deletedCount} locks`);
     } catch (error) {
-      this.logger.error(`[${txId}] Failed to release locks: ${error.message}`);
+      this.logger.error(`[${txId}] Failed to release locks: ${getErrorMessage(error)}`);
     }
   }
 
@@ -508,7 +509,7 @@ export class MongoSagaLockService {
       this.logger.debug(`[${txId}] Transaction committed`);
     } catch (error) {
       throw new DatabaseException(
-        `Failed to commit transaction: ${error.message}`,
+        `Failed to commit transaction: ${getErrorMessage(error)}`,
         { txId },
       );
     }
@@ -535,7 +536,7 @@ export class MongoSagaLockService {
       );
     } catch (error) {
       this.logger.error(
-        `[${txId}] Failed to abort transaction: ${error.message}`,
+        `[${txId}] Failed to abort transaction: ${getErrorMessage(error)}`,
       );
     }
   }

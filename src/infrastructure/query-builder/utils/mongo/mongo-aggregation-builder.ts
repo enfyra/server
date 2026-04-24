@@ -331,8 +331,12 @@ export async function executeAggregationPipeline(
           foreignField: rel.foreignField,
           userFilter: deepEntry?.filter,
           userSort: deepEntry?.sort,
-          userLimit: deepEntry?.limit !== undefined ? Number(deepEntry.limit) : undefined,
-          userPage: deepEntry?.page !== undefined ? Number(deepEntry.page) : undefined,
+          userLimit:
+            deepEntry?.limit !== undefined
+              ? Number(deepEntry.limit)
+              : undefined,
+          userPage:
+            deepEntry?.page !== undefined ? Number(deepEntry.page) : undefined,
           nestedDeep: deepEntry?.deep,
         };
       });

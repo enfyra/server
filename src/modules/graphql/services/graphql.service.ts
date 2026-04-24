@@ -10,6 +10,7 @@ import { useDepthLimit } from '@envelop/depth-limit';
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { RouteCacheService } from '../../../infrastructure/cache/services/route-cache.service';
 import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
 import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
@@ -115,7 +116,7 @@ export class GraphqlService {
       );
       this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
     } catch (error) {
-      this.logger.error('Failed to reload GraphQL schema:', error.message);
+      this.logger.error(`Failed to reload GraphQL schema: ${getErrorMessage(error)}`);
       throw error;
     }
   }

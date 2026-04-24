@@ -3,6 +3,7 @@ import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 interface InitOld {
   [tableName: string]: any | any[];
@@ -40,7 +41,7 @@ export class DataMigrationService {
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to load data-migration.json: ${error.message}`);
+      this.logger.warn(`Failed to load data-migration.json: ${getErrorMessage(error)}`);
       this.initOld = null;
     }
   }
@@ -99,7 +100,7 @@ export class DataMigrationService {
         this.logger.log(`Deleted all data from ${tableName}`);
       } catch (error) {
         this.logger.warn(
-          `Failed to delete data from ${tableName}: ${error.message}`,
+          `Failed to delete data from ${tableName}: ${getErrorMessage(error)}`,
         );
       }
     }
@@ -129,7 +130,7 @@ export class DataMigrationService {
         }
       } catch (error) {
         this.logger.warn(
-          `Failed to delete records from ${table}: ${error.message}`,
+          `Failed to delete records from ${table}: ${getErrorMessage(error)}`,
         );
       }
     }
@@ -187,7 +188,7 @@ export class DataMigrationService {
         this.logger.debug(`Migrated record in ${tableName}`);
       } catch (error) {
         this.logger.warn(
-          `Failed to migrate record in ${tableName}: ${error.message}`,
+          `Failed to migrate record in ${tableName}: ${getErrorMessage(error)}`,
         );
       }
     }

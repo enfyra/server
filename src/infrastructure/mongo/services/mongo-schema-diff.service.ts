@@ -1,6 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class MongoSchemaDiffService {
   private readonly logger = new Logger(MongoSchemaDiffService.name);
@@ -119,7 +120,7 @@ export class MongoSchemaDiffService {
       );
     } catch (error) {
       this.logger.error(
-        `  Failed to update indexes metadata for ${collectionName}: ${error.message}`,
+        `  Failed to update indexes metadata for ${collectionName}: ${getErrorMessage(error)}`,
       );
     }
   }

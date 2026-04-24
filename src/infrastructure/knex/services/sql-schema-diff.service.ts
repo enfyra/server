@@ -3,6 +3,7 @@ import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { getForeignKeyColumnName } from '../../knex/utils/sql-schema-naming.util';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { analyzeRelationChanges } from '../utils/migration/relation-changes';
 import {
   generateSQLFromDiff,
@@ -358,7 +359,7 @@ export class SqlSchemaDiffService {
         .update({ indexes: JSON.stringify(mergedIndexes) });
     } catch (error) {
       this.logger.error(
-        `  Failed to update indexes metadata for ${tableName}: ${error.message}`,
+        `  Failed to update indexes metadata for ${tableName}: ${getErrorMessage(error)}`,
       );
     }
   }

@@ -1,5 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { HttpException } from '../../../core/exceptions/custom-exceptions';
+import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
 import {
   ScriptExecutionException,
   BusinessLogicException,
@@ -90,11 +91,12 @@ export class DynamicService {
 
       return value;
     } catch (error) {
+      const err = error as { statusCode?: number; details?: any };
       const httpStatus =
         error instanceof HttpException
           ? error.getStatus()
-          : typeof error?.statusCode === 'number'
-            ? error.statusCode
+          : typeof err.statusCode === 'number'
+            ? err.statusCode
             : undefined;
       const isClientError =
         httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
@@ -102,8 +104,8 @@ export class DynamicService {
       if (!isClientError) {
         this.loggingService.error('Handler execution failed', {
           context: 'runHandler',
-          error: error.message,
-          stack: error.stack,
+          error: getErrorMessage(error),
+          stack: getErrorStack(error),
           method: req.method,
           url: req.url,
           handler: req.routeData?.handler,
@@ -115,14 +117,14 @@ export class DynamicService {
         throw error;
       }
       if (isClientError) {
-        const details = (error as any)?.details;
+        const details = err.details;
         throw new HttpException(
-          details && typeof details === 'object' ? details : error.message,
+          details && typeof details === 'object' ? details : getErrorMessage(error),
           httpStatus!,
         );
       }
       throw new ScriptExecutionException(
-        error.message,
+        getErrorMessage(error),
         req.routeData?.handler,
         {
           method: req.method,

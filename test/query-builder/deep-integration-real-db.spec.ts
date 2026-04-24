@@ -27,8 +27,7 @@ const DBS = [
     name: 'mysql',
     client: 'mysql2',
     connection:
-      process.env.MYSQL_TEST_URI ||
-      'mysql://root:1234@localhost:3306/enfyra',
+      process.env.MYSQL_TEST_URI || 'mysql://root:1234@localhost:3306/enfyra',
     dbType: 'mysql' as const,
   },
 ];
@@ -124,7 +123,11 @@ const META: Record<string, any> = {
 const metadataGetter = async (table: string) => META[table] || null;
 
 class TestTrace implements BatchTrace {
-  entries: Array<{ stage: string; ms: number; meta?: Record<string, unknown> }> = [];
+  entries: Array<{
+    stage: string;
+    ms: number;
+    meta?: Record<string, unknown>;
+  }> = [];
   dur(stage: string, startTs: number, meta?: Record<string, unknown>): number {
     const ms = performance.now() - startTs;
     this.entries.push({ stage, ms, meta });
@@ -238,7 +241,9 @@ for (const cfg of DBS) {
     }, 30000);
 
     async function fetchPosts(ids: number[]) {
-      return (await db(T.posts).whereIn('id', ids).orderBy('id', 'asc')) as any[];
+      return (await db(T.posts)
+        .whereIn('id', ids)
+        .orderBy('id', 'asc')) as any[];
     }
 
     async function run(

@@ -1,6 +1,7 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../shared/logger';
 import { Db, ObjectId } from 'mongodb';
+import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
 import {
   getManyToOneRelations,
   getScalarColumns,
@@ -179,8 +180,8 @@ export abstract class BaseTableProcessor {
           }
         }
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Stack: ${error.stack}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
+        this.logger.error(`   Stack: ${getErrorStack(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -275,8 +276,8 @@ export abstract class BaseTableProcessor {
           }
         }
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Stack: ${error.stack}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
+        this.logger.error(`   Stack: ${getErrorStack(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );
@@ -421,8 +422,8 @@ export abstract class BaseTableProcessor {
           }
         }
       } catch (error) {
-        this.logger.error(`Error: ${error.message}`);
-        this.logger.error(`   Stack: ${error.stack}`);
+        this.logger.error(`Error: ${getErrorMessage(error)}`);
+        this.logger.error(`   Stack: ${getErrorStack(error)}`);
         this.logger.error(
           `   Record: ${JSON.stringify(record).substring(0, 200)}`,
         );

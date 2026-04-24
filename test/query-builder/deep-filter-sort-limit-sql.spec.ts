@@ -212,7 +212,17 @@ describe('deep filter on o2m (SQL)', () => {
       fkColumn: 'postId',
       userFilter: { isPublished: { _eq: true } },
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
 
     const post1Comments = rows.find((r) => r.id === 1).comments;
     const post2Comments = rows.find((r) => r.id === 2).comments;
@@ -234,7 +244,17 @@ describe('deep filter on o2m (SQL)', () => {
       fkColumn: 'postId',
       userFilter: { isPublished: { _eq: false } },
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     const comments = rows[0].comments;
     expect(comments.length).toBe(1);
     expect(comments[0].id).toBe(2);
@@ -254,7 +274,17 @@ describe('deep filter on m2o (SQL)', () => {
       fkColumn: 'authorId',
       userFilter: { active: { _eq: true } },
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
 
     const post1 = rows.find((r) => r.id === 1);
     const post2 = rows.find((r) => r.id === 2);
@@ -277,7 +307,17 @@ describe('deep sort on o2m (SQL)', () => {
       fkColumn: 'postId',
       userSort: '-seq',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     const seqs = rows[0].comments.map((c: any) => c.seq);
     expect(seqs).toEqual([3, 2, 1]);
   });
@@ -294,7 +334,17 @@ describe('deep sort on o2m (SQL)', () => {
       fkColumn: 'postId',
       userSort: 'seq',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     const seqs = rows[0].comments.map((c: any) => c.seq);
     expect(seqs).toEqual([1, 2, 3]);
   });
@@ -314,7 +364,17 @@ describe('deep limit on o2m (SQL)', () => {
       userLimit: 2,
       userSort: 'seq',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
 
     const post1Comments = rows.find((r) => r.id === 1).comments;
     const post2Comments = rows.find((r) => r.id === 2).comments;
@@ -338,7 +398,17 @@ describe('deep limit on o2m (SQL)', () => {
       userLimit: 1,
       userSort: '-seq',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     expect(rows[0].comments.length).toBe(1);
     expect(rows[0].comments[0].seq).toBe(3);
   });
@@ -357,7 +427,17 @@ describe('deep limit on o2m (SQL)', () => {
       userPage: 2,
       userSort: 'seq',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     expect(rows[0].comments.length).toBe(1);
     expect(rows[0].comments[0].seq).toBe(3);
   });
@@ -376,7 +456,17 @@ describe('deep limit on o2m (SQL)', () => {
       userLimit: 1,
       userSort: 'seq',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     expect(rows[0].comments.length).toBe(1);
     expect(rows[0].comments[0].isPublished).toBe(1);
   });
@@ -397,7 +487,17 @@ describe('deep limit on m2m (SQL)', () => {
       userLimit: 2,
       userSort: 'priority',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
 
     const post1Tags = rows.find((r) => r.id === 1).tags;
     const post2Tags = rows.find((r) => r.id === 2).tags;
@@ -418,7 +518,17 @@ describe('deep limit on m2m (SQL)', () => {
       junctionTargetColumn: 'tagId',
       userFilter: { label: { _eq: 'alpha' } },
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     const tags = rows[0].tags;
     expect(tags.length).toBe(1);
     expect(tags[0].label).toBe('alpha');
@@ -448,7 +558,17 @@ describe('deep dotted sort (SQL)', () => {
       { id: 2, name: 'Bob', active: 0, companyId: 2 },
     ];
 
-    await executeBatchFetches(db, userRows, [desc], metadataGetter, 3, 0, 'users', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      userRows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'users',
+      'sqlite',
+      META,
+    );
     const alice = userRows.find((u) => u.id === 1);
     const bob = userRows.find((u) => u.id === 2);
     expect(alice!.posts.length).toBe(1);
@@ -469,7 +589,17 @@ describe('deep fields override (SQL)', () => {
       mappedBy: 'post',
       fkColumn: 'postId',
     };
-    await executeBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', 'sqlite', META);
+    await executeBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      'sqlite',
+      META,
+    );
     const c = rows[0].comments[0];
     expect(c.id).toBeDefined();
     expect(c.body).toBeDefined();

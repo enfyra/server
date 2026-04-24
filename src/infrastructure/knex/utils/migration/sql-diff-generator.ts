@@ -1,5 +1,6 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../../shared/logger';
+import { getErrorMessage } from '../../../../shared/utils/error.util';
 import { generateColumnDefinition } from './sql-generator';
 import { dropForeignKeyIfExists } from './foreign-key-operations';
 import {
@@ -494,7 +495,7 @@ export async function executeBatchSQL(
       logger.log(`Batch SQL executed successfully (transaction committed)`);
     } catch (error) {
       logger.error(`Batch SQL execution failed (transaction rolled back)`);
-      logger.error(`Error: ${error.message}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       logger.error(
         `Failed SQL:\n${batchSQL.substring(0, 500)}${batchSQL.length > 500 ? '...' : ''}`,
       );
@@ -604,7 +605,7 @@ export async function executeBatchSQL(
     } catch (error: any) {
       if (journal) {
         try {
-          await journal.markFailed(error.message || 'Unknown error');
+          await journal.markFailed(getErrorMessage(error));
         } catch (journalErr: any) {
           logger.warn(`Failed to update journal status: ${journalErr.message}`);
         }
@@ -612,7 +613,7 @@ export async function executeBatchSQL(
       logger.error(`\n${'='.repeat(80)}`);
       logger.error(`MIGRATION FAILED`);
       logger.error(`${'='.repeat(80)}`);
-      logger.error(`Error: ${error.message}`);
+      logger.error(`Error: ${getErrorMessage(error)}`);
       if (executedStatements.length > 0) {
         if (journal) {
           logger.warn(

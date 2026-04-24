@@ -650,21 +650,23 @@ export class IsolatedExecutorService {
         safeTimeoutMs,
       );
     } catch (error) {
+      const err = error as { isTimeout?: boolean; code?: string; statusCode?: number; status?: number | string; message?: string; details?: any };
       appendIsolatedExecutorRuntimeLog({
         event: 'isolated_run_error',
-        message: (error as Error)?.message,
-        code: (error as any)?.code,
-        isTimeout: !!(error as any)?.isTimeout,
+        message: err.message,
+        code: err.code,
+        isTimeout: !!err.isTimeout,
       });
-      if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+      if (err.isTimeout || err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, code);
       }
+      const statusCode = err.statusCode ?? (typeof err.status === 'number' ? err.status : undefined);
       throw ErrorHandler.createException(
         undefined,
-        error.statusCode || error.status,
-        error.message || 'Unknown error',
+        statusCode,
+        err.message || 'Unknown error',
         code,
-        error.details || {},
+        err.details || {},
       );
     }
 
@@ -705,24 +707,26 @@ export class IsolatedExecutorService {
         safeTimeoutMs,
       );
     } catch (error) {
+      const err = error as { isTimeout?: boolean; code?: string; statusCode?: number; status?: number | string; message?: string; details?: any; ctxChanges?: any };
       appendIsolatedExecutorRuntimeLog({
         event: 'isolated_batch_error',
-        message: (error as Error)?.message,
-        code: (error as any)?.code,
-        isTimeout: !!(error as any)?.isTimeout,
+        message: err.message,
+        code: err.code,
+        isTimeout: !!err.isTimeout,
       });
-      if ((error as any).ctxChanges) {
-        this.mergeCtxChanges(ctx, (error as any).ctxChanges);
+      if (err.ctxChanges) {
+        this.mergeCtxChanges(ctx, err.ctxChanges);
       }
-      if (error.isTimeout || error.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+      if (err.isTimeout || err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, '(batch execution)');
       }
+      const statusCode = err.statusCode ?? (typeof err.status === 'number' ? err.status : undefined);
       throw ErrorHandler.createException(
         undefined,
-        error.statusCode || error.status,
-        error.message || 'Unknown error',
+        statusCode,
+        err.message || 'Unknown error',
         '(batch execution)',
-        error.details || {},
+        err.details || {},
       );
     }
 

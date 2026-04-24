@@ -1,5 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { BcryptService } from '../../auth/services/bcrypt.service';
 import * as fs from 'fs';
@@ -202,7 +203,7 @@ export class DataProvisionService {
         totalSkipped += result.skipped;
       } catch (error) {
         this.logger.error(
-          `Error processing 'user_definition': ${error.message}`,
+          `Error processing 'user_definition': ${getErrorMessage(error)}`,
         );
       }
     }
@@ -241,8 +242,8 @@ export class DataProvisionService {
           `'${tableName}': ${result.created} created, ${result.skipped} skipped`,
         );
       } catch (error) {
-        this.logger.error(`Error processing '${tableName}': ${error.message}`);
-        this.logger.debug(`Error:`, error);
+        this.logger.error(`Error processing '${tableName}': ${getErrorMessage(error)}`);
+        this.logger.debug(`Error: ${getErrorMessage(error)}`);
       }
     }
 
@@ -255,8 +256,8 @@ export class DataProvisionService {
       try {
         await this.routeDefinitionProcessor.ensureMissingHandlers();
       } catch (error) {
-        this.logger.error(`Error ensuring route handlers: ${error.message}`);
-        this.logger.debug(error);
+        this.logger.error(`Error ensuring route handlers: ${getErrorMessage(error)}`);
+        this.logger.debug(getErrorMessage(error));
       }
     }
   }

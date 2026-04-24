@@ -3,6 +3,7 @@ import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import * as jwt from 'jsonwebtoken';
 import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService } from '../../../shared/services/env.service';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
@@ -114,7 +115,7 @@ export class DynamicResolver {
       );
       return this.sanitizeResult(result, mainTable?.name);
     } catch (error) {
-      throwGqlError('SCRIPT_ERROR', error.message);
+      throwGqlError('SCRIPT_ERROR', getErrorMessage(error));
     }
   }
 
@@ -173,7 +174,7 @@ export class DynamicResolver {
       }
       return this.sanitizeResult(result, tableName);
     } catch (error) {
-      throwGqlError('MUTATION_ERROR', error.message);
+      throwGqlError('MUTATION_ERROR', getErrorMessage(error));
     }
   }
 

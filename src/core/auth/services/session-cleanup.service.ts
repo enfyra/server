@@ -3,6 +3,7 @@ import { QueryBuilderService } from '../../../infrastructure/query-builder/query
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services/env.service';
 import { Logger } from '../../../shared/logger';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 const BATCH_SIZE = 20;
 
@@ -80,7 +81,7 @@ export class SessionCleanupService {
           batchDeleted++;
         } catch (err) {
           this.logger.warn(
-            `Failed to delete session ${session[idField]}: ${err.message}`,
+            `Failed to delete session ${session[idField]}: ${getErrorMessage(err)}`,
           );
         }
       }

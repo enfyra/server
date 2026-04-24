@@ -88,14 +88,20 @@ const META: Record<string, any> = {
 const metadataGetter = async (table: string) => META[table] || null;
 
 class TestTrace implements BatchTrace {
-  entries: Array<{ stage: string; ms: number; meta?: Record<string, unknown> }> = [];
+  entries: Array<{
+    stage: string;
+    ms: number;
+    meta?: Record<string, unknown>;
+  }> = [];
   dur(stage: string, startTs: number, meta?: Record<string, unknown>): number {
     const ms = performance.now() - startTs;
     this.entries.push({ stage, ms, meta });
     return ms;
   }
   findBatchFetch(relation: string) {
-    return this.entries.find((e) => e.stage.includes(`batch_fetch`) && e.stage.includes(relation));
+    return this.entries.find(
+      (e) => e.stage.includes(`batch_fetch`) && e.stage.includes(relation),
+    );
   }
 }
 
@@ -171,7 +177,9 @@ afterAll(async () => {
 
 async function fetchPosts(ids: (number | null)[]) {
   if (ids.length === 0) return [];
-  return db('posts').whereIn('id', ids as number[]).orderBy('id', 'asc') as Promise<any[]>;
+  return db('posts')
+    .whereIn('id', ids as number[])
+    .orderBy('id', 'asc') as Promise<any[]>;
 }
 
 async function runBatchFetch(
@@ -209,7 +217,9 @@ describe('deep edge cases — empty/null/zero (SQL)', () => {
     };
     await runBatchFetch(rows, desc, trace);
     expect(rows).toEqual([]);
-    const batchEvents = trace.entries.filter((e) => e.stage.startsWith('batch_fetch'));
+    const batchEvents = trace.entries.filter((e) =>
+      e.stage.startsWith('batch_fetch'),
+    );
     expect(batchEvents.length).toBe(0);
   });
 
@@ -279,7 +289,9 @@ describe('deep edge cases — empty/null/zero (SQL)', () => {
         userLimit: 5,
       };
       await runBatchFetch(rows, desc);
-      expect(Object.prototype.hasOwnProperty.call(rows[0], 'comments')).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(rows[0], 'comments')).toBe(
+        true,
+      );
       expect(rows[0].comments).toEqual([]);
     } finally {
       await db('posts').where('id', 99).del();
@@ -555,7 +567,9 @@ describe('deep nested within deep — recursion (SQL)', () => {
     await runBatchFetch(rows, desc, trace);
     expect(rows[0].comments[0].post).toHaveProperty('title');
     expect(rows[0].comments[0].post.title).toBe('Post A');
-    const depth1 = trace.entries.find((e) => e.stage.startsWith('batch_fetch_L1_post'));
+    const depth1 = trace.entries.find((e) =>
+      e.stage.startsWith('batch_fetch_L1_post'),
+    );
     expect(depth1).toBeDefined();
   });
 });

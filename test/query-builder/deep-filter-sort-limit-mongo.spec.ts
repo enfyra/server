@@ -110,13 +110,55 @@ beforeAll(async () => {
   ]);
 
   await db.collection('comments').insertMany([
-    { _id: commentIds[0], body: 'Comment 1', isPublished: true, seq: 1, post: postIds[0] },
-    { _id: commentIds[1], body: 'Comment 2', isPublished: false, seq: 2, post: postIds[0] },
-    { _id: commentIds[2], body: 'Comment 3', isPublished: true, seq: 3, post: postIds[0] },
-    { _id: commentIds[3], body: 'Comment 4', isPublished: true, seq: 1, post: postIds[1] },
-    { _id: commentIds[4], body: 'Comment 5', isPublished: true, seq: 2, post: postIds[1] },
-    { _id: commentIds[5], body: 'Comment 6', isPublished: false, seq: 3, post: postIds[1] },
-    { _id: commentIds[6], body: 'Comment 7', isPublished: true, seq: 1, post: postIds[2] },
+    {
+      _id: commentIds[0],
+      body: 'Comment 1',
+      isPublished: true,
+      seq: 1,
+      post: postIds[0],
+    },
+    {
+      _id: commentIds[1],
+      body: 'Comment 2',
+      isPublished: false,
+      seq: 2,
+      post: postIds[0],
+    },
+    {
+      _id: commentIds[2],
+      body: 'Comment 3',
+      isPublished: true,
+      seq: 3,
+      post: postIds[0],
+    },
+    {
+      _id: commentIds[3],
+      body: 'Comment 4',
+      isPublished: true,
+      seq: 1,
+      post: postIds[1],
+    },
+    {
+      _id: commentIds[4],
+      body: 'Comment 5',
+      isPublished: true,
+      seq: 2,
+      post: postIds[1],
+    },
+    {
+      _id: commentIds[5],
+      body: 'Comment 6',
+      isPublished: false,
+      seq: 3,
+      post: postIds[1],
+    },
+    {
+      _id: commentIds[6],
+      body: 'Comment 7',
+      isPublished: true,
+      seq: 1,
+      post: postIds[2],
+    },
   ]);
 
   await db.collection('tags').insertMany([
@@ -162,13 +204,26 @@ describe('deep filter on o2m (Mongo)', () => {
       foreignField: 'post',
       userFilter: { isPublished: { _eq: true } },
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
 
     const post0 = rows.find((r) => r._id === postIds[0]);
     const post1 = rows.find((r) => r._id === postIds[1]);
-    expect(post0!.comments.every((c: any) => c.isPublished === true)).toBe(true);
+    expect(post0!.comments.every((c: any) => c.isPublished === true)).toBe(
+      true,
+    );
     expect(post0!.comments.length).toBe(2);
-    expect(post1!.comments.every((c: any) => c.isPublished === true)).toBe(true);
+    expect(post1!.comments.every((c: any) => c.isPublished === true)).toBe(
+      true,
+    );
     expect(post1!.comments.length).toBe(2);
   });
 });
@@ -186,7 +241,16 @@ describe('deep sort on o2m (Mongo)', () => {
       foreignField: 'post',
       userSort: '-seq',
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
     const seqs = rows[0].comments.map((c: any) => c.seq);
     expect(seqs).toEqual([3, 2, 1]);
   });
@@ -206,7 +270,16 @@ describe('deep limit on o2m (Mongo)', () => {
       userLimit: 2,
       userSort: 'seq',
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
 
     expect(rows[0].comments.length).toBe(2);
     expect(rows[1].comments.length).toBe(2);
@@ -227,7 +300,16 @@ describe('deep limit on o2m (Mongo)', () => {
       userLimit: 1,
       userSort: '-seq',
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
     expect(rows[0].comments.length).toBe(1);
     expect(rows[0].comments[0].seq).toBe(3);
   });
@@ -246,7 +328,16 @@ describe('deep limit on o2m (Mongo)', () => {
       userPage: 2,
       userSort: 'seq',
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
     expect(rows[0].comments.length).toBe(1);
     expect(rows[0].comments[0].seq).toBe(3);
   });
@@ -265,7 +356,16 @@ describe('deep limit on o2m (Mongo)', () => {
       userLimit: 1,
       userSort: 'seq',
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
     expect(rows[0].comments.length).toBe(1);
     expect(rows[0].comments[0].isPublished).toBe(true);
   });
@@ -285,7 +385,16 @@ describe('deep filter on m2o (Mongo)', () => {
       isInverse: false,
       userFilter: { active: { _eq: true } },
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
 
     const post0 = rows.find((r) => r._id === postIds[0]);
     const post1 = rows.find((r) => r._id === postIds[1]);
@@ -299,7 +408,9 @@ describe('deep limit on m2m (Mongo)', () => {
   test('limit 2 on tags per post', async () => {
     const rows = makePosts([postIds[0], postIds[1]]);
     const tableMeta = META['posts'];
-    const relMeta = tableMeta.relations.find((r: any) => r.propertyName === 'tags');
+    const relMeta = tableMeta.relations.find(
+      (r: any) => r.propertyName === 'tags',
+    );
     const desc: MongoBatchFetchDescriptor = {
       relationName: 'tags',
       type: 'many-to-many',
@@ -309,7 +420,16 @@ describe('deep limit on m2m (Mongo)', () => {
       userLimit: 2,
       userSort: 'priority',
     };
-    await executeMongoBatchFetches(db, rows, [desc], metadataGetter, 3, 0, 'posts', metadata);
+    await executeMongoBatchFetches(
+      db,
+      rows,
+      [desc],
+      metadataGetter,
+      3,
+      0,
+      'posts',
+      metadata,
+    );
 
     const post0Tags = rows[0].tags;
     const post1Tags = rows[1].tags;
@@ -320,12 +440,10 @@ describe('deep limit on m2m (Mongo)', () => {
 
 describe('debug trace (Mongo)', () => {
   test('trace emits batch_fetch entry', async () => {
-    const { BatchFetchEngine, PER_PARENT_CONCURRENCY } = await import(
-      '../../src/infrastructure/query-builder/utils/shared/batch-fetch-engine'
-    );
-    const { MongoBatchAdapter } = await import(
-      '../../src/infrastructure/query-builder/utils/mongo/mongo-batch-adapter'
-    );
+    const { BatchFetchEngine, PER_PARENT_CONCURRENCY } =
+      await import('../../src/infrastructure/query-builder/utils/shared/batch-fetch-engine');
+    const { MongoBatchAdapter } =
+      await import('../../src/infrastructure/query-builder/utils/mongo/mongo-batch-adapter');
 
     const traceEntries: any[] = [];
     const mockTrace = {

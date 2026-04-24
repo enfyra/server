@@ -4,6 +4,7 @@ import {
   DatabaseQueryException,
   ResourceNotFoundException,
 } from '../../../core/exceptions/custom-exceptions';
+import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
 
 export class SqlQueryEngine {
   private readonly queryBuilderService: QueryBuilderService;
@@ -48,10 +49,12 @@ export class SqlQueryEngine {
 
       return result;
     } catch (error) {
+      const errMsg = getErrorMessage(error);
+      const errStack = getErrorStack(error);
       this.loggingService.error('Query execution failed', {
         context: 'find',
-        error: error.message,
-        stack: error.stack,
+        error: errMsg,
+        stack: errStack,
         table: options.table,
         fields: options.fields,
         filterPresent: !!options.filter,
@@ -62,18 +65,18 @@ export class SqlQueryEngine {
       });
 
       if (
-        error.message?.includes('relation') &&
-        error.message?.includes('does not exist')
+        errMsg.includes('relation') &&
+        errMsg.includes('does not exist')
       ) {
         throw new ResourceNotFoundException('Table or Relation', options.table);
       }
 
       if (
-        error.message?.includes('column') &&
-        error.message?.includes('does not exist')
+        errMsg.includes('column') &&
+        errMsg.includes('does not exist')
       ) {
         throw new DatabaseQueryException(
-          `Invalid column in query: ${error.message}`,
+          `Invalid column in query: ${errMsg}`,
           {
             table: options.table,
             fields: options.fields,
@@ -82,10 +85,10 @@ export class SqlQueryEngine {
         );
       }
 
-      throw new DatabaseQueryException(`Query failed: ${error.message}`, {
+      throw new DatabaseQueryException(`Query failed: ${errMsg}`, {
         table: options.table,
         operation: 'find',
-        originalError: error.message,
+        originalError: errMsg,
       });
     }
   }

@@ -408,16 +408,25 @@ export class DynamicRepository {
         );
         if (nested.needsPostSql) hasConditionalPending = true;
 
-        const isAllowed = (tblName: string, fieldName: string, fieldType: 'column' | 'relation') => {
-          const tblMeta = (meta.columns || meta.relations) ? meta : null;
+        const isAllowed = (
+          tblName: string,
+          fieldName: string,
+          fieldType: 'column' | 'relation',
+        ) => {
+          const tblMeta = meta.columns || meta.relations ? meta : null;
           return true;
         };
 
         let cleanedFilter = relEntry.filter;
         let cleanedSort = relEntry.sort;
 
-        if (this.enforceFieldPermission && this.fieldPermissionCacheService && !this.context?.$user?.isRootAdmin) {
-          const targetMeta = await this.metadataCacheService.lookupTableByName(targetTable);
+        if (
+          this.enforceFieldPermission &&
+          this.fieldPermissionCacheService &&
+          !this.context?.$user?.isRootAdmin
+        ) {
+          const targetMeta =
+            await this.metadataCacheService.lookupTableByName(targetTable);
           if (targetMeta) {
             const fullMetadata = await this.metadataCacheService.getMetadata();
 
@@ -430,10 +439,14 @@ export class DynamicRepository {
                   const tMeta = fullMetadata?.tables?.get(tblName);
                   if (!tMeta) return true;
                   if (fieldType === 'column') {
-                    const col = tMeta.columns?.find((c: any) => c.name === fieldName);
+                    const col = tMeta.columns?.find(
+                      (c: any) => c.name === fieldName,
+                    );
                     return col?.isPublished !== false;
                   } else {
-                    const rel = tMeta.relations?.find((r: any) => r.propertyName === fieldName);
+                    const rel = tMeta.relations?.find(
+                      (r: any) => r.propertyName === fieldName,
+                    );
                     return rel?.isPublished !== false;
                   }
                 },
@@ -441,7 +454,8 @@ export class DynamicRepository {
             }
 
             if (relEntry.sort) {
-              const fullMetadata2 = await this.metadataCacheService.getMetadata();
+              const fullMetadata2 =
+                await this.metadataCacheService.getMetadata();
               cleanedSort = rewriteSortDroppingDenied(
                 relEntry.sort,
                 targetTable,
@@ -450,10 +464,14 @@ export class DynamicRepository {
                   const tMeta = fullMetadata2?.tables?.get(tblName);
                   if (!tMeta) return true;
                   if (fieldType === 'column') {
-                    const col = tMeta.columns?.find((c: any) => c.name === fieldName);
+                    const col = tMeta.columns?.find(
+                      (c: any) => c.name === fieldName,
+                    );
                     return col?.isPublished !== false;
                   } else {
-                    const rel = tMeta.relations?.find((r: any) => r.propertyName === fieldName);
+                    const rel = tMeta.relations?.find(
+                      (r: any) => r.propertyName === fieldName,
+                    );
                     return rel?.isPublished !== false;
                   }
                 },
@@ -468,7 +486,9 @@ export class DynamicRepository {
             ? { fields: nested.fields }
             : {}),
           ...(nested.deep !== relEntry.deep ? { deep: nested.deep } : {}),
-          ...(cleanedFilter !== relEntry.filter ? { filter: cleanedFilter } : {}),
+          ...(cleanedFilter !== relEntry.filter
+            ? { filter: cleanedFilter }
+            : {}),
           ...(cleanedSort !== relEntry.sort ? { sort: cleanedSort } : {}),
         };
       }

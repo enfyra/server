@@ -2,6 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
 import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
 import { FlowJobData } from '../../../shared/types/flow.types';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
 import { TDynamicContext } from '../../../shared/types';
@@ -162,7 +163,7 @@ export class FlowService {
     } catch (error) {
       return {
         success: false,
-        error: error.message,
+        error: getErrorMessage(error),
         duration: Date.now() - startTime,
       };
     }

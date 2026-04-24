@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { MongoService } from './mongo.service';
 import { MongoSagaLockService } from './mongo-saga-lock.service';
 import { MongoSagaSession } from './mongo-saga-session';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   MongoOperationLogService,
   IOperationLog,
@@ -169,7 +170,7 @@ export class MongoSagaCoordinator {
             );
           } catch (error) {
             this.logger.error(
-              `Orphan recovery rollback failed for ${txId}: ${error.message}`,
+              `Orphan recovery rollback failed for ${txId}: ${getErrorMessage(error)}`,
             );
             continue;
           }
@@ -391,14 +392,14 @@ export class MongoSagaCoordinator {
           rollbackResult = await this.rollback(txId, context);
         } catch (rollbackError) {
           this.logger.error(
-            `[${txId}] Rollback failed: ${rollbackError.message}`,
+            `[${txId}] Rollback failed: ${getErrorMessage(rollbackError)}`,
           );
         }
       }
 
       return {
         success: false,
-        error,
+        error: error instanceof Error ? error : new Error(String(error)),
         txId: txId || 'unknown',
         rollbackResult,
         stats:
@@ -455,7 +456,7 @@ export class MongoSagaCoordinator {
               { $unset: { __txId: '' } },
             );
           } catch (error) {
-            errors.push(`${collectionName}: ${error.message}`);
+            errors.push(`${collectionName}: ${getErrorMessage(error)}`);
           }
         })(),
       );

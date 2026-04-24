@@ -169,11 +169,7 @@ describe('validateDeepOptions', () => {
 
   test('rejects limit on many-to-one', () => {
     expect(() =>
-      validateDeepOptions(
-        'posts',
-        { author: { limit: 5 } },
-        metadata,
-      ),
+      validateDeepOptions('posts', { author: { limit: 5 } }, metadata),
     ).toThrow(/limit.*not supported.*many-to-one/i);
   });
 
@@ -200,41 +196,25 @@ describe('validateDeepOptions', () => {
       ]),
     };
     expect(() =>
-      validateDeepOptions(
-        'profiles',
-        { user: { limit: 1 } },
-        metaWithO2O,
-      ),
+      validateDeepOptions('profiles', { user: { limit: 1 } }, metaWithO2O),
     ).toThrow(/limit.*not supported/i);
   });
 
   test('rejects unknown relation key', () => {
     expect(() =>
-      validateDeepOptions(
-        'posts',
-        { nonexistent: { filter: {} } },
-        metadata,
-      ),
+      validateDeepOptions('posts', { nonexistent: { filter: {} } }, metadata),
     ).toThrow(/Unknown relation 'nonexistent'/);
   });
 
   test('rejects unknown sub-key in deep entry', () => {
     expect(() =>
-      validateDeepOptions(
-        'posts',
-        { comments: { invalidKey: 123 } },
-        metadata,
-      ),
+      validateDeepOptions('posts', { comments: { invalidKey: 123 } }, metadata),
     ).toThrow(/Unknown deep option key 'invalidKey'/);
   });
 
   test('rejects page without limit', () => {
     expect(() =>
-      validateDeepOptions(
-        'posts',
-        { comments: { page: 2 } },
-        metadata,
-      ),
+      validateDeepOptions('posts', { comments: { page: 2 } }, metadata),
     ).toThrow(/page.*requires.*limit/i);
   });
 
@@ -297,7 +277,13 @@ describe('validateDeepOptions', () => {
 
   test('max depth enforcement', () => {
     expect(() =>
-      validateDeepOptions('posts', { comments: { filter: {} } }, metadata, 0, 0),
+      validateDeepOptions(
+        'posts',
+        { comments: { filter: {} } },
+        metadata,
+        0,
+        0,
+      ),
     ).toThrow(/exceeds maximum query depth/i);
   });
 

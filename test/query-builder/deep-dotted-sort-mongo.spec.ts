@@ -90,7 +90,11 @@ const metadataGetter = async (table: string) =>
   META[table] ? { ...META[table] } : null;
 
 class TestTrace implements BatchTrace {
-  entries: Array<{ stage: string; ms: number; meta?: Record<string, unknown> }> = [];
+  entries: Array<{
+    stage: string;
+    ms: number;
+    meta?: Record<string, unknown>;
+  }> = [];
   dur(stage: string, startTs: number, meta?: Record<string, unknown>): number {
     const ms = performance.now() - startTs;
     this.entries.push({ stage, ms, meta });
@@ -119,12 +123,48 @@ beforeAll(async () => {
   ]);
 
   await db.collection('comments').insertMany([
-    { _id: commentIds[0], body: 'c0', seq: 1, post: postIds[0], author: userIds[1] },
-    { _id: commentIds[1], body: 'c1', seq: 2, post: postIds[0], author: userIds[0] },
-    { _id: commentIds[2], body: 'c2', seq: 3, post: postIds[0], author: userIds[2] },
-    { _id: commentIds[3], body: 'c3', seq: 1, post: postIds[1], author: userIds[2] },
-    { _id: commentIds[4], body: 'c4', seq: 2, post: postIds[1], author: userIds[1] },
-    { _id: commentIds[5], body: 'c5', seq: 3, post: postIds[1], author: userIds[0] },
+    {
+      _id: commentIds[0],
+      body: 'c0',
+      seq: 1,
+      post: postIds[0],
+      author: userIds[1],
+    },
+    {
+      _id: commentIds[1],
+      body: 'c1',
+      seq: 2,
+      post: postIds[0],
+      author: userIds[0],
+    },
+    {
+      _id: commentIds[2],
+      body: 'c2',
+      seq: 3,
+      post: postIds[0],
+      author: userIds[2],
+    },
+    {
+      _id: commentIds[3],
+      body: 'c3',
+      seq: 1,
+      post: postIds[1],
+      author: userIds[2],
+    },
+    {
+      _id: commentIds[4],
+      body: 'c4',
+      seq: 2,
+      post: postIds[1],
+      author: userIds[1],
+    },
+    {
+      _id: commentIds[5],
+      body: 'c5',
+      seq: 3,
+      post: postIds[1],
+      author: userIds[0],
+    },
   ]);
 });
 
@@ -191,8 +231,16 @@ describe('Mongo dotted sort on o2m (aggregate path)', () => {
       'posts',
       metadata,
     );
-    expect(rows[0].comments.map((c: any) => c.body)).toEqual(['c2', 'c0', 'c1']);
-    expect(rows[1].comments.map((c: any) => c.body)).toEqual(['c3', 'c4', 'c5']);
+    expect(rows[0].comments.map((c: any) => c.body)).toEqual([
+      'c2',
+      'c0',
+      'c1',
+    ]);
+    expect(rows[1].comments.map((c: any) => c.body)).toEqual([
+      'c3',
+      'c4',
+      'c5',
+    ]);
   });
 
   test('dotted sort + limit per-parent returns top-k by sort key', async () => {
