@@ -89,7 +89,7 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
       c.cacheService,
       c.bcryptService,
       c.uploadFileHelper,
-      c.dynamicWebSocketGateway,
+      c.websocketContextFactory,
       c.rateLimitService,
       c.flowService,
     ),

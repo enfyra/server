@@ -2,13 +2,13 @@ import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
 import { TDynamicContext } from '../../../shared/types';
-import type { Cradle } from '../../../container';
 import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services/env.service';
+import { WebsocketContextFactory } from '../services/websocket-context.factory';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -27,7 +27,7 @@ export class ConnectionQueueService {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly flowService: FlowService;
   private readonly envService: EnvService;
-  private readonly lazyRef: Cradle;
+  private readonly websocketContextFactory: WebsocketContextFactory;
   private worker?: Worker;
 
   constructor(deps: {
@@ -35,13 +35,13 @@ export class ConnectionQueueService {
     repoRegistryService: RepoRegistryService;
     flowService: FlowService;
     envService: EnvService;
-    lazyRef: Cradle;
+    websocketContextFactory: WebsocketContextFactory;
   }) {
     this.executorEngineService = deps.executorEngineService;
-    this.lazyRef = deps.lazyRef;
     this.repoRegistryService = deps.repoRegistryService;
     this.flowService = deps.flowService;
     this.envService = deps.envService;
+    this.websocketContextFactory = deps.websocketContextFactory;
   }
 
   async init() {
@@ -76,7 +76,10 @@ export class ConnectionQueueService {
       `Processing connection script for socket ${socketId} on ${gatewayPath}`,
     );
 
-    const socketProxy = this.createSocketProxy(gatewayPath, socketId);
+    const socketProxy = this.websocketContextFactory.createBoundProxy(
+      gatewayPath,
+      socketId,
+    );
 
     const ctx: TDynamicContext = {
       $body: clientInfo || {},
@@ -135,58 +138,5 @@ export class ConnectionQueueService {
 
   onError(error: Error) {
     this.logger.error(`Connection queue error:`, error);
-  }
-
-  private createSocketProxy(gatewayPath: string, socketId: string) {
-    return {
-      join: (room: string) => {
-        this.lazyRef.dynamicWebSocketGateway?.joinRoom(
-          gatewayPath,
-          socketId,
-          room,
-        );
-      },
-      leave: (room: string) => {
-        this.lazyRef.dynamicWebSocketGateway?.leaveRoom(
-          gatewayPath,
-          socketId,
-          room,
-        );
-      },
-      reply: (event: string, data: any) => {
-        this.lazyRef.dynamicWebSocketGateway?.emitToSocket(
-          gatewayPath,
-          socketId,
-          event,
-          data,
-        );
-      },
-      emitToUser: (userId: number | string, event: string, data: any) => {
-        this.lazyRef.dynamicWebSocketGateway?.emitToUser(userId, event, data);
-      },
-      emitToRoom: (room: string, event: string, data: any) => {
-        this.lazyRef.dynamicWebSocketGateway?.emitToRoom(room, event, data);
-      },
-      emitToGateway: (path: string, event: string, data: any) => {
-        this.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
-          path,
-          event,
-          data,
-        );
-      },
-      broadcast: (event: string, data: any) => {
-        this.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
-      },
-      roomSize: async (room: string): Promise<number> => {
-        const gateway = this.lazyRef.dynamicWebSocketGateway;
-        return gateway ? gateway.roomSize(room) : 0;
-      },
-      disconnect: () => {
-        this.lazyRef.dynamicWebSocketGateway?.disconnectSocket(
-          gatewayPath,
-          socketId,
-        );
-      },
-    };
   }
 }

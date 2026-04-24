@@ -146,6 +146,7 @@ import { ConnectionQueueService } from './modules/websocket/queues/connection-qu
 import { EventQueueService } from './modules/websocket/queues/event-queue.service';
 import { BuiltInSocketRegistry } from './modules/websocket/services/built-in-socket.registry';
 import { WebsocketEmitService } from './modules/websocket/services/websocket-emit.service';
+import { WebsocketContextFactory } from './modules/websocket/services/websocket-context.factory';
 
 import { CommonService } from './shared/common/services/common.service';
 import { DatabaseConfigService } from './shared/services/database-config.service';
@@ -258,6 +259,7 @@ export interface Cradle {
   connectionQueueService: ConnectionQueueService;
   eventQueueService: EventQueueService;
   websocketEmitService: WebsocketEmitService;
+  websocketContextFactory: WebsocketContextFactory;
 
   provisionService: ProvisionService;
   firstRunInitializer: FirstRunInitializer;
@@ -487,6 +489,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     connectionQueueService: asClass(ConnectionQueueService).singleton(),
     eventQueueService: asClass(EventQueueService).singleton(),
     websocketEmitService: asClass(WebsocketEmitService).singleton(),
+    websocketContextFactory: asClass(WebsocketContextFactory).singleton(),
 
     provisionService: asClass(ProvisionService).singleton(),
     firstRunInitializer: asClass(FirstRunInitializer).singleton(),

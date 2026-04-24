@@ -9,7 +9,7 @@ import { autoSlug } from '../../shared/utils/auto-slug.helper';
 import { CacheService } from '../../engine/cache/services/cache.service';
 import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
-import { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
+import { WebsocketContextFactory } from '../../modules/websocket/services/websocket-context.factory';
 import { RateLimitService } from '../../engine/cache/services/rate-limit.service';
 import { FlowService } from '../../modules/flow/services/flow.service';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
@@ -21,7 +21,7 @@ export function routeDetectMiddleware(
   cacheService: CacheService,
   bcryptService: BcryptService,
   uploadFileHelper: UploadFileHelper,
-  dynamicWebSocketGateway: DynamicWebSocketGateway,
+  websocketContextFactory: WebsocketContextFactory,
   rateLimitService: RateLimitService,
   flowService: FlowService,
 ) {
@@ -79,22 +79,7 @@ export function routeDetectMiddleware(
         $share: {
           $logs: [],
         },
-        $socket: {
-          emitToUser: (userId: any, event: string, data: any) => {
-            dynamicWebSocketGateway.emitToUser(userId, event, data);
-          },
-          emitToRoom: (room: string, event: string, data: any) => {
-            dynamicWebSocketGateway.emitToRoom(room, event, data);
-          },
-          emitToGateway: (path: string, event: string, data: any) => {
-            dynamicWebSocketGateway.emitToNamespace(path, event, data);
-          },
-          broadcast: (event: string, data: any) => {
-            dynamicWebSocketGateway.emitToAll(event, data);
-          },
-          roomSize: async (room: string): Promise<number> =>
-            dynamicWebSocketGateway.roomSize(room),
-        },
+        $socket: websocketContextFactory.createGlobalProxy(),
         $api: {
           request: {
             method: req.method,

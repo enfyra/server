@@ -8,6 +8,10 @@ import { RepoRegistryService } from '../../../engine/cache/services/repo-registr
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
+import {
+  SocketEmitCapture,
+  WebsocketContextFactory,
+} from '../../websocket/services/websocket-context.factory';
 
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
@@ -15,17 +19,20 @@ export class FlowService {
   private readonly flowCacheService: FlowCacheService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
+  private readonly websocketContextFactory: WebsocketContextFactory;
 
   constructor(deps: {
     flowQueue: Queue;
     flowCacheService: FlowCacheService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
+    websocketContextFactory: WebsocketContextFactory;
   }) {
     this.flowQueue = deps.flowQueue;
     this.flowCacheService = deps.flowCacheService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
+    this.websocketContextFactory = deps.websocketContextFactory;
   }
 
   async trigger(
@@ -79,9 +86,11 @@ export class FlowService {
     error?: string;
     duration: number;
     flowContext?: any;
+    emitted?: SocketEmitCapture;
   }> {
     const startTime = Date.now();
     const logs: any[] = [];
+    const emitted: SocketEmitCapture = [];
 
     const flowContext: any = {
       $payload: mockFlow?.$payload || {},
@@ -101,6 +110,7 @@ export class FlowService {
       $cache: {},
       $share: { $logs: logs },
       $logs: (...args: any[]) => logs.push(...args),
+      $socket: this.websocketContextFactory.createCaptureProxy(emitted),
     };
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
@@ -159,12 +169,14 @@ export class FlowService {
         result,
         duration: Date.now() - startTime,
         flowContext,
+        emitted,
       };
     } catch (error) {
       return {
         success: false,
         error: getErrorMessage(error),
         duration: Date.now() - startTime,
+        emitted,
       };
     }
   }

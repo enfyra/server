@@ -155,22 +155,10 @@ async function runTest(body: any, cradle: any) {
 
     const handlerExecutorService = cradle.executorEngineService;
     const repoRegistryService = cradle.repoRegistryService;
+    const websocketContextFactory = cradle.websocketContextFactory;
 
     const emitted: Array<{ method: string; args: any[] }> = [];
-    const capture =
-      (method: string) =>
-      (...args: any[]) =>
-        emitted.push({ method, args });
-    const socketProxy = {
-      join: capture('join'),
-      leave: capture('leave'),
-      reply: capture('reply'),
-      emitToUser: capture('emitToUser'),
-      emitToRoom: capture('emitToRoom'),
-      emitToGateway: capture('emitToGateway'),
-      broadcast: capture('broadcast'),
-      disconnect: capture('disconnect'),
-    };
+    const socketProxy = websocketContextFactory.createCaptureProxy(emitted);
 
     const ctx: TDynamicContext = {
       $body: payload || {},
@@ -252,22 +240,10 @@ async function runTest(body: any, cradle: any) {
 
     const handlerExecutorService = cradle.executorEngineService;
     const repoRegistryService = cradle.repoRegistryService;
+    const websocketContextFactory = cradle.websocketContextFactory;
 
     const emitted: Array<{ method: string; args: any[] }> = [];
-    const capture =
-      (method: string) =>
-      (...args: any[]) =>
-        emitted.push({ method, args });
-    const socketProxy = {
-      join: capture('join'),
-      leave: capture('leave'),
-      reply: capture('reply'),
-      emitToUser: capture('emitToUser'),
-      emitToRoom: capture('emitToRoom'),
-      emitToGateway: capture('emitToGateway'),
-      broadcast: capture('broadcast'),
-      disconnect: capture('disconnect'),
-    };
+    const socketProxy = websocketContextFactory.createCaptureProxy(emitted);
 
     const ctx: TDynamicContext = {
       $body: payload || {},

@@ -24,8 +24,7 @@
     "test:e2e:flow-engine": "node test/flow-engine.e2e.js",
     "test:e2e:query-builder": "node test/query-builder.e2e.js",
     "test:e2e:mock": "yarn test:e2e:cache-load && yarn test:e2e:metadata-reload && yarn test:e2e:flow-engine",
-    "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder",
-    "postinstall": "node -e \"if (!require('fs').existsSync('./node_modules/sharp')) { require('child_process').execSync('yarn add sharp --ignore-engines', {stdio: 'inherit'}) }\""
+    "test:e2e": "yarn test:e2e:mock && yarn test:e2e:query-builder"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
