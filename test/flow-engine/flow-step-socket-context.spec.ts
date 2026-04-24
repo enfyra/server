@@ -51,6 +51,7 @@ describe('flow step socket context', () => {
       queryBuilderService: { update: async () => undefined } as any,
       websocketEmitService: {} as any,
       dynamicContextFactory,
+      envService: { get: () => 'test' } as any,
       flowQueue: {} as any,
     });
 

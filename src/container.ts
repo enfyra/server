@@ -484,7 +484,9 @@ export function buildContainer(): AwilixContainer<Cradle> {
 
     flowService: asClass(FlowService).singleton(),
     flowSchedulerService: asClass(FlowSchedulerService).singleton(),
-    flowExecutionQueueService: asClass(FlowExecutionQueueService).singleton(),
+    flowExecutionQueueService: asClass(FlowExecutionQueueService)
+      .singleton()
+      .disposer((service) => service.onDestroy()),
 
     builtInSocketRegistry: asClass(BuiltInSocketRegistry).singleton(),
     dynamicWebSocketGateway: asClass(DynamicWebSocketGateway).singleton(),

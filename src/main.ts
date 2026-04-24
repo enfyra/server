@@ -54,6 +54,7 @@ async function main() {
       server.listen(env.PORT, '0.0.0.0');
     });
     logger.log(`HTTP listening on port ${env.PORT}`);
+    await container.cradle.flowExecutionQueueService?.init?.();
   } catch (err: any) {
     if (err?.code === 'EADDRINUSE') {
       logger.error(
