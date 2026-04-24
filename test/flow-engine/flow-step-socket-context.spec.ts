@@ -3,6 +3,7 @@ import { FlowExecutionQueueService } from '../../src/modules/flow/queues/flow-ex
 import { FlowService } from '../../src/modules/flow/services/flow.service';
 import { transformCode } from '../../src/domain/shared/code-transformer';
 import { WebsocketContextFactory } from '../../src/modules/websocket/services/websocket-context.factory';
+import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
 
 class InlineExecutor {
   async run(code: string, ctx: any) {
@@ -17,6 +18,17 @@ class MockRepoRegistry {
   }
 }
 
+function createDynamicContextFactory(dynamicWebSocketGateway: any) {
+  return new DynamicContextFactory({
+    bcryptService: {} as any,
+    cacheService: {} as any,
+    envService: { get: () => 'test-secret' } as any,
+    websocketContextFactory: new WebsocketContextFactory({
+      dynamicWebSocketGateway,
+    }),
+  });
+}
+
 describe('flow step socket context', () => {
   it('injects $socket into runtime flow script steps', async () => {
     const emitted: Array<{ method: string; args: any[] }> = [];
@@ -28,9 +40,9 @@ describe('flow step socket context', () => {
       emitToAll: (...args: any[]) => emitted.push({ method: 'broadcast', args }),
       roomSize: async () => 3,
     };
-    const websocketContextFactory = new WebsocketContextFactory({
-      dynamicWebSocketGateway: dynamicWebSocketGateway as any,
-    });
+    const dynamicContextFactory = createDynamicContextFactory(
+      dynamicWebSocketGateway,
+    );
 
     const service = new FlowExecutionQueueService({
       executorEngineService: new InlineExecutor() as any,
@@ -38,7 +50,7 @@ describe('flow step socket context', () => {
       flowCacheService: {} as any,
       queryBuilderService: { update: async () => undefined } as any,
       websocketEmitService: {} as any,
-      websocketContextFactory,
+      dynamicContextFactory,
       flowQueue: {} as any,
     });
 
@@ -88,9 +100,7 @@ describe('flow step socket context', () => {
         run: (code: string, ctx: any) => new InlineExecutor().run(code, ctx),
       } as any,
       repoRegistryService: new MockRepoRegistry() as any,
-      websocketContextFactory: new WebsocketContextFactory({
-        dynamicWebSocketGateway: {} as any,
-      }),
+      dynamicContextFactory: createDynamicContextFactory({}),
     });
 
     const result = await service.testStep({

@@ -1,29 +1,19 @@
 import { Response, NextFunction } from 'express';
-import * as jwt from 'jsonwebtoken';
-import { TDynamicContext } from '../../shared/types';
 import { RouteCacheService } from '../../engine/cache/services/route-cache.service';
 import { RepoRegistryService } from '../../engine/cache/services/repo-registry.service';
-import { BcryptService } from '../../domain/auth/services/bcrypt.service';
-import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
-import { autoSlug } from '../../shared/utils/auto-slug.helper';
-import { CacheService } from '../../engine/cache/services/cache.service';
 import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
-import { createFetchHelper } from '../../shared/helpers/fetch.helper';
-import { WebsocketContextFactory } from '../../modules/websocket/services/websocket-context.factory';
 import { RateLimitService } from '../../engine/cache/services/rate-limit.service';
 import { FlowService } from '../../modules/flow/services/flow.service';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
+import { DynamicContextFactory } from '../../shared/services/dynamic-context.factory';
 
 export function routeDetectMiddleware(
-  secretKey: string,
   routeCacheService: RouteCacheService,
   repoRegistryService: RepoRegistryService,
-  cacheService: CacheService,
-  bcryptService: BcryptService,
   uploadFileHelper: UploadFileHelper,
-  websocketContextFactory: WebsocketContextFactory,
   rateLimitService: RateLimitService,
   flowService: FlowService,
+  dynamicContextFactory: DynamicContextFactory,
 ) {
   return async (req: any, res: Response, next: NextFunction) => {
     const method = req.method;
@@ -43,60 +33,10 @@ export function routeDetectMiddleware(
 
     if (matchedRoute && isMethodAvailable(matchedRoute.route)) {
       const realClientIP = resolveClientIpFromRequest(req);
-      const context: TDynamicContext = {
-        $body: req.routeData?.context?.$body || req.body || {},
-        $debug: req._debug || undefined,
-        $throw: ScriptErrorFactory.createThrowHandlers(),
-        $helpers: {
-          $jwt: (payload: any, exp: string) =>
-            jwt.sign(payload, secretKey, {
-              expiresIn: exp as import('ms').StringValue,
-            }),
-          $bcrypt: {
-            hash: async (plain: string) => await bcryptService.hash(plain),
-            compare: async (p: string, h: string) =>
-              await bcryptService.compare(p, h),
-          },
-          autoSlug: autoSlug,
-        },
-        $cache: cacheService,
-        $params: matchedRoute.params ?? {},
-        $query: req.query ?? {},
-        $user: req.user ?? null,
-        $repos: {},
-        $req: {
-          method: req.method,
-          url: req.url,
-          headers: req.headers,
-          query: req.query,
-          params: req.params,
-          ip: realClientIP,
-          hostname: req.hostname,
-          protocol: req.protocol,
-          path: req.path,
-          originalUrl: req.originalUrl,
-        } as any,
-        $share: {
-          $logs: [],
-        },
-        $socket: websocketContextFactory.createGlobalProxy(),
-        $api: {
-          request: {
-            method: req.method,
-            url: req.url,
-            timestamp: new Date().toISOString(),
-            correlationId:
-              (req.headers['x-correlation-id'] as string) ||
-              generateCorrelationId(),
-            userAgent: req.headers['user-agent'],
-            ip: realClientIP,
-          },
-        },
-      };
-
-      context.$logs = (...args: any[]) => {
-        context.$share.$logs.push(...args);
-      };
+      const context = dynamicContextFactory.createHttp(req, {
+        params: matchedRoute.params ?? {},
+        realClientIP,
+      });
 
       const routePath = matchedRoute.route.path || req.baseUrl;
       const createRateLimitHelper = () => {
@@ -173,8 +113,6 @@ export function routeDetectMiddleware(
       };
 
       context.$helpers.$rateLimit = createRateLimitHelper() as any;
-      context.$helpers.$fetch = createFetchHelper();
-
       if (req.file) {
         context.$uploadedFile = {
           originalname: req.file.originalname,
@@ -238,8 +176,4 @@ export function routeDetectMiddleware(
 
     next();
   };
-}
-
-function generateCorrelationId(): string {
-  return `req_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 }

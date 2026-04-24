@@ -5,13 +5,9 @@ import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
-import { TDynamicContext } from '../../../shared/types';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
-import {
-  SocketEmitCapture,
-  WebsocketContextFactory,
-} from '../../websocket/services/websocket-context.factory';
+import { SocketEmitCapture } from '../../websocket/services/websocket-context.factory';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
@@ -19,20 +15,20 @@ export class FlowService {
   private readonly flowCacheService: FlowCacheService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
-  private readonly websocketContextFactory: WebsocketContextFactory;
+  private readonly dynamicContextFactory: DynamicContextFactory;
 
   constructor(deps: {
     flowQueue: Queue;
     flowCacheService: FlowCacheService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
-    websocketContextFactory: WebsocketContextFactory;
+    dynamicContextFactory: DynamicContextFactory;
   }) {
     this.flowQueue = deps.flowQueue;
     this.flowCacheService = deps.flowCacheService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
-    this.websocketContextFactory = deps.websocketContextFactory;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
   async trigger(
@@ -99,19 +95,12 @@ export class FlowService {
       ...(mockFlow || {}),
     };
 
-    const ctx: TDynamicContext = {
-      $body: {},
-      $query: {},
-      $params: {},
-      $user: null,
-      $repos: {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: {},
-      $cache: {},
-      $share: { $logs: logs },
-      $logs: (...args: any[]) => logs.push(...args),
-      $socket: this.websocketContextFactory.createCaptureProxy(emitted),
-    };
+    const ctx = this.dynamicContextFactory.createFlowTest({
+      payload: {},
+      user: null,
+      share: { $logs: logs },
+      emitted,
+    });
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;

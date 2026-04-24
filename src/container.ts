@@ -153,6 +153,7 @@ import { DatabaseConfigService } from './shared/services/database-config.service
 import { UploadFileHelper } from './shared/helpers/upload-file.helper';
 import { EnvService } from './shared/services/env.service';
 import { InstanceService } from './shared/services/instance.service';
+import { DynamicContextFactory } from './shared/services/dynamic-context.factory';
 
 export interface Cradle {
   envService: EnvService;
@@ -161,6 +162,7 @@ export interface Cradle {
 
   commonService: CommonService;
   instanceService: InstanceService;
+  dynamicContextFactory: DynamicContextFactory;
   configService: any;
   lazyRef: Cradle;
   bcryptService: BcryptService;
@@ -354,6 +356,7 @@ export function buildContainer(): AwilixContainer<Cradle> {
     databaseConfigService: asClass(DatabaseConfigService).singleton(),
     lazyRef: asFunction((cradle) => cradle).singleton(),
     instanceService: asClass(InstanceService).singleton(),
+    dynamicContextFactory: asClass(DynamicContextFactory).singleton(),
     bcryptService: asClass(BcryptService).singleton(),
     authService: asClass(AuthService).singleton(),
     oauthService: asClass(OAuthService).singleton(),

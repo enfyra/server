@@ -9,15 +9,14 @@ import {
 } from '../../../shared/utils/error.util';
 import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
-import { WebsocketContextFactory } from '../../websocket/services/websocket-context.factory';
 import { TDynamicContext } from '../../../shared/types';
 import {
   FlowDefinition,
   FlowStep,
   FlowJobData,
 } from '../../../shared/types/flow.types';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -32,7 +31,7 @@ export class FlowExecutionQueueService {
   private readonly flowCacheService: FlowCacheService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly websocketEmitService: WebsocketEmitService;
-  private readonly websocketContextFactory: WebsocketContextFactory;
+  private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly flowQueue: Queue;
 
   constructor(deps: {
@@ -41,7 +40,7 @@ export class FlowExecutionQueueService {
     flowCacheService: FlowCacheService;
     queryBuilderService: QueryBuilderService;
     websocketEmitService: WebsocketEmitService;
-    websocketContextFactory: WebsocketContextFactory;
+    dynamicContextFactory: DynamicContextFactory;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -49,7 +48,7 @@ export class FlowExecutionQueueService {
     this.flowCacheService = deps.flowCacheService;
     this.queryBuilderService = deps.queryBuilderService;
     this.websocketEmitService = deps.websocketEmitService;
-    this.websocketContextFactory = deps.websocketContextFactory;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
     this.flowQueue = deps.flowQueue;
   }
 
@@ -277,21 +276,10 @@ export class FlowExecutionQueueService {
       },
     };
 
-    const ctx: TDynamicContext = {
-      $body: payload || {},
-      $query: {},
-      $params: {},
-      $user: triggeredBy || null,
-      $repos: {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: {},
-      $cache: {},
-      $share: { $logs: [] },
-      $logs: (...args: any[]) => {
-        (ctx.$share.$logs as any[]).push(...args);
-      },
-      $socket: this.websocketContextFactory.createGlobalProxy(),
-    } as any;
+    const ctx = this.dynamicContextFactory.createFlow({
+      payload,
+      user: triggeredBy || null,
+    }) as TDynamicContext;
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;

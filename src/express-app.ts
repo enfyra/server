@@ -83,15 +83,12 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
   app.use(
     routeDetectMiddleware(
-      c.envService.get('SECRET_KEY'),
       c.routeCacheService,
       c.repoRegistryService,
-      c.cacheService,
-      c.bcryptService,
       c.uploadFileHelper,
-      c.websocketContextFactory,
       c.rateLimitService,
       c.flowService,
+      c.dynamicContextFactory,
     ),
   );
   app.use((req: any, _res: any, next: any) => {

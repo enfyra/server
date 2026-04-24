@@ -1,14 +1,11 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { TDynamicContext } from '../../../shared/types';
 import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services/env.service';
-import { WebsocketContextFactory } from '../services/websocket-context.factory';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -27,7 +24,7 @@ export class ConnectionQueueService {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly flowService: FlowService;
   private readonly envService: EnvService;
-  private readonly websocketContextFactory: WebsocketContextFactory;
+  private readonly dynamicContextFactory: DynamicContextFactory;
   private worker?: Worker;
 
   constructor(deps: {
@@ -35,13 +32,13 @@ export class ConnectionQueueService {
     repoRegistryService: RepoRegistryService;
     flowService: FlowService;
     envService: EnvService;
-    websocketContextFactory: WebsocketContextFactory;
+    dynamicContextFactory: DynamicContextFactory;
   }) {
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
     this.flowService = deps.flowService;
     this.envService = deps.envService;
-    this.websocketContextFactory = deps.websocketContextFactory;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
   async init() {
@@ -76,45 +73,12 @@ export class ConnectionQueueService {
       `Processing connection script for socket ${socketId} on ${gatewayPath}`,
     );
 
-    const socketProxy = this.websocketContextFactory.createBoundProxy(
+    const ctx = this.dynamicContextFactory.createWebsocketConnection({
       gatewayPath,
       socketId,
-    );
-
-    const ctx: TDynamicContext = {
-      $body: clientInfo || {},
-      $data: clientInfo || {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $logs: (...args: any[]) => {
-        const logsArray = (ctx.$share?.$logs as any[]) || [];
-        logsArray.push(...args);
-      },
-      $helpers: {},
-      $cache: {},
-      $params: {},
-      $query: {},
-      $user: userId ? { id: userId } : null,
-      $repos: {} as any,
-      $req: {
-        method: 'WS_CONNECT',
-        url: gatewayPath,
-        ip: clientInfo?.ip,
-        headers: clientInfo?.headers,
-        user: userId ? { id: userId } : null,
-      } as any,
-      $share: { $logs: [] },
-      $api: {
-        request: {
-          method: 'WS_CONNECT',
-          url: gatewayPath,
-          timestamp: new Date().toISOString(),
-          ip: clientInfo?.ip,
-        },
-      },
-      $socket: socketProxy,
-    };
-
-    ctx.$helpers.$fetch = createFetchHelper();
+      clientInfo,
+      user: userId ? { id: userId } : null,
+    });
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
       this.flowService.trigger(

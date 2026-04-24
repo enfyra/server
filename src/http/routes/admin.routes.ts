@@ -1,10 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import type { TDynamicContext } from '../../shared/types';
-import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { transformCode } from '../../domain/shared/code-transformer';
-import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 
 export function registerAdminRoutes(
   app: Express,
@@ -155,42 +152,16 @@ async function runTest(body: any, cradle: any) {
 
     const handlerExecutorService = cradle.executorEngineService;
     const repoRegistryService = cradle.repoRegistryService;
-    const websocketContextFactory = cradle.websocketContextFactory;
+    const dynamicContextFactory = cradle.dynamicContextFactory;
 
-    const emitted: Array<{ method: string; args: any[] }> = [];
-    const socketProxy = websocketContextFactory.createCaptureProxy(emitted);
-
-    const ctx: TDynamicContext = {
-      $body: payload || {},
-      $data: payload || {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: { $fetch: createFetchHelper() },
-      $cache: {},
-      $params: {},
-      $query: {},
-      $user: user,
-      $repos: {},
-      $req: {
-        method: 'WS_EVENT_TEST',
-        url: `${gatewayPath}/${eventName}`,
-        headers,
-        user,
-      } as any,
-      $share: { $logs: [] },
-      $api: {
-        request: {
-          method: 'WS_EVENT_TEST',
-          url: `${gatewayPath}/${eventName}`,
-          timestamp: new Date().toISOString(),
-          correlationId: `ws_test_${Date.now()}`,
-        },
-      },
-      $socket: socketProxy as any,
-    };
-
-    ctx.$logs = (...args: any[]) => {
-      ctx.$share?.$logs?.push(...args);
-    };
+    const { ctx, emitted } = dynamicContextFactory.createTestWebsocketCapture({
+      method: 'WS_EVENT_TEST',
+      url: `${gatewayPath}/${eventName}`,
+      body: payload || {},
+      user,
+      headers,
+      correlationId: `ws_test_${Date.now()}`,
+    });
 
     ctx.$repos = repoRegistryService.createReposProxy(ctx);
 
@@ -240,42 +211,16 @@ async function runTest(body: any, cradle: any) {
 
     const handlerExecutorService = cradle.executorEngineService;
     const repoRegistryService = cradle.repoRegistryService;
-    const websocketContextFactory = cradle.websocketContextFactory;
+    const dynamicContextFactory = cradle.dynamicContextFactory;
 
-    const emitted: Array<{ method: string; args: any[] }> = [];
-    const socketProxy = websocketContextFactory.createCaptureProxy(emitted);
-
-    const ctx: TDynamicContext = {
-      $body: payload || {},
-      $data: payload || {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: { $fetch: createFetchHelper() },
-      $cache: {},
-      $params: {},
-      $query: {},
-      $user: user,
-      $repos: {},
-      $req: {
-        method: 'WS_CONNECT_TEST',
-        url: gatewayPath,
-        headers,
-        user,
-      } as any,
-      $share: { $logs: [] },
-      $api: {
-        request: {
-          method: 'WS_CONNECT_TEST',
-          url: gatewayPath,
-          timestamp: new Date().toISOString(),
-          correlationId: `ws_connect_test_${Date.now()}`,
-        },
-      },
-      $socket: socketProxy as any,
-    };
-
-    ctx.$logs = (...args: any[]) => {
-      ctx.$share?.$logs?.push(...args);
-    };
+    const { ctx, emitted } = dynamicContextFactory.createTestWebsocketCapture({
+      method: 'WS_CONNECT_TEST',
+      url: gatewayPath,
+      body: payload || {},
+      user,
+      headers,
+      correlationId: `ws_connect_test_${Date.now()}`,
+    });
 
     ctx.$repos = repoRegistryService.createReposProxy(ctx);
 
