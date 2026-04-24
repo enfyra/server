@@ -3,12 +3,13 @@ import {
   IsolatedExecutorService,
   CodeBlock,
 } from './isolated-executor.service';
+import { IExecutorEngine } from '../../../domain/shared/interfaces/executor-engine.interface';
 
 export type { CodeBlock } from './isolated-executor.service';
 
 export const DEFAULT_TIMEOUT_MS = 30000;
 
-export class ExecutorEngineService {
+export class ExecutorEngineService implements IExecutorEngine {
   private readonly isolatedExecutorService: IsolatedExecutorService;
 
   constructor(deps: { isolatedExecutorService: IsolatedExecutorService }) {

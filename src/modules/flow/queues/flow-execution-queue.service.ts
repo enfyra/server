@@ -3,7 +3,10 @@ import { Job, Queue } from 'bullmq';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
 import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
-import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '../../../shared/utils/error.util';
 import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
 import { TDynamicContext } from '../../../shared/types';
@@ -398,7 +401,10 @@ export class FlowExecutionQueueService {
           }
           if (!retrySuccess) throw error;
         } else if (step.onError === 'skip') {
-          flowContext[step.key] = { error: getErrorMessage(error), skipped: true };
+          flowContext[step.key] = {
+            error: getErrorMessage(error),
+            skipped: true,
+          };
           flowContext.$last = flowContext[step.key];
           completedSteps.push({
             key: step.key,

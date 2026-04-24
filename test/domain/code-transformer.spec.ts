@@ -1,4 +1,4 @@
-import { transformCode } from '../../src/engine/executor-engine/code-transformer';
+import { transformCode } from '../../src/domain/shared/code-transformer';
 
 describe('transformCode', () => {
   it('expands @BODY in normal code', () => {

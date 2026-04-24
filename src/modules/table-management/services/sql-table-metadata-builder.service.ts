@@ -6,7 +6,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../engine/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);

@@ -325,8 +325,11 @@ export class KnexService implements LifecycleAware {
       throw new Error('Knex instance not initialized. Call init first.');
     }
 
-    const self = this;
     const baseKnex = this.knexInstance;
+    const getKnexForRead = () => this.getKnexForRead();
+    const getKnexForWrite = () => this.getKnexForWrite();
+    const wrapQueryBuilder = (qb: any, knexInstance: any) =>
+      this.wrapQueryBuilder(qb, knexInstance);
 
     return new Proxy(baseKnex, {
       get(target, prop) {
@@ -335,14 +338,14 @@ export class KnexService implements LifecycleAware {
         if (typeof value === 'function') {
           if (prop === 'table' || prop === 'from' || prop === 'queryBuilder') {
             return function (...args: any[]) {
-              const knexInstance = self.getKnexForRead();
+              const knexInstance = getKnexForRead();
               const qb = value.apply(knexInstance, args);
-              return self.wrapQueryBuilder(qb, knexInstance);
+              return wrapQueryBuilder(qb, knexInstance);
             };
           }
 
           if (prop === 'raw') {
-            return function (sql: string, bindings?: any) {
+            return function (sql: string, ...rawArgs: any[]) {
               const sqlUpper = sql.trim().toUpperCase();
               const isReadQuery =
                 sqlUpper.startsWith('SELECT') ||
@@ -351,9 +354,9 @@ export class KnexService implements LifecycleAware {
                 sqlUpper.startsWith('EXPLAIN');
 
               const knexInstance = isReadQuery
-                ? self.getKnexForRead()
-                : self.getKnexForWrite();
-              return value.apply(knexInstance, arguments);
+                ? getKnexForRead()
+                : getKnexForWrite();
+              return value.apply(knexInstance, [sql, ...rawArgs]);
             };
           }
 
@@ -363,9 +366,9 @@ export class KnexService implements LifecycleAware {
         return value;
       },
       apply(target, thisArg, args: [string]) {
-        const knexInstance = self.getKnexForRead();
+        const knexInstance = getKnexForRead();
         const qb = Reflect.apply(target, knexInstance, args);
-        return self.wrapQueryBuilder(qb, knexInstance);
+        return wrapQueryBuilder(qb, knexInstance);
       },
     }) as ExtendedKnex;
   }

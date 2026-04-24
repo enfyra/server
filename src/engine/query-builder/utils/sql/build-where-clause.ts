@@ -447,4 +447,4 @@ export function buildWhereClause(
   return query;
 }
 
-export { hasLogicalOperators } from '../shared/logical-operators.util';
+export { hasLogicalOperators } from '../../../../domain/query-dsl/logical-operators.util';

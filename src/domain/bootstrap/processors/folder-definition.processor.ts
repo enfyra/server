@@ -2,7 +2,7 @@ import { BaseTableProcessor } from './base-table-processor';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export class FolderDefinitionProcessor extends BaseTableProcessor {
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     const rootFolders = records.filter((r) => !r.parent);

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
 import { ColumnRuleCacheService } from '../../src/engine/cache/services/column-rule-cache.service';
 

@@ -1,5 +1,5 @@
 import { BaseTableProcessor } from './base-table-processor';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
 import {
   DEFAULT_REST_HANDLER_LOGIC,
@@ -9,13 +9,13 @@ import {
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export class RouteDefinitionProcessor extends BaseTableProcessor {
-  private readonly queryBuilderService: QueryBuilderService;
+  private readonly queryBuilderService: IQueryBuilder;
 
-  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+  constructor(deps: { queryBuilderService: IQueryBuilder }) {
     super();
     this.queryBuilderService = deps.queryBuilderService;
   }
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const pkField = DatabaseConfigService.getPkField();
     const transformedRecords = await Promise.all(
@@ -114,7 +114,11 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
     );
     return transformedRecords.filter(Boolean);
   }
-  async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
+  async afterUpsert(
+    record: any,
+    isNew: boolean,
+    _context?: any,
+  ): Promise<void> {
     if (!isNew) return;
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     await this.ensureDefaultCrudHandlers(record, isMongoDB);

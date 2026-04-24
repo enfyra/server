@@ -7,7 +7,7 @@
 
 import knex, { Knex } from 'knex';
 import { buildWhereClause } from '../../src/engine/query-builder/utils/sql/build-where-clause';
-import { hasLogicalOperators } from '../../src/engine/query-builder/utils/shared/logical-operators.util';
+import { hasLogicalOperators } from '../../src/domain/query-dsl/logical-operators.util';
 
 let db: Knex;
 

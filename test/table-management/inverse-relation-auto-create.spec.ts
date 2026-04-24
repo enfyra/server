@@ -2,7 +2,7 @@ import { ValidationException } from '../../src/domain/exceptions/custom-exceptio
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/engine/knex/utils/sql-schema-naming.util';
+} from '../../src/domain/query-dsl/utils/sql-schema-naming.util';
 
 type TRelation = {
   id?: number;

@@ -138,24 +138,23 @@ export class ConnectionQueueService {
   }
 
   private createSocketProxy(gatewayPath: string, socketId: string) {
-    const self = this;
     return {
       join: (room: string) => {
-        self.lazyRef.dynamicWebSocketGateway?.joinRoom(
+        this.lazyRef.dynamicWebSocketGateway?.joinRoom(
           gatewayPath,
           socketId,
           room,
         );
       },
       leave: (room: string) => {
-        self.lazyRef.dynamicWebSocketGateway?.leaveRoom(
+        this.lazyRef.dynamicWebSocketGateway?.leaveRoom(
           gatewayPath,
           socketId,
           room,
         );
       },
       reply: (event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToSocket(
+        this.lazyRef.dynamicWebSocketGateway?.emitToSocket(
           gatewayPath,
           socketId,
           event,
@@ -163,27 +162,27 @@ export class ConnectionQueueService {
         );
       },
       emitToUser: (userId: number | string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToUser(userId, event, data);
+        this.lazyRef.dynamicWebSocketGateway?.emitToUser(userId, event, data);
       },
       emitToRoom: (room: string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToRoom(room, event, data);
+        this.lazyRef.dynamicWebSocketGateway?.emitToRoom(room, event, data);
       },
       emitToGateway: (path: string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
+        this.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
           path,
           event,
           data,
         );
       },
       broadcast: (event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
+        this.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
       },
       roomSize: async (room: string): Promise<number> => {
-        const gateway = self.lazyRef.dynamicWebSocketGateway;
+        const gateway = this.lazyRef.dynamicWebSocketGateway;
         return gateway ? gateway.roomSize(room) : 0;
       },
       disconnect: () => {
-        self.lazyRef.dynamicWebSocketGateway?.disconnectSocket(
+        this.lazyRef.dynamicWebSocketGateway?.disconnectSocket(
           gatewayPath,
           socketId,
         );

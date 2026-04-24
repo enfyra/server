@@ -1,16 +1,16 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
 import { CommonService } from '../../../shared/common/services/common.service';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { IMetadataCache } from '../../shared/interfaces/metadata-cache.interface';
 
 export class SystemSafetyAuditorService {
   private readonly commonService: CommonService;
-  private readonly metadataCacheService: MetadataCacheService;
+  private readonly metadataCacheService: IMetadataCache;
   private readonly schemaMigrationValidatorService: SchemaMigrationValidatorService;
 
   constructor(deps: {
     commonService: CommonService;
-    metadataCacheService: MetadataCacheService;
+    metadataCacheService: IMetadataCache;
     schemaMigrationValidatorService: SchemaMigrationValidatorService;
   }) {
     this.commonService = deps.commonService;

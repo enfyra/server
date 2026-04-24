@@ -4,10 +4,10 @@ import {
   BatchFetchDescriptor,
   MetadataGetter,
   BatchTrace,
-} from '../shared/batch-fetch-engine';
+} from '../../../../domain/query-dsl/batch-fetch-engine';
 import { SqlBatchAdapter } from './sql-batch-adapter';
 
-export type { BatchFetchDescriptor } from '../shared/batch-fetch-engine';
+export type { BatchFetchDescriptor } from '../../../../domain/query-dsl/batch-fetch-engine';
 
 export async function executeBatchFetches(
   knex: Knex,

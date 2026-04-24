@@ -1,11 +1,11 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
 import { createHash } from 'node:crypto';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { IMetadataCache } from '../../shared/interfaces/metadata-cache.interface';
 
 export class SchemaMigrationValidatorService {
-  private readonly metadataCacheService: MetadataCacheService;
+  private readonly metadataCacheService: IMetadataCache;
 
-  constructor(deps: { metadataCacheService: MetadataCacheService }) {
+  constructor(deps: { metadataCacheService: IMetadataCache }) {
     this.metadataCacheService = deps.metadataCacheService;
   }
 
@@ -210,7 +210,7 @@ export class SchemaMigrationValidatorService {
 
     const stripKey = (cols: any[]) =>
       cols
-        .map(({ key, ...rest }) => rest)
+        .map(({ key: _key, ...rest }) => rest)
         .sort((a: any, b: any) =>
           safeStr(a.name).localeCompare(safeStr(b.name)),
         );

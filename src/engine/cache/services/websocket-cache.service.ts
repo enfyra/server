@@ -1,7 +1,7 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { transformCode } from '../../executor-engine/code-transformer';
+import { transformCode } from '../../../domain/shared/code-transformer';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const WEBSOCKET_CONFIG: CacheConfig = {

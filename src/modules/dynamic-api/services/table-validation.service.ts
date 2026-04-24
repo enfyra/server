@@ -29,7 +29,7 @@ export class DynamicApiTableValidationService {
   private async assertSingleRecordRule(
     operation: 'create' | 'update' | 'delete',
     tableName: string,
-    tableMetadata: any,
+    _tableMetadata: any,
   ) {
     const { data: existingResult } = await this.queryBuilderService.find({
       table: tableName,

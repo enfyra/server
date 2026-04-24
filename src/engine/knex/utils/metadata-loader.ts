@@ -9,7 +9,7 @@ import {
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
-} from './sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 export async function loadAllTableMetadata(
   knex: Knex,
 ): Promise<Map<string, TableMetadata>> {

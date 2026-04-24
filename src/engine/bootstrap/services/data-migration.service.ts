@@ -41,7 +41,9 @@ export class DataMigrationService {
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to load data-migration.json: ${getErrorMessage(error)}`);
+      this.logger.warn(
+        `Failed to load data-migration.json: ${getErrorMessage(error)}`,
+      );
       this.initOld = null;
     }
   }

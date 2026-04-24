@@ -2,7 +2,6 @@ import {
   GraphQLSchema,
   GraphQLObjectType,
   GraphQLFieldConfigMap,
-  GraphQLNonNull,
   printSchema,
 } from 'graphql';
 import { createYoga } from 'graphql-yoga';
@@ -116,7 +115,9 @@ export class GraphqlService {
       );
       this.eventEmitter.emit(CACHE_EVENTS.GRAPHQL_LOADED);
     } catch (error) {
-      this.logger.error(`Failed to reload GraphQL schema: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to reload GraphQL schema: ${getErrorMessage(error)}`,
+      );
       throw error;
     }
   }

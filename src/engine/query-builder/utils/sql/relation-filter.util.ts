@@ -10,7 +10,7 @@ function quotedFkRef(tableName: string, fkCol: string, dbType: string): string {
   return `${quoteIdentifier(tableName, dbType)}.${quoteIdentifier(fkCol, dbType)}`;
 }
 
-function escapeSqlString(value: any, dbType: string): string {
+function escapeSqlString(value: any, _dbType: string): string {
   if (value === null || value === undefined) {
     return 'NULL';
   }

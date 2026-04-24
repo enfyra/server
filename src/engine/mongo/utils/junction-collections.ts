@@ -1,9 +1,8 @@
 import { Db } from 'mongodb';
 import {
-  getForeignKeyColumnName,
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { TableDef } from '../../../shared/types/database-init.types';
 
 export interface JunctionCollectionDef {

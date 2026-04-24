@@ -10,7 +10,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../engine/knex/utils/sql-schema-naming.util';
+} from '../../domain/query-dsl/utils/sql-schema-naming.util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getErrorMessage } from './error.util';
@@ -30,7 +30,9 @@ export function loadSchemaMigration(): SchemaMigrationDef | null {
     }
     return null;
   } catch (error) {
-    console.warn(`⚠️ Failed to load snapshot-migration.json: ${getErrorMessage(error)}`);
+    console.warn(
+      `⚠️ Failed to load snapshot-migration.json: ${getErrorMessage(error)}`,
+    );
     return null;
   }
 }
@@ -156,7 +158,7 @@ async function applySqlTableMigration(
 
 async function migrateFilePermissionAllowedUsersToJunction(
   knex: Knex,
-  dbType: string,
+  _dbType: string,
 ): Promise<void> {
   const tableName = 'file_permission_definition';
   const fkColumn = getForeignKeyColumnName('allowedUsers');

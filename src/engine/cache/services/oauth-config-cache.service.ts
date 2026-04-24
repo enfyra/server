@@ -2,6 +2,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
+import { IOAuthConfigCache } from '../../../domain/shared/interfaces/oauth-config-cache.interface';
 
 const OAUTH_CONFIG: CacheConfig = {
   cacheIdentifier: CACHE_IDENTIFIERS.OAUTH_CONFIG,
@@ -20,9 +21,10 @@ export interface OAuthConfig {
   description?: string;
 }
 
-export class OAuthConfigCacheService extends BaseCacheService<
-  Map<string, OAuthConfig>
-> {
+export class OAuthConfigCacheService
+  extends BaseCacheService<Map<string, OAuthConfig>>
+  implements IOAuthConfigCache
+{
   private readonly queryBuilderService: QueryBuilderService;
 
   constructor(deps: {

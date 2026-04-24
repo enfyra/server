@@ -1,7 +1,8 @@
 import Redis from 'ioredis';
 import { EnvService } from '../../../shared/services/env.service';
+import { IRedisPubSub } from '../../../domain/shared/interfaces/redis-pubsub.interface';
 
-export class RedisPubSubService {
+export class RedisPubSubService implements IRedisPubSub {
   public pub: Redis;
   public sub: Redis;
   private subscribedChannels = new Map<

@@ -4,10 +4,10 @@ import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
 import { BadRequestException } from '../../exceptions/custom-exceptions';
 import * as jwt from 'jsonwebtoken';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import { ICache } from '../../shared/interfaces/cache.interface';
 import { BcryptService } from './bcrypt.service';
 import { EnvService } from '../../../shared/services/env.service';
-import { CacheService } from '../../../engine/cache/services/cache.service';
 import {
   loadUserWithRole,
   userCacheKey,
@@ -22,15 +22,15 @@ import {
 
 export class AuthService {
   private bcryptService: BcryptService;
-  private queryBuilder: QueryBuilderService;
+  private queryBuilder: IQueryBuilder;
   private envService: EnvService;
-  private cacheService: CacheService;
+  private cacheService: ICache;
 
   constructor(deps: {
     bcryptService: BcryptService;
-    queryBuilderService: QueryBuilderService;
+    queryBuilderService: IQueryBuilder;
     envService: EnvService;
-    cacheService: CacheService;
+    cacheService: ICache;
   }) {
     this.bcryptService = deps.bcryptService;
     this.queryBuilder = deps.queryBuilderService;

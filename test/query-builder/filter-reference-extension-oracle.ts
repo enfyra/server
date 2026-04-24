@@ -249,20 +249,20 @@ function evalOwner(
 
 const RELATION_KEYS = new Set(['menu', 'owner']);
 
-function hasNullRelationKey(row: ExtFixtureRow, filter: any): boolean {
+function _hasNullRelationKey(row: ExtFixtureRow, filter: any): boolean {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter))
     return false;
   for (const k of Object.keys(filter)) {
     if (k === '_and') {
       for (const c of filter._and) {
-        if (hasNullRelationKey(row, c)) return true;
+        if (_hasNullRelationKey(row, c)) return true;
       }
     } else if (k === '_or') {
       for (const c of filter._or) {
-        if (hasNullRelationKey(row, c)) return true;
+        if (_hasNullRelationKey(row, c)) return true;
       }
     } else if (k === '_not') {
-      if (hasNullRelationKey(row, filter._not)) return true;
+      if (_hasNullRelationKey(row, filter._not)) return true;
     } else if (RELATION_KEYS.has(k)) {
       const fk = k === 'menu' ? row.menuId : row.ownerId;
       if (fk == null) return true;

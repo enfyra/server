@@ -5,7 +5,7 @@ import { SqlSchemaMigrationService } from '../../../engine/knex/services/sql-sch
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
-} from '../../../engine/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { loadRelationRenameMap } from '../../../domain/bootstrap/utils/load-relation-rename-map';
 import { parseSnapshotToSchema } from '../../../engine/knex/utils/provision/schema-parser';
 import { syncTable } from '../../../engine/knex/utils/provision/sync-table';
@@ -344,7 +344,7 @@ export class MetadataProvisionSqlService {
         tableId: number,
         rel: any,
         mappedById: number | null,
-        isInverse: boolean,
+        _isInverse: boolean,
       ) => {
         const targetId = tableNameToId[rel.targetTable];
         if (!targetId) return;

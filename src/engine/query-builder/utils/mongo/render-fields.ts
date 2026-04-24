@@ -47,7 +47,7 @@ export function renderFieldsToMongo(
 function buildRelationDescriptor(
   node: RelationFieldNode,
   parentMeta: any,
-  metadata: any,
+  _metadata: any,
 ): MongoFieldExpansion['relations'][number] {
   const rel = parentMeta.relations?.find(
     (r: any) => r.propertyName === node.propertyName,

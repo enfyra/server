@@ -23,7 +23,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../engine/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 import { TableManagementValidationService } from './table-validation.service';
@@ -1076,7 +1076,7 @@ export class SqlTableHandlerService {
               .first();
             if (sourceTable) {
               const { getForeignKeyColumnName } =
-                await import('../../../engine/knex/utils/sql-schema-naming.util');
+                await import('../../../domain/query-dsl/utils/sql-schema-naming.util');
               const fkColumn = getForeignKeyColumnName(tableName);
               const columnExists = await trx.schema.hasColumn(
                 sourceTable.name,

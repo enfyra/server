@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { PolicyService } from '../../domain/policy/policy.service';
 import { isPolicyDeny } from '../../domain/policy/policy.types';
 import { UnauthorizedException } from '../../domain/exceptions/custom-exceptions';

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { TDynamicContext } from '../../shared/types';
 import { RouteCacheService } from '../../engine/cache/services/route-cache.service';

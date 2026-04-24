@@ -11,7 +11,7 @@ import { join, resolve, dirname } from 'path';
 import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
 import { build } from 'vite';
 import vue from '@vitejs/plugin-vue';
-// @ts-ignore
+// @ts-expect-error no types for compile export
 import { compile } from 'tailwindcss';
 
 function extractCandidates(source: string): string[] {

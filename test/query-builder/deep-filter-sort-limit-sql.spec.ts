@@ -537,11 +537,6 @@ describe('deep limit on m2m (SQL)', () => {
 
 describe('deep dotted sort (SQL)', () => {
   test('sort o2m posts by author.name', async () => {
-    const rows = [
-      { id: 1, name: 'Acme' },
-      { id: 2, name: 'Beta Corp' },
-    ];
-
     const desc: BatchFetchDescriptor = {
       relationName: 'posts',
       type: 'one-to-many',

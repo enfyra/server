@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -141,7 +141,7 @@ function parseRedirectFromState(
   }
 }
 
-function validateRedirectUrl(url: string, provider: string): void {
+function validateRedirectUrl(url: string, _provider: string): void {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {

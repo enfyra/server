@@ -1,7 +1,10 @@
 import { Knex } from 'knex';
 import { Logger } from '../../../shared/logger';
 import { Db, ObjectId } from 'mongodb';
-import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '../../../shared/utils/error.util';
 import {
   getManyToOneRelations,
   getScalarColumns,
@@ -14,11 +17,15 @@ export interface UpsertResult {
 }
 export abstract class BaseTableProcessor {
   protected readonly logger = new Logger(this.constructor.name);
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  async transformRecords(records: any[], _context?: any): Promise<any[]> {
     return records;
   }
   abstract getUniqueIdentifier(record: any): object | object[];
-  async afterUpsert?(record: any, isNew: boolean, context?: any): Promise<void>;
+  async afterUpsert?(
+    record: any,
+    isNew: boolean,
+    _context?: any,
+  ): Promise<void>;
   protected getRecordIdentifier(record: any): string {
     if (record.name) return record.name;
     if (record.label) return record.label;

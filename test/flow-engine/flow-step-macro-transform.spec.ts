@@ -1,5 +1,5 @@
 import { executeSingle } from '../helpers/spawn-worker';
-import { transformCode } from '../../src/engine/executor-engine/code-transformer';
+import { transformCode } from '../../src/domain/shared/code-transformer';
 
 function createSnapshot(ctx: Record<string, any>): Record<string, unknown> {
   const snapshot: Record<string, unknown> = {

@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { compareSchemas, getCurrentDatabaseSchema } from './schema-comparison';
@@ -31,7 +31,7 @@ export async function applyColumnMigrations(
   knex: Knex,
   tableName: string,
   diff: ReturnType<typeof compareSchemas>,
-  schemas: KnexTableSchema[],
+  _schemas: KnexTableSchema[],
 ): Promise<void> {
   const dbType = knex.client.config.client;
   if (diff.columnsToAdd.length > 0) {

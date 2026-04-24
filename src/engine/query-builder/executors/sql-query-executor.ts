@@ -15,7 +15,10 @@ import {
 } from '../utils/sql/relation-filter.util';
 import { quoteIdentifier } from '../../knex/utils/migration/sql-dialect';
 import { KnexService } from '../../knex/knex.service';
-import { QueryPlan, ResolvedSortItem } from '../../../domain/query-dsl/query-plan.types';
+import {
+  QueryPlan,
+  ResolvedSortItem,
+} from '../../../domain/query-dsl/query-plan.types';
 import { renderFilterToKnex } from '../utils/sql/render-filter';
 import { validateFilterShape } from '../../../domain/query-dsl/filter-sanitizer.util';
 import { QueryPlanner } from '../../../domain/query-dsl/query-planner';
@@ -265,6 +268,7 @@ export class SqlQueryExecutor {
       }
     }
 
+    let pendingBatchFetches: any[] = [];
     if (queryOptions.fields && queryOptions.fields.length > 0) {
       const metadataGetter = getMetadataGetter(this.metadata);
       const expandedResult = await expandFieldsToSelect(
@@ -280,7 +284,7 @@ export class SqlQueryExecutor {
         ...(queryOptions.select || []),
         ...expandedResult.select,
       ];
-      var pendingBatchFetches = expandedResult.batchFetchDescriptors || [];
+      pendingBatchFetches = expandedResult.batchFetchDescriptors || [];
     }
 
     if (queryOptions.where) {

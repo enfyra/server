@@ -2,7 +2,7 @@ import * as dns from 'dns';
 import * as net from 'net';
 import { TDynamicContext } from '../../../shared/types';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { transformCode } from '../../../engine/executor-engine/code-transformer';
+import { transformCode } from '../../../domain/shared/code-transformer';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;

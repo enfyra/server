@@ -3,10 +3,10 @@ import * as jwt from 'jsonwebtoken';
 import { randomUUID, createHash } from 'crypto';
 import ms, { type StringValue } from 'ms';
 import { BadRequestException } from '../../../shared/errors';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { OAuthConfigCacheService } from '../../../engine/cache/services/oauth-config-cache.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import { IOAuthConfigCache } from '../../shared/interfaces/oauth-config-cache.interface';
+import { ICache } from '../../shared/interfaces/cache.interface';
 import { EnvService } from '../../../shared/services/env.service';
-import { CacheService } from '../../../engine/cache/services/cache.service';
 import {
   loadUserWithRole,
   userCacheKey,
@@ -23,10 +23,10 @@ interface OAuthUserInfo {
 }
 
 export class OAuthService {
-  private readonly queryBuilderService: QueryBuilderService;
-  private readonly oauthConfigCacheService: OAuthConfigCacheService;
+  private readonly queryBuilderService: IQueryBuilder;
+  private readonly oauthConfigCacheService: IOAuthConfigCache;
   private readonly envService: EnvService;
-  private readonly cacheService: CacheService;
+  private readonly cacheService: ICache;
 
   private readonly providerUrls: Record<
     OAuthProvider,
@@ -54,10 +54,10 @@ export class OAuthService {
   };
 
   constructor(deps: {
-    queryBuilderService: QueryBuilderService;
-    oauthConfigCacheService: OAuthConfigCacheService;
+    queryBuilderService: IQueryBuilder;
+    oauthConfigCacheService: IOAuthConfigCache;
     envService: EnvService;
-    cacheService: CacheService;
+    cacheService: ICache;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.oauthConfigCacheService = deps.oauthConfigCacheService;

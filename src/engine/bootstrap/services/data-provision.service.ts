@@ -242,7 +242,9 @@ export class DataProvisionService {
           `'${tableName}': ${result.created} created, ${result.skipped} skipped`,
         );
       } catch (error) {
-        this.logger.error(`Error processing '${tableName}': ${getErrorMessage(error)}`);
+        this.logger.error(
+          `Error processing '${tableName}': ${getErrorMessage(error)}`,
+        );
         this.logger.debug(`Error: ${getErrorMessage(error)}`);
       }
     }
@@ -256,7 +258,9 @@ export class DataProvisionService {
       try {
         await this.routeDefinitionProcessor.ensureMissingHandlers();
       } catch (error) {
-        this.logger.error(`Error ensuring route handlers: ${getErrorMessage(error)}`);
+        this.logger.error(
+          `Error ensuring route handlers: ${getErrorMessage(error)}`,
+        );
         this.logger.debug(getErrorMessage(error));
       }
     }

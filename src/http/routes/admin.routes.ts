@@ -1,9 +1,9 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import type { TDynamicContext } from '../../shared/types';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
-import { transformCode } from '../../engine/executor-engine/code-transformer';
+import { transformCode } from '../../domain/shared/code-transformer';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 
 export function registerAdminRoutes(

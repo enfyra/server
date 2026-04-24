@@ -1,8 +1,5 @@
 import { BadRequestException } from '../exceptions/custom-exceptions';
-import {
-  FIELD_OPERATORS,
-  ALL_SUPPORTED_OPERATORS,
-} from './types/filter-ast';
+import { FIELD_OPERATORS, ALL_SUPPORTED_OPERATORS } from './types/filter-ast';
 import { DatabaseConfigService } from '../../shared/services/database-config.service';
 
 export function throwUnsupportedFieldOperator(

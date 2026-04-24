@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
-import { Collection, Db, ObjectId } from 'mongodb';
+import { Collection } from 'mongodb';
 import { MongoService } from './mongo.service';
 import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
 import { getErrorMessage } from '../../../shared/utils/error.util';
@@ -299,10 +299,13 @@ export class MongoSagaLockService {
       };
     } catch (error) {
       await this.releaseLocks(txId, acquiredLocks);
-      throw new DatabaseException(`Lock acquisition failed: ${getErrorMessage(error)}`, {
-        txId,
-        resources: resources.map((r) => `${r.type}:${r.id}`),
-      });
+      throw new DatabaseException(
+        `Lock acquisition failed: ${getErrorMessage(error)}`,
+        {
+          txId,
+          resources: resources.map((r) => `${r.type}:${r.id}`),
+        },
+      );
     }
   }
 
@@ -486,7 +489,9 @@ export class MongoSagaLockService {
 
       this.logger.debug(`[${txId}] Released ${result.deletedCount} locks`);
     } catch (error) {
-      this.logger.error(`[${txId}] Failed to release locks: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `[${txId}] Failed to release locks: ${getErrorMessage(error)}`,
+      );
     }
   }
 

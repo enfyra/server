@@ -5,7 +5,6 @@ import {
   FieldRef,
   FIELD_OPERATORS,
   dslOpToCompareOp,
-  ComparisonOp,
 } from './types/filter-ast';
 import { throwUnsupportedFieldOperator } from './filter-sanitizer.util';
 

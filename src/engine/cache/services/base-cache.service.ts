@@ -105,7 +105,7 @@ export abstract class BaseCacheService<T> {
 
   protected async beforeLoad(): Promise<void> {}
 
-  protected async afterTransform(data: T): Promise<void> {}
+  protected async afterTransform(_data: T): Promise<void> {}
 
   protected emitLoadedEvent(): void {
     if (this.eventEmitter) {

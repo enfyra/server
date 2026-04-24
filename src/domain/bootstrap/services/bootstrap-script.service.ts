@@ -1,9 +1,9 @@
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { CacheService } from '../../../engine/cache/services/cache.service';
-import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
+import { IExecutorEngine } from '../../shared/interfaces/executor-engine.interface';
+import { ICache } from '../../shared/interfaces/cache.interface';
+import { IRepoRegistry } from '../../shared/interfaces/repo-registry.interface';
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { InstanceService } from '../../../shared/services/instance.service';
@@ -12,22 +12,22 @@ import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   REDIS_TTL,
 } from '../../../shared/utils/constant';
-import { transformCode } from '../../../engine/executor-engine/code-transformer';
+import { transformCode } from '../../shared/code-transformer';
 
 export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);
-  private readonly queryBuilderService: QueryBuilderService;
-  private readonly executorEngineService: ExecutorEngineService;
-  private readonly cacheService: CacheService;
-  private readonly repoRegistryService: RepoRegistryService;
+  private readonly queryBuilderService: IQueryBuilder;
+  private readonly executorEngineService: IExecutorEngine;
+  private readonly cacheService: ICache;
+  private readonly repoRegistryService: IRepoRegistry;
   private readonly instanceService: InstanceService;
   private readonly eventEmitter: EventEmitter2;
 
   constructor(deps: {
-    queryBuilderService: QueryBuilderService;
-    executorEngineService: ExecutorEngineService;
-    cacheService: CacheService;
-    repoRegistryService: RepoRegistryService;
+    queryBuilderService: IQueryBuilder;
+    executorEngineService: IExecutorEngine;
+    cacheService: ICache;
+    repoRegistryService: IRepoRegistry;
     instanceService: InstanceService;
     eventEmitter: EventEmitter2;
   }) {

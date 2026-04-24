@@ -17,10 +17,11 @@ import { DebugTrace } from '../../shared/utils/debug-trace.util';
 import { normalizeMongoDocument } from '../mongo/utils/normalize-mongo-document.util';
 import { whereToMongoFilter } from './utils/mongo/filter-builder';
 import { applyWhereToKnex as applyWhereToKnexComplete } from './utils/sql/sql-where-builder';
+import { IQueryBuilder } from '../../domain/shared/interfaces/query-builder.interface';
 
 import { ObjectId } from 'mongodb';
 
-export class QueryBuilderService {
+export class QueryBuilderService implements IQueryBuilder {
   private readonly knexService?: KnexService;
   private readonly mongoService?: any;
   private readonly databaseConfigService: DatabaseConfigService;

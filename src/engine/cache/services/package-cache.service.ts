@@ -71,7 +71,9 @@ export class PackageCacheService extends BaseCacheService<string[]> {
         data,
       );
     } catch (error) {
-      this.logger.warn(`Failed to emit WS event ${event}: ${getErrorMessage(error)}`);
+      this.logger.warn(
+        `Failed to emit WS event ${event}: ${getErrorMessage(error)}`,
+      );
     }
   }
 

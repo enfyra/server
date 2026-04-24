@@ -1,5 +1,5 @@
-import { BadRequestException } from '../../../../domain/exceptions/custom-exceptions';
-import { validateFilterShape } from '../../../../domain/query-dsl/filter-sanitizer.util';
+import { BadRequestException } from '../exceptions/custom-exceptions';
+import { validateFilterShape } from './filter-sanitizer.util';
 
 const ALLOWED_DEEP_ENTRY_KEYS = new Set([
   'fields',

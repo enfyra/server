@@ -16,7 +16,7 @@ export class SettingDefinitionProcessor extends BaseTableProcessor {
       return transformed;
     });
   }
-  getUniqueIdentifier(record: any): object {
+  getUniqueIdentifier(_record: any): object {
     return {};
   }
   protected getCompareFields(): string[] {

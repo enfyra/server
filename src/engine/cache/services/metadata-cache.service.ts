@@ -6,7 +6,8 @@ import {
   getJunctionTableName,
   getForeignKeyColumnName,
   getJunctionColumnNames,
-} from '../../knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+import { IMetadataCache } from '../../../domain/shared/interfaces/metadata-cache.interface';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { ObjectId } from 'mongodb';
 
@@ -20,7 +21,7 @@ export interface EnfyraMetadata {
   timestamp: Date;
 }
 
-export class MetadataCacheService {
+export class MetadataCacheService implements IMetadataCache {
   private readonly logger = new Logger(`${COLOR}MetadataCache${RESET}`);
   private inMemoryCache: EnfyraMetadata | null = null;
   private isLoading: boolean = false;

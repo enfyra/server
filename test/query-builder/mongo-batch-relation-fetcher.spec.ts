@@ -721,7 +721,7 @@ describe('mongo-batch-relation-fetcher', () => {
     });
 
     it('should dedupe FK values when many parents share same FK', async () => {
-      const docs = Array.from({ length: 50 }, (_, i) => ({
+      const docs = Array.from({ length: 50 }, (_) => ({
         _id: new ObjectId(),
         author: userIds[0],
       }));

@@ -1,4 +1,3 @@
-import { Knex } from 'knex';
 import { WhereCondition } from '../../../../shared/types/query-builder.types';
 import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 
@@ -7,7 +6,7 @@ export function applyWhereToKnex(
   conditions: WhereCondition[],
   tableName: string,
   metadata: any,
-  dbType: 'postgres' | 'mysql' | 'sqlite',
+  _dbType: 'postgres' | 'mysql' | 'sqlite',
 ): any {
   for (const condition of conditions) {
     const fieldParts = condition.field.split('.');

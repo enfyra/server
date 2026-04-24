@@ -1,4 +1,7 @@
-import { FilterNode, ComparisonNode } from '../../../../domain/query-dsl/types/filter-ast';
+import {
+  FilterNode,
+  ComparisonNode,
+} from '../../../../domain/query-dsl/types/filter-ast';
 import { getMongoFoldTextSearchJs } from '../../../../shared/utils/mongo-fold-text-search';
 import { convertValueByType } from './type-converter';
 import { parseFilter } from '../../../../domain/query-dsl/filter-parser';

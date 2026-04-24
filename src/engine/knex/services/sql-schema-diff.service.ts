@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { KnexService } from '../knex.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { getForeignKeyColumnName } from '../../knex/utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { analyzeRelationChanges } from '../utils/migration/relation-changes';
 import {

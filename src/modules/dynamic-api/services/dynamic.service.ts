@@ -1,6 +1,9 @@
 import { Logger } from '../../../shared/logger';
 import { HttpException } from '../../../domain/exceptions/custom-exceptions';
-import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '../../../shared/utils/error.util';
 import {
   ScriptExecutionException,
   BusinessLogicException,
@@ -119,7 +122,9 @@ export class DynamicService {
       if (isClientError) {
         const details = err.details;
         throw new HttpException(
-          details && typeof details === 'object' ? details : getErrorMessage(error),
+          details && typeof details === 'object'
+            ? details
+            : getErrorMessage(error),
           httpStatus!,
         );
       }

@@ -428,7 +428,7 @@ export class DatabaseSchemaService {
     };
   }
 
-  private mapMySQLDataType(mysqlType: string, col: any): string {
+  private mapMySQLDataType(mysqlType: string, _col: any): string {
     const type = mysqlType.toLowerCase();
 
     if (type.includes('int')) return 'int';
@@ -448,7 +448,7 @@ export class DatabaseSchemaService {
     return 'varchar';
   }
 
-  private mapPostgreSQLDataType(pgType: string, col: any): string {
+  private mapPostgreSQLDataType(pgType: string, _col: any): string {
     const type = pgType.toLowerCase();
 
     if (type.includes('integer') || type.includes('int4')) return 'int';

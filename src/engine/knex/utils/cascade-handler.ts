@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
-import { getForeignKeyColumnName } from './sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 /**

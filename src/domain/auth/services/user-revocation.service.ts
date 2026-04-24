@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
-import { RedisPubSubService } from '../../../engine/cache/services/redis-pubsub.service';
-import { CacheService } from '../../../engine/cache/services/cache.service';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IRedisPubSub } from '../../shared/interfaces/redis-pubsub.interface';
+import { ICache } from '../../shared/interfaces/cache.interface';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { Logger } from '../../../shared/logger';
 import { userCacheKey } from '../../../shared/utils/load-user-with-role.util';
 
@@ -9,14 +9,14 @@ const USER_REVOKED_CHANNEL = 'user:revoked';
 
 export class UserRevocationService {
   private readonly logger = new Logger(UserRevocationService.name);
-  private readonly redisPubSubService: RedisPubSubService;
-  private readonly cacheService: CacheService;
-  private readonly queryBuilderService: QueryBuilderService;
+  private readonly redisPubSubService: IRedisPubSub;
+  private readonly cacheService: ICache;
+  private readonly queryBuilderService: IQueryBuilder;
 
   constructor(deps: {
-    redisPubSubService: RedisPubSubService;
-    cacheService: CacheService;
-    queryBuilderService: QueryBuilderService;
+    redisPubSubService: IRedisPubSub;
+    cacheService: ICache;
+    queryBuilderService: IQueryBuilder;
   }) {
     this.redisPubSubService = deps.redisPubSubService;
     this.cacheService = deps.cacheService;

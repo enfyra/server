@@ -4,7 +4,7 @@ import {
   BatchFetchDescriptor,
   MetadataGetter,
   BatchTrace,
-} from '../shared/batch-fetch-engine';
+} from '../../../../domain/query-dsl/batch-fetch-engine';
 import { MongoBatchAdapter } from './mongo-batch-adapter';
 
 export type MongoBatchFetchDescriptor = BatchFetchDescriptor;

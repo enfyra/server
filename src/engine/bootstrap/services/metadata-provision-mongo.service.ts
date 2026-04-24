@@ -6,7 +6,7 @@ import { loadRelationRenameMap } from '../../../domain/bootstrap/utils/load-rela
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../engine/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
@@ -150,13 +150,15 @@ export class MetadataProvisionMongoService {
     if (!tableDef || !tableDef.columns) {
       throw new Error('table_definition not found in snapshot');
     }
-    const tableRecords = Object.entries(snapshot).map(([tableName, defRaw]) => {
-      const def = defRaw as any;
-      const { columns: _c, relations: _r, ...tableData } = def;
-      const record = this.buildRecordFromColumns(tableData, tableDef.columns);
-      record.isSingleRecord = tableData.isSingleRecord || false;
-      return record;
-    });
+    const tableRecords = Object.entries(snapshot).map(
+      ([_tableName, defRaw]) => {
+        const def = defRaw as any;
+        const { columns: _c, relations: _r, ...tableData } = def;
+        const record = this.buildRecordFromColumns(tableData, tableDef.columns);
+        record.isSingleRecord = tableData.isSingleRecord || false;
+        return record;
+      },
+    );
     const tableResult = await tableProcessor.processMongo(
       tableRecords,
       db,

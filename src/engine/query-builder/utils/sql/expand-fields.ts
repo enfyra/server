@@ -1,5 +1,5 @@
 import { DatabaseType } from '../../../../shared/types/query-builder.types';
-import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 import { BatchFetchDescriptor } from './batch-relation-fetcher';
 

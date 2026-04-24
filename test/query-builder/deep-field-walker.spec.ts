@@ -1,7 +1,7 @@
 import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from '../../src/engine/query-builder/utils/shared/filter-field-walker.util';
+} from '../../src/domain/query-dsl/filter-field-walker.util';
 
 const META: Record<string, any> = {
   posts: {

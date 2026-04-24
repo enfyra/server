@@ -3,7 +3,10 @@ import { QueryOptions } from '../../../../shared/types/query-builder.types';
 import { whereToMongoFilter } from './filter-builder';
 import { resolveMongoFilter } from './mongo-filter-resolver';
 import { hasAnyRelations } from '../shared/filter-separator.util';
-import { QueryPlan, ResolvedSortItem } from '../../../../domain/query-dsl/query-plan.types';
+import {
+  QueryPlan,
+  ResolvedSortItem,
+} from '../../../../domain/query-dsl/query-plan.types';
 import {
   buildNestedLookupPipeline,
   addProjectionStage,

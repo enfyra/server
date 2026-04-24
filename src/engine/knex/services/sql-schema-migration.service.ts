@@ -8,7 +8,7 @@ import {
   getShortFkName,
   getShortIndexName,
   getShortPkName,
-} from '../../knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { addColumnToTable } from '../utils/migration/column-operations';
 import { dropAllForeignKeysReferencingTable } from '../utils/migration/foreign-key-operations';
 import {
@@ -908,7 +908,9 @@ export class SqlSchemaMigrationService {
         tableExists = result.length > 0;
       }
     } catch (error) {
-      this.logger.error(`Error checking table existence: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Error checking table existence: ${getErrorMessage(error)}`,
+      );
       tableExists = false;
     }
     if (!tableExists) {
@@ -945,7 +947,9 @@ export class SqlSchemaMigrationService {
     try {
       await db.raw(`DROP TABLE IF EXISTS ${qt(tableName)}`);
     } catch (error) {
-      this.logger.error(`Failed to drop table ${tableName}: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to drop table ${tableName}: ${getErrorMessage(error)}`,
+      );
       throw error;
     }
   }

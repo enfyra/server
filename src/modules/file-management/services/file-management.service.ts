@@ -325,7 +325,9 @@ export class FileManagementService {
       throw new Error(`Source file not found: ${absolutePath}`);
     } catch (error) {
       this.logger.error(`Failed to backup file: ${absolutePath}`, error);
-      throw new BadRequestException(`Failed to backup file: ${getErrorMessage(error)}`);
+      throw new BadRequestException(
+        `Failed to backup file: ${getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -349,7 +351,9 @@ export class FileManagementService {
       await fs.promises.copyFile(newAbsolutePath, oldAbsolutePath);
     } catch (error) {
       this.logger.error(`Failed to replace file: ${oldLocation}`, error);
-      throw new BadRequestException(`Failed to replace file: ${getErrorMessage(error)}`);
+      throw new BadRequestException(
+        `Failed to replace file: ${getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -382,7 +386,9 @@ export class FileManagementService {
         `Failed to restore file from backup: ${backupPath}`,
         error,
       );
-      throw new BadRequestException(`Failed to restore file: ${getErrorMessage(error)}`);
+      throw new BadRequestException(
+        `Failed to restore file: ${getErrorMessage(error)}`,
+      );
     }
   }
 

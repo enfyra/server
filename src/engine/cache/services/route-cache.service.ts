@@ -3,7 +3,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
-import { transformCode } from '../../executor-engine/code-transformer';
+import { transformCode } from '../../../domain/shared/code-transformer';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -390,7 +390,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     route.postHooks = this.uniqueHooks(allPostHooks, isMongoDB);
   }
 
-  private uniqueHooks(hooks: any[], isMongoDB: boolean): any[] {
+  private uniqueHooks(hooks: any[], _isMongoDB: boolean): any[] {
     return hooks.filter(
       (hook, index, self) =>
         index ===

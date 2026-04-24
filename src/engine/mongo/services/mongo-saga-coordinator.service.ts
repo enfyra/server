@@ -7,7 +7,6 @@ import { MongoSagaSession } from './mongo-saga-session';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   MongoOperationLogService,
-  IOperationLog,
   IRollbackResult,
 } from './mongo-operation-log.service';
 import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';

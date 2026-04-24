@@ -70,7 +70,9 @@ export class SchemaMigrationLockService {
 
       return updated > 0;
     } catch (error) {
-      this.logger.warn(`Failed to refresh heartbeat: ${getErrorMessage(error)}`);
+      this.logger.warn(
+        `Failed to refresh heartbeat: ${getErrorMessage(error)}`,
+      );
       return false;
     }
   }

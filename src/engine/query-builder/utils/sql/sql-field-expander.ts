@@ -1,8 +1,7 @@
 import { Knex } from 'knex';
 import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
-import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
-import { buildRelationSubquery } from './relation-filter.util';
+import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 
 export async function expandFieldsToSelect(
   knex: Knex,

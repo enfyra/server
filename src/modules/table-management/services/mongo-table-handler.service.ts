@@ -27,7 +27,7 @@ import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap/utils/cano
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../engine/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { TableManagementValidationService } from './table-validation.service';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
 export class MongoTableHandlerService {

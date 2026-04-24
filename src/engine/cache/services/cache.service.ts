@@ -1,7 +1,8 @@
 import { Redis } from 'ioredis';
 import { EnvService } from '../../../shared/services/env.service';
+import { ICache } from '../../../domain/shared/interfaces/cache.interface';
 
-export class CacheService {
+export class CacheService implements ICache {
   private readonly redis: Redis;
   private readonly nodeName: string | null;
   private readonly envService: EnvService;

@@ -4,7 +4,10 @@ import {
   DatabaseQueryException,
   ResourceNotFoundException,
 } from '../../../domain/exceptions/custom-exceptions';
-import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '../../../shared/utils/error.util';
 
 export class SqlQueryEngine {
   private readonly queryBuilderService: QueryBuilderService;
@@ -64,25 +67,16 @@ export class SqlQueryEngine {
         hasDeepRelations: options.deep && Object.keys(options.deep).length > 0,
       });
 
-      if (
-        errMsg.includes('relation') &&
-        errMsg.includes('does not exist')
-      ) {
+      if (errMsg.includes('relation') && errMsg.includes('does not exist')) {
         throw new ResourceNotFoundException('Table or Relation', options.table);
       }
 
-      if (
-        errMsg.includes('column') &&
-        errMsg.includes('does not exist')
-      ) {
-        throw new DatabaseQueryException(
-          `Invalid column in query: ${errMsg}`,
-          {
-            table: options.table,
-            fields: options.fields,
-            operation: 'query',
-          },
-        );
+      if (errMsg.includes('column') && errMsg.includes('does not exist')) {
+        throw new DatabaseQueryException(`Invalid column in query: ${errMsg}`, {
+          table: options.table,
+          fields: options.fields,
+          operation: 'query',
+        });
       }
 
       throw new DatabaseQueryException(`Query failed: ${errMsg}`, {

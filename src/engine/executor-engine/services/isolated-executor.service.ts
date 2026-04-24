@@ -650,7 +650,14 @@ export class IsolatedExecutorService {
         safeTimeoutMs,
       );
     } catch (error) {
-      const err = error as { isTimeout?: boolean; code?: string; statusCode?: number; status?: number | string; message?: string; details?: any };
+      const err = error as {
+        isTimeout?: boolean;
+        code?: string;
+        statusCode?: number;
+        status?: number | string;
+        message?: string;
+        details?: any;
+      };
       appendIsolatedExecutorRuntimeLog({
         event: 'isolated_run_error',
         message: err.message,
@@ -660,7 +667,9 @@ export class IsolatedExecutorService {
       if (err.isTimeout || err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, code);
       }
-      const statusCode = err.statusCode ?? (typeof err.status === 'number' ? err.status : undefined);
+      const statusCode =
+        err.statusCode ??
+        (typeof err.status === 'number' ? err.status : undefined);
       throw ErrorHandler.createException(
         undefined,
         statusCode,
@@ -707,7 +716,15 @@ export class IsolatedExecutorService {
         safeTimeoutMs,
       );
     } catch (error) {
-      const err = error as { isTimeout?: boolean; code?: string; statusCode?: number; status?: number | string; message?: string; details?: any; ctxChanges?: any };
+      const err = error as {
+        isTimeout?: boolean;
+        code?: string;
+        statusCode?: number;
+        status?: number | string;
+        message?: string;
+        details?: any;
+        ctxChanges?: any;
+      };
       appendIsolatedExecutorRuntimeLog({
         event: 'isolated_batch_error',
         message: err.message,
@@ -720,7 +737,9 @@ export class IsolatedExecutorService {
       if (err.isTimeout || err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
         throw new ScriptTimeoutException(safeTimeoutMs, '(batch execution)');
       }
-      const statusCode = err.statusCode ?? (typeof err.status === 'number' ? err.status : undefined);
+      const statusCode =
+        err.statusCode ??
+        (typeof err.status === 'number' ? err.status : undefined);
       throw ErrorHandler.createException(
         undefined,
         statusCode,

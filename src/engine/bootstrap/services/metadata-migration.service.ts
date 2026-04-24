@@ -1,7 +1,7 @@
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { Logger } from '../../../shared/logger';
 import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { ObjectId, Db } from 'mongodb';
+import { Db } from 'mongodb';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {
   SchemaMigrationDef,

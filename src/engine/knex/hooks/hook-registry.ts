@@ -79,7 +79,7 @@ export class KnexHookRegistry {
   async runHooks(event: HookEvent, ...args: any[]): Promise<any> {
     let result = args[args.length - 1];
     for (const hook of this.hooks[event]) {
-      result = await Promise.resolve(hook.apply(null, args));
+      result = await Promise.resolve((hook as (...a: any[]) => any)(...args));
       args[args.length - 1] = result;
     }
     return result;

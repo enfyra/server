@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../domain/shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../services/database-config.service';
 
 export const USER_CACHE_TTL_MS = 60_000;
@@ -9,7 +9,7 @@ export function userCacheKey(id: unknown): string {
 }
 
 export async function loadUserWithRole(
-  queryBuilder: QueryBuilderService,
+  queryBuilder: IQueryBuilder,
   rawId: unknown,
 ): Promise<any | null> {
   if (rawId === undefined || rawId === null) return null;

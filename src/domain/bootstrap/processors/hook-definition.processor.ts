@@ -1,16 +1,16 @@
 import { BaseTableProcessor } from './base-table-processor';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
-import { getJunctionColumnNames } from '../../../engine/knex/utils/sql-schema-naming.util';
+import { getJunctionColumnNames } from '../../query-dsl/utils/sql-schema-naming.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export class HookDefinitionProcessor extends BaseTableProcessor {
-  private readonly queryBuilderService: QueryBuilderService;
-  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+  private readonly queryBuilderService: IQueryBuilder;
+  constructor(deps: { queryBuilderService: IQueryBuilder }) {
     super();
     this.queryBuilderService = deps.queryBuilderService;
   }
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (hook) => {
@@ -119,7 +119,11 @@ export class HookDefinitionProcessor extends BaseTableProcessor {
     );
     return transformedRecords.filter(Boolean);
   }
-  async afterUpsert(record: any, isNew: boolean, context?: any): Promise<void> {
+  async afterUpsert(
+    record: any,
+    _isNew: boolean,
+    _context?: any,
+  ): Promise<void> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     if (!isMongoDB && record._methods && Array.isArray(record._methods)) {
       const methodNames = record._methods;

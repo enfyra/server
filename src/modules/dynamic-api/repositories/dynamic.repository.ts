@@ -25,11 +25,11 @@ import {
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
 import { UserRevocationService } from '../../../domain/auth/services/user-revocation.service';
-import { validateDeepOptions } from '../../../engine/query-builder/utils/shared/deep-options-validator.util';
+import { validateDeepOptions } from '../../../domain/query-dsl/deep-options-validator.util';
 import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from '../../../engine/query-builder/utils/shared/filter-field-walker.util';
+} from '../../../domain/query-dsl/filter-field-walker.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -408,12 +408,11 @@ export class DynamicRepository {
         );
         if (nested.needsPostSql) hasConditionalPending = true;
 
-        const isAllowed = (
-          tblName: string,
-          fieldName: string,
-          fieldType: 'column' | 'relation',
+        const _isAllowed = (
+          _tblName: string,
+          _fieldName: string,
+          _fieldType: 'column' | 'relation',
         ) => {
-          const tblMeta = meta.columns || meta.relations ? meta : null;
           return true;
         };
 

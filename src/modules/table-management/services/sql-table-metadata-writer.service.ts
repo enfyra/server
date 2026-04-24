@@ -4,7 +4,7 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../engine/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { ValidationException } from '../../../domain/exceptions/custom-exceptions';
 

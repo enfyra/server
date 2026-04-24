@@ -1,14 +1,14 @@
 import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class MenuDefinitionProcessor extends BaseTableProcessor {
-  private readonly queryBuilderService: QueryBuilderService;
+  private readonly queryBuilderService: IQueryBuilder;
 
-  constructor(deps: { queryBuilderService: QueryBuilderService }) {
+  constructor(deps: { queryBuilderService: IQueryBuilder }) {
     super();
     this.queryBuilderService = deps.queryBuilderService;
   }
@@ -371,7 +371,7 @@ export class MenuDefinitionProcessor extends BaseTableProcessor {
     return { created: totalCreated, skipped: totalSkipped };
   }
 
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = [];
     for (const record of records) {

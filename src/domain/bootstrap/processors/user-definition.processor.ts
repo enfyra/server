@@ -1,23 +1,23 @@
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { BcryptService } from '../../auth/services/bcrypt.service';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class UserDefinitionProcessor extends BaseTableProcessor {
   private readonly bcryptService: BcryptService;
-  private readonly queryBuilderService: QueryBuilderService;
+  private readonly queryBuilderService: IQueryBuilder;
 
   constructor(deps: {
     bcryptService: BcryptService;
-    queryBuilderService: QueryBuilderService;
+    queryBuilderService: IQueryBuilder;
   }) {
     super();
     this.bcryptService = deps.bcryptService;
     this.queryBuilderService = deps.queryBuilderService;
   }
 
-  async transformRecords(records: any[], context?: any): Promise<any[]> {
+  async transformRecords(records: any[], _context?: any): Promise<any[]> {
     const isMongoDB = DatabaseConfigService.instanceIsMongoDb();
     const transformedRecords = await Promise.all(
       records.map(async (record) => {

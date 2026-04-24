@@ -31,7 +31,7 @@ export interface ExtendedQueryBuilder<
  * Extended Knex instance with custom QueryBuilder
  */
 export interface ExtendedKnex extends Knex {
-  <TRecord extends {} = any, TResult = any>(
+  <TRecord extends object = any, TResult = any>(
     tableName: string,
   ): ExtendedQueryBuilder<TRecord, TResult>;
 }

@@ -3,9 +3,10 @@ import { DynamicRepositoryFactory } from '../../../modules/dynamic-api/repositor
 import { MetadataCacheService } from './metadata-cache.service';
 import { TDynamicContext } from '../../../shared/types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
+import { IRepoRegistry } from '../../../domain/shared/interfaces/repo-registry.interface';
 import { EventEmitter2 } from 'eventemitter2';
 
-export class RepoRegistryService {
+export class RepoRegistryService implements IRepoRegistry {
   private readonly metadataCacheService: MetadataCacheService;
   private readonly factory: DynamicRepositoryFactory;
   private aliasToName = new Map<string, string>();
@@ -69,62 +70,41 @@ export class RepoRegistryService {
     context: TDynamicContext,
     mainTableName?: string,
   ): Record<string, any> {
-    const repoCache = new Map<string, DynamicRepository>();
-    const self = this;
+    const resolve = (name: string) => this.resolveTableName(name);
+    const create = (resolved: string, enforce: boolean) =>
+      this.factory.create(resolved, context, enforce);
 
-    const getOrCreateRepo = (
-      tableName: string,
-      enforceFieldPermission: boolean,
-    ): DynamicRepository | undefined => {
-      const cacheKey = `${tableName}|${enforceFieldPermission ? '1' : '0'}`;
-      if (repoCache.has(cacheKey)) return repoCache.get(cacheKey);
+    const buildProxy = (enforce: boolean) =>
+      new Proxy({} as Record<string, DynamicRepository>, {
+        get(target, prop) {
+          if (typeof prop === 'symbol') return undefined;
+          const resolved = resolve(prop as string);
+          if (!resolved) return undefined;
+          if (target[resolved]) return target[resolved];
+          target[resolved] = create(resolved, enforce);
+          return target[resolved];
+        },
+        has(_t, p) {
+          if (typeof p === 'symbol') return false;
+          return resolve(p as string) !== null;
+        },
+      });
 
-      const resolvedName = self.resolveTableName(tableName);
-      if (!resolvedName) return undefined;
-
-      const resolvedKey = `${resolvedName}|${enforceFieldPermission ? '1' : '0'}`;
-      if (repoCache.has(resolvedKey)) {
-        const existing = repoCache.get(resolvedKey);
-        repoCache.set(cacheKey, existing);
-        return existing;
-      }
-
-      const repo = self.factory.create(
-        resolvedName,
-        context,
-        enforceFieldPermission,
-      );
-
-      repoCache.set(resolvedKey, repo);
-      repoCache.set(cacheKey, repo);
-      return repo;
-    };
+    const secureProxy = buildProxy(true);
+    const trustedProxy = buildProxy(false);
 
     return new Proxy({} as Record<string, any>, {
-      get(_target, prop: string) {
-        if (prop === 'main' && mainTableName) {
-          return getOrCreateRepo(mainTableName, true);
-        }
-        if (prop === 'secure') {
-          return new Proxy({} as Record<string, any>, {
-            get(_t, p: string) {
-              if (typeof p === 'symbol') return undefined;
-              return getOrCreateRepo(p, true);
-            },
-            has(_t, p: string) {
-              if (typeof p === 'symbol') return false;
-              return self.resolveTableName(p) !== null;
-            },
-          });
-        }
+      get(_target, prop) {
+        if (prop === 'main' && mainTableName) return secureProxy[mainTableName];
+        if (prop === 'secure') return secureProxy;
         if (typeof prop === 'symbol') return undefined;
-        return getOrCreateRepo(prop, false);
+        return trustedProxy[prop as string];
       },
-      has(_target, prop: string) {
+      has(_target, prop) {
         if (prop === 'main' && mainTableName) return true;
         if (prop === 'secure') return true;
         if (typeof prop === 'symbol') return false;
-        return self.resolveTableName(prop) !== null;
+        return resolve(prop as string) !== null;
       },
     });
   }

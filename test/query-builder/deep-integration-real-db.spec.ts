@@ -3,7 +3,7 @@ import {
   executeBatchFetches,
   BatchFetchDescriptor,
 } from '../../src/engine/query-builder/utils/sql/batch-relation-fetcher';
-import { BatchTrace } from '../../src/engine/query-builder/utils/shared/batch-fetch-engine';
+import { BatchTrace } from '../../src/domain/query-dsl/batch-fetch-engine';
 
 const PREFIX = `__dit_${Date.now()}_`;
 const T = {

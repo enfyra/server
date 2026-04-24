@@ -6,10 +6,10 @@ import {
   chunkedFetch,
   parseFields,
   PER_PARENT_CONCURRENCY,
-} from '../shared/batch-fetch-engine';
+} from '../../../../domain/query-dsl/batch-fetch-engine';
 import { resolveMongoJunctionInfo } from '../../../mongo/utils/mongo-junction.util';
 import { renderRawFilterToMongo } from './render-filter';
-import { perParentRun } from '../shared/per-parent-runner.util';
+import { perParentRun } from '../../../../domain/query-dsl/per-parent-runner.util';
 
 export class MongoBatchAdapter implements BatchFetchAdapter {
   pkField = '_id';

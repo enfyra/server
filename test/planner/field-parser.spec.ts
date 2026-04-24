@@ -1,6 +1,5 @@
 import { parseFields } from '../../src/domain/query-dsl/field-parser';
 import { JoinRegistry } from '../../src/domain/query-dsl/join-registry';
-import { FieldNode } from '../../src/domain/query-dsl/types/field-tree';
 
 const META = {
   tables: new Map<string, any>([

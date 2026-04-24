@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getKnexColumnType, getPrimaryKeyType } from './schema-parser';
 import { addForeignKeys } from './foreign-keys';

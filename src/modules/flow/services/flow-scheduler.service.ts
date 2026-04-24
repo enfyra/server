@@ -91,7 +91,9 @@ export class FlowSchedulerService {
         this.logger.log(`Registered ${registered} scheduled flows`);
       }
     } catch (error) {
-      this.logger.error(`Failed to rebuild flow schedules: ${getErrorMessage(error)}`);
+      this.logger.error(
+        `Failed to rebuild flow schedules: ${getErrorMessage(error)}`,
+      );
     }
   }
 }

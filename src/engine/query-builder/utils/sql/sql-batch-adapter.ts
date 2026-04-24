@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../knex/utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { getPrimaryKeyColumn } from '../../../knex/utils/metadata-loader';
 import { quoteIdentifier } from '../../../knex/utils/migration/sql-dialect';
 import {
@@ -9,11 +9,11 @@ import {
   chunkedFetch,
   parseFields,
   PER_PARENT_CONCURRENCY,
-} from '../shared/batch-fetch-engine';
+} from '../../../../domain/query-dsl/batch-fetch-engine';
 import { renderFilterToKnex } from './render-filter';
 import { JoinRegistry } from '../../../../domain/query-dsl/join-registry';
 import { parseFilter } from '../../../../domain/query-dsl/filter-parser';
-import { perParentRun } from '../shared/per-parent-runner.util';
+import { perParentRun } from '../../../../domain/query-dsl/per-parent-runner.util';
 
 export class SqlBatchAdapter implements BatchFetchAdapter {
   pkField = 'id';

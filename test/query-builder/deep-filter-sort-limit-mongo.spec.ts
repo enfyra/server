@@ -12,7 +12,7 @@ const DB_NAME = `test_deep_mongo_${Date.now()}`;
 let client: MongoClient;
 let db: Db;
 
-const companyIds = [new ObjectId(), new ObjectId()];
+const _companyIds = [new ObjectId(), new ObjectId()];
 const userIds = [new ObjectId(), new ObjectId(), new ObjectId()];
 const postIds = [new ObjectId(), new ObjectId(), new ObjectId()];
 const tagIds = [new ObjectId(), new ObjectId(), new ObjectId(), new ObjectId()];
@@ -408,7 +408,7 @@ describe('deep limit on m2m (Mongo)', () => {
   test('limit 2 on tags per post', async () => {
     const rows = makePosts([postIds[0], postIds[1]]);
     const tableMeta = META['posts'];
-    const relMeta = tableMeta.relations.find(
+    const _relMeta = tableMeta.relations.find(
       (r: any) => r.propertyName === 'tags',
     );
     const desc: MongoBatchFetchDescriptor = {
@@ -440,8 +440,10 @@ describe('deep limit on m2m (Mongo)', () => {
 
 describe('debug trace (Mongo)', () => {
   test('trace emits batch_fetch entry', async () => {
-    const { BatchFetchEngine, PER_PARENT_CONCURRENCY } =
-      await import('../../src/engine/query-builder/utils/shared/batch-fetch-engine');
+    const {
+      BatchFetchEngine,
+      PER_PARENT_CONCURRENCY: _PER_PARENT_CONCURRENCY,
+    } = await import('../../src/domain/query-dsl/batch-fetch-engine');
     const { MongoBatchAdapter } =
       await import('../../src/engine/query-builder/utils/mongo/mongo-batch-adapter');
 

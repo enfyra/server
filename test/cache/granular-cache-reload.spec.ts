@@ -9,7 +9,6 @@ import {
   GraphQLID,
   GraphQLNonNull,
   GraphQLList,
-  GraphQLNamedType,
 } from 'graphql';
 
 // ─────────────────────────────────────────────────────────────────────────────

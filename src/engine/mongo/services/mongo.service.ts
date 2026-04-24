@@ -15,7 +15,6 @@ import { EnvService } from '../../../shared/services/env.service';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
 import { MongoRelationManagerService } from './mongo-relation-manager.service';
-import type { MongoSagaCoordinator } from './mongo-saga-coordinator.service';
 import type { MongoSagaSession } from './mongo-saga-session';
 import { mongoTopologySupportsNativeTransactions } from '../utils/mongo-native-transaction-topology.util';
 import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
@@ -767,7 +766,7 @@ export class NativeSessionCollection<T extends Document = Document> {
   }
 }
 
-export class SagaCollection<T extends Document = Document> {
+export class SagaCollection<_T extends Document = Document> {
   constructor(
     private readonly name: string,
     private readonly mongo: MongoService,

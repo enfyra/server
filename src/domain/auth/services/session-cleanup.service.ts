@@ -1,5 +1,5 @@
 import { Job, Queue, Worker } from 'bullmq';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services/env.service';
 import { Logger } from '../../../shared/logger';
@@ -9,13 +9,13 @@ const BATCH_SIZE = 20;
 
 export class SessionCleanupService {
   private readonly logger = new Logger(SessionCleanupService.name);
-  private readonly queryBuilderService: QueryBuilderService;
+  private readonly queryBuilderService: IQueryBuilder;
   private readonly cleanupQueue: Queue;
   private readonly envService: EnvService;
   private worker?: Worker;
 
   constructor(deps: {
-    queryBuilderService: QueryBuilderService;
+    queryBuilderService: IQueryBuilder;
     cleanupQueue: Queue;
     envService: EnvService;
   }) {
@@ -48,7 +48,7 @@ export class SessionCleanupService {
     );
   }
 
-  async process(job: Job): Promise<any> {
+  async process(_job: Job): Promise<any> {
     const startTime = Date.now();
     const now = new Date().toISOString();
     const idField = this.queryBuilderService.getPkField();

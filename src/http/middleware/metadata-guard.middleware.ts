@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { HttpException } from '../../domain/exceptions/custom-exceptions';
 import {
   GuardCacheService,

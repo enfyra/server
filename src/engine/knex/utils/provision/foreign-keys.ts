@@ -1,12 +1,12 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { KnexTableSchema } from '../../../../shared/types/database-init.types';
 import { getErrorMessage } from '../../../../shared/utils/error.util';
 
 export async function addForeignKeys(
   knex: Knex,
   schemas: KnexTableSchema[],
-  dbType: string,
+  _dbType: string,
 ): Promise<void> {
   console.log('🔗 Adding foreign key constraints...');
 

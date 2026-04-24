@@ -4,7 +4,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../sql-schema-naming.util';
+} from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { getPrimaryKeyTypeForTable } from './pk-type.util';
 
 const logger = new Logger('RelationChanges');

@@ -6,7 +6,7 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
-import { transformCode } from '../../executor-engine/code-transformer';
+import { transformCode } from '../../../domain/shared/code-transformer';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
 
 export type {

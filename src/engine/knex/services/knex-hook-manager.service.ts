@@ -7,7 +7,7 @@ import { FieldStripper } from '../utils/field-stripper';
 import { RelationTransformer } from '../utils/relation-transformer';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
-import { getForeignKeyColumnName } from '../utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 
 export class KnexHookManagerService {
   private readonly logger = new Logger(KnexHookManagerService.name);
@@ -443,7 +443,7 @@ export class KnexHookManagerService {
   async runHooks(event: keyof typeof this.hooks, ...args: any[]): Promise<any> {
     let result = args[args.length - 1];
     for (const hook of this.hooks[event]) {
-      result = await Promise.resolve(hook.apply(null, args));
+      result = await Promise.resolve((hook as (...a: any[]) => any)(...args));
       args[args.length - 1] = result;
     }
     return result;
@@ -456,7 +456,8 @@ export class KnexHookManagerService {
     knexContext: AsyncLocalStorage<Knex | Knex.Transaction>,
     cascadeContext: AsyncLocalStorage<Map<string, any>>,
   ): any {
-    const self = this;
+    const runHooks = (event: keyof typeof this.hooks, ...args: any[]) =>
+      this.runHooks(event, ...args);
     const originalInsert = qb.insert;
     const originalUpdate = qb.update;
     const originalDelete = qb.delete || qb.del;
@@ -464,7 +465,7 @@ export class KnexHookManagerService {
     const tableName = qb._single?.table;
 
     const getMasterQueryBuilder = () => {
-      if (!self.replicationManager) {
+      if (!this.replicationManager) {
         return qb;
       }
 
@@ -502,17 +503,13 @@ export class KnexHookManagerService {
       const cascadeMap = cascadeContext.getStore() || new Map<string, any>();
       const runInsert = () =>
         cascadeContext.run(cascadeMap, async () => {
-          const processedData = await self.runHooks(
-            'beforeInsert',
-            tableName,
-            data,
-          );
+          const processedData = await runHooks('beforeInsert', tableName, data);
           const result = await originalInsert.call(
             masterQb,
             processedData,
             ...rest,
           );
-          return self.runHooks('afterInsert', tableName, result);
+          return runHooks('afterInsert', tableName, result);
         });
       return ensureTransaction(runInsert);
     };
@@ -522,17 +519,13 @@ export class KnexHookManagerService {
       const cascadeMap = cascadeContext.getStore() || new Map<string, any>();
       const runUpdate = () =>
         cascadeContext.run(cascadeMap, async () => {
-          const processedData = await self.runHooks(
-            'beforeUpdate',
-            tableName,
-            data,
-          );
+          const processedData = await runHooks('beforeUpdate', tableName, data);
           const result = await originalUpdate.call(
             masterQb,
             processedData,
             ...rest,
           );
-          return self.runHooks('afterUpdate', tableName, result);
+          return runHooks('afterUpdate', tableName, result);
         });
       return ensureTransaction(runUpdate);
     };
@@ -540,20 +533,20 @@ export class KnexHookManagerService {
     qb.delete = qb.del = async function (...args: any[]) {
       const masterQb = getMasterQueryBuilder();
       const runDelete = async () => {
-        await self.runHooks('beforeDelete', tableName, args);
+        await runHooks('beforeDelete', tableName, args);
         const result = await originalDelete.call(masterQb, ...args);
-        return self.runHooks('afterDelete', tableName, result);
+        return runHooks('afterDelete', tableName, result);
       };
       return ensureTransaction(runDelete);
     };
 
     qb.then = function (onFulfilled: any, onRejected: any) {
-      self.runHooks('beforeSelect', this, tableName);
+      runHooks('beforeSelect', this, tableName);
 
       return originalThen.call(
         this,
         async (result: any) => {
-          const processedResult = await self.runHooks(
+          const processedResult = await runHooks(
             'afterSelect',
             tableName,
             result,
