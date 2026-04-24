@@ -3,7 +3,7 @@ import { Worker } from 'worker_threads';
 
 const WORKER_SCRIPT = path.join(
   __dirname,
-  '../../src/infrastructure/executor-engine/workers/executor.worker.js',
+  '../../src/engine/executor-engine/workers/executor.worker.js',
 );
 
 function encodeMainThreadToIsolate(value: unknown): string {

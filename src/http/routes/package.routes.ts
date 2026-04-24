@@ -26,13 +26,13 @@ export function registerPackageRoutes(
 
     if (!body.name) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Package name is required');
     }
 
     if (!body.type) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Package type is required (App or Server)');
     }
 
@@ -42,7 +42,7 @@ export function registerPackageRoutes(
 
     if (!packageRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -52,7 +52,7 @@ export function registerPackageRoutes(
 
     if (existingPackages.data && existingPackages.data.length > 0) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException(
         `Package ${body.name} (${body.type}) already installed`,
       );
@@ -126,7 +126,7 @@ export function registerPackageRoutes(
 
     if (!packageRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -135,7 +135,7 @@ export function registerPackageRoutes(
 
     if (!packageRecord) {
       const { ResourceNotFoundException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ResourceNotFoundException(`Package with ID ${id} not found`);
     }
 
@@ -196,7 +196,7 @@ export function registerPackageRoutes(
 
     if (!packageRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -205,13 +205,13 @@ export function registerPackageRoutes(
 
     if (!packageRecord) {
       const { ResourceNotFoundException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ResourceNotFoundException(`Package with ID ${id} not found`);
     }
 
     if (packageRecord.isSystem) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Cannot uninstall system packages');
     }
 

@@ -3,7 +3,7 @@
 const path = require('path');
 const { Worker } = require('worker_threads');
 
-const WORKER_SCRIPT = path.join(__dirname, '../../src/infrastructure/executor-engine/workers/executor.worker.js');
+const WORKER_SCRIPT = path.join(__dirname, '../../src/engine/executor-engine/workers/executor.worker.js');
 
 const SNAPSHOT = {
   $body: {},

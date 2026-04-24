@@ -1,14 +1,14 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { DynamicRepository } from './dynamic.repository';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { PolicyService } from '../../../core/policy/policy.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { QueryEngine } from '../../../engine/query-engine/services/query-engine.service';
+import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { PolicyService } from '../../../domain/policy/policy.service';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
-import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
-import { FieldPermissionCacheService } from '../../../infrastructure/cache/services/field-permission-cache.service';
-import { UserRevocationService } from '../../../core/auth/services/user-revocation.service';
+import { SettingCacheService } from '../../../engine/cache/services/setting-cache.service';
+import { FieldPermissionCacheService } from '../../../engine/cache/services/field-permission-cache.service';
+import { UserRevocationService } from '../../../domain/auth/services/user-revocation.service';
 import { TDynamicContext } from '../../../shared/types';
 
 export class DynamicRepositoryFactory {

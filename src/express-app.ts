@@ -4,7 +4,7 @@ import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { buildRequestScope } from './container';
-import { globalExceptionMiddleware } from './core/exceptions/filters/global-exception.filter';
+import { globalExceptionMiddleware } from './domain/exceptions/filters/global-exception.filter';
 
 import { routeDetectMiddleware } from './http/middleware/route-detect.middleware';
 import { notFoundDetectMiddleware } from './http/middleware/not-found-detect.middleware';

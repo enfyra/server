@@ -2,7 +2,7 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
-} from '../../src/infrastructure/query-builder/utils/mongo/batch-relation-fetcher';
+} from '../../src/engine/query-builder/utils/mongo/batch-relation-fetcher';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
@@ -441,9 +441,9 @@ describe('deep limit on m2m (Mongo)', () => {
 describe('debug trace (Mongo)', () => {
   test('trace emits batch_fetch entry', async () => {
     const { BatchFetchEngine, PER_PARENT_CONCURRENCY } =
-      await import('../../src/infrastructure/query-builder/utils/shared/batch-fetch-engine');
+      await import('../../src/engine/query-builder/utils/shared/batch-fetch-engine');
     const { MongoBatchAdapter } =
-      await import('../../src/infrastructure/query-builder/utils/mongo/mongo-batch-adapter');
+      await import('../../src/engine/query-builder/utils/mongo/mongo-batch-adapter');
 
     const traceEntries: any[] = [];
     const mockTrace = {

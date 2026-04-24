@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
 import { Storage } from '@google-cloud/storage';
 import { Readable } from 'stream';
 import {

@@ -2,7 +2,7 @@ import knex, { Knex } from 'knex';
 import {
   executeBatchFetches,
   BatchFetchDescriptor,
-} from '../../src/infrastructure/query-builder/utils/sql/batch-relation-fetcher';
+} from '../../src/engine/query-builder/utils/sql/batch-relation-fetcher';
 
 let db: Knex;
 

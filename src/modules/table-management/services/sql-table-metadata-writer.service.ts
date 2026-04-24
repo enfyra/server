@@ -4,9 +4,9 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+} from '../../../engine/knex/utils/sql-schema-naming.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { ValidationException } from '../../../core/exceptions/custom-exceptions';
+import { ValidationException } from '../../../domain/exceptions/custom-exceptions';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);

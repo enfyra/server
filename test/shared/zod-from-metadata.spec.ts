@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildZodFromMetadata } from '../../src/shared/utils/zod-from-metadata';
-import { TColumnRule } from '../../src/infrastructure/cache/services/column-rule-cache.service';
+import { TColumnRule } from '../../src/engine/cache/services/column-rule-cache.service';
 
 function makeMeta(overrides: any = {}) {
   return {

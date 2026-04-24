@@ -1,4 +1,4 @@
-import { validateDeepOptions } from '../../src/infrastructure/query-builder/utils/shared/deep-options-validator.util';
+import { validateDeepOptions } from '../../src/engine/query-builder/utils/shared/deep-options-validator.util';
 
 const META: Record<string, any> = {
   posts: {

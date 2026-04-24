@@ -2,8 +2,8 @@ import knex, { Knex } from 'knex';
 import {
   executeBatchFetches,
   BatchFetchDescriptor,
-} from '../../src/infrastructure/query-builder/utils/sql/batch-relation-fetcher';
-import { BatchTrace } from '../../src/infrastructure/query-builder/utils/shared/batch-fetch-engine';
+} from '../../src/engine/query-builder/utils/sql/batch-relation-fetcher';
+import { BatchTrace } from '../../src/engine/query-builder/utils/shared/batch-fetch-engine';
 
 const PREFIX = `__dit_${Date.now()}_`;
 const T = {

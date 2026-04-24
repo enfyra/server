@@ -2,11 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { Cradle } from '../../container';
 import type { AwilixContainer } from 'awilix';
-import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
-import { ColumnRuleCacheService } from '../../infrastructure/cache/services/column-rule-cache.service';
+import { MetadataCacheService } from '../../engine/cache/services/metadata-cache.service';
+import { ColumnRuleCacheService } from '../../engine/cache/services/column-rule-cache.service';
 import { buildZodFromMetadata } from '../../shared/utils/zod-from-metadata';
 import { parseOrBadRequest } from '../../shared/utils/zod-parse.util';
-import { BadRequestException } from '../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
 
 type Mode = 'create' | 'update';
 

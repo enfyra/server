@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { knex } from 'knex';
 import { MongoClient } from 'mongodb';
-import { parseDatabaseUri } from '../src/infrastructure/knex/utils/uri-parser';
+import { parseDatabaseUri } from '../src/engine/knex/utils/uri-parser';
 import { resolveDbTypeFromEnv } from '../src/shared/utils/resolve-db-type';
 
 dotenv.config();

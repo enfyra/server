@@ -1,6 +1,6 @@
-import { parseFields } from '../../src/infrastructure/query-builder/planner/field-parser';
-import { JoinRegistry } from '../../src/infrastructure/query-builder/planner/join-registry';
-import { FieldNode } from '../../src/infrastructure/query-builder/planner/types/field-tree';
+import { parseFields } from '../../src/domain/query-dsl/field-parser';
+import { JoinRegistry } from '../../src/domain/query-dsl/join-registry';
+import { FieldNode } from '../../src/domain/query-dsl/types/field-tree';
 
 const META = {
   tables: new Map<string, any>([

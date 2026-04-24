@@ -1,31 +1,31 @@
 import { Logger } from '../../../shared/logger';
-import { getIoAbortSignal } from '../../../infrastructure/executor-engine/services/isolated-executor.service';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { SqlSchemaMigrationService } from '../../../infrastructure/knex/services/sql-schema-migration.service';
-import { SchemaMigrationLockService } from '../../../infrastructure/knex/services/schema-migration-lock.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { LoggingService } from '../../../core/exceptions/services/logging.service';
-import { PolicyService } from '../../../core/policy/policy.service';
+import { getIoAbortSignal } from '../../../engine/executor-engine/services/isolated-executor.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { SqlSchemaMigrationService } from '../../../engine/knex/services/sql-schema-migration.service';
+import { SchemaMigrationLockService } from '../../../engine/knex/services/schema-migration-lock.service';
+import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { LoggingService } from '../../../domain/exceptions/services/logging.service';
+import { PolicyService } from '../../../domain/policy/policy.service';
 import { TDynamicContext } from '../../../shared/types';
 import {
   isPolicyDeny,
   isPolicyPreview,
-} from '../../../core/policy/policy.types';
+} from '../../../domain/policy/policy.types';
 import {
   DatabaseException,
   DuplicateResourceException,
   ResourceNotFoundException,
   ValidationException,
-} from '../../../core/exceptions/custom-exceptions';
+} from '../../../domain/exceptions/custom-exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
 import { TCreateTableBody } from '../types/table-handler.types';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+} from '../../../engine/knex/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
-import { DEFAULT_REST_HANDLER_LOGIC } from '../../../core/bootstrap/utils/canonical-table-route.util';
+import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap/utils/canonical-table-route.util';
 import { TableManagementValidationService } from './table-validation.service';
 import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
 import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
@@ -1076,7 +1076,7 @@ export class SqlTableHandlerService {
               .first();
             if (sourceTable) {
               const { getForeignKeyColumnName } =
-                await import('../../../infrastructure/knex/utils/sql-schema-naming.util');
+                await import('../../../engine/knex/utils/sql-schema-naming.util');
               const fkColumn = getForeignKeyColumnName(tableName);
               const columnExists = await trx.schema.hasColumn(
                 sourceTable.name,

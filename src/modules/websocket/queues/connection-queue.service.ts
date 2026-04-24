@@ -1,9 +1,9 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
 import { TDynamicContext } from '../../../shared/types';
 import type { Cradle } from '../../../container';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { createFetchHelper } from '../../../shared/helpers/fetch.helper';

@@ -1,10 +1,10 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Queue } from 'bullmq';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
-import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
+import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
 import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
 import { TDynamicContext } from '../../../shared/types';
 import {

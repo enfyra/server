@@ -1,5 +1,5 @@
-import { MongoSchemaMigrationService } from '../../src/infrastructure/mongo/services/mongo-schema-migration.service';
-import { MongoMigrationJournalService } from '../../src/infrastructure/mongo/services/mongo-migration-journal.service';
+import { MongoSchemaMigrationService } from '../../src/engine/mongo/services/mongo-schema-migration.service';
+import { MongoMigrationJournalService } from '../../src/engine/mongo/services/mongo-migration-journal.service';
 import { ObjectId } from 'mongodb';
 
 describe('MongoDB Migration Compensation', () => {

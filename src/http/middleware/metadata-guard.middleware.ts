@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { HttpException } from '../../core/exceptions/custom-exceptions';
+import { HttpException } from '../../domain/exceptions/custom-exceptions';
 import {
   GuardCacheService,
   GuardPosition,
-} from '../../infrastructure/cache/services/guard-cache.service';
+} from '../../engine/cache/services/guard-cache.service';
 import {
   GuardEvaluatorService,
   GuardEvalContext,
-} from '../../infrastructure/cache/services/guard-evaluator.service';
+} from '../../engine/cache/services/guard-evaluator.service';
 
 async function runMetadataGuards(
   position: GuardPosition,

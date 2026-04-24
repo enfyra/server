@@ -3,7 +3,7 @@ import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import type { TDynamicContext } from '../../shared/types';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
-import { transformCode } from '../../infrastructure/executor-engine/code-transformer';
+import { transformCode } from '../../engine/executor-engine/code-transformer';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 
 export function registerAdminRoutes(

@@ -1,9 +1,9 @@
 import { MongoClient, Db, ObjectId } from 'mongodb';
-import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
-import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
-import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
-import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
-import { MetadataCacheService } from '../../src/infrastructure/cache/services/metadata-cache.service';
+import { MongoService } from '../../src/engine/mongo/services/mongo.service';
+import { MongoSagaLockService } from '../../src/engine/mongo/services/mongo-saga-lock.service';
+import { MongoOperationLogService } from '../../src/engine/mongo/services/mongo-operation-log.service';
+import { MongoSagaCoordinator } from '../../src/engine/mongo/services/mongo-saga-coordinator.service';
+import { MetadataCacheService } from '../../src/engine/cache/services/metadata-cache.service';
 import { InstanceService } from '../../src/shared/services/instance.service';
 import { EnvService } from '../../src/shared/services/env.service';
 

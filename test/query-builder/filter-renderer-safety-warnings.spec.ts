@@ -1,7 +1,7 @@
 import knex, { Knex } from 'knex';
-import { SqlQueryExecutor } from 'src/infrastructure/query-builder/executors/sql-query-executor';
-import { MongoQueryExecutor } from 'src/infrastructure/query-builder/executors/mongo-query-executor';
-import { QueryPlanner } from 'src/infrastructure/query-builder/planner/query-planner';
+import { SqlQueryExecutor } from 'src/engine/query-builder/executors/sql-query-executor';
+import { MongoQueryExecutor } from 'src/engine/query-builder/executors/mongo-query-executor';
+import { QueryPlanner } from 'src/domain/query-dsl/query-planner';
 import { MongoClient, Db, ObjectId } from 'mongodb';
 
 const MONGO_URI =

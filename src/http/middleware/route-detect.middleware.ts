@@ -1,16 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { TDynamicContext } from '../../shared/types';
-import { RouteCacheService } from '../../infrastructure/cache/services/route-cache.service';
-import { RepoRegistryService } from '../../infrastructure/cache/services/repo-registry.service';
-import { BcryptService } from '../../core/auth/services/bcrypt.service';
+import { RouteCacheService } from '../../engine/cache/services/route-cache.service';
+import { RepoRegistryService } from '../../engine/cache/services/repo-registry.service';
+import { BcryptService } from '../../domain/auth/services/bcrypt.service';
 import { ScriptErrorFactory } from '../../shared/utils/script-error-factory';
 import { autoSlug } from '../../shared/utils/auto-slug.helper';
-import { CacheService } from '../../infrastructure/cache/services/cache.service';
+import { CacheService } from '../../engine/cache/services/cache.service';
 import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
 import { createFetchHelper } from '../../shared/helpers/fetch.helper';
 import { DynamicWebSocketGateway } from '../../modules/websocket/gateway/dynamic-websocket.gateway';
-import { RateLimitService } from '../../infrastructure/cache/services/rate-limit.service';
+import { RateLimitService } from '../../engine/cache/services/rate-limit.service';
 import { FlowService } from '../../modules/flow/services/flow.service';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
 

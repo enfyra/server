@@ -1,10 +1,10 @@
 import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
-import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
+import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';

@@ -1,4 +1,4 @@
-import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
 import { IStorageService, StorageConfig } from './storage.interface';
 import { LocalStorageService } from './local-storage.service';
 import { GCSStorageService } from './gcs-storage.service';

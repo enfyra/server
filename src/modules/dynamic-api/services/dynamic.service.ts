@@ -1,13 +1,13 @@
 import { Logger } from '../../../shared/logger';
-import { HttpException } from '../../../core/exceptions/custom-exceptions';
+import { HttpException } from '../../../domain/exceptions/custom-exceptions';
 import { getErrorMessage, getErrorStack } from '../../../shared/utils/error.util';
 import {
   ScriptExecutionException,
   BusinessLogicException,
   isCustomException,
-} from '../../../core/exceptions/custom-exceptions';
-import { LoggingService } from '../../../core/exceptions/services/logging.service';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
+} from '../../../domain/exceptions/custom-exceptions';
+import { LoggingService } from '../../../domain/exceptions/services/logging.service';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
 import { RequestWithRouteData } from '../../../shared/types';
 
 export class DynamicService {

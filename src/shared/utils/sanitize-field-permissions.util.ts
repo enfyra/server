@@ -1,5 +1,5 @@
-import { MetadataCacheService } from '../../infrastructure/cache/services/metadata-cache.service';
-import { FieldPermissionCacheService } from '../../infrastructure/cache/services/field-permission-cache.service';
+import { MetadataCacheService } from '../../engine/cache/services/metadata-cache.service';
+import { FieldPermissionCacheService } from '../../engine/cache/services/field-permission-cache.service';
 import { decideFieldPermission } from './field-permission.util';
 
 type TRequestedShape = {

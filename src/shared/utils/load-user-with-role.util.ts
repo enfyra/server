@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../engine/query-builder/query-builder.service';
 import { DatabaseConfigService } from '../services/database-config.service';
 
 export const USER_CACHE_TTL_MS = 60_000;

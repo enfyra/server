@@ -2,20 +2,20 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-} from '../../../core/exceptions/custom-exceptions';
+} from '../../../domain/exceptions/custom-exceptions';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { PolicyService } from '../../../core/policy/policy.service';
-import { isPolicyDeny } from '../../../core/policy/policy.types';
+import { QueryEngine } from '../../../engine/query-engine/services/query-engine.service';
+import { PolicyService } from '../../../domain/policy/policy.service';
+import { isPolicyDeny } from '../../../domain/policy/policy.types';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
+import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { SettingCacheService } from '../../../engine/cache/services/setting-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { FieldPermissionCacheService } from '../../../infrastructure/cache/services/field-permission-cache.service';
+import { FieldPermissionCacheService } from '../../../engine/cache/services/field-permission-cache.service';
 import {
   buildRequestedShapeFromQuery,
   sanitizeFieldPermissionsResult,
@@ -24,12 +24,12 @@ import {
   decideFieldPermission,
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
-import { UserRevocationService } from '../../../core/auth/services/user-revocation.service';
-import { validateDeepOptions } from '../../../infrastructure/query-builder/utils/shared/deep-options-validator.util';
+import { UserRevocationService } from '../../../domain/auth/services/user-revocation.service';
+import { validateDeepOptions } from '../../../engine/query-builder/utils/shared/deep-options-validator.util';
 import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from '../../../infrastructure/query-builder/utils/shared/filter-field-walker.util';
+} from '../../../engine/query-builder/utils/shared/filter-field-walker.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;

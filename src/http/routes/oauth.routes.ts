@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { BadRequestException } from '../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
 
 export function registerOAuthRoutes(
   app: Express,
