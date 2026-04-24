@@ -1,9 +1,13 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Queue } from 'bullmq';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
-import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
+import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
+import {
+  getErrorMessage,
+  getErrorStack,
+} from '../../../shared/utils/error.util';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
 import { TDynamicContext } from '../../../shared/types';
 import {
@@ -11,8 +15,8 @@ import {
   FlowStep,
   FlowJobData,
 } from '../../../shared/types/flow.types';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
 import { executeStepCore } from '../utils/step-executor.util';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';
 
@@ -27,6 +31,7 @@ export class FlowExecutionQueueService {
   private readonly flowCacheService: FlowCacheService;
   private readonly queryBuilderService: QueryBuilderService;
   private readonly websocketEmitService: WebsocketEmitService;
+  private readonly dynamicContextFactory: DynamicContextFactory;
   private readonly flowQueue: Queue;
 
   constructor(deps: {
@@ -35,6 +40,7 @@ export class FlowExecutionQueueService {
     flowCacheService: FlowCacheService;
     queryBuilderService: QueryBuilderService;
     websocketEmitService: WebsocketEmitService;
+    dynamicContextFactory: DynamicContextFactory;
     flowQueue: Queue;
   }) {
     this.executorEngineService = deps.executorEngineService;
@@ -42,6 +48,7 @@ export class FlowExecutionQueueService {
     this.flowCacheService = deps.flowCacheService;
     this.queryBuilderService = deps.queryBuilderService;
     this.websocketEmitService = deps.websocketEmitService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
     this.flowQueue = deps.flowQueue;
   }
 
@@ -153,7 +160,7 @@ export class FlowExecutionQueueService {
         status: 'failed',
         completedAt: new Date(),
         duration: Date.now() - startTime,
-        error: { message: error.message, stack: error.stack },
+        error: { message: getErrorMessage(error), stack: getErrorStack(error) },
       });
 
       this.emitFlowEvent(triggeredBy, {
@@ -162,15 +169,15 @@ export class FlowExecutionQueueService {
         flowName: flow.name,
         status: 'failed',
         duration: Date.now() - startTime,
-        error: error.message,
+        error: getErrorMessage(error),
       });
 
       this.cleanupOldExecutions(flow).catch((err) =>
         this.logger.warn(
-          `Cleanup failed for flow ${flow.name}: ${err.message}`,
+          `Cleanup failed for flow ${flow.name}: ${getErrorMessage(err)}`,
         ),
       );
-      return { success: false, executionId, error: error.message };
+      return { success: false, executionId, error: getErrorMessage(error) };
     }
   }
 
@@ -269,20 +276,10 @@ export class FlowExecutionQueueService {
       },
     };
 
-    const ctx: TDynamicContext = {
-      $body: payload || {},
-      $query: {},
-      $params: {},
-      $user: triggeredBy || null,
-      $repos: {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: {},
-      $cache: {},
-      $share: { $logs: [] },
-      $logs: (...args: any[]) => {
-        (ctx.$share.$logs as any[]).push(...args);
-      },
-    } as any;
+    const ctx = this.dynamicContextFactory.createFlow({
+      payload,
+      user: triggeredBy || null,
+    }) as TDynamicContext;
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
@@ -397,13 +394,16 @@ export class FlowExecutionQueueService {
           }
           if (!retrySuccess) throw error;
         } else if (step.onError === 'skip') {
-          flowContext[step.key] = { error: error.message, skipped: true };
+          flowContext[step.key] = {
+            error: getErrorMessage(error),
+            skipped: true,
+          };
           flowContext.$last = flowContext[step.key];
           completedSteps.push({
             key: step.key,
             type: step.type,
             status: 'skipped',
-            error: error.message,
+            error: getErrorMessage(error),
             duration: Date.now() - stepStart,
           });
           return;

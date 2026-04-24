@@ -27,8 +27,8 @@ export class LocalStorageService implements IStorageService {
   async upload(
     buffer: Buffer,
     relativePath: string,
-    mimetype: string,
-    config: StorageConfig,
+    _mimetype: string,
+    _config: StorageConfig,
   ): Promise<UploadResult> {
     const filePath = path.join(this.basePath, relativePath);
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
@@ -79,8 +79,8 @@ export class LocalStorageService implements IStorageService {
   async replaceFile(
     location: string,
     buffer: Buffer,
-    mimetype: string,
-    config: StorageConfig,
+    _mimetype: string,
+    _config: StorageConfig,
   ): Promise<void> {
     const relativePath = location.startsWith('/')
       ? location.slice(1)
@@ -89,7 +89,7 @@ export class LocalStorageService implements IStorageService {
     await fs.promises.writeFile(absolutePath, buffer);
   }
 
-  async exists(location: string, config: StorageConfig): Promise<boolean> {
+  async exists(location: string, _config: StorageConfig): Promise<boolean> {
     try {
       const relativePath = location.startsWith('/')
         ? location.slice(1)

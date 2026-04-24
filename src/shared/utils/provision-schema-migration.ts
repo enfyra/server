@@ -10,9 +10,10 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../infrastructure/knex/utils/sql-schema-naming.util';
+} from '../../domain/query-dsl/utils/sql-schema-naming.util';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getErrorMessage } from './error.util';
 
 export function loadSchemaMigration(): SchemaMigrationDef | null {
   try {
@@ -29,7 +30,9 @@ export function loadSchemaMigration(): SchemaMigrationDef | null {
     }
     return null;
   } catch (error) {
-    console.warn(`⚠️ Failed to load snapshot-migration.json: ${error.message}`);
+    console.warn(
+      `⚠️ Failed to load snapshot-migration.json: ${getErrorMessage(error)}`,
+    );
     return null;
   }
 }
@@ -155,7 +158,7 @@ async function applySqlTableMigration(
 
 async function migrateFilePermissionAllowedUsersToJunction(
   knex: Knex,
-  dbType: string,
+  _dbType: string,
 ): Promise<void> {
   const tableName = 'file_permission_definition';
   const fkColumn = getForeignKeyColumnName('allowedUsers');
@@ -437,7 +440,7 @@ async function applySqlColumnModifications(
                 );
               } catch (error) {
                 console.log(
-                  `  ⚠️  Failed to convert ${targetColumn} to ENUM: ${error.message}`,
+                  `  ⚠️  Failed to convert ${targetColumn} to ENUM: ${getErrorMessage(error)}`,
                 );
               }
             } else {
@@ -456,7 +459,7 @@ async function applySqlColumnModifications(
                 );
               } catch (error) {
                 console.log(
-                  `  ⚠️  Failed to convert ${targetColumn} to ENUM: ${error.message}`,
+                  `  ⚠️  Failed to convert ${targetColumn} to ENUM: ${getErrorMessage(error)}`,
                 );
               }
             }

@@ -1,17 +1,19 @@
-import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
 import { throwGqlError } from '../utils/throw-error';
 import { convertFieldNodesToFieldPicker } from '../utils/field-string-converter';
 import * as jwt from 'jsonwebtoken';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 import { EnvService } from '../../../shared/services/env.service';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { GqlDefinitionCacheService } from '../../../infrastructure/cache/services/gql-definition-cache.service';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
-import { GuardCacheService } from '../../../infrastructure/cache/services/guard-cache.service';
-import { GuardEvaluatorService } from '../../../infrastructure/cache/services/guard-evaluator.service';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { GqlDefinitionCacheService } from '../../../engine/cache/services/gql-definition-cache.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
+import { GuardCacheService } from '../../../engine/cache/services/guard-cache.service';
+import { GuardEvaluatorService } from '../../../engine/cache/services/guard-evaluator.service';
 import { resolveClientIpFromRequest } from '../../../shared/utils/client-ip.util';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
+import { loadUserWithRole } from '../../../shared/utils/load-user-with-role.util';
 
 export class DynamicResolver {
   private readonly queryBuilderService: QueryBuilderService;
@@ -21,6 +23,7 @@ export class DynamicResolver {
   private readonly guardCacheService: GuardCacheService;
   private readonly guardEvaluatorService: GuardEvaluatorService;
   private readonly envService: EnvService;
+  private readonly dynamicContextFactory: DynamicContextFactory;
 
   constructor(deps: {
     queryBuilderService: QueryBuilderService;
@@ -30,6 +33,7 @@ export class DynamicResolver {
     guardCacheService: GuardCacheService;
     guardEvaluatorService: GuardEvaluatorService;
     envService: EnvService;
+    dynamicContextFactory: DynamicContextFactory;
   }) {
     this.queryBuilderService = deps.queryBuilderService;
     this.executorEngineService = deps.executorEngineService;
@@ -38,6 +42,7 @@ export class DynamicResolver {
     this.guardCacheService = deps.guardCacheService;
     this.guardEvaluatorService = deps.guardEvaluatorService;
     this.envService = deps.envService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
   async dynamicResolver(
@@ -66,15 +71,12 @@ export class DynamicResolver {
     const metaPicker = fullFieldPicker
       .filter((f) => f.startsWith('meta.'))
       .map((f) => f.replace(/^meta\./, ''));
-    const handlerCtx: any = {
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: {
-        jwt: (payload: any, ext: string) =>
-          jwt.sign(payload, this.envService.get('SECRET_KEY'), {
-            expiresIn: ext as import('ms').StringValue,
-          }),
-      },
-      $args: {
+    const handlerCtx: any = this.dynamicContextFactory.createGraphql({
+      request: context.request,
+      user: user ?? null,
+      body: {},
+      params: {},
+      args: {
         fields: fieldPicker.join(','),
         filter: args.filter,
         page: args.page,
@@ -83,7 +85,7 @@ export class DynamicResolver {
         sort: args.sort,
         aggregate: args.aggregate,
       },
-      $query: {
+      query: {
         fields: fieldPicker.join(','),
         filter: args.filter,
         page: args.page,
@@ -92,14 +94,7 @@ export class DynamicResolver {
         sort: args.sort,
         aggregate: args.aggregate,
       },
-      $user: user ?? null,
-      $repos: {},
-      $req: context.request,
-      $body: {},
-      $params: {},
-      $logs: () => {},
-      $share: {},
-    };
+    });
     handlerCtx.$repos = this.repoRegistryService.createReposProxy(
       handlerCtx,
       mainTable?.name,
@@ -113,7 +108,7 @@ export class DynamicResolver {
       );
       return this.sanitizeResult(result, mainTable?.name);
     } catch (error) {
-      throwGqlError('SCRIPT_ERROR', error.message);
+      throwGqlError('SCRIPT_ERROR', getErrorMessage(error));
     }
   }
 
@@ -135,15 +130,12 @@ export class DynamicResolver {
         'GQL_MUTATION',
         context,
       );
-      const handlerCtx: any = {
-        $user: user ?? null,
-        $repos: {},
-        $req: context.request,
-        $body: args.input || {},
-        $params: { id: args.id },
-        $logs: () => {},
-        $share: {},
-      };
+      const handlerCtx: any = this.dynamicContextFactory.createGraphql({
+        request: context.request,
+        user: user ?? null,
+        body: args.input || {},
+        params: { id: args.id },
+      });
       handlerCtx.$repos = this.repoRegistryService.createReposProxy(
         handlerCtx,
         tableName,
@@ -172,7 +164,7 @@ export class DynamicResolver {
       }
       return this.sanitizeResult(result, tableName);
     } catch (error) {
-      throwGqlError('MUTATION_ERROR', error.message);
+      throwGqlError('MUTATION_ERROR', getErrorMessage(error));
     }
   }
 
@@ -234,18 +226,9 @@ export class DynamicResolver {
     } catch {
       throwGqlError('401', 'Unauthorized');
     }
-    const user = await this.queryBuilderService.findOne({
-      table: 'user_definition',
-      where: { id: decoded.id },
-    });
+    const user = await loadUserWithRole(this.queryBuilderService, decoded.id);
     if (!user) {
       throwGqlError('401', 'Invalid user');
-    }
-    if (user.roleId) {
-      user.role = await this.queryBuilderService.findOne({
-        table: 'role_definition',
-        where: { id: user.roleId },
-      });
     }
     return user;
   }

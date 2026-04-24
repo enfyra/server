@@ -1,6 +1,6 @@
 import knex, { Knex } from 'knex';
-import { SqlQueryExecutor } from '../../src/infrastructure/query-builder/executors/sql-query-executor';
-import { QueryPlanner } from '../../src/infrastructure/query-builder/planner/query-planner';
+import { SqlQueryExecutor } from '../../src/engine/query-builder/executors/sql-query-executor';
+import { QueryPlanner } from '../../src/domain/query-dsl/query-planner';
 
 let db: Knex;
 
@@ -294,7 +294,7 @@ describe('simple path — _neq', () => {
       metadata,
       plan: p,
     });
-    expect(r.data.every((row: any) => r.data.length > 0)).toBe(true);
+    expect(r.data.every((_row: any) => r.data.length > 0)).toBe(true);
     expect(r.data.length).toBeLessThan(100);
   });
 });
@@ -1241,12 +1241,6 @@ describe('cross-path parity — simple vs full path produce same data', () => {
     });
 
     const exec2 = new SqlQueryExecutor(db, 'sqlite');
-    const pFull = plan('products', {
-      fields,
-      filter,
-      sort: '-price',
-      limit: 5,
-    });
     const rFull = await exec2.execute({
       tableName: 'products',
       fields,

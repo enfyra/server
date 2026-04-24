@@ -167,6 +167,19 @@
             ]
         },
         {
+            "path": "/auth/providers",
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET"
+            ]
+        },
+        {
             "path": "/auth/:provider",
             "mainTable": "user_definition",
             "isEnabled": true,
@@ -963,9 +976,9 @@
         },
         {
             "type": "Menu",
-            "label": "Routings",
+            "label": "Routes",
             "icon": "heroicons:map",
-            "path": "/settings/routings",
+            "path": "/settings/routes",
             "isEnabled": true,
             "isSystem": true,
             "description": "Route management",
@@ -1519,5 +1532,23 @@
             "connectionHandlerTimeout": 5000
         }
     ],
-    "websocket_event_definition": []
+    "websocket_event_definition": [],
+    "field_permission_definition": [
+        {
+            "isEnabled": true,
+            "action": "update",
+            "effect": "allow",
+            "description": "Allow authenticated user to update own password via /me",
+            "_column": {
+                "table": "user_definition",
+                "name": "password"
+            },
+            "_role": null,
+            "condition": {
+                "id": {
+                    "_eq": "@USER.id"
+                }
+            }
+        }
+    ]
 }

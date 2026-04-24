@@ -15,7 +15,7 @@ import {
 import {
   buildJunctionDefs,
   createJunctionCollections,
-} from '../src/infrastructure/mongo/utils/junction-collections';
+} from '../src/engine/mongo/utils/junction-collections';
 dotenv.config();
 function getBsonType(columnDef: ColumnDef): string {
   const typeMap: Record<string, string> = {

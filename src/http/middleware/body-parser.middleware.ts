@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as express from 'express';
-import { SettingCacheService } from '../../infrastructure/cache/services/setting-cache.service';
+import { SettingCacheService } from '../../engine/cache/services/setting-cache.service';
 
 export function bodyParserMiddleware(settingCacheService: SettingCacheService) {
   return (req: Request, res: Response, next: NextFunction) => {

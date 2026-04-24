@@ -1,12 +1,3 @@
-/**
- * Comprehensive tests for the granular cache reload system.
- * Covers: payload merging, BaseCacheService partial reload, MetadataCache
- * partial update, RouteCache partial update, GraphQL incremental update,
- * cascade scenarios, and end-to-end flow simulation.
- *
- * All infrastructure is inlined / mocked — no NestJS DI pulled in.
- */
-
 import { EventEmitter2 } from 'eventemitter2';
 import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
 import {
@@ -18,7 +9,6 @@ import {
   GraphQLID,
   GraphQLNonNull,
   GraphQLList,
-  GraphQLNamedType,
 } from 'graphql';
 
 // ─────────────────────────────────────────────────────────────────────────────

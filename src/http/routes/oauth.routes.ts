@@ -1,24 +1,53 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { BadRequestException } from '../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
+import type { IOAuthConfig } from '../../domain/shared/interfaces/oauth-config-cache.interface';
+
+type OAuthStatePayload = {
+  redirect: string;
+  appOrigin?: string;
+  ts: number;
+};
 
 export function registerOAuthRoutes(
   app: Express,
   container: AwilixContainer<Cradle>,
 ) {
+  app.get('/auth/providers', (req: any, res: Response) => {
+    const oauthConfigCache =
+      req.scope?.cradle?.oauthConfigCacheService ??
+      container.cradle.oauthConfigCacheService;
+
+    const providers = oauthConfigCache
+      .getAllProviders()
+      .filter((provider): provider is 'google' | 'facebook' | 'github' =>
+        VALID_OAUTH_PROVIDERS.includes(provider as any),
+      )
+      .sort(
+        (a, b) =>
+          VALID_OAUTH_PROVIDERS.indexOf(a) - VALID_OAUTH_PROVIDERS.indexOf(b),
+      )
+      .map((provider) => ({ provider }));
+
+    return res.json({ data: providers });
+  });
+
   app.get('/auth/:provider', async (req: any, res: Response) => {
     const oauthService =
       req.scope?.cradle?.oauthService ?? container.cradle.oauthService;
+    const oauthConfigCache =
+      req.scope?.cradle?.oauthConfigCacheService ??
+      container.cradle.oauthConfigCacheService;
     const configService =
       req.scope?.cradle?.configService ?? container.cradle.configService;
 
     const provider = req.params.provider;
     const redirectUrl = req.query.redirect as string;
+    const appOrigin = req.query.appOrigin as string | undefined;
 
-    const validProviders = ['google', 'facebook', 'github'];
-    if (!validProviders.includes(provider)) {
+    if (!VALID_OAUTH_PROVIDERS.includes(provider as any)) {
       throw new BadRequestException(`Invalid OAuth provider: ${provider}`);
     }
 
@@ -28,7 +57,22 @@ export function registerOAuthRoutes(
 
     validateRedirectUrl(redirectUrl, provider);
 
-    const payload = JSON.stringify({ redirect: redirectUrl, ts: Date.now() });
+    const config = oauthConfigCache.getDirectConfigByProvider(provider as any);
+    if (!config) {
+      throw new BadRequestException(
+        `OAuth provider '${provider}' is not configured`,
+      );
+    }
+
+    if (config.autoSetCookies) {
+      validateAppOrigin(appOrigin);
+    }
+
+    const payload = JSON.stringify({
+      redirect: redirectUrl,
+      appOrigin: appOrigin ?? undefined,
+      ts: Date.now(),
+    } satisfies OAuthStatePayload);
     const sig = signState(payload, configService);
     const state = Buffer.from(JSON.stringify({ p: payload, s: sig })).toString(
       'base64url',
@@ -59,21 +103,19 @@ export function registerOAuthRoutes(
       );
     }
 
-    const redirectUrl = parseRedirectFromState(state, configService);
+    const statePayload = parseStatePayload(state, configService);
 
-    if (!redirectUrl) {
+    if (!statePayload) {
       throw new BadRequestException('Invalid or expired state parameter');
     }
 
     if (error) {
       const safeRedirect = getSafeRedirectUrl(
-        redirectUrl,
-        provider,
-        oauthConfigCache,
+        statePayload,
+        config,
+        errorDescription || error,
       );
-      return res.redirect(
-        `${safeRedirect}?error=${encodeURIComponent(errorDescription || error)}`,
-      );
+      return res.redirect(safeRedirect);
     }
 
     if (!code) {
@@ -82,41 +124,36 @@ export function registerOAuthRoutes(
 
     try {
       const tokens = await oauthService.handleCallback(provider as any, code);
-
-      if (!config.appCallbackUrl) {
-        throw new BadRequestException('App callback URL is not configured');
-      }
-
-      const callbackUrl = new URL(config.appCallbackUrl);
+      const callbackUrl = getSuccessCallbackUrl(statePayload, config);
       callbackUrl.searchParams.set('accessToken', tokens.accessToken);
       callbackUrl.searchParams.set('refreshToken', tokens.refreshToken);
       callbackUrl.searchParams.set('expTime', String(tokens.expTime));
       callbackUrl.searchParams.set('loginProvider', tokens.loginProvider ?? '');
-      callbackUrl.searchParams.set('redirect', redirectUrl);
+      callbackUrl.searchParams.set('redirect', statePayload.redirect);
 
       return res.redirect(callbackUrl.toString());
     } catch (err: any) {
       const safeRedirect = getSafeRedirectUrl(
-        redirectUrl,
-        provider,
-        oauthConfigCache,
+        statePayload,
+        config,
+        err.message || 'OAuth login failed',
       );
-      return res.redirect(
-        `${safeRedirect}?error=${encodeURIComponent(err.message || 'OAuth login failed')}`,
-      );
+      return res.redirect(safeRedirect);
     }
   });
 }
+
+const VALID_OAUTH_PROVIDERS = ['google', 'facebook', 'github'] as const;
 
 function signState(payload: string, configService: any): string {
   const secret = (configService.get('SECRET_KEY') as string) || '';
   return createHmac('sha256', secret).update(payload).digest('hex');
 }
 
-function parseRedirectFromState(
+function parseStatePayload(
   state: string | undefined,
   configService: any,
-): string | null {
+): OAuthStatePayload | null {
   if (!state) return null;
   try {
     const outer = JSON.parse(Buffer.from(state, 'base64url').toString());
@@ -135,13 +172,28 @@ function parseRedirectFromState(
     const age = Date.now() - (parsed.ts || 0);
     if (age > 600000) return null;
 
-    return parsed.redirect || null;
+    if (typeof parsed.redirect !== 'string' || parsed.redirect.length === 0) {
+      return null;
+    }
+
+    validateRedirectUrl(parsed.redirect, 'state');
+
+    if (parsed.appOrigin !== undefined) {
+      validateAppOrigin(parsed.appOrigin);
+    }
+
+    return {
+      redirect: parsed.redirect,
+      appOrigin:
+        typeof parsed.appOrigin === 'string' ? parsed.appOrigin : undefined,
+      ts: parsed.ts || 0,
+    };
   } catch {
     return null;
   }
 }
 
-function validateRedirectUrl(url: string, provider: string): void {
+function validateRedirectUrl(url: string, _provider: string): void {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -153,19 +205,82 @@ function validateRedirectUrl(url: string, provider: string): void {
   }
 }
 
-function getSafeRedirectUrl(
-  url: string,
-  provider: string,
-  oauthConfigCacheService: any,
-): string {
+function validateAppOrigin(appOrigin: string | undefined): asserts appOrigin is string {
+  if (!appOrigin) {
+    throw new BadRequestException('App origin is required');
+  }
+
   try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return url;
+    const parsed = new URL(appOrigin);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Invalid app origin protocol');
     }
-  } catch {}
-  const config = oauthConfigCacheService.getDirectConfigByProvider(
-    provider as any,
-  );
-  return config?.appCallbackUrl || '/';
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      throw new Error('App origin must not include a path');
+    }
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+    throw new BadRequestException('App origin must be a valid absolute origin');
+  }
+}
+
+function getSuccessCallbackUrl(
+  statePayload: OAuthStatePayload,
+  config: IOAuthConfig,
+) {
+  if (config.autoSetCookies) {
+    validateAppOrigin(statePayload.appOrigin);
+    return new URL('/api/auth/set-cookies', statePayload.appOrigin);
+  }
+
+  return getValidatedAppCallbackUrl(config.appCallbackUrl);
+}
+
+function getSafeRedirectUrl(
+  statePayload: OAuthStatePayload,
+  config: IOAuthConfig,
+  errorMessage: string,
+) {
+  const url = config.autoSetCookies
+    ? getSuccessCallbackUrl(statePayload, config)
+    : getFallbackCallbackUrl(statePayload, config);
+  url.searchParams.set('redirect', statePayload.redirect);
+  url.searchParams.set('error', errorMessage);
+  return url.toString();
+}
+
+function getValidatedAppCallbackUrl(appCallbackUrl: string | null | undefined) {
+  if (!appCallbackUrl) {
+    throw new BadRequestException(
+      'App callback URL is required when auto cookie handling is disabled',
+    );
+  }
+
+  try {
+    const parsed = new URL(appCallbackUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Invalid app callback URL protocol');
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+    throw new BadRequestException(
+      'App callback URL must be a valid absolute http(s) URL',
+    );
+  }
+}
+
+function getFallbackCallbackUrl(
+  statePayload: OAuthStatePayload,
+  config: IOAuthConfig,
+) {
+  try {
+    return getValidatedAppCallbackUrl(config.appCallbackUrl);
+  } catch {
+    return new URL(statePayload.redirect);
+  }
 }

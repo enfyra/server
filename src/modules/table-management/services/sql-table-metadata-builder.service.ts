@@ -1,12 +1,12 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
 import { TCreateTableBody } from '../types/table-handler.types';
 import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../infrastructure/knex/utils/sql-schema-naming.util';
+} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 
 export class SqlTableMetadataBuilderService {
   private readonly logger = new Logger(SqlTableMetadataBuilderService.name);

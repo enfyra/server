@@ -1,7 +1,7 @@
 import {
   AuthenticationException,
   AuthorizationException,
-} from '../../../core/exceptions/custom-exceptions';
+} from '../../../domain/exceptions/custom-exceptions';
 import { RequestWithRouteData } from '../../../shared/types';
 import * as fs from 'fs';
 

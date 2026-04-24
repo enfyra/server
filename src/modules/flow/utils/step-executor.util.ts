@@ -1,8 +1,9 @@
 import * as dns from 'dns';
 import * as net from 'net';
 import { TDynamicContext } from '../../../shared/types';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { transformCode } from '../../../infrastructure/executor-engine/code-transformer';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { transformCode } from '../../../domain/shared/code-transformer';
+import { getErrorMessage } from '../../../shared/utils/error.util';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;
 const MAX_HTTP_TIMEOUT = 60000;
@@ -86,7 +87,7 @@ async function validateHttpUrl(rawUrl: string): Promise<URL> {
       }
     }
   } catch (err) {
-    if (err.message?.includes('not allowed')) throw err;
+    if (getErrorMessage(err).includes('not allowed')) throw err;
   }
   return parsed;
 }
@@ -187,7 +188,7 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
           : await response.text();
         return { status: response.status, data };
       } catch (err) {
-        if (err.name === 'AbortError')
+        if (err instanceof Error && err.name === 'AbortError')
           throw new Error(`HTTP request timed out after ${httpTimeoutMs}ms`);
         throw err;
       } finally {

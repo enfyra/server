@@ -1,7 +1,7 @@
-import { parseFilter } from '../../src/infrastructure/query-builder/planner/filter-parser';
-import { JoinRegistry } from '../../src/infrastructure/query-builder/planner/join-registry';
-import { FilterNode } from '../../src/infrastructure/query-builder/planner/types/filter-ast';
-import { BadRequestException } from '../../src/core/exceptions/custom-exceptions';
+import { parseFilter } from '../../src/domain/query-dsl/filter-parser';
+import { JoinRegistry } from '../../src/domain/query-dsl/join-registry';
+import { FilterNode } from '../../src/domain/query-dsl/types/filter-ast';
+import { BadRequestException } from '../../src/domain/exceptions/custom-exceptions';
 
 const META = {
   tables: new Map<string, any>([

@@ -1,4 +1,4 @@
-import { computeEngineTuning } from '../../src/infrastructure/executor-engine/utils/engine-tuning.util';
+import { computeEngineTuning } from '../../src/engine/executor-engine/utils/engine-tuning.util';
 
 describe('computeEngineTuning', () => {
   it('scales isolate mb from ram with 128mb ceiling and derives concurrency', () => {

@@ -1,11 +1,9 @@
 import { MongoClient, Db, ObjectId } from 'mongodb';
-import { MongoService } from '../../src/infrastructure/mongo/services/mongo.service';
-import { MongoSagaLockService } from '../../src/infrastructure/mongo/services/mongo-saga-lock.service';
-import { MongoOperationLogService } from '../../src/infrastructure/mongo/services/mongo-operation-log.service';
-import { MongoSagaCoordinator } from '../../src/infrastructure/mongo/services/mongo-saga-coordinator.service';
-import { MetadataCacheService } from '../../src/infrastructure/cache/services/metadata-cache.service';
+import { MongoService } from '../../src/engine/mongo/services/mongo.service';
+import { MongoSagaLockService } from '../../src/engine/mongo/services/mongo-saga-lock.service';
+import { MongoOperationLogService } from '../../src/engine/mongo/services/mongo-operation-log.service';
+import { MongoSagaCoordinator } from '../../src/engine/mongo/services/mongo-saga-coordinator.service';
 import { InstanceService } from '../../src/shared/services/instance.service';
-import { EnvService } from '../../src/shared/services/env.service';
 
 const MONGO_URI =
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';
@@ -16,15 +14,6 @@ interface IBenchmarkResult {
   operationsCount: number;
   avgOpDurationMs: number;
   overheadVsBaseline?: number;
-}
-
-class MockMetadataCacheService {
-  async lookupTableByName() {
-    return null;
-  }
-  async getTableMetadata() {
-    return null;
-  }
 }
 
 describe('MongoDB Saga System - Integration Tests', () => {
@@ -1286,8 +1275,8 @@ describe('MongoDB Saga System - Integration Tests', () => {
   // ====================================================================
   describe('Nested Saga Guard', () => {
     it('should reject nested saga calls', async () => {
-      const result = await coordinator.execute(async (tx) => {
-        const innerResult = await coordinator.execute(async (innerTx) => {
+      const result = await coordinator.execute(async (_tx) => {
+        const innerResult = await coordinator.execute(async (_innerTx) => {
           return 'should not reach here';
         });
         return innerResult;

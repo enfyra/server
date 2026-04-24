@@ -1,12 +1,13 @@
 import { Logger } from '../../../shared/logger';
-import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
 import { FileUploadDto, ProcessedFileInfo } from '../../../shared/types';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
+import { getErrorMessage } from '../../../shared/utils/error.util';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { StorageConfigCacheService } from '../../../engine/cache/services/storage-config-cache.service';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 import { Readable } from 'stream';
 
@@ -171,7 +172,7 @@ export class FileManagementService {
         error,
       );
       throw new BadRequestException(
-        `Failed to process file upload: ${error.message}`,
+        `Failed to process file upload: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -256,8 +257,7 @@ export class FileManagementService {
           );
         } catch (rollbackError) {
           this.logger.error(
-            `Failed to rollback cloud storage upload for ${processedFile.location}: ${rollbackError.message}`,
-            rollbackError,
+            `Failed to rollback cloud storage upload for ${processedFile.location}: ${getErrorMessage(rollbackError)}`,
           );
         }
       }
@@ -278,7 +278,7 @@ export class FileManagementService {
     } catch (error: any) {
       this.logger.error(`Failed to delete physical file: ${location}`, error);
       throw new BadRequestException(
-        `Failed to delete physical file: ${error.message}`,
+        `Failed to delete physical file: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -325,7 +325,9 @@ export class FileManagementService {
       throw new Error(`Source file not found: ${absolutePath}`);
     } catch (error) {
       this.logger.error(`Failed to backup file: ${absolutePath}`, error);
-      throw new BadRequestException(`Failed to backup file: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to backup file: ${getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -349,7 +351,9 @@ export class FileManagementService {
       await fs.promises.copyFile(newAbsolutePath, oldAbsolutePath);
     } catch (error) {
       this.logger.error(`Failed to replace file: ${oldLocation}`, error);
-      throw new BadRequestException(`Failed to replace file: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to replace file: ${getErrorMessage(error)}`,
+      );
     }
   }
 
@@ -382,7 +386,9 @@ export class FileManagementService {
         `Failed to restore file from backup: ${backupPath}`,
         error,
       );
-      throw new BadRequestException(`Failed to restore file: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to restore file: ${getErrorMessage(error)}`,
+      );
     }
   }
 

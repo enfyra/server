@@ -2,20 +2,20 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-} from '../../../core/exceptions/custom-exceptions';
+} from '../../../domain/exceptions/custom-exceptions';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 import { TableHandlerService } from '../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../infrastructure/query-engine/services/query-engine.service';
-import { PolicyService } from '../../../core/policy/policy.service';
-import { isPolicyDeny } from '../../../core/policy/policy.types';
+import { QueryEngine } from '../../../engine/query-engine/services/query-engine.service';
+import { PolicyService } from '../../../domain/policy/policy.service';
+import { isPolicyDeny } from '../../../domain/policy/policy.types';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { MetadataCacheService } from '../../../infrastructure/cache/services/metadata-cache.service';
-import { SettingCacheService } from '../../../infrastructure/cache/services/setting-cache.service';
+import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { SettingCacheService } from '../../../engine/cache/services/setting-cache.service';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { FieldPermissionCacheService } from '../../../infrastructure/cache/services/field-permission-cache.service';
+import { FieldPermissionCacheService } from '../../../engine/cache/services/field-permission-cache.service';
 import {
   buildRequestedShapeFromQuery,
   sanitizeFieldPermissionsResult,
@@ -24,7 +24,12 @@ import {
   decideFieldPermission,
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
-import { UserRevocationService } from '../../../core/auth/services/user-revocation.service';
+import { UserRevocationService } from '../../../domain/auth/services/user-revocation.service';
+import { validateDeepOptions } from '../../../domain/query-dsl/deep-options-validator.util';
+import {
+  rewriteFilterDenyingFields,
+  rewriteSortDroppingDenied,
+} from '../../../domain/query-dsl/filter-field-walker.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -108,6 +113,20 @@ export class DynamicRepository {
     if (item == null) return null;
     if (typeof item === 'string' || typeof item === 'number') return item;
     return item?._id ?? item?.id ?? null;
+  }
+
+  private stripNonUpdatableColumns(data: any, tableMetadata: any): any {
+    if (!data || typeof data !== 'object' || !tableMetadata?.columns) {
+      return data;
+    }
+
+    const stripped = { ...data };
+    for (const column of tableMetadata.columns) {
+      if (column.isUpdatable === false && column.name in stripped) {
+        delete stripped[column.name];
+      }
+    }
+    return stripped;
   }
 
   private async assertQueryAllowed() {
@@ -390,24 +409,100 @@ export class DynamicRepository {
       for (const relName of Object.keys(cleanDeep)) {
         const relEntry = cleanDeep[relName];
         if (!relEntry || typeof relEntry !== 'object') continue;
-        if (!relEntry.deep && !relEntry.fields) continue;
         const relMeta = (meta.relations || []).find(
           (r: any) => r.propertyName === relName,
         );
         const targetTable = relMeta?.targetTable || relMeta?.targetTableName;
         if (!targetTable) continue;
+
         const nested = await this.stripDeniedFields(
           targetTable,
           relEntry.fields,
           relEntry.deep,
         );
         if (nested.needsPostSql) hasConditionalPending = true;
+
+        const _isAllowed = (
+          _tblName: string,
+          _fieldName: string,
+          _fieldType: 'column' | 'relation',
+        ) => {
+          return true;
+        };
+
+        let cleanedFilter = relEntry.filter;
+        let cleanedSort = relEntry.sort;
+
+        if (
+          this.enforceFieldPermission &&
+          this.fieldPermissionCacheService &&
+          !this.context?.$user?.isRootAdmin
+        ) {
+          const targetMeta =
+            await this.metadataCacheService.lookupTableByName(targetTable);
+          if (targetMeta) {
+            const fullMetadata = await this.metadataCacheService.getMetadata();
+
+            if (relEntry.filter) {
+              cleanedFilter = rewriteFilterDenyingFields(
+                relEntry.filter,
+                targetTable,
+                fullMetadata,
+                (tblName, fieldName, fieldType) => {
+                  const tMeta = fullMetadata?.tables?.get(tblName);
+                  if (!tMeta) return true;
+                  if (fieldType === 'column') {
+                    const col = tMeta.columns?.find(
+                      (c: any) => c.name === fieldName,
+                    );
+                    return col?.isPublished !== false;
+                  } else {
+                    const rel = tMeta.relations?.find(
+                      (r: any) => r.propertyName === fieldName,
+                    );
+                    return rel?.isPublished !== false;
+                  }
+                },
+              );
+            }
+
+            if (relEntry.sort) {
+              const fullMetadata2 =
+                await this.metadataCacheService.getMetadata();
+              cleanedSort = rewriteSortDroppingDenied(
+                relEntry.sort,
+                targetTable,
+                fullMetadata2,
+                (tblName, fieldName, fieldType) => {
+                  const tMeta = fullMetadata2?.tables?.get(tblName);
+                  if (!tMeta) return true;
+                  if (fieldType === 'column') {
+                    const col = tMeta.columns?.find(
+                      (c: any) => c.name === fieldName,
+                    );
+                    return col?.isPublished !== false;
+                  } else {
+                    const rel = tMeta.relations?.find(
+                      (r: any) => r.propertyName === fieldName,
+                    );
+                    return rel?.isPublished !== false;
+                  }
+                },
+              );
+            }
+          }
+        }
+
         cleanDeep[relName] = {
           ...relEntry,
           ...(nested.fields !== relEntry.fields
             ? { fields: nested.fields }
             : {}),
           ...(nested.deep !== relEntry.deep ? { deep: nested.deep } : {}),
+          ...(cleanedFilter !== relEntry.filter
+            ? { filter: cleanedFilter }
+            : {}),
+          ...(cleanedSort !== relEntry.sort ? { sort: cleanedSort } : {}),
         };
       }
     }
@@ -434,6 +529,18 @@ export class DynamicRepository {
 
     const rawFields = opt?.fields || this.context.$query?.fields;
     const rawDeep: Record<string, any> = this.context.$query?.deep || {};
+
+    if (rawDeep && Object.keys(rawDeep).length > 0) {
+      const metadata = await this.metadataCacheService.getMetadata();
+      validateDeepOptions(
+        this.tableName,
+        rawDeep,
+        metadata,
+        0,
+        this.settingCacheService.getMaxQueryDepth(),
+      );
+    }
+
     const {
       fields: cleanFields,
       deep: cleanDeep,
@@ -665,7 +772,12 @@ export class DynamicRepository {
   }) {
     await this.ensureInit();
     try {
-      const { id, data: body, fields } = opt;
+      const { id, fields } = opt;
+      const originalBody = opt.data;
+      const body = this.stripNonUpdatableColumns(
+        originalBody,
+        this.tableMetadata,
+      );
       const existsResult = await this.find({
         where: { [this.getIdField()]: { _eq: id } },
       });
@@ -684,6 +796,7 @@ export class DynamicRepository {
             for (const key of Object.keys(body || {})) {
               const col = meta.columns?.find((c: any) => c.name === key);
               if (col) {
+                if (col.isUpdatable === false) continue;
                 const defaultAllowed = col.isPublished !== false;
                 const decision = await decideFieldPermission(
                   this.fieldPermissionCacheService,
@@ -948,7 +1061,7 @@ export class DynamicRepository {
         await this.userRevocationService.publish(id);
       }
       return { message: 'Delete successfully!', statusCode: 200 };
-    } catch (error) {
+    } catch (error: any) {
       throw new BadRequestException(error.message);
     }
   }
@@ -1023,6 +1136,7 @@ export class DynamicRepository {
     for (const key of Object.keys(data || {})) {
       const col = meta.columns?.find((c: any) => c.name === key);
       if (col) {
+        if (action === 'update' && col.isUpdatable === false) continue;
         const decision = await decideFieldPermission(
           this.fieldPermissionCacheService,
           {

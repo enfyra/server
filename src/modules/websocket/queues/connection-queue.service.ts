@@ -1,14 +1,11 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { TDynamicContext } from '../../../shared/types';
-import type { Cradle } from '../../../container';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { FlowService } from '../../flow/services/flow.service';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 import { EnvService } from '../../../shared/services/env.service';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 
 export interface ConnectionJobData {
   socketId: string;
@@ -27,7 +24,7 @@ export class ConnectionQueueService {
   private readonly repoRegistryService: RepoRegistryService;
   private readonly flowService: FlowService;
   private readonly envService: EnvService;
-  private readonly lazyRef: Cradle;
+  private readonly dynamicContextFactory: DynamicContextFactory;
   private worker?: Worker;
 
   constructor(deps: {
@@ -35,13 +32,13 @@ export class ConnectionQueueService {
     repoRegistryService: RepoRegistryService;
     flowService: FlowService;
     envService: EnvService;
-    lazyRef: Cradle;
+    dynamicContextFactory: DynamicContextFactory;
   }) {
     this.executorEngineService = deps.executorEngineService;
-    this.lazyRef = deps.lazyRef;
     this.repoRegistryService = deps.repoRegistryService;
     this.flowService = deps.flowService;
     this.envService = deps.envService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
   async init() {
@@ -76,42 +73,12 @@ export class ConnectionQueueService {
       `Processing connection script for socket ${socketId} on ${gatewayPath}`,
     );
 
-    const socketProxy = this.createSocketProxy(gatewayPath, socketId);
-
-    const ctx: TDynamicContext = {
-      $body: clientInfo || {},
-      $data: clientInfo || {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $logs: (...args: any[]) => {
-        const logsArray = (ctx.$share?.$logs as any[]) || [];
-        logsArray.push(...args);
-      },
-      $helpers: {},
-      $cache: {},
-      $params: {},
-      $query: {},
-      $user: userId ? { id: userId } : null,
-      $repos: {} as any,
-      $req: {
-        method: 'WS_CONNECT',
-        url: gatewayPath,
-        ip: clientInfo?.ip,
-        headers: clientInfo?.headers,
-        user: userId ? { id: userId } : null,
-      } as any,
-      $share: { $logs: [] },
-      $api: {
-        request: {
-          method: 'WS_CONNECT',
-          url: gatewayPath,
-          timestamp: new Date().toISOString(),
-          ip: clientInfo?.ip,
-        },
-      },
-      $socket: socketProxy,
-    };
-
-    ctx.$helpers.$fetch = createFetchHelper();
+    const ctx = this.dynamicContextFactory.createWebsocketConnection({
+      gatewayPath,
+      socketId,
+      clientInfo,
+      user: userId ? { id: userId } : null,
+    });
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     ctx.$trigger = (flowIdOrName: string | number, payload?: any) =>
       this.flowService.trigger(
@@ -135,59 +102,5 @@ export class ConnectionQueueService {
 
   onError(error: Error) {
     this.logger.error(`Connection queue error:`, error);
-  }
-
-  private createSocketProxy(gatewayPath: string, socketId: string) {
-    const self = this;
-    return {
-      join: (room: string) => {
-        self.lazyRef.dynamicWebSocketGateway?.joinRoom(
-          gatewayPath,
-          socketId,
-          room,
-        );
-      },
-      leave: (room: string) => {
-        self.lazyRef.dynamicWebSocketGateway?.leaveRoom(
-          gatewayPath,
-          socketId,
-          room,
-        );
-      },
-      reply: (event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToSocket(
-          gatewayPath,
-          socketId,
-          event,
-          data,
-        );
-      },
-      emitToUser: (userId: number | string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToUser(userId, event, data);
-      },
-      emitToRoom: (room: string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToRoom(room, event, data);
-      },
-      emitToGateway: (path: string, event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
-          path,
-          event,
-          data,
-        );
-      },
-      broadcast: (event: string, data: any) => {
-        self.lazyRef.dynamicWebSocketGateway?.emitToAll(event, data);
-      },
-      roomSize: async (room: string): Promise<number> => {
-        const gateway = self.lazyRef.dynamicWebSocketGateway;
-        return gateway ? gateway.roomSize(room) : 0;
-      },
-      disconnect: () => {
-        self.lazyRef.dynamicWebSocketGateway?.disconnectSocket(
-          gatewayPath,
-          socketId,
-        );
-      },
-    };
   }
 }

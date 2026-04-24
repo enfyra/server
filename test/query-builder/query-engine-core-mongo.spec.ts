@@ -14,8 +14,8 @@
  */
 
 import { MongoClient, Db, ObjectId } from 'mongodb';
-import { MongoQueryExecutor } from 'src/infrastructure/query-builder/executors/mongo-query-executor';
-import { QueryPlanner } from 'src/infrastructure/query-builder/planner/query-planner';
+import { MongoQueryExecutor } from 'src/engine/query-builder/executors/mongo-query-executor';
+import { QueryPlanner } from 'src/domain/query-dsl/query-planner';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||

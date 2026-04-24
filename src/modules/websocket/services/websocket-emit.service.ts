@@ -22,4 +22,8 @@ export class WebsocketEmitService {
   broadcast(event: string, data: any) {
     this.dynamicWebSocketGateway.emitToAll(event, data);
   }
+
+  roomSize(room: string): Promise<number> {
+    return this.dynamicWebSocketGateway.roomSize(room);
+  }
 }

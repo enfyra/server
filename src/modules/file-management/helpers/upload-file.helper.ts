@@ -1,10 +1,10 @@
-import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
 import { FileUploadDto, ProcessedFileInfo } from '../../../shared/types';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import { autoSlug } from '../../../shared/utils/auto-slug.helper';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
-import { StorageConfigCacheService } from '../../../infrastructure/cache/services/storage-config-cache.service';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { StorageConfigCacheService } from '../../../engine/cache/services/storage-config-cache.service';
 import { StorageFactoryService } from '../storage/storage-factory.service';
 
 export class UploadFileHelper {

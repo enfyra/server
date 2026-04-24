@@ -3,9 +3,9 @@ import { jwtVerify } from 'jose';
 import {
   TokenExpiredException,
   InvalidTokenException,
-} from '../../core/exceptions/custom-exceptions';
-import { QueryBuilderService } from '../../infrastructure/query-builder/query-builder.service';
-import { CacheService } from '../../infrastructure/cache/services/cache.service';
+} from '../../domain/exceptions/custom-exceptions';
+import { QueryBuilderService } from '../../engine/query-builder/query-builder.service';
+import { CacheService } from '../../engine/cache/services/cache.service';
 import {
   loadUserWithRole,
   userCacheKey,

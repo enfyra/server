@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 
@@ -14,7 +14,7 @@ export function registerFileRoutes(
 
     if (!file) {
       const { FileUploadException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new FileUploadException('No file provided');
     }
 
@@ -24,7 +24,7 @@ export function registerFileRoutes(
 
     if (!fileRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -55,7 +55,7 @@ export function registerFileRoutes(
 
     if (!fileRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -77,7 +77,7 @@ export function registerFileRoutes(
 
     if (!fileRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -86,7 +86,7 @@ export function registerFileRoutes(
 
     if (!currentFile) {
       const { FileNotFoundException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 
@@ -276,7 +276,7 @@ export function registerFileRoutes(
 
     if (!fileRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -285,7 +285,7 @@ export function registerFileRoutes(
 
     if (!file) {
       const { FileNotFoundException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new FileNotFoundException(`File with ID ${id} not found`);
     }
 

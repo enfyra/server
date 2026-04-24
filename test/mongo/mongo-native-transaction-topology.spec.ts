@@ -1,4 +1,4 @@
-import { mongoTopologySupportsNativeTransactions } from '../../src/infrastructure/mongo/utils/mongo-native-transaction-topology.util';
+import { mongoTopologySupportsNativeTransactions } from '../../src/engine/mongo/utils/mongo-native-transaction-topology.util';
 
 describe('mongoTopologySupportsNativeTransactions', () => {
   it('returns true when hello has non-empty setName (replica set)', () => {

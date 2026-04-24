@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter2 } from 'eventemitter2';
-import { RELOAD_CHAINS } from '../../src/infrastructure/cache/services/cache-orchestrator.service';
+import { RELOAD_CHAINS } from '../../src/engine/cache/services/cache-orchestrator.service';
 import {
   CACHE_INVALIDATION_MAP,
   CACHE_IDENTIFIERS,

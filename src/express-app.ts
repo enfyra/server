@@ -4,7 +4,7 @@ import qs from 'qs';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from './container';
 import { buildRequestScope } from './container';
-import { globalExceptionMiddleware } from './core/exceptions/filters/global-exception.filter';
+import { globalExceptionMiddleware } from './domain/exceptions/filters/global-exception.filter';
 
 import { routeDetectMiddleware } from './http/middleware/route-detect.middleware';
 import { notFoundDetectMiddleware } from './http/middleware/not-found-detect.middleware';
@@ -83,15 +83,12 @@ export function buildExpressApp(container: AwilixContainer<Cradle>) {
   });
   app.use(
     routeDetectMiddleware(
-      c.envService.get('SECRET_KEY'),
       c.routeCacheService,
       c.repoRegistryService,
-      c.cacheService,
-      c.bcryptService,
       c.uploadFileHelper,
-      c.dynamicWebSocketGateway,
       c.rateLimitService,
       c.flowService,
+      c.dynamicContextFactory,
     ),
   );
   app.use((req: any, _res: any, next: any) => {

@@ -2,7 +2,7 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
-} from '../../src/infrastructure/query-builder/utils/mongo/batch-relation-fetcher';
+} from '../../src/engine/query-builder/utils/mongo/batch-relation-fetcher';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||
@@ -721,7 +721,7 @@ describe('mongo-batch-relation-fetcher', () => {
     });
 
     it('should dedupe FK values when many parents share same FK', async () => {
-      const docs = Array.from({ length: 50 }, (_, i) => ({
+      const docs = Array.from({ length: 50 }, (_) => ({
         _id: new ObjectId(),
         author: userIds[0],
       }));

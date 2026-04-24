@@ -1,8 +1,8 @@
-import { GuardEvaluatorService } from '../../src/infrastructure/cache/services/guard-evaluator.service';
+import { GuardEvaluatorService } from '../../src/engine/cache/services/guard-evaluator.service';
 import type {
   GuardNode,
   GuardRuleNode,
-} from '../../src/infrastructure/cache/services/guard-cache.service';
+} from '../../src/engine/cache/services/guard-cache.service';
 
 class MockRateLimitService {
   results = new Map<

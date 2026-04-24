@@ -1,5 +1,5 @@
-import { BadRequestException } from '../../../core/exceptions/custom-exceptions';
-import { QueryBuilderService } from '../../../infrastructure/query-builder/query-builder.service';
+import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
+import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
 
 export class DynamicApiTableValidationService {
   private readonly queryBuilderService: QueryBuilderService;
@@ -29,7 +29,7 @@ export class DynamicApiTableValidationService {
   private async assertSingleRecordRule(
     operation: 'create' | 'update' | 'delete',
     tableName: string,
-    tableMetadata: any,
+    _tableMetadata: any,
   ) {
     const { data: existingResult } = await this.queryBuilderService.find({
       table: tableName,

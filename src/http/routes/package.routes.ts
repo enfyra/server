@@ -1,8 +1,9 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { CACHE_EVENTS } from '../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../shared/utils/constant';
+import { getErrorMessage } from '../../shared/utils/error.util';
 
 export function registerPackageRoutes(
   app: Express,
@@ -25,13 +26,13 @@ export function registerPackageRoutes(
 
     if (!body.name) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Package name is required');
     }
 
     if (!body.type) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Package type is required (App or Server)');
     }
 
@@ -41,7 +42,7 @@ export function registerPackageRoutes(
 
     if (!packageRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -51,7 +52,7 @@ export function registerPackageRoutes(
 
     if (existingPackages.data && existingPackages.data.length > 0) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException(
         `Package ${body.name} (${body.type}) already installed`,
       );
@@ -125,7 +126,7 @@ export function registerPackageRoutes(
 
     if (!packageRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -134,7 +135,7 @@ export function registerPackageRoutes(
 
     if (!packageRecord) {
       const { ResourceNotFoundException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ResourceNotFoundException(`Package with ID ${id} not found`);
     }
 
@@ -195,7 +196,7 @@ export function registerPackageRoutes(
 
     if (!packageRepo) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Repository not found in context');
     }
 
@@ -204,13 +205,13 @@ export function registerPackageRoutes(
 
     if (!packageRecord) {
       const { ResourceNotFoundException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ResourceNotFoundException(`Package with ID ${id} not found`);
     }
 
     if (packageRecord.isSystem) {
       const { ValidationException } =
-        await import('../../core/exceptions/custom-exceptions');
+        await import('../../domain/exceptions/custom-exceptions');
       throw new ValidationException('Cannot uninstall system packages');
     }
 
@@ -288,7 +289,7 @@ async function executeCdnLoad(
 
     emitEvent(websocketGateway, 'installed', { id, name, version });
   } catch (error) {
-    const errorDetail = error?.message || String(error);
+    const errorDetail = getErrorMessage(error);
     console.error(`CDN load failed for ${name}: ${errorDetail}`);
 
     await updateStatus(queryBuilder, id, 'failed', { lastError: errorDetail });
@@ -323,7 +324,7 @@ async function executeCdnUpdate(
 
     emitEvent(websocketGateway, 'installed', { id, name, version: newVersion });
   } catch (error) {
-    const errorDetail = error?.message || String(error);
+    const errorDetail = getErrorMessage(error);
     console.error(`CDN update failed for ${name}: ${errorDetail}`);
 
     await updateStatus(queryBuilder, id, 'failed', { lastError: errorDetail });

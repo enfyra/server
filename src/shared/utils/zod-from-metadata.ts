@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TColumnRule } from '../../infrastructure/cache/services/column-rule-cache.service';
+import { TColumnRule } from '../../engine/cache/services/column-rule-cache.service';
 
 export const ZOD_META_MAX_DEPTH = 10;
 

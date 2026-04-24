@@ -127,19 +127,6 @@
                     "_eq": "GQL_MUTATION"
                 }
             }
-        },
-        {
-            "table": "relation_definition",
-            "filter": {
-                "propertyName": {
-                    "_eq": "handlers"
-                },
-                "sourceTable": {
-                    "name": {
-                        "_eq": "method_definition"
-                    }
-                }
-            }
         }
     ],
     "menu_definition": [
@@ -184,6 +171,16 @@
                     }
                 ]
             }
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/settings/routings"
+                }
+            },
+            "label": "Routes",
+            "path": "/settings/routes",
+            "description": "Route management"
         }
     ],
     "post_hook_definition": [
@@ -242,6 +239,23 @@
             },
             "publishedMethods": [
                 "POST"
+            ]
+        },
+        {
+            "_unique": {
+                "path": {
+                    "_eq": "/auth/providers"
+                }
+            },
+            "mainTable": "user_definition",
+            "isEnabled": true,
+            "isSystem": true,
+            "icon": "lucide:route",
+            "publishedMethods": [
+                "GET"
+            ],
+            "availableMethods": [
+                "GET"
             ]
         },
         {
@@ -657,35 +671,55 @@
     "gql_definition": [
         {
             "_unique": {
-                "table": { "name": { "_eq": "table_definition" } }
+                "table": {
+                    "name": {
+                        "_eq": "table_definition"
+                    }
+                }
             },
             "isEnabled": true,
             "isSystem": true
         },
         {
             "_unique": {
-                "table": { "name": { "_eq": "user_definition" } }
+                "table": {
+                    "name": {
+                        "_eq": "user_definition"
+                    }
+                }
             },
             "isEnabled": true,
             "isSystem": true
         },
         {
             "_unique": {
-                "table": { "name": { "_eq": "role_definition" } }
+                "table": {
+                    "name": {
+                        "_eq": "role_definition"
+                    }
+                }
             },
             "isEnabled": true,
             "isSystem": true
         },
         {
             "_unique": {
-                "table": { "name": { "_eq": "setting_definition" } }
+                "table": {
+                    "name": {
+                        "_eq": "setting_definition"
+                    }
+                }
             },
             "isEnabled": true,
             "isSystem": true
         },
         {
             "_unique": {
-                "table": { "name": { "_eq": "folder_definition" } }
+                "table": {
+                    "name": {
+                        "_eq": "folder_definition"
+                    }
+                }
             },
             "isEnabled": true,
             "isSystem": true
@@ -693,7 +727,11 @@
     ],
     "table_definition": [
         {
-            "_unique": { "name": { "_eq": "file_definition" } },
+            "_unique": {
+                "name": {
+                    "_eq": "file_definition"
+                }
+            },
             "validateBody": false
         }
     ]

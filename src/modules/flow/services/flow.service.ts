@@ -1,12 +1,13 @@
 import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
-import { FlowCacheService } from '../../../infrastructure/cache/services/flow-cache.service';
+import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
 import { FlowJobData } from '../../../shared/types/flow.types';
-import { ExecutorEngineService } from '../../../infrastructure/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../infrastructure/cache/services/repo-registry.service';
-import { TDynamicContext } from '../../../shared/types';
-import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
+import { getErrorMessage } from '../../../shared/utils/error.util';
+import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
 import { executeStepCore } from '../utils/step-executor.util';
+import { SocketEmitCapture } from '../../websocket/services/websocket-context.factory';
+import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
 
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);
@@ -14,17 +15,20 @@ export class FlowService {
   private readonly flowCacheService: FlowCacheService;
   private readonly executorEngineService: ExecutorEngineService;
   private readonly repoRegistryService: RepoRegistryService;
+  private readonly dynamicContextFactory: DynamicContextFactory;
 
   constructor(deps: {
     flowQueue: Queue;
     flowCacheService: FlowCacheService;
     executorEngineService: ExecutorEngineService;
     repoRegistryService: RepoRegistryService;
+    dynamicContextFactory: DynamicContextFactory;
   }) {
     this.flowQueue = deps.flowQueue;
     this.flowCacheService = deps.flowCacheService;
     this.executorEngineService = deps.executorEngineService;
     this.repoRegistryService = deps.repoRegistryService;
+    this.dynamicContextFactory = deps.dynamicContextFactory;
   }
 
   async trigger(
@@ -78,9 +82,11 @@ export class FlowService {
     error?: string;
     duration: number;
     flowContext?: any;
+    emitted?: SocketEmitCapture;
   }> {
     const startTime = Date.now();
     const logs: any[] = [];
+    const emitted: SocketEmitCapture = [];
 
     const flowContext: any = {
       $payload: mockFlow?.$payload || {},
@@ -89,18 +95,12 @@ export class FlowService {
       ...(mockFlow || {}),
     };
 
-    const ctx: TDynamicContext = {
-      $body: {},
-      $query: {},
-      $params: {},
-      $user: null,
-      $repos: {},
-      $throw: ScriptErrorFactory.createThrowHandlers(),
-      $helpers: {},
-      $cache: {},
-      $share: { $logs: logs },
-      $logs: (...args: any[]) => logs.push(...args),
-    };
+    const ctx = this.dynamicContextFactory.createFlowTest({
+      payload: {},
+      user: null,
+      share: { $logs: logs },
+      emitted,
+    });
 
     ctx.$repos = this.repoRegistryService.createReposProxy(ctx);
     (ctx as any).$flow = flowContext;
@@ -158,12 +158,14 @@ export class FlowService {
         result,
         duration: Date.now() - startTime,
         flowContext,
+        emitted,
       };
     } catch (error) {
       return {
         success: false,
-        error: error.message,
+        error: getErrorMessage(error),
         duration: Date.now() - startTime,
+        emitted,
       };
     }
   }

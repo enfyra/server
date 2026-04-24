@@ -55,6 +55,7 @@ export interface QueryOptions {
   mongoRawFilter?: any; // Raw filter to be processed after $lookup
   mongoCountOnly?: boolean; // Return count instead of data (for filterCount with relation filters)
   plan?: any;
+  deep?: Record<string, any>;
 }
 
 export interface InsertOptions {

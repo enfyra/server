@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { whereToMongoFilter } from '../../src/infrastructure/query-builder/utils/mongo/filter-builder';
-import { applyWhereToKnex } from '../../src/infrastructure/query-builder/utils/sql/sql-where-builder';
+import { whereToMongoFilter } from '../../src/engine/query-builder/utils/mongo/filter-builder';
+import { applyWhereToKnex } from '../../src/engine/query-builder/utils/sql/sql-where-builder';
 import type { WhereCondition } from '../../src/shared/types/query-builder.types';
 
 // All 16 operators from WhereOperator union — must cover every one.

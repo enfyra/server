@@ -1,4 +1,4 @@
-import { encodeMainThreadToIsolate } from '../../src/infrastructure/executor-engine/services/isolated-executor.service';
+import { encodeMainThreadToIsolate } from '../../src/engine/executor-engine/services/isolated-executor.service';
 
 function unwrapMain(v: unknown): unknown {
   if (

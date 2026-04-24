@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
-import { PolicyService } from '../../core/policy/policy.service';
-import { isPolicyDeny } from '../../core/policy/policy.types';
-import { UnauthorizedException } from '../../core/exceptions/custom-exceptions';
+import { Response, NextFunction } from 'express';
+import { PolicyService } from '../../domain/policy/policy.service';
+import { isPolicyDeny } from '../../domain/policy/policy.types';
+import { UnauthorizedException } from '../../domain/exceptions/custom-exceptions';
 
 export function roleGuardMiddleware(policyService: PolicyService) {
   return async (req: any, res: Response, next: NextFunction) => {

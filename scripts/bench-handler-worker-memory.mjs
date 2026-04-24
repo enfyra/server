@@ -7,7 +7,7 @@ import v8 from 'v8';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_SCRIPT = path.join(
   __dirname,
-  '../src/infrastructure/executor-engine/workers/executor.worker.js',
+  '../src/engine/executor-engine/workers/executor.worker.js',
 );
 
 function isolateMemoryLimitMbFromTotalBytes(totalBytes) {
