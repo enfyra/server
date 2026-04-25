@@ -284,9 +284,12 @@ export class CacheOrchestratorService implements LifecycleAware {
     }
 
     if (this.reloadLock) {
-      await this.reloadLock;
+      try {
+        await this.reloadLock;
+      } catch {}
     }
 
+    let elapsed = 0;
     this.reloadLock = (async () => {
       const start = Date.now();
       const stepTimings: string[] = [];
@@ -317,21 +320,23 @@ export class CacheOrchestratorService implements LifecycleAware {
         stepTimings.push(`graphql:${Date.now() - s}ms`);
       }
 
-      const elapsed = Date.now() - start;
+      elapsed = Date.now() - start;
       this.logger.log(
         `${payload.scope === 'partial' ? 'Partial' : 'Full'} chain [${stepTimings.join(' → ')}] for ${payload.table} in ${elapsed}ms`,
       );
+    })();
 
+    try {
+      await this.reloadLock;
+    } finally {
+      this.reloadLock = null;
       if (publish) {
         if (elapsed < 500) {
           await new Promise((r) => setTimeout(r, 500 - elapsed));
         }
         this.notifyClients('done', flow, chain);
       }
-    })();
-
-    await this.reloadLock;
-    this.reloadLock = null;
+    }
   }
 
   private resolveFlowName(chain: string[]): string {
@@ -566,9 +571,9 @@ export class CacheOrchestratorService implements LifecycleAware {
             this.processedVersions.delete(first);
           }
           this.logger.log(
-            `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.tableName} (${signal.payload?.scope || 'full'})`,
+            `Redis signal from ${signal.instanceId.slice(0, 8)}: ${signal.payload?.table} (${signal.payload?.scope || 'full'})`,
           );
-          if (signal.payload?.tableName === '__admin_reload_all') {
+          if (signal.payload?.table === '__admin_reload_all') {
             await this.reloadAllLocal();
           } else {
             await this.executeChain(signal.payload, false);
