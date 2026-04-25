@@ -361,6 +361,7 @@ export class SqlTableHandlerService {
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable ?? true,
             isPublished: rel.isPublished ?? true,
+            onDelete: rel.onDelete || 'SET NULL',
             description: rel.description,
             sourceTableId: tableId,
           };
@@ -448,6 +449,7 @@ export class SqlTableHandlerService {
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable ?? true,
             isPublished: rel.isPublished ?? true,
+            onDelete: rel.onDelete || 'SET NULL',
           };
           if (inverseType === 'many-to-many') {
             inverseData.junctionTableName = inserted.junctionTableName;

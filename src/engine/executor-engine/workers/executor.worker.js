@@ -1,6 +1,8 @@
 'use strict';
 
 const { parentPort } = require('worker_threads');
+const { fork } = require('child_process');
+const path = require('path');
 
 let ivm;
 try {
@@ -12,6 +14,10 @@ try {
 
 const pendingCallbacks = new Map();
 let callbackCounter = 0;
+const taskPackages = new Map();
+const pendingPackageRuntimeCalls = new Map();
+let packageRuntimeChild = null;
+let packageRuntimeCounter = 0;
 
 const SCRIPT_CACHE_MAX = 500;
 const HEAP_SAMPLE_INTERVAL_MS = 5_000;
@@ -123,6 +129,109 @@ function callMain(taskId, type, data) {
 
 function fireMain(taskId, type, data) {
   parentPort.postMessage({ type, id: taskId, callId: `f_${++callbackCounter}`, ...data });
+}
+
+function rejectPendingPackageRuntimeCalls(error) {
+  for (const pending of pendingPackageRuntimeCalls.values()) {
+    pending.reject(error);
+  }
+  pendingPackageRuntimeCalls.clear();
+}
+
+function getPackageRuntimeChild() {
+  if (packageRuntimeChild && packageRuntimeChild.connected) {
+    return packageRuntimeChild;
+  }
+
+  const childPath = path.join(__dirname, 'package-runtime.child.js');
+  const child = fork(childPath, [], {
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+  });
+  packageRuntimeChild = child;
+
+  child.on('message', (msg) => {
+    if (!msg || !msg.id) return;
+    const pending = pendingPackageRuntimeCalls.get(msg.id);
+    if (!pending) return;
+    pendingPackageRuntimeCalls.delete(msg.id);
+    if (msg.ok) {
+      pending.resolve(msg.value);
+    } else {
+      const error = new Error(msg.error?.message || 'Package runtime call failed');
+      error.stack = msg.error?.stack || error.stack;
+      pending.reject(error);
+    }
+  });
+
+  child.on('exit', (code, signal) => {
+    if (packageRuntimeChild === child) packageRuntimeChild = null;
+    rejectPendingPackageRuntimeCalls(
+      new Error(`Package runtime exited${signal ? ` with signal ${signal}` : ` with code ${code}`}`),
+    );
+  });
+
+  child.on('error', (error) => {
+    if (packageRuntimeChild === child) packageRuntimeChild = null;
+    rejectPendingPackageRuntimeCalls(error);
+  });
+
+  return child;
+}
+
+function callPackageRuntime(payload) {
+  return new Promise((resolve, reject) => {
+    const child = getPackageRuntimeChild();
+    const id = `pkg_${++packageRuntimeCounter}`;
+    pendingPackageRuntimeCalls.set(id, { resolve, reject });
+    try {
+      child.send({ ...payload, id }, (error) => {
+        if (!error) return;
+        pendingPackageRuntimeCalls.delete(id);
+        reject(error);
+      });
+    } catch (error) {
+      pendingPackageRuntimeCalls.delete(id);
+      reject(error);
+    }
+  });
+}
+
+function firePackageRuntime(payload) {
+  try {
+    if (!packageRuntimeChild || !packageRuntimeChild.connected) return;
+    const child = packageRuntimeChild;
+    child.send({ ...payload, id: `pkg_${++packageRuntimeCounter}`, fire: true });
+  } catch {}
+}
+
+async function executePackageRuntimeCall(taskId, data) {
+  const packages = taskPackages.get(taskId);
+  if (!packages) throw new Error('Package context is not available');
+
+  if (data.handleId) {
+    return callPackageRuntime({
+      op: 'handleCall',
+      taskId,
+      handleId: data.handleId,
+      path: data.path || [],
+      argsJson: data.argsJson || '[]',
+    });
+  }
+
+  const pkg = packages.get(data.packageName);
+  if (!pkg) throw new Error(`Package "${data.packageName}" is not available`);
+
+  return callPackageRuntime({
+    op: data.kind === 'construct' ? 'construct' : 'call',
+    taskId,
+    packageName: data.packageName,
+    package: {
+      name: pkg.name,
+      fileUrl: pkg.fileUrl,
+    },
+    path: data.path || [],
+    argsJson: data.argsJson || '[]',
+  });
 }
 
 async function loadEsmPackageIntoContext(isolate, context, sourceCode, safeName) {
@@ -249,6 +358,55 @@ $ctx.$logs = (...args) => {
 $ctx.$share = $ctx.$share || {};
 $ctx.$share.$logs = __logs;
 
+function __createPkgHandleProxy(handlePromise, path) {
+  const fn = function (...args) {
+    return handlePromise.then((handleId) =>
+      __call('pkgCall', JSON.stringify({ handleId, path, argsJson: JSON.stringify(args), kind: 'call' })),
+    );
+  };
+  return new Proxy(fn, {
+    get: (_, prop) => {
+      if (prop === 'then') return undefined;
+      if (prop === '__pkgHandlePromise') return handlePromise;
+      return __createPkgHandleProxy(handlePromise, path.concat(String(prop)));
+    },
+    apply: async (_target, _thisArg, args) => {
+      const handleId = await handlePromise;
+      return __call('pkgCall', JSON.stringify({ handleId, path, argsJson: JSON.stringify(args), kind: 'call' }));
+    }
+  });
+}
+
+function __wrapPkgValue(value) {
+  if (value && typeof value === 'object' && value.__pkgHandle) {
+    return __createPkgHandleProxy(Promise.resolve(value.__pkgHandle), []);
+  }
+  return value;
+}
+
+function __createPkgProxy(packageName, path) {
+  const fn = function (...args) {
+    return __call('pkgCall', JSON.stringify({ packageName, path, argsJson: JSON.stringify(args), kind: 'call' }))
+      .then(__wrapPkgValue);
+  };
+  return new Proxy(fn, {
+    get: (_, prop) => {
+      if (prop === 'then') return undefined;
+      return __createPkgProxy(packageName, path.concat(String(prop)));
+    },
+    apply: async (_target, _thisArg, args) =>
+      __wrapPkgValue(await __call('pkgCall', JSON.stringify({ packageName, path, argsJson: JSON.stringify(args), kind: 'call' }))),
+    construct: (_target, args) => {
+      const handlePromise = __call('pkgCall', JSON.stringify({ packageName, path, argsJson: JSON.stringify(args), kind: 'construct' }))
+        .then((value) => {
+          if (!value || !value.__pkgHandle) throw new Error('Package constructor did not return a handle');
+          return value.__pkgHandle;
+        });
+      return __createPkgHandleProxy(handlePromise, []);
+    }
+  });
+}
+
 const require = (name) => {
   if ($pkgs[name] === undefined) throw new Error('Module "' + name + '" is not available. Install it via Settings \\u2192 Packages');
   return $pkgs[name];
@@ -268,13 +426,21 @@ async function prepareContext(isolate, id, pkgSources, snapshot) {
   await jail.set('global', jail.derefInto());
 
   const loadedPkgNames = [];
+  const proxiedPkgNames = [];
+  const packageMap = new Map();
   for (const pkg of pkgSources) {
-    const pkgVal = await loadEsmPackageIntoContext(isolate, context, pkg.sourceCode, pkg.safeName);
+    packageMap.set(pkg.name, pkg);
+    const pkgVal = pkg.sourceCode
+      ? await loadEsmPackageIntoContext(isolate, context, pkg.sourceCode, pkg.safeName)
+      : null;
     if (pkgVal !== null) {
       await jail.set(`__pkg_${pkg.safeName}`, pkgVal);
       loadedPkgNames.push(pkg);
+    } else {
+      proxiedPkgNames.push(pkg);
     }
   }
+  taskPackages.set(id, packageMap);
 
   await jail.set('__snapshot', new ivm.ExternalCopy(snapshot).copyInto());
 
@@ -282,6 +448,9 @@ async function prepareContext(isolate, id, pkgSources, snapshot) {
     '__callRef',
     new ivm.Reference(async (type, dataJson) => {
       const data = JSON.parse(dataJson);
+      if (type === 'pkgCall') {
+        return JSON.stringify(await executePackageRuntimeCall(id, data));
+      }
       return callMain(id, type, data);
     }),
   );
@@ -296,6 +465,11 @@ async function prepareContext(isolate, id, pkgSources, snapshot) {
 
   const pkgSetupLines = loadedPkgNames
     .map((p) => `$pkgs[${JSON.stringify(p.name)}] = __pkg_${p.safeName};`)
+    .concat(
+      proxiedPkgNames.map(
+        (p) => `$pkgs[${JSON.stringify(p.name)}] = __createPkgProxy(${JSON.stringify(p.name)}, []);`,
+      ),
+    )
     .join('\n');
 
   const setupCode = SETUP_CODE_TEMPLATE.replace('%%PKG_SETUP%%', pkgSetupLines);
@@ -391,6 +565,8 @@ async function handleExecute(msg) {
     await postResultMessage({ type: 'result', id, success: true, ...result });
   } catch (error) {
     await postError(id, error);
+  } finally {
+    cleanupTaskPackages(id);
   }
 }
 
@@ -554,8 +730,25 @@ if ($ctx.$api) {
     await postResultMessage({ type: 'result', id, success: true, ...out });
   } catch (error) {
     await postError(id, error);
+  } finally {
+    cleanupTaskPackages(id);
   }
 }
+
+function cleanupTaskPackages(taskId) {
+  taskPackages.delete(taskId);
+  firePackageRuntime({ op: 'releaseTask', taskId });
+}
+
+function shutdownPackageRuntime() {
+  if (!packageRuntimeChild) return;
+  try {
+    packageRuntimeChild.kill();
+  } catch {}
+  packageRuntimeChild = null;
+}
+
+process.on('exit', shutdownPackageRuntime);
 
 async function extractFinalResult(isolate, context, overrideValue) {
   if (overrideValue !== undefined) {

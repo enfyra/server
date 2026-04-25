@@ -353,6 +353,7 @@ export class MongoTableHandlerService {
                   isSystem: rel.isSystem || false,
                   isUpdatable: rel.isUpdatable ?? true,
                   isPublished: rel.isPublished ?? true,
+                  onDelete: rel.onDelete || 'SET NULL',
                   description: rel.description,
                 };
                 if (
@@ -429,6 +430,7 @@ export class MongoTableHandlerService {
                     isSystem: false,
                     isUpdatable: rel.isUpdatable ?? true,
                     isPublished: rel.isPublished ?? true,
+                    onDelete: rel.onDelete || 'SET NULL',
                   };
                   if (rel.type === 'many-to-many') {
                     const invTargetName =
@@ -932,6 +934,7 @@ export class MongoTableHandlerService {
               isSystem: rel.isSystem || false,
               isUpdatable: rel.isUpdatable ?? true,
               isPublished: rel.isPublished ?? true,
+              onDelete: rel.onDelete || 'SET NULL',
               description: rel.description,
             };
             const targetRelName = resolvedTargetTableName;
@@ -1035,6 +1038,7 @@ export class MongoTableHandlerService {
                 isSystem: false,
                 isUpdatable: rel.isUpdatable ?? true,
                 isPublished: rel.isPublished ?? true,
+                onDelete: rel.onDelete || 'SET NULL',
               };
               if (rel.type === 'many-to-many' && targetRelName) {
                 const junctionTableName = getJunctionTableName(

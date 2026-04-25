@@ -65,7 +65,9 @@ export class PackageCacheService extends BaseCacheService<string[]> {
 
   private emitEvent(event: string, data: any) {
     try {
-      this.lazyRef.dynamicWebSocketGateway?.emitToNamespace(
+      const gateway = this.lazyRef.dynamicWebSocketGateway;
+      if (!gateway?.server) return;
+      gateway.emitToNamespace(
         ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
         `${SYSTEM_EVENT_PREFIX}:${event}`,
         data,
@@ -100,12 +102,14 @@ export class PackageCacheService extends BaseCacheService<string[]> {
     const toPreload = packagesWithMeta.filter(
       (pkg) =>
         !this.packageCdnLoaderService.isLoaded(pkg.name) &&
-        (pkg.status === 'installed' || pkg.status === 'failed'),
+        ['installed', 'failed', 'installing', 'updating'].includes(pkg.status),
     );
 
     if (toPreload.length === 0) return;
 
-    const retryCount = toPreload.filter((p) => p.status === 'failed').length;
+    const retryCount = toPreload.filter((p) =>
+      ['failed', 'installing', 'updating'].includes(p.status),
+    ).length;
     this.logger.log(
       `Preloading ${toPreload.length} packages from CDN${retryCount ? ` (${retryCount} retrying)` : ''}...`,
     );

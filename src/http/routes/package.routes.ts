@@ -220,7 +220,6 @@ export function registerPackageRoutes(
     }
 
     const result = await packageRepo.delete({ id });
-    invalidatePackageCache(eventEmitter);
 
     emitEvent(websocketGateway, 'uninstalled', {
       id,
@@ -232,7 +231,7 @@ export function registerPackageRoutes(
 
 function invalidatePackageCache(eventEmitter: any) {
   eventEmitter.emit(CACHE_EVENTS.INVALIDATE, {
-    tableName: 'package_definition',
+    table: 'package_definition',
     action: 'reload',
     scope: 'full',
     timestamp: Date.now(),
@@ -242,6 +241,7 @@ function invalidatePackageCache(eventEmitter: any) {
 function emitEvent(websocketGateway: any, event: string, data: any) {
   try {
     const SYSTEM_EVENT_PREFIX = '$system:package';
+    if (!websocketGateway?.server) return;
     websocketGateway.emitToNamespace(
       ENFYRA_ADMIN_WEBSOCKET_NAMESPACE,
       `${SYSTEM_EVENT_PREFIX}:${event}`,
@@ -293,6 +293,7 @@ async function executeCdnLoad(
     console.error(`CDN load failed for ${name}: ${errorDetail}`);
 
     await updateStatus(queryBuilder, id, 'failed', { lastError: errorDetail });
+    invalidatePackageCache(eventEmitter);
 
     emitEvent(websocketGateway, 'failed', {
       id,
@@ -328,6 +329,7 @@ async function executeCdnUpdate(
     console.error(`CDN update failed for ${name}: ${errorDetail}`);
 
     await updateStatus(queryBuilder, id, 'failed', { lastError: errorDetail });
+    invalidatePackageCache(eventEmitter);
 
     emitEvent(websocketGateway, 'failed', {
       id,
