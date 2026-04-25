@@ -11,11 +11,18 @@ export function registerMetadataRoutes(
     const metadataCacheService =
       req.scope?.cradle?.metadataCacheService ??
       container.cradle.metadataCacheService;
+    const databaseConfigService =
+      req.scope?.cradle?.databaseConfigService ??
+      container.cradle.databaseConfigService;
     const metadata = await metadataCacheService.getMetadata();
     if (!metadata) {
       throw new NotFoundException('Metadata not available');
     }
-    res.json({ data: metadata.tablesList });
+    res.json({
+      data: metadata.tablesList,
+      dbType: databaseConfigService.getDbType(),
+      pkField: databaseConfigService.getPkField(),
+    });
   });
 
   app.get('/metadata/:name', async (req: any, res: Response) => {

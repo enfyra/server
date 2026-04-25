@@ -174,6 +174,7 @@ export class SqlTableMetadataWriterService {
           isSystem: rel.isSystem || false,
           isUpdatable: rel.isUpdatable ?? true,
           isPublished: rel.isPublished ?? true,
+          onDelete: rel.onDelete || 'SET NULL',
           description: rel.description,
           sourceTableId: id,
         };
@@ -297,6 +298,7 @@ export class SqlTableMetadataWriterService {
             isSystem: rel.isSystem || false,
             isUpdatable: rel.isUpdatable ?? true,
             isPublished: rel.isPublished ?? true,
+            onDelete: rel.onDelete || 'SET NULL',
           };
           if (rel.type === 'many-to-many') {
             const owningRel = await queryRunner('relation_definition')

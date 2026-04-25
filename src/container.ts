@@ -161,6 +161,7 @@ export interface Cradle {
   redis: Redis;
 
   commonService: CommonService;
+  databaseConfigService: DatabaseConfigService;
   instanceService: InstanceService;
   dynamicContextFactory: DynamicContextFactory;
   configService: any;
