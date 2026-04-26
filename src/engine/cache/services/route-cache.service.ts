@@ -3,7 +3,10 @@ import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import { EnfyraRouteEngine } from '../../../shared/utils/enfyra-route-engine';
-import { transformCode } from '../../../domain/shared/code-transformer';
+import {
+  normalizeScriptRecord,
+  resolveExecutableScript,
+} from '../../../domain/shared/script-code.util';
 import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
@@ -185,7 +188,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
         this.globalPostHooks,
         isMongoDB,
       );
-      this.transformRouteCode(route);
+      await this.transformRouteCode(route);
     }
 
     const routeIdSet = new Set(routeIds.map(String));
@@ -341,7 +344,7 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     for (const route of routes) {
       this.mergeHooks(route, globalPreHooks, globalPostHooks, isMongoDB);
 
-      this.transformRouteCode(route);
+      await this.transformRouteCode(route);
     }
 
     return { routes, methods: this.allMethods };
@@ -357,12 +360,15 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
       sort: ['priority'],
     });
 
-    return result.data.map((hook: any) => {
-      if (hook.code) {
-        hook.code = transformCode(hook.code);
+    return Promise.all(result.data.map(async (hook: any) => {
+      const normalized = normalizeScriptRecord(tableName, hook);
+      Object.assign(hook, normalized);
+      const code = await this.resolveAndRepairScript(tableName, hook);
+      if (code) {
+        hook.code = code;
       }
       return hook;
-    });
+    }));
   }
 
   private mergeHooks(
@@ -402,30 +408,68 @@ export class RouteCacheService extends BaseCacheService<RouteData> {
     );
   }
 
-  private transformRouteCode(route: any): void {
+  private async transformRouteCode(route: any): Promise<void> {
     if (route.handlers && Array.isArray(route.handlers)) {
       for (const handler of route.handlers) {
-        if (handler.logic) {
-          handler.logic = transformCode(handler.logic);
+        const normalized = normalizeScriptRecord(
+          'route_handler_definition',
+          handler,
+        );
+        Object.assign(handler, normalized);
+        const code = await this.resolveAndRepairScript(
+          'route_handler_definition',
+          handler,
+        );
+        if (code) {
+          handler.logic = code;
         }
       }
     }
 
     if (route.preHooks && Array.isArray(route.preHooks)) {
       for (const hook of route.preHooks) {
-        if (hook.code) {
-          hook.code = transformCode(hook.code);
+        const normalized = normalizeScriptRecord('pre_hook_definition', hook);
+        Object.assign(hook, normalized);
+        const code = await this.resolveAndRepairScript(
+          'pre_hook_definition',
+          hook,
+        );
+        if (code) {
+          hook.code = code;
         }
       }
     }
 
     if (route.postHooks && Array.isArray(route.postHooks)) {
       for (const hook of route.postHooks) {
-        if (hook.code) {
-          hook.code = transformCode(hook.code);
+        const normalized = normalizeScriptRecord('post_hook_definition', hook);
+        Object.assign(hook, normalized);
+        const code = await this.resolveAndRepairScript(
+          'post_hook_definition',
+          hook,
+        );
+        if (code) {
+          hook.code = code;
         }
       }
     }
+  }
+
+  private async resolveAndRepairScript(
+    tableName: string,
+    record: any,
+  ): Promise<string | null> {
+    const result = resolveExecutableScript(record);
+    if (result.shouldPersistCompiledCode) {
+      record.compiledCode = result.compiledCode;
+      const id = DatabaseConfigService.getRecordId(record);
+      if (id != null) {
+        await this.queryBuilderService.update(tableName, id, {
+          compiledCode: result.compiledCode,
+        });
+      }
+    }
+    return result.code;
   }
 
   protected transformData(data: {

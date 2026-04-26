@@ -1,5 +1,6 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { normalizeScriptRecord } from '../../shared/script-code.util';
 
 export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {
@@ -16,7 +17,7 @@ export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
         if (!transformed.createdAt) transformed.createdAt = now;
         if (!transformed.updatedAt) transformed.updatedAt = now;
       }
-      return transformed;
+      return normalizeScriptRecord('bootstrap_script_definition', transformed);
     });
   }
   getUniqueIdentifier(record: any): object {
@@ -26,7 +27,9 @@ export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
     return [
       'name',
       'description',
-      'logic',
+      'sourceCode',
+      'scriptLanguage',
+      'compiledCode',
       'timeout',
       'priority',
       'isEnabled',

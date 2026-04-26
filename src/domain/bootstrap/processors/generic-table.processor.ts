@@ -101,7 +101,12 @@ export class GenericTableProcessor extends BaseTableProcessor {
       role_definition: ['name', 'description'],
       setting_definition: ['projectName', 'projectDescription', 'projectUrl'],
       route_permission_definition: ['isEnabled'],
-      route_handler_definition: ['description', 'logic'],
+      route_handler_definition: [
+        'description',
+        'sourceCode',
+        'scriptLanguage',
+        'compiledCode',
+      ],
       extension_definition: [
         'name',
         'type',

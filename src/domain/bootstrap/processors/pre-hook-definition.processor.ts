@@ -3,6 +3,7 @@ import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
 import { getJunctionColumnNames } from '../../query-dsl/utils/sql-schema-naming.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { normalizeScriptRecord } from '../../shared/script-code.util';
 
 export class PreHookDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -29,6 +30,9 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
         }
         if (transformedHook.code === undefined) {
           transformedHook.code = null;
+        }
+        if (transformedHook.sourceCode === undefined) {
+          transformedHook.sourceCode = transformedHook.code;
         }
         if (transformedHook.description === undefined) {
           transformedHook.description = null;
@@ -108,7 +112,7 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
             delete transformedHook.methods;
           }
         }
-        return transformedHook;
+        return normalizeScriptRecord('pre_hook_definition', transformedHook);
       }),
     );
     return transformedRecords.filter(Boolean);
@@ -159,7 +163,9 @@ export class PreHookDefinitionProcessor extends BaseTableProcessor {
     return [
       'name',
       'description',
-      'code',
+      'sourceCode',
+      'scriptLanguage',
+      'compiledCode',
       'timeout',
       'priority',
       'isEnabled',

@@ -1,6 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { normalizeScriptRecord } from '../../shared/script-code.util';
 
 export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -58,7 +59,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
           if (!handler.createdAt) handler.createdAt = now;
           if (!handler.updatedAt) handler.updatedAt = now;
         }
-        return handler;
+        return normalizeScriptRecord('route_handler_definition', handler);
       }),
     );
     return transformedRecords.filter(Boolean);
@@ -70,7 +71,7 @@ export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
     };
   }
   protected getCompareFields(): string[] {
-    return ['name', 'logic', 'timeout', 'isEnabled'];
+    return ['name', 'sourceCode', 'scriptLanguage', 'compiledCode', 'timeout', 'isEnabled'];
   }
   protected getRecordIdentifier(record: any): string {
     return `[RouteHandler] ${record.name}`;

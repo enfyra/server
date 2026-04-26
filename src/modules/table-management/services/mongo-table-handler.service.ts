@@ -24,6 +24,7 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap/utils/canonical-table-route.util';
+import { compileScriptSource } from '../../../domain/shared/script-code.util';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
@@ -528,7 +529,12 @@ export class MongoTableHandlerService {
               await db.collection('route_handler_definition').insertOne({
                 route: newRouteId,
                 method: m._id,
-                logic: DEFAULT_REST_HANDLER_LOGIC[methodName],
+                sourceCode: DEFAULT_REST_HANDLER_LOGIC[methodName],
+                scriptLanguage: 'typescript',
+                compiledCode: compileScriptSource(
+                  DEFAULT_REST_HANDLER_LOGIC[methodName],
+                  'typescript',
+                ),
                 timeout: 30000,
                 createdAt: new Date(),
                 updatedAt: new Date(),

@@ -6,7 +6,10 @@ import {
   CACHE_EVENTS,
   CACHE_IDENTIFIERS,
 } from '../../../shared/utils/cache-events.constants';
-import { transformCode } from '../../../domain/shared/code-transformer';
+import {
+  normalizeScriptLanguage,
+  resolveExecutableScript,
+} from '../../../domain/shared/script-code.util';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
 
 export type {
@@ -41,19 +44,30 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
       fields: ['*', 'steps.*'],
     });
 
-    return flowsResult.data.map((flow: any) => {
+    const flows = [];
+    for (const flow of flowsResult.data) {
       const rawSteps = (flow.steps || [])
         .filter((s: any) => s.isEnabled)
         .sort((a: any, b: any) => (a.stepOrder || 0) - (b.stepOrder || 0));
 
-      const steps: FlowStep[] = rawSteps.map((step: any) => {
+      const steps: FlowStep[] = [];
+      for (const step of rawSteps) {
         if (
           (step.type === 'script' || step.type === 'condition') &&
-          step.config?.code
+          (step.config?.sourceCode || step.config?.code)
         ) {
-          step.config.code = transformCode(step.config.code);
+          step.config.sourceCode = step.config.sourceCode ?? step.config.code;
+          step.config.scriptLanguage = normalizeScriptLanguage(
+            step.config.scriptLanguage,
+          );
+          const result = resolveExecutableScript(step.config);
+          step.config.compiledCode = result.compiledCode;
+          step.config.code = result.code;
+          if (result.shouldPersistCompiledCode) {
+            await this.persistStepConfigRepair(step, idField);
+          }
         }
-        return {
+        steps.push({
           id: step[idField],
           key: step.key,
           stepOrder: step.stepOrder,
@@ -65,10 +79,10 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
           isEnabled: step.isEnabled,
           parentId: step.parentId || step.parent?.[idField] || null,
           branch: step.branch || null,
-        };
-      });
+        });
+      }
 
-      return {
+      flows.push({
         id: flow[idField],
         name: flow.name,
         description: flow.description,
@@ -79,7 +93,22 @@ export class FlowCacheService extends BaseCacheService<FlowDefinition[]> {
         maxExecutions: flow.maxExecutions || 100,
         isEnabled: flow.isEnabled,
         steps,
-      };
+      });
+    }
+
+    return flows;
+  }
+
+  private async persistStepConfigRepair(
+    step: any,
+    idField: string,
+  ): Promise<void> {
+    const id = step[idField];
+    if (id == null) return;
+    const config = { ...step.config };
+    delete config.code;
+    await this.queryBuilderService.update('flow_step_definition', id, {
+      config,
     });
   }
 

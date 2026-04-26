@@ -174,6 +174,7 @@ export class MetadataMigrationService {
 
     if (migration.columnsToRemove?.length > 0) {
       await this.removeColumnMetadata(
+        tableName,
         tableId,
         tableIdField,
         migration.columnsToRemove,
@@ -291,6 +292,7 @@ export class MetadataMigrationService {
   }
 
   private async removeColumnMetadata(
+    tableName: string,
     tableId: any,
     tableIdField: string,
     columns: string[],
@@ -298,6 +300,12 @@ export class MetadataMigrationService {
   ): Promise<void> {
     for (const colName of columns) {
       try {
+        await this.copyLegacyScriptColumnBeforeRemove(
+          tableName,
+          colName,
+          isMongoDB,
+        );
+
         if (isMongoDB) {
           const db = this.getMongoDb()!;
           const result = await db
@@ -323,12 +331,98 @@ export class MetadataMigrationService {
             this.logger.log(`  Removed column metadata: ${colName}`);
           }
         }
+
+        await this.dropPhysicalColumn(tableName, colName, isMongoDB);
       } catch (err) {
         this.logger.warn(
           `  Failed to remove column ${colName}: ${(err as Error).message}`,
         );
       }
     }
+  }
+
+  private getLegacyScriptTargetColumn(
+    tableName: string,
+    colName: string,
+  ): string | null {
+    const legacyMap: Record<string, string> = {
+      route_handler_definition: 'logic',
+      pre_hook_definition: 'code',
+      post_hook_definition: 'code',
+      bootstrap_script_definition: 'logic',
+      websocket_definition: 'connectionHandlerScript',
+      websocket_event_definition: 'handlerScript',
+    };
+    return legacyMap[tableName] === colName ? 'sourceCode' : null;
+  }
+
+  private async copyLegacyScriptColumnBeforeRemove(
+    tableName: string,
+    colName: string,
+    isMongoDB: boolean,
+  ): Promise<void> {
+    const targetColumn = this.getLegacyScriptTargetColumn(tableName, colName);
+    if (!targetColumn) return;
+
+    if (isMongoDB) {
+      const db = this.getMongoDb()!;
+      await db.collection(tableName).updateMany(
+        {
+          [colName]: { $exists: true, $ne: null },
+          $or: [
+            { [targetColumn]: { $exists: false } },
+            { [targetColumn]: null },
+            { [targetColumn]: '' },
+          ],
+        },
+        [
+          {
+            $set: {
+              [targetColumn]: `$${colName}`,
+            },
+          },
+        ] as any,
+      );
+      return;
+    }
+
+    const knex = this.queryBuilderService.getKnex();
+    const [hasSource, hasTarget] = await Promise.all([
+      knex.schema.hasColumn(tableName, colName),
+      knex.schema.hasColumn(tableName, targetColumn),
+    ]);
+    if (!hasSource || !hasTarget) return;
+
+    await knex(tableName)
+      .whereNotNull(colName)
+      .where((qb: any) => {
+        qb.whereNull(targetColumn).orWhere(targetColumn, '');
+      })
+      .update({
+        [targetColumn]: knex.ref(colName),
+      });
+  }
+
+  private async dropPhysicalColumn(
+    tableName: string,
+    colName: string,
+    isMongoDB: boolean,
+  ): Promise<void> {
+    if (isMongoDB) {
+      const db = this.getMongoDb()!;
+      await db
+        .collection(tableName)
+        .updateMany({ [colName]: { $exists: true } }, { $unset: { [colName]: '' } });
+      return;
+    }
+
+    const knex = this.queryBuilderService.getKnex();
+    const hasColumn = await knex.schema.hasColumn(tableName, colName);
+    if (!hasColumn) return;
+    await knex.schema.alterTable(tableName, (table: any) => {
+      table.dropColumn(colName);
+    });
+    this.logger.log(`  Dropped physical column: ${tableName}.${colName}`);
   }
 
   private async modifyRelationMetadata(
