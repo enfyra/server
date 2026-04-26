@@ -1,11 +1,11 @@
 import { Response, NextFunction } from 'express';
-import { RouteCacheService } from '../../engine/cache/services/route-cache.service';
-import { RepoRegistryService } from '../../engine/cache/services/repo-registry.service';
-import { UploadFileHelper } from '../../shared/helpers/upload-file.helper';
-import { RateLimitService } from '../../engine/cache/services/rate-limit.service';
-import { FlowService } from '../../modules/flow/services/flow.service';
+import { RouteCacheService } from '../../engine/cache';
+import { RepoRegistryService } from '../../engine/cache';
+import { UploadFileHelper } from '../../shared/helpers';
+import { RateLimitService } from '../../engine/cache';
+import { FlowService } from '../../modules/flow';
 import { resolveClientIpFromRequest } from '../../shared/utils/client-ip.util';
-import { DynamicContextFactory } from '../../shared/services/dynamic-context.factory';
+import { DynamicContextFactory } from '../../shared/services';
 
 export function routeDetectMiddleware(
   routeCacheService: RouteCacheService,

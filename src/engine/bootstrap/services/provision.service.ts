@@ -1,10 +1,10 @@
 import { Logger } from '../../../shared/logger';
-import { RouteDefinitionProcessor } from '../../../domain/bootstrap/processors/route-definition.processor';
-import { CommonService } from '../../../shared/common/services/common.service';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { MigrationJournalService } from '../../../engine/knex/services/migration-journal.service';
-import { MongoMigrationJournalService } from '../../../engine/mongo/services/mongo-migration-journal.service';
-import { MongoSchemaMigrationService } from '../../../engine/mongo/services/mongo-schema-migration.service';
+import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
+import { CommonService } from '../../../shared/common';
+import { QueryBuilderService } from '../../../kernel/query';
+import { MigrationJournalService } from '../../knex';
+import { MongoMigrationJournalService } from '../../mongo';
+import { MongoSchemaMigrationService } from '../../mongo';
 
 export class ProvisionService {
   private readonly logger = new Logger(ProvisionService.name);

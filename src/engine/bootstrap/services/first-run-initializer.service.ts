@@ -1,15 +1,15 @@
 import { Logger } from '../../../shared/logger';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { CommonService } from '../../../shared/common/services/common.service';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { CacheService } from '../../../engine/cache/services/cache.service';
-import { InstanceService } from '../../../shared/services/instance.service';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { DatabaseConfigService } from '../../../shared/services';
+import { CommonService } from '../../../shared/common';
+import { QueryBuilderService } from '../../../kernel/query';
+import { CacheService } from '../../cache';
+import { InstanceService } from '../../../shared/services';
+import { MetadataCacheService } from '../../cache';
 import { MetadataProvisionService } from './metadata-provision.service';
 import { MetadataMigrationService } from './metadata-migration.service';
 import { DataProvisionService } from './data-provision.service';
 import { DataMigrationService } from './data-migration.service';
-import { RouteDefinitionProcessor } from '../../../domain/bootstrap/processors/route-definition.processor';
+import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
 import { REDIS_TTL, PROVISION_LOCK_KEY } from '../../../shared/utils/constant';
 
 export class FirstRunInitializer {

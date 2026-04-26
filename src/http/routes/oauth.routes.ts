@@ -2,7 +2,7 @@ import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../domain/exceptions';
 import type { IOAuthConfig } from '../../domain/shared/interfaces/oauth-config-cache.interface';
 
 type OAuthStatePayload = {

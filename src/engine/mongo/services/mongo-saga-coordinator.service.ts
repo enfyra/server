@@ -9,9 +9,9 @@ import {
   MongoOperationLogService,
   IRollbackResult,
 } from './mongo-operation-log.service';
-import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
-import { CacheService } from '../../cache/services/cache.service';
-import { InstanceService } from '../../../shared/services/instance.service';
+import { DatabaseException } from '../../../domain/exceptions';
+import { CacheService } from '../../cache';
+import { InstanceService } from '../../../shared/services';
 import {
   REDIS_TTL,
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,

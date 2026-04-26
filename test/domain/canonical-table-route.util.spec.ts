@@ -2,7 +2,7 @@ import {
   isCanonicalTableRoutePath,
   DEFAULT_REST_HANDLER_LOGIC,
   REST_HANDLER_METHOD_NAMES,
-} from '../../src/domain/bootstrap/utils/canonical-table-route.util';
+} from 'src/domain/bootstrap';
 
 describe('isCanonicalTableRoutePath', () => {
   it('accepts only single-segment path equal to table name', () => {

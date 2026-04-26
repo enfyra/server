@@ -8,11 +8,11 @@ import { createYoga } from 'graphql-yoga';
 import { useDepthLimit } from '@envelop/depth-limit';
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
+import { MetadataCacheService } from '../../../engine/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { RouteCacheService } from '../../../engine/cache/services/route-cache.service';
-import { SettingCacheService } from '../../../engine/cache/services/setting-cache.service';
-import { GqlDefinitionCacheService } from '../../../engine/cache/services/gql-definition-cache.service';
+import { RouteCacheService } from '../../../engine/cache';
+import { SettingCacheService } from '../../../engine/cache';
+import { GqlDefinitionCacheService } from '../../../engine/cache';
 import { DynamicResolver } from '../resolvers/dynamic.resolver';
 import {
   buildTableGraphQLDef,
@@ -23,7 +23,7 @@ import {
 } from '../utils/generate-type-defs';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 
 const COLOR = '\x1b[95m';
 const RESET = '\x1b[0m';

@@ -1,6 +1,6 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class RoutePermissionDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

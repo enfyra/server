@@ -1,7 +1,7 @@
 import knex, { Knex } from 'knex';
-import { separateFilters } from 'src/engine/query-builder/utils/sql/relation-filter.util';
-import { hasLogicalOperators } from 'src/engine/query-builder/utils/sql/build-where-clause';
-import { SqlQueryExecutor } from 'src/engine/query-builder/executors/sql-query-executor';
+import { separateFilters } from 'src/kernel/query';
+import { hasLogicalOperators } from 'src/kernel/query';
+import { SqlQueryExecutor } from 'src/kernel/query';
 import {
   buildOracleStressFilters,
   oracleExtensionRowIds,

@@ -7,9 +7,9 @@ import {
   SQL_BOOTSTRAP_POOL_MIN,
 } from '../../../shared/utils/auto-scaling.constants';
 import { splitSqlPoolAcrossReplication } from '../utils/sql-pool-coordination.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 
 export interface ReplicaNode {
   knex: Knex;

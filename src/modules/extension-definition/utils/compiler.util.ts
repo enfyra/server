@@ -8,7 +8,7 @@ import {
   readdirSync,
 } from 'fs';
 import { join, resolve, dirname } from 'path';
-import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions';
 import { build } from 'vite';
 import vue from '@vitejs/plugin-vue';
 // @ts-expect-error no types for compile export

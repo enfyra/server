@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { IQueryBuilder } from '../../domain/shared/interfaces/query-builder.interface';
-import { DatabaseConfigService } from '../services/database-config.service';
+import { DatabaseConfigService } from '../services';
 
 export const USER_CACHE_TTL_MS = 60_000;
 

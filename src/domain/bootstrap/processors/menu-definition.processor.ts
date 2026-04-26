@@ -2,7 +2,7 @@ import { Knex } from 'knex';
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class MenuDefinitionProcessor extends BaseTableProcessor {

@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Redis } from 'ioredis';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 
 export interface RateLimitOptions {
   maxRequests: number;

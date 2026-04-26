@@ -1,13 +1,13 @@
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { randomUUID, createHash } from 'crypto';
 import { ObjectId } from 'mongodb';
 import ms, { type StringValue } from 'ms';
-import { BadRequestException } from '../../exceptions/custom-exceptions';
+import { BadRequestException } from '../../exceptions';
 import * as jwt from 'jsonwebtoken';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ICache } from '../../shared/interfaces/cache.interface';
 import { BcryptService } from './bcrypt.service';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 import {
   loadUserWithRole,
   userCacheKey,

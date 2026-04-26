@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MetadataRepairService } from '../../src/engine/bootstrap/services/metadata-repair.service';
-import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
+import { MetadataRepairService } from 'src/engine/bootstrap';
+import { DatabaseConfigService } from 'src/shared/services';
 
 function makeSetting(flag: boolean | undefined) {
   return {

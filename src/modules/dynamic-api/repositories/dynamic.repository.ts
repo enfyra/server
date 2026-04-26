@@ -2,20 +2,20 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-} from '../../../domain/exceptions/custom-exceptions';
+} from '../../../domain/exceptions';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { TableHandlerService } from '../../table-management/services/table-handler.service';
-import { QueryEngine } from '../../../engine/query-engine/services/query-engine.service';
-import { PolicyService } from '../../../domain/policy/policy.service';
-import { isPolicyDeny } from '../../../domain/policy/policy.types';
+import { QueryBuilderService } from '../../../kernel/query';
+import { TableHandlerService } from '../../table-management';
+import { QueryEngine } from '../../../kernel/query';
+import { PolicyService } from '../../../domain/policy';
+import { isPolicyDeny } from '../../../domain/policy';
 import { DynamicApiTableValidationService } from '../services/table-validation.service';
 import { TDynamicContext } from '../../../shared/types';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
-import { SettingCacheService } from '../../../engine/cache/services/setting-cache.service';
+import { MetadataCacheService } from '../../../engine/cache';
+import { SettingCacheService } from '../../../engine/cache';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
-import { FieldPermissionCacheService } from '../../../engine/cache/services/field-permission-cache.service';
+import { FieldPermissionCacheService } from '../../../engine/cache';
 import {
   buildRequestedShapeFromQuery,
   sanitizeFieldPermissionsResult,
@@ -24,17 +24,17 @@ import {
   decideFieldPermission,
   formatFieldPermissionErrorMessage,
 } from '../../../shared/utils/field-permission.util';
-import { UserRevocationService } from '../../../domain/auth/services/user-revocation.service';
-import { validateDeepOptions } from '../../../domain/query-dsl/deep-options-validator.util';
+import { UserRevocationService } from '../../../domain/auth';
+import { validateDeepOptions } from '../../../kernel/query';
 import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
-} from '../../../domain/query-dsl/filter-field-walker.util';
+} from '../../../kernel/query';
 import {
   normalizeFlowStepScriptConfig,
   normalizeScriptPatch,
   normalizeScriptRecord,
-} from '../../../domain/shared/script-code.util';
+} from '../../../kernel/execution';
 
 export class DynamicRepository {
   public context: TDynamicContext;

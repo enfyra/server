@@ -1,8 +1,8 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
-import { getJunctionColumnNames } from '../../query-dsl/utils/sql-schema-naming.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { getJunctionColumnNames } from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class HookDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

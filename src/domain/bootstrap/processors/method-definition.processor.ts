@@ -1,5 +1,5 @@
 import { BaseTableProcessor } from './base-table-processor';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class MethodDefinitionProcessor extends BaseTableProcessor {
   constructor() {

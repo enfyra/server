@@ -1,7 +1,7 @@
 import {
   getForeignKeyColumnName,
   getJunctionColumnNames,
-} from '../../src/domain/query-dsl/utils/sql-schema-naming.util';
+} from 'src/kernel/query';
 
 describe('getForeignKeyColumnName', () => {
   it('should append Id to simple camelCase property names', () => {

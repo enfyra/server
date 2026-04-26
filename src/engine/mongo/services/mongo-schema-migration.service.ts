@@ -1,9 +1,9 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
 import { MongoService } from './mongo.service';
-import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { MetadataCacheService } from '../../cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import { MongoMigrationJournalService } from './mongo-migration-journal.service';
 import { MongoSchemaDiffService } from './mongo-schema-diff.service';
 type BsonType =

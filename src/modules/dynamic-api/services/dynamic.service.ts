@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { HttpException } from '../../../domain/exceptions/custom-exceptions';
+import { HttpException } from '../../../domain/exceptions';
 import {
   getErrorMessage,
   getErrorStack,
@@ -8,9 +8,9 @@ import {
   ScriptExecutionException,
   BusinessLogicException,
   isCustomException,
-} from '../../../domain/exceptions/custom-exceptions';
-import { LoggingService } from '../../../domain/exceptions/services/logging.service';
-import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
+} from '../../../domain/exceptions';
+import { LoggingService } from '../../../domain/exceptions';
+import { ExecutorEngineService } from '../../../kernel/execution';
 import { RequestWithRouteData } from '../../../shared/types';
 
 export class DynamicService {

@@ -4,7 +4,7 @@ import {
   normalizeFlowStepScriptConfig,
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '../../src/domain/shared/script-code.util';
+} from 'src/kernel/execution';
 
 describe('script-code util', () => {
   it('compiles TypeScript source into executable JavaScript', () => {

@@ -1,7 +1,7 @@
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
-} from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../../kernel/query';
 import {
   ColumnDef,
   TableDef,

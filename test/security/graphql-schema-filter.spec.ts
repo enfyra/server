@@ -1,5 +1,5 @@
-import { generateGraphQLTypeDefsFromTables } from '../../src/modules/graphql/utils/generate-type-defs';
-import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
+import { generateGraphQLTypeDefsFromTables } from 'src/modules/graphql';
+import { DatabaseConfigService } from 'src/shared/services';
 
 function makeTable(name: string, columns: any[], relations: any[] = []): any {
   return { name, columns, relations };

@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Collection } from 'mongodb';
 import { MongoService } from './mongo.service';
-import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
+import { DatabaseException } from '../../../domain/exceptions';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export interface IResourceLock {

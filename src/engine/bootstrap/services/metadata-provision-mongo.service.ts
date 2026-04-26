@@ -1,12 +1,12 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import { ObjectId } from 'mongodb';
-import { BaseTableProcessor } from '../../../domain/bootstrap/processors/base-table-processor';
-import { loadRelationRenameMap } from '../../../domain/bootstrap/utils/load-relation-rename-map';
+import { BaseTableProcessor } from '../../../domain/bootstrap';
+import { loadRelationRenameMap } from '../../../domain/bootstrap';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../kernel/query';
 
 class TableDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {

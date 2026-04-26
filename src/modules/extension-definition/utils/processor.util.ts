@@ -1,4 +1,4 @@
-import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions';
 import { autoAssignExtensionName } from './naming.util';
 import {
   isProbablyVueSFC,

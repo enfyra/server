@@ -2,7 +2,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/domain/query-dsl/utils/sql-schema-naming.util';
+} from 'src/kernel/query';
 
 describe('Provision M2M inverse junction column swap', () => {
   function buildInverseJunctionColumns(owningRelation: {

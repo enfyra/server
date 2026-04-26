@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { applyOperatorToMatch } from '../../src/engine/query-builder/utils/mongo/filter-builder';
+import { applyOperatorToMatch } from 'src/kernel/query';
 
 const SUPPORTED_OPS = [
   '_contains',

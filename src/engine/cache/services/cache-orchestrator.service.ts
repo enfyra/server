@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { EventEmitter2 } from 'eventemitter2';
 import { RedisPubSubService } from './redis-pubsub.service';
-import { InstanceService } from '../../../shared/services/instance.service';
+import { InstanceService } from '../../../shared/services';
 import { MetadataCacheService } from './metadata-cache.service';
 import { RouteCacheService } from './route-cache.service';
 import { GuardCacheService } from './guard-cache.service';
@@ -18,9 +18,9 @@ import { RepoRegistryService } from './repo-registry.service';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 import { ENFYRA_ADMIN_WEBSOCKET_NAMESPACE } from '../../../shared/utils/constant';
-import { DynamicWebSocketGateway } from '../../../modules/websocket/gateway/dynamic-websocket.gateway';
-import { GraphqlService } from '../../../modules/graphql/services/graphql.service';
-import { BootstrapScriptService } from '../../../domain/bootstrap/services/bootstrap-script.service';
+import { DynamicWebSocketGateway } from '../../../modules/websocket';
+import { GraphqlService } from '../../../modules/graphql';
+import { BootstrapScriptService } from '../../../domain/bootstrap';
 import { LifecycleAware } from '../../../shared/interfaces/lifecycle-aware.interface';
 
 const COLOR = '\x1b[33m';

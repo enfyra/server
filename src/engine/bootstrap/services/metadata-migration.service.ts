@@ -1,6 +1,6 @@
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import { Db } from 'mongodb';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import {

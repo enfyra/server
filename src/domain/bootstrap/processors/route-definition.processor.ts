@@ -6,8 +6,8 @@ import {
   isCanonicalTableRoutePath,
   REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { compileScriptSource } from '../../shared/script-code.util';
+import { DatabaseConfigService } from '../../../shared/services';
+import { compileScriptSource } from '../../../kernel/execution';
 
 export class RouteDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

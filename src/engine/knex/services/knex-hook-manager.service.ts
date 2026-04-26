@@ -1,13 +1,13 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
 import { AsyncLocalStorage } from 'async_hooks';
-import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { MetadataCacheService } from '../../cache';
 import { CascadeHandler } from '../utils/cascade-handler';
 import { FieldStripper } from '../utils/field-stripper';
 import { RelationTransformer } from '../utils/relation-transformer';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { ReplicationManager } from './replication-manager.service';
-import { getForeignKeyColumnName } from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../kernel/query';
 
 export class KnexHookManagerService {
   private readonly logger = new Logger(KnexHookManagerService.name);
@@ -485,7 +485,7 @@ export class KnexHookManagerService {
       }
       return activeKnex.transaction(async (trx) => {
         const { getIoAbortSignal } =
-          await import('../../executor-engine/services/isolated-executor.service');
+          await import('../../../kernel/execution');
         const signal = getIoAbortSignal();
         if (signal) {
           const onAbort = () => {

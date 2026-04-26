@@ -1,5 +1,5 @@
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { QueryBuilderService } from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
 import { installMysqlUnaccent } from '../mysql-unaccent.bootstrap';
 
 export class SqlFunctionService {
