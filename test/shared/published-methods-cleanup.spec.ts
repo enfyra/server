@@ -11,6 +11,7 @@ const AUTH_PATHS = new Set([
   '/auth/login',
   '/auth/logout',
   '/auth/refresh-token',
+  '/auth/providers',
   '/auth/:provider',
   '/auth/:provider/callback',
 ]);
@@ -31,7 +32,7 @@ describe('default-data.json — publishedMethods', () => {
     expect(nonAuthPublished).toEqual([]);
   });
 
-  it('all 5 auth routes retain their publishedMethods', () => {
+  it('all auth routes retain their publishedMethods', () => {
     for (const authPath of AUTH_PATHS) {
       const route = routes.find((r) => r.path === authPath);
       expect(route).toBeDefined();

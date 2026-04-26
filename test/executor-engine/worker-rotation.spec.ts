@@ -3,7 +3,7 @@ import * as path from 'path';
 import {
   WorkerPool,
   PoolEntry,
-} from '../../src/engine/executor-engine/services/isolated-executor.service';
+} from 'src/kernel/execution';
 
 const FAKE_WORKER = path.join(__dirname, 'rotation-worker-fixture.js');
 

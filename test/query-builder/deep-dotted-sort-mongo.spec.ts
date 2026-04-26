@@ -2,8 +2,8 @@ import { MongoClient, Db, ObjectId } from 'mongodb';
 import {
   executeMongoBatchFetches,
   MongoBatchFetchDescriptor,
-} from '../../src/engine/query-builder/utils/mongo/batch-relation-fetcher';
-import { BatchTrace } from '../../src/domain/query-dsl/batch-fetch-engine';
+} from 'src/kernel/query';
+import { BatchTrace } from 'src/kernel/query';
 
 const MONGO_URI =
   process.env.MONGO_TEST_URI ||

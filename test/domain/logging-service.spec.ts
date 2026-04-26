@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { LoggingService } from '../../src/domain/exceptions/services/logging.service';
+import { LoggingService } from 'src/domain/exceptions';
 import { logStore } from '../../src/shared/log-store';
 import { __pinoInstanceForTests } from '../../src/shared/logger';
 

@@ -4,9 +4,9 @@ import { getDeletedIds } from '../utils/get-deleted-ids';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { ValidationException } from '../../../domain/exceptions/custom-exceptions';
+} from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
+import { ValidationException } from '../../../domain/exceptions';
 
 export class SqlTableMetadataWriterService {
   private readonly logger = new Logger(SqlTableMetadataWriterService.name);

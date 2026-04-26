@@ -1,4 +1,4 @@
-import { transformCode } from '../../src/domain/shared/code-transformer';
+import { transformCode } from 'src/kernel/execution';
 
 describe('transformCode', () => {
   it('expands @BODY in normal code', () => {

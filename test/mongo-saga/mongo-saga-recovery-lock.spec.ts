@@ -1,8 +1,8 @@
-import { MongoSagaCoordinator } from '../../src/engine/mongo/services/mongo-saga-coordinator.service';
-import { MongoService } from '../../src/engine/mongo/services/mongo.service';
-import { MongoSagaLockService } from '../../src/engine/mongo/services/mongo-saga-lock.service';
-import { MongoOperationLogService } from '../../src/engine/mongo/services/mongo-operation-log.service';
-import { InstanceService } from '../../src/shared/services/instance.service';
+import { MongoSagaCoordinator } from 'src/engine/mongo';
+import { MongoService } from 'src/engine/mongo';
+import { MongoSagaLockService } from 'src/engine/mongo';
+import { MongoOperationLogService } from 'src/engine/mongo';
+import { InstanceService } from 'src/shared/services';
 import {
   SAGA_ORPHAN_RECOVERY_LOCK_KEY,
   REDIS_TTL,

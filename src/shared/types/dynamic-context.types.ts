@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { UploadedFileInfo } from './file-management.types';
-import type { FetchHelper } from '../helpers/fetch.helper';
+import type { FetchHelper } from '../helpers';
 
 export interface RateLimitResult {
   allowed: boolean;

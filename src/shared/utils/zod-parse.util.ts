@@ -1,5 +1,5 @@
 import { z, ZodType, ZodError } from 'zod';
-import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../domain/exceptions';
 
 type ZodIssueLike = ZodError['issues'][number];
 

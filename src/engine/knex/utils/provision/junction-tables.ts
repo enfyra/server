@@ -4,7 +4,7 @@ import {
   getShortIndexName,
   getShortPkName,
   getShortFkConstraintName,
-} from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../../kernel/query';
 import {
   JunctionTableDef,
   KnexTableSchema,

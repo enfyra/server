@@ -1,6 +1,6 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { normalizeFlowStepScriptConfig } from '../../shared/script-code.util';
+import { normalizeFlowStepScriptConfig } from '../../../kernel/execution';
 
 export class FlowStepDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

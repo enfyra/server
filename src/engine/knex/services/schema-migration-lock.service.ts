@@ -2,8 +2,8 @@ import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Knex } from 'knex';
 import { KnexService } from '../knex.service';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
-import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
+import { QueryBuilderService } from '../../../kernel/query';
+import { DatabaseException } from '../../../domain/exceptions';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export interface SchemaMigrationLockHandle {

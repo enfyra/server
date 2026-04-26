@@ -6,8 +6,8 @@ import { ICache } from '../../shared/interfaces/cache.interface';
 import { IRepoRegistry } from '../../shared/interfaces/repo-registry.interface';
 import { TDynamicContext } from '../../../shared/types';
 import { ScriptErrorFactory } from '../../../shared/utils/script-error-factory';
-import { InstanceService } from '../../../shared/services/instance.service';
-import { createFetchHelper } from '../../../shared/helpers/fetch.helper';
+import { InstanceService } from '../../../shared/services';
+import { createFetchHelper } from '../../../shared/helpers';
 import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   REDIS_TTL,
@@ -15,8 +15,8 @@ import {
 import {
   normalizeScriptRecord,
   resolveExecutableScript,
-} from '../../shared/script-code.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+} from '../../../kernel/execution';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);

@@ -1,5 +1,5 @@
-import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { BadRequestException } from '../../../domain/exceptions';
+import { QueryBuilderService } from '../../../kernel/query';
 
 export class DynamicApiTableValidationService {
   private readonly queryBuilderService: QueryBuilderService;

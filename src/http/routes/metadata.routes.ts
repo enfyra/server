@@ -1,7 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { NotFoundException } from '../../domain/exceptions/custom-exceptions';
+import { NotFoundException } from '../../domain/exceptions';
 
 export function registerMetadataRoutes(
   app: Express,

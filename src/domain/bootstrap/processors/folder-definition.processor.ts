@@ -1,5 +1,5 @@
 import { BaseTableProcessor } from './base-table-processor';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class FolderDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[], _context?: any): Promise<any[]> {

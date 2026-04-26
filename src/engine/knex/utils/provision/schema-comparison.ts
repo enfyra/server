@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { getForeignKeyColumnName } from '../../../../domain/query-dsl/utils/sql-schema-naming.util';
+import { getForeignKeyColumnName } from '../../../../kernel/query';
 import {
   ColumnDef,
   RelationDef,

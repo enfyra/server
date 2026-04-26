@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { QueryBuilderService } from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
 import { MetadataProvisionSqlService } from './metadata-provision-sql.service';
 import { MetadataProvisionMongoService } from './metadata-provision-mongo.service';
 import * as fs from 'fs';

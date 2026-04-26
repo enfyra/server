@@ -1,4 +1,4 @@
-import { ValidationException } from '../../../domain/exceptions/custom-exceptions';
+import { ValidationException } from '../../../domain/exceptions';
 
 export class TableManagementValidationService {
   validateRelations(relations: any[]) {

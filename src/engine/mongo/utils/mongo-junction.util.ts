@@ -1,7 +1,7 @@
 import {
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../kernel/query';
 
 export interface MongoJunctionInfo {
   junctionName: string;

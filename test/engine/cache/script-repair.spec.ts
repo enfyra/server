@@ -1,5 +1,5 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { RouteCacheService } from '../../../src/engine/cache/services/route-cache.service';
+import { RouteCacheService } from 'src/engine/cache';
 
 describe('script cache repair', () => {
   it('persists repaired compiledCode only when cached compiledCode is invalid', async () => {

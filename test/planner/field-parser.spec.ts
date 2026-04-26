@@ -1,5 +1,5 @@
-import { parseFields } from '../../src/domain/query-dsl/field-parser';
-import { JoinRegistry } from '../../src/domain/query-dsl/join-registry';
+import { parseFields } from 'src/kernel/query';
+import { JoinRegistry } from 'src/kernel/query';
 
 const META = {
   tables: new Map<string, any>([

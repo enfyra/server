@@ -2,11 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { Cradle } from '../../container';
 import type { AwilixContainer } from 'awilix';
-import { MetadataCacheService } from '../../engine/cache/services/metadata-cache.service';
-import { ColumnRuleCacheService } from '../../engine/cache/services/column-rule-cache.service';
+import { MetadataCacheService } from '../../engine/cache';
+import { ColumnRuleCacheService } from '../../engine/cache';
 import { buildZodFromMetadata } from '../../shared/utils/zod-from-metadata';
 import { parseOrBadRequest } from '../../shared/utils/zod-parse.util';
-import { BadRequestException } from '../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../domain/exceptions';
 
 type Mode = 'create' | 'update';
 
@@ -25,20 +25,18 @@ export function invalidateBodyValidationCache(): void {
 }
 
 function buildSchema(
-  tableName: string,
   mode: Mode,
-  metadataCache: MetadataCacheService,
+  tableMeta: any,
+  metadata: ReturnType<MetadataCacheService['getDirectMetadata']>,
   ruleCache: ColumnRuleCacheService,
 ): z.ZodType | null {
-  const tableMeta = metadataCache.getDirectMetadata()?.tables?.get(tableName);
   if (!tableMeta) return null;
 
   return buildZodFromMetadata({
     tableMeta,
     mode,
     rulesForColumn: (columnId) => ruleCache.getRulesForColumnSync(columnId),
-    getTableMetadata: (name) =>
-      metadataCache.getDirectMetadata()?.tables?.get(name) ?? null,
+    getTableMetadata: (name) => metadata?.tables?.get(name) ?? null,
   });
 }
 
@@ -86,15 +84,17 @@ export function bodyValidationMiddleware(container: AwilixContainer<Cradle>) {
     if (path !== canonicalCollection && path !== canonicalItem) return next();
 
     const mode: Mode = method === 'POST' ? 'create' : 'update';
-    const version = metadataCache.getDirectMetadata()?.version ?? 0;
+    const metadata = metadataCache.getDirectMetadata();
+    const version = metadata?.version ?? 0;
     const key = cacheKey(mainTable.name, mode, version);
-    const tableMeta =
-      metadataCache.getDirectMetadata()?.tables?.get(mainTable.name) ?? null;
+    let tableMeta = mainTable;
 
     let schema = schemaCache.get(key);
     if (!schema) {
+      const buildMetadata = metadataCache.getDirectMetadata();
+      tableMeta = buildMetadata?.tables?.get(mainTable.name) ?? null;
       const built = tableMeta
-        ? buildSchema(mainTable.name, mode, metadataCache, ruleCache)
+        ? buildSchema(mode, tableMeta, buildMetadata, ruleCache)
         : null;
       if (!built) return next();
       if (schemaCache.size > 500) schemaCache.clear();

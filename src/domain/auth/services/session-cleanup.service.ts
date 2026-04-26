@@ -1,7 +1,7 @@
 import { Job, Queue, Worker } from 'bullmq';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 

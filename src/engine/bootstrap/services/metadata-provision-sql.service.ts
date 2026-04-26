@@ -1,16 +1,16 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { SqlSchemaMigrationService } from '../../../engine/knex/services/sql-schema-migration.service';
+import { QueryBuilderService } from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
+import { SqlSchemaMigrationService } from '../../knex';
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
-import { loadRelationRenameMap } from '../../../domain/bootstrap/utils/load-relation-rename-map';
-import { parseSnapshotToSchema } from '../../../engine/knex/utils/provision/schema-parser';
-import { syncTable } from '../../../engine/knex/utils/provision/sync-table';
-import { syncJunctionTables } from '../../../engine/knex/utils/provision/junction-tables';
-import { createAllTables } from '../../../engine/knex/utils/provision/table-builder';
+} from '../../../kernel/query';
+import { loadRelationRenameMap } from '../../../domain/bootstrap';
+import { parseSnapshotToSchema } from '../../knex';
+import { syncTable } from '../../knex';
+import { syncJunctionTables } from '../../knex';
+import { createAllTables } from '../../knex';
 
 export class MetadataProvisionSqlService {
   private readonly logger = new Logger(MetadataProvisionSqlService.name);

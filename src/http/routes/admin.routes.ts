@@ -1,7 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { compileScriptSource } from '../../domain/shared/script-code.util';
+import { compileScriptSource } from '../../kernel/execution';
 
 export function registerAdminRoutes(
   app: Express,

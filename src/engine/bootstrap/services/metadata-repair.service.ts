@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { QueryBuilderService } from '../../../kernel/query';
+import { MetadataCacheService } from '../../cache';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class MetadataRepairService {
   private readonly logger = new Logger(MetadataRepairService.name);

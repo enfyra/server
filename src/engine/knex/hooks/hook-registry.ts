@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { Knex } from 'knex';
-import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import type { MetadataCacheService } from '../../cache';
 import { stringifyRecordJsonFields } from '../utils/json-parser';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 export type HookEvent =

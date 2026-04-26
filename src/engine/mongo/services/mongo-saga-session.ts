@@ -11,7 +11,7 @@ import {
   IRollbackResult,
 } from './mongo-operation-log.service';
 import { MongoService } from './mongo.service';
-import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
+import { DatabaseException } from '../../../domain/exceptions';
 import { ISagaOptions, ISagaContext } from './mongo-saga.types';
 import { SagaPlan } from './mongo-saga-plan';
 

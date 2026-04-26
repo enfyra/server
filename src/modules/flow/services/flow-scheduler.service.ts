@@ -1,7 +1,7 @@
 import { Logger } from '../../../shared/logger';
 import { parseExpression } from 'cron-parser';
 import { Queue } from 'bullmq';
-import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
+import { FlowCacheService } from '../../../engine/cache';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 import { CACHE_EVENTS } from '../../../shared/utils/cache-events.constants';
 

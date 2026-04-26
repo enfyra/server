@@ -1,35 +1,35 @@
 import { Logger } from '../../../shared/logger';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { BcryptService } from '../../../domain/auth/services/bcrypt.service';
+import { DatabaseConfigService } from '../../../shared/services';
+import { BcryptService } from '../../../domain/auth';
 import * as fs from 'fs';
 import * as path from 'path';
 
 import {
   BaseTableProcessor,
   UpsertResult,
-} from '../../../domain/bootstrap/processors/base-table-processor';
-import { UserDefinitionProcessor } from '../../../domain/bootstrap/processors/user-definition.processor';
-import { MenuDefinitionProcessor } from '../../../domain/bootstrap/processors/menu-definition.processor';
-import { RouteDefinitionProcessor } from '../../../domain/bootstrap/processors/route-definition.processor';
-import { RouteHandlerDefinitionProcessor } from '../../../domain/bootstrap/processors/route-handler-definition.processor';
-import { MethodDefinitionProcessor } from '../../../domain/bootstrap/processors/method-definition.processor';
-import { PreHookDefinitionProcessor } from '../../../domain/bootstrap/processors/pre-hook-definition.processor';
-import { PostHookDefinitionProcessor } from '../../../domain/bootstrap/processors/post-hook-definition.processor';
-import { FieldPermissionDefinitionProcessor } from '../../../domain/bootstrap/processors/field-permission-definition.processor';
-import { SettingDefinitionProcessor } from '../../../domain/bootstrap/processors/setting-definition.processor';
-import { ExtensionDefinitionProcessor } from '../../../domain/bootstrap/processors/extension-definition.processor';
-import { FolderDefinitionProcessor } from '../../../domain/bootstrap/processors/folder-definition.processor';
-import { BootstrapScriptDefinitionProcessor } from '../../../domain/bootstrap/processors/bootstrap-script-definition.processor';
-import { RoutePermissionDefinitionProcessor } from '../../../domain/bootstrap/processors/route-permission-definition.processor';
-import { WebsocketDefinitionProcessor } from '../../../domain/bootstrap/processors/websocket-definition.processor';
-import { WebsocketEventDefinitionProcessor } from '../../../domain/bootstrap/processors/websocket-event-definition.processor';
-import { FlowDefinitionProcessor } from '../../../domain/bootstrap/processors/flow-definition.processor';
-import { FlowStepDefinitionProcessor } from '../../../domain/bootstrap/processors/flow-step-definition.processor';
-import { FlowExecutionDefinitionProcessor } from '../../../domain/bootstrap/processors/flow-execution-definition.processor';
-import { GenericTableProcessor } from '../../../domain/bootstrap/processors/generic-table.processor';
-import { GraphQLDefinitionProcessor } from '../../../domain/bootstrap/processors/graphql-definition.processor';
+} from '../../../domain/bootstrap';
+import { UserDefinitionProcessor } from '../../../domain/bootstrap';
+import { MenuDefinitionProcessor } from '../../../domain/bootstrap';
+import { RouteDefinitionProcessor } from '../../../domain/bootstrap';
+import { RouteHandlerDefinitionProcessor } from '../../../domain/bootstrap';
+import { MethodDefinitionProcessor } from '../../../domain/bootstrap';
+import { PreHookDefinitionProcessor } from '../../../domain/bootstrap';
+import { PostHookDefinitionProcessor } from '../../../domain/bootstrap';
+import { FieldPermissionDefinitionProcessor } from '../../../domain/bootstrap';
+import { SettingDefinitionProcessor } from '../../../domain/bootstrap';
+import { ExtensionDefinitionProcessor } from '../../../domain/bootstrap';
+import { FolderDefinitionProcessor } from '../../../domain/bootstrap';
+import { BootstrapScriptDefinitionProcessor } from '../../../domain/bootstrap';
+import { RoutePermissionDefinitionProcessor } from '../../../domain/bootstrap';
+import { WebsocketDefinitionProcessor } from '../../../domain/bootstrap';
+import { WebsocketEventDefinitionProcessor } from '../../../domain/bootstrap';
+import { FlowDefinitionProcessor } from '../../../domain/bootstrap';
+import { FlowStepDefinitionProcessor } from '../../../domain/bootstrap';
+import { FlowExecutionDefinitionProcessor } from '../../../domain/bootstrap';
+import { GenericTableProcessor } from '../../../domain/bootstrap';
+import { GraphQLDefinitionProcessor } from '../../../domain/bootstrap';
 
 const initJson = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'data/default-data.json'), 'utf8'),

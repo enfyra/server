@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 import { IRedisPubSub } from '../../../domain/shared/interfaces/redis-pubsub.interface';
 
 export class RedisPubSubService implements IRedisPubSub {

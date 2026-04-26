@@ -1,5 +1,5 @@
-import { DataMigrationService } from '../../src/engine/bootstrap/services/data-migration.service';
-import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
+import { DataMigrationService } from 'src/engine/bootstrap';
+import { DatabaseConfigService } from 'src/shared/services';
 
 function makeQueryBuilder(
   overrides: Partial<{

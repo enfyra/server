@@ -3,7 +3,7 @@ import { SqlTableHandlerService } from './sql-table-handler.service';
 import { MongoTableHandlerService } from './mongo-table-handler.service';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { TDynamicContext } from '../../../shared/types';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export class TableHandlerService {
   private logger = new Logger(TableHandlerService.name);

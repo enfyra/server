@@ -1,15 +1,15 @@
 import * as jwt from 'jsonwebtoken';
 import { TDynamicContext } from '../types';
-import { BcryptService } from '../../domain/auth/services/bcrypt.service';
-import { CacheService } from '../../engine/cache/services/cache.service';
-import { createFetchHelper } from '../helpers/fetch.helper';
+import { BcryptService } from '../../domain/auth';
+import { CacheService } from '../../engine/cache';
+import { createFetchHelper } from '../helpers';
 import { autoSlug } from '../utils/auto-slug.helper';
 import { ScriptErrorFactory } from '../utils/script-error-factory';
 import { EnvService } from './env.service';
 import {
   SocketEmitCapture,
   WebsocketContextFactory,
-} from '../../modules/websocket/services/websocket-context.factory';
+} from '../../modules/websocket';
 
 type DynamicContextOptions = {
   body?: any;

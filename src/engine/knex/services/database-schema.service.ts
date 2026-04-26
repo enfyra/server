@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import type { Cradle } from '../../../container';
 
 export class DatabaseSchemaService {
