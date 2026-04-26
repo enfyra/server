@@ -1,6 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { normalizeScriptRecord } from '../../shared/script-code.util';
 
 export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -22,6 +23,8 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
         if (transformed.isEnabled === undefined) transformed.isEnabled = true;
         if (transformed.handlerScript === undefined)
           transformed.handlerScript = null;
+        if (transformed.sourceCode === undefined)
+          transformed.sourceCode = transformed.handlerScript;
         if (transformed.timeout === undefined) transformed.timeout = 5000;
 
         if (isMongoDB) {
@@ -36,7 +39,7 @@ export class WebsocketEventDefinitionProcessor extends BaseTableProcessor {
           this.queryBuilderService,
         );
         if (!result.gateway && !result.gatewayId) return null;
-        return result;
+        return normalizeScriptRecord('websocket_event_definition', result);
       }),
     );
 

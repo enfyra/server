@@ -12,7 +12,11 @@ import {
   BOOTSTRAP_SCRIPT_EXECUTION_LOCK_KEY,
   REDIS_TTL,
 } from '../../../shared/utils/constant';
-import { transformCode } from '../../shared/code-transformer';
+import {
+  normalizeScriptRecord,
+  resolveExecutableScript,
+} from '../../shared/script-code.util';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
 
 export class BootstrapScriptService {
   private readonly logger = new Logger(BootstrapScriptService.name);
@@ -128,10 +132,23 @@ export class BootstrapScriptService {
       sort: ['priority'],
     });
     const scripts = result.data;
-    for (const script of scripts) {
-      if (script.logic) {
-        script.logic = transformCode(script.logic);
+    for (let i = 0; i < scripts.length; i++) {
+      const script = normalizeScriptRecord(
+        'bootstrap_script_definition',
+        scripts[i],
+      );
+      const resolved = resolveExecutableScript(script);
+      script.logic = resolved.code;
+      if (resolved.shouldPersistCompiledCode) {
+        script.compiledCode = resolved.compiledCode;
+        const id = DatabaseConfigService.getRecordId(script);
+        if (id != null) {
+          await this.queryBuilderService.update('bootstrap_script_definition', id, {
+            compiledCode: resolved.compiledCode,
+          });
+        }
       }
+      scripts[i] = script;
     }
     let executedCount = 0;
     for (const script of scripts) {

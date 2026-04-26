@@ -1,7 +1,7 @@
 import type { Express, Response } from 'express';
 import type { AwilixContainer } from 'awilix';
 import type { Cradle } from '../../container';
-import { transformCode } from '../../domain/shared/code-transformer';
+import { compileScriptSource } from '../../domain/shared/script-code.util';
 
 export function registerAdminRoutes(
   app: Express,
@@ -166,9 +166,12 @@ async function runTest(body: any, cradle: any) {
     ctx.$repos = repoRegistryService.createReposProxy(ctx);
 
     try {
-      const transformed = transformCode(script);
+      const transformed = compileScriptSource(
+        script,
+        body?.scriptLanguage,
+      );
       const result = await handlerExecutorService.run(
-        transformed,
+        transformed || '',
         ctx,
         timeoutMs,
       );
@@ -225,9 +228,12 @@ async function runTest(body: any, cradle: any) {
     ctx.$repos = repoRegistryService.createReposProxy(ctx);
 
     try {
-      const transformed = transformCode(script);
+      const transformed = compileScriptSource(
+        script,
+        body?.scriptLanguage,
+      );
       const result = await handlerExecutorService.run(
-        transformed,
+        transformed || '',
         ctx,
         timeoutMs,
       );

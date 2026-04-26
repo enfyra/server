@@ -1,6 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { normalizeScriptRecord } from '../../shared/script-code.util';
 
 export class WebsocketDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -26,6 +27,9 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
           transformedRecord.requireAuth = true;
         if (transformedRecord.connectionHandlerScript === undefined)
           transformedRecord.connectionHandlerScript = null;
+        if (transformedRecord.sourceCode === undefined)
+          transformedRecord.sourceCode =
+            transformedRecord.connectionHandlerScript;
         if (transformedRecord.connectionHandlerTimeout === undefined)
           transformedRecord.connectionHandlerTimeout = 5000;
 
@@ -35,7 +39,7 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
           if (!transformedRecord.updatedAt) transformedRecord.updatedAt = now;
         }
 
-        return transformedRecord;
+        return normalizeScriptRecord('websocket_definition', transformedRecord);
       }),
     );
 
@@ -53,7 +57,9 @@ export class WebsocketDefinitionProcessor extends BaseTableProcessor {
       'isSystem',
       'description',
       'requireAuth',
-      'connectionHandlerScript',
+      'sourceCode',
+      'scriptLanguage',
+      'compiledCode',
       'connectionHandlerTimeout',
     ];
   }

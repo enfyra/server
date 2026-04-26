@@ -1,7 +1,11 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { QueryBuilderService } from '../../query-builder/query-builder.service';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
-import { transformCode } from '../../../domain/shared/code-transformer';
+import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import {
+  normalizeScriptRecord,
+  resolveExecutableScript,
+} from '../../../domain/shared/script-code.util';
 import { CACHE_IDENTIFIERS } from '../../../shared/utils/cache-events.constants';
 
 const WEBSOCKET_CONFIG: CacheConfig = {
@@ -13,7 +17,9 @@ const WEBSOCKET_CONFIG: CacheConfig = {
 export interface WebSocketEvent {
   id: number;
   name: string;
-  logic: string;
+  sourceCode?: string | null;
+  compiledCode?: string | null;
+  handlerScript?: string | null;
   gatewayId: number;
   isEnabled: boolean;
 }
@@ -48,16 +54,54 @@ export class WebsocketCacheService extends BaseCacheService<
     const gateways = result.data || [];
 
     for (const gateway of gateways) {
+      const normalizedGateway = normalizeScriptRecord(
+        'websocket_definition',
+        gateway,
+      );
+      Object.assign(gateway, normalizedGateway);
+      const connectionCode = await this.resolveAndRepairScript(
+        'websocket_definition',
+        gateway,
+      );
+      if (connectionCode) {
+        gateway.connectionHandlerScript = connectionCode;
+      }
       if (gateway.events) {
         for (const event of gateway.events) {
-          if (event.logic && typeof event.logic === 'string') {
-            event.logic = transformCode(event.logic);
+          const normalizedEvent = normalizeScriptRecord(
+            'websocket_event_definition',
+            event,
+          );
+          Object.assign(event, normalizedEvent);
+          const code = await this.resolveAndRepairScript(
+            'websocket_event_definition',
+            event,
+          );
+          if (code) {
+            event.handlerScript = code;
           }
         }
       }
     }
 
     return gateways;
+  }
+
+  private async resolveAndRepairScript(
+    tableName: string,
+    record: any,
+  ): Promise<string | null> {
+    const result = resolveExecutableScript(record);
+    if (result.shouldPersistCompiledCode) {
+      record.compiledCode = result.compiledCode;
+      const id = DatabaseConfigService.getRecordId(record);
+      if (id != null) {
+        await this.queryBuilderService.update(tableName, id, {
+          compiledCode: result.compiledCode,
+        });
+      }
+    }
+    return result.code;
   }
 
   protected transformData(gateways: WebSocketGateway[]): WebSocketGateway[] {

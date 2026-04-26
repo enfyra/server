@@ -315,7 +315,9 @@ export class SystemSafetyAuditorService {
     if (tableName === 'websocket_definition' && fullExisting?.isSystem) {
       const allowed = this.schemaMigrationValidatorService.getAllowedFields([
         'description',
-        'connectionHandlerScript',
+        'sourceCode',
+        'scriptLanguage',
+        'compiledCode',
         'connectionHandlerTimeout',
       ]);
       const disallowed = changedFields.filter((f) => !allowed.includes(f));

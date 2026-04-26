@@ -24,8 +24,16 @@ import {
   WORKER_HEAP_ROTATE_THRESHOLD,
   WORKER_DRAIN_TIMEOUT_MS,
 } from '../../../shared/utils/auto-scaling.constants';
+import { compileScriptSource } from '../../../domain/shared/script-code.util';
 
 const WORKER_SCRIPT = path.join(__dirname, '../workers/executor.worker.js');
+const SCRIPT_PARSE_FAILURE_PATTERNS = [
+  'Invalid or unexpected token',
+  'Unexpected identifier',
+  'Unexpected token',
+  'Missing initializer in const declaration',
+  'await is only valid',
+];
 
 const ioAbortContext = new AsyncLocalStorage<AbortSignal>();
 
@@ -618,6 +626,13 @@ export class IsolatedExecutorService {
     return fn(...args);
   }
 
+  private isScriptParseFailure(error: { message?: string }): boolean {
+    const message = error.message || '';
+    return SCRIPT_PARSE_FAILURE_PATTERNS.some((pattern) =>
+      message.includes(pattern),
+    );
+  }
+
   async run(
     code: string,
     ctx: TDynamicContext,
@@ -636,19 +651,38 @@ export class IsolatedExecutorService {
 
     let result: any;
     try {
-      result = await this.spawnAndExecute(
-        'execute',
-        {
-          code,
-          pkgSources,
-          snapshot,
-          timeoutMs: safeTimeoutMs,
-          memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
-          isolatePoolSize: this.isolationTuning.isolatePoolSize,
-        },
-        ctx,
-        safeTimeoutMs,
-      );
+      const payload = {
+        code,
+        pkgSources,
+        snapshot,
+        timeoutMs: safeTimeoutMs,
+        memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
+        isolatePoolSize: this.isolationTuning.isolatePoolSize,
+      };
+      try {
+        result = await this.spawnAndExecute(
+          'execute',
+          payload,
+          ctx,
+          safeTimeoutMs,
+        );
+      } catch (error) {
+        const err = error as { message?: string };
+        const fallbackCode = compileScriptSource(code, 'typescript') || '';
+        if (!this.isScriptParseFailure(err) || fallbackCode === code) {
+          throw error;
+        }
+        appendIsolatedExecutorRuntimeLog({
+          event: 'isolated_run_ts_retry',
+          message: err.message,
+        });
+        result = await this.spawnAndExecute(
+          'execute',
+          { ...payload, code: fallbackCode },
+          ctx,
+          safeTimeoutMs,
+        );
+      }
     } catch (error) {
       const err = error as {
         isTimeout?: boolean;
@@ -702,19 +736,44 @@ export class IsolatedExecutorService {
 
     let result: any;
     try {
-      result = await this.spawnAndExecute(
-        'executeBatch',
-        {
-          codeBlocks,
-          pkgSources,
-          snapshot,
-          timeoutMs: safeTimeoutMs,
-          memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
-          isolatePoolSize: this.isolationTuning.isolatePoolSize,
-        },
-        ctx,
-        safeTimeoutMs,
-      );
+      const payload = {
+        codeBlocks,
+        pkgSources,
+        snapshot,
+        timeoutMs: safeTimeoutMs,
+        memoryLimitMb: this.isolationTuning.isolateMemoryLimitMb,
+        isolatePoolSize: this.isolationTuning.isolatePoolSize,
+      };
+      try {
+        result = await this.spawnAndExecute(
+          'executeBatch',
+          payload,
+          ctx,
+          safeTimeoutMs,
+        );
+      } catch (error) {
+        const err = error as { message?: string };
+        const fallbackBlocks = codeBlocks.map((block) => ({
+          ...block,
+          code: compileScriptSource(block.code, 'typescript') || '',
+        }));
+        const changed = fallbackBlocks.some(
+          (block, index) => block.code !== codeBlocks[index]?.code,
+        );
+        if (!this.isScriptParseFailure(err) || !changed) {
+          throw error;
+        }
+        appendIsolatedExecutorRuntimeLog({
+          event: 'isolated_batch_ts_retry',
+          message: err.message,
+        });
+        result = await this.spawnAndExecute(
+          'executeBatch',
+          { ...payload, codeBlocks: fallbackBlocks },
+          ctx,
+          safeTimeoutMs,
+        );
+      }
     } catch (error) {
       const err = error as {
         isTimeout?: boolean;

@@ -2,7 +2,7 @@ import * as dns from 'dns';
 import * as net from 'net';
 import { TDynamicContext } from '../../../shared/types';
 import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { transformCode } from '../../../domain/shared/code-transformer';
+import { compileScriptSource } from '../../../domain/shared/script-code.util';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 const DEFAULT_HTTP_TIMEOUT = 30000;
@@ -113,16 +113,22 @@ export async function executeStepCore(opts: StepExecOptions): Promise<any> {
 
   switch (type) {
     case 'script': {
-      const code = shouldTransformCode
-        ? transformCode(config.code || '')
-        : config.code || '';
+      const sourceCode = config.sourceCode ?? config.code ?? '';
+      const code =
+        config.compiledCode ||
+        (shouldTransformCode
+          ? compileScriptSource(sourceCode, config.scriptLanguage)
+          : config.code || '');
       return executorEngineService.run(code, ctx, timeout);
     }
 
     case 'condition': {
-      const code = shouldTransformCode
-        ? transformCode(config.code || 'return false;')
-        : config.code || 'return false;';
+      const sourceCode = config.sourceCode ?? config.code ?? 'return false;';
+      const code =
+        config.compiledCode ||
+        (shouldTransformCode
+          ? compileScriptSource(sourceCode, config.scriptLanguage)
+          : config.code || 'return false;');
       return executorEngineService.run(code, ctx, timeout);
     }
 

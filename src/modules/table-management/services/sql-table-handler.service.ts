@@ -26,6 +26,7 @@ import {
 } from '../../../domain/query-dsl/utils/sql-schema-naming.util';
 import { generateDefaultRecord } from '../utils/generate-default-record';
 import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap/utils/canonical-table-route.util';
+import { compileScriptSource } from '../../../domain/shared/script-code.util';
 import { TableManagementValidationService } from './table-validation.service';
 import { SqlTableMetadataBuilderService } from './sql-table-metadata-builder.service';
 import { SqlTableMetadataWriterService } from './sql-table-metadata-writer.service';
@@ -501,7 +502,12 @@ export class SqlTableHandlerService {
               httpMethods.map((m: any) => ({
                 routeId: newRoute.id,
                 methodId: m.id,
-                logic: DEFAULT_REST_HANDLER_LOGIC[m.method] || null,
+                sourceCode: DEFAULT_REST_HANDLER_LOGIC[m.method] || null,
+                scriptLanguage: 'typescript',
+                compiledCode: compileScriptSource(
+                  DEFAULT_REST_HANDLER_LOGIC[m.method] || null,
+                  'typescript',
+                ),
                 timeout: 30000,
               })),
             );

@@ -7,6 +7,7 @@ import {
   REST_HANDLER_METHOD_NAMES,
 } from '../utils/canonical-table-route.util';
 import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { compileScriptSource } from '../../shared/script-code.util';
 
 export class RouteDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;
@@ -352,11 +353,20 @@ export class RouteDefinitionProcessor extends BaseTableProcessor {
             typeof methodKeyId === 'string'
               ? new ObjectId(methodKeyId)
               : methodKeyId,
-          logic,
+          sourceCode: logic,
+          scriptLanguage: 'typescript',
+          compiledCode: compileScriptSource(logic, 'typescript'),
           timeout: 30000,
         };
       } else {
-        data = { routeId, methodId: methodKeyId, logic, timeout: 30000 };
+        data = {
+          routeId,
+          methodId: methodKeyId,
+          sourceCode: logic,
+          scriptLanguage: 'typescript',
+          compiledCode: compileScriptSource(logic, 'typescript'),
+          timeout: 30000,
+        };
       }
 
       if (isMongoDB) {

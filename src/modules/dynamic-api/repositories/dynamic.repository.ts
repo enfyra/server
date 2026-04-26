@@ -30,6 +30,11 @@ import {
   rewriteFilterDenyingFields,
   rewriteSortDroppingDenied,
 } from '../../../domain/query-dsl/filter-field-walker.util';
+import {
+  normalizeFlowStepScriptConfig,
+  normalizeScriptPatch,
+  normalizeScriptRecord,
+} from '../../../domain/shared/script-code.util';
 
 export class DynamicRepository {
   public context: TDynamicContext;
@@ -693,6 +698,10 @@ export class DynamicRepository {
         );
         Object.assign(body, processedBody);
       }
+      Object.assign(body, normalizeScriptRecord(this.tableName, body));
+      if (this.tableName === 'flow_step_definition') {
+        Object.assign(body, normalizeFlowStepScriptConfig(body));
+      }
       if (this.tableName === 'column_rule_definition') {
         await this.assertColumnRuleUnique(body, null);
       }
@@ -880,6 +889,16 @@ export class DynamicRepository {
           'PATCH',
         );
         Object.assign(body, processedBody);
+      }
+      Object.assign(body, normalizeScriptPatch(this.tableName, body, exists));
+      if (this.tableName === 'flow_step_definition') {
+        const normalizedFlowStep = normalizeFlowStepScriptConfig({
+          ...exists,
+          ...body,
+        });
+        if ('config' in normalizedFlowStep) {
+          body.config = normalizedFlowStep.config;
+        }
       }
       if (this.tableName === 'column_rule_definition') {
         await this.assertColumnRuleUnique(body, id);
