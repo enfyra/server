@@ -1,8 +1,8 @@
-import { ValidationException } from '../../src/domain/exceptions/custom-exceptions';
+import { ValidationException } from 'src/domain/exceptions';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../src/domain/query-dsl/utils/sql-schema-naming.util';
+} from 'src/kernel/query';
 
 type TRelation = {
   id?: number;

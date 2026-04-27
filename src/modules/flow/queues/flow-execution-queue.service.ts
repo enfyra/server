@@ -1,14 +1,14 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Queue, Worker } from 'bullmq';
-import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
-import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
+import { ExecutorEngineService } from '../../../kernel/execution';
+import { RepoRegistryService } from '../../../engine/cache';
+import { FlowCacheService } from '../../../engine/cache';
 import {
   getErrorMessage,
   getErrorStack,
 } from '../../../shared/utils/error.util';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { WebsocketEmitService } from '../../websocket/services/websocket-emit.service';
+import { QueryBuilderService } from '../../../kernel/query';
+import { WebsocketEmitService } from '../../websocket';
 import { TDynamicContext } from '../../../shared/types';
 import {
   FlowDefinition,
@@ -16,8 +16,8 @@ import {
   FlowJobData,
 } from '../../../shared/types/flow.types';
 import { executeStepCore } from '../utils/step-executor.util';
-import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
-import { EnvService } from '../../../shared/services/env.service';
+import { DynamicContextFactory } from '../../../shared/services';
+import { EnvService } from '../../../shared/services';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
 
 export type { FlowJobData } from '../../../shared/types/flow.types';

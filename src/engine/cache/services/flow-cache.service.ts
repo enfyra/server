@@ -1,6 +1,6 @@
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import { BaseCacheService, CacheConfig } from './base-cache.service';
 import {
   CACHE_EVENTS,
@@ -9,7 +9,7 @@ import {
 import {
   normalizeScriptLanguage,
   resolveExecutableScript,
-} from '../../../domain/shared/script-code.util';
+} from '../../../kernel/execution';
 import { FlowDefinition, FlowStep } from '../../../shared/types/flow.types';
 
 export type {

@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions';
 import {
   S3Client,
   PutObjectCommand,

@@ -1,4 +1,4 @@
-import { FileManagementService } from '../../modules/file-management/services/file-management.service';
+import { FileManagementService } from '../../modules/file-management';
 import { TDynamicContext } from '../types';
 
 export class UploadFileHelper {

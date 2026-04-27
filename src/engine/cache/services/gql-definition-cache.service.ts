@@ -1,6 +1,6 @@
 import { EventEmitter2 } from 'eventemitter2';
 import { BaseCacheService } from './base-cache.service';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import {
   CACHE_IDENTIFIERS,
   isMetadataTable,

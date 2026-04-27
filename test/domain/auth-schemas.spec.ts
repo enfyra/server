@@ -3,7 +3,7 @@ import {
   loginSchema,
   refreshTokenSchema,
   logoutSchema,
-} from '../../src/domain/auth/schemas/auth.schemas';
+} from 'src/domain/auth';
 import { parseOrBadRequest } from '../../src/shared/utils/zod-parse.util';
 
 describe('loginSchema', () => {

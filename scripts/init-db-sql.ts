@@ -8,19 +8,19 @@ import {
 } from '../src/shared/types/database-init.types';
 import {
   parseSnapshotToSchema,
-} from '../src/engine/knex/utils/provision/schema-parser';
-import { ensureDatabaseExists } from '../src/engine/knex/utils/provision/database-setup';
+} from 'src/engine/knex';
+import { ensureDatabaseExists } from 'src/engine/knex';
 import {
   createTable,
   createAllTables,
-} from '../src/engine/knex/utils/provision/table-builder';
-import { addForeignKeys } from '../src/engine/knex/utils/provision/foreign-keys';
+} from 'src/engine/knex';
+import { addForeignKeys } from 'src/engine/knex';
 import {
   createJunctionTables,
   syncJunctionTables,
-} from '../src/engine/knex/utils/provision/junction-tables';
-import { syncTable } from '../src/engine/knex/utils/provision/sync-table';
-import { parseDatabaseUri } from '../src/engine/knex/utils/uri-parser';
+} from 'src/engine/knex';
+import { syncTable } from 'src/engine/knex';
+import { parseDatabaseUri } from 'src/engine/knex';
 import {
   loadSchemaMigration,
   hasSchemaMigrations,

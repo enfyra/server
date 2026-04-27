@@ -1,6 +1,6 @@
 import knex, { Knex } from 'knex';
-import { SqlQueryExecutor } from '../../src/engine/query-builder/executors/sql-query-executor';
-import { QueryPlanner } from '../../src/domain/query-dsl/query-planner';
+import { SqlQueryExecutor } from 'src/kernel/query';
+import { QueryPlanner } from 'src/kernel/query';
 
 let db: Knex;
 

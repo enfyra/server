@@ -1,5 +1,5 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import {
   CACHE_IDENTIFIERS,
   TCacheInvalidationPayload,

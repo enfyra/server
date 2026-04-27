@@ -1,9 +1,9 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
 import { ObjectId } from 'mongodb';
-import { getJunctionColumnNames } from '../../query-dsl/utils/sql-schema-naming.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { normalizeScriptRecord } from '../../shared/script-code.util';
+import { getJunctionColumnNames } from '../../../kernel/query';
+import { DatabaseConfigService } from '../../../shared/services';
+import { normalizeScriptRecord } from '../../../kernel/execution';
 
 export class PreHookDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

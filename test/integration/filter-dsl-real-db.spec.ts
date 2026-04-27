@@ -1,5 +1,5 @@
-import { SqlQueryExecutor } from 'src/engine/query-builder/executors/sql-query-executor';
-import { MongoQueryExecutor } from 'src/engine/query-builder/executors/mongo-query-executor';
+import { SqlQueryExecutor } from 'src/kernel/query';
+import { MongoQueryExecutor } from 'src/kernel/query';
 import { oracleExtensionRowIds } from '../query-builder/filter-reference-extension-oracle';
 import { buildIntegrationFilterList } from './filter-dsl-cases';
 import { makeMetadata } from './filter-dsl-metadata';

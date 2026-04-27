@@ -1,4 +1,4 @@
-import { MongoMigrationJournalService } from '../../src/engine/mongo/services/mongo-migration-journal.service';
+import { MongoMigrationJournalService } from 'src/engine/mongo';
 import { ObjectId } from 'mongodb';
 
 describe('MongoDB Migration Compensation', () => {

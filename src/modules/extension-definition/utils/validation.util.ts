@@ -1,4 +1,4 @@
-import { BadRequestException } from '../../../domain/exceptions/custom-exceptions';
+import { BadRequestException } from '../../../domain/exceptions';
 
 export function isProbablyVueSFC(content: string): boolean {
   if (typeof content !== 'string') return false;

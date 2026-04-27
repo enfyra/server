@@ -1,12 +1,12 @@
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { Logger } from '../../../shared/logger';
 import type { Cradle } from '../../../container';
-import { DatabaseSchemaService } from '../../knex/services/database-schema.service';
+import { DatabaseSchemaService } from '../../knex';
 import {
   getJunctionTableName,
   getForeignKeyColumnName,
   getJunctionColumnNames,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../kernel/query';
 import { IMetadataCache } from '../../../domain/shared/interfaces/metadata-cache.interface';
 import { TCacheInvalidationPayload } from '../../../shared/types/cache.types';
 import { ObjectId } from 'mongodb';

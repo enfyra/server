@@ -15,7 +15,7 @@ import {
   GraphQLScalarType,
   Kind,
 } from 'graphql';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 
 export const GraphQLJSON = new GraphQLScalarType({
   name: 'JSON',

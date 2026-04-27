@@ -1,7 +1,7 @@
-import { parseFilter } from '../../src/domain/query-dsl/filter-parser';
-import { JoinRegistry } from '../../src/domain/query-dsl/join-registry';
-import { FilterNode } from '../../src/domain/query-dsl/types/filter-ast';
-import { BadRequestException } from '../../src/domain/exceptions/custom-exceptions';
+import { parseFilter } from 'src/kernel/query';
+import { JoinRegistry } from 'src/kernel/query';
+import { FilterNode } from 'src/kernel/query';
+import { BadRequestException } from 'src/domain/exceptions';
 
 const META = {
   tables: new Map<string, any>([

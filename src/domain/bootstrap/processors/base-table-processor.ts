@@ -10,7 +10,7 @@ import {
   getScalarColumns,
   getUniqueFields,
 } from '../utils/snapshot-meta.util';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 export interface UpsertResult {
   created: number;
   skipped: number;

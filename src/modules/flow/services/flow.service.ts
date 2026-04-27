@@ -1,13 +1,13 @@
 import { Logger } from '../../../shared/logger';
 import { Queue } from 'bullmq';
-import { FlowCacheService } from '../../../engine/cache/services/flow-cache.service';
+import { FlowCacheService } from '../../../engine/cache';
 import { FlowJobData } from '../../../shared/types/flow.types';
 import { getErrorMessage } from '../../../shared/utils/error.util';
-import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
+import { ExecutorEngineService } from '../../../kernel/execution';
+import { RepoRegistryService } from '../../../engine/cache';
 import { executeStepCore } from '../utils/step-executor.util';
-import { SocketEmitCapture } from '../../websocket/services/websocket-context.factory';
-import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
+import { SocketEmitCapture } from '../../websocket';
+import { DynamicContextFactory } from '../../../shared/services';
 
 export class FlowService {
   private readonly logger = new Logger(FlowService.name);

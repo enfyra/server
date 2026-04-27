@@ -1,6 +1,6 @@
 import { BaseTableProcessor } from './base-table-processor';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { normalizeScriptRecord } from '../../shared/script-code.util';
+import { DatabaseConfigService } from '../../../shared/services';
+import { normalizeScriptRecord } from '../../../kernel/execution';
 
 export class BootstrapScriptDefinitionProcessor extends BaseTableProcessor {
   async transformRecords(records: any[]): Promise<any[]> {

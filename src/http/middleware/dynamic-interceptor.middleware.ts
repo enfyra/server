@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { ExecutorEngineService } from '../../engine/executor-engine/services/executor-engine.service';
+import { ExecutorEngineService } from '../../kernel/execution';
 
 export function dynamicInterceptorBegin(
   executorEngineService: ExecutorEngineService,

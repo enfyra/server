@@ -2,7 +2,7 @@ import { Db } from 'mongodb';
 import {
   getJunctionColumnNames,
   getJunctionTableName,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../kernel/query';
 import { TableDef } from '../../../shared/types/database-init.types';
 
 export interface JunctionCollectionDef {

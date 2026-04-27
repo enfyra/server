@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import { randomUUID } from 'crypto';
 import { Collection, Db } from 'mongodb';
 import { MongoService } from './mongo.service';
-import { DatabaseException } from '../../../domain/exceptions/custom-exceptions';
+import { DatabaseException } from '../../../domain/exceptions';
 
 interface SchemaMigrationLockDocument {
   _id: string;

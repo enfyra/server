@@ -2,7 +2,7 @@ import { Logger } from '../../../shared/logger';
 import {
   BadRequestException,
   NotFoundException,
-} from '../../../domain/exceptions/custom-exceptions';
+} from '../../../domain/exceptions';
 import * as fs from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';

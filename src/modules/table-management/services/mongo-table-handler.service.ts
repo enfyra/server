@@ -1,34 +1,34 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId } from 'mongodb';
-import { QueryBuilderService } from '../../../engine/query-builder/query-builder.service';
-import { MongoSchemaMigrationService } from '../../../engine/mongo/services/mongo-schema-migration.service';
-import { MongoService } from '../../../engine/mongo/services/mongo.service';
-import { MongoSchemaMigrationLockService } from '../../../engine/mongo/services/mongo-schema-migration-lock.service';
-import { MetadataCacheService } from '../../../engine/cache/services/metadata-cache.service';
-import { LoggingService } from '../../../domain/exceptions/services/logging.service';
-import { PolicyService } from '../../../domain/policy/policy.service';
+import { QueryBuilderService } from '../../../kernel/query';
+import { MongoSchemaMigrationService } from '../../../engine/mongo';
+import { MongoService } from '../../../engine/mongo';
+import { MongoSchemaMigrationLockService } from '../../../engine/mongo';
+import { MetadataCacheService } from '../../../engine/cache';
+import { LoggingService } from '../../../domain/exceptions';
+import { PolicyService } from '../../../domain/policy';
 import { TDynamicContext } from '../../../shared/types';
 import {
   isPolicyDeny,
   isPolicyPreview,
-} from '../../../domain/policy/policy.types';
+} from '../../../domain/policy';
 import {
   DatabaseException,
   DuplicateResourceException,
   ResourceNotFoundException,
   ValidationException,
-} from '../../../domain/exceptions/custom-exceptions';
+} from '../../../domain/exceptions';
 import { validateUniquePropertyNames } from '../utils/duplicate-field-check';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { getDeletedIds } from '../utils/get-deleted-ids';
 import { TCreateTableBody } from '../types/table-handler.types';
 import { generateDefaultRecord } from '../utils/generate-default-record';
-import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap/utils/canonical-table-route.util';
-import { compileScriptSource } from '../../../domain/shared/script-code.util';
+import { DEFAULT_REST_HANDLER_LOGIC } from '../../../domain/bootstrap';
+import { compileScriptSource } from '../../../kernel/execution';
 import {
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../../kernel/query';
 import { TableManagementValidationService } from './table-validation.service';
 import { MongoMetadataSnapshotService } from './mongo-metadata-snapshot.service';
 export class MongoTableHandlerService {

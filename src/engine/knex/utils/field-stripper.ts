@@ -1,4 +1,4 @@
-import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import type { MetadataCacheService } from '../../cache';
 export class FieldStripper {
   constructor(private metadataCacheService: MetadataCacheService | null) {}
   async stripUnknownColumns(tableName: string, data: any): Promise<any> {

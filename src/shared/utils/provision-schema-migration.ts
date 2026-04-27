@@ -10,7 +10,7 @@ import {
   getForeignKeyColumnName,
   getJunctionTableName,
   getJunctionColumnNames,
-} from '../../domain/query-dsl/utils/sql-schema-naming.util';
+} from '../../kernel/query';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getErrorMessage } from './error.util';

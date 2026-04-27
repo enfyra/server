@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
 import { MongoService } from './mongo.service';
-import { QueryBuilderService } from '../../query-builder/query-builder.service';
+import { QueryBuilderService } from '../../../kernel/query';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class MongoSchemaDiffService {

@@ -1,7 +1,7 @@
 import { BaseTableProcessor, UpsertResult } from './base-table-processor';
-import { BcryptService } from '../../auth/services/bcrypt.service';
+import { BcryptService } from '../../auth';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
+import { DatabaseConfigService } from '../../../shared/services';
 import { getErrorMessage } from '../../../shared/utils/error.util';
 
 export class UserDefinitionProcessor extends BaseTableProcessor {

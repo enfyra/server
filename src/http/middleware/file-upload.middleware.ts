@@ -3,7 +3,7 @@ import multer from 'multer';
 import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
-import { SettingCacheService } from '../../engine/cache/services/setting-cache.service';
+import { SettingCacheService } from '../../engine/cache';
 
 const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, os.tmpdir()),

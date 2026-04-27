@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { FlowExecutionQueueService } from '../../src/modules/flow/queues/flow-execution-queue.service';
-import { FlowService } from '../../src/modules/flow/services/flow.service';
-import { transformCode } from '../../src/domain/shared/code-transformer';
-import { WebsocketContextFactory } from '../../src/modules/websocket/services/websocket-context.factory';
-import { DynamicContextFactory } from '../../src/shared/services/dynamic-context.factory';
+import { FlowExecutionQueueService } from 'src/modules/flow';
+import { FlowService } from 'src/modules/flow';
+import { transformCode } from 'src/kernel/execution';
+import { WebsocketContextFactory } from 'src/modules/websocket';
+import { DynamicContextFactory } from 'src/shared/services';
 
 class InlineExecutor {
   async run(code: string, ctx: any) {

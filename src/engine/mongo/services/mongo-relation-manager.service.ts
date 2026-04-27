@@ -1,12 +1,12 @@
 import { Logger } from '../../../shared/logger';
 import { ObjectId, Collection, Document } from 'mongodb';
-import { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import { MetadataCacheService } from '../../cache';
 import {
   normalizeRelationOnDelete,
   TRelationOnDeleteAction,
 } from '../utils/mongo-relation-on-delete.util';
 import { resolveMongoJunctionInfo } from '../utils/mongo-junction.util';
-import { ValidationException } from '../../../domain/exceptions/custom-exceptions';
+import { ValidationException } from '../../../domain/exceptions';
 import { isMetadataTable } from '../../../shared/utils/cache-events.constants';
 
 const M2M_PENDING = Symbol('mongoService.m2mPending');

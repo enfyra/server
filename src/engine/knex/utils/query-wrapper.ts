@@ -1,5 +1,5 @@
 import { Logger } from '../../../shared/logger';
-import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
+import type { MetadataCacheService } from '../../cache';
 import type { HookEvent } from '../hooks/hook-registry';
 
 export class QueryWrapper {

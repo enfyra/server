@@ -19,7 +19,7 @@ import {
   FileUploadException,
   FileNotFoundException,
   FileSizeExceededException,
-} from '../../domain/exceptions/custom-exceptions';
+} from '../../domain/exceptions';
 export class ScriptErrorFactory {
   static createThrowHandlers() {
     return {

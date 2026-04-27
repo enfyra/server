@@ -1,11 +1,11 @@
 import { Logger } from '../../../shared/logger';
 import { Job, Worker } from 'bullmq';
-import { ExecutorEngineService } from '../../../engine/executor-engine/services/executor-engine.service';
-import { RepoRegistryService } from '../../../engine/cache/services/repo-registry.service';
-import { FlowService } from '../../flow/services/flow.service';
+import { ExecutorEngineService } from '../../../kernel/execution';
+import { RepoRegistryService } from '../../../engine/cache';
+import { FlowService } from '../../flow';
 import { SYSTEM_QUEUES } from '../../../shared/utils/constant';
-import { EnvService } from '../../../shared/services/env.service';
-import { DynamicContextFactory } from '../../../shared/services/dynamic-context.factory';
+import { EnvService } from '../../../shared/services';
+import { DynamicContextFactory } from '../../../shared/services';
 
 export interface EventJobData {
   requestId: string;

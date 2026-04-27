@@ -1,9 +1,9 @@
 import { MongoClient, Db, ObjectId } from 'mongodb';
-import { MongoService } from '../../src/engine/mongo/services/mongo.service';
-import { MongoSagaLockService } from '../../src/engine/mongo/services/mongo-saga-lock.service';
-import { MongoOperationLogService } from '../../src/engine/mongo/services/mongo-operation-log.service';
-import { MongoSagaCoordinator } from '../../src/engine/mongo/services/mongo-saga-coordinator.service';
-import { InstanceService } from '../../src/shared/services/instance.service';
+import { MongoService } from 'src/engine/mongo';
+import { MongoSagaLockService } from 'src/engine/mongo';
+import { MongoOperationLogService } from 'src/engine/mongo';
+import { MongoSagaCoordinator } from 'src/engine/mongo';
+import { InstanceService } from 'src/shared/services';
 
 const MONGO_URI =
   'mongodb://enfyra_admin:enfyra_password_123@localhost:27017/enfyra_test?authSource=admin';

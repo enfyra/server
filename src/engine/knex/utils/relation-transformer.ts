@@ -1,6 +1,6 @@
 import { Logger } from '../../../shared/logger';
-import type { MetadataCacheService } from '../../cache/services/metadata-cache.service';
-import { getForeignKeyColumnName } from '../../../domain/query-dsl/utils/sql-schema-naming.util';
+import type { MetadataCacheService } from '../../cache';
+import { getForeignKeyColumnName } from '../../../kernel/query';
 export class RelationTransformer {
   constructor(
     private metadataCacheService: MetadataCacheService,

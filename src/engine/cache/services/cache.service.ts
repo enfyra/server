@@ -1,5 +1,5 @@
 import { Redis } from 'ioredis';
-import { EnvService } from '../../../shared/services/env.service';
+import { EnvService } from '../../../shared/services';
 import { ICache } from '../../../domain/shared/interfaces/cache.interface';
 
 export class CacheService implements ICache {

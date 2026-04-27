@@ -1,7 +1,7 @@
 import { BaseTableProcessor } from './base-table-processor';
 import { IQueryBuilder } from '../../shared/interfaces/query-builder.interface';
-import { DatabaseConfigService } from '../../../shared/services/database-config.service';
-import { normalizeScriptRecord } from '../../shared/script-code.util';
+import { DatabaseConfigService } from '../../../shared/services';
+import { normalizeScriptRecord } from '../../../kernel/execution';
 
 export class RouteHandlerDefinitionProcessor extends BaseTableProcessor {
   private readonly queryBuilderService: IQueryBuilder;

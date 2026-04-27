@@ -1,5 +1,5 @@
 import { isDeepStrictEqual as isEqual } from 'node:util';
-import { CommonService } from '../../../shared/common/services/common.service';
+import { CommonService } from '../../../shared/common';
 import { SchemaMigrationValidatorService } from './schema-migration-validator.service';
 import { IMetadataCache } from '../../shared/interfaces/metadata-cache.interface';
 

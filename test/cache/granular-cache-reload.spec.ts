@@ -1,5 +1,5 @@
 import { EventEmitter2 } from 'eventemitter2';
-import { DatabaseConfigService } from '../../src/shared/services/database-config.service';
+import { DatabaseConfigService } from 'src/shared/services';
 import {
   GraphQLObjectType,
   GraphQLString,
@@ -209,7 +209,7 @@ import {
   buildStubType,
   GraphQLJSON,
   TableGraphQLDef,
-} from '../../src/modules/graphql/utils/generate-type-defs';
+} from 'src/modules/graphql';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // A. TCacheInvalidationPayload & mergePayload logic
